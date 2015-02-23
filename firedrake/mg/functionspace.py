@@ -6,12 +6,32 @@ from pyop2.utils import flatten
 from firedrake import functionspace
 from . import impl
 from . import utils
-from .utils import set_level
+from .utils import set_level, get_level
 from . import interface
 
 
 __all__ = ["FunctionSpaceHierarchy", "VectorFunctionSpaceHierarchy",
            "MixedFunctionSpaceHierarchy"]
+
+
+def coarsen(dm, comm):
+    m = dm.getAttr("__fs__")()
+    if m is None:
+        raise RuntimeError("No functionspace found on DM")
+    hierarchy, level = get_level(m)
+    if level < 1:
+        raise RuntimeError("Cannot coarsen coarsest DM")
+    return hierarchy[level-1]._dm
+
+
+def refine(dm, comm):
+    m = dm.getAttr("__fs__")()
+    if m is None:
+        raise RuntimeError("No functionspace found on DM")
+    hierarchy, level = get_level(m)
+    if level >= len(hierarchy) - 1:
+        raise RuntimeError("Cannot refine finest DM")
+    return hierarchy[level+1]._dm
 
 
 class BaseHierarchy(object):
@@ -48,6 +68,11 @@ class BaseHierarchy(object):
             self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
         except:
             pass
+
+        for V in self:
+            dm = V._dm
+            dm.setCoarsen(coarsen)
+            dm.setRefine(refine)
 
     def __len__(self):
         """Return the size of this function space hierarchy"""
@@ -210,6 +235,10 @@ class MixedFunctionSpaceHierarchy(object):
                                 for lvl, s in enumerate(zip(*spaces))])
         self._spaces = tuple(spaces)
         self._ufl_element = self._hierarchy[0].ufl_element()
+        for V in self:
+            dm = V._dm
+            dm.setCoarsen(coarsen)
+            dm.setRefine(refine)
 
     def __mul__(self, other):
         """Create a :class:`MixedFunctionSpaceHierarchy`.

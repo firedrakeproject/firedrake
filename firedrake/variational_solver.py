@@ -57,7 +57,7 @@ class NonlinearVariationalProblem(object):
 
 
 def get_dm(problem):
-    return problem.u.function_space().mesh().shell_dm
+    return problem.u.function_space()._dm
 
 
 class _SNESContext(object):
@@ -104,12 +104,6 @@ class _SNESContext(object):
                          for F in self.Fs)
         self._jacobians_assembled = [False for _ in problems]
 
-    def set_globalvector(self, dm):
-        """Tell the DM about the layout of the global vector."""
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
-        with self._xs[lvl].dat.vec_ro as v:
-            dm.setGlobalVector(v.duplicate())
-
     def set_function(self, snes):
         """Set the residual evaluation function"""
         with self._Fs[-1].dat.vec as v:
@@ -137,7 +131,7 @@ class _SNESContext(object):
 
     @classmethod
     def create_matrix(cls, dm):
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
         ctx = dm.getAppCtx()
         return ctx._jacs[lvl]._M.handle
 
@@ -151,7 +145,7 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
@@ -179,7 +173,7 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__mesh__")())
+        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
 
         if ctx._problems[lvl]._constant_jacobian and ctx._jacobians_assembled[lvl]:
             # Don't need to do any work with a constant jacobian
@@ -302,7 +296,6 @@ class NonlinearVariationalSolver(object):
     def solve(self):
         dm = self.snes.getDM()
         dm.setAppCtx(self._ctx)
-        self._ctx.set_globalvector(dm)
 
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:

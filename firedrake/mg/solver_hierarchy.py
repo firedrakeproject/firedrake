@@ -33,8 +33,8 @@ def coarsen_problem(problem):
 
 
 def create_interpolation(dmc, dmf):
-    _, clvl = utils.get_level(dmc.getAttr("__mesh__")())
-    _, flvl = utils.get_level(dmf.getAttr("__mesh__")())
+    _, clvl = utils.get_level(dmc.getAttr("__fs__")())
+    _, flvl = utils.get_level(dmf.getAttr("__fs__")())
 
     cctx = dmc.getAppCtx()
     fctx = dmf.getAppCtx()
@@ -105,8 +105,8 @@ def create_interpolation(dmc, dmf):
 
 
 def create_injection(dmc, dmf):
-    _, clvl = utils.get_level(dmc.getAttr("__mesh__")())
-    _, flvl = utils.get_level(dmf.getAttr("__mesh__")())
+    _, clvl = utils.get_level(dmc.getAttr("__fs__")())
+    _, flvl = utils.get_level(dmf.getAttr("__fs__")())
 
     cctx = dmc.getAppCtx()
 
@@ -175,12 +175,10 @@ class NLVSHierarchy(object):
 
         nlevel = len(self.ctx._problems)
         dm.setAppCtx(self.ctx)
-        self.ctx.set_globalvector(dm)
         dm.setCreateMatrix(self.ctx.create_matrix)
         for i in range(nlevel - 1, 0, -1):
             dm = dm.coarsen()
             dm.setAppCtx(self.ctx)
-            self.ctx.set_globalvector(dm)
 
         for i in range(nlevel - 1):
             dm.setCreateInterpolation(create_interpolation)
