@@ -39,6 +39,7 @@ from mesh import *
 from mg import *
 from norms import *
 from nullspace import *
+from optimizer import *
 from parameters import *
 from parloops import *
 from projection import *
