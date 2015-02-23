@@ -310,32 +310,7 @@ class NonlinearVariationalSolver(object):
         with self._problem.u.dat.vec as v:
             self.snes.solve(None, v)
 
-        reasons = self.snes.ConvergedReason()
-        reasons = dict([(getattr(reasons, r), r)
-                        for r in dir(reasons) if not r.startswith('_')])
-        r = self.snes.getConvergedReason()
-        try:
-            reason = reasons[r]
-            inner = False
-        except KeyError:
-            kspreasons = self.snes.getKSP().ConvergedReason()
-            kspreasons = dict([(getattr(kspreasons, kr), kr)
-                               for kr in dir(kspreasons) if not kr.startswith('_')])
-            r = self.snes.getKSP().getConvergedReason()
-            try:
-                reason = kspreasons[r]
-                inner = True
-            except KeyError:
-                reason = 'unknown reason (petsc4py enum incomplete?)'
-        if r < 0:
-            if inner:
-                msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
-                      (self.snes.getKSP().getIterationNumber(), reason)
-            else:
-                msg = reason
-            raise RuntimeError("""Nonlinear solve failed to converge after %d nonlinear iterations.
-Reason:
-   %s""" % (self.snes.getIterationNumber(), msg))
+        solving_utils.check_snes_convergence(self.snes)
 
 
 class LinearVariationalProblem(NonlinearVariationalProblem):

@@ -99,7 +99,4 @@ class LinearSolver(object):
 
         r = self.ksp.getConvergedReason()
         if r < 0:
-            reasons = self.ksp.ConvergedReason()
-            reasons = dict([(getattr(reasons, reason), reason)
-                            for reason in dir(reasons) if not reason.startswith('_')])
-            raise RuntimeError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), reasons[r])
+            raise RuntimeError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), solving_utils.KSPReasons[r])
