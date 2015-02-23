@@ -112,6 +112,12 @@ def coarsen_thing(thing):
         return None
     if isinstance(thing, firedrake.DirichletBC):
         return coarsen_bc(thing)
+    if isinstance(thing, firedrake.IndexedFunctionSpace):
+        idx = thing.index
+        val = thing._parent
+        hierarchy, level = utils.get_level(val)
+        new_val = hierarchy[level-1]
+        return new_val.sub(idx)
     hierarchy, level = utils.get_level(thing)
     return hierarchy[level-1]
 
