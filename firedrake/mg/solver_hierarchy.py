@@ -147,6 +147,24 @@ def create_injection(dmc, dmf):
 class NLVSHierarchy(object):
 
     def __init__(self, problem, **kwargs):
+        """
+        Solve a :class:`NonlinearVariationalProblem` on a hierarchy of meshes.
+
+        :arg problem: A :class:`NonlinearVariationalProblem` to solve.
+        :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
+             :class:`MixedVectorSpaceBasis`) spanning the null space of the
+             operator.
+        :kwarg solver_parameters: Solver parameters to pass to PETSc.
+            This should be a dict mapping PETSc options to values.
+            PETSc flag options should be specified with `bool`
+            values (:data:`True` for on, :data:`False` for off).
+
+        .. note::
+
+           This solver is set up for use with geometric multigrid,
+           that is you can use :data:`"snes_type": "fas"` or
+           :data:`"pc_type": "mg"` transparently.
+        """
         problems = []
         while True:
             if problem:
