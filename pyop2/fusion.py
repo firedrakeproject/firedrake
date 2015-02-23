@@ -651,6 +651,8 @@ class Inspector(Cached):
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
             self._soft_fuse()
             if mode > 0:
+                self._hard_fuse()
+            if mode > 1:
                 self._tile()
 
         # A schedule has been computed by any of /_soft_fuse/, /_hard_fuse/ or
@@ -715,6 +717,12 @@ class Inspector(Cached):
         fused_loops, offsets = zip(*fused)
         self._loop_chain = fused_loops
         self._schedule = FusionSchedule([l.kernel for l in fused_loops], offsets)
+
+    def _hard_fuse(self):
+        """Fuse consecutive loops over different iteration sets that do not
+        present RAW or WAR dependencies. This requires interfacing with the
+        SLOPE library."""
+        hf = slope.HardFusion(self._loop_chain)()
 
     def _tile(self):
         """Tile consecutive loops over different iteration sets characterized
