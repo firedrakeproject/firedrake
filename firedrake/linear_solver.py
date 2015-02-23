@@ -45,15 +45,16 @@ class LinearSolver(object):
 
         self.parameters = parameters
 
-        pc = self.ksp.getPC()
-
-        pmat = self.P._M
-        ises = solving_utils.set_fieldsplits(pmat, pc)
+        W = self.A.a.arguments()[0].function_space()
+        self.ksp.setDM(W._dm)
+        self.ksp.setDMActive(False)
 
         if nullspace is not None:
-            nullspace._apply(self.A.M, ises=ises)
+            nullspace._apply(self.A._M)
             if P is not None:
-                nullspace._apply(self.P.M, ises=ises)
+                nullspace._apply(self.P._M)
+        self.nullspace = nullspace
+        self._W = W
         # Operator setting must come after null space has been
         # applied
         # Force evaluation here
@@ -77,6 +78,8 @@ class LinearSolver(object):
             delattr(self, '_opt_prefix')
 
     def solve(self, x, b):
+        if len(self._W) > 1 and self.nullspace is not None:
+            self.nullspace._apply(self._W.dof_dset.field_ises)
         # User may have updated parameters
         solving_utils.update_parameters(self, self.ksp)
         if self.A.has_bcs:

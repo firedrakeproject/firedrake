@@ -113,17 +113,14 @@ class _SNESContext(object):
         snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
                          P=self._pjacs[-1]._M.handle)
 
-    def set_fieldsplits(self, pc):
-        test = self.Fs[-1].arguments()[0]
-        pmat = self._pjacs[-1]._M
-        names = [fs.name if fs.name else str(i)
-                 for i, fs in enumerate(test.function_space())]
-        return solving_utils.set_fieldsplits(pmat, pc, names=names)
-
     def set_nullspace(self, nullspace, ises=None):
-        nullspace._apply(self._jacs[-1]._M, ises=ises)
+        if nullspace is None:
+            return
+        nullspace._apply(self._jacs[-1]._M)
         if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M, ises=ises)
+            nullspace._apply(self._pjacs[-1]._M)
+        if ises is not None:
+            nullspace._apply(ises)
 
     @property
     def is_mixed(self):
@@ -246,8 +243,6 @@ class NonlinearVariationalSolver(object):
 
         ctx = _SNESContext(problem)
 
-        # Don't ask the DM to provide fieldsplit splits
-        parameters.setdefault('pc_fieldsplit_dm_splits', False)
         # Mixed problem, use jacobi pc if user has not supplied one.
         if ctx.is_mixed:
             parameters.setdefault('pc_type', 'jacobi')
@@ -268,9 +263,7 @@ class NonlinearVariationalSolver(object):
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
         dm.setCreateMatrix(ctx.create_matrix)
-        ises = ctx.set_fieldsplits(self.snes.ksp.pc)
-        if nullspace is not None:
-            ctx.set_nullspace(nullspace, ises=ises)
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises)
 
     def __del__(self):
         # Remove stuff from the options database
