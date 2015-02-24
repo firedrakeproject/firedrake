@@ -43,11 +43,11 @@ import base
 import openmp
 import compilation
 import host
+from backends import _make_object
 from caching import Cached
 from profiling import lineprof, timed_region, profile
 from logger import warning, info
 from mpi import collective
-from op2 import par_loop
 from configuration import configuration
 from utils import flatten, strip, as_tuple
 
@@ -500,9 +500,13 @@ class FusionSchedule(Schedule):
         offset = 0
         fused_par_loops = []
         for kernel, range in zip(self._kernel, self._ranges):
+            # Both the iteration set and the iteration region must be the same
+            # for all loops being fused
+            iterregion = loop_chain[offset].iteration_region
             iterset = loop_chain[offset].it_space.iterset
             args = flatten([loop.args for loop in loop_chain[offset:range]])
-            fused_par_loops.append(par_loop(kernel, iterset, *args))
+            fused_par_loops.append(_make_object('ParLoop', kernel, iterset, *args,
+                                                **{'iterate': iterregion}))
             offset = range
         return fused_par_loops
 
@@ -694,10 +698,7 @@ class Inspector(Cached):
 
         from C. Bertolli et al.
         """
-        fuse = lambda fusing, id: par_loop(Kernel([l.kernel for l in fusing], id),
-                                           fusing[0].it_space.iterset,
-                                           *flatten([l.args for l in fusing]))
-
+        fuse = lambda loops, id: Kernel([l.kernel for l in loops], id)
         fused, fusing = [], [self._loop_chain[0]]
         for i, loop in enumerate(self._loop_chain[1:]):
             base_loop = fusing[-1]
@@ -717,9 +718,9 @@ class Inspector(Cached):
         if fusing:
             fused.append((fuse(fusing, len(fused)), len(self._loop_chain)))
 
-        fused_loops, offsets = zip(*fused)
-        self._loop_chain = fused_loops
-        self._schedule = FusionSchedule([l.kernel for l in fused_loops], offsets)
+        fused_kernels, offsets = zip(*fused)
+        self._schedule = FusionSchedule(fused_kernels, offsets)
+        self._loop_chain = self._schedule(self._loop_chain)
 
     def _hard_fuse(self):
         """Fuse consecutive loops over different iteration sets that do not
@@ -817,11 +818,30 @@ def fuse(name, loop_chain, tile_size):
     .. note:: The unmodified loop chain is instead returned if any of these
     conditions verify:
 
-        * tiling is enabled and a global reduction is present;
+        * the function is invoked on a previoulsy fused ``loop_chain``
+        * a global reduction is present;
         * tiling in enabled and at least one loop iterates over an extruded set
     """
     if len(loop_chain) in [0, 1]:
         # Nothing to fuse
+        return loop_chain
+
+    # Search for _Assembly objects since they introduce a synchronization point;
+    # that is, loops cannot be fused across an _Assembly object. In that case, try
+    # to fuse only the segment of loop chain right before the synchronization point
+    remainder = []
+    synch_points = [l for l in loop_chain if isinstance(l, Mat._Assembly)]
+    if synch_points:
+        if len(synch_points) > 1:
+            warning("Fusing loops and found more than one synchronization point")
+        synch_point = loop_chain.index(synch_points[0])
+        remainder, loop_chain = loop_chain[synch_point:], loop_chain[:synch_point]
+
+    # If loops in /loop_chain/ are already /fusion/ objects (this could happen
+    # when loops had already been fused because in a /loop_chain/ context) or
+    # if global reductions are present, return
+    if any([isinstance(l, ParLoop) for l in loop_chain]) or \
+            any([l._reduced_globals for l in loop_chain]):
         return loop_chain
 
     mode = 'hard'
@@ -836,16 +856,16 @@ def fuse(name, loop_chain, tile_size):
             warning("Loops won't be fused, and plain ParLoops will be executed")
             return loop_chain
 
-        # If there are global reduction or extruded sets are present, return
-        if any([l._reduced_globals for l in loop_chain]) or \
-                any([l.is_layered for l in loop_chain]):
+        # If iterating over an extruded set, return (since the feature is not
+        # currently supported)
+        if any([l.is_layered for l in loop_chain]):
             return loop_chain
 
     # Get an inspector for fusing this loop_chain, possibly retrieving it from
     # the cache, and obtain the fused ParLoops through the schedule it produces
     inspector = Inspector(name, loop_chain, tile_size)
     schedule = inspector.inspect(mode)
-    return schedule(loop_chain)
+    return schedule(loop_chain) + remainder
 
 
 @contextmanager
