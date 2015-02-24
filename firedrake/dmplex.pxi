@@ -22,6 +22,7 @@ cdef extern from "petscsys.h":
 
 cdef extern from "petscdmplex.h":
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
+    int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
 
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])

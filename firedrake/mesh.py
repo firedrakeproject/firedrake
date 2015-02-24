@@ -351,6 +351,7 @@ class Mesh(object):
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: renumbering"):
                 dmplex.mark_entity_classes(self._plex)
+                self._entity_classes = dmplex.get_entity_classes(self._plex)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
                 self.cell_classes = dmplex.get_cell_classes(self._plex)
 
@@ -738,6 +739,7 @@ class ExtrudedMesh(Mesh):
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
         self._cell_numbering = mesh._cell_numbering
+        self._entity_classes = mesh._entity_classes
 
         interior_f = self._old_mesh.interior_facets
         self._interior_facets = _Facets(self, interior_f.classes,

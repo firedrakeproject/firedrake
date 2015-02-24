@@ -109,10 +109,10 @@ class FunctionSpaceBase(ObjectCached):
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
         for d in range(mesh._plex.getDimension()+1):
-            ncore = mesh._plex.getStratumSize("op2_core", d)
-            nowned = mesh._plex.getStratumSize("op2_non_core", d)
-            nhalo = mesh._plex.getStratumSize("op2_exec_halo", d)
-            nnonexec = mesh._plex.getStratumSize("op2_non_exec_halo", d)
+            ncore = mesh._entity_classes[d, 0]
+            nowned = mesh._entity_classes[d, 1]
+            nhalo = mesh._entity_classes[d, 2]
+            nnonexec = mesh._entity_classes[d, 3]
             ndofs = self._dofs_per_entity[d]
             self.dof_classes[0] += ndofs * ncore
             self.dof_classes[1] += ndofs * (ncore + nowned)

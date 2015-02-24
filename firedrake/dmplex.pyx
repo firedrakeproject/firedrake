@@ -745,6 +745,46 @@ def mark_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def get_entity_classes(PETSc.DM plex):
+    """Builds PyOP2 entity class offsets for all entity levels.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    """
+    cdef:
+        np.ndarray[np.int32_t, ndim=2, mode="c"] entity_class_sizes
+        np.ndarray[np.int32_t, mode="c"] eStart, eEnd
+        PetscInt depth, d, i, ci, class_size, start, end
+        PetscInt *indices = NULL
+        PETSc.IS class_is
+
+    depth = plex.getDimension() + 1
+    entity_class_sizes = np.zeros((depth, 4), dtype=np.int32)
+    eStart = np.zeros(depth, dtype=np.int32)
+    eEnd = np.zeros(depth, dtype=np.int32)
+    for d in range(depth):
+        CHKERR(DMPlexGetDepthStratum(plex.dm, d, &start, &end))
+        eStart[d] = start
+        eEnd[d] = end
+
+    for i, op2class in enumerate(["op2_core",
+                                  "op2_non_core",
+                                  "op2_exec_halo",
+                                  "op2_non_exec_halo"]):
+        class_is = plex.getStratumIS(op2class, 1)
+        class_size = plex.getStratumSize(op2class, 1)
+        if class_size > 0:
+            CHKERR(ISGetIndices(class_is.iset, &indices))
+            for ci in range(class_size):
+                for d in range(depth):
+                    if eStart[d] <= indices[ci] < eEnd[d]:
+                        entity_class_sizes[d, i] += 1
+                        break
+            CHKERR(ISRestoreIndices(class_is.iset, &indices))
+    return entity_class_sizes
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_cell_classes(PETSc.DM plex):
     """Builds PyOP2 entity class offsets of cells.
 
