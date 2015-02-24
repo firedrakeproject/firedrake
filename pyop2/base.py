@@ -149,13 +149,19 @@ class ExecutionTrace(object):
             else:
                 comp._scheduled = False
 
-        new_trace = list()
+        to_run, new_trace = list(), list()
         for comp in self._trace:
             if comp._scheduled:
-                comp._run()
+                to_run.append(comp)
             else:
                 new_trace.append(comp)
         self._trace = new_trace
+
+        if configuration['loop_fusion']:
+            from fusion import fuse
+            to_run = fuse('from_trace', to_run, 0)
+        for comp in to_run:
+            comp._run()
 
 
 _trace = ExecutionTrace()

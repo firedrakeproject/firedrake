@@ -38,7 +38,6 @@ from collections import OrderedDict
 from copy import deepcopy as dcopy
 import os
 
-from base import _trace
 from base import *
 import base
 import openmp
@@ -574,6 +573,8 @@ class Inspector(Cached):
     def _cache_key(cls, name, loop_chain, tile_size):
         key = (name, tile_size)
         for loop in loop_chain:
+            if isinstance(loop, Mat._Assembly):
+                continue
             for arg in loop.args:
                 if arg._is_global:
                     key += (arg.data.dim, arg.data.dtype, arg.access)
@@ -617,7 +618,7 @@ class Inspector(Cached):
                      ``soft`` and ``hard`` fusion.
         """
         self._inspected += 1
-        if self._heuristic_skip_inspection():
+        if self._heuristic_skip_inspection(mode):
             # Heuristically skip this inspection if there is a suspicion the
             # overhead is going to be too much; for example, when the loop
             # chain could potentially be execution only once or a few time.
@@ -666,11 +667,13 @@ class Inspector(Cached):
         del self._tile_size
         return self._schedule
 
-    def _heuristic_skip_inspection(self):
+    def _heuristic_skip_inspection(self, mode):
         """Decide heuristically whether to run an inspection or not."""
-        # At the moment, a simple heuristic is used: if the inspection is
-        # requested more than once, then it is performed
-        if self._inspected < 2:
+        # At the moment, a simple heuristic is used. If tiling is not requested,
+        # then inspection and fusion are always performed. If tiling is on the other
+        # hand requested, then fusion is performed only if inspection is requested
+        # more than once. This is to amortize the cost of inspection due to tiling.
+        if mode == 'tile' and self._inspected < 2:
             return True
         return False
 
@@ -807,32 +810,36 @@ class Inspector(Cached):
 
 # Interface for triggering loop fusion
 
-def reschedule_loops(name, loop_chain, tile_size):
+def fuse(name, loop_chain, tile_size):
     """Given a list of :class:`ParLoop` in ``loop_chain``, return a list of new
     :class:`ParLoop` objects implementing an optimized scheduling of the loop chain.
 
     .. note:: The unmodified loop chain is instead returned if any of these
     conditions verify:
 
-        * a global reduction is present;
-        * at least one loop iterates over an extruded set
+        * tiling is enabled and a global reduction is present;
+        * tiling in enabled and at least one loop iterates over an extruded set
     """
-    # Loop fusion is performed through the SLOPE library, which must be accessible
-    # by reading the environment variable SLOPE_DIR
-    try:
-        os.environ['SLOPE_DIR']
-    except KeyError:
-        warning("Set the env variable SLOPE_DIR to the location of SLOPE")
-        warning("Loops won't be fused, and plain pyop2.ParLoops will be executed")
+    if len(loop_chain) in [0, 1]:
+        # Nothing to fuse
         return loop_chain
 
-    # If there are global reduction or extruded sets are present, return
-    if any([l._reduced_globals for l in loop_chain]) or \
-            any([l.is_layered for l in loop_chain]):
-        return loop_chain
+    mode = 'hard'
+    if tile_size > 0:
+        mode = 'tile'
+        # Loop tiling is performed through the SLOPE library, which must be
+        # accessible by reading the environment variable SLOPE_DIR
+        try:
+            os.environ['SLOPE_DIR']
+        except KeyError:
+            warning("Set the env variable SLOPE_DIR to the location of SLOPE")
+            warning("Loops won't be fused, and plain ParLoops will be executed")
+            return loop_chain
 
-    # Set the fusion mode based on user-provided parameters
-    mode = 'soft' if tile_size == 0 else 'tile'
+        # If there are global reduction or extruded sets are present, return
+        if any([l._reduced_globals for l in loop_chain]) or \
+                any([l.is_layered for l in loop_chain]):
+            return loop_chain
 
     # Get an inspector for fusing this loop_chain, possibly retrieving it from
     # the cache, and obtain the fused ParLoops through the schedule it produces
@@ -866,6 +873,7 @@ def loop_chain(name, time_unroll=1, tile_size=0):
     :param tile_size: suggest a tile size in case loop tiling is used (optional).
                       If ``0`` is passed in, only soft fusion is performed.
     """
+    from base import _trace
     trace = _trace._trace
     stamp = trace[-1:]
 
@@ -881,7 +889,7 @@ def loop_chain(name, time_unroll=1, tile_size=0):
     total_loop_chain = loop_chain.unrolled_loop_chain + extracted_loop_chain
     if len(total_loop_chain) / len(extracted_loop_chain) == time_unroll:
         start_point = trace.index(total_loop_chain[0])
-        trace[start_point:] = reschedule_loops(name, total_loop_chain, tile_size)
+        trace[start_point:] = fuse(name, total_loop_chain, tile_size)
         loop_chain.unrolled_loop_chain = []
     else:
         loop_chain.unrolled_loop_chain.extend(extracted_loop_chain)
