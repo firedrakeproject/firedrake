@@ -39,20 +39,22 @@ Badge
 featuring views across the Thames to St Paul's Cathedral and a fine
 selection of English real ales and other delights.
 
-Call for presentations
-----------------------
+Call for abstracts
+------------------
 
-A call for presentations will be posted later in February. The
-abstract deadline will be in May.
+Abstract submission is `now open at EasyChair <https://easychair.org/conferences/?conf=fenics15>`_. The deadline for
+abstract submission is **30 April 2015**.
 
 Registration
 ------------
 
-Registration before 31 May will be £150. This will include lunch on
+Registration is now open `on the Imperial College website <https://wwwa.imperial.ac.uk/pls/apex/f?p=120:2:2426532272852405::NO:::>`_
+
+Registration **before 31 May** will be £150. This will include lunch on
 Tuesday and Wednesday, the conference dinner, and refreshments in all
 the breaks during the workshop. Additional dinner tickets (for
-partners etc.) will be available for £50. After 31 May, registration
-will rise to £200. Registration will open later in February.
+partners etc.) will be available for £40. After 31 May, registration
+will rise to £200. Registration will close on **19 June**.
 
 Scientific committee
 --------------------
