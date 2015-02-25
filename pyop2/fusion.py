@@ -724,9 +724,24 @@ class Inspector(Cached):
 
     def _hard_fuse(self):
         """Fuse consecutive loops over different iteration sets that do not
-        present RAW or WAR dependencies. This requires interfacing with the
-        SLOPE library."""
-        hf = slope.HardFusion(self._loop_chain)()
+        present RAW, WAR or WAW dependencies. For examples, two loops like: ::
+
+            par_loop(kernel_1, it_space_1,
+                     dat_1_1(INC, ...),
+                     dat_1_2(READ, ...),
+                     ...)
+
+            par_loop(kernel_2, it_space_2,
+                     dat_2_1(INC, ...),
+                     dat_2_2(READ, ...),
+                     ...)
+
+        where ``dat_1_1 == dat_2_1`` and, possibly (but not necessarily),
+        ``it_space_1 != it_space_2``, can be hardly fused. Note, in fact, that
+        the presence of ``INC`` does not imply a real WAR dependency, because
+        increments are associative.
+        This requires interfacing with the SLOPE library."""
+        pass
 
     def _tile(self):
         """Tile consecutive loops over different iteration sets characterized
