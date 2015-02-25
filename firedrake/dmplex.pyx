@@ -590,8 +590,12 @@ def mark_entity_classes(PETSc.DM plex):
         PETSc.SF point_sf = None
         PETSc.IS cell_is = None
         PETSc.IS facet_is = None
+        PetscBool has_point, is_exec, is_non_core
+        DMLabel lbl_core, lbl_non_core
+        DMLabel lbl_exec, lbl_non_exec
 
     dim = plex.getDimension()
+    pStart, pEnd = plex.getChart()
     cStart, cEnd = plex.getHeightStratum(0)
     fStart, fEnd = plex.getHeightStratum(1)
     vStart, vEnd = plex.getDepthStratum(0)
@@ -603,11 +607,15 @@ def mark_entity_classes(PETSc.DM plex):
     plex.createLabel("op2_exec_halo")
     plex.createLabel("op2_non_exec_halo")
 
-    lbl_depth = <char*>"depth"
-    lbl_core = <char*>"op2_core"
-    lbl_non_core = <char*>"op2_non_core"
-    lbl_halo = <char*>"op2_exec_halo"
-    lbl_non_exec_halo = <char*>"op2_non_exec_halo"
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &lbl_core))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
+
+    CHKERR(DMLabelCreateIndex(lbl_core, pStart, pEnd))
+    CHKERR(DMLabelCreateIndex(lbl_non_core, pStart, pEnd))
+    CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
+    CHKERR(DMLabelCreateIndex(lbl_non_exec, pStart, pEnd))
 
     if MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
@@ -615,14 +623,11 @@ def mark_entity_classes(PETSc.DM plex):
         CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
                                &ilocal, &iremote))
         for p in range(nleaves):
-            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_halo,
-                                       ilocal[p], 1))
+            CHKERR(DMLabelSetValue(lbl_exec, ilocal[p], 1))
     else:
         # If sequential mark all points as core
-        pStart, pEnd = plex.getChart()
         for p in range(pStart, pEnd):
-            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
-                                       p, 1))
+            CHKERR(DMLabelSetValue(lbl_core, p, 1))
         CHKERR(PetscFree(vertices))
         return
 
@@ -656,12 +661,9 @@ def mark_entity_classes(PETSc.DM plex):
             for ci in range(nclosure):
                 if cStart <= closure[2*ci] < cEnd:
                     p = closure[2*ci]
-                    CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
-                                               p, &exec_halo))
-                    if exec_halo < 0:
-                        CHKERR(DMPlexSetLabelValue(plex.dm,
-                                                   lbl_non_core,
-                                                   p, 1))
+                    CHKERR(DMLabelHasPoint(lbl_exec, p, &has_point))
+                    if not has_point:
+                        CHKERR(DMLabelSetValue(lbl_non_core, p, 1))
 
     # Mark the closures of non_core cells as non_core
     ncells = plex.getStratumSize("op2_non_core", 1)
@@ -677,22 +679,17 @@ def mark_entity_classes(PETSc.DM plex):
                                           &closure))
         for ci in range(nclosure):
             p = closure[2*ci]
-            CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
-                                       p, &exec_halo))
-            if exec_halo < 0:
-                CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_core,
-                                           p, 1))
+            CHKERR(DMLabelHasPoint(lbl_exec, p, &has_point))
+            if not has_point:
+                CHKERR(DMLabelSetValue(lbl_non_core, p, 1))
 
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
     for p in range(pStart, pEnd):
-        CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
-                                   p, &exec_halo))
-        CHKERR(DMPlexGetLabelValue(plex.dm, lbl_non_core,
-                                   p, &non_core))
-        if exec_halo < 0 and non_core < 0:
-            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_core,
-                                       p, 1))
+        CHKERR(DMLabelHasPoint(lbl_non_core, p, &is_non_core))
+        CHKERR(DMLabelHasPoint(lbl_exec, p, &is_exec))
+        if not is_exec and not is_non_core:
+            CHKERR(DMLabelSetValue(lbl_core, p, 1))
 
     # Halo facets that only touch halo vertices and halo cells need to
     # be marked as non-exec.
@@ -711,9 +708,8 @@ def mark_entity_classes(PETSc.DM plex):
                                           &closure))
         for ci in range(nclosure):
             if vStart <= closure[2*ci] < vEnd:
-                CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
-                                           closure[2*ci], &exec_halo))
-                if exec_halo < 0:
+                CHKERR(DMLabelHasPoint(lbl_exec, closure[2*ci], &has_point))
+                if not has_point:
                     # Touches a non-halo vertex, needs to be executed
                     # over.
                     non_exec = PETSC_FALSE
@@ -725,18 +721,15 @@ def mark_entity_classes(PETSc.DM plex):
                                               &closure))
             for ci in range(nclosure):
                 if cStart <= closure[2*ci] < cEnd:
-                    CHKERR(DMPlexGetLabelValue(plex.dm, lbl_halo,
-                                               closure[2*ci], &exec_halo))
-                    if exec_halo < 0:
+                    CHKERR(DMLabelHasPoint(lbl_exec, closure[2*ci], &has_point))
+                    if not has_point:
                         # Touches a non-halo cell, needs to be
                         # executed over.
                         non_exec = PETSC_FALSE
         if non_exec:
-            CHKERR(DMPlexSetLabelValue(plex.dm, lbl_non_exec_halo,
-                                       facets[f], 1))
+            CHKERR(DMLabelSetValue(lbl_non_exec, facets[f], 1))
             # Remove facet from exec-halo label
-            CHKERR(DMPlexClearLabelValue(plex.dm, lbl_halo,
-                                         facets[f], 1))
+            CHKERR(DMLabelClearValue(lbl_exec, facets[f], 1))
 
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
@@ -894,6 +887,8 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
         PETSc.IS perm_is = None
         char *lbl_chr = NULL
         PetscBT seen = NULL
+        PetscBool has_point
+        DMLabel label, lbl_core, lbl_non_core, lbl_exec_halo
         bint reorder = reordering is not None
 
     dim = plex.getDimension()
@@ -941,6 +936,10 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
     non_core_idx = 0
     exec_halo_idx = 0
 
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &lbl_core))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &lbl_exec_halo))
+
     # Walk over the reordering
     for ci in range(reordering.size):
         # Have we hit all the cells yet, if so break out early
@@ -948,29 +947,23 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
             break
         p = reordering[ci]
 
-        CHKERR(DMPlexGetLabelValue(plex.dm, "depth",
-                                   p, &lbl_val))
         # This point is a cell
-        if lbl_val == dim:
+        if cStart <= p < cEnd:
             # Which entity class is this point in?
-            CHKERR(DMPlexGetLabelValue(plex.dm, "op2_core",
-                                       p, &lbl_val))
-            if lbl_val == 1:
+            CHKERR(DMLabelHasPoint(lbl_core, p, &has_point))
+            if has_point:
                 core_cells[core_idx] = p
                 core_idx += 1
                 continue
 
-            CHKERR(DMPlexGetLabelValue(plex.dm, "op2_non_core",
-                                       p, &lbl_val))
-            if lbl_val == 1:
+            CHKERR(DMLabelHasPoint(lbl_non_core, p, &has_point))
+            if has_point:
                 non_core_cells[non_core_idx] = p
                 non_core_idx += 1
                 continue
 
-            CHKERR(DMPlexGetLabelValue(plex.dm, "op2_exec_halo",
-                                       p, &lbl_val))
-
-            if lbl_val == 1:
+            CHKERR(DMLabelHasPoint(lbl_exec_halo, p, &has_point))
+            if has_point:
                 exec_halo_cells[exec_halo_idx] = p
                 exec_halo_idx += 1
                 continue
@@ -980,6 +973,8 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
     # Now we can walk over the cell classes and order all the plex points
     for op2class in ["op2_core", "op2_non_core", "op2_exec_halo"]:
         lbl_chr = <char *>op2class
+        CHKERR(DMPlexGetLabel(plex.dm, lbl_chr, &label))
+
         if op2class == "op2_core":
             ncells = core_idx
             cells = core_cells
@@ -998,9 +993,8 @@ def plex_renumbering(PETSc.DM plex, np.ndarray[PetscInt, ndim=1, mode="c"] reord
             for ci in range(nclosure):
                 p = closure[2*ci]
                 if not PetscBTLookup(seen, p):
-                    CHKERR(DMPlexGetLabelValue(plex.dm, lbl_chr,
-                                               p, &lbl_val))
-                    if lbl_val >= 0:
+                    CHKERR(DMLabelHasPoint(label, p, &has_point))
+                    if has_point:
                         CHKERR(PetscBTSet(seen, p))
                         perm[p_glbl] = p
                         p_glbl += 1
