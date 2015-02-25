@@ -166,7 +166,7 @@ def closure_ordering(PETSc.DM plex,
                 cell_closure[cell, vi] = vertices[vi]
         offset = v_per_cell
 
-        # Find all faces (dim=1)
+        # Find all edges (dim=1)
         if dim > 2:
             nfaces = 0
             for ci in range(nclosure):
@@ -178,7 +178,7 @@ def closure_ordering(PETSc.DM plex,
                     CHKERR(DMPlexGetCone(plex.dm, closure[2*ci],
                                          &face_vertices))
 
-                    # Faces in 3D are tricky because we need a
+                    # Edges in 3D are tricky because we need a
                     # lexicographical sort with two keys (the local
                     # numbers of the two non-incident vertices).
 
