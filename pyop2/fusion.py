@@ -54,7 +54,7 @@ from utils import flatten, strip, as_tuple
 import coffee
 from coffee import base as coffee_ast
 from coffee.utils import visit as coffee_ast_visit, \
-    ast_update_id as coffee_ast_update_id
+    ast_update_id as coffee_ast_update_id, get_fun_decls as coffee_ast_fundecls
 
 import slope_python as slope
 
@@ -136,10 +136,7 @@ class Kernel(openmp.Kernel, tuple):
 
         # Fuse the actual kernels' bodies
         fused_ast = dcopy(asts[0])
-        if not isinstance(fused_ast, coffee_ast.FunDecl):
-            # Need to get the Function declaration, so inspect the children
-            fused_ast = [n for n in fused_ast.children
-                         if isinstance(n, coffee_ast.FunDecl)][0]
+        fused_ast = coffee_ast_fundecls(fused_ast, mode='kernel')
         for unique_id, _ast in enumerate(asts[1:], 1):
             ast = dcopy(_ast)
             # 1) Extend function name
@@ -401,10 +398,10 @@ class ParLoop(openmp.ParLoop):
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
 
-        # These parameters are expected in a ParLoop based on tiling
-        self._inspection = kwargs['inspection']
-        self._all_args = kwargs['all_args']
-        self._executor = kwargs['executor']
+        # These parameters are expected in a tiled ParLoop
+        self._all_args = kwargs.get('all_args', [args])
+        self._inspection = kwargs.get('inspection')
+        self._executor = kwargs.get('executor')
 
     @collective
     @profile
@@ -464,7 +461,7 @@ class Schedule(object):
     """Represent an execution scheme for a sequence of :class:`ParLoop` objects."""
 
     def __init__(self, kernel):
-        self._kernel = kernel
+        self._kernel = list(kernel)
 
     def __call__(self, loop_chain):
         """The argument ``loop_chain`` is a list of :class:`ParLoop` objects,
@@ -494,23 +491,58 @@ class PlainSchedule(Schedule):
 class FusionSchedule(Schedule):
     """Schedule for a sequence of soft/hard fused :class:`ParLoop` objects."""
 
-    def __init__(self, kernel, ranges):
-        super(FusionSchedule, self).__init__(kernel)
-        self._ranges = ranges
+    def __init__(self, kernels, offsets):
+        super(FusionSchedule, self).__init__(kernels)
+        # Track the indices of the loop chain's /ParLoop/s each fused kernel maps to
+        offsets = [0] + list(offsets)
+        loops_indices = [range(offsets[i], o) for i, o in enumerate(offsets[1:])]
+        self._info = [{'loops_indices': li} for li in loops_indices]
 
     def __call__(self, loop_chain):
-        offset = 0
         fused_par_loops = []
-        for kernel, range in zip(self._kernel, self._ranges):
-            # Both the iteration set and the iteration region must be the same
-            # for all loops being fused
-            iterregion = loop_chain[offset].iteration_region
-            iterset = loop_chain[offset].it_space.iterset
-            args = flatten([loop.args for loop in loop_chain[offset:range]])
+        for kernel, info in zip(self._kernel, self._info):
+            loops_indices = info['loops_indices']
+            extra_args = info.get('extra_args', [])
+
+            # Create the ParLoop's arguments. Note that both the iteration set and
+            # the iteration region must be the same for all loops being fused
+            iterregion = loop_chain[loops_indices[0]].iteration_region
+            iterset = loop_chain[loops_indices[0]].it_space.iterset
+            loops = [loop_chain[i] for i in loops_indices]
+            args = flatten([loop.args for loop in loops] + extra_args)
+
+            # Create the actual ParLoop, resulting from the fusion of some kernels
             fused_par_loops.append(_make_object('ParLoop', kernel, iterset, *args,
                                                 **{'iterate': iterregion}))
-            offset = range
         return fused_par_loops
+
+    def _hard_fuse(self, fused):
+        """Update the schedule by marking the kernels in ``fused_kernel`` as
+        hardly fused."""
+        for fused_kernel, fused_map in fused:
+            # Variable names: "base" represents the kernel within which "fuse" will
+            # be fused into
+            #
+            # In addition to the union of the "base" and "fuse"' sets of arguments,
+            # need to be passed in:
+            # - a bitmap, the i-th bit indicating whether the i-th iteration in "fuse"
+            #   has been executed
+            # - a map from "base"'s iteration space to "fuse"'s iteration space
+            arg_is_executed = Dat(fused_map.toset)(RW, fused_map)
+            arg_fused_map = Dat(DataSet(fused_map.iterset, fused_map.arity),
+                                fused_map.values)(READ)
+            # Update the schedule
+            _kernels = fused_kernel._kernels
+            base = [i for i, k in enumerate(self._kernel) if k is _kernels[0]][0]
+            fuse = [i for i, k in enumerate(self._kernel) if k is _kernels[1]][0]
+            pos = min(base, fuse)
+            self._kernel.insert(pos, fused_kernel)
+            self._info[pos]['loops_indices'] = [base, fuse]
+            self._info[pos]['extra_args'] = [arg_is_executed, arg_fused_map]
+            self._kernel.pop(pos+1)
+            pos = max(base, fuse)
+            self._info.pop(pos)
+            self._kernel.pop(pos)
 
 
 class TilingSchedule(Schedule):
@@ -741,9 +773,87 @@ class Inspector(Cached):
         where ``dat_1_1 == dat_2_1`` and, possibly (but not necessarily),
         ``it_space_1 != it_space_2``, can be hardly fused. Note, in fact, that
         the presence of ``INC`` does not imply a real WAR dependency, because
-        increments are associative.
-        This requires interfacing with the SLOPE library."""
-        pass
+        increments are associative."""
+
+        def has_raw_or_war(loop1, loop2):
+            # Note that INC after WRITE is a special case of RAW dependency since
+            # INC cannot take place before WRITE.
+            return loop2.reads & loop1.writes or loop2.writes & loop1.reads or \
+                loop1.incs & (loop2.writes - loop2.incs) or \
+                loop2.incs & (loop1.writes - loop1.incs)
+
+        def fuse(base_loop, loop_chain, fused):
+            """Try to fuse one of the loops in ``loop_chain`` with ``base_loop``."""
+            for loop in loop_chain:
+                if has_raw_or_war(loop, base_loop):
+                    # Can't fuse across loops preseting RAW or WAR dependencies
+                    return
+                if loop.it_space == base_loop.it_space:
+                    warning("Ignoring unexpected sequence of loops in loop fusion")
+                    continue
+                # Hard fusion potentially doable provided that we own a map between
+                # the iteration spaces involved
+                maps = [a.map for a in loop.args if a._is_indirect] + \
+                       [a.map for a in base_loop.args if a._is_indirect]
+                maps += [m.factors for m in maps if hasattr(m, 'factors')]
+                maps = list(set(flatten(maps)))
+                set1, set2 = base_loop.it_space.iterset, loop.it_space.iterset
+                fused_map = [m for m in maps if set1 == m.iterset and set2 == m.toset]
+                if fused_map:
+                    fused.append((Kernel([base_loop.kernel, loop.kernel]), fused_map[0]))
+                    return
+                fused_map = [m for m in maps if set1 == m.toset and set2 == m.iterset]
+                if fused_map:
+                    fused.append((Kernel([loop.kernel, base_loop.kernel]), fused_map[0]))
+                    return
+
+        # First, find fusible kernels
+        fused = []
+        for i, l in enumerate(self._loop_chain, 1):
+            fuse(l, self._loop_chain[i:], fused)
+        if not fused:
+            return
+
+        # Then, create a suitable hard-fusion kernel
+        # The hardly-fused kernel will have the following structure:
+        #
+        # wrapper (args: Union(kernel1, kernel2, extra):
+        #   staging of pointers
+        #   ...
+        #   fusion (staged pointers, ..., extra)
+        #   insertion (...)
+        #
+        # Where /extra/ represents additional arguments, like the map from
+        # kernel1's iteration space to kernel2's iteration space. The /fusion/
+        # function looks like:
+        #
+        # fusion (...):
+        #   kernel1 (buffer, ...)
+        #   for i = 0 to arity:
+        #     if not already_executed[i]:
+        #       kernel2 (buffer[..], ...)
+        #
+        # Where /arity/ is the number of kernel2's iterations incident to
+        # kernel1's iterations.
+        for fused_kernel, fused_map in fused:
+            base, fuse = fused_kernel._kernels
+            # Obtain /fusion/ arguments
+
+
+            # Create /fusion/ signature
+            base_fundecl = coffee_ast_fundecls(base._ast, mode='kernel')
+            fuse_fundecl = coffee_ast_fundecls(fuse._ast, mode='kernel')
+            fusion_fundecl = coffee_ast.FunDecl(base_fundecl.ret, 'fusion',
+                             dcopy(base_fundecl.args), None)
+
+            # Create /fusion/ body
+
+
+            from IPython import embed; embed()
+
+        # Finally, generate a new schedule
+        self._schedule._hard_fuse(fused)
+        self._loop_chain = self._schedule(self._loop_chain)
 
     def _tile(self):
         """Tile consecutive loops over different iteration sets characterized
