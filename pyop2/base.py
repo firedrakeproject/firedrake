@@ -64,9 +64,10 @@ class LazyComputation(object):
     """Helper class holding computation to be carried later on.
     """
 
-    def __init__(self, reads, writes):
+    def __init__(self, reads, writes, incs):
         self.reads = set(flatten(reads))
         self.writes = set(flatten(writes))
+        self.incs = set(flatten(incs))
         self._scheduled = False
 
     def enqueue(self):
@@ -3513,7 +3514,7 @@ class Mat(SetAssociated):
 
         Called lazily after user calls :meth:`assemble`"""
         def __init__(self, mat):
-            super(Mat._Assembly, self).__init__(reads=mat, writes=mat)
+            super(Mat._Assembly, self).__init__(reads=mat, writes=mat, incs=mat)
             self._mat = mat
 
         def _run(self):
@@ -3868,7 +3869,8 @@ class ParLoop(LazyComputation):
     def __init__(self, kernel, iterset, *args, **kwargs):
         LazyComputation.__init__(self,
                                  set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
-                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
+                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]),
+                                 set([a.data for a in args if a.access in [INC]]))
         # INCs into globals need to start with zero and then sum back
         # into the input global at the end.  This has the same number
         # of reductions but means that successive par_loops

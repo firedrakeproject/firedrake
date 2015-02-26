@@ -381,7 +381,9 @@ class ParLoop(openmp.ParLoop):
     def __init__(self, kernel, it_space, *args, **kwargs):
         read_args = [a.data for a in args if a.access in [READ, RW]]
         written_args = [a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]
-        LazyComputation.__init__(self, set(read_args) | Const._defs, set(written_args))
+        inc_args = [a.data for a in args if a.access in [INC]]
+        LazyComputation.__init__(self, set(read_args) | Const._defs,
+                                 set(written_args), set(inc_args))
 
         self._kernel = kernel
         self._actual_args = args
