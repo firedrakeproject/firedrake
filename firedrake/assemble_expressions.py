@@ -368,6 +368,29 @@ class ExpressionSplitter(ReuseTransformer):
             # If LHS is indexed, only return a scalar result
             if self._fs.index is not None:
                 return (o,)
+            # LHS is mixed and Constant has same shape, use each
+            # component in turn to assign to each component of the
+            # mixed space.
+            if isinstance(self._fs, functionspace.MixedFunctionSpace) and \
+               isinstance(o, constant.Constant) and \
+               o.element().value_shape() == self._fs.ufl_element().value_shape():
+                offset = 0
+                consts = []
+                val = o.dat.data_ro
+                for fs in self._fs:
+                    shp = fs.ufl_element().value_shape()
+                    if len(shp) == 0:
+                        c = constant.Constant(val[offset], domain=o.domain())
+                        offset += 1
+                    elif len(shp) == 1:
+                        c = constant.Constant(val[offset:offset+shp[0]],
+                                              domain=o.domain())
+                        offset += shp[0]
+                    else:
+                        raise NotImplementedError("Broadcasting Constant to TFS not implemented")
+                    consts.append(c)
+                return consts
+            # Broadcast value across sub spaces.
             return tuple(o for _ in self._fs)
         raise NotImplementedError("Don't know what to do with %r" % o)
 
