@@ -99,7 +99,7 @@ PyOP2 requires a number of tools and libraries to be available:
 The following dependencies are part of the Python
 subsystem:
 
-* Cython >= 0.17 
+* Cython >= 0.20
 * decorator 
 * numpy >= 1.9.1 
 * mpi4py >= 1.3.1
@@ -158,7 +158,7 @@ On a Debian-based system (Ubuntu, Mint, etc.) install core packages::
 
 Install dependencies via ``pip``::
 
-  sudo pip install "Cython>=0.17" decorator "numpy>=1.6" "mpi4py>=1.3.1"
+  sudo pip install "Cython>=0.20" decorator "numpy>=1.6" "mpi4py>=1.3.1"
 
 .. note::
 
