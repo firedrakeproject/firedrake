@@ -110,9 +110,9 @@ examples on the :doc:`documentation page <documentation>`.
 Git instructions for developers
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Cython >= 0.17 is required to build Firedrake. Install it using pip ::
+Cython >= 0.20 is required to build Firedrake. Install it using pip ::
 
- pip install "Cython>=0.17"
+ pip install "Cython>=0.20"
 
 Next, obtain the Firedrake source from GitHub_ ::
 
