@@ -62,7 +62,6 @@ def test_real_mixed_two_form_assembly():
 
     m = assemble(u*v*dx + p*q*dx).M.handle.getPythonContext().data
 
->>>>>>> c276d32871b108962f09f4b451f525986432321b
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
