@@ -138,6 +138,7 @@ common_tests = [
     'assigntest(f, one - one, 0)']
 
 scalar_tests = common_tests + [
+    'interpolatetest(f, 0.0, 0)',
     'interpolatetest(f, "sin(pi/2)", 1)',
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
@@ -230,6 +231,68 @@ def test_assign_mixed_no_zero(mfs):
         assert np.allclose(v.dat.data_ro, 2.0)
 
 
+def test_assign_vector_const_to_mfs_scalar_vector(cg1, vcg1):
+    W = cg1*vcg1
+
+    w = Function(W)
+
+    c = Constant(range(1, w.element().value_shape()[0]+1))
+
+    w.assign(c)
+
+    s, v = w.split()
+
+    assert np.allclose(s.dat.data_ro, c.dat.data_ro[0])
+    assert np.allclose(v.dat.data_ro, c.dat.data_ro[1:])
+
+
+def test_assign_vector_const_to_mfs_scalar_vector_vector(cg1, vcg1):
+    W = cg1*vcg1*vcg1
+
+    w = Function(W)
+
+    c = Constant(range(1, w.element().value_shape()[0]+1))
+
+    w.assign(c)
+
+    s, v, v2 = w.split()
+
+    assert np.allclose(s.dat.data_ro, c.dat.data_ro[0])
+    assert np.allclose(v.dat.data_ro, c.dat.data_ro[1:3])
+    assert np.allclose(v2.dat.data_ro, c.dat.data_ro[3:])
+
+
+def test_assign_vector_const_to_vfs(vcg1):
+    f = Function(vcg1)
+
+    c = Constant(range(1, f.element().value_shape()[0]+1))
+
+    f.assign(c)
+    assert np.allclose(f.dat.data_ro, c.dat.data_ro)
+
+
+def test_assign_scalar_const_to_vfs(vcg1):
+    f = Function(vcg1)
+
+    c = Constant(10.0)
+
+    f.assign(c)
+    assert np.allclose(f.dat.data_ro, c.dat.data_ro)
+
+
+def test_assign_vector_const_to_mfs_scalars(cg1):
+    W = cg1*cg1*cg1
+
+    w = Function(W)
+
+    c = Constant(range(1, w.element().value_shape()[0]+1))
+
+    w.assign(c)
+
+    for i, w_ in enumerate(w.split()):
+        assert np.allclose(w_.dat.data_ro, c.dat.data_ro[i])
+
+
 def test_assign_to_mfs_sub(cg1, vcg1):
     W = cg1*vcg1
 
@@ -275,16 +338,63 @@ def test_assign_to_mfs_sub(cg1, vcg1):
         w.assign(q.sub(1))
 
 
-def test_scalar_user_defined_values():
+def test_assign_from_mfs_sub(cg1, vcg1):
+    W = cg1*vcg1
+
+    w = Function(W)
+    u = Function(cg1)
+    v = Function(vcg1)
+
+    w1, w2 = w.split()
+
+    w1.assign(4)
+    w2.assign(10)
+
+    u.assign(w1)
+
+    assert np.allclose(u.dat.data_ro, w1.dat.data_ro)
+
+    v.assign(w2)
+    assert np.allclose(v.dat.data_ro, w2.dat.data_ro)
+
+    Q = vcg1*cg1
+    q = Function(Q)
+
+    q1, q2 = q.split()
+
+    q1.assign(11)
+    q2.assign(12)
+
+    v.assign(q1)
+    assert np.allclose(v.dat.data_ro, q1.dat.data_ro)
+
+    u.assign(q2)
+    assert np.allclose(u.dat.data_ro, q2.dat.data_ro)
+
+    with pytest.raises(ValueError):
+        u.assign(q1)
+
+    with pytest.raises(ValueError):
+        v.assign(q2)
+
+    with pytest.raises(ValueError):
+        u.assign(w2)
+
+    with pytest.raises(ValueError):
+        v.assign(w1)
+
+
+@pytest.mark.parametrize("uservar", ["A", "X", "x_", "k", "d", "i"])
+def test_scalar_user_defined_values(uservar):
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
     f = Function(V)
-    e = Expression('n', n=1.0)
+    e = Expression(uservar, **{uservar: 1.0})
     f.interpolate(e)
 
     assert np.allclose(f.dat.data_ro, 1.0)
 
-    e.n = 2.0
+    setattr(e, uservar, 2.0)
     f.interpolate(e)
 
     assert np.allclose(f.dat.data_ro, 2.0)

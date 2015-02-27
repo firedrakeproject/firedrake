@@ -177,13 +177,13 @@ class AssemblyCache(object):
             cls._instance.evictwarned = False
         return cls._instance
 
-    def _lookup(self, form, bcs):
+    def _lookup(self, form, bcs, ffc_parameters):
         form_sig = form.signature()
-        cache_entry = self.cache.get(form_sig, None)
+        parms, cache_entry = self.cache.get(form_sig, (None, None))
 
         retval = None
         if cache_entry is not None:
-            if not cache_entry.is_valid(form, bcs):
+            if parms != str(ffc_parameters) or not cache_entry.is_valid(form, bcs):
                 self.invalid_count[form_sig] += 1
                 del self.cache[form_sig]
                 return None
@@ -196,7 +196,7 @@ class AssemblyCache(object):
 
         return retval
 
-    def _store(self, obj, form, bcs):
+    def _store(self, obj, form, bcs, ffc_parameters):
         form_sig = form.signature()
 
         if self.invalid_count[form_sig] > parameters["assembly_cache"]["max_misses"]:
@@ -206,7 +206,7 @@ class AssemblyCache(object):
 
         else:
             cache_entry = _CacheEntry(obj, form, bcs)
-            self.cache[form_sig] = cache_entry
+            self.cache[form_sig] = str(ffc_parameters), cache_entry
             self.evict()
 
     def evict(self):
@@ -254,9 +254,9 @@ guaranteed to result in the same evictions on each processor.
         # Evict down to 90% full.
         bytes_to_evict = cache_size - 0.9 * max_cache_size
 
-        sorted_cache = sorted(self.cache.items(), key=lambda x: x[1].value)
+        sorted_cache = sorted(self.cache.items(), key=lambda x: x[1][1].value)
 
-        nbytes = lambda x: x[1].nbytes
+        nbytes = lambda x: x[1][1].nbytes
 
         candidates = []
         while bytes_to_evict > 0:
@@ -295,23 +295,26 @@ guaranteed to result in the same evictions on each processor.
     @property
     def nbytes(self):
         """An estimate of the total number of bytes in the cached objects."""
-        return sum([entry.nbytes for entry in self.cache.values()])
+        return sum([entry.nbytes for _, entry in self.cache.values()])
 
     @property
     def realbytes(self):
         """An estimate of the total number of bytes for which the cache holds
         the sole reference to an object."""
         tot_bytes = 0
-        for entry in self.cache.values():
+        for _, entry in self.cache.values():
             obj = entry.get_object()
             if not (hasattr(obj, "_cow_is_copy_of") and obj._cow_is_copy_of):
                 tot_bytes += entry.nbytes
         return tot_bytes
 
 
-def _cache_thunk(thunk, form, result):
+def _cache_thunk(thunk, form, result, form_compiler_parameters=None):
     """Wrap thunk so that thunk is only executed if its target is not in
     the cache."""
+
+    if form_compiler_parameters is None:
+        form_compiler_parameters = parameters["form_compiler"]
 
     def inner(bcs):
 
@@ -320,7 +323,7 @@ def _cache_thunk(thunk, form, result):
         if not parameters["assembly_cache"]["enabled"]:
             return thunk(bcs)
 
-        obj = cache._lookup(form, bcs)
+        obj = cache._lookup(form, bcs, form_compiler_parameters)
         if obj is not None:
             if isinstance(result, float):
                 # 0-form case
@@ -346,13 +349,13 @@ def _cache_thunk(thunk, form, result):
         r = thunk(bcs)
         if isinstance(r, float):
             # 0-form case
-            cache._store(r, form, bcs)
+            cache._store(r, form, bcs, form_compiler_parameters)
         elif isinstance(r, function.Function):
             # 1-form
-            cache._store(r.dat, form, bcs)
+            cache._store(r.dat, form, bcs, form_compiler_parameters)
         elif isinstance(r, matrix.Matrix):
             # 2-form
-            cache._store(r._M, form, bcs)
+            cache._store(r._M, form, bcs, form_compiler_parameters)
         else:
             raise TypeError("Unknown result type")
         return r

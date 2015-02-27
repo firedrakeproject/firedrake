@@ -25,7 +25,8 @@
 # coming with Sphinx (named 'sphinx.ext.*') or your custom ones.
 extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.mathjax', 'sphinx.ext.intersphinx',
-              'sphinxcontrib.youtube']
+              'sphinxcontrib.youtube',
+              'sphinxcontrib.bibtex']
 # Both the class’ and the __init__ method’s docstring are concatenated and
 # inserted into the class definition
 autoclass_content = 'both'
@@ -250,5 +251,5 @@ texinfo_documents = [
 
 intersphinx_mapping = {
     'pyop2': ('http://op2.github.io/PyOP2', None),
-    'ufl': ('http://fenicsproject.org/documentation/ufl/1.2.0/', None)
+    'ufl': ('http://fenicsproject.org/documentation/ufl/dev/', None)
 }

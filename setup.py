@@ -40,10 +40,12 @@ try:
     from Cython.Distutils import build_ext
     cmdclass['build_ext'] = build_ext
     dmplex_sources = ["firedrake/dmplex.pyx"]
+    mg_sources = ["firedrake/mg/impl.pyx"]
     evtk_sources = ['evtk/cevtk.pyx']
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
+    mg_sources = ["firedrake/mg/impl.c"]
     evtk_sources = ['evtk/cevtk.c']
 
 if 'CC' not in env:
@@ -62,7 +64,7 @@ setup(name='firedrake',
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=["firedrake", "evtk"],
+      packages=["firedrake", "evtk", "firedrake.mg"],
       package_data={"firedrake": ["firedrake_geometry.h"]},
       scripts=glob('scripts/*'),
       ext_modules=[Extension('firedrake.dmplex',
@@ -70,6 +72,14 @@ setup(name='firedrake',
                              include_dirs=include_dirs,
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs]),
+                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
+                   Extension('firedrake.mg.impl',
+                             sources=mg_sources,
+                             include_dirs=include_dirs,
+                             libraries=["petsc"],
+                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
                    Extension('evtk.cevtk', evtk_sources,
                              include_dirs=[np.get_include()])])

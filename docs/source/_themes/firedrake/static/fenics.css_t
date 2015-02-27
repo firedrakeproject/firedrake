@@ -13,6 +13,7 @@
 @import url("basic.css");
 @import url("nobile-fontfacekit/stylesheet.css");
 @import url("neuton-fontfacekit/stylesheet.css");
+@import url(http://fonts.googleapis.com/css?family=Comfortaa);
 
 /* -- page layout ----------------------------------------------------------- */
 
@@ -119,6 +120,10 @@ div.sidebar {
 	border-right-style: none;
 	border-left-style: none;
 	padding: 0px 0px;
+}
+
+div.latest-commit {
+  max-width: 300px;
 }
 
 div.commit {
@@ -244,6 +249,10 @@ div.note {
 	background: #e1ecfe url(dialog-note.png) no-repeat 10px 8px;
 }
 
+.emphasis {
+   font-style: italic
+}
+
 #firedrake-package #id1 {
     display: none;
 }
@@ -278,6 +287,15 @@ div.topic {
 	border-left-style: none;
 }
 
+div.hint {
+    background: #eeeeee url(dialog-topic.png) no-repeat 10px 8px;
+    border: 2px solid #C6C9CB;
+    padding: 10px 20px 10px 60px;
+	border-right-style: none;
+	border-left-style: none;
+}
+
+
 div.warning {
     background: #fbe3e4 url(dialog-warning.png) no-repeat 10px 8px;
     border: 2px solid #fbc2c4;
@@ -294,22 +312,20 @@ p.admonition-title:after {
     content: ":";
 }
 
-pre, code {
-    font-family: Consolas, "andale mono", "lucida console", monospace;
+pre, tt, code  {
+    color: #222;
+    background-color: transparent;
     font-size: 14px;
+    font-family: Consolas, "andale mono", "lucida console", monospace;
+}
+
+div.highlight>pre, div.highlight>code {
     line-height: 17px;
     background-color: #fafafa;
     padding: 10px;
     margin: 0;
     border-top: 2px solid #c6c9cb;
     border-bottom: 2px solid #c6c9cb;
-}
-
-tt {
-    background-color: transparent;
-    color: #222;
-    font-size: 14px;
-    font-family: Consolas, "andale mono", "lucida console", monospace;
 }
 
 h2 tt.py-mod {
@@ -670,3 +686,18 @@ img[alt="build status"] {
     width: 25%;
     text-align: center;
 }
+
+/* Modifications for the FEniCS '15 website */
+
+div.fenics_15 h1,
+div.fenics_15 h2,
+div.fenics_15 h3,
+div.fenics_15 h4 {
+    font-family: 'Comfortaa', cursive;
+}
+
+div.fenics_15 #sponsors img {
+    padding-left: 20px;
+    padding-right: 20px
+}
+

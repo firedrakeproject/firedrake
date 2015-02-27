@@ -37,6 +37,35 @@ def test_feec(horiz_complex, vert_complex):
     V0 = FiniteElement(V0[0], "interval", V0[1])
     V1 = FiniteElement(V1[0], "interval", V1[1])
 
+    run_feec(mesh, U0, U1, U2, V0, V1)
+
+
+@pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
+                         [((("CG", 1), ("RTCF", 1), ("DQ", 0)), (("CG", 3), ("DG", 2))),
+                          ((("CG", 2), ("RTCF", 2), ("DQ", 1)), (("CG", 2), ("DG", 1))),
+                          ((("CG", 3), ("RTCF", 3), ("DQ", 2)), (("CG", 1), ("DG", 0)))])
+def test_feec_quadrilateral(horiz_complex, vert_complex):
+    U0, U1, U2 = horiz_complex
+    V0, V1 = vert_complex
+    # U0, U1, U2 is our horizontal complex
+    # V0, V1 is be our vertical complex
+
+    # W0, W1, W2, W3 will be our product complex, where
+    # W0 = U0 x V0
+    # W1 = HCurl(U1 x V0) + HCurl(U0 x V1)
+    # W2 = HDiv(U2 x V0) + HDiv(U1 x V1)
+    # W3 = U2 x V1
+    mesh = extmesh(2, 2, 4, quadrilateral=True)
+    U0 = FiniteElement(U0[0], "quadrilateral", U0[1])
+    U1 = FiniteElement(U1[0], "quadrilateral", U1[1])
+    U2 = FiniteElement(U2[0], "quadrilateral", U2[1])
+    V0 = FiniteElement(V0[0], "interval", V0[1])
+    V1 = FiniteElement(V1[0], "interval", V1[1])
+
+    run_feec(mesh, U0, U1, U2, V0, V1)
+
+
+def run_feec(mesh, U0, U1, U2, V0, V1):
     W0_elt = OuterProductElement(U0, V0)
 
     W1_a = HCurl(OuterProductElement(U1, V0))
@@ -56,7 +85,7 @@ def test_feec(horiz_complex, vert_complex):
 
     parms = {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}
 
-    ### TEST CURL(GRAD(u)) = 0, for u in W0 ###
+    # TEST CURL(GRAD(u)) = 0, for u in W0
 
     u = Function(W0)
     u.interpolate(Expression("x[0]*x[1] - x[1]*x[2]"))
@@ -77,7 +106,7 @@ def test_feec(horiz_complex, vert_complex):
     maxcoeff = max(abs(w.dat.data))
     assert maxcoeff < 1e-11
 
-    ### TEST DIV(CURL(v)) = 0, for v in W1 ###
+    # TEST DIV(CURL(v)) = 0, for v in W1
 
     v = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W1)
 
@@ -97,7 +126,7 @@ def test_feec(horiz_complex, vert_complex):
     maxcoeff = max(abs(y.dat.data))
     assert maxcoeff < 1e-11
 
-    ### TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in W3 ###
+    # TEST WEAKCURL(WEAKGRAD(y)) = 0, for y in W3
 
     y = Function(W3)
     y.interpolate(Expression("x[0]*x[1] - x[1]*x[2]"))
@@ -118,7 +147,7 @@ def test_feec(horiz_complex, vert_complex):
     maxcoeff = max(abs(v.dat.data))
     assert maxcoeff < 1e-11
 
-    ### TEST WEAKDIV(WEAKCURL(w)) = 0, for w in W2 ###
+    # TEST WEAKDIV(WEAKCURL(w)) = 0, for w in W2
 
     w = project(Expression(("x[0]*x[1]", "-x[1]*x[2]", "x[0]*x[2]")), W2)
 

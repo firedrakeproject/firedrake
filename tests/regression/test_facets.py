@@ -3,9 +3,10 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.fixture
-def f():
-    m = UnitSquareMesh(1, 1)
+@pytest.fixture(params=[False, True])
+def f(request):
+    quadrilateral = request.param
+    m = UnitSquareMesh(1, 1, quadrilateral=quadrilateral)
     fs = FunctionSpace(m, "CG", 1)
     f = Function(fs)
     f.interpolate(Expression("x[0]"))
@@ -44,7 +45,12 @@ def test_right_external_integral(f):
 
 
 def test_internal_integral(f):
-    assert abs(assemble(f('+') * dS) - 1.0 / (2.0 ** 0.5)) < 1.0e-14
+    if len(f.function_space().cell_node_list) == 1:
+        # Quadrilateral case, no internal facet
+        assert abs(assemble(f('+') * dS)) < 1.0e-14
+    else:
+        # Triangle case, one internal facet
+        assert abs(assemble(f('+') * dS) - 1.0 / (2.0 ** 0.5)) < 1.0e-14
 
 
 def test_facet_integral_with_argument(f):

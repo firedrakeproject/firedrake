@@ -9,17 +9,14 @@ from firedrake import *
 from tests.common import *
 
 
-@pytest.fixture(scope='module')
 def DG0(mesh):
     return FunctionSpace(mesh, "DG", 0)
 
 
-@pytest.fixture(scope='module')
 def DG1(mesh):
     return FunctionSpace(mesh, "DG", 1)
 
 
-@pytest.fixture(scope='module')
 def W(mesh):
     return FunctionSpace(mesh, "BDM", 1)
 
@@ -54,16 +51,26 @@ def run_left_to_right(mesh, DG0, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.2e-7
 
 
-def test_left_to_right(mesh, DG0, W):
-    run_left_to_right(mesh, DG0, W)
+def test_left_to_right():
+    m = mesh()
+    run_left_to_right(m, DG0(m), W(m))
 
 
 @pytest.mark.parallel
 def test_left_to_right_parallel():
     m = mesh()
-    dg0 = DG0(m)
-    w = W(m)
-    run_left_to_right(m, dg0, w)
+    run_left_to_right(m, DG0(m), W(m))
+
+
+def test_left_to_right_on_quadrilaterals():
+    m = UnitSquareMesh(5, 5, quadrilateral=True)
+    run_left_to_right(m, DG0(m), FunctionSpace(m, "RTCF", 1))
+
+
+@pytest.mark.parallel
+def test_left_to_right_on_quadrilaterals_parallel():
+    m = UnitSquareMesh(5, 5, quadrilateral=True)
+    run_left_to_right(m, DG0(m), FunctionSpace(m, "RTCF", 1))
 
 
 def run_up_to_down(mesh, DG1, W):
@@ -93,16 +100,26 @@ def run_up_to_down(mesh, DG1, W):
     assert max(abs(out.dat.data - inflow.dat.data)) < 1.1e-6
 
 
-def test_up_to_down(mesh, DG1, W):
-    run_up_to_down(mesh, DG1, W)
+def test_up_to_down():
+    m = mesh()
+    run_up_to_down(m, DG1(m), W(m))
 
 
 @pytest.mark.parallel
 def test_up_to_down_parallel():
     m = mesh()
-    dg1 = DG1(m)
-    w = W(m)
-    run_up_to_down(m, dg1, w)
+    run_up_to_down(m, DG1(m), W(m))
+
+
+def test_up_to_down_on_quadrilaterals():
+    m = UnitSquareMesh(5, 5, quadrilateral=True)
+    run_up_to_down(m, DG0(m), FunctionSpace(m, "RTCF", 1))
+
+
+@pytest.mark.parallel
+def test_up_to_down_on_quadrilaterals_parallel():
+    m = UnitSquareMesh(5, 5, quadrilateral=True)
+    run_up_to_down(m, DG0(m), FunctionSpace(m, "RTCF", 1))
 
 
 if __name__ == '__main__':

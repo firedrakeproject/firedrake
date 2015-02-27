@@ -42,7 +42,7 @@ def test_betti0(space):
         V0a = FiniteElement(V0tag[0], "triangle", V0tag[1])
         V0b = FiniteElement(V0tag[2], "triangle", V0tag[3])
         V0 = FunctionSpace(mesh, V0a + V0b)
-#V0 Hodge Laplacian
+    # V0 Hodge Laplacian
     u = TrialFunction(V0)
     v = TestFunction(V0)
 

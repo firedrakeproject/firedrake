@@ -2,9 +2,10 @@ from firedrake import *
 import pytest
 
 
-@pytest.fixture(scope='module')
-def V():
-    m = UnitSquareMesh(25, 25)
+@pytest.fixture(scope='module', params=[False, True])
+def V(request):
+    quadrilateral = request.param
+    m = UnitSquareMesh(25, 25, quadrilateral=quadrilateral)
     return FunctionSpace(m, 'CG', 1)
 
 
@@ -87,19 +88,6 @@ def test_nullspace_mixed():
 
     sigma, u = w.split()
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
-
-    # Not projecting out the nullspace should raise an error here,
-    # because the pc is indefinite.
-    with pytest.raises(RuntimeError):
-        solve(a == L, w, bcs=bcs, nullspace=None,
-              solver_parameters={'pc_type': 'fieldsplit',
-                                 'pc_fieldsplit_type': 'schur',
-                                 'ksp_type': 'cg',
-                                 'pc_fieldsplit_schur_fact_type': 'full',
-                                 'fieldsplit_0_ksp_type': 'preonly',
-                                 'fieldsplit_0_pc_type': 'lu',
-                                 'fieldsplit_1_ksp_type': 'cg',
-                                 'fieldsplit_1_pc_type': 'none'})
 
 
 if __name__ == '__main__':

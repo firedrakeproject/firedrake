@@ -5,13 +5,13 @@ import pytest
 
 def test_scalar_constant():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m.ufl_domain())
+        c = Constant(1, domain=m)
         assert abs(assemble(c*m._dx) - 1.0) < 1e-10
 
 
 def test_scalar_constant_assign():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
-        c = Constant(1, domain=m.ufl_domain())
+        c = Constant(1, domain=m)
         assert abs(assemble(c*m._dx) - 1.0) < 1e-10
         c.assign(4)
         assert abs(assemble(c*m._dx) - 4.0) < 1e-10
@@ -28,11 +28,24 @@ def test_constant_assign_mismatch(init, new_vals):
             c.assign(v)
 
 
+def test_constant_cast_to_float():
+    val = 10.0
+    c = Constant(val)
+    assert float(c) == val
+
+
+def test_indexed_vector_constant_cast_to_float():
+    val = [10.0, 20.0]
+    c = Constant(val)
+    for i in range(2):
+        assert float(c[i]) == val[i]
+
+
 def test_vector_constant_2d():
     m = UnitSquareMesh(1, 1)
     n = FacetNormal(m)
 
-    c = Constant([1, -1])
+    c = Constant([1, -1], domain=m)
     # Mesh is:
     # ,---.
     # |\  |
@@ -54,6 +67,17 @@ def test_vector_constant_2d():
     # Normal is in (-1, -1) direction
     assert abs(assemble(dot(c('+'), n('-'))*dS) + 2) < 1e-10
     assert abs(assemble(dot(c('-'), n('-'))*dS) + 2) < 1e-10
+
+
+def test_tensor_constant():
+    mesh = UnitSquareMesh(4, 4)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    v = Function(V)
+    v.assign(1.0)
+    sigma = Constant(((1., 0.), (0., 2.)))
+    val = assemble(inner(v, dot(sigma, v))*dx)
+
+    assert abs(val-3.0) < 1.0e-10
 
 
 def test_constant_scalar_assign_distributes():

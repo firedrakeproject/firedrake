@@ -2,32 +2,40 @@ import ufl
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero, IntValue
 from ufl.indexing import MultiIndex
-from ufl.operatorbase import Operator
+from ufl.core.operator import Operator
 from ufl.mathfunctions import MathFunction
+from ufl.core.ufl_type import ufl_type as orig_ufl_type
+from ufl import classes
 
-import pyop2.coffee.ast_base as ast
+import coffee.base as ast
 from pyop2 import op2
 
 import constant
 import function
 import functionspace
 
-_to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
-_to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
 
-_ast_map = {
-    MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
-    ufl.algebra.Sum: (lambda e: _to_sum(e._operands)),
-    ufl.algebra.Product: (lambda e: _to_prod(e._operands)),
-    ufl.algebra.Division: (lambda e: ast.Div(_ast(e._a), _ast(e._b))),
-    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e._a))),
-    ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
-    ufl.constantvalue.Zero: (lambda e: ast.Symbol(0))
-}
+def ufl_type(*args, **kwargs):
+    """Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
+
+    Additionally adds the class decorated to the appropriate set of ufl classes."""
+    def decorator(cls):
+        orig_ufl_type(*args, **kwargs)(cls)
+        classes.all_ufl_classes.add(cls)
+        if cls._ufl_is_abstract_:
+            classes.abstract_classes.add(cls)
+        else:
+            classes.ufl_classes.add(cls)
+        if cls._ufl_is_terminal_:
+            classes.terminal_classes.add(cls)
+        else:
+            classes.nonterminal_classes.add(cls)
+        return cls
+    return decorator
 
 
 def _ast(expr):
-    """Convert expr to a PyOP2 ast."""
+    """Convert expr to a COFFEE AST."""
 
     try:
         return expr.ast
@@ -72,7 +80,7 @@ class DummyFunction(ufl.Coefficient):
     @property
     def arg(self):
         argtype = self.function.dat.ctype + "*"
-        name = " fn_%r" % self.argnum
+        name = "fn_%r" % self.argnum
 
         return ast.Decl(argtype, ast.Symbol(name))
 
@@ -88,13 +96,14 @@ class DummyFunction(ufl.Coefficient):
 class AssignmentBase(Operator):
 
     """Base class for UFL augmented assignments."""
-    __slots__ = ("_operands", "_symbol", "_ast", "_visit")
 
+    __slots__ = ("ufl_shape", "_symbol", "_ast", "_visit")
     _identity = Zero()
 
     def __init__(self, lhs, rhs):
-        self._operands = map(ufl.as_ufl, (lhs, rhs))
-
+        operands = map(ufl.as_ufl, (lhs, rhs))
+        super(AssignmentBase, self).__init__(operands)
+        self.ufl_shape = lhs.ufl_shape
         # Sub function assignment, we've put a Zero in the lhs
         # indicating we should do nothing.
         if type(lhs) is Zero:
@@ -103,31 +112,29 @@ class AssignmentBase(Operator):
                 or isinstance(lhs, DummyFunction)):
             raise TypeError("Can only assign to a Function")
 
-    def operands(self):
-        """Return the list of operands."""
-        return self._operands
-
     def __str__(self):
-        return (" %s " % self._symbol).join(map(str, self._operands))
+        return (" %s " % self._symbol).join(map(str, self.ufl_operands))
 
     def __repr__(self):
         return "%s(%s)" % (self.__class__.__name__,
-                           ", ".join(repr(o) for o in self._operands))
+                           ", ".join(repr(o) for o in self.ufl_operands))
 
     @property
     def ast(self):
 
-        return self._ast(_ast(self._operands[0]), _ast(self._operands[1]))
+        return self._ast(_ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class Assign(AssignmentBase):
 
     """A UFL assignment operator."""
     _symbol = "="
     _ast = ast.Assign
+    __slots__ = ("ufl_shape", "_symbol", "_ast", "_visit")
 
     def _visit(self, transformer):
-        lhs = self._operands[0]
+        lhs = self.ufl_operands[0]
 
         transformer._result = lhs
 
@@ -146,18 +153,16 @@ class Assign(AssignmentBase):
                                                    intent=op2.WRITE)
             new_lhs = transformer._args[lhs]
 
-        return [new_lhs, self._operands[1]]
-
-# UFL class mangling hack
-Assign._uflclass = Assign
+        return [new_lhs, self.ufl_operands[1]]
 
 
 class AugmentedAssignment(AssignmentBase):
 
     """Base for the augmented assignment operators `+=`, `-=,` `*=`, `/=`"""
+    __slots__ = ()
 
     def _visit(self, transformer):
-        lhs = self._operands[0]
+        lhs = self.ufl_operands[0]
 
         transformer._result = lhs
 
@@ -173,49 +178,45 @@ class AugmentedAssignment(AssignmentBase):
 
         new_lhs.intent = op2.RW
 
-        return [new_lhs, self._operands[1]]
+        return [new_lhs, self.ufl_operands[1]]
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IAdd(AugmentedAssignment):
 
     """A UFL `+=` operator."""
     _symbol = "+="
     _ast = ast.Incr
-
-# UFL class mangling hack
-IAdd._uflclass = IAdd
+    __slots__ = ()
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class ISub(AugmentedAssignment):
 
     """A UFL `-=` operator."""
     _symbol = "-="
     _ast = ast.Decr
-
-# UFL class mangling hack
-ISub._uflclass = ISub
+    __slots__ = ()
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IMul(AugmentedAssignment):
 
     """A UFL `*=` operator."""
     _symbol = "*="
     _ast = ast.IMul
     _identity = IntValue(1)
-
-# UFL class mangling hack
-IMul._uflclass = IMul
+    __slots__ = ()
 
 
+@ufl_type(num_ops=2, is_abstract=False, is_index_free=True, is_shaping=False)
 class IDiv(AugmentedAssignment):
 
     """A UFL `/=` operator."""
     _symbol = "/="
     _ast = ast.IDiv
     _identity = IntValue(1)
-
-# UFL class mangling hack
-IDiv._uflclass = IDiv
+    __slots__ = ()
 
 
 class Power(ufl.algebra.Power):
@@ -224,11 +225,11 @@ class Power(ufl.algebra.Power):
     instead of x**y."""
 
     def __str__(self):
-        return "pow(%s, %s)" % (str(self._a), str(self._b))
+        return "pow(%s, %s)" % self.ufl_operands
 
     @property
     def ast(self):
-        return ast.FunCall("pow", _ast(self._a), _ast(self._b))
+        return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
 
 
 class Ln(ufl.mathfunctions.Ln):
@@ -237,11 +238,11 @@ class Ln(ufl.mathfunctions.Ln):
     instead of ln(x)."""
 
     def __str__(self):
-        return "log(%s)" % str(self._argument)
+        return "log(%s)" % str(self.ufl_operands[0])
 
     @property
     def ast(self):
-        return ast.FunCall("log", _ast(self._argument))
+        return ast.FunCall("log", _ast(self.ufl_operands[0]))
 
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
@@ -249,11 +250,11 @@ class ComponentTensor(ufl.tensors.ComponentTensor):
     first operand."""
 
     def __str__(self):
-        return str(self.operands()[0])
+        return str(self.ufl_operands[0])
 
     @property
     def ast(self):
-        return _ast(self.operands()[0])
+        return _ast(self.ufl_operands[0])
 
 
 class Indexed(ufl.indexed.Indexed):
@@ -261,11 +262,11 @@ class Indexed(ufl.indexed.Indexed):
     operand."""
 
     def __str__(self):
-        return str(self.operands()[0])
+        return str(self.ufl_operands[0])
 
     @property
     def ast(self):
-        return _ast(self.operands()[0])
+        return _ast(self.ufl_operands[0])
 
 
 class ExpressionSplitter(ReuseTransformer):
@@ -276,7 +277,7 @@ class ExpressionSplitter(ReuseTransformer):
         """Split the given expression."""
         self._identity = expr._identity
         self._trees = None
-        lhs, rhs = expr.operands()
+        lhs, rhs = expr.ufl_operands
         # If the expression is not an assignment, the function spaces for both
         # operands have to match
         if not isinstance(expr, AssignmentBase) and \
@@ -312,6 +313,17 @@ class ExpressionSplitter(ReuseTransformer):
             # we're assigning to, in which case we split it into components
             if o.function_space() == self._fs:
                 return o.split()
+            # If the function space we're assigning into is /not/
+            # Mixed, o must be indexed and the functionspace component
+            # much match us.
+            if not isinstance(self._fs, functionspace.MixedFunctionSpace) \
+               and self._fs.index is None:
+                idx = o.function_space().index
+                if idx is None:
+                    raise ValueError("Coefficient %r is not indexed" % o)
+                if o.function_space()._fs != self._fs:
+                    raise ValueError("Mismatching function spaces")
+                return (o,)
             # Otherwise the function space must be indexed and we
             # return the Function for the indexed component and the
             # identity for this assignment for every other
@@ -343,6 +355,29 @@ class ExpressionSplitter(ReuseTransformer):
             # If LHS is indexed, only return a scalar result
             if self._fs.index is not None:
                 return (o,)
+            # LHS is mixed and Constant has same shape, use each
+            # component in turn to assign to each component of the
+            # mixed space.
+            if isinstance(self._fs, functionspace.MixedFunctionSpace) and \
+               isinstance(o, constant.Constant) and \
+               o.element().value_shape() == self._fs.ufl_element().value_shape():
+                offset = 0
+                consts = []
+                val = o.dat.data_ro
+                for fs in self._fs:
+                    shp = fs.ufl_element().value_shape()
+                    if len(shp) == 0:
+                        c = constant.Constant(val[offset], domain=o.domain())
+                        offset += 1
+                    elif len(shp) == 1:
+                        c = constant.Constant(val[offset:offset+shp[0]],
+                                              domain=o.domain())
+                        offset += shp[0]
+                    else:
+                        raise NotImplementedError("Broadcasting Constant to TFS not implemented")
+                    consts.append(c)
+                return consts
+            # Broadcast value across sub spaces.
             return tuple(o for _ in self._fs)
         raise NotImplementedError("Don't know what to do with %r" % o)
 
@@ -385,18 +420,18 @@ class ExpressionWalker(ReuseTransformer):
         if isinstance(o, function.Function):
             if self._function_space is None:
                 self._function_space = o._function_space
-            elif self._function_space.index is not None:
-                # If the LHS is indexed, check compatibility with the
-                # underlying fs
-                sfs = self._function_space._fs
+            else:
+                # Peel out (potentially indexed) function space of LHS
+                # and RHS to check for compatibility.
+                sfs = self._function_space
                 ofs = o._function_space
-                if o._function_space.index is not None:
-                    ofs = self._function_space._fs
+                if sfs.index is not None:
+                    sfs = sfs._fs
+                if ofs.index is not None:
+                    ofs = ofs._fs
                 if sfs != ofs:
-                    raise ValueError("Expression has incompatible function spaces")
-            elif self._function_space != o._function_space:
-                raise ValueError("Expression has incompatible function spaces")
-
+                    raise ValueError("Expression has incompatible function spaces %s and %s" %
+                                     (sfs, ofs))
             try:
                 arg = self._args[o]
                 if arg.intent == op2.WRITE:
@@ -467,7 +502,7 @@ class ExpressionWalker(ReuseTransformer):
 
         else:
             # For all other operators, just visit the children.
-            operands = map(self.visit, o.operands())
+            operands = map(self.visit, o.ufl_operands)
 
         return o.reconstruct(*operands)
 
@@ -479,10 +514,7 @@ def expression_kernel(expr, args):
     fs = args[0].function.function_space()
 
     d = ast.Symbol("dim")
-    if isinstance(fs, functionspace.VectorFunctionSpace):
-        ast_expr = _ast(expr)
-    else:
-        ast_expr = ast.FlatBlock(str(expr) + ";")
+    ast_expr = _ast(expr)
     body = ast.Block(
         (
             ast.Decl("int", d),
@@ -529,3 +561,26 @@ def assemble_expression(expr, subset=None):
     result = function.Function(ExpressionWalker().walk(expr)[2])
     evaluate_expression(Assign(result, expr), subset)
     return result
+
+
+_to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
+_to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
+_to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
+
+_ast_map = {
+    MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
+    ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
+    ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
+    ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
+    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
+    AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
+    ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
+    ufl.constantvalue.Zero: (lambda e: ast.Symbol(0)),
+    ufl.classes.Conditional: (lambda e: ast.Ternary(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.EQ: (lambda e: ast.Eq(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.NE: (lambda e: ast.NEq(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.LT: (lambda e: ast.Less(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.LE: (lambda e: ast.LessEq(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.GT: (lambda e: ast.Greater(*[_ast(o) for o in e.ufl_operands])),
+    ufl.classes.GE: (lambda e: ast.GreaterEq(*[_ast(o) for o in e.ufl_operands]))
+}

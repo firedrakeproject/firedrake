@@ -15,10 +15,11 @@ def test_facet_normal_unit_interval():
     assert assemble(dot(x_hat, n)*ds(2)) == 1.0  # x = 1
 
 
-def test_facet_normal_unit_square():
+@pytest.mark.parametrize('quadrilateral', [False, True])
+def test_facet_normal_unit_square(quadrilateral):
     """Compute facet normals on the sides of the unit square."""
 
-    m = UnitSquareMesh(2, 2)
+    m = UnitSquareMesh(2, 2, quadrilateral=quadrilateral)
     V = VectorFunctionSpace(m, 'CG', 1)
     x_hat = Function(V).interpolate(Expression(('1', '0')))
     y_hat = Function(V).interpolate(Expression(('0', '1')))

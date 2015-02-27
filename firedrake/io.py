@@ -26,10 +26,14 @@ _cells[Cell("triangle", 3)] = hl.VtkTriangle
 _cells[Cell("tetrahedron")] = hl.VtkTetra
 _cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
 _cells[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = hl.VtkWedge
+_cells[Cell("quadrilateral")] = hl.VtkQuad
+_cells[Cell("quadrilateral", 3)] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 2), Cell("interval"))] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = hl.VtkQuad
 _cells[OuterProductCell(Cell("interval", 3), Cell("interval"))] = hl.VtkQuad
+_cells[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = hl.VtkHexahedron
+_cells[OuterProductCell(Cell("quadrilateral", 3), Cell("interval"))] = hl.VtkHexahedron
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -37,6 +41,8 @@ _points_per_cell[Cell("interval", 2)] = 2
 _points_per_cell[Cell("interval", 3)] = 2
 _points_per_cell[Cell("triangle")] = 3
 _points_per_cell[Cell("triangle", 3)] = 3
+_points_per_cell[Cell("quadrilateral")] = 4
+_points_per_cell[Cell("quadrilateral", 3)] = 4
 _points_per_cell[Cell("tetrahedron")] = 4
 _points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
 _points_per_cell[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = 6
@@ -44,23 +50,22 @@ _points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"))] = 4
 _points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"))] = 4
 _points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = 4
 _points_per_cell[OuterProductCell(Cell("interval", 3), Cell("interval"))] = 4
+_points_per_cell[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = 8
+_points_per_cell[OuterProductCell(Cell("quadrilateral", 3), Cell("interval"))] = 8
 
 
 class File(object):
 
-    """Any file can be declared with ``f = File("filename")``,
-    then it will be directed to the correct class according to
-    its extensions and also to the parallelism.
+    """A pvd file object to which :class:`~.Function`\s can be output.
+    Parallel output is handled automatically.
 
-    If there is a parallel, and the rank of its process is 0,
-    then :class:`_PVDFile` is created, and this takes care of writing
-    :class:`_PVTUFile` , and :class:`_VTUFile` that the process is
-    meant to write. If rank is not 0, then :class:`_VTUFile` must be
-    created. The expected argument for this class is string file name
-    of a pvd file in the case of parallel writing.
+    File output is achieved using the left shift operator:
 
-    When there is no parallelism, the class will be created solely
-    according to the extension of the filename passed as an argument.
+    .. code-block:: python
+
+      a = Function(...)
+      f = File("foo.pvd")
+      f << a
 
     .. note::
 
@@ -119,7 +124,7 @@ class _VTUFile(object):
     """Class that represents a VTU file."""
 
     def __init__(self, filename, warnings=None):
-        #_filename : full path to the file without extension.
+        # _filename : full path to the file without extension.
         self._filename = filename
         if warnings:
             self._warnings = warnings
@@ -237,17 +242,15 @@ class _VTUFile(object):
 
         num_points = Vo.node_count
 
-        if not isinstance(e.cell(), OuterProductCell):
-            num_cells = mesh.num_cells()
-        else:
-            num_cells = mesh.num_cells() * (mesh.layers - 1)
+        layers = mesh.layers - 1 if isinstance(e.cell(), OuterProductCell) else 1
+        num_cells = mesh.num_cells() * layers
 
-        if not isinstance(e.cell(), OuterProductCell):
+        if not isinstance(e.cell(), OuterProductCell) and e.cell().cellname() != "quadrilateral":
             connectivity = Vc.cell_node_map().values_with_halo.flatten()
         else:
             # Connectivity of bottom cell in extruded mesh
             base = Vc.cell_node_map().values_with_halo
-            if _cells[mesh._ufl_cell] == hl.VtkQuad:
+            if _cells[mesh.ufl_cell()] == hl.VtkQuad:
                 # Quad is
                 #
                 # 1--3
@@ -261,7 +264,7 @@ class _VTUFile(object):
                 # 0--1
                 base = base[:, [0, 2, 3, 1]]
                 points_per_cell = 4
-            elif _cells[mesh._ufl_cell] == hl.VtkWedge:
+            elif _cells[mesh.ufl_cell()] == hl.VtkWedge:
                 # Wedge is
                 #
                 #    5
@@ -286,14 +289,35 @@ class _VTUFile(object):
                 #
                 base = base[:, [0, 2, 4, 1, 3, 5]]
                 points_per_cell = 6
+            elif _cells[mesh.ufl_cell()] == hl.VtkHexahedron:
+                # Hexahedron is
+                #
+                #   5----7
+                #  /|   /|
+                # 4----6 |
+                # | 1--|-3
+                # |/   |/
+                # 0----2
+                #
+                # needs to be
+                #
+                #   7----6
+                #  /|   /|
+                # 4----5 |
+                # | 3--|-2
+                # |/   |/
+                # 0----1
+                #
+                base = base[:, [0, 2, 3, 1, 4, 6, 7, 5]]
+                points_per_cell = 8
             # Repeat up the column
-            connectivity_temp = np.repeat(base, mesh.layers - 1, axis=0)
+            connectivity_temp = np.repeat(base, layers, axis=0)
 
             if discontinuous:
                 scale = points_per_cell
             else:
                 scale = 1
-            offsets = np.arange(mesh.layers - 1) * scale
+            offsets = np.arange(layers) * scale
 
             # Add offsets going up the column
             connectivity_temp += np.tile(offsets.reshape(-1, 1), (mesh.num_cells(), 1))
@@ -322,8 +346,8 @@ class _VTUFile(object):
         cell_types = np.empty(num_cells, dtype="uint8")
 
         # Assume that all cells are of same shape.
-        cell_types[:] = _cells[mesh._ufl_cell].tid
-        p_c = _points_per_cell[mesh._ufl_cell]
+        cell_types[:] = _cells[mesh.ufl_cell()].tid
+        p_c = _points_per_cell[mesh.ufl_cell()]
 
         # This tells which are the last nodes of each cell.
         offsets = np.arange(start=p_c, stop=p_c * (num_cells + 1), step=p_c,
@@ -437,7 +461,7 @@ class PVTUWriter(object):
 
         # I think I can improve this part by creating PVTU file
         # from VTU file, passing the dictionary of
-        #{attribute_name : (data type, number of components)}
+        # {attribute_name : (data type, number of components)}
         # but for now it is quite pointless since writing vtu
         # is not dynamic either.
 
@@ -445,10 +469,13 @@ class PVTUWriter(object):
         if not self._initialised:
 
             self.xml.openElement("PPointData")
-            if isinstance(function.function_space(), fs.VectorFunctionSpace):
+            if len(function.shape()) == 1:
                 self.addData("Float64", function.name(), num_of_components=3)
-            else:
+            elif len(function.shape()) == 0:
                 self.addData("Float64", function.name(), num_of_components=1)
+            else:
+                raise RuntimeError("Don't know how to write data with shape %s\n",
+                                   function.shape())
             self.xml.closeElement("PPointData")
             self.xml.openElement("PCellData")
             self.addData("Int32", "connectivity")
@@ -482,10 +509,10 @@ class _PVDFile(object):
         self._writer = hl.VtkGroup(self._filename)
         self._warnings = [False, False]
         # Keep the index of child file
-        #(parallel -> pvtu, else vtu)
+        # (parallel -> pvtu, else vtu)
         self._child_index = 0
         self._time_step = -1
-        #_generate_time -> This file does not accept (function, time) tuple
+        # _generate_time -> This file does not accept (function, time) tuple
         #                   for __lshift__, and it generates the integer
         #                   time step by itself instead.
         self._generate_time = False

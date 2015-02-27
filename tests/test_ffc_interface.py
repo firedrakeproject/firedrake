@@ -47,10 +47,10 @@ def rhs2(fs):
 
 @pytest.fixture
 def cache_key(mass):
-    return ffc_interface.FFCKernel(mass, 'mass').cache_key
+    return ffc_interface.FFCKernel(mass, 'mass', parameters["form_compiler"]).cache_key
 
 
-@pytest.mark.xfail("not hasattr(ffc_interface.constants, 'PYOP2_VERSION')")
+@pytest.mark.xfail("not hasattr(ffc_interface.constants, 'FIREDRAKE_VERSION')")
 class TestFFCCache:
 
     """FFC code generation cache tests."""

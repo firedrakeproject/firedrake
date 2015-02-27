@@ -27,12 +27,12 @@ import pytest
 from firedrake import *
 
 
-def poisson_mixed(size, parameters={}):
+def poisson_mixed(size, parameters={}, quadrilateral=False):
     # Create mesh
-    mesh = UnitSquareMesh(2 ** size, 2 ** size)
+    mesh = UnitSquareMesh(2 ** size, 2 ** size, quadrilateral=quadrilateral)
 
     # Define function spaces and mixed (product) space
-    BDM = FunctionSpace(mesh, "BDM", 1)
+    BDM = FunctionSpace(mesh, "BDM" if not quadrilateral else "RTCF", 1)
     DG = FunctionSpace(mesh, "DG", 0)
     W = BDM * DG
 
@@ -61,15 +61,18 @@ def poisson_mixed(size, parameters={}):
     return sqrt(assemble(dot(u - f, u - f) * dx)), u, f
 
 
+@pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize('parameters',
                          [{}, {'pc_type': 'fieldsplit',
                                'pc_fieldsplit_type': 'schur',
                                'ksp_type': 'gmres',
                                'pc_fieldsplit_schur_fact_type': 'FULL',
+                               'fieldsplit_0_pc_factor_shift_type': 'INBLOCKS',
+                               'fieldsplit_1_pc_factor_shift_type': 'INBLOCKS',
                                'fieldsplit_0_ksp_type': 'cg',
                                'fieldsplit_1_ksp_type': 'cg'}])
-def test_poisson_mixed(parameters):
-    assert poisson_mixed(3, parameters)[0] < 2e-5
+def test_poisson_mixed(parameters, quadrilateral):
+    assert poisson_mixed(3, parameters, quadrilateral=quadrilateral)[0] < 2e-5
 
 
 @pytest.mark.parallel(nprocs=3)
@@ -91,6 +94,12 @@ def test_poisson_mixed_parallel_fieldsplit():
 @pytest.mark.parallel(nprocs=3)
 def test_poisson_mixed_parallel():
     x = poisson_mixed(3)[0]
+    assert x < 2e-5
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_poisson_mixed_parallel_on_quadrilaterals():
+    x = poisson_mixed(3, quadrilateral=True)[0]
     assert x < 2e-5
 
 

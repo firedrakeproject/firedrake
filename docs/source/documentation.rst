@@ -2,13 +2,13 @@
 
   .. sidebar:: Current development information.
   
-     Firedrake and PyOP2 are continually tested using a `local buildbot
-     <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__
-     and the `Travis continuous integration system
-     <https://travis-ci.org>`__ respectively.
+     Firedrake and PyOP2 are continually tested using the `Travis
+     continuous integration system <https://travis-ci.org>`__.
 
-     Latest Firedrake status can be found `here
-     <http://buildbot-ocean.ese.ic.ac.uk:8080/builders/firedrake-trunk>`__.
+     Latest Firedrake status: |firedrakebuild|
+
+     .. |firedrakebuild| image:: https://travis-ci.org/firedrakeproject/firedrake.png?branch=master
+                                 :target: https://travis-ci.org/firedrakeproject/firedrake
 
      Latest PyOP2 status: |pyop2build|
 
@@ -44,6 +44,7 @@ PDEs. Below are a few tutorial examples to get you started.
    The Burgers equation, a non-linear, unsteady example.<demos/burgers.py>
    A mixed formulation of the Poisson equation.<demos/poisson_mixed.py>
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
+   Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
 
 Manual
 ======
@@ -58,6 +59,7 @@ finite element problems in Firedrake.
    variational-problems
    solving-interface
    boundary_conditions
+   extruded-meshes
 
 .. only:: html
 

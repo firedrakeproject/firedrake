@@ -1,7 +1,8 @@
 import numpy as np
 import ufl
 
-import pyop2.coffee.ast_base as ast
+import coffee.base as ast
+
 from pyop2 import op2
 from pyop2.caching import ObjectCached
 from pyop2.utils import flatten, as_tuple
@@ -49,8 +50,6 @@ class FunctionSpaceBase(ObjectCached):
 
             # Get the flattened version of the FIAT element
             self.flattened_element = self.fiat_element.flattened_element()
-            entity_dofs = self.flattened_element.entity_dofs()
-            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
             # Compute the number of DoFs per dimension on top/bottom and sides
             entity_dofs = self.fiat_element.entity_dofs()
@@ -86,7 +85,6 @@ class FunctionSpaceBase(ObjectCached):
 
             entity_dofs = self.fiat_element.entity_dofs()
             self._dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
-            self._dofs_per_cell = [len(entity)*len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         self.name = name
         self._dim = dim
@@ -94,14 +92,8 @@ class FunctionSpaceBase(ObjectCached):
         self._index = None
 
         # Create the PetscSection mapping topological entities to DoFs
-        try:
-            # Old style createSection
-            self._global_numbering = mesh._plex.createSection(1, [1], self._dofs_per_entity,
-                                                              perm=mesh._plex_renumbering)
-        except:
-            # New style
-            self._global_numbering = mesh._plex.createSection([1], self._dofs_per_entity,
-                                                              perm=mesh._plex_renumbering)
+        self._global_numbering = mesh._plex.createSection([1], self._dofs_per_entity,
+                                                          perm=mesh._plex_renumbering)
         mesh._plex.setDefaultSection(self._global_numbering)
         self._universal_numbering = mesh._plex.getDefaultGlobalSection()
 
@@ -129,99 +121,22 @@ class FunctionSpaceBase(ObjectCached):
 
         self._node_count = self._global_numbering.getStorageSize()
 
-        # Re-order cell closures from the Plex
-        if mesh._cell_closure is None:
-            entity_dofs = self.fiat_element.entity_dofs()
-            entity_per_cell = [len(entity) for d, entity in entity_dofs.iteritems()]
-            entity_per_cell = np.array(entity_per_cell, dtype=np.int32)
-            mesh._cell_closure = dmplex.closure_ordering(mesh._plex,
-                                                         self._universal_numbering,
-                                                         mesh._cell_numbering,
-                                                         entity_per_cell)
-
-        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
-            self.cell_node_list = dmplex.get_extruded_cell_nodes(mesh._plex,
-                                                                 self._global_numbering,
-                                                                 mesh._cell_closure,
-                                                                 self.fiat_element,
-                                                                 sum(self._dofs_per_cell))
-        else:
-            self.cell_node_list = dmplex.get_cell_nodes(self._global_numbering,
-                                                        mesh._cell_closure,
-                                                        sum(self._dofs_per_cell))
+        self.cell_node_list = mesh.create_cell_node_list(self._global_numbering,
+                                                         self.fiat_element)
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
-            # Compute the facet_numbering and store with the parent mesh
-            if mesh.interior_facets is None:
-                # Order interior facets by OP2 entity class
-                interior_facets, interior_facet_classes = \
-                    dmplex.get_facets_by_class(mesh._plex, "interior_facets")
-
-                interior_local_facet_number, interior_facet_cell = \
-                    dmplex.facet_numbering(mesh._plex, "interior",
-                                           interior_facets,
-                                           mesh._cell_numbering,
-                                           mesh._cell_closure)
-
-                mesh.interior_facets = mesh_t._Facets(mesh, interior_facet_classes,
-                                                      "interior",
-                                                      interior_facet_cell,
-                                                      interior_local_facet_number)
-
-            interior_facet_cells = mesh.interior_facets.facet_cell
             self.interior_facet_node_list = \
-                dmplex.get_facet_nodes(interior_facet_cells,
+                dmplex.get_facet_nodes(mesh.interior_facets.facet_cell,
                                        self.cell_node_list)
         else:
-            self.interior_facet_node_list = None
-            if mesh.interior_facets is None:
-                mesh.interior_facets = mesh_t._Facets(self, 0, "exterior", None, None)
+            self.interior_facet_node_list = np.array([], dtype=np.int32)
 
         if mesh._plex.getStratumSize("exterior_facets", 1) > 0:
-            # Compute the facet_numbering and store with the parent mesh
-            if mesh.exterior_facets is None:
-
-                # Order exterior facets by OP2 entity class
-                exterior_facets, exterior_facet_classes = \
-                    dmplex.get_facets_by_class(mesh._plex, "exterior_facets")
-
-                # Derive attached boundary IDs
-                if mesh._plex.hasLabel("boundary_ids"):
-                    boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
-                    for i, facet in enumerate(exterior_facets):
-                        boundary_ids[i] = mesh._plex.getLabelValue("boundary_ids", facet)
-
-                    unique_ids = np.sort(mesh._plex.getLabelIdIS("boundary_ids").indices)
-                else:
-                    boundary_ids = None
-                    unique_ids = None
-
-                exterior_local_facet_number, exterior_facet_cell = \
-                    dmplex.facet_numbering(mesh._plex, "exterior",
-                                           exterior_facets,
-                                           mesh._cell_numbering,
-                                           mesh._cell_closure)
-
-                mesh.exterior_facets = mesh_t._Facets(mesh, exterior_facet_classes,
-                                                      "exterior",
-                                                      exterior_facet_cell,
-                                                      exterior_local_facet_number,
-                                                      boundary_ids,
-                                                      unique_markers=unique_ids)
-
-            exterior_facet_cells = mesh.exterior_facets.facet_cell
             self.exterior_facet_node_list = \
-                dmplex.get_facet_nodes(exterior_facet_cells,
+                dmplex.get_facet_nodes(mesh.exterior_facets.facet_cell,
                                        self.cell_node_list)
         else:
-            self.exterior_facet_node_list = None
-            if mesh.exterior_facets is None:
-                if mesh._plex.hasLabel("boundary_ids"):
-                    unique_ids = np.sort(mesh._plex.getLabelIdIS("boundary_ids").indices)
-                else:
-                    unique_ids = None
-                mesh.exterior_facets = mesh_t._Facets(self, 0, "exterior", None, None,
-                                                      unique_markers=unique_ids)
+            self.exterior_facet_node_list = np.array([], dtype=np.int32)
 
         # Note: this is the function space rank. The value rank may be different.
         self.rank = rank
@@ -376,6 +291,21 @@ class FunctionSpaceBase(ObjectCached):
 
     def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
+        if bcs is not None:
+            # Separate explicit bcs (we just place negative entries in
+            # the appropriate map values) from implicit ones (extruded
+            # top and bottom) that require PyOP2 code gen.
+            explicit_bcs = [bc for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
+            implicit_bcs = [bc.sub_domain for bc in bcs if bc.sub_domain in ['top', 'bottom']]
+            if len(explicit_bcs) == 0:
+                # Implicit bcs are not part of the cache key for the
+                # map (they only change the generated PyOP2 code),
+                # hence rewrite bcs here.
+                bcs = None
+            if len(implicit_bcs) == 0:
+                implicit_bcs = None
+        else:
+            implicit_bcs = None
         if bcs is None:
             # Empty tuple if no bcs found.  This is so that matrix
             # assembly, which uses a set to keep track of the bcs
@@ -389,7 +319,13 @@ class FunctionSpaceBase(ObjectCached):
             lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
         try:
             # Cache hit
-            return cache[lbcs]
+            val = cache[lbcs]
+            # In the implicit bc case, we decorate the cached map with
+            # the list of implicit boundary conditions so PyOP2 knows
+            # what to do.
+            if implicit_bcs:
+                val = op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
+            return val
         except KeyError:
             # Cache miss.
 
@@ -403,15 +339,18 @@ class FunctionSpaceBase(ObjectCached):
             else:
                 new_entity_node_list = entity_node_list
 
-            cache[lbcs] = op2.Map(entity_set, self.node_set,
-                                  map_arity,
-                                  new_entity_node_list,
-                                  ("%s_"+name) % (self.name),
-                                  offset,
-                                  parent,
-                                  self.bt_masks)
+            val = op2.Map(entity_set, self.node_set,
+                          map_arity,
+                          new_entity_node_list,
+                          ("%s_"+name) % (self.name),
+                          offset,
+                          parent,
+                          self.bt_masks)
 
-            return cache[lbcs]
+            cache[lbcs] = val
+            if implicit_bcs:
+                return op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
+            return val
 
     @utils.memoize
     def exterior_facet_boundary_node_map(self, method):
@@ -426,22 +365,7 @@ class FunctionSpaceBase(ObjectCached):
 
         el = self.fiat_element
 
-        if isinstance(self._mesh, mesh_t.ExtrudedMesh):
-            # The facet is indexed by (base-ele-codim 1, 1) for
-            # extruded meshes.
-            # e.g. for the two supported options of
-            # triangle x interval interval x interval it's (1, 1) and
-            # (0, 1) respectively.
-            if self._mesh.geometric_dimension == 3:
-                dim = (1, 1)
-            elif self._mesh.geometric_dimension == 2:
-                dim = (0, 1)
-            else:
-                raise RuntimeError("Dimension computation for other than 2D or 3D extruded meshes not supported.")
-        else:
-            # Facets have co-dimension 1
-            dim = len(el.get_reference_element().topology)-1
-            dim = dim - 1
+        dim = self._mesh.facet_dimension()
 
         if method == "topological":
             boundary_dofs = el.entity_closure_dofs()[dim]
@@ -472,8 +396,9 @@ class FunctionSpaceBase(ObjectCached):
         # array literals.
         c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
-        body = ast.Block([ast.Decl("int", ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
-                                                                 nodes_per_facet)),
+        body = ast.Block([ast.Decl("int",
+                                   ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
+                                                          nodes_per_facet)),
                                    init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
                                    qualifiers=["const"]),
                           ast.For(ast.Decl("int", "n", 0),
@@ -499,9 +424,7 @@ class FunctionSpaceBase(ObjectCached):
                      local_facet_dat(op2.READ))
 
         if isinstance(self._mesh, mesh_t.ExtrudedMesh):
-            offset = eutils.extract_offset(self.offset,
-                                           facet_dat.data_ro_with_halos[0],
-                                           self.cell_node_map().values[0])
+            offset = self.offset[boundary_dofs[0]]
         else:
             offset = None
         return op2.Map(facet_set, self.node_set,
@@ -557,8 +480,8 @@ class FunctionSpace(FunctionSpaceBase):
     """Create a function space
 
     :arg mesh: :class:`.Mesh` to build the function space on
-    :arg family: string describing function space family, or a
-        :class:`ufl.OuterProductElement`
+    :arg family: string describing function space family, or an
+        :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
     :arg degree: degree of the function space
     :arg name: (optional) name of the function space
     :arg vfamily: family of function space in vertical dimension
@@ -566,23 +489,28 @@ class FunctionSpace(FunctionSpaceBase):
     :arg vdegree: degree of function space in vertical dimension
         (:class:`.ExtrudedMesh`\es only)
 
-    If the mesh is an :class:`.ExtrudedMesh`, and the `family` argument
-    is a :class:`ufl.OuterProductElement`, `degree`, `vfamily` and
-    `vdegree` are ignored, since the `family` provides all necessary
-    information, otherwise a :class:`ufl.OuterProductElement` is built
-    from the (`family`, `degree`) and (`vfamily`, `vdegree`) pair.  If
-    the `vfamily` and `vdegree` are not provided, the vertical element
-    will be the same as the provided (`family`, `degree`) pair.
+    If the mesh is an :class:`.ExtrudedMesh`, and the ``family``
+    argument is a
+    :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`,
+    ``degree``, ``vfamily`` and ``vdegree`` are ignored, since the
+    ``family`` provides all necessary information, otherwise a
+    :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+    is built from the (``family``, ``degree``) and (``vfamily``,
+    ``vdegree``) pair.  If the ``vfamily`` and ``vdegree`` are not
+    provided, the vertical element defaults to the same as the
+    (``family``, ``degree``) pair.
 
-    If the mesh is not an :class:`.ExtrudedMesh`, the `family` must be
+    If the mesh is not an :class:`.ExtrudedMesh`, the ``family`` must be
     a string describing the finite element family to use, and the
-    `degree` must be provided, `vfamily` and `vdegree` are ignored in
+    ``degree`` must be provided, ``vfamily`` and ``vdegree`` are ignored in
     this case.
+
     """
 
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        mesh.init()
         # Two choices:
         # 1) pass in mesh, family, degree to generate a simple function space
         # 2) set up the function space using FiniteElement, EnrichedElement,
@@ -592,22 +520,15 @@ class FunctionSpace(FunctionSpaceBase):
             element = family.reconstruct(domain=mesh.ufl_domain())
         else:
             # First case...
-            if isinstance(mesh, mesh_t.ExtrudedMesh):
+            if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
                 # if extruded mesh, make the OPE
                 la = ufl.FiniteElement(family,
-                                       domain=mesh._old_mesh._ufl_cell,
+                                       domain=mesh._old_mesh.ufl_cell(),
                                        degree=degree)
-                if vfamily is None or vdegree is None:
-                    # if second element was not passed in, assume same as first
-                    # (only makes sense for CG or DG)
-                    lb = ufl.FiniteElement(family,
-                                           domain=ufl.Cell("interval", 1),
-                                           degree=degree)
-                else:
-                    # if second element was passed in, use in
-                    lb = ufl.FiniteElement(vfamily,
-                                           domain=ufl.Cell("interval", 1),
-                                           degree=vdegree)
+                # if second element was passed in, use in
+                lb = ufl.FiniteElement(vfamily,
+                                       domain=ufl.Cell("interval", 1),
+                                       degree=vdegree)
                 # now make the OPE
                 element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
             else:
@@ -644,21 +565,19 @@ class VectorFunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        mesh.init()
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
-        if isinstance(mesh, mesh_t.ExtrudedMesh):
-            if isinstance(family, ufl.OuterProductElement):
-                raise NotImplementedError("Not yet implemented")
+        if isinstance(mesh, mesh_t.ExtrudedMesh) and isinstance(family, ufl.OuterProductElement):
+            raise NotImplementedError("Not yet implemented")
+
+        if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
             la = ufl.FiniteElement(family,
-                                   domain=mesh._old_mesh._ufl_cell,
+                                   domain=mesh._old_mesh.ufl_cell(),
                                    degree=degree)
-            if vfamily is None or vdegree is None:
-                lb = ufl.FiniteElement(family, domain=ufl.Cell("interval", 1),
-                                       degree=degree)
-            else:
-                lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
-                                       degree=vdegree)
+            lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
+                                   degree=vdegree)
             element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
         else:
             element = ufl.VectorElement(family, domain=mesh.ufl_domain(),

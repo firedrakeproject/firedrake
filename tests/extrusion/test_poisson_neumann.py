@@ -12,9 +12,10 @@ from firedrake import *
 from tests.common import *
 
 
-@pytest.fixture(scope='module')
-def P2():
-    mesh = extmesh(4, 4, 4)
+@pytest.fixture(scope='module', params=[False, True])
+def P2(request):
+    quadrilateral = request.param
+    mesh = extmesh(4, 4, 4, quadrilateral=quadrilateral)
     return FunctionSpace(mesh, "CG", 2)
 
 

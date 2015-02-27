@@ -92,9 +92,12 @@ def test_manifold_parallel():
     run_manifold()
 
 
-@pytest.mark.parametrize('space', ["RT", "BDM"])
+@pytest.mark.parametrize('space', ["RT", "BDM", "RTCF"])
 def test_contravariant_piola_facet_integral(space):
-    mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    if space == "RTCF":
+        mesh = UnitCubedSphereMesh(refinement_level=2)
+    else:
+        mesh = UnitIcosahedralSphereMesh(refinement_level=2)
     global_normal = Expression(("x[0]", "x[1]", "x[2]"))
     mesh.init_cell_orientations(global_normal)
     V = FunctionSpace(mesh, space, 1)
@@ -109,9 +112,12 @@ def test_contravariant_piola_facet_integral(space):
     assert np.allclose(assemble(pos + neg), 0)
 
 
-@pytest.mark.parametrize('space', ["N1curl", "N2curl"])
+@pytest.mark.parametrize('space', ["N1curl", "N2curl", "RTCE"])
 def test_covariant_piola_facet_integral(space):
-    mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    if space == "RTCE":
+        mesh = UnitCubedSphereMesh(refinement_level=2)
+    else:
+        mesh = UnitIcosahedralSphereMesh(refinement_level=2)
     global_normal = Expression(("x[0]", "x[1]", "x[2]"))
     mesh.init_cell_orientations(global_normal)
     V = FunctionSpace(mesh, space, 1)

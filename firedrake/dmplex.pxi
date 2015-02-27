@@ -1,5 +1,11 @@
 cimport petsc4py.PETSc as PETSc
 
+cdef extern from "mpi.h" nogil:
+    ctypedef struct _mpi_datatype_t
+    ctypedef _mpi_datatype_t* MPI_Datatype
+
+    MPI_Datatype MPI_INT
+
 cdef extern from "petsc.h":
    ctypedef long PetscInt
    ctypedef enum PetscBool:
@@ -15,8 +21,11 @@ cdef extern from "petscsys.h":
    int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
 cdef extern from "petscdmplex.h":
+    int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
+
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
+    int DMPlexGetConeOrientation(PETSc.PetscDM,PetscInt,PetscInt*[])
     int DMPlexGetSupportSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetSupport(PETSc.PetscDM,PetscInt,PetscInt*[])
 
@@ -26,6 +35,8 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
     int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
+
+    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI_Datatype,void*,PETSc.PetscSection,void**)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)

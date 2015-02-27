@@ -11,7 +11,9 @@
 /evtk/cevtk.c
 /firedrake/dmplex.c
 /docs/build/
+/docs/source/firedrake.mg.rst
 /docs/source/firedrake.rst
 /docs/source/obtaining_pyop2.rst
 /docs/source/demos
 /demos/**/*.py
+/firedrake/mg/impl.c

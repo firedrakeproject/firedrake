@@ -35,7 +35,8 @@ def project(v, V, bcs=None, mesh=None,
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned.
 
-    Currently, `bcs`, `mesh` and `form_compiler_parameters` are ignored."""
+    The ``bcs``, ``mesh`` and ``form_compiler_parameters`` are
+    currently ignored."""
     if isinstance(V, functionspace.FunctionSpaceBase):
         ret = function.Function(V, name=name)
     elif isinstance(V, function.Function):
@@ -70,7 +71,7 @@ def project(v, V, bcs=None, mesh=None,
     elif isinstance(v, function.Function):
         if v.function_space().mesh() != ret.function_space().mesh():
             raise RuntimeError("Can't project between mismatching meshes")
-    elif not isinstance(v, ufl.expr.Expr):
+    elif not isinstance(v, ufl.core.expr.Expr):
         raise RuntimeError("Can't only project from expressions and functions, not %r" % type(v))
 
     if v.shape() != ret.shape():

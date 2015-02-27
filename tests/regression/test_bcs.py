@@ -3,9 +3,10 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.fixture(scope='module')
-def mesh():
-    return UnitSquareMesh(2, 2)
+@pytest.fixture(scope='module', params=[False, True])
+def mesh(request):
+    quadrilateral = request.param
+    return UnitSquareMesh(2, 2, quadrilateral=quadrilateral)
 
 
 @pytest.fixture(scope='module', params=[FunctionSpace, VectorFunctionSpace])
@@ -112,6 +113,17 @@ def test_homogenize_doesnt_overwrite_function(a, u, V, f):
 
     solve(a == 0, u, bcs=[bc])
     assert abs(u.vector().array()).max() == 0.0
+
+
+def test_homogenize(V):
+    bc = [DirichletBC(V, 10, 1), DirichletBC(V, 20, 2)]
+
+    homogeneous_bc = homogenize(bc)
+    assert len(homogeneous_bc) == 2
+    assert homogeneous_bc[0].function_arg == 0
+    assert homogeneous_bc[1].function_arg == 0
+    assert bc[0].sub_domain == homogeneous_bc[0].sub_domain
+    assert bc[1].sub_domain == homogeneous_bc[1].sub_domain
 
 
 def test_restore_bc_value(a, u, V, f):
@@ -325,6 +337,23 @@ def test_mixed_bcs():
     A11 = A.M[1, 1].values
 
     assert np.allclose(A11.diagonal()[bc.nodes], 1.0)
+
+
+def test_bcs_rhs_assemble(a, V):
+    bcs = [DirichletBC(V, 1.0, 1), DirichletBC(V, 2.0, 3)]
+    b1 = assemble(a)
+    for bc in bcs:
+        bc.apply(b1)
+    b2 = assemble(a, bcs=bcs)
+    assert np.allclose(b1.dat.data, b2.dat.data)
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_empty_exterior_facet_node_list():
+    mesh = UnitIntervalMesh(6)
+    V = FunctionSpace(mesh, 'CG', 1)
+    bc = DirichletBC(V, 1, 1)
+    assert V.exterior_facet_node_map([bc])
 
 
 if __name__ == '__main__':

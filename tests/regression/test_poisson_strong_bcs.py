@@ -19,9 +19,9 @@ import numpy as np
 from firedrake import *
 
 
-def run_test(x, degree, parameters={}):
+def run_test(x, degree, parameters={}, quadrilateral=False):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
 
     # Define variational problem
@@ -41,9 +41,9 @@ def run_test(x, degree, parameters={}):
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_test_linear(x, degree, parameters={}):
+def run_test_linear(x, degree, parameters={}, quadrilateral=False):
     # Create mesh and define function space
-    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
 
     # Define variational problem
@@ -65,8 +65,8 @@ def run_test_linear(x, degree, parameters={}):
     return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
-def run_test_preassembled(x, degree, parameters={}):
-    mesh = UnitSquareMesh(2 ** x, 2 ** x)
+def run_test_preassembled(x, degree, parameters={}, quadrilateral=False):
+    mesh = UnitSquareMesh(2 ** x, 2 ** x, quadrilateral=quadrilateral)
     V = FunctionSpace(mesh, "CG", degree)
 
     u = TrialFunction(V)
@@ -129,28 +129,31 @@ def run_test_preassembled(x, degree, parameters={}):
     return np.asarray([method_A, method_B, method_C, method_D, method_E, method_F])
 
 
-@pytest.mark.parametrize(['params', 'degree'],
-                         [(p, d)
+@pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
+                         [(p, d, q)
                           for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
-                          for d in (1, 2)])
-def test_poisson_analytic(params, degree):
-    assert (run_test(2, degree, parameters=params) < 1.e-9)
+                          for d in (1, 2)
+                          for q in [False, True]])
+def test_poisson_analytic(params, degree, quadrilateral):
+    assert (run_test(2, degree, parameters=params, quadrilateral=quadrilateral) < 1.e-9)
 
 
-@pytest.mark.parametrize(['params', 'degree'],
-                         [(p, d)
+@pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
+                         [(p, d, q)
                           for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
-                          for d in (1, 2)])
-def test_poisson_analytic_linear(params, degree):
-    assert (run_test_linear(2, degree, parameters=params) < 5.e-6)
+                          for d in (1, 2)
+                          for q in [False, True]])
+def test_poisson_analytic_linear(params, degree, quadrilateral):
+    assert (run_test_linear(2, degree, parameters=params, quadrilateral=quadrilateral) < 5.e-6)
 
 
-@pytest.mark.parametrize(['params', 'degree'],
-                         [(p, d)
+@pytest.mark.parametrize(['params', 'degree', 'quadrilateral'],
+                         [(p, d, q)
                           for p in [{}, {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}]
-                          for d in (1, 2)])
-def test_poisson_analytic_preassembled(params, degree):
-    assert (run_test_preassembled(2, degree, parameters=params) < 5.e-6).all()
+                          for d in (1, 2)
+                          for q in [False, True]])
+def test_poisson_analytic_preassembled(params, degree, quadrilateral):
+    assert (run_test_preassembled(2, degree, parameters=params, quadrilateral=quadrilateral) < 5.e-6).all()
 
 
 @pytest.mark.parallel(nprocs=2)

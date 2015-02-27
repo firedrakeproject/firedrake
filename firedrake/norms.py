@@ -1,10 +1,10 @@
 from pyop2.logger import warning
 from ufl import inner, div, grad, curl, sqrt
 
+import assemble
 import function
 import functionspace
 import projection
-import solving
 
 __all__ = ['errornorm', 'norm']
 
@@ -32,7 +32,11 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
     if urank != uhrank:
         raise RuntimeError("Mismatching rank between u and uh")
 
-    degree = uh.function_space().ufl_element().degree() + degree_rise
+    degree = uh.function_space().ufl_element().degree()
+    if isinstance(degree, tuple):
+        degree = max(degree) + degree_rise
+    else:
+        degree += degree_rise
 
     # The exact solution might be an expression, in which case this test is irrelevant.
     if isinstance(u, function.Function):
@@ -108,4 +112,4 @@ def norm(v, norm_type="L2", mesh=None):
     else:
         raise RuntimeError("Unknown norm type '%s'" % norm_type)
 
-    return sqrt(solving.assemble(form))
+    return sqrt(assemble.assemble(form))

@@ -5,8 +5,8 @@ Firedrake and PyOP2 publications
 Some useful slides from a talk on PyOP2 and Firedrake at Compilers for Parallel Computers are 
 `here <http://florianrathgeber.me/CPC2013/>`_.
 
-Journal papers and conference proceedings
------------------------------------------
+Journal papers and conference proceedings about or using Firedrake
+------------------------------------------------------------------
 
 .. raw:: html
 
