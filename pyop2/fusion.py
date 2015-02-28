@@ -66,7 +66,7 @@ class Arg(openmp.Arg):
 
     @staticmethod
     def specialize(args, gtl_map, loop_id):
-        """Given ``args`` instances of some :class:`fusion.Arg` superclass,
+        """Given ``args``, instances of some :class:`fusion.Arg` superclass,
         create and return specialized :class:`fusion.Arg` objects.
 
         :param args: either a single :class:`host.Arg` object or an iterator
@@ -95,6 +95,34 @@ class Arg(openmp.Arg):
         if isinstance(args, (list, tuple)):
             return [convert(arg, gtl_map, loop_id) for arg in args]
         return convert(args, gtl_map, loop_id)
+
+    @staticmethod
+    def filter_args(loop_args):
+        """Given a sequence of tuples of ``Args``, where each tuple comes from a
+        different loop, create a sequence of ``Args`` where there are no duplicates
+        and access modes are properly set (for example, an ``Arg`` whose ``Dat``
+        appears in two different tuples with access mode ``WRITE`` and ``READ``,
+        respectively, will have access mode ``RW`` in the returned sequence of
+        ``Args``."""
+        filtered_args = OrderedDict()
+        for args in loop_args:
+            for a in args:
+                filtered_args[a.data] = filtered_args.get(a.data, a)
+                if a.access != filtered_args[a.data].access:
+                    if READ in [a.access, filtered_args[a.data].access]:
+                        # If a READ and some sort of write (MIN, MAX, RW, WRITE,
+                        # INC), then the access mode becomes RW
+                        filtered_args[a.data]._access = RW
+                    elif WRITE in [a.access, filtered_args[a.data].access]:
+                        # Can't be a READ, so just stick to WRITE regardless of what
+                        # the other access mode is
+                        filtered_args[a.data]._access = WRITE
+                    else:
+                        # Neither READ nor WRITE, so access modes are some
+                        # combinations of RW, INC, MIN, MAX. For simplicity,
+                        # just make it RW.
+                        filtered_args[a.data]._access = RW
+        return filtered_args.values()
 
     def c_arg_bindto(self, arg):
         """Assign c_pointer of this Arg to ``arg``."""
@@ -553,36 +581,9 @@ class TilingSchedule(Schedule):
         self._inspection = inspection
         self._executor = executor
 
-    def _filter_args(self, loop_chain):
-        """Uniquify arguments and access modes"""
-        args = OrderedDict()
-        for loop in loop_chain:
-            # 1) Analyze the Args in each loop composing the chain and produce a
-            # new sequence of Args for the tiled ParLoop. For example, consider
-            # Arg X, and be X.DAT written to in ParLoop_0 (access mode WRITE) and
-            # read from in ParLoop_1 (access mode READ); this means that in the
-            # tiled ParLoop, X will have access mode RW
-            for a in loop.args:
-                args[a.data] = args.get(a.data, a)
-                if a.access != args[a.data].access:
-                    if READ in [a.access, args[a.data].access]:
-                        # If a READ and some sort of write (MIN, MAX, RW, WRITE,
-                        # INC), then the access mode becomes RW
-                        args[a.data]._access = RW
-                    elif WRITE in [a.access, args[a.data].access]:
-                        # Can't be a READ, so just stick to WRITE regardless of what
-                        # the other access mode is
-                        args[a.data]._access = WRITE
-                    else:
-                        # Neither READ nor WRITE, so access modes are some
-                        # combinations of RW, INC, MIN, MAX. For simplicity,
-                        # just make it RW.
-                        args[a.data]._access = RW
-        return args.values()
-
     def __call__(self, loop_chain):
         loop_chain = self._schedule(loop_chain)
-        args = self._filter_args(loop_chain)
+        args = Arg.filter_args([loop.args for loop in loop_chain])
         kernel = tuple((loop.kernel for loop in loop_chain))
         all_args = tuple((Arg.specialize(loop.args, gtl_map, i) for i, (loop, gtl_map)
                          in enumerate(zip(loop_chain, self._executor.gtl_maps))))
