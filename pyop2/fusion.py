@@ -40,7 +40,6 @@ import os
 
 from base import *
 import base
-import openmp
 import compilation
 import host
 from backends import _make_object
@@ -58,11 +57,8 @@ from coffee.utils import visit as coffee_ast_visit, \
 
 import slope_python as slope
 
-# hard coded value to max openmp threads
-_max_threads = 32
 
-
-class Arg(openmp.Arg):
+class Arg(host.Arg):
 
     @staticmethod
     def specialize(args, gtl_map, loop_id):
@@ -139,7 +135,7 @@ class Arg(openmp.Arg):
         return "arg_exec_loop%d_%d" % (self._loop_position, self._position)
 
 
-class Kernel(openmp.Kernel, tuple):
+class Kernel(host.Kernel, tuple):
 
     """A :class:`fusion.Kernel` object represents an ordered sequence of kernels.
     The sequence can either be the result of the concatenation of the kernels
@@ -243,7 +239,7 @@ class Kernel(openmp.Kernel, tuple):
 
 # Parallel loop API
 
-class JITModule(openmp.JITModule):
+class JITModule(host.JITModule):
 
     _cppargs = []
     _libraries = []
@@ -401,7 +397,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         return code_dict
 
 
-class ParLoop(openmp.ParLoop):
+class ParLoop(host.ParLoop):
 
     def __init__(self, kernel, it_space, *args, **kwargs):
         read_args = [a.data for a in args if a.access in [READ, RW]]
