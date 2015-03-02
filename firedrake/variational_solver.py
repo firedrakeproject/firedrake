@@ -93,7 +93,7 @@ class _SNESContext(object):
     def set_globalvector(self, dm):
         """Tell the DM about the layout of the global vector."""
         with self._x.dat.vec_ro as v:
-            dm.setShellGlobalVector(v.duplicate())
+            dm.setGlobalVector(v.duplicate())
 
     def set_function(self, snes):
         """Set the residual evaluation function"""
@@ -240,9 +240,7 @@ class NonlinearVariationalSolver(object):
 
         self._problem = problem
 
-        dm = PETSc.DM().create()
-        dm.setType(dm.Type.SHELL)
-        dm.setUp()
+        dm = PETSc.DMShell().create()
         dm.setAppCtx(ctx)
 
         self.snes.setDM(dm)
