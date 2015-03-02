@@ -162,6 +162,11 @@ class NLVSHierarchy(object):
             This should be a dict mapping PETSc options to values.
             PETSc flag options should be specified with `bool`
             values (:data:`True` for on, :data:`False` for off).
+        :kwarg options_prefix: an optional prefix used to distinguish
+               PETSc options.  If not provided a unique prefix will be
+               created.  Use this option if you want to pass options
+               to the solver from the command line in addition to
+               through the :data:`solver_parameters` dict.
 
         .. note::
 
@@ -184,7 +189,8 @@ class NLVSHierarchy(object):
             problems = problem
         ctx = firedrake.solving_utils._SNESContext(problems)
 
-        parameters, nullspace = firedrake.solving_utils._extract_kwargs(**kwargs)
+        parameters, nullspace, options_prefix \
+            = firedrake.solving_utils._extract_kwargs(**kwargs)
 
         if nullspace is not None:
             raise NotImplementedError("Coarsening nullspaces no yet implemented")
@@ -197,8 +203,11 @@ class NLVSHierarchy(object):
         self.ctx.set_function(self.snes)
         self.ctx.set_jacobian(self.snes)
 
-        self._opt_prefix = "firedrake_nlvsh_%d_" % NLVSHierarchy._id
-        NLVSHierarchy._id += 1
+        if options_prefix is not None:
+            self._opt_prefix = options_prefix
+        else:
+            self._opt_prefix = "firedrake_nlvsh_%d_" % NLVSHierarchy._id
+            NLVSHierarchy._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
         self.parameters = parameters
 

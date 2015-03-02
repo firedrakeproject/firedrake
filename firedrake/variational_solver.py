@@ -69,6 +69,11 @@ class NonlinearVariationalSolver(object):
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
             solver:
+        :kwarg options_prefix: an optional prefix used to distinguish
+               PETSc options.  If not provided a unique prefix will be
+               created.  Use this option if you want to pass options
+               to the solver from the command line in addition to
+               through the :data:`solver_parameters` dict.
 
         .. code-block:: python
 
@@ -82,7 +87,7 @@ class NonlinearVariationalSolver(object):
         """
         assert isinstance(problem, NonlinearVariationalProblem)
 
-        parameters, nullspace = solving_utils._extract_kwargs(**kwargs)
+        parameters, nullspace, options_prefix = solving_utils._extract_kwargs(**kwargs)
 
         ctx = solving_utils._SNESContext(problem)
 
@@ -91,8 +96,12 @@ class NonlinearVariationalSolver(object):
             parameters.setdefault('pc_type', 'jacobi')
 
         self.snes = PETSc.SNES().create()
-        self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
-        NonlinearVariationalSolver._id += 1
+        if options_prefix is not None:
+            self._opt_prefix = options_prefix
+        else:
+            self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
+            NonlinearVariationalSolver._id += 1
+
         self.snes.setOptionsPrefix(self._opt_prefix)
 
         self.parameters = parameters
@@ -188,6 +197,11 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
                space of the operator.
+        :kwarg options_prefix: an optional prefix used to distinguish
+               PETSc options.  If not provided a unique prefix will be
+               created.  Use this option if you want to pass options
+               to the solver from the command line in addition to
+               through the :data:`solver_parameters` dict.
         """
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 

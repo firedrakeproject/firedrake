@@ -11,7 +11,7 @@ class LinearSolver(object):
     _id = 0
 
     def __init__(self, A, P=None, solver_parameters=None,
-                 nullspace=None):
+                 nullspace=None, options_prefix=None):
         """A linear solver for assembled systems (Ax = b).
 
         :arg A: a :class:`~.Matrix` (the operator).
@@ -22,6 +22,11 @@ class LinearSolver(object):
         :kwarg nullspace: an optional :class:`~.VectorSpaceBasis` (or
             :class:`~.MixedVectorSpaceBasis` spanning the null space
             of the operator.
+        :kwarg options_prefix: an optional prefix used to distinguish
+               PETSc options.  If not provided a unique prefix will be
+               created.  Use this option if you want to pass options
+               to the solver from the command line in addition to
+               through the :data:`solver_parameters` dict.
 
         .. note::
 
@@ -37,8 +42,11 @@ class LinearSolver(object):
         if self.P._M.sparsity.shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
 
-        self._opt_prefix = "firedrake_ksp_%d_" % LinearSolver._id
-        LinearSolver._id += 1
+        if options_prefix is not None:
+            self._opt_prefix = options_prefix
+        else:
+            self._opt_prefix = "firedrake_ksp_%d_" % LinearSolver._id
+            LinearSolver._id += 1
 
         self.ksp = PETSc.KSP().create()
         self.ksp.setOptionsPrefix(self._opt_prefix)
@@ -46,6 +54,7 @@ class LinearSolver(object):
         self.parameters = parameters
 
         W = self.A.a.arguments()[0].function_space()
+        # DM provides fieldsplits (but not operators)
         self.ksp.setDM(W._dm)
         self.ksp.setDMActive(False)
 

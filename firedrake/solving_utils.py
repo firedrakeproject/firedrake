@@ -74,8 +74,9 @@ def _extract_kwargs(**kwargs):
     # Make sure we don't stomp on a dict the user has passed in.
     parameters = parameters.copy() if parameters is not None else {}
     nullspace = kwargs.get('nullspace', None)
+    options_prefix = kwargs.get('options_prefix', None)
 
-    return parameters, nullspace
+    return parameters, nullspace, options_prefix
 
 
 class _SNESContext(object):
