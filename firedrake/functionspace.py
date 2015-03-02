@@ -109,15 +109,9 @@ class FunctionSpaceBase(ObjectCached):
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
         for d in range(mesh._plex.getDimension()+1):
-            ncore = mesh._entity_classes[d, 0]
-            nowned = mesh._entity_classes[d, 1]
-            nhalo = mesh._entity_classes[d, 2]
-            nnonexec = mesh._entity_classes[d, 3]
             ndofs = self._dofs_per_entity[d]
-            self.dof_classes[0] += ndofs * ncore
-            self.dof_classes[1] += ndofs * (ncore + nowned)
-            self.dof_classes[2] += ndofs * (ncore + nowned + nhalo)
-            self.dof_classes[3] += ndofs * (ncore + nowned + nhalo + nnonexec)
+            for i in range(4):
+                self.dof_classes[i] += ndofs * mesh._entity_classes[d, i]
 
         self._node_count = self._global_numbering.getStorageSize()
 

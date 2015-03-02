@@ -751,14 +751,14 @@ def get_entity_classes(PETSc.DM plex):
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
-        np.ndarray[np.int32_t, ndim=2, mode="c"] entity_class_sizes
+        np.ndarray[np.int_t, ndim=2, mode="c"] entity_class_sizes
         np.ndarray[np.int32_t, mode="c"] eStart, eEnd
         PetscInt depth, d, i, ci, class_size, start, end
         PetscInt *indices = NULL
         PETSc.IS class_is
 
     depth = plex.getDimension() + 1
-    entity_class_sizes = np.zeros((depth, 4), dtype=np.int32)
+    entity_class_sizes = np.zeros((depth, 4), dtype=np.int)
     eStart = np.zeros(depth, dtype=np.int32)
     eEnd = np.zeros(depth, dtype=np.int32)
     for d in range(depth):
@@ -780,41 +780,13 @@ def get_entity_classes(PETSc.DM plex):
                         entity_class_sizes[d, i] += 1
                         break
             CHKERR(ISRestoreIndices(class_is.iset, &indices))
+
+    # OP2 entity class indices are additive
+    for d in range(depth):
+        for i in range(1, 4):
+            entity_class_sizes[d, i] += entity_class_sizes[d, i-1]
     return entity_class_sizes
 
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-def get_cell_classes(PETSc.DM plex):
-    """Builds PyOP2 entity class offsets of cells.
-
-    :arg plex: The DMPlex object encapsulating the mesh topology
-    """
-    cdef:
-        PetscInt dim, c, ci, nclass, class_size
-        PetscInt *indices = NULL
-        PETSc.IS class_is
-
-    dim = plex.getDimension()
-    cStart, cEnd = plex.getHeightStratum(0)
-    cell_classes = [0, 0, 0, 0]
-    c = 0
-
-    for i, op2class in enumerate(["op2_core",
-                                  "op2_non_core",
-                                  "op2_exec_halo"]):
-        class_is = plex.getStratumIS(op2class, 1)
-        class_size = plex.getStratumSize(op2class, 1)
-        if class_size > 0:
-            CHKERR(ISGetIndices(class_is.iset, &indices))
-            for ci in range(class_size):
-                if cStart <= indices[ci] < cEnd:
-                    c += 1
-            CHKERR(ISRestoreIndices(class_is.iset, &indices))
-        cell_classes[i] = c
-
-    cell_classes[3] = cell_classes[2]
-    return cell_classes
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

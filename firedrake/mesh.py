@@ -353,7 +353,6 @@ class Mesh(object):
                 dmplex.mark_entity_classes(self._plex)
                 self._entity_classes = dmplex.get_entity_classes(self._plex)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
-                self.cell_classes = dmplex.get_cell_classes(self._plex)
 
             with timed_region("Mesh: cell numbering"):
                 # Derive a cell numbering from the Plex renumbering
@@ -660,9 +659,13 @@ class Mesh(object):
     def size(self, d):
         return self.num_entities(d)
 
+    @property
+    def cell_classes(self):
+        return self._entity_classes[self.cell_dimension(), :]
+
     @utils.cached_property
     def cell_set(self):
-        size = self.cell_classes
+        size = list(self.cell_classes)
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_cells" % self.name)
 
