@@ -55,9 +55,9 @@ class NonlinearVariationalProblem(object):
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
 
-
-def get_dm(problem):
-    return problem.u.function_space()._dm
+    @property
+    def dm(self):
+        return self.u.function_space()._dm
 
 
 class _SNESContext(object):
@@ -266,8 +266,7 @@ class NonlinearVariationalSolver(object):
         self._problem = problem
 
         self._ctx = ctx
-        dm = get_dm(problem)
-        self.snes.setDM(dm)
+        self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)

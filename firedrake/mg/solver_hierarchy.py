@@ -185,15 +185,13 @@ class NLVSHierarchy(object):
             problems = problem
         ctx = firedrake.variational_solver._SNESContext(problems)
 
-        dm = firedrake.variational_solver.get_dm(problems[-1])
+        parameters, nullspace = firedrake.variational_solver._extract_kwargs(**kwargs)
 
         if nullspace is not None:
             raise NotImplementedError("Coarsening nullspaces no yet implemented")
-        parameters, nullspace = firedrake.variational_solver._extract_kwargs(**kwargs)
-
         snes = PETSc.SNES().create()
 
-        snes.setDM(dm)
+        snes.setDM(problems[-1].dm)
         self.problems = problems
         self.snes = snes
         self.ctx = ctx
