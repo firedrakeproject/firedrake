@@ -153,7 +153,9 @@ class NLVSHierarchy(object):
         """
         Solve a :class:`NonlinearVariationalProblem` on a hierarchy of meshes.
 
-        :arg problem: A :class:`NonlinearVariationalProblem` to solve.
+        :arg problem: A :class:`NonlinearVariationalProblem` or
+             iterable thereof (if specifying the problem on each level
+             by hand).
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
              :class:`MixedVectorSpaceBasis`) spanning the null space of the
              operator.
@@ -168,14 +170,19 @@ class NLVSHierarchy(object):
            that is you can use :data:`"snes_type": "fas"` or
            :data:`"pc_type": "mg"` transparently.
         """
-        problems = []
-        while True:
-            if problem:
-                problems.append(problem)
-            else:
-                break
-            problem = coarsen_problem(problem)
-        problems.reverse()
+        if isinstance(problem, firedrake.NonlinearVariationalProblem):
+            # We just got a single problem so coarsen up the hierarchy
+            problems = []
+            while True:
+                if problem:
+                    problems.append(problem)
+                else:
+                    break
+                problem = coarsen_problem(problem)
+            problems.reverse()
+        else:
+            # User has provided list of problems
+            problems = problem
         ctx = firedrake.variational_solver._SNESContext(problems)
 
         dm = firedrake.variational_solver.get_dm(problems[-1])
