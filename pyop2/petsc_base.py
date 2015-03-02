@@ -80,6 +80,23 @@ mpi.MPI = MPI
 class DataSet(base.DataSet):
 
     @property
+    def lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet`.
+        """
+        if hasattr(self, '_lgmap'):
+            return self._lgmap
+        lgmap = PETSc.LGMap()
+        if MPI.comm.size == 1:
+            lgmap.create(indices=np.arange(self.size, dtype=PETSc.IntType),
+                         bsize=self.cdim)
+        else:
+            lgmap.create(indices=self.halo.global_to_petsc_numbering,
+                         bsize=self.cdim)
+        self._lgmap = lgmap
+        return lgmap
+
+    @property
     def field_ises(self):
         """A list of PETSc ISes defining the indices for each set in
     the DataSet.
@@ -102,7 +119,10 @@ class DataSet(base.DataSet):
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
-    pass
+
+    @property
+    def lgmap(self):
+        raise NotImplementedError("lgmap property not implemented for MixedDataSet")
 
 
 class Dat(base.Dat):
@@ -271,17 +291,11 @@ class Mat(base.Mat, CopyOnWrite):
     def _init_block(self):
         self._blocks = [[self]]
         mat = PETSc.Mat()
-        row_lg = PETSc.LGMap()
-        col_lg = PETSc.LGMap()
+        row_lg = self.sparsity.dsets[0].lgmap
+        col_lg = self.sparsity.dsets[1].lgmap
         rdim, cdim = self.sparsity.dims
+
         if MPI.comm.size == 1:
-            # The PETSc local to global mapping is the identity in the sequential case
-            row_lg.create(
-                indices=np.arange(self.sparsity.nrows, dtype=PETSc.IntType),
-                bsize=rdim)
-            col_lg.create(
-                indices=np.arange(self.sparsity.ncols, dtype=PETSc.IntType),
-                bsize=cdim)
             self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
             # We're not currently building a blocked matrix, so need to scale the
             # number of rows and columns by the sparsity dimensions
@@ -291,15 +305,6 @@ class Mat(base.Mat, CopyOnWrite):
                 (self.sparsity.nrows * rdim, self.sparsity.ncols * cdim),
                 (self.sparsity._rowptr, self.sparsity._colidx, self._array))
         else:
-            # We get the PETSc local to global mapping from the halo.
-            # This gives us "block" indices, we need to splat those
-            # out to dof indices for vector fields since we don't
-            # currently assemble into block matrices.
-            rindices = self.sparsity.rmaps[0].toset.halo.global_to_petsc_numbering
-            cindices = self.sparsity.cmaps[0].toset.halo.global_to_petsc_numbering
-            row_lg.create(indices=rindices, bsize=rdim)
-            col_lg.create(indices=cindices, bsize=cdim)
-
             mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
                                 (self.sparsity.ncols * cdim, None)),
                           nnz=(self.sparsity.nnz, self.sparsity.onnz),
