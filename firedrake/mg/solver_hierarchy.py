@@ -3,10 +3,9 @@ from __future__ import absolute_import
 
 import firedrake
 from firedrake.petsc import PETSc
-from firedrake import solving_utils
+import firedrake.solving_utils
 from . import utils
 from . import ufl_utils
-import firedrake.variational_solver
 
 __all__ = ["NLVSHierarchy"]
 
@@ -183,9 +182,9 @@ class NLVSHierarchy(object):
         else:
             # User has provided list of problems
             problems = problem
-        ctx = firedrake.variational_solver._SNESContext(problems)
+        ctx = firedrake.solving_utils._SNESContext(problems)
 
-        parameters, nullspace = firedrake.variational_solver._extract_kwargs(**kwargs)
+        parameters, nullspace = firedrake.solving_utils._extract_kwargs(**kwargs)
 
         if nullspace is not None:
             raise NotImplementedError("Coarsening nullspaces no yet implemented")
@@ -211,7 +210,7 @@ class NLVSHierarchy(object):
     def parameters(self, val):
         assert isinstance(val, dict)
         self._parameters = val
-        solving_utils.update_parameters(self, self.snes)
+        firedrake.solving_utils.update_parameters(self, self.snes)
 
     def solve(self):
         dm = self.snes.getDM()
@@ -237,4 +236,4 @@ class NLVSHierarchy(object):
         with self.problems[-1].u.dat.vec as v:
             self.snes.solve(None, v)
 
-        solving_utils.check_snes_convergence(self.snes)
+        firedrake.solving_utils.check_snes_convergence(self.snes)

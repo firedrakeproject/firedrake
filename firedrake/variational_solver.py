@@ -1,17 +1,11 @@
 import ufl
 
-from pyop2.logger import warning, RED
-from pyop2.utils import as_tuple
 from pyop2.profiling import timed_function, profile
 
-import assemble
-import function
 import solving
 import solving_utils
 import ufl_expr
 from petsc import PETSc
-import firedrake.mg.utils
-import firedrake.mg.ufl_utils
 
 
 __all__ = ["LinearVariationalProblem",
@@ -60,166 +54,6 @@ class NonlinearVariationalProblem(object):
         return self.u.function_space()._dm
 
 
-class _SNESContext(object):
-    """
-    Context holding information for SNES callbacks.
-
-    :arg problems: a :class:`NonlinearVariationalProblem` or iterable thereof.
-
-    The idea here is that the SNES holds a shell DM which contains
-    this object as "user context".  When the SNES calls back to the
-    user form_function code, we pull the DM out of the SNES and then
-    get the context (which is one of these objects) to find the
-    Firedrake level information.
-    """
-    def __init__(self, problems):
-        problems = as_tuple(problems)
-        self._problems = problems
-        # Build the jacobian with the correct sparsity pattern.  Note
-        # that since matrix assembly is lazy this doesn't actually
-        # force an additional assembly of the matrix since in
-        # form_jacobian we call assemble again which drops this
-        # computation on the floor.
-        self._jacs = tuple(assemble.assemble(problem.J, bcs=problem.bcs,
-                                             form_compiler_parameters=problem.form_compiler_parameters)
-                           for problem in problems)
-        if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble.assemble(problem.Jp, bcs=problem.bcs,
-                                                  form_compiler_parameters=problem.form_compiler_parameters)
-                                for problem in problems)
-        else:
-            self._pjacs = self._jacs
-        # Function to hold current guess
-        self._xs = tuple(function.Function(problem.u) for problem in problems)
-        self.Fs = tuple(ufl.replace(problem.F, {problem.u: x}) for problem, x in zip(problems,
-                                                                                     self._xs))
-        self.Js = tuple(ufl.replace(problem.J, {problem.u: x}) for problem, x in zip(problems,
-                                                                                     self._xs))
-        if problems[-1].Jp is not None:
-            self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x}) for problem, x in zip(problems,
-                                                                                           self._xs))
-        else:
-            self.Jps = tuple(None for _ in problems)
-        self._Fs = tuple(function.Function(F.arguments()[0].function_space())
-                         for F in self.Fs)
-        self._jacobians_assembled = [False for _ in problems]
-
-    def set_function(self, snes):
-        """Set the residual evaluation function"""
-        with self._Fs[-1].dat.vec as v:
-            snes.setFunction(self.form_function, v)
-
-    def set_jacobian(self, snes):
-        snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
-                         P=self._pjacs[-1]._M.handle)
-
-    def set_nullspace(self, nullspace, ises=None):
-        if nullspace is None:
-            return
-        nullspace._apply(self._jacs[-1]._M)
-        if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M)
-        if ises is not None:
-            nullspace._apply(ises)
-
-    def __len__(self):
-        return len(self._problems)
-
-    def get_level(self, dm):
-        if len(self) == 1:
-            return -1
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
-        return lvl
-
-    @property
-    def is_mixed(self):
-        return self._jacs[-1]._M.sparsity.shape != (1, 1)
-
-    @classmethod
-    def create_matrix(cls, dm):
-        ctx = dm.getAppCtx()
-        lvl = ctx.get_level(dm)
-        return ctx._jacs[lvl]._M.handle
-
-    @classmethod
-    def form_function(cls, snes, X, F):
-        """Form the residual for this problem
-
-        :arg snes: a PETSc SNES object
-        :arg X: the current guess (a Vec)
-        :arg F: the residual at X (a Vec)
-        """
-        dm = snes.getDM()
-        ctx = dm.getAppCtx()
-        lvl = ctx.get_level(dm)
-        # X may not be the same vector as the vec behind self._x, so
-        # copy guess in from X.
-        with ctx._xs[lvl].dat.vec as v:
-            if v != X:
-                X.copy(v)
-
-        assemble.assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
-                          form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
-        for bc in ctx._problems[lvl].bcs:
-            bc.zero(ctx._Fs[lvl])
-
-        # F may not be the same vector as self._F, so copy
-        # residual out to F.
-        with ctx._Fs[lvl].dat.vec_ro as v:
-            v.copy(F)
-
-    @classmethod
-    def form_jacobian(cls, snes, X, J, P):
-        """Form the Jacobian for this problem
-
-        :arg snes: a PETSc SNES object
-        :arg X: the current guess (a Vec)
-        :arg J: the Jacobian (a Mat)
-        :arg P: the preconditioner matrix (a Mat)
-        """
-        dm = snes.getDM()
-        ctx = dm.getAppCtx()
-        lvl = ctx.get_level(dm)
-
-        if ctx._problems[lvl]._constant_jacobian and ctx._jacobians_assembled[lvl]:
-            # Don't need to do any work with a constant jacobian
-            # that's already assembled
-            return
-        ctx._jacobians_assembled[lvl] = True
-
-        # X may not be the same vector as the vec behind self._x, so
-        # copy guess in from X.
-        with ctx._xs[lvl].dat.vec as v:
-            X.copy(v)
-        assemble.assemble(ctx.Js[lvl],
-                          tensor=ctx._jacs[lvl],
-                          bcs=ctx._problems[lvl].bcs,
-                          form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
-        ctx._jacs[lvl].M._force_evaluation()
-        if ctx.Jps[lvl] is not None:
-            assemble.assemble(ctx.Jps[lvl],
-                              tensor=ctx._pjacs[lvl],
-                              bcs=ctx._problems[lvl].bcs,
-                              form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
-            ctx._pjacs[lvl].M._force_evaluation()
-
-
-def _extract_kwargs(**kwargs):
-    parameters = kwargs.get('solver_parameters', None)
-    if 'parameters' in kwargs:
-        warning(RED % "The 'parameters' keyword is deprecated, use 'solver_parameters' instead.")
-        parameters = kwargs['parameters']
-        if 'solver_parameters' in kwargs:
-            warning(RED % "'parameters' and 'solver_parameters' passed, using the latter")
-            parameters = kwargs['solver_parameters']
-
-    # Make sure we don't stomp on a dict the user has passed in.
-    parameters = parameters.copy() if parameters is not None else {}
-    nullspace = kwargs.get('nullspace', None)
-
-    return parameters, nullspace
-
-
 class NonlinearVariationalSolver(object):
     """Solves a :class:`NonlinearVariationalProblem`."""
 
@@ -248,9 +82,9 @@ class NonlinearVariationalSolver(object):
         """
         assert isinstance(problem, NonlinearVariationalProblem)
 
-        parameters, nullspace = _extract_kwargs(**kwargs)
+        parameters, nullspace = solving_utils._extract_kwargs(**kwargs)
 
-        ctx = _SNESContext(problem)
+        ctx = solving_utils._SNESContext(problem)
 
         # Mixed problem, use jacobi pc if user has not supplied one.
         if ctx.is_mixed:
@@ -270,7 +104,7 @@ class NonlinearVariationalSolver(object):
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        dm.setCreateMatrix(ctx.create_matrix)
+        problem.dm.setCreateMatrix(ctx.create_matrix)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises)
 
     def __del__(self):
