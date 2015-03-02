@@ -3472,7 +3472,18 @@ class Mat(SetAssociated):
         Mat._Assembly(self).enqueue()
 
     def _assemble(self):
-        raise NotImplementedError("Abstract Mat base class doesn't know how to assemble itself")
+        raise NotImplementedError(
+            "Abstract Mat base class doesn't know how to assemble itself")
+
+    def addto_values(self, rows, cols, values):
+        """Add a block of values to the :class:`Mat`."""
+        raise NotImplementedError(
+            "Abstract Mat base class doesn't know how to set values.")
+
+    def set_values(self, rows, cols, values):
+        """Set a block of values in the :class:`Mat`."""
+        raise NotImplementedError(
+            "Abstract Mat base class doesn't know how to set values.")
 
     @property
     def _argtype(self):

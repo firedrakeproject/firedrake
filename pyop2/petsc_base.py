@@ -407,6 +407,18 @@ class Mat(base.Mat, CopyOnWrite):
     def _assemble(self):
         self.handle.assemble()
 
+    def addto_values(self, rows, cols, values):
+        """Add a block of values to the :class:`Mat`."""
+
+        self.handle.setValuesBlockedLocal(rows, cols, values,
+                                          addv=PETSc.InsertMode.ADD_VALUES)
+
+    def set_values(self, rows, cols, values):
+        """Set a block of values in the :class:`Mat`."""
+
+        self.handle.setValuesBlockedLocal(rows, cols, values,
+                                          addv=PETSc.InsertMode.INSERT_VALUES)
+
     @property
     def blocks(self):
         """2-dimensional array of matrix blocks."""

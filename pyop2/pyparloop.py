@@ -76,6 +76,7 @@ Example usage::
 
 import base
 import device
+import numpy as np
 
 
 # Fake kernel for type checking
@@ -96,8 +97,6 @@ class ParLoop(base.ParLoop):
 
     def _compute(self, part):
         if part.set._extruded:
-            raise NotImplementedError
-        if any(arg._is_mat for arg in self.args):
             raise NotImplementedError
         subset = isinstance(self._it_space._iterset, base.Subset)
 
@@ -132,6 +131,12 @@ class ParLoop(base.ParLoop):
                     else:
                         args.append(arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1],
                                                    ...])
+                elif arg._is_mat:
+                    if arg.access not in [base.INC, base.WRITE]:
+                        raise NotImplementedError
+                    if arg._is_mixed_mat:
+                        raise ValueError("Mixed Mats must be split before assembly")
+                    args.append(np.zeros(arg._block_shape[0][0], dtype=arg.data.dtype))
                 if arg.access is base.READ:
                     args[-1].setflags(write=False)
                 if args[-1].shape == ():
@@ -149,6 +154,17 @@ class ParLoop(base.ParLoop):
                         arg.data._data[arg.map.values_with_halo[idx], ...] = tmp[:]
                     else:
                         arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1]] = tmp[:]
+                elif arg._is_mat:
+                    if arg._flatten:
+                        raise NotImplementedError  # Need to sort out the permutation.
+                    if arg.access is base.INC:
+                        arg.data.addto_values(arg.map[0].values_with_halo[idx],
+                                              arg.map[1].values_with_halo[idx],
+                                              tmp)
+                    elif arg.access is base.WRITE:
+                        arg.data.set_values(arg.map[0].values_with_halo[idx],
+                                            arg.map[1].values_with_halo[idx],
+                                            tmp)
 
         for arg in self.args:
             if arg._is_dat and arg.data._is_allocated:
