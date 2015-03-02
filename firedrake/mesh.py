@@ -352,7 +352,9 @@ class Mesh(object):
             with timed_region("Mesh: renumbering"):
                 dmplex.mark_entity_classes(self._plex)
                 self._entity_classes = dmplex.get_entity_classes(self._plex)
-                self._plex_renumbering = dmplex.plex_renumbering(self._plex, reordering)
+                self._plex_renumbering = dmplex.plex_renumbering(self._plex,
+                                                                 self._entity_classes,
+                                                                 reordering)
 
             with timed_region("Mesh: cell numbering"):
                 # Derive a cell numbering from the Plex renumbering
