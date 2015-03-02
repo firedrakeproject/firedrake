@@ -416,6 +416,8 @@ def get_level(obj):
 
     If no level info is available, return :data:`None, -1`."""
     try:
+        if isinstance(obj, PETSc.DM):
+            return get_level(obj.getAttr("__fs__")())
         return getattr(obj, "__level_info__")
     except AttributeError:
         return None, -1

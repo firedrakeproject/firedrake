@@ -33,8 +33,8 @@ def coarsen_problem(problem):
 
 
 def create_interpolation(dmc, dmf):
-    _, clvl = utils.get_level(dmc.getAttr("__fs__")())
-    _, flvl = utils.get_level(dmf.getAttr("__fs__")())
+    _, clvl = utils.get_level(dmc)
+    _, flvl = utils.get_level(dmf)
 
     cctx = dmc.getAppCtx()
     fctx = dmf.getAppCtx()
@@ -105,8 +105,8 @@ def create_interpolation(dmc, dmf):
 
 
 def create_injection(dmc, dmf):
-    _, clvl = utils.get_level(dmc.getAttr("__fs__")())
-    _, flvl = utils.get_level(dmf.getAttr("__fs__")())
+    _, clvl = utils.get_level(dmc)
+    _, flvl = utils.get_level(dmf)
 
     cctx = dmc.getAppCtx()
 

@@ -3,7 +3,7 @@ import ufl
 from pyop2.logger import warning, RED
 from pyop2.utils import as_tuple
 
-import firedrake
+from firedrake.mg import utils
 import assemble
 import function
 from petsc import PETSc
@@ -143,12 +143,6 @@ class _SNESContext(object):
     def __len__(self):
         return len(self._problems)
 
-    def get_level(self, dm):
-        if len(self) == 1:
-            return -1
-        _, lvl = firedrake.mg.utils.get_level(dm.getAttr("__fs__")())
-        return lvl
-
     @property
     def is_mixed(self):
         return self._jacs[-1]._M.sparsity.shape != (1, 1)
@@ -156,7 +150,7 @@ class _SNESContext(object):
     @classmethod
     def create_matrix(cls, dm):
         ctx = dm.getAppCtx()
-        lvl = ctx.get_level(dm)
+        _, lvl = utils.get_level(dm)
         return ctx._jacs[lvl]._M.handle
 
     @classmethod
@@ -169,7 +163,7 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        lvl = ctx.get_level(dm)
+        _, lvl = utils.get_level(dm)
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
@@ -197,7 +191,7 @@ class _SNESContext(object):
         """
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        lvl = ctx.get_level(dm)
+        _, lvl = utils.get_level(dm)
 
         if ctx._problems[lvl]._constant_jacobian and ctx._jacobians_assembled[lvl]:
             # Don't need to do any work with a constant jacobian
