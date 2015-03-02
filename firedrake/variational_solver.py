@@ -104,7 +104,6 @@ class NonlinearVariationalSolver(object):
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        problem.dm.setCreateMatrix(ctx.create_matrix)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises)
 
     def __del__(self):
@@ -131,6 +130,7 @@ class NonlinearVariationalSolver(object):
     def solve(self):
         dm = self.snes.getDM()
         dm.setAppCtx(self._ctx)
+        dm.setCreateMatrix(self._ctx.create_matrix)
 
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
