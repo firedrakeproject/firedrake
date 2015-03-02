@@ -77,6 +77,54 @@ MPI = MPIConfig()
 mpi.MPI = MPI
 
 
+class DataSet(base.DataSet):
+
+    @property
+    def lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet`.
+        """
+        if hasattr(self, '_lgmap'):
+            return self._lgmap
+        lgmap = PETSc.LGMap()
+        if MPI.comm.size == 1:
+            lgmap.create(indices=np.arange(self.size, dtype=PETSc.IntType),
+                         bsize=self.cdim)
+        else:
+            lgmap.create(indices=self.halo.global_to_petsc_numbering,
+                         bsize=self.cdim)
+        self._lgmap = lgmap
+        return lgmap
+
+    @property
+    def field_ises(self):
+        """A list of PETSc ISes defining the indices for each set in
+    the DataSet.
+
+        Used when creating block matrices."""
+        if hasattr(self, '_field_ises'):
+            return self._field_ises
+        ises = []
+        nlocal_rows = 0
+        for dset in self:
+            nlocal_rows += dset.size * dset.cdim
+        offset = mpi.MPI.comm.scan(nlocal_rows)
+        offset -= nlocal_rows
+        for dset in self:
+            nrows = dset.size * dset.cdim
+            ises.append(PETSc.IS().createStride(nrows, first=offset, step=1))
+            offset += nrows
+        self._field_ises = tuple(ises)
+        return ises
+
+
+class MixedDataSet(DataSet, base.MixedDataSet):
+
+    @property
+    def lgmap(self):
+        raise NotImplementedError("lgmap property not implemented for MixedDataSet")
+
+
 class Dat(base.Dat):
 
     @contextmanager
@@ -228,6 +276,7 @@ class Mat(base.Mat, CopyOnWrite):
         mat = PETSc.Mat()
         self._blocks = []
         rows, cols = self.sparsity.shape
+        rset, cset = self.sparsity.dsets
         for i in range(rows):
             row = []
             for j in range(cols):
@@ -235,23 +284,18 @@ class Mat(base.Mat, CopyOnWrite):
                            '_'.join([self.name, str(i), str(j)])))
             self._blocks.append(row)
         # PETSc Mat.createNest wants a flattened list of Mats
-        mat.createNest([[m.handle for m in row_] for row_ in self._blocks])
+        mat.createNest([[m.handle for m in row_] for row_ in self._blocks],
+                       isrows=rset.field_ises, iscols=cset.field_ises)
         self._handle = mat
 
     def _init_block(self):
         self._blocks = [[self]]
         mat = PETSc.Mat()
-        row_lg = PETSc.LGMap()
-        col_lg = PETSc.LGMap()
+        row_lg = self.sparsity.dsets[0].lgmap
+        col_lg = self.sparsity.dsets[1].lgmap
         rdim, cdim = self.sparsity.dims
+
         if MPI.comm.size == 1:
-            # The PETSc local to global mapping is the identity in the sequential case
-            row_lg.create(
-                indices=np.arange(self.sparsity.nrows, dtype=PETSc.IntType),
-                bsize=rdim)
-            col_lg.create(
-                indices=np.arange(self.sparsity.ncols, dtype=PETSc.IntType),
-                bsize=cdim)
             self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
             # We're not currently building a blocked matrix, so need to scale the
             # number of rows and columns by the sparsity dimensions
@@ -261,15 +305,6 @@ class Mat(base.Mat, CopyOnWrite):
                 (self.sparsity.nrows * rdim, self.sparsity.ncols * cdim),
                 (self.sparsity._rowptr, self.sparsity._colidx, self._array))
         else:
-            # We get the PETSc local to global mapping from the halo.
-            # This gives us "block" indices, we need to splat those
-            # out to dof indices for vector fields since we don't
-            # currently assemble into block matrices.
-            rindices = self.sparsity.rmaps[0].toset.halo.global_to_petsc_numbering
-            cindices = self.sparsity.cmaps[0].toset.halo.global_to_petsc_numbering
-            row_lg.create(indices=rindices, bsize=rdim)
-            col_lg.create(indices=cindices, bsize=cdim)
-
             mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
                                 (self.sparsity.ncols * cdim, None)),
                           nnz=(self.sparsity.nnz, self.sparsity.onnz),
@@ -521,23 +556,9 @@ class Solver(base.Solver, PETSc.KSP):
         if not self.getOperators()[0] == A.handle:
             self.setOperators(A.handle)
             if self.parameters['pc_type'] == 'fieldsplit' and A.sparsity.shape != (1, 1):
-                rows, cols = A.sparsity.shape
-                ises = []
-                nlocal_rows = 0
-                for i in range(rows):
-                    if i < cols:
-                        nlocal_rows += A[i, i].sparsity.nrows * A[i, i].dims[0]
-                offset = 0
-                if MPI.comm.rank == 0:
-                    MPI.comm.exscan(nlocal_rows)
-                else:
-                    offset = MPI.comm.exscan(nlocal_rows)
-                for i in range(rows):
-                    if i < cols:
-                        nrows = A[i, i].sparsity.nrows * A[i, i].dims[0]
-                        ises.append((str(i), PETSc.IS().createStride(nrows, first=offset, step=1)))
-                        offset += nrows
-                self.getPC().setFieldSplitIS(*ises)
+                ises = A.sparsity.toset.field_ises
+                fises = [(str(i), iset) for i, iset in enumerate(ises)]
+                self.getPC().setFieldSplitIS(*fises)
         if self.parameters['plot_convergence']:
             self.reshist = []
 

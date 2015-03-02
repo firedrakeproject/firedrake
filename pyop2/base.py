@@ -669,7 +669,7 @@ class Set(object):
 
     def __pow__(self, e):
         """Derive a :class:`DataSet` with dimension ``e``"""
-        return DataSet(self, dim=e)
+        return _make_object('DataSet', self, dim=e)
 
     @property
     def layers(self):
@@ -986,7 +986,7 @@ class MixedSet(Set, ObjectCached):
 
     def __pow__(self, e):
         """Derive a :class:`MixedDataSet` with dimensions ``e``"""
-        return MixedDataSet(self._sets, e)
+        return _make_object('MixedDataSet', self._sets, e)
 
     def __str__(self):
         return "OP2 MixedSet composed of Sets: %s" % (self._sets,)
