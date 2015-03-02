@@ -187,6 +187,8 @@ class NLVSHierarchy(object):
 
         dm = firedrake.variational_solver.get_dm(problems[-1])
 
+        if nullspace is not None:
+            raise NotImplementedError("Coarsening nullspaces no yet implemented")
         parameters, nullspace = firedrake.variational_solver._extract_kwargs(**kwargs)
 
         snes = PETSc.SNES().create()
