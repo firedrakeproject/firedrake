@@ -522,22 +522,29 @@ def label_facets(PETSc.DM plex, label_boundary=True):
     :arg label_boundary: if False, don't label the boundary faces
          (they must have already been labelled)."""
     cdef:
-        PetscInt fStart, fEnd, facet, val
+        PetscInt fStart, fEnd, facet
         char *ext_label = <char *>"exterior_facets"
         char *int_label = <char *>"interior_facets"
+        DMLabel lbl_ext, lbl_int
+        PetscBool has_point
+
+    fStart, fEnd = plex.getHeightStratum(1)
+    plex.createLabel(ext_label)
+    CHKERR(DMPlexGetLabel(plex.dm, ext_label, &lbl_ext))
+    CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
 
     # Mark boundaries as exterior_facets
     if label_boundary:
         plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
-
-    fStart, fEnd = plex.getHeightStratum(1)
+    CHKERR(DMPlexGetLabel(plex.dm, int_label, &lbl_int))
+    CHKERR(DMLabelCreateIndex(lbl_int, fStart, fEnd))
 
     for facet in range(fStart, fEnd):
-        CHKERR(DMPlexGetLabelValue(plex.dm, ext_label, facet, &val))
+        CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
         # Not marked, must be interior
-        if val == -1:
-            CHKERR(DMPlexSetLabelValue(plex.dm, int_label, facet, 1))
+        if not has_point:
+            CHKERR(DMLabelSetValue(lbl_int, facet, 1))
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -823,11 +830,15 @@ def get_facets_by_class(PETSc.DM plex, label):
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
+        PetscBool has_point
+        DMLabel lbl_facets
         np.ndarray[np.int32_t, ndim=1, mode="c"] facets
 
     label_chr = <char*>label
     dim = plex.getDimension()
     fStart, fEnd = plex.getHeightStratum(1)
+    CHKERR(DMPlexGetLabel(plex.dm, label, &lbl_facets))
+    CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=np.int32)
     facet_classes = [0, 0, 0, 0]
@@ -843,9 +854,9 @@ def get_facets_by_class(PETSc.DM plex, label):
             CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(nclass):
                 if fStart <= indices[ci] < fEnd:
-                    CHKERR(DMPlexGetLabelValue(plex.dm, label_chr,
-                                               indices[ci], &lbl_val))
-                    if lbl_val == 1:
+                    CHKERR(DMLabelHasPoint(lbl_facets, indices[ci],
+                                           &has_point))
+                    if has_point:
                         facets[fi] = indices[ci]
                         fi += 1
             CHKERR(ISRestoreIndices(class_is.iset, &indices))
