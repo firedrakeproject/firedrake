@@ -62,6 +62,16 @@ def m12(s1, s2):
     return op2.Map(s1, s2, 1, [1, 2, 3, 0])
 
 
+@pytest.fixture
+def m2(s1, s2):
+    return op2.Map(s1, s2, 2, [0, 1, 1, 2, 2, 3, 3, 0])
+
+
+@pytest.fixture
+def mat(s2, m2):
+    return op2.Mat(op2.Sparsity((s2, s2), (m2, m2)))
+
+
 class TestPyParLoop:
 
     """
@@ -161,6 +171,33 @@ class TestPyParLoop:
             op2.par_loop(fn, s1, d1(op2.WRITE))
             assert np.allclose(d1.data, 0.0)
 
+    def test_matrix_addto(self, backend, s1, m2, mat):
+
+        def fn(a):
+            a[:, :] = 1.0
+
+        expected = np.array([[2., 1., 0., 1.],
+                             [1., 2., 1., 0.],
+                             [0., 1., 2., 1.],
+                             [1., 0., 1., 2.]])
+
+        op2.par_loop(fn, s1, mat(op2.INC, (m2[op2.i[0]], m2[op2.i[0]])))
+
+        assert (mat.values == expected).all()
+
+    def test_matrix_set(self, backend, s1, m2, mat):
+
+        def fn(a):
+            a[:, :] = 1.0
+
+        expected = np.array([[1., 1., 0., 1.],
+                             [1., 1., 1., 0.],
+                             [0., 1., 1., 1.],
+                             [1., 0., 1., 1.]])
+
+        op2.par_loop(fn, s1, mat(op2.WRITE, (m2[op2.i[0]], m2[op2.i[0]])))
+
+        assert (mat.values == expected).all()
 
 if __name__ == '__main__':
     import os
