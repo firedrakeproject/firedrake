@@ -227,6 +227,7 @@ class NLVSHierarchy(object):
         nlevel = len(self.ctx._problems)
         dm.setAppCtx(self.ctx)
         dm.setCreateMatrix(self.ctx.create_matrix)
+        # FIXME: Need to set this up on the subDMs
         for i in range(nlevel - 1, 0, -1):
             dm = dm.coarsen()
             dm.setAppCtx(self.ctx)
