@@ -48,7 +48,8 @@ abstract submission is **30 April 2015**.
 Registration
 ------------
 
-Registration is now open `on the Imperial College website <https://wwwa.imperial.ac.uk/pls/apex/f?p=120:2:2426532272852405::NO:::>`_
+Registration is now open `on the Imperial College website <https://wwwa.imperial.ac.uk/pls/apex/f?p=120:2:36560903269220::NO:2:P2_TRT_TYPE,P2_DEPARTMENT,P2_COURSE:SHORTCOR,3324,7793>`_
+
 
 Registration **before 31 May** will be £150. This will include lunch on
 Tuesday and Wednesday, the conference dinner, and refreshments in all
