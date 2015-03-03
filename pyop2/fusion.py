@@ -143,64 +143,30 @@ class Kernel(host.Kernel, tuple):
     """
 
     @classmethod
-    def _cache_key(cls, kernels, fuse_id=None):
+    def _cache_key(cls, kernels, fused_ast=None, loop_chain_index=None):
         keys = "".join([super(Kernel, cls)._cache_key(k.code, k.name, k._opts,
                                                       k._include_dirs, k._headers,
                                                       k._user_code) for k in kernels])
-        return str(fuse_id) + keys
+        return str(loop_chain_index) + keys
 
     def _ast_to_c(self, asts, opts):
         """Fuse Abstract Syntax Trees of a collection of kernels and transform
         them into a string of C code."""
-        asts = as_tuple(asts, (coffee_ast.FunDecl, coffee_ast.Root))
-
-        if len(asts) == 1 or opts['fuse'] is None:
-            self._ast = coffee_ast.Root(asts)
-            return self._ast.gencode()
-
-        # Fuse the actual kernels' bodies
-        fused_ast = dcopy(asts[0])
-        fused_ast = coffee_ast_fundecls(fused_ast, mode='kernel')
-        for unique_id, _ast in enumerate(asts[1:], 1):
-            ast = dcopy(_ast)
-            # 1) Extend function name
-            fused_ast.name = "%s_%s" % (fused_ast.name, ast.name)
-            # 2) Concatenate the arguments in the signature
-            fused_ast.args.extend(ast.args)
-            # 3) Uniquify symbols identifiers
-            ast_info = coffee_ast_visit(ast, None)
-            ast_decls = ast_info['decls']
-            ast_symbols = ast_info['symbols']
-            for str_sym, decl in ast_decls.items():
-                for symbol in ast_symbols.keys():
-                    coffee_ast_update_id(symbol, str_sym, unique_id)
-            # 4) Concatenate bodies
-            marker_ast_node = coffee_ast.FlatBlock("\n\n// Begin of fused kernel\n\n")
-            fused_ast.children[0].children.extend([marker_ast_node] + ast.children)
-
-        self._ast = fused_ast
+        if not isinstance(asts, (coffee_ast.FunDecl, coffee_ast.Root)):
+            asts = coffee_ast.Root(asts)
+        self._ast = asts
         return self._ast.gencode()
 
-    def __init__(self, kernels, fuse_id=None):
+    def __init__(self, kernels, fused_ast=None, loop_chain_index=None):
         """Initialize a :class:`fusion.Kernel` object.
 
         :param kernels: an iterator of some :class:`Kernel` objects. The objects
-                        can be of class `fusion.Kernel` or even of any superclass.
-        :param fuse_id: this parameter indicates whether kernels' bodies should
-                        be fused (i.e., concatenated) or not. If ``None``, then
-                        the kernels are not fused; that is, they are just glued
-                        together as a sequence of different function calls. If
-                        a number ``X`` greater than 0, then the kernels' bodies
-                        are fused. ``X`` greater than 0 has sense if in a loop
-                        chain context; that is, if the kernels are going to be
-                        tiled over. In this case, ``X`` is used to characterize
-                        the kernels' cache key: since the same kernel, in a loop
-                        chain, can appear more than once (for example, interleaved
-                        by other kernels), the code generation step must produce
-                        unique variable names for different kernel invocations.
-                        Despite scoping would have addressed the issue, using
-                        unique identifiers make the code much more readable and
-                        analyzable for debugging.
+                        can be of class `fusion.Kernel` or of any superclass.
+        :param fused_ast: the Abstract Syntax Tree of the fused kernel. If not
+                          provided, kernels are simply concatenated.
+        :param loop_chain_index: index (i.e., position) of the kernel in a loop
+                                 chain. This can be used to differentiate a same
+                                 kernel appearing multiple times in a loop chain.
         """
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
@@ -211,21 +177,18 @@ class Kernel(host.Kernel, tuple):
         self._kernels = kernels
         self._name = "_".join([k.name for k in kernels])
         self._opts = dict(flatten([k._opts.items() for k in kernels]))
-        self._opts['fuse'] = fuse_id
         self._applied_blas = any(k._applied_blas for k in kernels)
         self._applied_ap = any(k._applied_ap for k in kernels)
         self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
         self._headers = list(set(flatten([k._headers for k in kernels])))
         self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
 
-        # If kernels' bodies are not concatenated, then discard duplicates
-        if fuse_id is None:
-            # Note: the simplest way of discarding identical kernels is to check
-            # for the cache key avoiding the first char, which only represents
-            # the position of the kernel in the loop chain
-            kernels = OrderedDict(zip([k.cache_key[1:] for k in kernels],
-                                      kernels)).values()
-        self._code = self._ast_to_c([k._ast for k in kernels], self._opts)
+        asts = fused_ast
+        if not asts:
+            # If kernels' need be concatenated, discard duplicates
+            kernels = dict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
+            asts = [k._ast for k in kernels]
+        self._code = self._ast_to_c(asts, self._opts)
 
         self._initialized = True
 
@@ -315,7 +278,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         # Prior to the instantiation and compilation of the JITModule, a fusion
         # kernel object needs be created. This is because the superclass' method
         # expects a single kernel, not a list as we have at this point.
-        self._kernel = Kernel(self._kernel, fuse_id=None)
+        self._kernel = Kernel(self._kernel)
         # Set compiler and linker options
         slope_dir = os.environ['SLOPE_DIR']
         self._kernel._name = 'executor'
@@ -729,7 +692,31 @@ class Inspector(Cached):
 
         from C. Bertolli et al.
         """
-        fuse = lambda loops, id: Kernel([l.kernel for l in loops], id)
+
+        def fuse(loops, loop_chain_index):
+            kernels = [l.kernel for l in loops]
+            asts = [k._ast for k in kernels]
+            # Fuse the actual kernels' bodies
+            fused_ast = dcopy(asts[0])
+            fused_ast_fundecl = coffee_ast_fundecls(fused_ast, mode='kernel')
+            for unique_id, _ast in enumerate(asts[1:], 1):
+                ast = dcopy(_ast)
+                # 1) Extend function name
+                fused_ast_fundecl.name = "%s_%s" % (fused_ast.name, ast.name)
+                # 2) Concatenate the arguments in the signature
+                fused_ast_fundecl.args.extend(ast.args)
+                # 3) Uniquify symbols identifiers
+                ast_info = coffee_ast_visit(ast, None)
+                ast_decls = ast_info['decls']
+                ast_symbols = ast_info['symbols']
+                for str_sym, decl in ast_decls.items():
+                    for symbol in ast_symbols.keys():
+                        coffee_ast_update_id(symbol, str_sym, unique_id)
+                # 4) Concatenate bodies
+                marker_node = [coffee_ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
+                fused_ast_fundecl.children[0].children.extend(marker_node + ast.children)
+            return Kernel(kernels, fused_ast, loop_chain_index)
+
         fused, fusing = [], [self._loop_chain[0]]
         for i, loop in enumerate(self._loop_chain[1:]):
             base_loop = fusing[-1]
