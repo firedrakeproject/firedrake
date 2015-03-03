@@ -29,6 +29,29 @@ def run_poisson(typ):
                       "fas_levels_ksp_convergence_test": "skip",
                       "snes_max_it": 1,
                       "snes_convergence_test": "skip"}
+    elif typ == "newtonfas":
+        parameters = {"snes_type": "newtonls",
+                      "ksp_type": "preonly",
+                      "pc_type": "none",
+                      "snes_linesearch_type": "l2",
+                      "snes_max_it": 1,
+                      "snes_convergence_test": "skip",
+                      "npc_snes_type": "fas",
+                      "npc_snes_fas_type": "full",
+                      "npc_fas_coarse_snes_type": "newtonls",
+                      "npc_fas_coarse_ksp_type": "preonly",
+                      "npc_fas_coarse_pc_type": "redundant",
+                      "npc_fas_coarse_redundant_pc_type": "lu",
+                      "npc_fas_coarse_snes_linesearch_type": "basic",
+                      "npc_fas_levels_snes_type": "newtonls",
+                      "npc_fas_levels_snes_linesearch_type": "basic",
+                      "npc_fas_levels_snes_max_it": 1,
+                      "npc_fas_levels_ksp_type": "chebyshev",
+                      "npc_fas_levels_ksp_max_it": 2,
+                      "npc_fas_levels_pc_type": "jacobi",
+                      "npc_fas_levels_ksp_convergence_test": "skip",
+                      "npc_snes_max_it": 1,
+                      "npc_snes_convergence_test": "skip"}
     else:
         raise RuntimeError("Unknown parameter set '%s' request", typ)
 
@@ -66,7 +89,7 @@ def run_poisson(typ):
 
 
 @pytest.mark.parametrize("typ",
-                         ["mg", "fas"])
+                         ["mg", "fas", "newtonfas"])
 def test_poisson_gmg(typ):
     assert run_poisson(typ) < 4e-6
 
@@ -79,6 +102,11 @@ def test_poisson_gmg_parallel_mg():
 @pytest.mark.parallel
 def test_poisson_gmg_parallel_fas():
     assert run_poisson("fas") < 4e-6
+
+
+@pytest.mark.parallel
+def test_poisson_gmg_parallel_newtonfas():
+    assert run_poisson("newtonfas") < 4e-6
 
 
 if __name__ == "__main__":
