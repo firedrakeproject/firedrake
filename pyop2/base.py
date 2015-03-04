@@ -180,6 +180,9 @@ class Access(object):
     def __init__(self, mode):
         self._mode = mode
 
+    def __eq__(self, other):
+        return self._mode == other._mode
+
     def __str__(self):
         return "OP2 Access: %s" % self._mode
 
