@@ -99,10 +99,10 @@ class DataSet(base.DataSet):
 
     @property
     def field_ises(self):
-        """A list of PETSc ISes defining the indices for each set in
-    the DataSet.
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
 
-        Used when creating block matrices."""
+        Used when extract blocks from matrices for solvers."""
         if hasattr(self, '_field_ises'):
             return self._field_ises
         ises = []
@@ -113,10 +113,31 @@ class DataSet(base.DataSet):
         offset -= nlocal_rows
         for dset in self:
             nrows = dset.size * dset.cdim
-            ises.append(PETSc.IS().createStride(nrows, first=offset, step=1))
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1)
+            iset.setBlockSize(dset.cdim)
+            ises.append(iset)
             offset += nrows
         self._field_ises = tuple(ises)
         return ises
+
+    @property
+    def local_ises(self):
+        """A list of PETSc ISes defining the local indices for each set in the DataSet.
+
+        Used when extracting blocks from matrices for assembly."""
+        if hasattr(self, '_local_ises'):
+            return self._local_ises
+        ises = []
+        start = 0
+        for dset in self:
+            bs = dset.cdim
+            n = dset.total_size*bs
+            iset = PETSc.IS().createStride(n, first=start, step=1)
+            iset.setBlockSize(bs)
+            start += n
+            ises.append(iset)
+        self._local_ises = tuple(ises)
+        return self._local_ises
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
