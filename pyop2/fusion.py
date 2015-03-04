@@ -53,7 +53,8 @@ from utils import flatten, strip, as_tuple
 import coffee
 from coffee import base as coffee_ast
 from coffee.utils import visit as coffee_ast_visit, \
-    ast_update_id as coffee_ast_update_id, get_fun_decls as coffee_ast_fundecls
+    ast_update_id as coffee_ast_update_id, get_fun_decls as coffee_ast_fundecls, \
+    ast_c_make_alias as coffee_ast_make_alias
 
 import slope_python as slope
 
@@ -118,7 +119,7 @@ class Arg(host.Arg):
                         # combinations of RW, INC, MIN, MAX. For simplicity,
                         # just make it RW.
                         filtered_args[a.data]._access = RW
-        return filtered_args.values()
+        return filtered_args
 
     def c_arg_bindto(self, arg):
         """Assign c_pointer of this Arg to ``arg``."""
@@ -496,7 +497,7 @@ class FusionSchedule(Schedule):
             iterregion = loop_chain[loops_indices[0]].iteration_region
             iterset = loop_chain[loops_indices[0]].it_space.iterset
             loops = [loop_chain[i] for i in loops_indices]
-            args = flatten([loop.args for loop in loops] + extra_args)
+            args = Arg.filter_args([loop.args for loop in loops]).values() + extra_args
 
             # Create the actual ParLoop, resulting from the fusion of some kernels
             fused_par_loops.append(_make_object('ParLoop', kernel, iterset, *args,
@@ -542,7 +543,7 @@ class TilingSchedule(Schedule):
 
     def __call__(self, loop_chain):
         loop_chain = self._schedule(loop_chain)
-        args = Arg.filter_args([loop.args for loop in loop_chain])
+        args = Arg.filter_args([loop.args for loop in loop_chain]).values()
         kernel = tuple((loop.kernel for loop in loop_chain))
         all_args = tuple((Arg.specialize(loop.args, gtl_map, i) for i, (loop, gtl_map)
                          in enumerate(zip(loop_chain, self._executor.gtl_maps))))
@@ -675,6 +676,35 @@ class Inspector(Cached):
             return True
         return False
 
+    def _filter_kernel_args(self, loops, fundecl):
+        """Eliminate redundant arguments in the fused kernel's signature."""
+        fused_loop_args = list(flatten([l.args for l in loops]))
+        unique_fused_loop_args = Arg.filter_args([l.args for l in loops])
+        fused_kernel_args = fundecl.args
+        binding = OrderedDict(zip(fused_loop_args, fused_kernel_args))
+        new_fused_kernel_args, args_maps = [], []
+        for fused_loop_arg, fused_kernel_arg in binding.items():
+            unique_fused_loop_arg = unique_fused_loop_args[fused_loop_arg.data]
+            if fused_loop_arg is unique_fused_loop_arg:
+                new_fused_kernel_args.append(fused_kernel_arg)
+            else:
+                tobind_fused_kernel_arg = binding[unique_fused_loop_arg]
+                if tobind_fused_kernel_arg.is_const:
+                    # Need to remove the /const/ qualifier from the C declaration
+                    # if the same argument is written to, somewhere, in the fused
+                    # kernel. Otherwise, /const/ must be appended, if not present
+                    # already, to the alias' qualifiers
+                    if fused_loop_arg._is_written:
+                        tobind_fused_kernel_arg.qual.remove('const')
+                    elif 'const' not in fused_kernel_arg.qual:
+                        fused_kernel_arg.qual.append('const')
+                # Aliases are created instead of changing symbol names
+                alias = coffee_ast_make_alias(dcopy(fused_kernel_arg),
+                                              dcopy(tobind_fused_kernel_arg))
+                args_maps.append(alias)
+        fundecl.children[0].children = args_maps + fundecl.children[0].children
+        fundecl.args = new_fused_kernel_args
+
     def _soft_fuse(self):
         """Fuse consecutive loops over the same iteration set by concatenating
         kernel bodies and creating new :class:`ParLoop` objects representing
@@ -693,7 +723,7 @@ class Inspector(Cached):
         from C. Bertolli et al.
         """
 
-        def fuse(loops, loop_chain_index):
+        def fuse(self, loops, loop_chain_index):
             kernels = [l.kernel for l in loops]
             asts = [k._ast for k in kernels]
             # Fuse the actual kernels' bodies
@@ -715,6 +745,8 @@ class Inspector(Cached):
                 # 4) Concatenate bodies
                 marker_node = [coffee_ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
                 fused_ast_fundecl.children[0].children.extend(marker_node + ast.children)
+            # Eliminate redundancies in the fused kernel's signature
+            self._filter_kernel_args(loops, fused_ast_fundecl)
             return Kernel(kernels, fused_ast, loop_chain_index)
 
         fused, fusing = [], [self._loop_chain[0]]
@@ -723,7 +755,7 @@ class Inspector(Cached):
             if base_loop.it_space != loop.it_space or \
                     (base_loop.is_indirect and loop.is_indirect):
                 # Fusion not legal
-                fused.append((fuse(fusing, len(fused)), i+1))
+                fused.append((fuse(self, fusing, len(fused)), i+1))
                 fusing = [loop]
             elif (base_loop.is_direct and loop.is_direct) or \
                     (base_loop.is_direct and loop.is_indirect) or \
@@ -734,7 +766,7 @@ class Inspector(Cached):
             else:
                 raise RuntimeError("Unexpected loop chain structure while fusing")
         if fusing:
-            fused.append((fuse(fusing, len(fused)), len(self._loop_chain)))
+            fused.append((fuse(self, fusing, len(fused)), len(self._loop_chain)))
 
         fused_kernels, offsets = zip(*fused)
         self._schedule = FusionSchedule(fused_kernels, offsets)
