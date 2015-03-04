@@ -184,8 +184,7 @@ class FFCKernel(DiskCached):
         if self._initialized:
             return
 
-        incl = [PreprocessNode('#include "firedrake_geometry.h"\n'),
-                PreprocessNode('#include "firedrake_inverse.h"\n')]
+        incl = [PreprocessNode('#include "firedrake_geometry.h"\n')]
         inc = [path.dirname(__file__)]
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters)
@@ -251,7 +250,6 @@ def compile_form(form, name, parameters=None, inverse=False):
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
 
-    parameters["assemble_inverse"] = inverse
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
     if hasattr(form, "_kernels"):
