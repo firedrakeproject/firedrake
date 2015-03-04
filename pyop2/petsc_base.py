@@ -467,9 +467,45 @@ class Mat(base.Mat, CopyOnWrite):
                                % (PETSc.ScalarType, self.dtype))
         # If the Sparsity is defined on MixedDataSets, we need to build a MatNest
         if self.sparsity.shape > (1, 1):
-            self._init_nest()
+            if self.sparsity.nested:
+                self._init_nest()
+            else:
+                self._init_monolithic()
         else:
             self._init_block()
+
+    def _init_monolithic(self):
+        mat = PETSc.Mat()
+        mat.createAIJ(size=((self.nrows, None), (self.ncols, None)),
+                      nnz=(self.sparsity.nnz, self.sparsity.onnz),
+                      bsize=1)
+        rset, cset = self.sparsity.dsets
+        mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
+        self._handle = mat
+        self._blocks = []
+        rows, cols = self.sparsity.shape
+        for i in range(rows):
+            row = []
+            for j in range(cols):
+                row.append(MatBlock(self, i, j))
+            self._blocks.append(row)
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, False)
+        mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
+        # We completely fill the allocated matrix when zeroing the
+        # entries, so raise an error if we "missed" one.
+        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+        mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        # Put zeros in all the places we might eventually put a value.
+        for i in range(rows):
+            for j in range(cols):
+                sparsity.fill_with_zeros(self[i, j].handle,
+                                         self[i, j].sparsity.dims[0][0],
+                                         self[i, j].sparsity.maps,
+                                         set_diag=(i == j))
+
+        mat.assemble()
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
 
     def _init_nest(self):
         mat = PETSc.Mat()
