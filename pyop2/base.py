@@ -447,6 +447,14 @@ class Arg(object):
         return self._is_indirect and self._access is not READ
 
     @property
+    def _is_readonly(self):
+        return self._access == READ
+
+    @property
+    def _is_written(self):
+        return not self._is_readonly
+
+    @property
     def _is_indirect_reduction(self):
         return self._is_indirect and self._access is INC
 
