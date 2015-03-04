@@ -41,6 +41,7 @@ required to implement backend-specific features.
 
 from contextlib import contextmanager
 from petsc4py import PETSc, __version__ as petsc4py_version
+import numpy as np
 
 import base
 from base import *
@@ -122,7 +123,75 @@ class MixedDataSet(DataSet, base.MixedDataSet):
 
     @property
     def lgmap(self):
-        raise NotImplementedError("lgmap property not implemented for MixedDataSet")
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`MixedDataSet`.
+        """
+        if hasattr(self, '_lgmap'):
+            return self._lgmap
+        self._lgmap = PETSc.LGMap()
+        if MPI.comm.size == 1:
+            size = sum(s.size * s.cdim for s in self)
+            self._lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
+                               bsize=1)
+            return self._lgmap
+        # Compute local to global maps for a monolithic mixed system
+        # from the individual local to global maps for each field.
+        # Exposition:
+        #
+        # We have N fields and P processes.  The global row
+        # ordering is:
+        #
+        # f_0_p_0, f_1_p_0, ..., f_N_p_0; f_0_p_1, ..., ; f_0_p_P,
+        # ..., f_N_p_P.
+        #
+        # We have per-field local to global numberings, to convert
+        # these into multi-field local to global numberings, we note
+        # the following:
+        #
+        # For each entry in the per-field l2g map, we first determine
+        # the rank that entry belongs to, call this r.
+        #
+        # We know that this must be offset by:
+        # 1. The sum of all field lengths with rank < r
+        # 2. The sum of all lower-numbered field lengths on rank r.
+        #
+        # Finally, we need to shift the field-local entry by the
+        # current field offset.
+        idx_size = sum(s.total_size*s.cdim for s in self)
+        indices = np.full(idx_size, -1, dtype=PETSc.IntType)
+        owned_sz = np.array([sum(s.size * s.cdim for s in self)], dtype=PETSc.IntType)
+        field_offset = np.empty_like(owned_sz)
+        MPI.comm.Scan(owned_sz, field_offset)
+        field_offset -= owned_sz
+
+        all_field_offsets = np.empty(MPI.comm.size, dtype=PETSc.IntType)
+        MPI.comm.Allgather(field_offset, all_field_offsets)
+
+        start = 0
+        all_local_offsets = np.zeros(MPI.comm.size, dtype=PETSc.IntType)
+        current_offsets = np.zeros(MPI.comm.size + 1, dtype=PETSc.IntType)
+        for s in self:
+            idx = indices[start:start + s.total_size * s.cdim]
+            owned_sz[0] = s.size * s.cdim
+            MPI.comm.Scan(owned_sz, field_offset)
+            MPI.comm.Allgather(field_offset, current_offsets[1:])
+            # Find the ranks each entry in the l2g belongs to
+            l2g = s.halo.global_to_petsc_numbering
+            # If cdim > 1, we need to unroll the node numbering to dof
+            # numbering
+            if s.cdim > 1:
+                new_l2g = np.empty(l2g.shape[0]*s.cdim, dtype=l2g.dtype)
+                for i in range(s.cdim):
+                    new_l2g[i::s.cdim] = l2g*s.cdim + i
+                l2g = new_l2g
+            tmp_indices = np.searchsorted(current_offsets, l2g, side="right") - 1
+            idx[:] = l2g[:] - current_offsets[tmp_indices] + \
+                all_field_offsets[tmp_indices] + all_local_offsets[tmp_indices]
+            MPI.comm.Allgather(owned_sz, current_offsets[1:])
+            all_local_offsets += current_offsets[1:]
+            start += s.total_size * s.cdim
+        self._lgmap.create(indices=indices, bsize=1)
+        return self._lgmap
 
 
 class Dat(base.Dat):
