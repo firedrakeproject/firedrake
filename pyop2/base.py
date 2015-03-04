@@ -36,6 +36,7 @@ information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
 
+import itertools
 import weakref
 import numpy as np
 import operator
@@ -3196,7 +3197,16 @@ class Sparsity(ObjectCached):
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].toset.size
         self._ncols = self._cmaps[0].toset.size
-        self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
+
+        tmp = itertools.product([x.cdim for x in self._dsets[0]],
+                                [x.cdim for x in self._dsets[1]])
+
+        dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
+        for r in range(self.shape[0]):
+            for c in range(self.shape[1]):
+                dims[r][c] = tmp.next()
+
+        self._dims = tuple(tuple(d) for d in dims)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         Sparsity._globalcount += 1
@@ -3330,9 +3340,12 @@ class Sparsity(ObjectCached):
 
     @property
     def dims(self):
-        """A pair giving the number of rows per entry of the row
+        """A tuple of tuples where the ``i,j``th entry
+        is a pair giving the number of rows per entry of the row
         :class:`Set` and the number of columns per entry of the column
-        :class:`Set` of the ``Sparsity``."""
+        :class:`Set` of the ``Sparsity``.  The extents of the first
+        two indices are given by the :attr:`shape` of the sparsity.
+        """
         return self._dims
 
     @property

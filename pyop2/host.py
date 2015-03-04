@@ -257,7 +257,7 @@ class Arg(base.Arg):
             ncols *= 2
 
         ret = []
-        rbs, cbs = self.data.sparsity[i, j].dims
+        rbs, cbs = self.data.sparsity[i, j].dims[0][0]
         rdim = rbs * nrows
         cdim = cbs * ncols
         buf_name = buf[0]

@@ -330,7 +330,7 @@ class Mat(DeviceDataMixin, op2.Mat):
     @property
     def values(self):
         base._trace.evaluate(set([self]), set([self]))
-        shape = self.sparsity.maps[0][0].toset.size * self.dims[0]
+        shape = self.sparsity.maps[0][0].toset.size * self.dims[0][0][0]
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
         csrdata = self._csrdata.get()

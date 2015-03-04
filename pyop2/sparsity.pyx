@@ -350,7 +350,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps):
 
 def build_sparsity(object sparsity, bool parallel, bool block=True):
     cdef int rmult, cmult
-    rmult, cmult = sparsity._dims
+    rmult, cmult = sparsity._dims[0][0]
 
     # Build sparsity pattern for block sparse matrix
     if block and rmult == cmult and rmult > 1:

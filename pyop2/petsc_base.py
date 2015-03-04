@@ -294,7 +294,7 @@ class Mat(base.Mat, CopyOnWrite):
         mat = PETSc.Mat()
         row_lg = self.sparsity.dsets[0].lgmap
         col_lg = self.sparsity.dsets[1].lgmap
-        rdim, cdim = self.sparsity.dims
+        rdim, cdim = self.dims[0][0]
 
         if rdim == cdim and rdim > 1:
             # Size is total number of rows and columns, but the
@@ -306,8 +306,8 @@ class Mat(base.Mat, CopyOnWrite):
             # the /dof/ sparsity.
             block_sparse = False
             create = mat.createAIJ
-        create(size=((self.sparsity.nrows * rdim, None),
-                     (self.sparsity.ncols * cdim, None)),
+        create(size=((self.nrows, None),
+                     (self.ncols, None)),
                nnz=(self.sparsity.nnz, self.sparsity.onnz),
                bsize=(rdim, cdim))
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
@@ -330,7 +330,7 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
 
         # Put zeros in all the places we might eventually put a value.
-        sparsity.fill_with_zeros(mat, self.sparsity.dims, self.sparsity.maps)
+        sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps)
 
         # Now we've filled up our matrix, so the sparsity is
         # "complete", we can ignore subsequent zero entries.
