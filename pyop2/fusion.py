@@ -45,16 +45,15 @@ import host
 from backends import _make_object
 from caching import Cached
 from profiling import lineprof, timed_region, profile
-from logger import warning, info
+from logger import warning, info as log_info
 from mpi import collective
 from configuration import configuration
 from utils import flatten, strip, as_tuple
 
 import coffee
-from coffee import base as coffee_ast
-from coffee.utils import visit as coffee_ast_visit, \
-    ast_update_id as coffee_ast_update_id, get_fun_decls as coffee_ast_fundecls, \
-    ast_c_make_alias as coffee_ast_make_alias
+from coffee import base as ast
+from coffee.utils import visit as ast_visit, \
+    ast_update_id as ast_update_id, ast_c_make_alias as ast_make_alias
 
 import slope_python as slope
 
@@ -145,18 +144,19 @@ class Kernel(host.Kernel, tuple):
 
     @classmethod
     def _cache_key(cls, kernels, fused_ast=None, loop_chain_index=None):
-        keys = "".join([super(Kernel, cls)._cache_key(k.code, k.name, k._opts,
-                                                      k._include_dirs, k._headers,
-                                                      k._user_code) for k in kernels])
+        keys = "".join([super(Kernel, cls)._cache_key(k._code or k._ast.gencode(),
+                                                      k._name, k._opts, k._include_dirs,
+                                                      k._headers, k._user_code)
+                        for k in kernels])
         return str(loop_chain_index) + keys
 
     def _ast_to_c(self, asts, opts):
         """Fuse Abstract Syntax Trees of a collection of kernels and transform
         them into a string of C code."""
-        if not isinstance(asts, (coffee_ast.FunDecl, coffee_ast.Root)):
-            asts = coffee_ast.Root(asts)
+        if not isinstance(asts, (ast.FunDecl, ast.Root)):
+            asts = ast.Root(asts)
         self._ast = asts
-        return self._ast.gencode()
+        return super(Kernel, self)._ast_to_c(self._ast, opts)
 
     def __init__(self, kernels, fused_ast=None, loop_chain_index=None):
         """Initialize a :class:`fusion.Kernel` object.
@@ -188,7 +188,10 @@ class Kernel(host.Kernel, tuple):
             # If kernels' need be concatenated, discard duplicates
             kernels = dict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
             asts = [k._ast for k in kernels]
-        self._code = self._ast_to_c(asts, self._opts)
+
+        # Code generation is delayed until actually needed
+        self._ast = asts
+        self._code = None
 
         self._initialized = True
 
@@ -504,30 +507,33 @@ class FusionSchedule(Schedule):
         return fused_par_loops
 
     def _hard_fuse(self, fused):
-        """Update the schedule by marking the kernels in ``fused_kernel`` as
-        hardly fused."""
+        """Update the schedule by introducing kernels produced by hard fusion."""
         for fused_kernel, fused_map in fused:
+            base, fuse = fused_kernel._kernels
             # Variable names: "base" represents the kernel within which "fuse" will
             # be fused into
-            #
+
             # In addition to the union of the "base" and "fuse"' sets of arguments,
             # need to be passed in:
             # - a bitmap, the i-th bit indicating whether the i-th iteration in "fuse"
             #   has been executed
             # - a map from "base"'s iteration space to "fuse"'s iteration space
+            # - the arity of such map
             arg_is_executed = Dat(fused_map.toset)(RW, fused_map)
             arg_fused_map = Dat(DataSet(fused_map.iterset, fused_map.arity),
                                 fused_map.values)(READ)
+            arg_arity = Global(1, fused_map.arity, np.int, "fusion_map_arity")(READ)
+
             # Update the schedule
-            _kernels = fused_kernel._kernels
-            base = [i for i, k in enumerate(self._kernel) if k is _kernels[0]][0]
-            fuse = [i for i, k in enumerate(self._kernel) if k is _kernels[1]][0]
-            pos = min(base, fuse)
+            base_idx, fuse_idx = self._kernel.index(base), self._kernel.index(fuse)
+            pos = min(base_idx, fuse_idx)
             self._kernel.insert(pos, fused_kernel)
-            self._info[pos]['loops_indices'] = [base, fuse]
-            self._info[pos]['extra_args'] = [arg_is_executed, arg_fused_map]
+            self._info[pos]['loops_indices'] = [base_idx, fuse_idx]
+            # Note: the order is importat: first /arg_is_excuted/ is expected, and
+            # then /arg_fused_map/, and finally /arg_arity/
+            self._info[pos]['extra_args'] = [arg_is_executed, arg_fused_map, arg_arity]
             self._kernel.pop(pos+1)
-            pos = max(base, fuse)
+            pos = max(base_idx, fuse_idx)
             self._info.pop(pos)
             self._kernel.pop(pos)
 
@@ -686,23 +692,28 @@ class Inspector(Cached):
             unique_fused_loop_arg = unique_fused_loop_args[fused_loop_arg.data]
             if fused_loop_arg is unique_fused_loop_arg:
                 new_fused_kernel_args.append(fused_kernel_arg)
-            else:
-                tobind_fused_kernel_arg = binding[unique_fused_loop_arg]
-                if tobind_fused_kernel_arg.is_const:
-                    # Need to remove the /const/ qualifier from the C declaration
-                    # if the same argument is written to, somewhere, in the fused
-                    # kernel. Otherwise, /const/ must be appended, if not present
-                    # already, to the alias' qualifiers
-                    if fused_loop_arg._is_written:
-                        tobind_fused_kernel_arg.qual.remove('const')
-                    elif 'const' not in fused_kernel_arg.qual:
-                        fused_kernel_arg.qual.append('const')
-                # Aliases are created instead of changing symbol names
-                alias = coffee_ast_make_alias(dcopy(fused_kernel_arg),
-                                              dcopy(tobind_fused_kernel_arg))
-                args_maps.append(alias)
+                continue
+            tobind_fused_kernel_arg = binding[unique_fused_loop_arg]
+            if tobind_fused_kernel_arg.is_const:
+                # Need to remove the /const/ qualifier from the C declaration
+                # if the same argument is written to, somewhere, in the fused
+                # kernel. Otherwise, /const/ must be appended, if not present
+                # already, to the alias' qualifiers
+                if fused_loop_arg._is_written:
+                    tobind_fused_kernel_arg.qual.remove('const')
+                elif 'const' not in fused_kernel_arg.qual:
+                    fused_kernel_arg.qual.append('const')
+            # Update the /binding/, since might be useful for the caller
+            binding[fused_loop_arg] = tobind_fused_kernel_arg
+            # Aliases may be created instead of changing symbol names
+            if fused_kernel_arg.sym.symbol == tobind_fused_kernel_arg.sym.symbol:
+                continue
+            alias = ast_make_alias(dcopy(fused_kernel_arg),
+                                   dcopy(tobind_fused_kernel_arg))
+            args_maps.append(alias)
         fundecl.children[0].children = args_maps + fundecl.children[0].children
         fundecl.args = new_fused_kernel_args
+        return binding
 
     def _soft_fuse(self):
         """Fuse consecutive loops over the same iteration set by concatenating
@@ -727,7 +738,11 @@ class Inspector(Cached):
             asts = [k._ast for k in kernels]
             # Fuse the actual kernels' bodies
             fused_ast = dcopy(asts[0])
-            fused_ast_fundecl = coffee_ast_fundecls(fused_ast, mode='kernel')
+            ast_info = ast_visit(fused_ast, search=ast.FunDecl)
+            fused_ast_fundecl = ast_info['search'][ast.FunDecl]
+            if len(fused_ast_fundecl) != 1:
+                raise RuntimeError("Fusing kernels, but found unexpected AST")
+            fused_ast_fundecl = fused_ast_fundecl[0]
             for unique_id, _ast in enumerate(asts[1:], 1):
                 ast = dcopy(_ast)
                 # 1) Extend function name
@@ -735,14 +750,14 @@ class Inspector(Cached):
                 # 2) Concatenate the arguments in the signature
                 fused_ast_fundecl.args.extend(ast.args)
                 # 3) Uniquify symbols identifiers
-                ast_info = coffee_ast_visit(ast, None)
+                ast_info = ast_visit(ast)
                 ast_decls = ast_info['decls']
                 ast_symbols = ast_info['symbols']
                 for str_sym, decl in ast_decls.items():
                     for symbol in ast_symbols.keys():
-                        coffee_ast_update_id(symbol, str_sym, unique_id)
+                        ast_update_id(symbol, str_sym, unique_id)
                 # 4) Concatenate bodies
-                marker_node = [coffee_ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
+                marker_node = [ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
                 fused_ast_fundecl.children[0].children.extend(marker_node + ast.children)
             # Eliminate redundancies in the fused kernel's signature
             self._filter_kernel_args(loops, fused_ast_fundecl)
@@ -797,6 +812,9 @@ class Inspector(Cached):
                 loop1.incs & (loop2.writes - loop2.incs) or \
                 loop2.incs & (loop1.writes - loop1.incs)
 
+        def has_iai(loop1, loop2):
+            return loop1.incs & loop2.incs
+
         def fuse(base_loop, loop_chain, fused):
             """Try to fuse one of the loops in ``loop_chain`` with ``base_loop``."""
             for loop in loop_chain:
@@ -806,20 +824,27 @@ class Inspector(Cached):
                 if loop.it_space == base_loop.it_space:
                     warning("Ignoring unexpected sequence of loops in loop fusion")
                     continue
+                # Is there an overlap in any incremented regions? If that is
+                # the case, then fusion can really be useful, by allowing to
+                # save on the number of indirect increments or matrix insertions
+                common_inc_data = has_iai(base_loop, loop)
+                if not common_inc_data:
+                    continue
+                common_incs = [a for a in base_loop.args + loop.args
+                               if a.data in common_inc_data]
                 # Hard fusion potentially doable provided that we own a map between
                 # the iteration spaces involved
-                maps = [a.map for a in loop.args if a._is_indirect] + \
-                       [a.map for a in base_loop.args if a._is_indirect]
+                maps = list(set(flatten([a.map for a in common_incs])))
                 maps += [m.factors for m in maps if hasattr(m, 'factors')]
-                maps = list(set(flatten(maps)))
+                maps = list(flatten(maps))
                 set1, set2 = base_loop.it_space.iterset, loop.it_space.iterset
                 fused_map = [m for m in maps if set1 == m.iterset and set2 == m.toset]
                 if fused_map:
-                    fused.append((Kernel([base_loop.kernel, loop.kernel]), fused_map[0]))
+                    fused.append((base_loop, loop, fused_map[0], common_incs[1]))
                     return
                 fused_map = [m for m in maps if set1 == m.toset and set2 == m.iterset]
                 if fused_map:
-                    fused.append((Kernel([loop.kernel, base_loop.kernel]), fused_map[0]))
+                    fused.append((loop, base_loop, fused_map[0], common_incs[0]))
                     return
 
         # First, find fusible kernels
@@ -850,24 +875,102 @@ class Inspector(Cached):
         #
         # Where /arity/ is the number of kernel2's iterations incident to
         # kernel1's iterations.
-        for fused_kernel, fused_map in fused:
-            base, fuse = fused_kernel._kernels
-            # Obtain /fusion/ arguments
-
-
-            # Create /fusion/ signature
-            base_fundecl = coffee_ast_fundecls(base._ast, mode='kernel')
-            fuse_fundecl = coffee_ast_fundecls(fuse._ast, mode='kernel')
-            fusion_fundecl = coffee_ast.FunDecl(base_fundecl.ret, 'fusion',
-                             dcopy(base_fundecl.args), None)
-
-            # Create /fusion/ body
-
-
+        _fused = []
+        for base_loop, fuse_loop, fused_map, fused_arg in fused:
+            # Start analyzing the kernels' ASTs
+            base, fuse = base_loop.kernel, fuse_loop.kernel
+            base_info = ast_visit(base._ast, search=(ast.FunDecl, ast.PreprocessNode))
+            base_header = base_info['search'][ast.PreprocessNode]
+            base_fundecl = base_info['search'][ast.FunDecl]
+            if len(base_fundecl) != 1:
+                raise RuntimeError("Fusing kernels, but found unexpected AST")
+            fuse_info = ast_visit(fuse._ast, search=(ast.FunDecl, ast.PreprocessNode))
+            fuse_header = fuse_info['search'][ast.PreprocessNode]
+            fuse_fundecl = fuse_info['search'][ast.FunDecl]
+            fuse_symbol_refs = fuse_info['symbol_refs']
+            if len(base_fundecl) != 1 or len(fuse_fundecl) != 1:
+                raise RuntimeError("Fusing kernels, but found unexpected AST")
+            base_fundecl = base_fundecl[0]
+            fuse_fundecl = fuse_fundecl[0]
             from IPython import embed; embed()
 
+            # Craft the /fusion/ kernel
+            # 1) Create /fusion/ arguments and signature
+            body = ast.Block([])
+            fusion_args = base_fundecl.args + fuse_fundecl.args
+            fusion_fundecl = ast.FunDecl(base_fundecl.ret, 'fusion', fusion_args, body)
+
+            # 2) Filter out duplicate arguments, and append extra arguments to
+            # the function declaration
+            binding = self._filter_kernel_args([base_loop, fuse_loop], fusion_fundecl)
+            fusion_fundecl.args += \
+                [ast.Decl('int*', ast.Symbol('executed'))] + \
+                [ast.Decl('int*', ast.Symbol('fusion_map'))] + \
+                [ast.Decl('int', ast.Symbol('fusion_map_arity'))]
+
+            # 3) Create /fusion/ body
+            base_funcall_syms = [ast.Symbol(d.sym.symbol)
+                                 for d in base_fundecl.args]
+            base_funcall = ast.FunCall(base_fundecl.name, *base_funcall_syms)
+            fuse_funcall_syms = [ast.Symbol(binding[arg].sym.symbol)
+                                 for arg in fuse_loop.args]
+            fuse_funcall = ast.FunCall(fuse_fundecl.name, *fuse_funcall_syms)
+            ind_iter_idx = ast.Decl('int', ast.Symbol('fused_iter'),
+                                    ast.Symbol('fusion_map', ('i')))
+            if_cond = ast.Not(ast.Symbol('executed', ('fused_iter',)))
+            if_update = ast.Assign(ast.Symbol('executed', ('fused_iter',)),
+                                   ast.Symbol('1'))
+            if_exec = ast.If(if_cond, [ast.Block([fuse_funcall,
+                                                  if_update], open_scope=True)])
+            fuse_body = ast.Block([ind_iter_idx, if_exec], open_scope=True)
+            fuse_for = ast.c_for('i', 'fusion_map_arity', fuse_body, pragma="")
+            body.children.extend([base_funcall, fuse_for.children[0]])
+
+            # Modify /fuse/ kernel to accomodate fused increments
+            # 1) Determine /fuse/'s incremented argument
+            fuse_symbol_refs = ast_visit(fuse_fundecl)['symbol_refs']
+            fuse_inc_decl = binding[fused_arg]
+            fuse_inc_refs = fuse_symbol_refs[fuse_inc_decl.sym.symbol]
+            fuse_inc_refs = [sym for sym, parent in fuse_inc_refs
+                             if not isinstance(parent, ast.Decl)]
+
+            # 2) Create and introduce offsets for accumulating increments
+            # Note: the /fused_map/ is a factor of the base_loop's iteration set map,
+            # so the order the /fuse/ loop's iterations are executed (in the /for i=0
+            # to arity/ loop) reflects the order of the entries in /fused_map/
+            ofs_syms, ofs_decls = [], []
+            for b in fused_arg._block_shape:
+                for rc in b:
+                    # Determine offset values and produce corresponding C symbols
+                    _ofs_vals = [[0] for i in range(len(rc))]
+                    for i, ofs in enumerate(rc):
+                        ofs_syms.append(ast.Symbol('ofs%d' % i))
+                        ofs_decls.append(ast.Decl('int', dcopy(ofs_syms[i])))
+                        _ofs_vals[i].append(ofs)
+                    for s in fuse_inc_refs:
+                        s.offset = tuple((1, o) for o in ofs_syms)
+                    # Add offset array to the /fusion/ kernel body
+                    ofs_vals = '{%s}' % ','.join(['{%s}' % ','.join([str(i) for i in v])
+                                                  for v in _ofs_vals])
+                    ofs_array = ast.Symbol('ofs', (len(_ofs_vals), len(_ofs_vals[0])))
+                    ofs_array = ast.Decl('int', ofs_array, ast.ArrayInit(ofs_vals),
+                                         qualifiers=['static', 'const'])
+                    body.children.insert(0, ofs_array)
+                    # Set offset value and append it to the If's Then block
+                    ofs_assign = [ast.Decl('int', dcopy(s), ast.Symbol('ofs', (i, 'i')))
+                                  for i, s in enumerate(ofs_syms)]
+                    if_exec.children[0].children[:0] = ofs_assign
+
+            # 3) Change /fuse/ kernel invocation and function declaration
+            fuse_funcall.children.extend(ofs_syms)
+            fuse_fundecl.args.extend(ofs_decls)
+
+            # 4) Create a /fusion.Kernel/ object to be used to update the schedule
+            fused_ast = ast.Root([base_fundecl, fuse_fundecl, fusion_fundecl])
+            _fused.append((Kernel([base, fuse], fused_ast), fused_map))
+
         # Finally, generate a new schedule
-        self._schedule._hard_fuse(fused)
+        self._schedule._hard_fuse(_fused)
         self._loop_chain = self._schedule(self._loop_chain)
 
     def _tile(self):
@@ -878,7 +981,7 @@ class Inspector(Cached):
             backend_map = {'sequential': 'SEQUENTIAL', 'openmp': 'OMP'}
             slope_backend = backend_map[configuration['backend']]
             slope.set_exec_mode(slope_backend)
-            info("SLOPE backend set to %s" % slope_backend)
+            log_info("SLOPE backend set to %s" % slope_backend)
         except KeyError:
             warning("Unable to set backend %s for SLOPE" % configuration['backend'])
 
