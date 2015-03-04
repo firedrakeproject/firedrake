@@ -240,8 +240,8 @@ class Arg(base.Arg):
                         vec_idx += 1
         return ";\n".join(val)
 
-    def c_addto(self, i, j, bufs, extruded=None, is_facet=False, applied_blas=False):
-        buf, layout, uses_layout = bufs
+    def c_addto(self, i, j, buf_name, tmp_name, tmp_decl,
+                extruded=None, is_facet=False, applied_blas=False):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -260,21 +260,8 @@ class Arg(base.Arg):
         rbs, cbs = self.data.sparsity[i, j].dims[0][0]
         rdim = rbs * nrows
         cdim = cbs * ncols
-        buf_name = buf[0]
-        tmp_name = layout[0]
         addto_name = buf_name
         addto = 'MatSetValuesLocal'
-        if uses_layout:
-            # Padding applied, need to pack into "correct" sized buffer for matsetvalues
-            ret = ["""for ( int j = 0; j < %(nrows)d; j++) {
-                          for ( int k = 0; k < %(ncols)d; k++ ) {
-                              %(tmp_name)s[j][k] = %(buf_name)s[j][k];
-                          }
-                      }""" % {'nrows': rdim,
-                              'ncols': cdim,
-                              'tmp_name': tmp_name,
-                              'buf_name': buf_name}]
-            addto_name = tmp_name
         if self.data._is_vector_field:
             addto = 'MatSetValuesBlockedLocal'
             if self._flatten:
@@ -289,6 +276,7 @@ class Arg(base.Arg):
                                'cidx': "l + %d*m" % ncols}
                 # Shuffle xxx yyy zzz into xyz xyz xyz
                 ret = ["""
+                %(tmp_decl)s;
                 for ( int j = 0; j < %(nrows)d; j++ ) {
                    for ( int k = 0; k < %(rbs)d; k++ ) {
                       for ( int l = 0; l < %(ncols)d; l++ ) {
@@ -304,6 +292,7 @@ class Arg(base.Arg):
                         'idx_l': idx_l,
                         'idx_r': idx_r,
                         'buf_name': buf_name,
+                        'tmp_decl': tmp_decl,
                         'tmp_name': tmp_name}]
                 addto_name = tmp_name
 
@@ -572,26 +561,22 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             return ""
         return ", " + ", ".join(val)
 
-    def c_buffer_decl(self, size, idx, buf_name, init=True, is_facet=False):
+    def c_buffer_decl(self, size, idx, buf_name, is_facet=False, init=True):
         buf_type = self.data.ctype
         dim = len(size)
         compiler = coffee.plan.compiler
         isa = coffee.plan.intrinsics
         align = compiler['align'](isa["alignment"]) if compiler and size[-1] % isa["dp_reg"] == 0 else ""
-        facet_mult = 1
-        if is_facet:
-            facet_mult = 2
+        init_expr = " = " + "{" * dim + "0.0" + "}" * dim if self.access in [WRITE, INC] else ""
+        if not init:
+            init_expr = ""
 
-        if init:
-            init = " = " + "{" * dim + "0.0" + "}" * dim if self.access._mode in ['WRITE', 'INC'] else ""
-        else:
-            init = ""
-        return (buf_name, "%(typ)s %(name)s%(dim)s%(align)s%(init)s" %
-                {"typ": buf_type,
-                 "name": buf_name,
-                 "dim": "".join(["[%d]" % (d * facet_mult) for d in size]),
-                 "align": " " + align,
-                 "init": init})
+        return "%(typ)s %(name)s%(dim)s%(align)s%(init)s" % \
+            {"typ": buf_type,
+             "name": buf_name,
+             "dim": "".join(["[%d]" % (d * (2 if is_facet else 1)) for d in size]),
+             "align": " " + align,
+             "init": init_expr}
 
     def c_buffer_gather(self, size, idx, buf_name):
         dim = 1 if self._flatten else self.data.cdim
@@ -605,7 +590,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         dim = 1 if self._flatten else self.data.split[i].cdim
         return ";\n".join(["*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s]" %
                            {"ind": self.c_kernel_arg(count, i, j),
-                            "op": "=" if self._access._mode == "WRITE" else "+=",
+                            "op": "=" if self.access == WRITE else "+=",
                             "name": buf_name,
                             "dim": dim,
                             "nfofs": " + %d" % o if o else "",
@@ -850,17 +835,18 @@ class JITModule(base.JITModule):
         else:
             _off_args = ""
 
-        # Build kernel invocation. Let X be a parameter of the kernel representing a tensor
-        # accessed in an iteration space. Let BUFFER be an array of the same size as X.
-        # BUFFER is declared and intialized in the wrapper function.
-        # * if X is written or incremented in the kernel, then BUFFER is initialized to 0
-        # * if X in read in the kernel, then BUFFER gathers data expected by X
-        _itspace_args = [(count, arg) for count, arg in enumerate(self._args) if arg._uses_itspace]
-        _buf_gather = ""
-        _buf_decl = {}
-        _buf_name = ""
-        for count, arg in _itspace_args:
-            _buf_name = "buffer_" + arg.c_arg_name(count)
+        # Build kernel invocation. Let X be a parameter of the kernel representing a
+        # tensor accessed in an iteration space. Let BUFFER be an array of the same
+        # size as X.  BUFFER is declared and intialized in the wrapper function.
+        # In particular, if:
+        # - X is written or incremented, then BUFFER is initialized to 0
+        # - X is read, then BUFFER gathers data expected by X
+        _buf_name, _buf_decl, _buf_gather, _tmp_decl, _tmp_name = {}, {}, {}, {}, {}
+        for count, arg in enumerate(self._args):
+            if not arg._uses_itspace:
+                continue
+            _buf_name[arg] = "buffer_%s" % arg.c_arg_name(count)
+            _tmp_name[arg] = "tmp_%s" % _buf_name[arg]
             _buf_size = list(self._itspace._extents)
             if not arg._is_mat:
                 # Readjust size to take into account the size of a vector space
@@ -876,29 +862,18 @@ class JITModule(base.JITModule):
             else:
                 if self._kernel._applied_blas:
                     _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
-            _layout_decl = ("", "")
-            uses_layout = False
-            if (self._kernel._applied_ap and vect_roundup(_buf_size[-1]) > _buf_size[-1]) or \
-               (arg._is_mat and arg.data._is_vector_field):
-                if arg._is_mat:
-                    _layout_decl = arg.c_buffer_decl(_buf_size, count, "tmp_" + arg.c_arg_name(count),
-                                                     is_facet=is_facet, init=False)
-                    uses_layout = True
-                if self._kernel._applied_ap:
-                    _buf_size = [vect_roundup(s) for s in _buf_size]
-            _buf_decl[arg] = (arg.c_buffer_decl(_buf_size, count, _buf_name, is_facet=is_facet),
-                              _layout_decl, uses_layout)
-            _buf_name = _layout_decl[0] if uses_layout else _buf_name
-            if arg.access._mode not in ['WRITE', 'INC']:
+            _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name[arg], is_facet=is_facet)
+            _tmp_decl[arg] = arg.c_buffer_decl(_buf_size, count, _tmp_name[arg], is_facet=is_facet,
+                                               init=False)
+            if arg.access not in [WRITE, INC]:
                 _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(_loop_size)])
-                _buf_gather = arg.c_buffer_gather(_buf_size, count, _buf_name)
+                _buf_gather[arg] = arg.c_buffer_gather(_buf_size, count, _buf_name[arg])
                 _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(len(_loop_size) - 1, -1, -1))
-                _buf_gather = "\n".join([_itspace_loops, _buf_gather, _itspace_loop_close])
-        _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_decl[arg][0][0]
+                _buf_gather[arg] = "\n".join([_itspace_loops, _buf_gather[arg], _itspace_loop_close])
+        _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_name[arg]
                                   for count, arg in enumerate(self._args)])
-        _buf_decl_args = _buf_decl
-        _buf_decl = ";\n".join([";\n".join([decl1, decl2]) for ((_, decl1), (_, decl2), _)
-                                in _buf_decl_args.values()])
+        _buf_gather = ";\n".join(_buf_gather.values())
+        _buf_decl = ";\n".join(_buf_decl.values())
 
         def itset_loop_body(i, j, shape, offsets, is_facet=False):
             nloops = len(shape)
@@ -906,28 +881,35 @@ class JITModule(base.JITModule):
             if is_facet:
                 mult = 2
             _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e*mult) for n, e in enumerate(shape)])
-            _itspace_args = [(count, arg) for count, arg in enumerate(self._args)
-                             if arg.access._mode in ['WRITE', 'INC'] and arg._uses_itspace]
-            _buf_scatter = ""
-            for count, arg in _itspace_args:
+            _addto_buf_name, _buf_decl_scatter, _buf_scatter = {}, {}, {}
+            for count, arg in enumerate(self._args):
+                if not (arg._uses_itspace and arg.access in [WRITE, INC]):
+                    continue
+                _buf_scatter_name = ""
                 if arg._is_mat and arg._is_mixed:
                     raise NotImplementedError
                 elif not arg._is_mat:
-                    _buf_scatter = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name)
-                else:
-                    _buf_scatter = ""
+                    _buf_scatter[arg] = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
+            _buf_decl_scatter = ";\n".join(_buf_decl_scatter.values())
+            _buf_scatter = ";\n".join(_buf_scatter.values())
+            _buffer_indices = "[i_0*%d + i_1]" % shape[1] if self._kernel._applied_blas else "[i_0][i_1]"
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             if self._itspace._extruded:
-                _addtos_extruded = '\n'.join([arg.c_addto(i, j, _buf_decl_args[arg],
-                                                          "xtr_", is_facet=is_facet,
-                                                          applied_blas=self._kernel._applied_blas)
-                                              for arg in self._args if arg._is_mat])
+                _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
+                                                           _tmp_name[arg],
+                                                           _tmp_decl[arg],
+                                                           "xtr_", is_facet=is_facet,
+                                                           applied_blas=self._kernel._applied_blas)
+                                               for arg in self._args if arg._is_mat])
                 _addtos = ""
             else:
                 _addtos_extruded = ""
-                _addtos = '\n'.join([arg.c_addto(i, j, _buf_decl_args[arg],
-                                                 applied_blas=self._kernel._applied_blas)
-                                     for count, arg in enumerate(self._args) if arg._is_mat])
+                _addtos = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
+                                                  _tmp_name[arg],
+                                                  _tmp_decl[arg],
+                                                  applied_blas=self._kernel._applied_blas)
+                                      for count, arg in enumerate(self._args) if arg._is_mat])
+
             if not _buf_scatter:
                 _itspace_loops = ''
                 _itspace_loop_close = ''
