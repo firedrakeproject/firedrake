@@ -348,6 +348,114 @@ class MixedDat(base.MixedDat):
         return self.vecscatter()
 
 
+class SparsityBlock(base.Sparsity):
+    """A proxy class for a block in a monolithic :class:`.Sparsity`.
+
+    :arg parent: The parent monolithic sparsity.
+    :arg i: The block row.
+    :arg j: The block column.
+
+    .. warning::
+
+       This class only implements the properties necessary to infer
+       its shape.  It does not provide arrays of non zero fill."""
+    def __init__(self, parent, i, j):
+        self._dsets = (parent.dsets[0][i], parent.dsets[1][j])
+        self._rmaps = tuple(m.split[i] for m in parent.rmaps)
+        self._cmaps = tuple(m.split[j] for m in parent.cmaps)
+        self._nrows = self._dsets[0].size
+        self._ncols = self._dsets[1].size
+        self._parent = parent
+        self._dims = tuple([tuple([parent.dims[i][j]])])
+        self._blocks = [[self]]
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        return (None, ) + args, kwargs
+
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return None
+
+    def __repr__(self):
+        return "SparsityBlock(%r, %r, %r)" % (self._parent, self._i, self._j)
+
+
+class MatBlock(base.Mat):
+    """A proxy class for a local block in a monolithic :class:`.Mat`.
+
+    :arg parent: The parent monolithic matrix.
+    :arg i: The block row.
+    :arg j: The block column.
+    """
+    def __init__(self, parent, i, j):
+        self._parent = parent
+        self._i = i
+        self._j = j
+        self._sparsity = SparsityBlock(parent.sparsity, i, j)
+        rset, cset = self._parent.sparsity.dsets
+        rowis = rset.local_ises[i]
+        colis = cset.local_ises[j]
+        self._handle = parent.handle.getLocalSubMatrix(isrow=rowis,
+                                                       iscol=colis)
+
+    def __getitem__(self, idx):
+        return self
+
+    def __iter__(self):
+        yield self
+
+    def inc_local_diagonal_entries(self, rows, diag_val=1.0):
+        rbs, _ = self.dims[0][0]
+        # No need to set anything if we didn't get any rows.
+        if len(rows) == 0:
+            return
+        if rbs > 1:
+            rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+        vals = np.repeat(diag_val, len(rows))
+        self.handle.setValuesLocalRCV(rows.reshape(-1, 1), rows.reshape(-1, 1),
+                                      vals.reshape(-1, 1), addv=PETSc.InsertMode.ADD_VALUES)
+
+    def addto_values(self, rows, cols, values):
+        """Add a block of values to the :class:`Mat`."""
+
+        self.handle.setValuesBlockedLocal(rows, cols, values,
+                                          addv=PETSc.InsertMode.ADD_VALUES)
+
+    def set_values(self, rows, cols, values):
+        """Set a block of values in the :class:`Mat`."""
+
+        self.handle.setValuesBlockedLocal(rows, cols, values,
+                                          addv=PETSc.InsertMode.INSERT_VALUES)
+
+    @property
+    def handle(self):
+        return self._handle
+
+    def assemble(self):
+        pass
+
+    @property
+    def values(self):
+        rset, cset = self._parent.sparsity.dsets
+        rowis = rset.field_ises[self._i]
+        colis = cset.field_ises[self._j]
+        mat = self._parent.handle.getSubMatrix(isrow=rowis,
+                                               iscol=colis)
+        return mat[:, :]
+
+    @property
+    def dtype(self):
+        return self._parent.dtype
+
+    @property
+    def nbytes(self):
+        return self._parent.nbytes / (np.prod(self.sparsity.shape))
+
+    def __repr__(self):
+        return "MatBlock(%r, %r, %r)" % (self._parent, self._i, self._j)
+
+
 class Mat(base.Mat, CopyOnWrite):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
