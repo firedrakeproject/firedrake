@@ -407,11 +407,11 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         assert (len(nodes) == out_nodes)
 
         nodestr = "{%s}" % ", ".join(map(str, nodes))
-        body = [ast.Decl("double", ast.Symbol("idx", (out_nodes,)), nodestr, "const")]
+        body = [ast.Decl("int", ast.Symbol("idx", (out_nodes,)), nodestr, ("const",))]
 
         i = ast.Symbol("i")
         body.append(ast.For(ast.Decl("int", i, 0),
-                            ast.Less(i, ast.Symbol(nodes)),
+                            ast.Less(i, ast.Symbol(out_nodes)),
                             ast.Incr(i, ast.Symbol(1)),
                             ast.Assign(ast.Symbol("out", (i, 0)),
                                        ast.Symbol("in", (ast.Symbol("idx", (i,)), 0)))
@@ -421,7 +421,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         args = (ast.Decl("double *", ast.Symbol("in", (in_nodes,))),
                 ast.Decl("double *", ast.Symbol("out", (out_nodes,))))
 
-        kernel = op2.Kernel(ast.FunDecl("void", "expression", args, body),
+        kernel = op2.Kernel(ast.FunDecl("void", "expression", args, ast.Block(body)),
                             "expression")
 
         op2.par_loop(kernel, fs.mesh().cell_set,
