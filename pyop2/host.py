@@ -43,10 +43,10 @@ from mpi import collective
 from configuration import configuration
 from utils import as_tuple
 
-from coffee.base import Node
-from coffee.plan import ASTKernel
 import coffee.plan
-from coffee.vectorizer import vect_roundup
+from coffee import base as ast
+from coffee.plan import ASTKernel
+from coffee.utils import get_fun_decls as ast_get_fun_decls
 
 
 class Kernel(base.Kernel):
@@ -54,15 +54,9 @@ class Kernel(base.Kernel):
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
-        if not isinstance(ast, Node):
-            self._applied_blas = False
-            self._applied_ap = False
-            return ast
-        self._ast = ast
         ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(opts)
         self._applied_blas = ast_handler.blas
-        self._applied_ap = ast_handler.ap
         return ast_handler.gencode()
 
 
@@ -654,6 +648,14 @@ class JITModule(base.JITModule):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
         strip = lambda code: '\n'.join([l for l in code.splitlines()
                                         if l.strip() and l.strip() != ';'])
+
+        # Attach semantical information to the kernel's AST
+        if self._kernel._ast:
+            fundecl = ast_get_fun_decls(self._kernel._ast)
+            if fundecl:
+                for arg, f_arg in zip(self._args, fundecl.args):
+                    if arg._uses_itspace and arg._is_INC:
+                        f_arg.pragma = ast.WRITE
 
         compiler = coffee.plan.compiler
         blas = coffee.plan.blas_interface

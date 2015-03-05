@@ -34,7 +34,6 @@
 import base
 from base import *
 
-from coffee.base import Node
 from coffee.plan import ASTKernel
 
 from mpi import collective
@@ -45,9 +44,6 @@ class Kernel(base.Kernel):
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to GPU execution."""
-        if not isinstance(ast, Node):
-            return ast
-        self._ast = ast
         ast_handler = ASTKernel(ast)
         ast_handler.plan_gpu()
         return ast.gencode()
