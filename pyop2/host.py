@@ -193,9 +193,11 @@ class Arg(base.Arg):
                                                'dim': self.data[i].cdim}
 
     def c_vec_init(self, is_top, layers, is_facet=False):
+        is_top_init = is_top
         val = []
         vec_idx = 0
         for i, (m, d) in enumerate(zip(self.map, self.data)):
+            is_top = is_top_init and m.iterset._extruded
             if self._flatten:
                 for k in range(d.dataset.cdim):
                     for idx in range(m.arity):
