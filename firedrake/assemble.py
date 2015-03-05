@@ -80,7 +80,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=F
          of the local matrices.
 
     """
-    
+
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
     else:
