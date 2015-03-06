@@ -136,7 +136,8 @@ def test_stokes_taylor_hood():
                              'ksp_rtol': 1e-15,
                              'pc_fieldsplit_type': 'schur',
                              'fieldsplit_schur_fact_type': 'diag',
-                             'fieldsplit_0_pc_type': 'lu',
+                             'fieldsplit_0_pc_type': 'redundant',
+                             'fieldsplit_0_redundant_pc_type': 'lu',
                              'fieldsplit_1_pc_type': 'none'})
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
@@ -146,6 +147,11 @@ def test_stokes_taylor_hood():
 
     assert errornorm(u, uexact, degree_rise=0) < 1e-7
     assert errornorm(p, pexact, degree_rise=0) < 1e-7
+
+
+@pytest.mark.parallel
+def test_stokes_taylor_hood_parallel():
+    test_stokes_taylor_hood()
 
 
 if __name__ == '__main__':
