@@ -184,7 +184,7 @@ class MacCompiler(Compiler):
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
 
-        cppargs = ['-std=c99', '-fPIC', '-Wall'] + opt_flags + cppargs
+        cppargs = ['-std=c99', '-fPIC', '-Wall', '-framework', 'Accelerate'] + opt_flags + cppargs
         ldargs = ['-dynamiclib'] + ldargs
         super(MacCompiler, self).__init__("mpicc", cppargs=cppargs, ldargs=ldargs)
 
