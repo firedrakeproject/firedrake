@@ -11,6 +11,7 @@ import ffc_interface
 import function
 import functionspace
 import matrix
+import parameters
 import solving
 
 
@@ -18,7 +19,8 @@ __all__ = ["assemble"]
 
 
 @profile
-def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=False):
+def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
+             inverse=False, nest=None):
     """Evaluate f.
 
     :arg f: a :class:`ufl.Form` or :class:`ufl.core.expr.Expr`.
@@ -34,6 +36,10 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=Fa
          the measure, the latter will be used.
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
+    :arg nest: (optional) flag indicating if a 2-form (matrix) on a
+         mixed space should be assembled as a block matrix (if
+         :data:`nest` is :data:`True`) or not.  The default value is
+         taken from the parameters dict :data:`parameters["matnest"]`.
 
     If f is a :class:`ufl.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -58,14 +64,15 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=Fa
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse)
+                         inverse=inverse, nest=nest)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
         raise TypeError("Unable to assemble: %r" % f)
 
 
-def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=False):
+def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
+              inverse=False, nest=None):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -78,6 +85,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=F
         the form compiler.
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
+    :arg nest: (optional) flag indicating if matrices on mixed spaces
+         should be built in blocks or monolithically.
 
     """
 
@@ -101,6 +110,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=F
 
     def get_rank(arg):
         return arg.function_space().rank
+
+    if nest is None:
+        nest = parameters.parameters["matnest"]
+    # Pass this through for assembly caching purposes
+    form_compiler_parameters["matnest"] = nest
 
     if is_mat:
         test, trial = f.arguments()
@@ -158,7 +172,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None, inverse=F
             sparsity = op2.Sparsity((test.function_space().dof_dset,
                                      trial.function_space().dof_dset),
                                     map_pairs,
-                                    "%s_%s_sparsity" % fs_names)
+                                    "%s_%s_sparsity" % fs_names,
+                                    nest=nest)
             result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
