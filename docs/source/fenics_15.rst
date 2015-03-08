@@ -16,7 +16,7 @@ the automated finite element community.
 
 The workshop welcomes existing and potential developers and users of
 automated simulation systems, as well as mathematicians interested in
-a high produxtivity computational environment for finite element problems.
+a high productivity computational environment for finite element problems.
 
 Programme
 ---------
