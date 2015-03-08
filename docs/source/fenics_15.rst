@@ -16,7 +16,7 @@ the automated finite element community.
 
 The workshop welcomes existing and potential developers and users of
 automated simulation systems, as well as mathematicians interested in
-engaging with applications via automated code generation.
+a high produxtivity computational environment for finite element problems.
 
 Programme
 ---------
@@ -39,6 +39,12 @@ Badge
 featuring views across the Thames to St Paul's Cathedral and a fine
 selection of English real ales and other delights.
 
+Location
+~~~~~~~~
+
+The workshop will be held in the Huxley Building on Imperial College's
+main South Kensington campus. The street address is 180 Queen's Gate, London SW7 2RH.
+
 Call for abstracts
 ------------------
 
@@ -56,6 +62,15 @@ Tuesday and Wednesday, the conference dinner, and refreshments in all
 the breaks during the workshop. Additional dinner tickets (for
 partners etc.) will be available for £40. After 31 May, registration
 will rise to £200. Registration will close on **19 June**.
+
+Accommodation
+-------------
+
+For those looking for affordable accommodation right on campus, `Imperial College's
+halls of residence <http://www3.imperial.ac.uk/summeraccommodation>`_
+are available to summer visitors starting on 29 June. Alternatively,
+you can make use of `Imperial's rates at nearby hotels <http://www3.imperial.ac.uk/conferenceandevents/accommodation/hotelaccommodation>`_.
+
 
 Scientific committee
 --------------------
