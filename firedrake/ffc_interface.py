@@ -200,13 +200,8 @@ class FFCKernel(DiskCached):
                 kernels.append((Kernel(Root(incl + [_kernel]), '%s_%s_integral_0_%s' %
                                        (name, it.integral_type(), it.subdomain_id()), opts, inc),
                                 needs_orientations))
-            # Sometimes FFC returns an empty list without raising
-            # EmptyIntegrandError, catch that here.
-            if len(kernels) == 0:
-                self._empty = True
-            else:
-                self.kernels = tuple(kernels)
-                self._empty = False
+            self.kernels = tuple(kernels)
+            self._empty = False
         except EmptyIntegrandError:
             # FFC noticed that the integrand was zero and simplified
             # it, catch this here and set a flag telling us to ignore
