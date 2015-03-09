@@ -8,7 +8,7 @@ from os import path, environ, getuid, makedirs
 import tempfile
 
 import ufl
-from ufl import Form, FiniteElement, VectorElement, as_vector
+from ufl import Form, MixedElement, as_vector
 from ufl.measure import Measure
 from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
@@ -265,7 +265,9 @@ def compile_form(form, name, parameters=None, inverse=False):
     fd = compute_form_data(form)
 
     # If there is no mixed element involved, return the kernels FFC produces
-    if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
+    # Note: using type rather than isinstance because UFL's VectorElement,
+    # TensorElement and OPVectorElement all inherit from MixedElement
+    if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
