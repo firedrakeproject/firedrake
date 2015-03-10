@@ -3748,6 +3748,9 @@ class Kernel(Cached):
         code = self._ast.gencode() if self._ast else self._code
         return 'Kernel("""%s""", %r)' % (code, self._name)
 
+    def __eq__(self, other):
+        return self.cache_key == other.cache_key
+
 
 class JITModule(Cached):
 
