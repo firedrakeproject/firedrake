@@ -31,7 +31,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""OP2 OpenMP backend for fused/tiled loops."""
+"""OP2 backend for fusion and tiling of ``ParLoops``."""
 
 from contextlib import contextmanager
 from collections import OrderedDict
