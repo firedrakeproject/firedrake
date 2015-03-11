@@ -2247,7 +2247,7 @@ class MixedDat(Dat):
     @property
     def dataset(self):
         """:class:`MixedDataSet`\s this :class:`MixedDat` is defined on."""
-        return MixedDataSet(tuple(s.dataset for s in self._dats))
+        return _make_object('MixedDataSet', tuple(s.dataset for s in self._dats))
 
     @property
     def soa(self):
