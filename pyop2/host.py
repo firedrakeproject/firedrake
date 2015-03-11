@@ -46,7 +46,7 @@ from utils import as_tuple, strip
 import coffee.plan
 from coffee import base as ast
 from coffee.plan import ASTKernel
-from coffee.utils import get_fun_decls as ast_get_fun_decls
+from coffee.utils import visit as ast_visit
 
 
 class Kernel(base.Kernel):
@@ -649,9 +649,10 @@ class JITModule(base.JITModule):
 
         # Attach semantical information to the kernel's AST
         if self._kernel._ast:
-            fundecl = ast_get_fun_decls(self._kernel._ast)
-            if fundecl:
-                for arg, f_arg in zip(self._args, fundecl.args):
+            ast_info = ast_visit(self._kernel._ast, search=ast.FunDecl)
+            fundecl = ast_info['search'][ast.FunDecl]
+            if len(fundecl) == 1:
+                for arg, f_arg in zip(self._args, fundecl[0].args):
                     if arg._uses_itspace and arg._is_INC:
                         f_arg.pragma = ast.WRITE
 
