@@ -1984,7 +1984,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
     def _check_shape(self, other):
         if other.dataset != self.dataset:
-            raise ValueError('Mismatched shapes in operands %s and %s' %
+            raise ValueError('Mismatched shapes in operands %s and %s',
                              self.dataset.dim, other.dataset.dim)
 
     def _op(self, other, op):
