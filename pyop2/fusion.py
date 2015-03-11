@@ -35,7 +35,7 @@
 
 from contextlib import contextmanager
 from collections import OrderedDict
-from copy import deepcopy as dcopy
+from copy import deepcopy as dcopy, copy as scopy
 import os
 
 from base import *
@@ -479,67 +479,76 @@ class PlainSchedule(Schedule):
 
 
 class FusionSchedule(Schedule):
-    """Schedule for a sequence of soft/hard fused :class:`ParLoop` objects."""
+    """Schedule for a sequence of :class:`ParLoop` objects after soft fusion."""
 
     def __init__(self, kernels, offsets):
         super(FusionSchedule, self).__init__(kernels)
         # Track the indices of the loop chain's /ParLoop/s each fused kernel maps to
         offsets = [0] + list(offsets)
-        loops_indices = [range(offsets[i], o) for i, o in enumerate(offsets[1:])]
-        self._info = [{'loops_indices': li} for li in loops_indices]
+        loop_indices = [range(offsets[i], o) for i, o in enumerate(offsets[1:])]
+        self._info = [{'loop_indices': li} for li in loop_indices]
 
     def __call__(self, loop_chain):
         fused_par_loops = []
         for kernel, info in zip(self._kernel, self._info):
-            loops_indices = info['loops_indices']
-            extra_args = info.get('extra_args', [])
-
+            loop_indices = info['loop_indices']
+            extra_args = info.get('extra_args')
             # Create the ParLoop's arguments. Note that both the iteration set and
-            # the iteration region must be the same for all loops being fused
-            iterregion = loop_chain[loops_indices[0]].iteration_region
-            iterset = loop_chain[loops_indices[0]].it_space.iterset
-            loops = [loop_chain[i] for i in loops_indices]
-            args = Arg.filter_args([loop.args for loop in loops]).values() + extra_args
-
+            # the iteration region must correspond to that of the /base/ loop
+            iterregion = loop_chain[loop_indices[0]].iteration_region
+            iterset = loop_chain[loop_indices[0]].it_space.iterset
+            loops = [loop_chain[i] for i in loop_indices]
+            args = Arg.filter_args([loop.args for loop in loops]).values()
+            # Create any ParLoop's additional arguments
+            extra_args = [Dat(*d)(*a) for d, a in extra_args] if extra_args else []
+            args += extra_args
             # Create the actual ParLoop, resulting from the fusion of some kernels
             fused_par_loops.append(_make_object('ParLoop', kernel, iterset, *args,
                                                 **{'iterate': iterregion}))
         return fused_par_loops
 
-    def _hard_fuse(self, fused):
-        """Update the schedule by introducing kernels produced by hard fusion."""
+
+class HardFusionSchedule(FusionSchedule):
+    """Schedule a sequence of :class:`ParLoop` objects after hard fusion."""
+
+    def __init__(self, schedule, fused):
+        self._schedule = schedule
+        self._fused = fused
+
+        # Set proper loop_indices for this schedule
+        self._info = dcopy(schedule._info)
+        for i, info in enumerate(schedule._info):
+            for k, v in info.items():
+                self._info[i][k] = [i] if k == 'loop_indices' else v
+
+        # Update the input schedule to make use of hard fusion kernels
+        kernel = scopy(schedule._kernel)
         for fused_kernel, fused_map in fused:
             base, fuse = fused_kernel._kernels
-            # Variable names: "base" represents the kernel within which "fuse" will
-            # be fused into
-
-            # In addition to the union of the "base" and "fuse"' sets of arguments,
-            # need to be passed in:
-            # - a bitmap, the i-th bit indicating whether the i-th iteration in "fuse"
-            #   has been executed
-            # - a map from "base"'s iteration space to "fuse"'s iteration space
-            # - the arity of such map
-            arg_is_executed = Dat(fused_map.toset)(RW, fused_map)
-            arg_fused_map = Dat(DataSet(fused_map.iterset, fused_map.arity),
-                                fused_map.values)(READ)
-            arg_arity = Global(1, fused_map.arity, np.int, "fusion_map_arity")(READ)
-
-            # Update the schedule
-            base_idx, fuse_idx = self._kernel.index(base), self._kernel.index(fuse)
+            base_idx, fuse_idx = kernel.index(base), kernel.index(fuse)
             pos = min(base_idx, fuse_idx)
-            self._kernel.insert(pos, fused_kernel)
-            self._info[pos]['loops_indices'] = [base_idx, fuse_idx]
-            # Note: the order is importat: first /arg_is_excuted/ is expected, and
-            # then /arg_fused_map/, and finally /arg_arity/
-            self._info[pos]['extra_args'] = [arg_is_executed, arg_fused_map, arg_arity]
-            self._kernel.pop(pos+1)
+            kernel.insert(pos, fused_kernel)
+            self._info[pos]['loop_indices'] = [base_idx, fuse_idx]
+            # In addition to the union of the /base/ and /fuse/'s sets of arguments,
+            # a bitmap, with i-th bit indicating whether the i-th iteration in "fuse"
+            # has been executed, will have to be passed in
+            self._info[pos]['extra_args'] = [((fused_map.toset, None, np.int32),
+                                              (RW, fused_map))]
+            kernel.pop(pos+1)
             pos = max(base_idx, fuse_idx)
             self._info.pop(pos)
-            self._kernel.pop(pos)
+            kernel.pop(pos)
+        self._kernel = kernel
+
+    def __call__(self, loop_chain, only_hard=False):
+        # First apply soft fusion, then hard fusion
+        if not only_hard:
+            loop_chain = self._schedule(loop_chain)
+        return super(HardFusionSchedule, self).__call__(loop_chain)
 
 
 class TilingSchedule(Schedule):
-    """Schedule for a sequence of tiled :class:`ParLoop` objects."""
+    """Schedule a sequence of tiled :class:`ParLoop` objects after tiling."""
 
     def __init__(self, schedule, inspection, executor):
         self._schedule = schedule
@@ -626,7 +635,7 @@ class Inspector(Cached):
         if self._heuristic_skip_inspection(mode):
             # Heuristically skip this inspection if there is a suspicion the
             # overhead is going to be too much; for example, when the loop
-            # chain could potentially be execution only once or a few time.
+            # chain could potentially be executed only once or a few times.
             # Blow away everything we don't need any more
             del self._name
             del self._loop_chain
@@ -881,102 +890,152 @@ class Inspector(Cached):
         # Where /arity/ is the number of kernel2's iterations incident to
         # kernel1's iterations.
         _fused = []
-        for base_loop, fuse_loop, fused_map, fused_arg in fused:
-            # Start analyzing the kernels' ASTs
+        for base_loop, fuse_loop, fused_map, fused_inc_arg in fused:
+            # Start analyzing the kernels' ASTs. Note that since /fuse/ will be
+            # modified, a deep copy of its AST is necessary to avoid changing the
+            # structured of the cached Kernel
             base, fuse = base_loop.kernel, fuse_loop.kernel
             base_info = ast_visit(base._ast, search=(ast.FunDecl, ast.PreprocessNode))
-            base_header = base_info['search'][ast.PreprocessNode]
+            base_headers = base_info['search'][ast.PreprocessNode]
             base_fundecl = base_info['search'][ast.FunDecl]
-            if len(base_fundecl) != 1:
-                raise RuntimeError("Fusing kernels, but found unexpected AST")
-            fuse_info = ast_visit(fuse._ast, search=(ast.FunDecl, ast.PreprocessNode))
-            fuse_header = fuse_info['search'][ast.PreprocessNode]
+            fuse_ast = dcopy(fuse._ast)
+            fuse_info = ast_visit(fuse_ast, search=(ast.FunDecl, ast.PreprocessNode))
+            fuse_headers = fuse_info['search'][ast.PreprocessNode]
             fuse_fundecl = fuse_info['search'][ast.FunDecl]
             fuse_symbol_refs = fuse_info['symbol_refs']
             if len(base_fundecl) != 1 or len(fuse_fundecl) != 1:
                 raise RuntimeError("Fusing kernels, but found unexpected AST")
             base_fundecl = base_fundecl[0]
             fuse_fundecl = fuse_fundecl[0]
-            from IPython import embed; embed()
 
-            # Craft the /fusion/ kernel
-            # 1) Create /fusion/ arguments and signature
+            ### Craft the /fusion/ kernel ###
+
+            # 1A) Create /fusion/ arguments and signature
             body = ast.Block([])
+            fusion_name = '%s_%s' % (base_fundecl.name, fuse_fundecl.name)
             fusion_args = base_fundecl.args + fuse_fundecl.args
-            fusion_fundecl = ast.FunDecl(base_fundecl.ret, 'fusion', fusion_args, body)
+            fusion_fundecl = ast.FunDecl(base_fundecl.ret, fusion_name,
+                                         fusion_args, body)
 
-            # 2) Filter out duplicate arguments, and append extra arguments to
+            # 1B) Filter out duplicate arguments, and append extra arguments to
             # the function declaration
             binding = self._filter_kernel_args([base_loop, fuse_loop], fusion_fundecl)
-            fusion_fundecl.args += \
-                [ast.Decl('int*', ast.Symbol('executed'))] + \
-                [ast.Decl('int*', ast.Symbol('fusion_map'))] + \
-                [ast.Decl('int', ast.Symbol('fusion_map_arity'))]
+            fusion_fundecl.args += [ast.Decl('int**', ast.Symbol('executed'))]
 
-            # 3) Create /fusion/ body
+            # 1C) Create /fusion/ body
             base_funcall_syms = [ast.Symbol(d.sym.symbol)
                                  for d in base_fundecl.args]
             base_funcall = ast.FunCall(base_fundecl.name, *base_funcall_syms)
             fuse_funcall_syms = [ast.Symbol(binding[arg].sym.symbol)
                                  for arg in fuse_loop.args]
             fuse_funcall = ast.FunCall(fuse_fundecl.name, *fuse_funcall_syms)
-            ind_iter_idx = ast.Decl('int', ast.Symbol('fused_iter'),
-                                    ast.Symbol('fusion_map', ('i')))
-            if_cond = ast.Not(ast.Symbol('executed', ('fused_iter',)))
-            if_update = ast.Assign(ast.Symbol('executed', ('fused_iter',)),
-                                   ast.Symbol('1'))
-            if_exec = ast.If(if_cond, [ast.Block([fuse_funcall,
-                                                  if_update], open_scope=True)])
-            fuse_body = ast.Block([ind_iter_idx, if_exec], open_scope=True)
-            fuse_for = ast.c_for('i', 'fusion_map_arity', fuse_body, pragma="")
+            if_cond = ast.Not(ast.Symbol('executed', ('i', 0)))
+            if_update = ast.Assign(ast.Symbol('executed', ('i', 0)), ast.Symbol('1'))
+            if_exec = ast.If(if_cond, [ast.Block([fuse_funcall, if_update],
+                                                 open_scope=True)])
+            fuse_body = ast.Block([if_exec], open_scope=True)
+            fuse_for = ast.c_for('i', fused_map.arity, fuse_body, pragma="")
             body.children.extend([base_funcall, fuse_for.children[0]])
 
-            # Modify /fuse/ kernel to accomodate fused increments
-            # 1) Determine /fuse/'s incremented argument
-            fuse_symbol_refs = ast_visit(fuse_fundecl)['symbol_refs']
-            fuse_inc_decl = binding[fused_arg]
-            fuse_inc_refs = fuse_symbol_refs[fuse_inc_decl.sym.symbol]
-            fuse_inc_refs = [sym for sym, parent in fuse_inc_refs
-                             if not isinstance(parent, ast.Decl)]
+            ### Modify the /fuse/ kernel ###
+            # This is to take into account that many arguments are shared with
+            # /base/, so they will only staged once for /base/. This requires
+            # tweaking the way the arguments are declared and accessed in /fuse/'s
+            # kernel. For example, the shared incremented array (called /buffer/
+            # in the pseudocode in the comment above) now needs to take offsets
+            # to be sure the locations that /base/ is supposed to increment are
+            # actually accessed. The same concept apply to indirect arguments.
+            ofs_syms, ofs_decls, ofs_vals = [], [], []
+            init = lambda v: '{%s}' % ', '.join([str(j) for j in v])
+            for i, fuse_args in enumerate(zip(fuse_loop.args, fuse_fundecl.args)):
+                fuse_loop_arg, fuse_kernel_arg = fuse_args
+                sym_id = fuse_kernel_arg.sym.symbol
+                if fuse_loop_arg == fused_inc_arg:
+                    # 2A) The shared incremented argument. A 'buffer' of statically
+                    #     known size is expected by the kernel, so the offset is used
+                    #     to index into it
+                    # Note: the /fused_map/ is a factor of the /base/'s iteration
+                    # set map, so the order the /fuse/ loop's iterations are
+                    # executed (in the /for i=0 to arity/ loop) reflects the order
+                    # of the entries in /fused_map/
+                    fuse_inc_refs = fuse_symbol_refs[sym_id]
+                    fuse_inc_refs = [sym for sym, parent in fuse_inc_refs
+                                     if not isinstance(parent, ast.Decl)]
+                    # Handle the declaration
+                    fuse_kernel_arg.sym.rank = binding[fused_inc_arg].sym.rank
+                    for b in fused_inc_arg._block_shape:
+                        for rc in b:
+                            _ofs_vals = [[0] for j in range(len(rc))]
+                            for j, ofs in enumerate(rc):
+                                ofs_sym_id = 'm_ofs_%d_%d' % (i, j)
+                                ofs_syms.append(ast.Symbol(ofs_sym_id))
+                                ofs_decls.append(ast.Decl('int', ast.Symbol(ofs_sym_id)))
+                                _ofs_vals[j].append(ofs)
+                            for s in fuse_inc_refs:
+                                s.offset = tuple((1, o) for o in ofs_syms)
+                            ofs_vals.extend([init(o) for o in _ofs_vals])
+                elif fuse_loop_arg._is_indirect:
+                    # 2B) All indirect arguments. At the C level, these arguments
+                    #     are of pointer type, so simple pointer arithmetic is used
+                    #     to ensure the kernel's accesses are to the correct locations
+                    fuse_arity = fuse_loop_arg.map.arity
+                    base_arity = fuse_arity*fused_map.arity
+                    cdim = fuse_loop_arg.data.dataset.cdim
+                    size = fuse_arity*cdim
+                    if fuse_loop_arg._flatten and cdim > 1:
+                        # Set the proper storage layout before invoking /fuse/
+                        ofs_tmp = '_%s' % fuse_kernel_arg.sym.symbol
+                        ofs_tmp_sym = ast.Symbol(ofs_tmp, (size,))
+                        ofs_tmp_decl = ast.Decl('%s*' % fuse_loop_arg.ctype, ofs_tmp_sym)
+                        _ofs_vals = [[base_arity*j + k for k in range(fuse_arity)]
+                                     for j in range(cdim)]
+                        _ofs_vals = [[fuse_arity*j + k for k in flatten(_ofs_vals)]
+                                     for j in range(fused_map.arity)]
+                        _ofs_vals = list(flatten(_ofs_vals))
+                        ofs_idx_sym = 'v_i_ofs_%d' % i
+                        body.children.insert(0, ast.Decl(
+                            'int', ast.Symbol(ofs_idx_sym, (len(_ofs_vals),)),
+                            ast.ArrayInit(init(_ofs_vals)), ['static', 'const']))
+                        ofs_idx_syms = [ast.Symbol(ofs_idx_sym, ('i',), ((size, j),))
+                                        for j in range(size)]
+                        ofs_assigns = [ofs_tmp_decl]
+                        ofs_assigns += [ast.Assign(ast.Symbol(ofs_tmp, (j,)),
+                                                   ast.Symbol(sym_id, (k,)))
+                                        for j, k in enumerate(ofs_idx_syms)]
+                        # Need to reflect this onto /fuse/'s invocation
+                        fuse_funcall.children[fuse_loop.args.index(fuse_loop_arg)] = \
+                            ast.Symbol(ofs_tmp)
+                    else:
+                        # In this case, can just use offsets since it's not a
+                        # multi-dimensional Dat
+                        ofs_sym = ast.Symbol('ofs', (len(ofs_vals), 'i'))
+                        ofs_assigns = [ast.Assign(sym_id, ast.Sum(sym_id, ofs_sym))]
+                        ofs_vals.append(init([j*size for j in range(fused_map.arity)]))
+                    if_exec.children[0].children[0:0] = ofs_assigns
+            # Now change the /fusion/ kernel body accordingly
+            body.children.insert(0, ast.Decl(
+                'int', ast.Symbol('ofs', (len(ofs_vals), fused_map.arity)),
+                ast.ArrayInit(init(ofs_vals)), ['static', 'const']))
+            if_exec.children[0].children[0:0] = \
+                [ast.Decl('int', dcopy(s), ast.Symbol('ofs', (i, 'i')))
+                 for i, s in enumerate(ofs_syms)]
 
-            # 2) Create and introduce offsets for accumulating increments
-            # Note: the /fused_map/ is a factor of the base_loop's iteration set map,
-            # so the order the /fuse/ loop's iterations are executed (in the /for i=0
-            # to arity/ loop) reflects the order of the entries in /fused_map/
-            ofs_syms, ofs_decls = [], []
-            for b in fused_arg._block_shape:
-                for rc in b:
-                    # Determine offset values and produce corresponding C symbols
-                    _ofs_vals = [[0] for i in range(len(rc))]
-                    for i, ofs in enumerate(rc):
-                        ofs_syms.append(ast.Symbol('ofs%d' % i))
-                        ofs_decls.append(ast.Decl('int', dcopy(ofs_syms[i])))
-                        _ofs_vals[i].append(ofs)
-                    for s in fuse_inc_refs:
-                        s.offset = tuple((1, o) for o in ofs_syms)
-                    # Add offset array to the /fusion/ kernel body
-                    ofs_vals = '{%s}' % ','.join(['{%s}' % ','.join([str(i) for i in v])
-                                                  for v in _ofs_vals])
-                    ofs_array = ast.Symbol('ofs', (len(_ofs_vals), len(_ofs_vals[0])))
-                    ofs_array = ast.Decl('int', ofs_array, ast.ArrayInit(ofs_vals),
-                                         qualifiers=['static', 'const'])
-                    body.children.insert(0, ofs_array)
-                    # Set offset value and append it to the If's Then block
-                    ofs_assign = [ast.Decl('int', dcopy(s), ast.Symbol('ofs', (i, 'i')))
-                                  for i, s in enumerate(ofs_syms)]
-                    if_exec.children[0].children[:0] = ofs_assign
-
-            # 3) Change /fuse/ kernel invocation and function declaration
+            # 2C) Change /fuse/ kernel invocation, declaration, and body
             fuse_funcall.children.extend(ofs_syms)
             fuse_fundecl.args.extend(ofs_decls)
 
-            # 4) Create a /fusion.Kernel/ object to be used to update the schedule
-            fused_ast = ast.Root([base_fundecl, fuse_fundecl, fusion_fundecl])
-            _fused.append((Kernel([base, fuse], fused_ast), fused_map))
+            # Create a /fusion.Kernel/ object to be used to update the schedule
+            fused_headers = set([str(h) for h in base_headers + fuse_headers])
+            fused_ast = ast.Root([ast.PreprocessNode(h) for h in fused_headers] +
+                                 [base_fundecl, fuse_fundecl, fusion_fundecl])
+            kernels = [base, fuse]
+            loop_chain_index = (self._loop_chain.index(base_loop),
+                                self._loop_chain.index(fuse_loop))
+            _fused.append((Kernel(kernels, fused_ast, loop_chain_index), fused_map))
 
         # Finally, generate a new schedule
-        self._schedule._hard_fuse(_fused)
-        self._loop_chain = self._schedule(self._loop_chain)
+        self._schedule = HardFusionSchedule(self._schedule, _fused)
+        self._loop_chain = self._schedule(self._loop_chain, only_hard=True)
 
     def _tile(self):
         """Tile consecutive loops over different iteration sets characterized
