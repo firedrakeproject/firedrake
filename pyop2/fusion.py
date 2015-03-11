@@ -734,33 +734,37 @@ class Inspector(Cached):
         """
 
         def fuse(self, loops, loop_chain_index):
+            # Naming convention: here, we are fusing ASTs in /fuse_asts/ within
+            # /base_ast/. Same convention will be used in the /hard_fuse/ method
             kernels = [l.kernel for l in loops]
-            asts = [k._ast for k in kernels]
+            fuse_asts = [k._ast for k in kernels]
             # Fuse the actual kernels' bodies
-            fused_ast = dcopy(asts[0])
-            ast_info = ast_visit(fused_ast, search=ast.FunDecl)
-            fused_ast_fundecl = ast_info['search'][ast.FunDecl]
-            if len(fused_ast_fundecl) != 1:
+            base_ast = dcopy(fuse_asts[0])
+            ast_info = ast_visit(base_ast, search=ast.FunDecl)
+            base_ast_fundecl = ast_info['search'][ast.FunDecl]
+            if len(base_ast_fundecl) != 1:
                 raise RuntimeError("Fusing kernels, but found unexpected AST")
-            fused_ast_fundecl = fused_ast_fundecl[0]
-            for unique_id, _ast in enumerate(asts[1:], 1):
-                ast = dcopy(_ast)
+            base_ast_fundecl = base_ast_fundecl[0]
+            for unique_id, _fuse_ast in enumerate(fuse_asts[1:], 1):
+                fuse_ast = dcopy(_fuse_ast)
                 # 1) Extend function name
-                fused_ast_fundecl.name = "%s_%s" % (fused_ast.name, ast.name)
+                base_ast_fundecl.name = "%s_%s" % (base_ast.name, fuse_ast.name)
                 # 2) Concatenate the arguments in the signature
-                fused_ast_fundecl.args.extend(ast.args)
+                base_ast_fundecl.args.extend(fuse_ast.args)
                 # 3) Uniquify symbols identifiers
-                ast_info = ast_visit(ast)
-                ast_decls = ast_info['decls']
-                ast_symbols = ast_info['symbols']
-                for str_sym, decl in ast_decls.items():
-                    for symbol in ast_symbols.keys():
+                fuse_ast_info = ast_visit(fuse_ast)
+                fuse_ast_decls = fuse_ast_info['decls']
+                fuse_ast_symbols = fuse_ast_info['symbols']
+                for str_sym, decl in fuse_ast_decls.items():
+                    for symbol in fuse_ast_symbols.keys():
                         ast_update_id(symbol, str_sym, unique_id)
                 # 4) Concatenate bodies
-                marker_node = [ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
-                fused_ast_fundecl.children[0].children.extend(marker_node + ast.children)
+                marker = [ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
+                base_ast_fundecl.children[0].children.extend(marker + fuse_ast.children)
             # Eliminate redundancies in the fused kernel's signature
-            self._filter_kernel_args(loops, fused_ast_fundecl)
+            self._filter_kernel_args(loops, base_ast_fundecl)
+            # Naming convention
+            fused_ast = base_ast
             return Kernel(kernels, fused_ast, loop_chain_index)
 
         fused, fusing = [], [self._loop_chain[0]]
