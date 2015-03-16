@@ -590,30 +590,20 @@ def mark_entity_classes(PETSc.DM plex):
     """
     cdef:
         PetscInt p, pStart, pEnd, cStart, cEnd, vStart, vEnd, fStart, fEnd
-        PetscInt c, ncells, f, nfacets, ci, nclosure, vi, dim
-        PetscInt depth, non_core, exec_halo, nroots, nleaves
-        PetscInt v_per_cell
-        PetscInt *cells = NULL
-        PetscInt *facets = NULL
-        PetscInt *vertices = NULL
+        PetscInt dim, c, f, nfacets, ci, nclosure, a, nadj
+        PetscInt depth, non_core, exec_halo, nleaves
+        PetscBool non_exec, has_point, is_exec, is_non_core
+        DMLabel lbl_core, lbl_non_core, lbl_exec, lbl_non_exec
         PetscInt *closure = NULL
+        PetscInt *adjacency = NULL
         PetscInt *ilocal = NULL
-        PetscBool non_exec
-        PetscSFNode *iremote = NULL
         PETSc.SF point_sf = None
-        PETSc.IS cell_is = None
-        PETSc.IS facet_is = None
-        PetscBool has_point, is_exec, is_non_core
-        DMLabel lbl_core, lbl_non_core
-        DMLabel lbl_exec, lbl_non_exec
 
     dim = plex.getDimension()
     pStart, pEnd = plex.getChart()
     cStart, cEnd = plex.getHeightStratum(0)
     fStart, fEnd = plex.getHeightStratum(1)
     vStart, vEnd = plex.getDepthStratum(0)
-    v_per_cell = plex.getConeSize(cStart)
-    CHKERR(PetscMalloc1(v_per_cell, &vertices))
 
     plex.createLabel("op2_core")
     plex.createLabel("op2_non_core")
@@ -630,71 +620,46 @@ def mark_entity_classes(PETSc.DM plex):
     CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_non_exec, pStart, pEnd))
 
+    # Set DMPlex adjancency definition to cell adjacency,
+    # so that adjacency(c) := star(closure(c))
+    plex.setAdjacencyUseCone(useCone=True)
+
     if _MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
-        CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
-                               &ilocal, &iremote))
+        CHKERR(PetscSFGetGraph(point_sf.sf, NULL, &nleaves,
+                               &ilocal, NULL))
         for p in range(nleaves):
             CHKERR(DMLabelSetValue(lbl_exec, ilocal[p], 1))
     else:
         # If sequential mark all points as core
         for p in range(pStart, pEnd):
             CHKERR(DMLabelSetValue(lbl_core, p, 1))
-        CHKERR(PetscFree(vertices))
         return
 
     # Mark all cells adjacent to halo cells as non_core,
     # where adjacent(c) := star(closure(c))
-    ncells = plex.getStratumSize("op2_exec_halo", 1)
-    cell_is = plex.getStratumIS("op2_exec_halo", 1)
-    CHKERR(ISGetIndices(cell_is.iset, &cells))
-    for c in range(ncells):
-        if not (cStart <= cells[c] < cEnd):
-            continue
-
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
-        # Copy vertices out of the work array (closure)
-        vi = 0
-        for ci in range(nclosure):
-            if vStart <= closure[2*ci] < vEnd:
-                vertices[vi] = closure[2*ci]
-                vi += 1
-
-        # Mark all cells in the star of each vertex
-        for vi in range(v_per_cell):
-            vertex = vertices[vi]
-            CHKERR(DMPlexGetTransitiveClosure(plex.dm, vertices[vi],
-                                              PETSC_FALSE,
-                                              &nclosure,
-                                              &closure))
-            for ci in range(nclosure):
-                if cStart <= closure[2*ci] < cEnd:
-                    p = closure[2*ci]
+    for c in plex.getStratumIS("op2_exec_halo", 1).indices:
+        if cStart <= c < cEnd:
+            nadj = PETSC_DETERMINE
+            CHKERR(DMPlexGetAdjacency(plex.dm, c, &nadj, &adjacency))
+            for a in range(nadj):
+                p = adjacency[a]
+                if cStart <= p < cEnd:
                     CHKERR(DMLabelHasPoint(lbl_exec, p, &has_point))
                     if not has_point:
                         CHKERR(DMLabelSetValue(lbl_non_core, p, 1))
 
     # Mark the closures of non_core cells as non_core
-    ncells = plex.getStratumSize("op2_non_core", 1)
-    cell_is = plex.getStratumIS("op2_non_core", 1)
-    CHKERR(ISGetIndices(cell_is.iset, &cells))
-    for c in range(ncells):
-        if not (cStart <= cells[c] < cEnd):
-            continue
-
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, cells[c],
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
-        for ci in range(nclosure):
-            p = closure[2*ci]
-            CHKERR(DMLabelHasPoint(lbl_exec, p, &has_point))
-            if not has_point:
-                CHKERR(DMLabelSetValue(lbl_non_core, p, 1))
+    for c in plex.getStratumIS("op2_non_core", 1).indices:
+        if cStart <= c < cEnd:
+            CHKERR(DMPlexGetTransitiveClosure(plex.dm, c, PETSC_TRUE,
+                                              &nclosure, &closure))
+            for ci in range(nclosure):
+                p = closure[2*ci]
+                CHKERR(DMLabelHasPoint(lbl_exec, p, &has_point))
+                if not has_point:
+                    CHKERR(DMLabelSetValue(lbl_non_core, p, 1))
 
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
@@ -706,19 +671,14 @@ def mark_entity_classes(PETSc.DM plex):
 
     # Halo facets that only touch halo vertices and halo cells need to
     # be marked as non-exec.
-    nfacets = plex.getStratumSize("op2_exec_halo", 1)
-    facet_is = plex.getStratumIS("op2_exec_halo", 1)
-    CHKERR(ISGetIndices(facet_is.iset, &facets))
-    for f in range(nfacets):
-        if not (fStart <= facets[f] < fEnd):
+    for f in plex.getStratumIS("op2_exec_halo", 1).indices:
+        if not(fStart <= f < fEnd):
             continue
 
         non_exec = PETSC_TRUE
         # Check for halo vertices
-        CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
-                                          PETSC_TRUE,
-                                          &nclosure,
-                                          &closure))
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, f, PETSC_TRUE,
+                                          &nclosure, &closure))
         for ci in range(nclosure):
             if vStart <= closure[2*ci] < vEnd:
                 CHKERR(DMLabelHasPoint(lbl_exec, closure[2*ci], &has_point))
@@ -728,10 +688,8 @@ def mark_entity_classes(PETSc.DM plex):
                     non_exec = PETSC_FALSE
         if non_exec:
             # If we still think we're non-exec, check for halo cells
-            CHKERR(DMPlexGetTransitiveClosure(plex.dm, facets[f],
-                                              PETSC_FALSE,
-                                              &nclosure,
-                                              &closure))
+            CHKERR(DMPlexGetTransitiveClosure(plex.dm, f, PETSC_FALSE,
+                                              &nclosure, &closure))
             for ci in range(nclosure):
                 if cStart <= closure[2*ci] < cEnd:
                     CHKERR(DMLabelHasPoint(lbl_exec, closure[2*ci], &has_point))
@@ -740,14 +698,13 @@ def mark_entity_classes(PETSc.DM plex):
                         # executed over.
                         non_exec = PETSC_FALSE
         if non_exec:
-            CHKERR(DMLabelSetValue(lbl_non_exec, facets[f], 1))
+            CHKERR(DMLabelSetValue(lbl_non_exec, f, 1))
             # Remove facet from exec-halo label
-            CHKERR(DMLabelClearValue(lbl_exec, facets[f], 1))
+            CHKERR(DMLabelClearValue(lbl_exec, f, 1))
 
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
                                               NULL, &closure))
-    CHKERR(PetscFree(vertices))
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
