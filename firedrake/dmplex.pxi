@@ -1,6 +1,9 @@
 cimport petsc4py.PETSc as PETSc
 cimport mpi4py.MPI as MPI
 
+cdef extern from * nogil:
+    enum: PETSC_DETERMINE
+
 cdef extern from "petsc.h":
    ctypedef long PetscInt
    ctypedef enum PetscBool:
@@ -27,6 +30,7 @@ cdef extern from "petscdmplex.h":
 
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
+    int DMPlexGetAdjacency(PETSc.PetscDM,PetscInt,PetscInt *,PetscInt *[])
 
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
