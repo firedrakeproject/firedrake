@@ -1094,6 +1094,10 @@ def fuse(name, loop_chain, tile_size):
             any([l._reduced_globals for l in loop_chain]):
         return loop_chain
 
+    # Loop fusion requires modifying kernels, so ASTs must be present
+    if any([not l.kernel._ast for l in loop_chain]):
+        return loop_chain
+
     mode = 'hard'
     if tile_size > 0:
         mode = 'tile'
