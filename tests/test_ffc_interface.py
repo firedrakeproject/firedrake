@@ -47,9 +47,7 @@ def rhs2(fs):
 
 @pytest.fixture
 def cache_key(mass):
-    parms = parameters["form_compiler"]
-    parms.setdefault("assemble_inverse", False)
-    return ffc_interface.FFCKernel(mass, 'mass', parms).cache_key
+    return ffc_interface.FFCKernel(mass, 'mass', parameters["form_compiler"]).cache_key
 
 
 @pytest.mark.xfail("not hasattr(ffc_interface.constants, 'FIREDRAKE_VERSION')")
