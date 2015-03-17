@@ -196,7 +196,7 @@ class FFCKernel(DiskCached):
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
                 # Set optimization options
                 opts = {} if it.integral_type() not in ['cell'] else default_parameters["coffee"]
-                _kernel = kernel if not parameters["assemble_inverse"] else _inverse(kernel)
+                _kernel = kernel if not parameters.get("assemble_inverse", False) else _inverse(kernel)
                 kernels.append((Kernel(Root(incl + [_kernel]), '%s_%s_integral_0_%s' %
                                        (name, it.integral_type(), it.subdomain_id()), opts, inc),
                                 needs_orientations))
