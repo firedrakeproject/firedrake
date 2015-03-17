@@ -566,9 +566,9 @@ class TilingSchedule(Schedule):
 class Inspector(Cached):
     """An inspector is used to fuse or tile a sequence of :class:`ParLoop` objects.
 
-    The inspector is implemented by the SLOPE library, which the user makes
-    visible by setting the environment variable ``SLOPE_DIR`` to the value of
-    the root SLOPE directory."""
+    For tiling, the inspector exploits the SLOPE library, which the user makes
+    visible by setting the environment variable ``SLOPE_DIR`` to the root SLOPE
+    directory."""
 
     _cache = {}
     _modes = ['soft', 'hard', 'tile']
@@ -579,6 +579,7 @@ class Inspector(Cached):
         for loop in loop_chain:
             if isinstance(loop, Mat._Assembly):
                 continue
+            key += (hash(str(loop.kernel._ast)),)
             for arg in loop.args:
                 if arg._is_global:
                     key += (arg.data.dim, arg.data.dtype, arg.access)
