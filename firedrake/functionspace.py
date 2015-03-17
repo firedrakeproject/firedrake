@@ -1,5 +1,6 @@
 import numpy as np
 import ufl
+import FIAT
 
 import coffee.base as ast
 
@@ -49,7 +50,7 @@ class FunctionSpaceBase(ObjectCached):
             # dof_count is the total number of dofs in the extruded mesh
 
             # Get the flattened version of the FIAT element
-            self.flattened_element = self.fiat_element.flattened_element()
+            self.flattened_element = FIAT.FlattenedElement(self.fiat_element)
 
             # Compute the number of DoFs per dimension on top/bottom and sides
             entity_dofs = self.fiat_element.entity_dofs()
@@ -68,10 +69,14 @@ class FunctionSpaceBase(ObjectCached):
                                                 self.fiat_element.space_dimension())
 
             # Compute the top and bottom masks to identify boundary dofs
-            b_mask = self.fiat_element.get_lower_mask()
-            t_mask = self.fiat_element.get_upper_mask()
-
-            self.bt_masks = (b_mask, t_mask)
+            #
+            # Sorting the keys of the closure entity dofs, the whole cell
+            # comes last [-1], before that the horizontal facet [-2], before
+            # that vertical facets [-3]. We need the horizontal facets here.
+            closure_dofs = self.fiat_element.entity_closure_dofs()
+            b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
+            t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
+            self.bt_masks = (b_mask, t_mask)  # conversion to tuple
 
             self.extruded = True
 

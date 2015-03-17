@@ -784,7 +784,7 @@ class ExtrudedMesh(Mesh):
             self._ufl_cell = ufl.OuterProductCell(mesh.ufl_cell(), ufl.Cell("interval", 1), gdim=gdim)
 
         self._ufl_domain = ufl.Domain(self.ufl_cell(), data=self)
-        flat_temp = fiat_element.flattened_element()
+        flat_temp = FIAT.FlattenedElement(fiat_element)
 
         # Calculated dofs_per_column from flattened_element and layers.
         # The mirrored elements have to be counted only once.
@@ -855,7 +855,7 @@ class ExtrudedMesh(Mesh):
         """
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
-                                     fiat_element.flattened_element())
+                                     FIAT.FlattenedElement(fiat_element))
 
     @property
     def layers(self):
