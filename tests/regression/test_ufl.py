@@ -15,7 +15,7 @@ def test_cellsize_2d(n):
 
 @pytest.mark.parametrize('n', [1, 3, 16])
 def test_cellsize_3d(n):
-    assert abs(assemble(CellSize(UnitCubeMesh(n, n, n))*dx) - 1.0/n) < 5e-14
+    assert abs(assemble(CellSize(UnitCubeMesh(n, n, n))*dx) - 1.0/n) < 5e-13
 
 if __name__ == '__main__':
     import os
