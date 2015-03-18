@@ -756,7 +756,7 @@ def mark_entity_classes(PETSc.DM plex, s_depth=1):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_entity_classes(PETSc.DM plex):
+def get_entity_classes(PETSc.DM plex, s_depth=1):
     """Builds PyOP2 entity class offsets for all entity levels.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -764,7 +764,7 @@ def get_entity_classes(PETSc.DM plex):
     cdef:
         np.ndarray[np.int_t, ndim=2, mode="c"] entity_class_sizes
         np.ndarray[np.int32_t, mode="c"] eStart, eEnd
-        PetscInt depth, d, i, ci, class_size, start, end
+        PetscInt depth, d, i, ci, s, class_size, start, end
         PetscInt *indices = NULL
         PETSc.IS class_is
 
@@ -781,8 +781,9 @@ def get_entity_classes(PETSc.DM plex):
                                   "op2_non_core",
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
-        class_is = plex.getStratumIS(op2class, 1)
-        class_size = plex.getStratumSize(op2class, 1)
+        s = s_depth
+        class_is = plex.getStratumIS(op2class, s)
+        class_size = plex.getStratumSize(op2class, s)
         if class_size > 0:
             CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(class_size):
@@ -801,7 +802,7 @@ def get_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facets_by_class(PETSc.DM plex, label):
+def get_facets_by_class(PETSc.DM plex, label, s_depth=1):
     """Builds a list of all facets ordered according to OP2 entity
     classes and computes the respective class offsets.
 
@@ -809,7 +810,7 @@ def get_facets_by_class(PETSc.DM plex, label):
     :arg label: Label string that marks the facets to order
     """
     cdef:
-        PetscInt dim, fi, ci, nfacets, nclass, lbl_val, fStart, fEnd
+        PetscInt dim, fi, ci, s, nfacets, nclass, lbl_val, fStart, fEnd
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
@@ -831,9 +832,10 @@ def get_facets_by_class(PETSc.DM plex, label):
                                   "op2_non_core",
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
-        nclass = plex.getStratumSize(op2class, 1)
+        s = s_depth
+        nclass = plex.getStratumSize(op2class, s)
         if nclass > 0:
-            class_is = plex.getStratumIS(op2class, 1)
+            class_is = plex.getStratumIS(op2class, s)
             CHKERR(ISGetIndices(class_is.iset, &indices))
             for ci in range(nclass):
                 if fStart <= indices[ci] < fEnd:
@@ -851,7 +853,8 @@ def get_facets_by_class(PETSc.DM plex, label):
 @cython.wraparound(False)
 def plex_renumbering(PETSc.DM plex,
                      np.ndarray[np.int_t, ndim=2, mode="c"] entity_classes,
-                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None):
+                     np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None,
+                     s_depth=1):
     """
     Build a global node renumbering as a permutation of Plex points.
 
@@ -870,7 +873,7 @@ def plex_renumbering(PETSc.DM plex,
     is the Plex -> OP2 permutation.
     """
     cdef:
-        PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
+        PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f, s
         np.ndarray[np.int32_t, ndim=1, mode="c"] lidx, ncells
         PetscInt *facets = NULL
         PetscInt *closure = NULL
@@ -888,6 +891,7 @@ def plex_renumbering(PETSc.DM plex,
     CHKERR(PetscMalloc1(pEnd - pStart, &perm))
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
     ncells = np.zeros(4, dtype=np.int32)
+    s = s_depth
 
     # Get label pointers and label-specific array indices
     CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
@@ -915,7 +919,7 @@ def plex_renumbering(PETSc.DM plex,
 
             # Identify current cell label
             for l in range(3):
-                CHKERR(DMLabelHasPoint(labels[l], cell, &has_point))
+                CHKERR(DMLabelStratumHasPoint(labels[l], s, cell, &has_point))
                 if has_point:
                     break
             ncells[l] += 1
@@ -930,7 +934,7 @@ def plex_renumbering(PETSc.DM plex,
                 if not PetscBTLookup(seen, p):
                     # Add closure points in the current label at
                     # the label-specific offsets in the permutation
-                    CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
+                    CHKERR(DMLabelStratumHasPoint(labels[l], s, p, &has_point))
                     if has_point:
                         CHKERR(PetscBTSet(seen, p))
                         perm[lidx[l]] = p
@@ -944,9 +948,9 @@ def plex_renumbering(PETSc.DM plex,
     # cells, so they will not get picked up by the cell closure loops
     # and we need to add them explicitly.
     op2class = "op2_non_exec_halo"
-    nfacets = plex.getStratumSize(op2class, 1)
+    nfacets = plex.getStratumSize(op2class, s)
     if nfacets > 0:
-        facet_is = plex.getStratumIS(op2class, 1)
+        facet_is = plex.getStratumIS(op2class, s)
         CHKERR(ISGetIndices(facet_is.iset, &facets))
         for f in range(nfacets):
             p = facets[f]

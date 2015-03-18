@@ -40,6 +40,7 @@ cdef extern from "petscdmplex.h":
     int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
     int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
+    int DMLabelStratumHasPoint(DMLabel, PetscInt, PetscInt, PetscBool*)
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
