@@ -76,7 +76,7 @@ class Vector(object):
             v = PETSc.Vec().createSeq(N, comm=PETSc.COMM_SELF)
             is_ = PETSc.IS().createGeneral(global_indices, comm=PETSc.COMM_SELF)
 
-        with self.dat.vec as vec:
+        with self.dat.vec_ro as vec:
             vscat = PETSc.Scatter().create(vec, is_, v, None)
             vscat.scatterBegin(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
             vscat.scatterEnd(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
