@@ -320,6 +320,7 @@ class MeshTopology(object):
             plex.distribute(overlap=0)
 
         dim = plex.getDimension()
+        self.s_depth = 1
 
         cStart, cEnd = plex.getHeightStratum(0)  # cells
         cell_nfacets = plex.getConeSize(cStart)
@@ -331,7 +332,7 @@ class MeshTopology(object):
             """Finish initialisation."""
             del self._callback
             if op2.MPI.comm.size > 1:
-                self._plex.distributeOverlap(1)
+                self._plex.distributeOverlap(self.s_depth)
             self._grown_halos = True
 
             if reorder:
@@ -346,11 +347,11 @@ class MeshTopology(object):
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: renumbering"):
-                dmplex.mark_entity_classes(self._plex)
-                self._entity_classes = dmplex.get_entity_classes(self._plex)
+                dmplex.mark_entity_classes(self._plex, self.s_depth)
+                self._entity_classes = dmplex.get_entity_classes(self._plex, self.s_depth)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
-                                                                 reordering)
+                                                                 reordering, self.s_depth)
 
             with timed_region("Mesh: cell numbering"):
                 # Derive a cell numbering from the Plex renumbering
@@ -366,9 +367,10 @@ class MeshTopology(object):
 
         self._callback = callback
 
-    def init(self):
+    def init(self, s_depth=1):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
+            self.s_depth = s_depth
             self._callback(self)
 
     @property
@@ -447,7 +449,7 @@ class MeshTopology(object):
 
             # Order exterior facets by OP2 entity class
             exterior_facets, exterior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "exterior_facets")
+                dmplex.get_facets_by_class(self._plex, "exterior_facets", self.s_depth)
 
             # Derive attached boundary IDs
             if self._plex.hasLabel("boundary_ids"):
@@ -484,7 +486,7 @@ class MeshTopology(object):
 
             # Order interior facets by OP2 entity class
             interior_facets, interior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "interior_facets")
+                dmplex.get_facets_by_class(self._plex, "interior_facets", self.s_depth)
 
             interior_local_facet_number, interior_facet_cell = \
                 dmplex.facet_numbering(self._plex, "interior",
