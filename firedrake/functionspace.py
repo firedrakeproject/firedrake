@@ -1,6 +1,5 @@
 import numpy as np
 import ufl
-import FIAT
 
 import coffee.base as ast
 
@@ -50,7 +49,7 @@ class FunctionSpaceBase(ObjectCached):
             # dof_count is the total number of dofs in the extruded mesh
 
             # Get the flattened version of the FIAT element
-            self.flattened_element = FIAT.FlattenedElement(self.fiat_element)
+            self.flattened_element = fiat_utils.FlattenedElement(self.fiat_element)
 
             # Compute the number of DoFs per dimension on top/bottom and sides
             entity_dofs = self.fiat_element.entity_dofs()
