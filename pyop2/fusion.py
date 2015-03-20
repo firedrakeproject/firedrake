@@ -1121,19 +1121,25 @@ class Inspector(Cached):
 # Interface for triggering loop fusion
 
 def fuse(name, loop_chain, tile_size):
-    """Given a list of :class:`ParLoop` in ``loop_chain``, return a list of new
-    :class:`ParLoop` objects implementing an optimized scheduling of the loop chain.
+    """Apply fusion (and possibly tiling) to a list of :class:`ParLoop` obecjts,
+    which we refer to as ``loop_chain``. Return a smaller list of :class:`ParLoop`s
+    objects, when some loops may have been fused/tiled. If fusion could not be
+    applied, return the original, unmodified ``loop_chain``.
 
-    .. note:: The unmodified loop chain is instead returned if any of these
-    conditions verify:
+    .. note::
+       At the moment, the following features are not supported, in which
+       case the unmodified ``loop_chain`` is returned.
 
-        * the function is invoked on a previoulsy fused ``loop_chain``
-        * a global reduction is present;
-        * tiling in enabled and at least one loop iterates over an extruded set
-        * mixed Dats are present (feature not supported yet)
+        * mixed ``Datasets`` and ``Maps``;
+        * extruded ``Sets``
+
+    .. note::
+       Tiling cannot be applied if any of the following conditions verifies:
+
+        * a global reduction/write occurs in ``loop_chain``
     """
+    # If there is nothing to fuse, just return
     if len(loop_chain) in [0, 1]:
-        # Nothing to fuse
         return loop_chain
 
     # Search for _Assembly objects since they introduce a synchronization point;
@@ -1162,6 +1168,10 @@ def fuse(name, loop_chain, tile_size):
     if any(a._is_mixed for a in flatten([l.args for l in loop_chain])):
         return loop_chain
 
+    # Extrusion still not supported
+    if any([l.is_layered for l in loop_chain]):
+        return loop_chain
+
     mode = 'hard'
     if tile_size > 0:
         mode = 'tile'
@@ -1172,11 +1182,6 @@ def fuse(name, loop_chain, tile_size):
         except KeyError:
             warning("Set the env variable SLOPE_DIR to the location of SLOPE")
             warning("Loops won't be fused, and plain ParLoops will be executed")
-            return loop_chain
-
-        # If iterating over an extruded set, return (since the feature is not
-        # currently supported)
-        if any([l.is_layered for l in loop_chain]):
             return loop_chain
 
     # Get an inspector for fusing this loop_chain, possibly retrieving it from
