@@ -1130,6 +1130,7 @@ def fuse(name, loop_chain, tile_size):
         * the function is invoked on a previoulsy fused ``loop_chain``
         * a global reduction is present;
         * tiling in enabled and at least one loop iterates over an extruded set
+        * mixed Dats are present (feature not supported yet)
     """
     if len(loop_chain) in [0, 1]:
         # Nothing to fuse
@@ -1155,6 +1156,10 @@ def fuse(name, loop_chain, tile_size):
 
     # Loop fusion requires modifying kernels, so ASTs must be present
     if any([not l.kernel._ast for l in loop_chain]):
+        return loop_chain
+
+    # Mixed still not supported
+    if any(a._is_mixed for a in flatten([l.args for l in loop_chain])):
         return loop_chain
 
     mode = 'hard'
