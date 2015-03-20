@@ -2020,10 +2020,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                              self.dataset.dim, other.dataset.dim)
 
     def _op(self, other, op):
-        ops = {operator.add: '+',
-               operator.sub: '-',
-               operator.mul: '*',
-               operator.div: '/'}
+        ops = {operator.add: ast.Sum,
+               operator.sub: ast.Sub,
+               operator.mul: ast.Prod,
+               operator.div: ast.Div}
         ret = _make_object('Dat', self.dataset, None, self.dtype)
         name = "binop_%s" % op.__name__
         if np.isscalar(other):
@@ -2036,9 +2036,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                              ast.Decl(self.ctype, ast.Symbol("*ret"))],
                             ast.c_for("n", self.cdim,
                                       ast.Assign(ast.Symbol("ret", ("n", )),
-                                                 ast.BinExpr(ast.Symbol("self", ("n", )),
-                                                             ast.Symbol("other", ("0", )),
-                                                             op=ops[op])),
+                                                 ops[op](ast.Symbol("self", ("n", )),
+                                                         ast.Symbol("other", ("0", )))),
                                       pragma=None))
 
             k = _make_object('Kernel', k, name)
@@ -2052,9 +2051,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                              ast.Decl(self.ctype, ast.Symbol("*ret"))],
                             ast.c_for("n", self.cdim,
                                       ast.Assign(ast.Symbol("ret", ("n", )),
-                                                 ast.BinExpr(ast.Symbol("self", ("n", )),
-                                                             ast.Symbol("other", ("n", )),
-                                                             op=ops[op])),
+                                                 ops[op](ast.Symbol("self", ("n", )),
+                                                         ast.Symbol("other", ("n", )))),
                                       pragma=None))
 
             k = _make_object('Kernel', k, name)
