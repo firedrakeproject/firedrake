@@ -1158,31 +1158,31 @@ def fuse(name, loop_chain, tile_size):
     # if global reductions are present, return
     if any([isinstance(l, ParLoop) for l in loop_chain]) or \
             any([l._reduced_globals for l in loop_chain]):
-        return loop_chain
+        return loop_chain + remainder
 
     # Loop fusion requires modifying kernels, so ASTs must be present
     if any([not l.kernel._ast for l in loop_chain]):
-        return loop_chain
+        return loop_chain + remainder
 
     # Mixed still not supported
     if any(a._is_mixed for a in flatten([l.args for l in loop_chain])):
-        return loop_chain
+        return loop_chain + remainder
 
     # Extrusion still not supported
     if any([l.is_layered for l in loop_chain]):
-        return loop_chain
+        return loop_chain + remainder
 
+    # Check if tiling needs be applied
     mode = 'hard'
     if tile_size > 0:
         mode = 'tile'
-        # Loop tiling is performed through the SLOPE library, which must be
-        # accessible by reading the environment variable SLOPE_DIR
+        # Loop tiling requires the SLOPE library to be available on the system.
         try:
             os.environ['SLOPE_DIR']
         except KeyError:
             warning("Set the env variable SLOPE_DIR to the location of SLOPE")
             warning("Loops won't be fused, and plain ParLoops will be executed")
-            return loop_chain
+            return loop_chain + remainder
 
     # Get an inspector for fusing this loop_chain, possibly retrieving it from
     # the cache, and obtain the fused ParLoops through the schedule it produces
