@@ -121,15 +121,9 @@ class FunctionSpaceBase(ObjectCached):
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
         for d in range(mesh._plex.getDimension()+1):
-            ncore = mesh._plex.getStratumSize("op2_core", d)
-            nowned = mesh._plex.getStratumSize("op2_non_core", d)
-            nhalo = mesh._plex.getStratumSize("op2_exec_halo", d)
-            nnonexec = mesh._plex.getStratumSize("op2_non_exec_halo", d)
             ndofs = self._dofs_per_entity[d]
-            self.dof_classes[0] += ndofs * ncore
-            self.dof_classes[1] += ndofs * (ncore + nowned)
-            self.dof_classes[2] += ndofs * (ncore + nowned + nhalo)
-            self.dof_classes[3] += ndofs * (ncore + nowned + nhalo + nnonexec)
+            for i in range(4):
+                self.dof_classes[i] += ndofs * mesh._entity_classes[d, i]
 
         # Tell the DM about the layout of the global vector
         with function.Function(self).dat.vec_ro as v:

@@ -22,6 +22,7 @@ cdef extern from "petscsys.h":
 
 cdef extern from "petscdmplex.h":
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
+    int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
 
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
@@ -32,9 +33,16 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
 
+    struct _n_DMLabel
+    ctypedef _n_DMLabel* DMLabel "DMLabel"
+    int DMPlexGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
     int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
+    int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
+    int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
+    int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
+    int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI_Datatype,void*,PETSc.PetscSection,void**)
 
