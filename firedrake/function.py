@@ -14,10 +14,21 @@ import utils
 import vector
 
 
-__all__ = ['Function']
+__all__ = ['Function', 'interpolate']
 
 
 valuetype = np.float64
+
+
+def interpolate(expr, V):
+    """Interpolate an expression onto a new function in V.
+
+    :arg expr: an :class:`.Expression`.
+    :arg V: the :class:`.FunctionSpace` to interpolate into.
+
+    Returns a new :class:`.Function` in the space :data:`V`.
+    """
+    return Function(V).interpolate(expr)
 
 
 class Function(ufl.Coefficient):
