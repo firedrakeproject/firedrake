@@ -126,8 +126,8 @@ def _solve_varproblem(*args, **kwargs):
     "Solve variational problem a == L or F == 0"
 
     # Extract arguments
-    eq, u, bcs, J, Jp, M, form_compiler_parameters, solver_parameters, nullspace \
-        = _extract_args(*args, **kwargs)
+    eq, u, bcs, J, Jp, M, form_compiler_parameters, \
+        solver_parameters, nullspace, options_prefix = _extract_args(*args, **kwargs)
 
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
@@ -138,7 +138,8 @@ def _solve_varproblem(*args, **kwargs):
 
         # Create solver and call solve
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                            nullspace=nullspace)
+                                            nullspace=nullspace,
+                                            options_preifx=options_prefix)
         with progress(INFO, 'Solving linear variational problem'):
             solver.solve()
 
@@ -151,7 +152,8 @@ def _solve_varproblem(*args, **kwargs):
 
         # Create solver and call solve
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
-                                               nullspace=nullspace)
+                                               nullspace=nullspace,
+                                               options_prefix=options_prefix)
         with progress(INFO, 'Solving nonlinear variational problem'):
             solver.solve()
 
@@ -167,6 +169,11 @@ def _la_solve(A, x, b, **kwargs):
     :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
          :class:`.MixedVectorSpaceBasis`) spanning the null space of
          the operator.
+    :kwarg options_prefix: an optional prefix used to distinguish
+         PETSc options.  If not provided a unique prefix will be
+         created.  Use this option if you want to pass options
+         to the solver from the command line in addition to
+         through the :data:`solver_parameters` dict.
 
     .. note::
 
@@ -188,18 +195,20 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
-    bcs, solver_parameters, nullspace = _extract_linear_solver_args(A, x, b, **kwargs)
+    bcs, solver_parameters, nullspace, options_prefix \
+        = _extract_linear_solver_args(A, x, b, **kwargs)
     if bcs is not None:
         A.bcs = bcs
 
     solver = ls.LinearSolver(A, solver_parameters=solver_parameters,
-                             nullspace=nullspace)
+                             nullspace=nullspace,
+                             options_prefix=options_prefix)
 
     solver.solve(x, b)
 
 
 def _extract_linear_solver_args(*args, **kwargs):
-    valid_kwargs = ["bcs", "solver_parameters", "nullspace"]
+    valid_kwargs = ["bcs", "solver_parameters", "nullspace", "options_prefix"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -211,8 +220,9 @@ def _extract_linear_solver_args(*args, **kwargs):
     bcs = kwargs.get("bcs", None)
     solver_parameters = kwargs.get("solver_parameters", None)
     nullspace = kwargs.get("nullspace", None)
+    options_prefix = kwargs.get("options_prefix", None)
 
-    return bcs, solver_parameters, nullspace
+    return bcs, solver_parameters, nullspace, options_prefix
 
 
 def _extract_args(*args, **kwargs):
@@ -221,7 +231,8 @@ def _extract_args(*args, **kwargs):
     # Check for use of valid kwargs
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
-                    "nullspace"]
+                    "nullspace",
+                    "options_prefix"]
     for kwarg in kwargs.iterkeys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
@@ -263,8 +274,10 @@ def _extract_args(*args, **kwargs):
     # Extract parameters
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
+    options_prefix = kwargs.get("options_prefix", None)
 
-    return eq, u, bcs, J, Jp, M, form_compiler_parameters, solver_parameters, nullspace
+    return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
+        solver_parameters, nullspace, options_prefix
 
 
 def _extract_eq(eq):

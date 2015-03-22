@@ -1,5 +1,6 @@
 import numpy as np
 import ufl
+import weakref
 
 import coffee.base as ast
 
@@ -7,8 +8,10 @@ from pyop2 import op2
 from pyop2.caching import ObjectCached
 from pyop2.utils import flatten, as_tuple
 
+from petsc import PETSc
 import dmplex
 import extrusion_utils as eutils
+import function
 import fiat_utils
 import mesh as mesh_t
 import halo
@@ -95,20 +98,25 @@ class FunctionSpaceBase(ObjectCached):
         self._mesh = mesh
         self._index = None
 
+        dm = PETSc.DMShell().create()
+        dm.setAttr('__fs__', weakref.ref(self))
+        dm.setPointSF(mesh._plex.getPointSF())
         # Create the PetscSection mapping topological entities to DoFs
-        self._global_numbering = mesh._plex.createSection([1], self._dofs_per_entity,
-                                                          perm=mesh._plex_renumbering)
-        mesh._plex.setDefaultSection(self._global_numbering)
-        self._universal_numbering = mesh._plex.getDefaultGlobalSection()
+        sec = mesh._plex.createSection([1], self._dofs_per_entity,
+                                       perm=mesh._plex_renumbering)
+        dm.setDefaultSection(sec)
+        self._global_numbering = sec
+        self._universal_numbering = dm.getDefaultGlobalSection()
 
-        # Re-initialise the DefaultSF with the numbering for this FS
-        mesh._plex.createDefaultSF(self._global_numbering,
-                                   self._universal_numbering)
-
+        # Initialise the DefaultSF with the numbering for this FS
+        dm.createDefaultSF(self._global_numbering,
+                           self._universal_numbering)
         # Derive the Halo from the DefaultSF
-        self._halo = halo.Halo(mesh._plex.getDefaultSF(),
+        self._halo = halo.Halo(dm.getDefaultSF(),
                                self._global_numbering,
                                self._universal_numbering)
+        self._dm = dm
+        self._ises = None
 
         # Compute entity class offsets
         self.dof_classes = [0, 0, 0, 0]
@@ -122,6 +130,10 @@ class FunctionSpaceBase(ObjectCached):
             self.dof_classes[1] += ndofs * (ncore + nowned)
             self.dof_classes[2] += ndofs * (ncore + nowned + nhalo)
             self.dof_classes[3] += ndofs * (ncore + nowned + nhalo + nnonexec)
+
+        # Tell the DM about the layout of the global vector
+        with function.Function(self).dat.vec_ro as v:
+            self._dm.setGlobalVector(v.duplicate())
 
         self._node_count = self._global_numbering.getStorageSize()
 
@@ -627,6 +639,20 @@ class MixedFunctionSpace(FunctionSpaceBase):
         self.rank = 1
         self._index = None
         self._initialized = True
+        dm = PETSc.DMShell().create()
+        with function.Function(self).dat.vec_ro as v:
+            dm.setGlobalVector(v.duplicate())
+        dm.setAttr('__fs__', weakref.ref(self))
+        dm.setCreateFieldDecomposition(self.create_field_decomp)
+        self._dm = dm
+        self._ises = self.dof_dset.field_ises
+
+    @classmethod
+    def create_field_decomp(cls, dm, *args, **kwargs):
+        W = dm.getAttr('__fs__')()
+        names = [s.name or str(i) for i, s in enumerate(W)]
+        dms = [V._dm for V in W]
+        return names, W._ises, dms
 
     @classmethod
     def _process_args(cls, *args, **kwargs):

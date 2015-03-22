@@ -6,6 +6,7 @@ from pyop2.mpi import MPI
 from firedrake import functionspace
 from firedrake import mesh
 from . import impl
+from .utils import set_level
 
 
 __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
@@ -62,7 +63,8 @@ class MeshHierarchy(object):
         hierarchy = [m] + [mesh.Mesh(dm, dim=m.ufl_cell().geometric_dimension(),
                                      distribute=False, reorder=reorder)
                            for i, dm in enumerate(dm_hierarchy)]
-        self._hierarchy = tuple(hierarchy)
+        self._hierarchy = tuple([set_level(o, self, lvl)
+                                 for lvl, o in enumerate(hierarchy)])
 
         for m in self:
             m._non_overlapped_lgmap = impl.create_lgmap(m._plex)
@@ -111,10 +113,11 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
         See :class:`~.ExtrudedMesh` for the meaning of the remaining parameters.
         """
         self._base_hierarchy = mesh_hierarchy
-        hierarchy = [mesh.ExtrudedMesh(m, layers, kernel=kernel,
-                                       layer_height=layer_height,
-                                       extrusion_type=extrusion_type,
-                                       gdim=gdim)
-                     for m in mesh_hierarchy]
+        hierarchy = [set_level(mesh.ExtrudedMesh(m, layers, kernel=kernel,
+                                                 layer_height=layer_height,
+                                                 extrusion_type=extrusion_type,
+                                                 gdim=gdim),
+                               self, lvl)
+                     for lvl, m in enumerate(mesh_hierarchy)]
         self._hierarchy = tuple(hierarchy)
         self._cells_vperm = self._base_hierarchy._cells_vperm

@@ -10,6 +10,21 @@ import utils
 __all__ = ['Constant']
 
 
+def _globalify(value):
+    data = np.array(value, dtype=np.float64)
+    shape = data.shape
+    rank = len(shape)
+    if rank == 0:
+        dat = op2.Global(1, data)
+    elif rank == 1:
+        dat = op2.Global(shape, data)
+    elif rank == 2:
+        dat = op2.Global(shape, data)
+    else:
+        raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
+    return dat, rank, shape
+
+
 class Constant(ufl.Coefficient):
 
     """A "constant" coefficient
@@ -42,20 +57,14 @@ class Constant(ufl.Coefficient):
             domain.init()
         except AttributeError:
             pass
-        data = np.array(value, dtype=np.float64)
-        shape = data.shape
-        rank = len(shape)
+        self.dat, rank, shape = _globalify(value)
+
         if rank == 0:
             e = ufl.FiniteElement("Real", domain, 0)
-            self.dat = op2.Global(1, data)
         elif rank == 1:
             e = ufl.VectorElement("Real", domain, 0, shape[0])
-            self.dat = op2.Global(shape, data)
         elif rank == 2:
             e = ufl.TensorElement("Real", domain, 0, shape=shape)
-            self.dat = op2.Global(shape, data)
-        else:
-            raise RuntimeError("Don't know how to make Constant from data with rank %d" % rank)
         super(Constant, self).__init__(e)
         self._ufl_element = self.element()
         self._repr = 'Constant(%r)' % self._ufl_element
