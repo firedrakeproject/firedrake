@@ -179,10 +179,10 @@ class _VTUFile(object):
             if isinstance(e, (hc.HDiv, hc.HCurl)):
                 return False
             if e.family() == 'OuterProductElement':
-                if e._A.family() == 'Lagrange' \
+                if e._A.family() in ('Lagrange', 'Q') \
                    and e._B.family() == 'Lagrange':
                     return True
-            elif e.family() == 'Lagrange':
+            elif e.family() in ('Lagrange', 'Q'):
                 return True
             return False
 
@@ -194,11 +194,11 @@ class _VTUFile(object):
 
         ce = mesh.coordinates.function_space().ufl_element()
 
-        coords_p1 = is_family1(ce, 'Lagrange')
-        coords_p1dg = is_family1(ce, 'Discontinuous Lagrange')
+        coords_p1 = is_family1(ce, 'Lagrange') or is_family1(ce, 'Q')
+        coords_p1dg = is_family1(ce, 'Discontinuous Lagrange') or is_family1(ce, 'DQ')
         coords_cgN = is_cgN(ce)
-        function_p1 = is_family1(e, 'Lagrange')
-        function_p1dg = is_family1(e, 'Discontinuous Lagrange')
+        function_p1 = is_family1(e, 'Lagrange') or is_family1(e, 'Q')
+        function_p1dg = is_family1(e, 'Discontinuous Lagrange') or is_family1(e, 'DQ')
         function_cgN = is_cgN(e)
 
         project_coords = False
