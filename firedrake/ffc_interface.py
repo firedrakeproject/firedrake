@@ -8,7 +8,7 @@ from os import path, environ, getuid, makedirs
 import tempfile
 
 import ufl
-from ufl import Form, FiniteElement, VectorElement, as_vector
+from ufl import Form, MixedElement, as_vector
 from ufl.measure import Measure
 from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
@@ -200,13 +200,8 @@ class FFCKernel(DiskCached):
                 kernels.append((Kernel(Root(incl + [_kernel]), '%s_%s_integral_0_%s' %
                                        (name, it.integral_type(), it.subdomain_id()), opts, inc),
                                 needs_orientations))
-            # Sometimes FFC returns an empty list without raising
-            # EmptyIntegrandError, catch that here.
-            if len(kernels) == 0:
-                self._empty = True
-            else:
-                self.kernels = tuple(kernels)
-                self._empty = False
+            self.kernels = tuple(kernels)
+            self._empty = False
         except EmptyIntegrandError:
             # FFC noticed that the integrand was zero and simplified
             # it, catch this here and set a flag telling us to ignore
@@ -265,7 +260,9 @@ def compile_form(form, name, parameters=None, inverse=False):
     fd = compute_form_data(form)
 
     # If there is no mixed element involved, return the kernels FFC produces
-    if all(isinstance(e, (FiniteElement, VectorElement)) for e in fd.unique_sub_elements):
+    # Note: using type rather than isinstance because UFL's VectorElement,
+    # TensorElement and OPVectorElement all inherit from MixedElement
+    if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
                     it.domain().data().coordinates,
