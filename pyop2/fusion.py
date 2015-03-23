@@ -52,8 +52,7 @@ from utils import flatten, strip, as_tuple
 
 import coffee
 from coffee import base as ast
-from coffee.utils import visit as ast_visit, \
-    ast_update_id as ast_update_id, ast_c_make_alias as ast_make_alias
+from coffee.utils import visit as ast_visit, ast_c_make_alias as ast_make_alias
 
 import slope_python as slope
 
@@ -757,20 +756,25 @@ class Inspector(Cached):
             base_fundecl = base_fundecl[0]
             for unique_id, _fuse_ast in enumerate(fuse_asts[1:], 1):
                 fuse_ast = dcopy(_fuse_ast)
+                fuse_info = ast_visit(fuse_ast, search=ast.FunDecl)
+                fuse_fundecl = fuse_info['search'][ast.FunDecl]
+                if len(fuse_fundecl) != 1:
+                    raise RuntimeError("Fusing kernels, but found unexpected AST")
+                fuse_fundecl = fuse_fundecl[0]
                 # 1) Extend function name
-                base_fundecl.name = "%s_%s" % (base_ast.name, fuse_ast.name)
+                base_fundecl.name = "%s_%s" % (base_fundecl.name, fuse_fundecl.name)
                 # 2) Concatenate the arguments in the signature
-                base_fundecl.args.extend(fuse_ast.args)
+                base_fundecl.args.extend(fuse_fundecl.args)
                 # 3) Uniquify symbols identifiers
-                fuse_info = ast_visit(fuse_ast)
-                fuse_decls = fuse_info['decls']
                 fuse_symbols = fuse_info['symbol_refs']
-                for str_sym, decl in fuse_decls.items():
-                    for symbol, _ in fuse_symbols[str_sym]:
-                        ast_update_id(symbol, str_sym, unique_id)
-                # 4) Concatenate bodies
-                marker = [ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
-                base_fundecl.children[0].children.extend(marker + fuse_ast.children)
+                for decl in fuse_fundecl.args:
+                    for symbol, _ in fuse_symbols[decl.sym.symbol]:
+                        symbol.symbol = "%s_%d" % (symbol.symbol, unique_id)
+                # 4) Scope and concatenate bodies
+                base_fundecl.children[0] = ast.Block(
+                    [ast.Block(base_fundecl.children[0].children, open_scope=True),
+                     ast.FlatBlock("\n\n// Begin of fused kernel\n\n"),
+                     ast.Block(fuse_fundecl.children[0].children, open_scope=True)])
             # Eliminate redundancies in the fused kernel's signature
             self._filter_kernel_args(loops, base_fundecl)
             # Naming convention
