@@ -55,12 +55,12 @@ class Kernel(base.Kernel):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
         # Protect against re-transformation when retrieved from cache
-        if opts.get('transformed'):
+        if self._opts.get('transformed'):
             return ast.gencode()
         ast_handler = ASTKernel(ast, self._include_dirs)
-        ast_handler.plan_cpu(opts)
+        ast_handler.plan_cpu(self._opts)
         self._applied_blas = ast_handler.blas
-        opts['transformed'] = True
+        self._opts['transformed'] = True
         return ast_handler.gencode()
 
 

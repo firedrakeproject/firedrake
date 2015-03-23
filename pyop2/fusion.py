@@ -1028,6 +1028,18 @@ class Inspector(Cached):
             fuse_funcall.children.extend(ofs_syms)
             fuse_fundecl.args.extend(ofs_decls)
 
+            # 2D) Hard fusion breaks any padding applied to the /fuse/ kernel, so
+            # this transformation pass needs to be re-performed;
+            if fuse._code:
+                opts = {'compiler': fuse._opts['compiler'],
+                        'simd_isa': fuse._opts['simd_isa'],
+                        'align_pad': True}
+                ast_handler = ASTKernel(fuse_fundecl, fuse._include_dirs)
+                ast_handler.plan_cpu(opts)
+            if base._code:
+                base._opts = {'compiler': fuse._opts['compiler'],
+                              'simd_isa': fuse._opts['simd_isa']}
+
             # Create a /fusion.Kernel/ object to be used to update the schedule
             fused_headers = set([str(h) for h in base_headers + fuse_headers])
             fused_ast = ast.Root([ast.PreprocessNode(h) for h in fused_headers] +
