@@ -2048,7 +2048,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                                       qualifiers=["const"]),
                              ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
                                       qualifiers=["const"]),
-                             ast.Decl(self.ctype, ast.Symbol("*ret"))],
+                             ast.Decl("%s*" % self.ctype, ast.Symbol("ret"))],
                             ast.c_for("n", self.cdim,
                                       ast.Assign(ast.Symbol("ret", ("n", )),
                                                  ops[op](ast.Symbol("self", ("n", )),
