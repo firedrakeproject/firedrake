@@ -764,9 +764,9 @@ class Inspector(Cached):
                 # 3) Uniquify symbols identifiers
                 fuse_info = ast_visit(fuse_ast)
                 fuse_decls = fuse_info['decls']
-                fuse_symbols = fuse_info['symbols']
+                fuse_symbols = fuse_info['symbol_refs']
                 for str_sym, decl in fuse_decls.items():
-                    for symbol in fuse_symbols.keys():
+                    for symbol, _ in fuse_symbols[str_sym]:
                         ast_update_id(symbol, str_sym, unique_id)
                 # 4) Concatenate bodies
                 marker = [ast.FlatBlock("\n\n// Begin of fused kernel\n\n")]
