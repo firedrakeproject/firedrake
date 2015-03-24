@@ -246,7 +246,7 @@ __global__ void {{ parloop._stub_name }} (
 {% endif %}
 #define ROUND_UP(bytes) (((bytes) + 15) & ~15)
 
-{{ parloop.kernel.code }}
+{{ parloop.kernel.code() }}
 
 {% for arg in parloop._all_global_reduction_args -%}
 {{ reduction.reduction_kernel(arg) }}

@@ -92,7 +92,7 @@ __global__ void {{ parloop._stub_name }} (int set_size, int offset
 #define OP2_STRIDE(array, idx) (array)[ {{ launch.op2stride }} * (idx)]
 {% endif %}
 
-{{ parloop.kernel.code }}
+{{ parloop.kernel.code() }}
 
 {% for arg in parloop._all_global_reduction_args -%}
 {{ reduction.reduction_kernel(arg) }}

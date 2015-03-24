@@ -3721,7 +3721,6 @@ class Kernel(Cached):
         self._include_dirs = include_dirs
         self._headers = headers
         self._user_code = user_code
-        self._code = code
         # If an AST is provided, code generation is deferred
         self._ast, self._code = (code, None) if isinstance(code, Node) else (None, code)
         self._initialized = True
@@ -3731,7 +3730,6 @@ class Kernel(Cached):
         """Kernel name, must match the kernel function name in the code."""
         return self._name
 
-    @property
     def code(self):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""

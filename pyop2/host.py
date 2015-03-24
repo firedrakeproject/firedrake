@@ -678,7 +678,7 @@ class JITModule(base.JITModule):
             %(externc_open)s
             %(code)s
             #undef OP2_STRIDE
-            """ % {'code': self._kernel.code,
+            """ % {'code': self._kernel.code(),
                    'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
@@ -688,7 +688,7 @@ class JITModule(base.JITModule):
             %(namespace)s
             %(externc_open)s
             %(code)s
-            """ % {'code': self._kernel.code,
+            """ % {'code': self._kernel.code(),
                    'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
