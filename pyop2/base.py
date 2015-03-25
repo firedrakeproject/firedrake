@@ -56,6 +56,7 @@ from sparsity import build_sparsity
 from version import __version__ as version
 
 from coffee.base import Node
+from coffee.utils import visit as ast_visit
 from coffee import base as ast
 
 
@@ -3921,6 +3922,15 @@ class ParLoop(LazyComputation):
                     raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
 
         self._it_space = self.build_itspace(iterset)
+
+        # Attach semantical information to the kernel's AST
+        if hasattr(self._kernel, '_ast') and self._kernel._ast:
+            ast_info = ast_visit(self._kernel._ast, search=ast.FunDecl)
+            fundecl = ast_info['search'][ast.FunDecl]
+            if len(fundecl) == 1:
+                for arg, f_arg in zip(self._actual_args, fundecl[0].args):
+                    if arg._uses_itspace and arg._is_INC:
+                        f_arg.pragma = ast.WRITE
 
     def _run(self):
         return self.compute()

@@ -52,6 +52,7 @@ from utils import flatten, strip, as_tuple
 
 import coffee
 from coffee import base as ast
+from coffee.plan import ASTKernel
 from coffee.utils import visit as ast_visit, ast_c_make_alias as ast_make_alias
 
 import slope_python as slope
@@ -155,6 +156,7 @@ class Kernel(host.Kernel, tuple):
         if not isinstance(asts, (ast.FunDecl, ast.Root)):
             asts = ast.Root(asts)
         self._ast = asts
+        self._original_ast = dcopy(asts)
         return super(Kernel, self)._ast_to_c(self._ast, opts)
 
     def __init__(self, kernels, fused_ast=None, loop_chain_index=None):
@@ -171,6 +173,12 @@ class Kernel(host.Kernel, tuple):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
+
+        asts = fused_ast
+        if not asts:
+            # If kernels' need be concatenated, discard duplicates
+            kernels = dict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
+            asts = [k._ast for k in kernels]
         kernels = as_tuple(kernels, (Kernel, host.Kernel, base.Kernel))
 
         Kernel._globalcount += 1
@@ -181,12 +189,6 @@ class Kernel(host.Kernel, tuple):
         self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
         self._headers = list(set(flatten([k._headers for k in kernels])))
         self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
-
-        asts = fused_ast
-        if not asts:
-            # If kernels' need be concatenated, discard duplicates
-            kernels = dict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
-            asts = [k._ast for k in kernels]
 
         # Code generation is delayed until actually needed
         self._ast = asts
@@ -746,7 +748,7 @@ class Inspector(Cached):
             # Naming convention: here, we are fusing ASTs in /fuse_asts/ within
             # /base_ast/. Same convention will be used in the /hard_fuse/ method
             kernels = [l.kernel for l in loops]
-            fuse_asts = [k._ast for k in kernels]
+            fuse_asts = [k._original_ast if k._code else k._ast for k in kernels]
             # Fuse the actual kernels' bodies
             base_ast = dcopy(fuse_asts[0])
             base_info = ast_visit(base_ast, search=ast.FunDecl)
@@ -895,14 +897,20 @@ class Inspector(Cached):
         # kernel1's iterations.
         _fused = []
         for base_loop, fuse_loop, fused_map, fused_inc_arg in fused:
-            # Start analyzing the kernels' ASTs. Note that since /fuse/ will be
-            # modified, a deep copy of its AST is necessary to avoid changing the
-            # structured of the cached Kernel
+            # Start with analyzing the kernels' ASTs. Note: fusion occurs on fresh
+            # copies of the /base/ and /fuse/ ASTs. This is because the optimization
+            # of the /fused/ AST should be independent of that of individual ASTs,
+            # and subsequent cache hits for non-fused ParLoops should always retrive
+            # the original, unmodified ASTs. This is important not just for the
+            # sake of performance, but also for correctness of padding, since hard
+            # fusion changes the signature of /fuse/ (in particular, the buffers that
+            # are provided for computation on iteration spaces)
             base, fuse = base_loop.kernel, fuse_loop.kernel
-            base_info = ast_visit(base._ast, search=(ast.FunDecl, ast.PreprocessNode))
+            base_ast = dcopy(base._original_ast) if base._code else dcopy(base._ast)
+            base_info = ast_visit(base_ast, search=(ast.FunDecl, ast.PreprocessNode))
             base_headers = base_info['search'][ast.PreprocessNode]
             base_fundecl = base_info['search'][ast.FunDecl]
-            fuse_ast = dcopy(fuse._ast)
+            fuse_ast = dcopy(fuse._original_ast) if fuse._code else dcopy(fuse._ast)
             fuse_info = ast_visit(fuse_ast, search=(ast.FunDecl, ast.PreprocessNode))
             fuse_headers = fuse_info['search'][ast.PreprocessNode]
             fuse_fundecl = fuse_info['search'][ast.FunDecl]
@@ -978,6 +986,9 @@ class Inspector(Cached):
                             for s in fuse_inc_refs:
                                 s.offset = tuple((1, o) for o in ofs_syms)
                             ofs_vals.extend([init(o) for o in _ofs_vals])
+                    # Tell COFFEE that the argument is not an empty buffer anymore,
+                    # so any write to it must actually be an increment
+                    fuse_kernel_arg.pragma = [ast.INC]
                 elif fuse_loop_arg._is_indirect:
                     # 2B) All indirect arguments. At the C level, these arguments
                     #     are of pointer type, so simple pointer arithmetic is used
@@ -1030,15 +1041,6 @@ class Inspector(Cached):
 
             # 2D) Hard fusion breaks any padding applied to the /fuse/ kernel, so
             # this transformation pass needs to be re-performed;
-            if fuse._code:
-                opts = {'compiler': fuse._opts['compiler'],
-                        'simd_isa': fuse._opts['simd_isa'],
-                        'align_pad': True}
-                ast_handler = ASTKernel(fuse_fundecl, fuse._include_dirs)
-                ast_handler.plan_cpu(opts)
-            if base._code:
-                base._opts = {'compiler': fuse._opts['compiler'],
-                              'simd_isa': fuse._opts['simd_isa']}
 
             # Create a /fusion.Kernel/ object to be used to update the schedule
             fused_headers = set([str(h) for h in base_headers + fuse_headers])

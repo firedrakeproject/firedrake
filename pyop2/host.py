@@ -35,6 +35,7 @@
 common to backends executing on the host."""
 
 from textwrap import dedent
+from copy import deepcopy as dcopy
 
 import base
 import compilation
@@ -54,13 +55,10 @@ class Kernel(base.Kernel):
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
-        # Protect against re-transformation when retrieved from cache
-        if self._opts.get('transformed'):
-            return ast.gencode()
+        self._original_ast = dcopy(ast)
         ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(self._opts)
         self._applied_blas = ast_handler.blas
-        self._opts['transformed'] = True
         return ast_handler.gencode()
 
 
@@ -650,15 +648,6 @@ class JITModule(base.JITModule):
         # If we weren't in the cache we /must/ have arguments
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
-
-        # Attach semantical information to the kernel's AST
-        if self._kernel._ast:
-            ast_info = ast_visit(self._kernel._ast, search=ast.FunDecl)
-            fundecl = ast_info['search'][ast.FunDecl]
-            if len(fundecl) == 1:
-                for arg, f_arg in zip(self._args, fundecl[0].args):
-                    if arg._uses_itspace and arg._is_INC:
-                        f_arg.pragma = ast.WRITE
 
         compiler = coffee.plan.compiler
         blas = coffee.plan.blas_interface
