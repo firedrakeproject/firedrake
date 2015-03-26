@@ -112,12 +112,7 @@ class FunctionSpaceBase(ObjectCached):
         self._ises = None
         self._halo = halo.Halo(dm)
 
-        # Compute entity class offsets
-        self.dof_classes = [0, 0, 0, 0]
-        for d in range(mesh._plex.getDimension()+1):
-            ndofs = dofs_per_entity[d]
-            for i in range(4):
-                self.dof_classes[i] += ndofs * mesh._entity_classes[d, i]
+        self.dof_classes = self.get_dof_classes(self._mesh._entity_classes)
 
         # Tell the DM about the layout of the global vector
         with self.make_dat().vec_ro as v:
@@ -185,6 +180,15 @@ class FunctionSpaceBase(ObjectCached):
 
         return self.node_count*self.dim
 
+    def get_dof_classes(self, entity_classes):
+        """Compute entity class offsets for DoFs of this FunctionSpace."""
+        dof_classes = [0, 0, 0, 0]
+        for d in range(self._mesh._plex.getDimension()+1):
+            ndofs = self._dofs_per_entity[d]
+            for i in range(4):
+                dof_classes[i] += ndofs * entity_classes[d, i]
+        return dof_classes
+
     @utils.cached_property
     def node_set(self):
         """A :class:`pyop2.Set` containing the nodes of this
@@ -205,6 +209,14 @@ class FunctionSpaceBase(ObjectCached):
             if self.extruded:
                 return op2.ExtrudedSet(s, layers=self._mesh.layers)
             return s
+
+    @utils.cached_property
+    def node_set_hierarchy(self):
+        hierarchy = np.empty((self._mesh.s_depth, 4), dtype=np.int32)
+        for s in range(self._mesh.s_depth):
+            entity_classes = dmplex.get_entity_classes(self._mesh._plex, s+1)
+            hierarchy[s, :] = self.get_dof_classes(entity_classes)
+        return hierarchy
 
     @utils.cached_property
     def dof_dset(self):

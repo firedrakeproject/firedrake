@@ -129,6 +129,13 @@ class CoordinatelessFunction(ufl.Coefficient):
         return self._function_space.node_set
 
     @property
+    def node_set_hierarchy(self):
+        """A :class:`pyop2.Set` containing the nodes of this
+        :class:`Function` for each s-depth.
+        """
+        return self._function_space.node_set_hierarchy
+
+    @property
     def dof_dset(self):
         """A :class:`pyop2.DataSet` containing the degrees of freedom of
         this :class:`Function`."""
