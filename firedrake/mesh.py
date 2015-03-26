@@ -477,8 +477,8 @@ class Mesh(object):
         this is carried out automatically, however, in some cases (for
         example accessing a property of the mesh directly after
         constructing it) you need to call this manually."""
-        self.s_depth = s_depth
         if hasattr(self, '_callback'):
+            self.s_depth = s_depth
             self._callback(self)
 
     @utils.cached_property
