@@ -946,7 +946,7 @@ class Inspector(Cached):
             if_exec = ast.If(if_cond, [ast.Block([fuse_funcall, if_update],
                                                  open_scope=True)])
             fuse_body = ast.Block([if_exec], open_scope=True)
-            fuse_for = ast.c_for('i', fused_map.arity, fuse_body, pragma="")
+            fuse_for = ast.c_for('i', fused_map.arity, fuse_body, pragma=None)
             body.children.extend([base_funcall, fuse_for.children[0]])
 
             ### Modify the /fuse/ kernel ###
@@ -988,7 +988,7 @@ class Inspector(Cached):
                             ofs_vals.extend([init(o) for o in _ofs_vals])
                     # Tell COFFEE that the argument is not an empty buffer anymore,
                     # so any write to it must actually be an increment
-                    fuse_kernel_arg.pragma = [ast.INC]
+                    fuse_kernel_arg.pragma = set([ast.INC])
                 elif fuse_loop_arg._is_indirect:
                     # 2B) All indirect arguments. At the C level, these arguments
                     #     are of pointer type, so simple pointer arithmetic is used

@@ -3930,7 +3930,7 @@ class ParLoop(LazyComputation):
             if len(fundecl) == 1:
                 for arg, f_arg in zip(self._actual_args, fundecl[0].args):
                     if arg._uses_itspace and arg._is_INC:
-                        f_arg.pragma = ast.WRITE
+                        f_arg.pragma = set([ast.WRITE])
 
     def _run(self):
         return self.compute()
