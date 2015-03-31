@@ -1171,6 +1171,10 @@ def fuse(name, loop_chain, tile_size):
         synch_point = loop_chain.index(synch_points[0])
         remainder, loop_chain = loop_chain[synch_point:], loop_chain[:synch_point]
 
+    # If there is nothing left to fuse (e.g. only _Assembly objects were present), return
+    if len(loop_chain) in [0, 1]:
+        return loop_chain + remainder
+
     # If loops in /loop_chain/ are already /fusion/ objects (this could happen
     # when loops had already been fused because in a /loop_chain/ context) or
     # if global reductions are present, return
@@ -1178,8 +1182,11 @@ def fuse(name, loop_chain, tile_size):
             any([l._reduced_globals for l in loop_chain]):
         return loop_chain + remainder
 
-    # Loop fusion requires modifying kernels, so ASTs must be present
+    # Loop fusion requires modifying kernels, so ASTs must be present...
     if any([not hasattr(l.kernel, '_ast') or not l.kernel._ast for l in loop_chain]):
+        return loop_chain + remainder
+    # ...and must not be "fake" ASTs
+    if any([isinstance(l.kernel._ast, ast.FlatBlock) for l in loop_chain]):
         return loop_chain + remainder
 
     # Mixed still not supported
