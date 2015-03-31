@@ -1179,7 +1179,7 @@ def fuse(name, loop_chain, tile_size):
         return loop_chain + remainder
 
     # Loop fusion requires modifying kernels, so ASTs must be present
-    if any([not l.kernel._ast for l in loop_chain]):
+    if any([not hasattr(l.kernel, '_ast') or not l.kernel._ast for l in loop_chain]):
         return loop_chain + remainder
 
     # Mixed still not supported
