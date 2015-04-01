@@ -52,7 +52,7 @@ from utils import flatten, strip, as_tuple
 
 import coffee
 from coffee import base as ast
-from coffee.utils import visit as ast_visit, ast_c_make_alias as ast_make_alias
+from coffee.utils import visit as ast_visit, ast_make_alias
 
 try:
     import slope_python as slope
