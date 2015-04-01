@@ -108,7 +108,7 @@ class TestDat:
         with pytest.raises(NotImplementedError):
             mdat.copy(op2.MixedDat([s, s]), subset=op2.Subset(s, []))
 
-    @pytest.mark.skipif('config.getvalue("backend")[0] not in ["cuda", "opencl"]')
+    @pytest.mark.skipif('config.getvalue("backend") and config.getvalue("backend")[0] not in ["cuda", "opencl"]')
     def test_copy_works_device_to_device(self, backend, d1):
         d2 = op2.Dat(d1)
 
