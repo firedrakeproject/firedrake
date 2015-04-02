@@ -46,7 +46,15 @@ class Halo(object):
         lsec = dm.getDefaultSection()
         gsec = dm.getDefaultGlobalSection()
         dm.createDefaultSF(lsec, gsec)
-        self.sf = dm.getDefaultSF()
+        sf = dm.getDefaultSF()
+        # The full SF is designed for GlobalToLocal or LocalToGlobal
+        # where the input and output buffers are different.  So on the
+        # local rank, it copies data from input to output.  However,
+        # our halo exchanges use the same buffer for input and output
+        # (so we don't need to do the local copy).  To facilitate
+        # this, prune the SF to remove all the roots that reference
+        # the local rank.
+        self.sf = dmplex.prune_sf(sf)
         self.sf.setFromOptions()
         if self.sf.getType() != self.sf.Type.BASIC:
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")

@@ -1817,6 +1817,45 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     return val
 
 
+def prune_sf(PETSc.SF sf):
+    """Prune an SF of roots referencing the local rank
+
+    :arg sf: The PETSc SF to prune.
+    """
+    cdef:
+        PetscInt nroots, nleaves, new_nleaves, i, j
+        PetscInt rank
+        PetscInt *ilocal
+        PetscInt *new_ilocal
+        PetscSFNode *iremote
+        PetscSFNode *new_iremote
+        PETSc.SF pruned_sf
+
+    CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+
+    rank = sf.comm.rank
+    new_nleaves = 0
+    for i in range(nleaves):
+        if iremote[i].rank != rank:
+            new_nleaves += 1
+
+    CHKERR(PetscMalloc1(new_nleaves, &new_ilocal))
+    CHKERR(PetscMalloc1(new_nleaves, &new_iremote))
+    j = 0
+    for i in range(nleaves):
+        if iremote[i].rank != rank:
+            new_ilocal[j] = ilocal[i]
+            new_iremote[j].rank = iremote[i].rank
+            new_iremote[j].index = iremote[i].index
+            j += 1
+
+    pruned_sf = PETSc.SF().create()
+    CHKERR(PetscSFSetGraph(pruned_sf.sf, nroots, new_nleaves,
+                           new_ilocal, PETSC_OWN_POINTER,
+                           new_iremote, PETSC_OWN_POINTER))
+    return pruned_sf
+
+
 def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     """Begin a halo exchange.
 
@@ -1827,42 +1866,30 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
         performed.
 
     Forward exchanges are implemented using :data:`PetscSFBcastBegin`,
-    reverse exchanges with :data:`PetscSFReduceBegin`.  Note that in
-    the latter case, the matching :func:`halo_end` call *must* be made
-    before the input data is modified.
+    reverse exchanges with :data:`PetscSFReduceBegin`.
     """
     cdef:
         MPI.Op op = MPI.SUM
-        np.ndarray input, output
-        int size = dat.dataset.size
+        np.ndarray buf = dat._data
 
-    # Not allowed to touch input buffer (or observe output buffer)
-    # before the matching XXXEnd call is made.  To allow for
-    # overlapped computation (writing into local part) and
-    # communication (getting halo data) we therefore need a temporary
-    # buffer.
-    if not hasattr(dat, '_exchange_buf'):
-        dat._exchange_buf = np.empty_like(dat._data)
+    # We've pruned the SF so it only references remote roots.
+    # Therefore, we can pass the same buffer for input and output.
+    # This works because the sends will be packed into buffers
+    # internally in XXXBegin and unpacked in XXXEnd.  So any
+    # subsequent changes to the input buffer are ignored for the
+    # purposes of exchanging data.  If we didn't want to rely on this
+    # implementation we would have to do a dance with temporary
+    # buffers (which is slightly inefficient and messier).
     if reverse:
-        # Output goes to zeroed buffer, input buffer cannot be
-        # modified before matching halo_end call.
-        input = dat._data
-        output = dat._exchange_buf
-        output.fill(0)
         CHKERR(PetscSFReduceBegin(sf.sf, dtype.ob_mpi,
-                                  <const void*>input.data,
-                                  <void *>output.data,
+                                  <const void*>buf.data,
+                                  <void *>buf.data,
                                   op.ob_mpi))
     else:
-        # data copied to input buffer, output goes to input buffer,
-        # writes can occur to data in local region before matching
-        # halo_end.
-        input = dat._exchange_buf
-        input[:size] = dat._data[:size]
-        output = input
         CHKERR(PetscSFBcastBegin(sf.sf, dtype.ob_mpi,
-                                 <const void *>input.data,
-                                 <void *>output.data))
+                                 <const void *>buf.data,
+                                 <void *>buf.data))
+
 
 def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     """End a halo exchange.
@@ -1878,24 +1905,14 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     """
     cdef:
         MPI.Op op = MPI.SUM
-        np.ndarray input, output
-        int size = dat.dataset.size
+        np.ndarray buf = dat._data
 
     if reverse:
-        # Output was a zeroed buffer, now contains correct data.
-        input = dat._data
-        output = dat._exchange_buf
         CHKERR(PetscSFReduceEnd(sf.sf, dtype.ob_mpi,
-                                <const void *>input.data,
-                                <void*>output.data,
+                                <const void *>buf.data,
+                                <void*>buf.data,
                                 op.ob_mpi))
-        # Copy out to Dat
-        dat._data[:size] = output[:size]
     else:
-        input = dat._exchange_buf
-        output = input
         CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
-                               <const void *>input.data,
-                               <void *>output.data))
-        # Overwrite halo values in Dat with new correct vals.
-        dat._data[size:] = output[size:]
+                               <const void *>buf.data,
+                               <void *>buf.data))
