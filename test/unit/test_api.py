@@ -322,7 +322,7 @@ class TestArgAPI:
         for a, d in zip(arg.split, mdat):
             assert a.data == d
 
-    def test_arg_split_mat(self, backend, mat, m_iterset_toset):
+    def test_arg_split_mat(self, backend, skip_opencl, mat, m_iterset_toset):
         arg = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         for a in arg.split:
             assert a == arg
@@ -356,19 +356,19 @@ class TestArgAPI:
         assert dat(op2.READ, m_iterset_toset) != dat(op2.READ, m2)
         assert not dat(op2.READ, m_iterset_toset) == dat(op2.READ, m2)
 
-    def test_arg_eq_mat(self, backend, mat, m_iterset_toset):
+    def test_arg_eq_mat(self, backend, skip_opencl, mat, m_iterset_toset):
         a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         a2 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         assert a1 == a2
         assert not a1 != a2
 
-    def test_arg_ne_mat_idx(self, backend, mat, m_iterset_toset):
+    def test_arg_ne_mat_idx(self, backend, skip_opencl, mat, m_iterset_toset):
         a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         a2 = mat(op2.INC, (m_iterset_toset[1], m_iterset_toset[1]))
         assert a1 != a2
         assert not a1 == a2
 
-    def test_arg_ne_mat_mode(self, backend, mat, m_iterset_toset):
+    def test_arg_ne_mat_mode(self, backend, skip_opencl, mat, m_iterset_toset):
         a1 = mat(op2.INC, (m_iterset_toset[0], m_iterset_toset[0]))
         a2 = mat(op2.WRITE, (m_iterset_toset[0], m_iterset_toset[0]))
         assert a1 != a2
@@ -1233,37 +1233,38 @@ class TestSparsityAPI:
     def test_sparsity_single_dset(self, backend, di, mi):
         "Sparsity constructor should accept single Map and turn it into tuple"
         s = op2.Sparsity(di, mi, "foo")
-        assert (s.maps[0] == (mi, mi) and s.dims == (1, 1) and
+        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1) and
                 s.name == "foo" and s.dsets == (di, di))
 
     def test_sparsity_set_not_dset(self, backend, di, mi):
         "If we pass a Set, not a DataSet, it default to dimension 1."
         s = op2.Sparsity(mi.toset, mi)
-        assert s.maps[0] == (mi, mi) and s.dims == (1, 1) and s.dsets == (di, di)
+        assert s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1) \
+            and s.dsets == (di, di)
 
     def test_sparsity_map_pair(self, backend, di, mi):
         "Sparsity constructor should accept a pair of maps"
         s = op2.Sparsity((di, di), (mi, mi), "foo")
-        assert (s.maps[0] == (mi, mi) and s.dims == (1, 1) and
+        assert (s.maps[0] == (mi, mi) and s.dims[0][0] == (1, 1) and
                 s.name == "foo" and s.dsets == (di, di))
 
     def test_sparsity_map_pair_different_dataset(self, backend, mi, md, di, dd, m_iterset_toset):
         """Sparsity can be built from different row and column maps as long as
         the tosets match the row and column DataSet."""
         s = op2.Sparsity((di, dd), (m_iterset_toset, md), "foo")
-        assert (s.maps[0] == (m_iterset_toset, md) and s.dims == (1, 1) and
+        assert (s.maps[0] == (m_iterset_toset, md) and s.dims[0][0] == (1, 1) and
                 s.name == "foo" and s.dsets == (di, dd))
 
     def test_sparsity_unique_map_pairs(self, backend, mi, di):
         "Sparsity constructor should filter duplicate tuples of pairs of maps."
         s = op2.Sparsity((di, di), ((mi, mi), (mi, mi)), "foo")
-        assert s.maps == [(mi, mi)] and s.dims == (1, 1)
+        assert s.maps == [(mi, mi)] and s.dims[0][0] == (1, 1)
 
     def test_sparsity_map_pairs_different_itset(self, backend, mi, di, dd, m_iterset_toset):
         "Sparsity constructor should accept maps with different iteration sets"
         maps = ((m_iterset_toset, m_iterset_toset), (mi, mi))
         s = op2.Sparsity((di, di), maps, "foo")
-        assert s.maps == list(sorted(maps)) and s.dims == (1, 1)
+        assert s.maps == list(sorted(maps)) and s.dims[0][0] == (1, 1)
 
     def test_sparsity_map_pairs_sorted(self, backend, mi, di, dd, m_iterset_toset):
         "Sparsity maps should have a deterministic order."
@@ -1371,6 +1372,8 @@ class TestMatAPI:
     Mat API unit tests
     """
 
+    skip_backends = ["opencl"]
+
     def test_mat_illegal_sets(self, backend):
         "Mat sparsity should be a Sparsity."
         with pytest.raises(TypeError):
@@ -1391,7 +1394,7 @@ class TestMatAPI:
         assert m.sparsity == sparsity and  \
             m.dtype == np.float64 and m.name == 'bar'
 
-    def test_mat_mixed(self, backend, mmat):
+    def test_mat_mixed(self, backend, mmat, skip_cuda):
         "Default data type should be numpy.float64."
         assert mmat.dtype == np.double
 
@@ -1416,7 +1419,7 @@ class TestMatAPI:
         """Setting the diagonal of a zero matrix."""
         diag_mat.zero()
         diag_mat.set_diagonal(dat)
-        assert np.allclose(diag_mat.array, dat.data_ro)
+        assert np.allclose(diag_mat.handle.getDiagonal().array, dat.data_ro)
 
     def test_mat_dat_mult(self, backend, diag_mat, dat, skip_cuda):
         """Mat multiplied with Dat should perform matrix-vector multiplication
@@ -2062,7 +2065,7 @@ class TestParLoopAPI:
         with pytest.raises(exceptions.MapValueError):
             base.ParLoop(kernel, set1, dat(op2.READ, map))
 
-    def test_illegal_mat_iterset(self, backend, sparsity):
+    def test_illegal_mat_iterset(self, backend, skip_opencl, sparsity):
         """ParLoop should reject a Mat argument using a different iteration
         set from the par_loop's."""
         set1 = op2.Set(2)

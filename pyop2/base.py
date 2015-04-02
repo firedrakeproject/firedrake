@@ -36,6 +36,7 @@ information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
 
+import itertools
 import weakref
 import numpy as np
 import operator
@@ -635,6 +636,11 @@ class Set(object):
         """Yield self when iterated over."""
         yield self
 
+    def __getitem__(self, idx):
+        """Allow indexing to return self"""
+        assert idx == 0
+        return self
+
     def __len__(self):
         """This is not a mixed type and therefore of length 1."""
         return 1
@@ -1037,6 +1043,11 @@ class DataSet(ObjectCached):
     def __getattr__(self, name):
         """Returns a Set specific attribute."""
         return getattr(self.set, name)
+
+    def __getitem__(self, idx):
+        """Allow index to return self"""
+        assert idx == 0
+        return self
 
     @property
     def dim(self):
@@ -3162,7 +3173,7 @@ class Sparsity(ObjectCached):
     .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
-    def __init__(self, dsets, maps, name=None):
+    def __init__(self, dsets, maps, name=None, nest=None):
         """
         :param dsets: :class:`DataSet`\s for the left and right function
             spaces this :class:`Sparsity` maps between
@@ -3177,6 +3188,8 @@ class Sparsity(ObjectCached):
         if self._initialized:
             return
 
+        if not hasattr(self, '_block_sparse'):
+            self._block_sparse = True
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
@@ -3184,14 +3197,25 @@ class Sparsity(ObjectCached):
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].toset.size
         self._ncols = self._cmaps[0].toset.size
-        self._dims = (self._dsets[0].cdim, self._dsets[1].cdim)
+
+        tmp = itertools.product([x.cdim for x in self._dsets[0]],
+                                [x.cdim for x in self._dsets[1]])
+
+        dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
+        for r in range(self.shape[0]):
+            for c in range(self.shape[1]):
+                dims[r][c] = tmp.next()
+
+        self._dims = tuple(tuple(d) for d in dims)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         Sparsity._globalcount += 1
 
         # If the Sparsity is defined on MixedDataSets, we need to build each
         # block separately
-        if isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet):
+        if (isinstance(dsets[0], MixedDataSet) or isinstance(dsets[1], MixedDataSet)) \
+           and nest:
+            self._nested = True
             self._blocks = []
             for i, rds in enumerate(dsets[0]):
                 row = []
@@ -3206,8 +3230,9 @@ class Sparsity(ObjectCached):
             self._o_nz = sum(s._o_nz for s in self)
         else:
             with timed_region("Build sparsity"):
-                build_sparsity(self, parallel=MPI.parallel)
+                build_sparsity(self, parallel=MPI.parallel, block=self._block_sparse)
             self._blocks = [[self]]
+            self._nested = False
         self._initialized = True
 
     _cache = {}
@@ -3217,7 +3242,7 @@ class Sparsity(ObjectCached):
     @validate_type(('dsets', (Set, DataSet, tuple, list), DataSetTypeError),
                    ('maps', (Map, tuple, list), MapTypeError),
                    ('name', str, NameTypeError))
-    def _process_args(cls, dsets, maps, name=None, *args, **kwargs):
+    def _process_args(cls, dsets, maps, name=None, nest=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
 
         # A single data set becomes a pair of identical data sets
@@ -3273,11 +3298,13 @@ class Sparsity(ObjectCached):
             cache = dsets[0].set[0]
         else:
             cache = dsets[0].set
-        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name), {}
+        if nest is None:
+            nest = configuration["matnest"]
+        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name, nest), {}
 
     @classmethod
-    def _cache_key(cls, dsets, maps, *args, **kwargs):
-        return (dsets, maps)
+    def _cache_key(cls, dsets, maps, name, nest, *args, **kwargs):
+        return (dsets, maps, nest)
 
     def __getitem__(self, idx):
         """Return :class:`Sparsity` block with row and column given by ``idx``
@@ -3318,9 +3345,12 @@ class Sparsity(ObjectCached):
 
     @property
     def dims(self):
-        """A pair giving the number of rows per entry of the row
+        """A tuple of tuples where the ``i,j``th entry
+        is a pair giving the number of rows per entry of the row
         :class:`Set` and the number of columns per entry of the column
-        :class:`Set` of the ``Sparsity``."""
+        :class:`Set` of the ``Sparsity``.  The extents of the first
+        two indices are given by the :attr:`shape` of the sparsity.
+        """
         return self._dims
 
     @property
@@ -3337,6 +3367,20 @@ class Sparsity(ObjectCached):
     def ncols(self):
         """The number of columns in the ``Sparsity``."""
         return self._ncols
+
+    @property
+    def nested(self):
+        """Whether a sparsity is monolithic (even if it has a block structure).
+
+        To elaborate, if a sparsity maps between
+        :class:`MixedDataSet`\s, it can either be nested, in which
+        case it consists of as many blocks are the product of the
+        length of the datasets it maps between, or monolithic.  In the
+        latter case the sparsity is for the full map between the mixed
+        datasets, rather than between the blocks of the non-mixed
+        datasets underneath them.
+        """
+        return self._nested
 
     @property
     def name(self):
@@ -3497,6 +3541,36 @@ class Mat(SetAssociated):
         respectively. This corresponds to the ``cdim`` member of a
         :class:`DataSet`."""
         return self._sparsity._dims
+
+    @property
+    def nrows(self):
+        "The number of rows in the matrix (local to this process)"
+        return sum(d.size * d.cdim for d in self.sparsity.dsets[0])
+
+    @property
+    def nblock_rows(self):
+        """The number "block" rows in the matrix (local to this process).
+
+        This is equivalent to the number of rows in the matrix divided
+        by the dimension of the row :class:`DataSet`.
+        """
+        assert len(self.sparsity.dsets[0]) == 1, "Block rows don't make sense for mixed Mats"
+        return self.sparsity.dsets[0].size
+
+    @property
+    def nblock_cols(self):
+        """The number of "block" columns in the matrix (local to this process).
+
+        This is equivalent to the number of columns in the matrix
+        divided by the dimension of the column :class:`DataSet`.
+        """
+        assert len(self.sparsity.dsets[1]) == 1, "Block cols don't make sense for mixed Mats"
+        return self.sparsity.dsets[1].size
+
+    @property
+    def ncols(self):
+        "The number of columns in the matrix (local to this process)"
+        return sum(d.size * d.cdim for d in self.sparsity.dsets[1])
 
     @property
     def sparsity(self):

@@ -536,7 +536,7 @@ void kernel_swap(unsigned int* x)
         op2.base._trace.evaluate(set([y]), set())
         assert len(self.cache) == 2
 
-    def test_same_with_mat(self, backend, iterset, x, iter2ind1, mat):
+    def test_same_with_mat(self, backend, skip_opencl, iterset, x, iter2ind1, mat):
         self.cache.clear()
         assert len(self.cache) == 0
         self.cache_hit.clear()
@@ -563,8 +563,8 @@ void kernel_swap(unsigned int* x)
         assert plan1 is plan2
         assert self.cache_hit[plan1] == 2
 
-    def test_iteration_index_order_matters_with_mat(self, backend, iterset,
-                                                    x, iter2ind1, mat):
+    def test_iteration_index_order_matters_with_mat(self, backend, skip_opencl,
+                                                    iterset, x, iter2ind1, mat):
         self.cache.clear()
         assert len(self.cache) == 0
         self.cache_hit.clear()
@@ -968,7 +968,7 @@ class TestSparsityCache:
         sp2 = op2.Sparsity((ds2, ds2), ((m2, m2), (m1, m1)))
         assert sp1 is sp2
 
-    def test_two_mats_on_same_sparsity_share_data(self, backend, m1, skip_sequential, skip_openmp, ds2):
+    def test_two_mats_on_same_sparsity_share_data(self, backend, skip_opencl, m1, skip_sequential, skip_openmp, ds2):
         """Sparsity data should be shared between Mat objects.
         Even on the device."""
         sp = op2.Sparsity((ds2, ds2), (m1, m1))

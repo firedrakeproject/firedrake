@@ -86,7 +86,7 @@ class TestColoring:
     def x(cls, dnodes):
         return op2.Dat(dnodes, numpy.zeros(NUM_NODES, dtype=numpy.uint32), numpy.uint32, "x")
 
-    def test_thread_coloring(self, backend, elements, elem_node_map, elem_node, mat, x):
+    def test_thread_coloring(self, backend, skip_opencl, elements, elem_node_map, elem_node, mat, x):
         assert NUM_ELE % 2 == 0, "NUM_ELE must be even."
 
         plan = _plan.Plan(elements.all_part,

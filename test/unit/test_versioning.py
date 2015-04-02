@@ -110,7 +110,7 @@ class TestVersioning:
         sparsity = op2.Sparsity(iter2ind1.toset, iter2ind1, "sparsity")
         return op2.Mat(sparsity, 'float64', "mat")
 
-    def test_initial_version(self, backend, mat, g, x):
+    def test_initial_version(self, backend, skip_opencl, mat, g, x):
         assert mat._version == 1
         assert g._version == 1
         assert x._version == 1
@@ -122,11 +122,11 @@ class TestVersioning:
         x += 1
         assert x._version == 2
 
-    def test_zero(self, backend, mat):
+    def test_zero(self, backend, skip_opencl, mat):
         mat.zero()
         assert mat._version == 0
 
-    def test_version_after_zero(self, backend, mat):
+    def test_version_after_zero(self, backend, skip_opencl, mat):
         mat.zero_rows([1], 1.0)  # 2
         mat.zero()  # 0
         mat.zero_rows([2], 1.0)  # 3
@@ -162,7 +162,7 @@ class TestCopyOnWrite:
         return a.data_ro.__array_interface__['data'][0] == \
             b.data_ro.__array_interface__['data'][0]
 
-    def test_duplicate_mat(self, backend, mat, skip_cuda):
+    def test_duplicate_mat(self, backend, mat, skip_cuda, skip_opencl):
         mat.zero_rows([0], 1)
         mat3 = mat.duplicate()
         assert mat3.handle is mat.handle
@@ -185,12 +185,12 @@ class TestCopyOnWrite:
         assert all(x_dup.data_ro == numpy.arange(nelems) + 1)
         assert all(x.data_ro == numpy.arange(nelems))
 
-    def test_CoW_mat_duplicate_original_changes(self, backend, mat, skip_cuda):
+    def test_CoW_mat_duplicate_original_changes(self, backend, mat, skip_cuda, skip_opencl):
         mat_dup = mat.duplicate()
         mat.zero_rows([0], 1.0)
         assert mat.handle is not mat_dup.handle
 
-    def test_CoW_mat_duplicate_copy_changes(self, backend, mat, skip_cuda):
+    def test_CoW_mat_duplicate_copy_changes(self, backend, mat, skip_cuda, skip_opencl):
         mat_dup = mat.duplicate()
         mat_dup.zero_rows([0], 1.0)
         assert mat.handle is not mat_dup.handle

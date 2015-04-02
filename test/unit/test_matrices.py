@@ -40,6 +40,8 @@ from pyop2.exceptions import MapValueError, ModeValueError
 
 from coffee.base import *
 
+backends = ['sequential', 'openmp', 'cuda']
+
 # Data type
 valuetype = np.float64
 
@@ -561,24 +563,14 @@ class TestSparsity:
     def test_build_mixed_sparsity_vector(self, backend, mvsparsity):
         """Building a sparsity from a pair of mixed maps and a vector DataSet
         should give the expected rowptr and colidx for each block."""
-        assert all(mvsparsity._rowptr[0] == [0, 2, 4, 6, 8, 10, 12])
-        assert all(mvsparsity._rowptr[1] == [0, 4, 8, 12, 16, 20, 24])
-        assert all(mvsparsity._rowptr[2] == [0, 2, 4, 8, 12, 16, 20, 22, 24])
-        assert all(mvsparsity._rowptr[3] == [0, 4, 8, 14, 20, 26, 32, 36, 40])
-        assert all(mvsparsity._colidx[0] == [0, 1, 0, 1,
-                                             2, 3, 2, 3,
-                                             4, 5, 4, 5])
-        assert all(mvsparsity._colidx[1] == [0, 1, 2, 3, 0, 1, 2, 3,
-                                             2, 3, 4, 5, 2, 3, 4, 5,
-                                             4, 5, 6, 7, 4, 5, 6, 7])
-        assert all(mvsparsity._colidx[2] == [0, 1, 0, 1,
-                                             0, 1, 2, 3, 0, 1, 2, 3,
-                                             2, 3, 4, 5, 2, 3, 4, 5,
-                                             4, 5, 4, 5])
-        assert all(mvsparsity._colidx[3] == [0, 1, 2, 3, 0, 1, 2, 3,
-                                             0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5,
-                                             2, 3, 4, 5, 6, 7, 2, 3, 4, 5, 6, 7,
-                                             4, 5, 6, 7, 4, 5, 6, 7])
+        assert all(mvsparsity._rowptr[0] == [0, 1, 2, 3])
+        assert all(mvsparsity._rowptr[1] == [0, 2, 4, 6])
+        assert all(mvsparsity._rowptr[2] == [0, 1, 3, 5, 6])
+        assert all(mvsparsity._rowptr[3] == [0, 2, 5, 8, 10])
+        assert all(mvsparsity._colidx[0] == [0, 1, 2])
+        assert all(mvsparsity._colidx[1] == [0, 1, 1, 2, 2, 3])
+        assert all(mvsparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
+        assert all(mvsparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
 
     def test_sparsity_null_maps(self, backend):
         """Building sparsity from a pair of non-initialized maps should fail."""
@@ -680,13 +672,12 @@ class TestMatrices:
                      g(op2.READ))
         mat.assemble()
         # Check we have ones in the matrix
-        assert mat.array.sum() == 3 * 3 * elements.size
+        assert mat.values.sum() == 3 * 3 * elements.size
         op2.par_loop(kernel_set, elements,
                      mat(op2.WRITE, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
         mat.assemble()
-        # Check we have set all values in the matrix to 1
-        assert_allclose(mat.array, np.ones_like(mat.array))
+        assert mat.values.sum() == (3 * 3 - 2) * elements.size
         mat.zero()
 
     def test_zero_rhs(self, backend, b, zero_dat, nodes):
@@ -819,6 +810,7 @@ class TestMixedMatrices:
                      mdat(op2.READ, mmap))
         return dat
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_assemble_mixed_mat(self, backend, mat):
         """Assemble into a matrix declared on a mixed sparsity."""
         eps = 1.e-12
@@ -852,6 +844,7 @@ class TestMixedMatrices:
         assert_allclose(dat[0].data_ro, np.kron(zip(rdata(3)), np.ones(2)), eps)
         assert_allclose(dat[1].data_ro, exp, eps)
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_solve_mixed(self, backend, mat, dat):
         x = op2.MixedDat(dat.dataset)
         op2.solve(mat, x, dat)
@@ -860,6 +853,7 @@ class TestMixedMatrices:
         assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
         assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_set_diagonal(self, backend, mat, dat):
         mat.zero()
         mat.set_diagonal(dat)
@@ -869,6 +863,7 @@ class TestMixedMatrices:
                 for j, v in enumerate(dat[i].data_ro):
                     assert mat[i, i].handle[j, j] == v
 
+    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
     def test_set_diagonal_invalid_dat(self, backend, mat, mset):
         dat = op2.MixedDat(mset ** 4)
         with pytest.raises(TypeError):

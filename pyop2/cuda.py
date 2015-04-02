@@ -201,6 +201,10 @@ class Dat(DeviceDataMixin, op2.Dat):
 
 class Sparsity(op2.Sparsity):
 
+    def __init__(self, *args, **kwargs):
+        self._block_sparse = False
+        super(Sparsity, self).__init__(*args, **kwargs)
+
     @property
     def rowptr(self):
         if not hasattr(self, '__rowptr'):
@@ -326,7 +330,7 @@ class Mat(DeviceDataMixin, op2.Mat):
     @property
     def values(self):
         base._trace.evaluate(set([self]), set([self]))
-        shape = self.sparsity.maps[0][0].toset.size * self.dims[0]
+        shape = self.sparsity.maps[0][0].toset.size * self.dims[0][0][0]
         shape = (shape, shape)
         ret = np.zeros(shape=shape, dtype=self.dtype)
         csrdata = self._csrdata.get()

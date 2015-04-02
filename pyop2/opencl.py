@@ -232,6 +232,10 @@ class Dat(device.Dat, petsc_base.Dat, DeviceDataMixin):
 
 class Sparsity(device.Sparsity):
 
+    def __init__(self, *args, **kwargs):
+        self._block_sparse = False
+        super(Sparsity, self).__init__(*args, **kwargs)
+
     @property
     def colidx(self):
         if not hasattr(self, '__dev_colidx'):
@@ -249,52 +253,12 @@ class Sparsity(device.Sparsity):
         return getattr(self, '__dev_rowptr')
 
 
-class Mat(device.Mat, petsc_base.Mat, DeviceDataMixin):
+class Mat(device.Mat, DeviceDataMixin):
 
     """OP2 OpenCL matrix data type."""
 
-    def _allocate_device(self):
-        if self.state is DeviceDataMixin.DEVICE_UNALLOCATED:
-            self._dev_array = array.zeros(_queue,
-                                          self.sparsity.nz,
-                                          self.dtype)
-            self.state = DeviceDataMixin.HOST
-
-    def _to_device(self):
-        if not hasattr(self, '_array'):
-            self._init()
-            self.state = DeviceDataMixin.HOST
-        if self.state is DeviceDataMixin.HOST:
-            self._dev_array.set(self._array, queue=_queue)
-            self.state = DeviceDataMixin.BOTH
-
-    def _from_device(self):
-        if self.state is DeviceDataMixin.DEVICE:
-            self._dev_array.get(queue=_queue, ary=self._array)
-            self.state = DeviceDataMixin.BOTH
-
-    @property
-    def _colidx(self):
-        return self._sparsity.colidx
-
-    @property
-    def _rowptr(self):
-        return self._sparsity.rowptr
-
-    def _assemble(self):
-        self._from_device()
-        self.handle.assemble()
-        self.state = DeviceDataMixin.HOST
-
-    @property
-    def cdim(self):
-        return np.prod(self.dims)
-
-    @property
-    def values(self):
-        base._trace.evaluate(set([self]), set())
-        self._from_device()
-        return self.handle[:, :]
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("OpenCL backend does not implement matrices")
 
 
 class Const(device.Const, DeviceDataMixin):

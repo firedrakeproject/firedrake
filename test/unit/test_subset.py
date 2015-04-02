@@ -210,7 +210,7 @@ inc(unsigned int* v1, unsigned int* v2) {
         assert np.sum(dat1.data) == nelems
         assert np.sum(dat2.data) == nelems
 
-    def test_matrix(self, backend):
+    def test_matrix(self, backend, skip_opencl):
         """Test a indirect par_loop with a matrix argument"""
         iterset = op2.Set(2)
         idset = op2.Set(2)

@@ -41,6 +41,7 @@ required to implement backend-specific features.
 
 from contextlib import contextmanager
 from petsc4py import PETSc, __version__ as petsc4py_version
+import numpy as np
 
 import base
 from base import *
@@ -98,10 +99,10 @@ class DataSet(base.DataSet):
 
     @property
     def field_ises(self):
-        """A list of PETSc ISes defining the indices for each set in
-    the DataSet.
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
 
-        Used when creating block matrices."""
+        Used when extracting blocks from matrices for solvers."""
         if hasattr(self, '_field_ises'):
             return self._field_ises
         ises = []
@@ -112,17 +113,106 @@ class DataSet(base.DataSet):
         offset -= nlocal_rows
         for dset in self:
             nrows = dset.size * dset.cdim
-            ises.append(PETSc.IS().createStride(nrows, first=offset, step=1))
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1)
+            iset.setBlockSize(dset.cdim)
+            ises.append(iset)
             offset += nrows
         self._field_ises = tuple(ises)
         return ises
+
+    @property
+    def local_ises(self):
+        """A list of PETSc ISes defining the local indices for each set in the DataSet.
+
+        Used when extracting blocks from matrices for assembly."""
+        if hasattr(self, '_local_ises'):
+            return self._local_ises
+        ises = []
+        start = 0
+        for dset in self:
+            bs = dset.cdim
+            n = dset.total_size*bs
+            iset = PETSc.IS().createStride(n, first=start, step=1)
+            iset.setBlockSize(bs)
+            start += n
+            ises.append(iset)
+        self._local_ises = tuple(ises)
+        return self._local_ises
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
 
     @property
     def lgmap(self):
-        raise NotImplementedError("lgmap property not implemented for MixedDataSet")
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`MixedDataSet`.
+        """
+        if hasattr(self, '_lgmap'):
+            return self._lgmap
+        self._lgmap = PETSc.LGMap()
+        if MPI.comm.size == 1:
+            size = sum(s.size * s.cdim for s in self)
+            self._lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
+                               bsize=1)
+            return self._lgmap
+        # Compute local to global maps for a monolithic mixed system
+        # from the individual local to global maps for each field.
+        # Exposition:
+        #
+        # We have N fields and P processes.  The global row
+        # ordering is:
+        #
+        # f_0_p_0, f_1_p_0, ..., f_N_p_0; f_0_p_1, ..., ; f_0_p_P,
+        # ..., f_N_p_P.
+        #
+        # We have per-field local to global numberings, to convert
+        # these into multi-field local to global numberings, we note
+        # the following:
+        #
+        # For each entry in the per-field l2g map, we first determine
+        # the rank that entry belongs to, call this r.
+        #
+        # We know that this must be offset by:
+        # 1. The sum of all field lengths with rank < r
+        # 2. The sum of all lower-numbered field lengths on rank r.
+        #
+        # Finally, we need to shift the field-local entry by the
+        # current field offset.
+        idx_size = sum(s.total_size*s.cdim for s in self)
+        indices = np.full(idx_size, -1, dtype=PETSc.IntType)
+        owned_sz = np.array([sum(s.size * s.cdim for s in self)], dtype=PETSc.IntType)
+        field_offset = np.empty_like(owned_sz)
+        MPI.comm.Scan(owned_sz, field_offset)
+        field_offset -= owned_sz
+
+        all_field_offsets = np.empty(MPI.comm.size, dtype=PETSc.IntType)
+        MPI.comm.Allgather(field_offset, all_field_offsets)
+
+        start = 0
+        all_local_offsets = np.zeros(MPI.comm.size, dtype=PETSc.IntType)
+        current_offsets = np.zeros(MPI.comm.size + 1, dtype=PETSc.IntType)
+        for s in self:
+            idx = indices[start:start + s.total_size * s.cdim]
+            owned_sz[0] = s.size * s.cdim
+            MPI.comm.Scan(owned_sz, field_offset)
+            MPI.comm.Allgather(field_offset, current_offsets[1:])
+            # Find the ranks each entry in the l2g belongs to
+            l2g = s.halo.global_to_petsc_numbering
+            # If cdim > 1, we need to unroll the node numbering to dof
+            # numbering
+            if s.cdim > 1:
+                new_l2g = np.empty(l2g.shape[0]*s.cdim, dtype=l2g.dtype)
+                for i in range(s.cdim):
+                    new_l2g[i::s.cdim] = l2g*s.cdim + i
+                l2g = new_l2g
+            tmp_indices = np.searchsorted(current_offsets, l2g, side="right") - 1
+            idx[:] = l2g[:] - current_offsets[tmp_indices] + \
+                all_field_offsets[tmp_indices] + all_local_offsets[tmp_indices]
+            MPI.comm.Allgather(owned_sz, current_offsets[1:])
+            all_local_offsets += current_offsets[1:]
+            start += s.total_size * s.cdim
+        self._lgmap.create(indices=indices, bsize=1)
+        return self._lgmap
 
 
 class Dat(base.Dat):
@@ -140,7 +230,8 @@ class Dat(base.Dat):
         self._force_evaluation()
         if not hasattr(self, '_vec'):
             size = (self.dataset.size * self.cdim, None)
-            self._vec = PETSc.Vec().createWithArray(acc(self), size=size)
+            self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
+                                                    bsize=self.cdim)
         # PETSc Vecs have a state counter and cache norm computations
         # to return immediately if the state counter is unchanged.
         # Since we've updated the data behind their back, we need to
@@ -257,6 +348,114 @@ class MixedDat(base.MixedDat):
         return self.vecscatter()
 
 
+class SparsityBlock(base.Sparsity):
+    """A proxy class for a block in a monolithic :class:`.Sparsity`.
+
+    :arg parent: The parent monolithic sparsity.
+    :arg i: The block row.
+    :arg j: The block column.
+
+    .. warning::
+
+       This class only implements the properties necessary to infer
+       its shape.  It does not provide arrays of non zero fill."""
+    def __init__(self, parent, i, j):
+        self._dsets = (parent.dsets[0][i], parent.dsets[1][j])
+        self._rmaps = tuple(m.split[i] for m in parent.rmaps)
+        self._cmaps = tuple(m.split[j] for m in parent.cmaps)
+        self._nrows = self._dsets[0].size
+        self._ncols = self._dsets[1].size
+        self._parent = parent
+        self._dims = tuple([tuple([parent.dims[i][j]])])
+        self._blocks = [[self]]
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        return (None, ) + args, kwargs
+
+    @classmethod
+    def _cache_key(cls, *args, **kwargs):
+        return None
+
+    def __repr__(self):
+        return "SparsityBlock(%r, %r, %r)" % (self._parent, self._i, self._j)
+
+
+class MatBlock(base.Mat):
+    """A proxy class for a local block in a monolithic :class:`.Mat`.
+
+    :arg parent: The parent monolithic matrix.
+    :arg i: The block row.
+    :arg j: The block column.
+    """
+    def __init__(self, parent, i, j):
+        self._parent = parent
+        self._i = i
+        self._j = j
+        self._sparsity = SparsityBlock(parent.sparsity, i, j)
+        rset, cset = self._parent.sparsity.dsets
+        rowis = rset.local_ises[i]
+        colis = cset.local_ises[j]
+        self._handle = parent.handle.getLocalSubMatrix(isrow=rowis,
+                                                       iscol=colis)
+
+    def __getitem__(self, idx):
+        return self
+
+    def __iter__(self):
+        yield self
+
+    def inc_local_diagonal_entries(self, rows, diag_val=1.0):
+        rbs, _ = self.dims[0][0]
+        # No need to set anything if we didn't get any rows.
+        if len(rows) == 0:
+            return
+        if rbs > 1:
+            rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+        vals = np.repeat(diag_val, len(rows))
+        self.handle.setValuesLocalRCV(rows.reshape(-1, 1), rows.reshape(-1, 1),
+                                      vals.reshape(-1, 1), addv=PETSc.InsertMode.ADD_VALUES)
+
+    def addto_values(self, rows, cols, values):
+        """Add a block of values to the :class:`Mat`."""
+
+        self.handle.setValuesBlockedLocal(rows, cols, values,
+                                          addv=PETSc.InsertMode.ADD_VALUES)
+
+    def set_values(self, rows, cols, values):
+        """Set a block of values in the :class:`Mat`."""
+
+        self.handle.setValuesBlockedLocal(rows, cols, values,
+                                          addv=PETSc.InsertMode.INSERT_VALUES)
+
+    @property
+    def handle(self):
+        return self._handle
+
+    def assemble(self):
+        pass
+
+    @property
+    def values(self):
+        rset, cset = self._parent.sparsity.dsets
+        rowis = rset.field_ises[self._i]
+        colis = cset.field_ises[self._j]
+        mat = self._parent.handle.getSubMatrix(isrow=rowis,
+                                               iscol=colis)
+        return mat[:, :]
+
+    @property
+    def dtype(self):
+        return self._parent.dtype
+
+    @property
+    def nbytes(self):
+        return self._parent.nbytes / (np.prod(self.sparsity.shape))
+
+    def __repr__(self):
+        return "MatBlock(%r, %r, %r)" % (self._parent, self._i, self._j)
+
+
 class Mat(base.Mat, CopyOnWrite):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
@@ -268,9 +467,45 @@ class Mat(base.Mat, CopyOnWrite):
                                % (PETSc.ScalarType, self.dtype))
         # If the Sparsity is defined on MixedDataSets, we need to build a MatNest
         if self.sparsity.shape > (1, 1):
-            self._init_nest()
+            if self.sparsity.nested:
+                self._init_nest()
+            else:
+                self._init_monolithic()
         else:
             self._init_block()
+
+    def _init_monolithic(self):
+        mat = PETSc.Mat()
+        mat.createAIJ(size=((self.nrows, None), (self.ncols, None)),
+                      nnz=(self.sparsity.nnz, self.sparsity.onnz),
+                      bsize=1)
+        rset, cset = self.sparsity.dsets
+        mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
+        self._handle = mat
+        self._blocks = []
+        rows, cols = self.sparsity.shape
+        for i in range(rows):
+            row = []
+            for j in range(cols):
+                row.append(MatBlock(self, i, j))
+            self._blocks.append(row)
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, False)
+        mat.setOption(mat.Option.KEEP_NONZERO_PATTERN, True)
+        # We completely fill the allocated matrix when zeroing the
+        # entries, so raise an error if we "missed" one.
+        mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
+        mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        # Put zeros in all the places we might eventually put a value.
+        for i in range(rows):
+            for j in range(cols):
+                sparsity.fill_with_zeros(self[i, j].handle,
+                                         self[i, j].sparsity.dims[0][0],
+                                         self[i, j].sparsity.maps,
+                                         set_diag=(i == j))
+
+        mat.assemble()
+        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
 
     def _init_nest(self):
         mat = PETSc.Mat()
@@ -293,23 +528,22 @@ class Mat(base.Mat, CopyOnWrite):
         mat = PETSc.Mat()
         row_lg = self.sparsity.dsets[0].lgmap
         col_lg = self.sparsity.dsets[1].lgmap
-        rdim, cdim = self.sparsity.dims
+        rdim, cdim = self.dims[0][0]
 
-        if MPI.comm.size == 1:
-            self._array = np.zeros(self.sparsity.nz, dtype=PETSc.RealType)
-            # We're not currently building a blocked matrix, so need to scale the
-            # number of rows and columns by the sparsity dimensions
-            # FIXME: This needs to change if we want to do blocked sparse
-            # NOTE: using _rowptr and _colidx since we always want the host values
-            mat.createAIJWithArrays(
-                (self.sparsity.nrows * rdim, self.sparsity.ncols * cdim),
-                (self.sparsity._rowptr, self.sparsity._colidx, self._array))
+        if rdim == cdim and rdim > 1:
+            # Size is total number of rows and columns, but the
+            # /sparsity/ is the block sparsity.
+            block_sparse = True
+            create = mat.createBAIJ
         else:
-            mat.createAIJ(size=((self.sparsity.nrows * rdim, None),
-                                (self.sparsity.ncols * cdim, None)),
-                          nnz=(self.sparsity.nnz, self.sparsity.onnz),
-                          bsize=(rdim, cdim))
-        mat.setBlockSizes(rdim, cdim)
+            # Size is total number of rows and columns, sparsity is
+            # the /dof/ sparsity.
+            block_sparse = False
+            create = mat.createAIJ
+        create(size=((self.nrows, None),
+                     (self.ncols, None)),
+               nnz=(self.sparsity.nnz, self.sparsity.onnz),
+               bsize=(rdim, cdim))
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
         # Do not stash entries destined for other processors, just drop them
         # (we take care of those in the halo)
@@ -319,7 +553,8 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         # Do not ignore zeros while we fill the initial matrix so that
         # petsc doesn't compress things out.
-        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, False)
+        if not block_sparse:
+            mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, False)
         # When zeroing rows (e.g. for enforcing Dirichlet bcs), keep those in
         # the nonzero structure of the matrix. Otherwise PETSc would compact
         # the sparsity and render our sparsity caching useless.
@@ -329,11 +564,12 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
 
         # Put zeros in all the places we might eventually put a value.
-        sparsity.fill_with_zeros(mat, self.sparsity.dims, self.sparsity.maps)
+        sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps)
 
         # Now we've filled up our matrix, so the sparsity is
         # "complete", we can ignore subsequent zero entries.
-        mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
+        if not block_sparse:
+            mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
         self._handle = mat
         # Matrices start zeroed.
         self._version_set_zero()
@@ -460,16 +696,6 @@ class Mat(base.Mat, CopyOnWrite):
         if not hasattr(self, '_blocks'):
             self._init()
         return self._blocks
-
-    @property
-    @modifies
-    def array(self):
-        """Array of non-zero values."""
-        if not hasattr(self, '_array'):
-            self._init()
-        base._trace.evaluate(set([self]), set())
-        self._assemble()
-        return self._array
 
     @property
     @modifies
