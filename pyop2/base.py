@@ -3371,6 +3371,14 @@ class Sparsity(ObjectCached):
     @property
     def nested(self):
         """Whether a sparsity is monolithic (even if it has a block structure).
+
+        To elaborate, if a sparsity maps between
+        :class:`MixedDataSet`\s, it can either be nested, in which
+        case it consists of as many blocks are the product of the
+        length of the datasets it maps between, or monolithic.  In the
+        latter case the sparsity is for the full map between the mixed
+        datasets, rather than between the blocks of the non-mixed
+        datasets underneath them.
         """
         return self._nested
 
@@ -3541,11 +3549,21 @@ class Mat(SetAssociated):
 
     @property
     def nblock_rows(self):
+        """The number "block" rows in the matrix (local to this process).
+
+        This is equivalent to the number of rows in the matrix divided
+        by the dimension of the row :class:`DataSet`.
+        """
         assert len(self.sparsity.dsets[0]) == 1, "Block rows don't make sense for mixed Mats"
         return self.sparsity.dsets[0].size
 
     @property
     def nblock_cols(self):
+        """The number of "block" columns in the matrix (local to this process).
+
+        This is equivalent to the number of columns in the matrix
+        divided by the dimension of the column :class:`DataSet`.
+        """
         assert len(self.sparsity.dsets[1]) == 1, "Block cols don't make sense for mixed Mats"
         return self.sparsity.dsets[1].size
 

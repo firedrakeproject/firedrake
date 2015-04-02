@@ -102,7 +102,7 @@ class DataSet(base.DataSet):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
-        Used when extract blocks from matrices for solvers."""
+        Used when extracting blocks from matrices for solvers."""
         if hasattr(self, '_field_ises'):
             return self._field_ises
         ises = []
