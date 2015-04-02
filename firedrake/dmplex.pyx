@@ -1,15 +1,21 @@
 # Utility functions to derive global and local numbering from DMPlex
 from petsc import PETSc
-from pyop2 import MPI
+from pyop2 import MPI as _MPI
 import numpy as np
 cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
 
+cimport mpi4py.MPI as MPI
+from mpi4py import MPI
+
 from libc.string cimport memset
 from libc.stdlib cimport qsort
 
 np.import_array()
+
+cdef extern from "mpi-compat.h":
+    pass
 
 include "dmplex.pxi"
 
@@ -624,7 +630,7 @@ def mark_entity_classes(PETSc.DM plex):
     CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_non_exec, pStart, pEnd))
 
-    if MPI.comm.size > 1:
+    if _MPI.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
@@ -972,7 +978,7 @@ def get_cell_remote_ranks(PETSc.DM plex):
     ncells = cEnd - cStart
 
     result = np.full(ncells, -1, dtype=np.int32)
-    if MPI.comm.size > 1:
+    if _MPI.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
@@ -1091,7 +1097,7 @@ cdef inline void get_communication_lists(
                       buffer, inverse of 'facets' (return value)
     """
     cdef:
-        int comm_size = MPI.comm.size
+        int comm_size = _MPI.comm.size
         PetscInt cStart, cEnd
         PetscInt nfacets, fStart, fEnd, f
         PetscInt i, k, support_size
@@ -1184,8 +1190,8 @@ cdef inline void get_communication_lists(
     # For debugging purposes:
     #
     # for i in range(offsets[0][nranks[0]]):
-    #     print "(%d/%d): %d = (%d, %d) -> %d" % (MPI.comm.rank,
-    #                                             MPI.comm.size,
+    #     print "(%d/%d): %d = (%d, %d) -> %d" % (_MPI.comm.rank,
+    #                                             _MPI.comm.size,
     #                                             cfacets[i].local_facet,
     #                                             cfacets[i].global_u,
     #                                             cfacets[i].global_v,
@@ -1204,8 +1210,8 @@ cdef inline void get_communication_lists(
     #
     # for i in range(nfacets):
     #     if facet2index[0][i] != -1:
-    #         print "(%d/%d): [%d] = %d" % (MPI.comm.rank,
-    #                                       MPI.comm.size,
+    #         print "(%d/%d): [%d] = %d" % (_MPI.comm.rank,
+    #                                       _MPI.comm.size,
     #                                       facet2index[0][i],
     #                                       fStart + i)
 
@@ -1478,12 +1484,12 @@ cdef inline void exchange_edge_orientation_data(
     # Initiate receiving
     recv_reqs = []
     for ri in range(nranks):
-        recv_reqs.append(MPI.comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        recv_reqs.append(_MPI.comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Initiate sending
     send_reqs = []
     for ri in range(nranks):
-        send_reqs.append(MPI.comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        send_reqs.append(_MPI.comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Wait for completion
     for req in recv_reqs:
@@ -1547,7 +1553,7 @@ def quadrilateral_facet_orientations(
     # the sign tells the edge direction. Positive sign implies that the edge
     # points from the vertex with the smaller global number to the vertex with
     # the greater global number, negative implies otherwise.
-    ours = MPI.comm.size * np.arange(nfacets_shared, dtype=np.int32) + MPI.comm.rank
+    ours = _MPI.comm.size * np.arange(nfacets_shared, dtype=np.int32) + _MPI.comm.rank
 
     # We update these values based on the local connections
     # before we do any communication.
@@ -1565,7 +1571,7 @@ def quadrilateral_facet_orientations(
     theirs = np.empty_like(ours)
 
     # Synchronise shared edge directions in parallel
-    conflict = int(MPI.comm.size > 1)
+    conflict = int(_MPI.comm.size > 1)
     while conflict != 0:
         # Populate 'theirs' by communication from the 'ours' of others.
         exchange_edge_orientation_data(nranks, ranks, offsets, ours, theirs)
@@ -1605,7 +1611,7 @@ def quadrilateral_facet_orientations(
 
         # If there was a conflict anywhere, do another round
         # of communication everywhere.
-        conflict = MPI.comm.allreduce(conflict)
+        conflict = _MPI.comm.allreduce(conflict)
 
     CHKERR(PetscFree(ranks))
     CHKERR(PetscFree(offsets))
@@ -1758,20 +1764,20 @@ def exchange_cell_orientations(
         PetscInt nroots, nleaves
         PetscInt *ilocal
         PetscSFNode *iremote
-
+        MPI.Datatype dtype = MPI.INT
         PETSc.Section new_section
         np.int32_t *new_values = NULL
         PetscInt i, c, cStart, cEnd, l, r
 
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
-    if MPI.comm.size > 1:
+    if _MPI.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
         new_section = PETSc.Section().create()
         CHKERR(DMPlexDistributeData(plex.dm, sf.sf, section.sec,
-                                    MPI_INT, <void *>orientations.data,
+                                    dtype.ob_mpi, <void *>orientations.data,
                                     new_section.sec, <void **>&new_values))
 
         # Overwrite values in the halo region with remote values
@@ -1786,3 +1792,127 @@ def exchange_cell_orientations(
 
     if new_values != NULL:
         CHKERR(PetscFree(new_values))
+
+
+def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
+    """Build an array of global numbers for local dofs
+
+    :arg lsec: Section describing local dof layout and numbers.
+    :arg gsec: Section describing global dof layout and numbers."""
+    cdef:
+        PetscInt p, pStart, pEnd, dof, loff, goff
+        np.ndarray[PetscInt, ndim=1, mode="c"] val
+
+    val = np.empty(lsec.getStorageSize(), dtype=PETSc.IntType)
+    pStart, pEnd = lsec.getChart()
+
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetDof(lsec.sec, p, &dof))
+        if dof > 0:
+            CHKERR(PetscSectionGetOffset(lsec.sec, p, &loff))
+            CHKERR(PetscSectionGetOffset(gsec.sec, p, &goff))
+            goff = cabs(goff)
+            for c in range(dof):
+                val[loff + c] = goff + c
+    return val
+
+
+def prune_sf(PETSc.SF sf):
+    """Prune an SF of roots referencing the local rank
+
+    :arg sf: The PETSc SF to prune.
+    """
+    cdef:
+        PetscInt nroots, nleaves, new_nleaves, i, j
+        PetscInt rank
+        PetscInt *ilocal
+        PetscInt *new_ilocal
+        PetscSFNode *iremote
+        PetscSFNode *new_iremote
+        PETSc.SF pruned_sf
+
+    CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
+
+    rank = sf.comm.rank
+    new_nleaves = 0
+    for i in range(nleaves):
+        if iremote[i].rank != rank:
+            new_nleaves += 1
+
+    CHKERR(PetscMalloc1(new_nleaves, &new_ilocal))
+    CHKERR(PetscMalloc1(new_nleaves, &new_iremote))
+    j = 0
+    for i in range(nleaves):
+        if iremote[i].rank != rank:
+            new_ilocal[j] = ilocal[i]
+            new_iremote[j].rank = iremote[i].rank
+            new_iremote[j].index = iremote[i].index
+            j += 1
+
+    pruned_sf = PETSc.SF().create()
+    CHKERR(PetscSFSetGraph(pruned_sf.sf, nroots, new_nleaves,
+                           new_ilocal, PETSC_OWN_POINTER,
+                           new_iremote, PETSC_OWN_POINTER))
+    return pruned_sf
+
+
+def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+    """Begin a halo exchange.
+
+    :arg sf: the PETSc SF to use for exchanges
+    :arg dat: the :class:`pyop2.Dat` to perform the exchange on
+    :arg dtype: an MPI datatype describing the unit of data
+    :arg reverse: should a reverse (local-to-global) exchange be
+        performed.
+
+    Forward exchanges are implemented using :data:`PetscSFBcastBegin`,
+    reverse exchanges with :data:`PetscSFReduceBegin`.
+    """
+    cdef:
+        MPI.Op op = MPI.SUM
+        np.ndarray buf = dat._data
+
+    # We've pruned the SF so it only references remote roots.
+    # Therefore, we can pass the same buffer for input and output.
+    # This works because the sends will be packed into buffers
+    # internally in XXXBegin and unpacked in XXXEnd.  So any
+    # subsequent changes to the input buffer are ignored for the
+    # purposes of exchanging data.  If we didn't want to rely on this
+    # implementation we would have to do a dance with temporary
+    # buffers (which is slightly inefficient and messier).
+    if reverse:
+        CHKERR(PetscSFReduceBegin(sf.sf, dtype.ob_mpi,
+                                  <const void*>buf.data,
+                                  <void *>buf.data,
+                                  op.ob_mpi))
+    else:
+        CHKERR(PetscSFBcastBegin(sf.sf, dtype.ob_mpi,
+                                 <const void *>buf.data,
+                                 <void *>buf.data))
+
+
+def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
+    """End a halo exchange.
+
+    :arg sf: the PETSc SF to use for exchanges
+    :arg dat: the :class:`pyop2.Dat` to perform the exchange on
+    :arg dtype: an MPI datatype describing the unit of data
+    :arg reverse: should a reverse (local-to-global) exchange be
+        performed.
+
+    Forward exchanges are implemented using :data:`PetscSFBcastEnd`,
+    reverse exchanges with :data:`PetscSFReduceEnd`.
+    """
+    cdef:
+        MPI.Op op = MPI.SUM
+        np.ndarray buf = dat._data
+
+    if reverse:
+        CHKERR(PetscSFReduceEnd(sf.sf, dtype.ob_mpi,
+                                <const void *>buf.data,
+                                <void*>buf.data,
+                                op.ob_mpi))
+    else:
+        CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
+                               <const void *>buf.data,
+                               <void *>buf.data))
