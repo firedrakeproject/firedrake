@@ -95,7 +95,8 @@ def test_multiple_poisson_strong_weak_Pn(quadrilateral, degree):
     assert assemble(inner(w - wexact, w - wexact)*dx) < 1e-8
 
 
-def test_stokes_taylor_hood():
+@pytest.mark.parametrize('nest', [True, False])
+def test_stokes_taylor_hood(nest):
     length = 10
     m = IntervalMesh(40, length)
     mesh = ExtrudedMesh(m, 20)
@@ -138,7 +139,8 @@ def test_stokes_taylor_hood():
                              'fieldsplit_schur_fact_type': 'diag',
                              'fieldsplit_0_pc_type': 'redundant',
                              'fieldsplit_0_redundant_pc_type': 'lu',
-                             'fieldsplit_1_pc_type': 'none'})
+                             'fieldsplit_1_pc_type': 'none'},
+          nest=nest)
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
     # field and a linearly decreasing pressure.
@@ -151,7 +153,12 @@ def test_stokes_taylor_hood():
 
 @pytest.mark.parallel
 def test_stokes_taylor_hood_parallel():
-    test_stokes_taylor_hood()
+    test_stokes_taylor_hood(nest=True)
+
+
+@pytest.mark.parallel
+def test_stokes_taylor_hood_parallel_monolithic():
+    test_stokes_taylor_hood(nest=False)
 
 
 if __name__ == '__main__':
