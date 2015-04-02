@@ -127,19 +127,21 @@ def _solve_varproblem(*args, **kwargs):
 
     # Extract arguments
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
-        solver_parameters, nullspace, options_prefix = _extract_args(*args, **kwargs)
+        solver_parameters, nullspace, options_prefix, \
+        nest = _extract_args(*args, **kwargs)
 
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
 
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
-                                              form_compiler_parameters=form_compiler_parameters)
+                                              form_compiler_parameters=form_compiler_parameters,
+                                              nest=nest)
 
         # Create solver and call solve
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace,
-                                            options_preifx=options_prefix)
+                                            options_prefix=options_prefix)
         with progress(INFO, 'Solving linear variational problem'):
             solver.solve()
 
