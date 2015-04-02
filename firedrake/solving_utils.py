@@ -100,11 +100,13 @@ class _SNESContext(object):
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
         self._jacs = tuple(assemble.assemble(problem.J, bcs=problem.bcs,
-                                             form_compiler_parameters=problem.form_compiler_parameters)
+                                             form_compiler_parameters=problem.form_compiler_parameters,
+                                             nest=problem._nest)
                            for problem in problems)
         if problems[-1].Jp is not None:
             self._pjacs = tuple(assemble.assemble(problem.Jp, bcs=problem.bcs,
-                                                  form_compiler_parameters=problem.form_compiler_parameters)
+                                                  form_compiler_parameters=problem.form_compiler_parameters,
+                                                  nest=problem._nest)
                                 for problem in problems)
         else:
             self._pjacs = self._jacs
@@ -178,7 +180,8 @@ class _SNESContext(object):
                 X.copy(v)
 
         assemble.assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
-                          form_compiler_parameters=problem.form_compiler_parameters)
+                          form_compiler_parameters=problem.form_compiler_parameters,
+                          nest=problem._nest)
         for bc in problem.bcs:
             bc.zero(ctx._Fs[lvl])
 
@@ -218,11 +221,13 @@ class _SNESContext(object):
         assemble.assemble(ctx.Js[lvl],
                           tensor=ctx._jacs[lvl],
                           bcs=problem.bcs,
-                          form_compiler_parameters=problem.form_compiler_parameters)
+                          form_compiler_parameters=problem.form_compiler_parameters,
+                          nest=problem._nest)
         ctx._jacs[lvl].M._force_evaluation()
         if ctx.Jps[lvl] is not None:
             assemble.assemble(ctx.Jps[lvl],
                               tensor=ctx._pjacs[lvl],
                               bcs=problem.bcs,
-                              form_compiler_parameters=problem.form_compiler_parameters)
+                              form_compiler_parameters=problem.form_compiler_parameters,
+                              nest=problem._nest)
             ctx._pjacs[lvl].M._force_evaluation()
