@@ -19,7 +19,8 @@ class NonlinearVariationalProblem(object):
 
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
-                 form_compiler_parameters=None):
+                 form_compiler_parameters=None,
+                 nest=None):
         """
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -30,6 +31,11 @@ class NonlinearVariationalProblem(object):
                  will be used.
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+        :param nest: indicate if matrices on mixed spaces should be
+               built as monolithic operators (suitable for direct
+               solves), or as nested blocks (suitable for fieldsplit
+               preconditioning).  If not provided, uses the default
+               given by :data:`parameters["matnest"]`.
         """
 
         # Extract and check arguments
@@ -45,6 +51,7 @@ class NonlinearVariationalProblem(object):
         self.u = u
         self.bcs = bcs
 
+        self._nest = nest
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
@@ -74,7 +81,6 @@ class NonlinearVariationalSolver(object):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the :data:`solver_parameters` dict.
-
         .. code-block:: python
 
             {'snes_type': 'ksponly'}
@@ -160,6 +166,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
+                 nest=None,
                  constant_jacobian=True):
         """
         :param a: the bilinear form
@@ -171,6 +178,11 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  computed from ``a``)
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
+        :param nest: indicate if matrices on mixed spaces should be
+               built as monolithic operators (suitable for direct
+               solves), or as nested blocks (suitable for fieldsplit
+               preconditioning).  If not provided, uses the default
+               given by :data:`parameters["matnest"]`.
         :param constant_jacobian: (optional) flag indicating that the
                  Jacobian is constant (i.e. does not depend on
                  varying fields).  If your Jacobian can change, set
@@ -182,7 +194,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         F = ufl.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
-                                                       form_compiler_parameters=form_compiler_parameters)
+                                                       form_compiler_parameters=form_compiler_parameters, nest=nest)
         self._constant_jacobian = constant_jacobian
 
 

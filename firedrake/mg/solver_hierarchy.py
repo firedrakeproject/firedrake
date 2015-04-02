@@ -28,7 +28,8 @@ def coarsen_problem(problem):
                                                         bcs=new_bcs,
                                                         J=new_J,
                                                         Jp=new_Jp,
-                                                        form_compiler_parameters=problem.form_compiler_parameters)
+                                                        form_compiler_parameters=problem.form_compiler_parameters,
+                                                        nest=problem._nest)
     return new_problem
 
 
