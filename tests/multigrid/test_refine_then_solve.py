@@ -3,7 +3,6 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.xfail
 def test_solve_on_refined_mesh():
     m = UnitSquareMesh(1, 1)
     mh = MeshHierarchy(m, 1)

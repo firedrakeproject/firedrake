@@ -165,6 +165,12 @@ class _SNESContext(object):
         dm = snes.getDM()
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
+
+        # FIXME: Think about case where DM is refined but we don't
+        # have a hierarchy of problems better.
+        if len(ctx._problems) == 1:
+            lvl = -1
+        problem = ctx._problems[lvl]
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
@@ -172,8 +178,8 @@ class _SNESContext(object):
                 X.copy(v)
 
         assemble.assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
-                          form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
-        for bc in ctx._problems[lvl].bcs:
+                          form_compiler_parameters=problem.form_compiler_parameters)
+        for bc in problem.bcs:
             bc.zero(ctx._Fs[lvl])
 
         # F may not be the same vector as self._F, so copy
@@ -194,7 +200,12 @@ class _SNESContext(object):
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
 
-        if ctx._problems[lvl]._constant_jacobian and ctx._jacobians_assembled[lvl]:
+        # FIXME: Think about case where DM is refined but we don't
+        # have a hierarchy of problems better.
+        if len(ctx._problems) == 1:
+            lvl = -1
+        problem = ctx._problems[lvl]
+        if problem._constant_jacobian and ctx._jacobians_assembled[lvl]:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
@@ -206,12 +217,12 @@ class _SNESContext(object):
             X.copy(v)
         assemble.assemble(ctx.Js[lvl],
                           tensor=ctx._jacs[lvl],
-                          bcs=ctx._problems[lvl].bcs,
-                          form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
+                          bcs=problem.bcs,
+                          form_compiler_parameters=problem.form_compiler_parameters)
         ctx._jacs[lvl].M._force_evaluation()
         if ctx.Jps[lvl] is not None:
             assemble.assemble(ctx.Jps[lvl],
                               tensor=ctx._pjacs[lvl],
-                              bcs=ctx._problems[lvl].bcs,
-                              form_compiler_parameters=ctx._problems[lvl].form_compiler_parameters)
+                              bcs=problem.bcs,
+                              form_compiler_parameters=problem.form_compiler_parameters)
             ctx._pjacs[lvl].M._force_evaluation()
