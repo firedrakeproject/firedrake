@@ -253,7 +253,6 @@ class Arg(base.Arg):
         ret = []
         rbs, cbs = self.data.sparsity[i, j].dims[0][0]
         rdim = rbs * nrows
-        cdim = cbs * ncols
         addto_name = buf_name
         addto = 'MatSetValuesLocal'
         if self.data._is_vector_field:
@@ -883,18 +882,16 @@ class JITModule(base.JITModule):
             if is_facet:
                 mult = 2
             _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e*mult) for n, e in enumerate(shape)])
-            _addto_buf_name, _buf_decl_scatter, _buf_scatter = {}, {}, {}
+            _buf_decl_scatter, _buf_scatter = {}, {}
             for count, arg in enumerate(self._args):
                 if not (arg._uses_itspace and arg.access in [WRITE, INC]):
                     continue
-                _buf_scatter_name = ""
                 if arg._is_mat and arg._is_mixed:
                     raise NotImplementedError
                 elif not arg._is_mat:
                     _buf_scatter[arg] = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
             _buf_decl_scatter = ";\n".join(_buf_decl_scatter.values())
             _buf_scatter = ";\n".join(_buf_scatter.values())
-            _buffer_indices = "[i_0*%d + i_1]" % shape[1] if self._kernel._applied_blas else "[i_0][i_1]"
             _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
             if self._itspace._extruded:
                 _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
