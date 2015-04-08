@@ -45,9 +45,7 @@ from configuration import configuration
 from utils import as_tuple, strip
 
 import coffee.plan
-from coffee import base as ast
 from coffee.plan import ASTKernel
-from coffee.utils import visit as ast_visit
 
 
 class Kernel(base.Kernel):

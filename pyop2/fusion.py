@@ -52,7 +52,6 @@ from utils import flatten, strip, as_tuple
 
 import coffee
 from coffee import base as ast
-from coffee.plan import ASTKernel
 from coffee.utils import visit as ast_visit, ast_c_make_alias as ast_make_alias
 
 import slope_python as slope
