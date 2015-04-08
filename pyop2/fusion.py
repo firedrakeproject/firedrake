@@ -1217,7 +1217,7 @@ def fuse(name, loop_chain, tile_size):
 
 
 @contextmanager
-def loop_chain(name, time_unroll=1, tile_size=0):
+def loop_chain(name, num_unroll=1, tile_size=0):
     """Analyze the sub-trace of loops lazily evaluated in this contextmanager ::
 
         [loop_0, loop_1, ..., loop_n-1]
@@ -1233,11 +1233,11 @@ def loop_chain(name, time_unroll=1, tile_size=0):
     original trace slice.
 
     :param name: identifier of the loop chain
-    :param time_unroll: in a time stepping loop, the length of the loop chain
-                        is given by ``num_loops * time_unroll``, where ``num_loops``
-                        is the number of loops per time loop iteration. Therefore,
-                        setting this value to a number greater than 1 enables
-                        fusing/tiling longer loop chains (optional, defaults to 1).
+    :param num_unroll: in a time stepping loop, the length of the loop chain
+                       is given by ``num_loops * num_unroll``, where ``num_loops``
+                       is the number of loops per time loop iteration. Therefore,
+                       setting this value to a number greater than 1 enables
+                       fusing/tiling longer loop chains (optional, defaults to 1).
     :param tile_size: suggest a tile size in case loop tiling is used (optional).
                       If ``0`` is passed in, only soft fusion is performed.
     """
@@ -1247,15 +1247,15 @@ def loop_chain(name, time_unroll=1, tile_size=0):
 
     yield
 
-    if time_unroll < 1:
+    if num_unroll < 1:
         return
 
     start_point = trace.index(stamp[0])+1 if stamp else 0
     extracted_loop_chain = trace[start_point:]
 
-    # Unroll the loop chain ``time_unroll`` times before fusion/tiling
+    # Unroll the loop chain /num_unroll/ times before fusion/tiling
     total_loop_chain = loop_chain.unrolled_loop_chain + extracted_loop_chain
-    if len(total_loop_chain) / len(extracted_loop_chain) == time_unroll:
+    if len(total_loop_chain) / len(extracted_loop_chain) == num_unroll:
         start_point = trace.index(total_loop_chain[0])
         trace[start_point:] = fuse(name, total_loop_chain, tile_size)
         loop_chain.unrolled_loop_chain = []
