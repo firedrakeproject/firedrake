@@ -167,7 +167,7 @@ class Kernel(host.Kernel, tuple):
         :param fused_ast: the Abstract Syntax Tree of the fused kernel. If not
                           provided, kernels are simply concatenated.
         :param loop_chain_index: index (i.e., position) of the kernel in a loop
-                                 chain. This can be used to differentiate a same
+                                 chain. This can be used to identify the same
                                  kernel appearing multiple times in a loop chain.
         """
         # Protect against re-initialization when retrieved from cache
@@ -731,8 +731,8 @@ class Inspector(Cached):
         kernel bodies and creating new :class:`ParLoop` objects representing
         the fused sequence.
 
-        The conditions under which two loops over the same iteration set are
-        hardly fused are:
+        The conditions under which two loops over the same iteration set can
+        be hard fused are:
 
             * They are both direct, OR
             * One is direct and the other indirect
@@ -821,7 +821,7 @@ class Inspector(Cached):
                      ...)
 
         where ``dat_1_1 == dat_2_1`` and, possibly (but not necessarily),
-        ``it_space_1 != it_space_2``, can be hardly fused. Note, in fact, that
+        ``it_space_1 != it_space_2``, can be hard fused. Note, in fact, that
         the presence of ``INC`` does not imply a real WAR dependency, because
         increments are associative."""
 
@@ -875,7 +875,7 @@ class Inspector(Cached):
             return
 
         # Then, create a suitable hard-fusion kernel
-        # The hardly-fused kernel will have the following structure:
+        # The hard fused kernel will have the following structure:
         #
         # wrapper (args: Union(kernel1, kernel2, extra):
         #   staging of pointers
@@ -952,7 +952,7 @@ class Inspector(Cached):
             ### Modify the /fuse/ kernel ###
             # This is to take into account that many arguments are shared with
             # /base/, so they will only staged once for /base/. This requires
-            # tweaking the way the arguments are declared and accessed in /fuse/'s
+            # tweaking the way the arguments are declared and accessed in /fuse/
             # kernel. For example, the shared incremented array (called /buffer/
             # in the pseudocode in the comment above) now needs to take offsets
             # to be sure the locations that /base/ is supposed to increment are
@@ -966,7 +966,7 @@ class Inspector(Cached):
                     # 2A) The shared incremented argument. A 'buffer' of statically
                     #     known size is expected by the kernel, so the offset is used
                     #     to index into it
-                    # Note: the /fused_map/ is a factor of the /base/'s iteration
+                    # Note: the /fused_map/ is a factor of the /base/ iteration
                     # set map, so the order the /fuse/ loop's iterations are
                     # executed (in the /for i=0 to arity/ loop) reflects the order
                     # of the entries in /fused_map/
@@ -992,7 +992,7 @@ class Inspector(Cached):
                 elif fuse_loop_arg._is_indirect:
                     # 2B) All indirect arguments. At the C level, these arguments
                     #     are of pointer type, so simple pointer arithmetic is used
-                    #     to ensure the kernel's accesses are to the correct locations
+                    #     to ensure the kernel accesses are to the correct locations
                     fuse_arity = fuse_loop_arg.map.arity
                     base_arity = fuse_arity*fused_map.arity
                     cdim = fuse_loop_arg.data.dataset.cdim
@@ -1017,7 +1017,7 @@ class Inspector(Cached):
                         ofs_assigns += [ast.Assign(ast.Symbol(ofs_tmp, (j,)),
                                                    ast.Symbol(sym_id, (k,)))
                                         for j, k in enumerate(ofs_idx_syms)]
-                        # Need to reflect this onto /fuse/'s invocation
+                        # Need to reflect this onto the invocation of /fuse/
                         fuse_funcall.children[fuse_loop.args.index(fuse_loop_arg)] = \
                             ast.Symbol(ofs_tmp)
                     else:
@@ -1125,7 +1125,7 @@ class Inspector(Cached):
                                argtypes, rettype, compiler)
         inspection = fun(*argvalues)
 
-        # Finally, get the Executor representation, to be used at executor's
+        # Finally, get the Executor representation, to be used at executor
         # code generation time
         executor = slope.Executor(inspector)
 

@@ -3923,7 +3923,7 @@ class ParLoop(LazyComputation):
 
         self._it_space = self.build_itspace(iterset)
 
-        # Attach semantical information to the kernel's AST
+        # Attach semantic information to the kernel's AST
         if hasattr(self._kernel, '_ast') and self._kernel._ast:
             ast_info = ast_visit(self._kernel._ast, search=ast.FunDecl)
             fundecl = ast_info['search'][ast.FunDecl]
