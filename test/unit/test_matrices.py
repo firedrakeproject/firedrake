@@ -795,6 +795,7 @@ class TestMixedMatrices:
                      mat(op2.INC, (mmap[op2.i[0]], mmap[op2.i[1]])),
                      mdat(op2.READ, mmap))
         mat.assemble()
+        mat._force_evaluation()
         return mat
 
     @pytest.fixture
