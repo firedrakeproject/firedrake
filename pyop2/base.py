@@ -39,6 +39,7 @@ subclass these as required to implement backend-specific features.
 import itertools
 import weakref
 import numpy as np
+import ctypes
 import operator
 import types
 from hashlib import md5
@@ -907,7 +908,7 @@ class Subset(ExtrudedSet):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Subset`"""
-        return np.ctypeslib.ndpointer(self._indices.dtype, shape=self._indices.shape)
+        return ctypes.c_voidp
 
 
 class SetPartition(object):
@@ -1763,7 +1764,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Dat`"""
-        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+        return ctypes.c_voidp
 
     @property
     @modifies
@@ -2546,7 +2547,7 @@ class Const(DataCarrier):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Const`"""
-        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+        return ctypes.c_voidp
 
     @property
     def data(self):
@@ -2687,7 +2688,7 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Global`"""
-        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+        return ctypes.c_voidp
 
     @property
     def shape(self):
@@ -2867,7 +2868,7 @@ class Map(object):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Map`"""
-        return np.ctypeslib.ndpointer(self._values.dtype, shape=self._values.shape)
+        return ctypes.c_voidp
 
     @property
     def split(self):
@@ -3552,7 +3553,7 @@ class Mat(SetAssociated):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Mat`"""
-        return np.ctypeslib.ctypes.c_voidp
+        return ctypes.c_voidp
 
     @property
     def dims(self):
