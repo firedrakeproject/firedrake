@@ -180,6 +180,9 @@ class Access(object):
     def __init__(self, mode):
         self._mode = mode
 
+    def __eq__(self, other):
+        return self._mode == other._mode
+
     def __str__(self):
         return "OP2 Access: %s" % self._mode
 
@@ -3687,10 +3690,7 @@ class Kernel(Cached):
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of C code."""
-        if isinstance(ast, Node):
-            self._ast = ast
-            return ast.gencode()
-        return ast
+        return ast.gencode()
 
     def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
                  user_code=""):
@@ -3702,11 +3702,12 @@ class Kernel(Cached):
         # Record used optimisations
         self._opts = opts
         self._applied_blas = False
-        self._applied_ap = False
         self._include_dirs = include_dirs
         self._headers = headers
         self._user_code = user_code
-        self._code = self._ast_to_c(code, opts)
+        self._code = code
+        # If an AST is provided, code generation is deferred
+        self._ast, self._code = (code, None) if isinstance(code, Node) else (None, code)
         self._initialized = True
 
     @property
@@ -3718,13 +3719,16 @@ class Kernel(Cached):
     def code(self):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
+        if not self._code:
+            self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
 
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
 
     def __repr__(self):
-        return 'Kernel("""%s""", %r)' % (self._code, self._name)
+        code = self._ast.gencode() if self._ast else self._code
+        return 'Kernel("""%s""", %r)' % (code, self._name)
 
 
 class JITModule(Cached):
