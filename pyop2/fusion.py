@@ -87,9 +87,10 @@ class Arg(host.Arg):
             _arg._c_local_maps = c_local_maps
             return _arg
 
-        if isinstance(args, (list, tuple)):
+        try:
             return [convert(arg, gtl_map, loop_id) for arg in args]
-        return convert(args, gtl_map, loop_id)
+        except TypeError:
+            return convert(args, gtl_map, loop_id)
 
     @staticmethod
     def filter_args(loop_args):
@@ -731,7 +732,7 @@ class Inspector(Cached):
         the fused sequence.
 
         The conditions under which two loops over the same iteration set can
-        be hard fused are:
+        be soft fused are:
 
             * They are both direct, OR
             * One is direct and the other indirect
