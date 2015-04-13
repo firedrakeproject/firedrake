@@ -247,10 +247,10 @@ def compile_form(form, name, parameters=None, inverse=False):
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
-    if hasattr(form, "_kernels"):
+    if "firedrake_kernels" in form._cache:
         # Save both kernels and FFC params so we can tell if this
         # cached version is valid (the FFC parameters might have changed)
-        kernels, params = form._kernels
+        kernels, params = form._cache["firedrake_kernels"]
         if kernels[0][-1]._opts == default_parameters["coffee"] and \
            kernels[0][-1].name.startswith(name) and \
            params == parameters:
@@ -270,7 +270,7 @@ def compile_form(form, name, parameters=None, inverse=False):
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name,
                                                                          parameters).kernels)]
-        form._kernels = (kernels, parameters)
+        form._cache["firedrake_kernels"] = (kernels, parameters)
         return kernels
     # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
@@ -291,7 +291,7 @@ def compile_form(form, name, parameters=None, inverse=False):
                             it.domain().data().coordinates,
                             fd.preprocessed_form.coefficients(),
                             needs_orientations, kernel))
-    form._kernels = (kernels, parameters)
+    form._cache["firedrake_kernels"] = (kernels, parameters)
     return kernels
 
 
