@@ -263,7 +263,7 @@ class Arg(object):
         self._indirect_position = None
 
         # Check arguments for consistency
-        if not (self._is_global or map is None):
+        if configuration["debug"] and not (self._is_global or map is None):
             for j, m in enumerate(map):
                 if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
                     raise MapValueError("%s is not initialized." % map)
@@ -1724,7 +1724,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         if isinstance(path, Arg):
             return _make_object('Arg', data=self, map=path.map, idx=path.idx,
                                 access=access, flatten=flatten)
-        if path and path.toset != self.dataset.set:
+        if configuration["debug"] and path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
         return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
 
@@ -2841,10 +2841,11 @@ class Map(object):
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
-        if isinstance(index, int) and not (0 <= index < self.arity):
-            raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
-        if isinstance(index, IterationIndex) and index.index not in [0, 1]:
-            raise IndexValueError("IterationIndex must be in interval [0,1]")
+        if configuration["debug"]:
+            if isinstance(index, int) and not (0 <= index < self.arity):
+                raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
+            if isinstance(index, IterationIndex) and index.index not in [0, 1]:
+                raise IndexValueError("IterationIndex must be in interval [0,1]")
         return _make_object('Arg', map=self, idx=index)
 
     # This is necessary so that we can convert a Map to a tuple
@@ -3508,7 +3509,7 @@ class Mat(SetAssociated):
         path = as_tuple(path, Arg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
-        if tuple(path_maps) not in self.sparsity:
+        if configuration["debug"] and tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
@@ -4065,19 +4066,20 @@ class ParLoop(LazyComputation):
         for i, arg in enumerate(self._actual_args):
             if arg._is_global:
                 continue
-            if arg._is_direct:
-                if arg.data.dataset.set != _iterset:
-                    raise MapValueError(
-                        "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
-                continue
-            for j, m in enumerate(arg._map):
-                if isinstance(_iterset, ExtrudedSet):
-                    if m.iterset != _iterset and m.iterset not in _iterset:
+            if configuration["debug"]:
+                if arg._is_direct:
+                    if arg.data.dataset.set != _iterset:
+                        raise MapValueError(
+                            "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
+                    continue
+                for j, m in enumerate(arg._map):
+                    if isinstance(_iterset, ExtrudedSet):
+                        if m.iterset != _iterset and m.iterset not in _iterset:
+                            raise MapValueError(
+                                "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+                    elif m.iterset != _iterset and m.iterset not in _iterset:
                         raise MapValueError(
                             "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-                elif m.iterset != _iterset and m.iterset not in _iterset:
-                    raise MapValueError(
-                        "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
             if arg._uses_itspace:
                 _block_shape = arg._block_shape
                 if block_shape and block_shape != _block_shape:
