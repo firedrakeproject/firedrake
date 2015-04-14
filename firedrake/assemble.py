@@ -116,6 +116,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # Pass this through for assembly caching purposes
     form_compiler_parameters["matnest"] = nest
 
+    zero_tensor = lambda: None
+
     if is_mat:
         test, trial = f.arguments()
 
@@ -182,6 +184,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # Replace any bcs on the tensor we passed in
             result_matrix.bcs = bcs
             tensor = tensor._M
+            zero_tensor = lambda: tensor.zero()
 
         def mat(testmap, trialmap, i, j):
             return tensor[i, j](op2.INC,
@@ -197,6 +200,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         else:
             result_function = tensor
             tensor = result_function.dat
+            zero_tensor = lambda: tensor.zero()
 
         def vec(testmap, i):
             return tensor[i](op2.INC,
@@ -221,10 +225,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # solve, we funcall the closure with any bcs the Matrix now has to
     # assemble it.
     def thunk(bcs):
-        try:
-            tensor.zero()
-        except AttributeError:
-            pass
+        zero_tensor()
         for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel in kernels:
             m = coords.function_space().mesh()
             if needs_orientations:
