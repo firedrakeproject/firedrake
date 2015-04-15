@@ -1904,15 +1904,17 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
     @collective
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
-        if not hasattr(self, '_zero_kernel'):
+        if not hasattr(self, '_zero_parloop'):
             k = ast.FunDecl("void", "zero",
                             [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("self", ("n", )),
                                                       ast.Symbol("(%s)0" % self.ctype)),
                                            pragma=None))
-            self._zero_kernel = _make_object('Kernel', k, 'zero')
-        par_loop(self._zero_kernel, self.dataset.set, self(WRITE))
+            k = _make_object('Kernel', k, 'zero')
+            self._zero_parloop = _make_object('ParLoop', k, self.dataset.set,
+                                              self(WRITE))
+        self._zero_parloop.enqueue()
 
     @modifies_argn(0)
     @collective
