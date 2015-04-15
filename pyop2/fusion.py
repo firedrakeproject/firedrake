@@ -54,8 +54,6 @@ import coffee
 from coffee import base as ast
 from coffee.utils import visit as ast_visit, ast_c_make_alias as ast_make_alias
 
-import slope_python as slope
-
 
 class Arg(host.Arg):
 
@@ -1203,7 +1201,10 @@ def fuse(name, loop_chain, tile_size):
         mode = 'tile'
         # Loop tiling requires the SLOPE library to be available on the system.
         try:
+            import slope_python as slope
             os.environ['SLOPE_DIR']
+        except ImportError:
+            warning("Requested tiling, but couldn't locate SLOPE. Check the PYTHONPATH")
         except KeyError:
             warning("Set the env variable SLOPE_DIR to the location of SLOPE")
             warning("Loops won't be fused, and plain ParLoops will be executed")
