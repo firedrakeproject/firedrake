@@ -108,7 +108,7 @@ class Arg(base.Arg):
     def c_wrapper_dec(self):
         val = ""
         if self._is_mixed_mat:
-            rows, cols = self._dat.sparsity.shape
+            rows, cols = self.data.sparsity.shape
             for i in range(rows):
                 for j in range(cols):
                     val += "Mat %(iname)s; MatNestGetSubMat(%(name)s_, %(i)d, %(j)d, &%(iname)s);\n" \

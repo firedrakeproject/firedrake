@@ -118,9 +118,9 @@ class ParLoop(host.ParLoop):
 
         for arg in args:
             if arg._is_mat:
-                arglist.append(arg._dat.handle.handle)
+                arglist.append(arg.data.handle.handle)
             else:
-                for d in arg._dat:
+                for d in arg.data:
                     # Cannot access a property of the Dat or we will force
                     # evaluation of the trace
                     arglist.append(d._data.ctypes.data)
