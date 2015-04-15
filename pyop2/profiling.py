@@ -35,7 +35,6 @@
 
 import numpy as np
 from time import time
-from contextlib import contextmanager
 from decorator import decorator
 
 from configuration import configuration

@@ -52,7 +52,7 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
-from profiling import profile, timed_region, timed_function
+from profiling import timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
 
@@ -3905,6 +3905,8 @@ class ParLoop(LazyComputation):
         # Are we only computing over owned set entities?
         self._only_local = isinstance(iterset, LocalSet)
 
+        self.iterset = iterset
+
         for i, arg in enumerate(self._actual_args):
             arg.position = i
             arg.indirect_position = i
@@ -3945,23 +3947,23 @@ class ParLoop(LazyComputation):
         return self.compute()
 
     @collective
-    @timed_function('ParLoop compute')
-    @profile
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         self.halo_exchange_begin()
-        self.maybe_set_dat_dirty()
-        self._compute(self.it_space.iterset.core_part)
+        iterset = self.iterset
+        arglist = self.prepare_arglist(iterset, *self.args)
+        self._compute(iterset.core_part, *arglist)
         self.halo_exchange_end()
-        self._compute(self.it_space.iterset.owned_part)
+        self._compute(iterset.owned_part, *arglist)
         self.reduction_begin()
         if self._only_local:
             self.reverse_halo_exchange_begin()
             self.reverse_halo_exchange_end()
         if not self._only_local and self.needs_exec_halo:
-            self._compute(self.it_space.iterset.exec_part)
+            self._compute(iterset.exec_part, *arglist)
         self.reduction_end()
         self.maybe_set_halo_update_needed()
+        self.maybe_set_dat_dirty()
 
     @collective
     def _compute(self, part):
