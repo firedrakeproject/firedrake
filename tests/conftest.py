@@ -67,3 +67,10 @@ def pytest_cmdline_preparse(config, args):
         args.insert(0, '--tb=native')
     if 'PYTEST_WATCH' in os.environ and '-f' not in args:
         args.insert(0, '-f')
+    try:
+        import pytest_benchmark   # noqa: Checking for availability of plugin
+        # Set number of warmup iteration to 1
+        if "--benchmark-warmup-iterations" not in args:
+            args.insert(0, "--benchmark-warmup-iterations=1")
+    except ImportError:
+        pass
