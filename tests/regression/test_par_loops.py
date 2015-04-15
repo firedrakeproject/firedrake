@@ -3,9 +3,13 @@ import numpy as np
 from firedrake import *
 
 
+@pytest.fixture(scope="module")
+def m():
+    return UnitIntervalMesh(2)
+
+
 @pytest.fixture
-def f():
-    m = UnitIntervalMesh(2)
+def f(m):
     cg = FunctionSpace(m, "CG", 1)
     dg = FunctionSpace(m, "DG", 0)
 
@@ -16,8 +20,7 @@ def f():
 
 
 @pytest.fixture
-def f_mixed():
-    m = UnitIntervalMesh(2)
+def f_mixed(m):
     cg = FunctionSpace(m, "CG", 1)
     dg = FunctionSpace(m, "DG", 0)
 
@@ -25,8 +28,8 @@ def f_mixed():
 
 
 @pytest.fixture
-def const(f):
-    return Constant(1.0, domain=f[0].function_space().mesh())
+def const(m):
+    return Constant(1.0, domain=m)
 
 
 @pytest.fixture
@@ -93,14 +96,11 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
     assert np.allclose(f_mixed.dat.data, const.dat.data)
 
 
-# FIXME: this is supposed to work, but for unknown reasons fails with
-# MapValueError: Iterset of arg 1 map 0 doesn't match ParLoop iterset.
-@pytest.mark.xfail
 @pytest.mark.parametrize('idx', [0, 1])
 def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
     const.assign(10.0)
 
-    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *constant;""",
              dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
 
     assert np.allclose(f_mixed.dat[idx].data, const.dat.data)
