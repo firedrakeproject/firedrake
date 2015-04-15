@@ -460,6 +460,11 @@ class Mat(base.Mat, CopyOnWrite):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
 
+    def __init__(self, *args, **kwargs):
+        base.Mat.__init__(self, *args, **kwargs)
+        CopyOnWrite.__init__(self, *args, **kwargs)
+        self._init()
+
     @collective
     def _init(self):
         if not self.dtype == PETSc.ScalarType:
