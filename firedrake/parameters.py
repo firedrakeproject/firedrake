@@ -69,6 +69,7 @@ ffc_parameters = default_parameters()
 ffc_parameters['write_file'] = False
 ffc_parameters['format'] = 'pyop2'
 ffc_parameters['representation'] = 'quadrature'
+ffc_parameters['optimize'] = True
 ffc_parameters['pyop2-ir'] = True
 parameters.add(Parameters("form_compiler", **ffc_parameters))
 
