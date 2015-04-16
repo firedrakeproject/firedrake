@@ -650,7 +650,7 @@ class ParLoop(device.ParLoop):
 
     @collective
     @lineprof
-    def _compute(self, part):
+    def _compute(self, part, *arglist):
         if part.size == 0:
             # Return before plan call if no computation should occur
             return
