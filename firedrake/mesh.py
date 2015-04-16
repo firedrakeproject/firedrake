@@ -118,6 +118,12 @@ class _Facets(object):
         return op2.Dat(op2.DataSet(self.set, self._rank), self.local_facet_number,
                        np.uintc, "%s_%s_local_facet_number" % (self.mesh.name, self.kind))
 
+    @utils.cached_property
+    def facet_cell_map(self):
+        """Map from facets to cells."""
+        return op2.Map(self.set, self.bottom_set, self._rank, self.facet_cell,
+                       "facet_to_cell_map")
+
 
 def _from_gmsh(filename):
     """Read a Gmsh .msh file from `filename`"""

@@ -241,14 +241,17 @@ class FunctionSpaceBase(ObjectCached):
             parent = None
 
         offset = self.cell_node_map().offset
-        return self._map_cache(self._interior_facet_map_cache,
-                               self._mesh.interior_facets.set,
-                               self.interior_facet_node_list,
-                               2*self.fiat_element.space_dimension(),
-                               bcs,
-                               "interior_facet_node",
-                               offset=np.append(offset, offset),
-                               parent=parent)
+        map = self._map_cache(self._interior_facet_map_cache,
+                              self._mesh.interior_facets.set,
+                              self.interior_facet_node_list,
+                              2*self.fiat_element.space_dimension(),
+                              bcs,
+                              "interior_facet_node",
+                              offset=np.append(offset, offset),
+                              parent=parent)
+        map.factors = (self._mesh.interior_facets.facet_cell_map,
+                       self.cell_node_map())
+        return map
 
     def exterior_facet_node_map(self, bcs=None):
         """Return the :class:`pyop2.Map` from exterior facets to
