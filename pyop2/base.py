@@ -262,7 +262,7 @@ class Arg(object):
         self._in_flight = False  # some kind of comms in flight for this arg
 
         # Check arguments for consistency
-        if configuration["debug"] and not (self._is_global or map is None):
+        if configuration["type_check"] and not (self._is_global or map is None):
             for j, m in enumerate(map):
                 if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
                     raise MapValueError("%s is not initialized." % map)
@@ -1695,7 +1695,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         if isinstance(path, _MapArg):
             return _make_object('Arg', data=self, map=path.map, idx=path.idx,
                                 access=access, flatten=flatten)
-        if configuration["debug"] and path and path.toset != self.dataset.set:
+        if configuration["type_check"] and path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
         return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
 
@@ -2818,7 +2818,7 @@ class Map(object):
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
-        if configuration["debug"]:
+        if configuration["type_check"]:
             if isinstance(index, int) and not (0 <= index < self.arity):
                 raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
             if isinstance(index, IterationIndex) and index.index not in [0, 1]:
@@ -3480,7 +3480,7 @@ class Mat(SetAssociated):
         path = as_tuple(path, _MapArg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
-        if configuration["debug"] and tuple(path_maps) not in self.sparsity:
+        if configuration["type_check"] and tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
@@ -4046,7 +4046,7 @@ class ParLoop(LazyComputation):
         for i, arg in enumerate(self._actual_args):
             if arg._is_global:
                 continue
-            if configuration["debug"]:
+            if configuration["type_check"]:
                 if arg._is_direct:
                     if arg.data.dataset.set != _iterset:
                         raise MapValueError(

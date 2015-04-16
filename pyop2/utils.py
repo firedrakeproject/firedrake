@@ -76,7 +76,7 @@ def as_tuple(item, type=None, length=None):
         # ... or create a list of a single item
         except (TypeError, NotImplementedError):
             t = (item,) * (length or 1)
-    if configuration["debug"]:
+    if configuration["type_check"]:
         if length and not len(t) == length:
             raise ValueError("Tuple needs to be of length %d" % length)
         if type and not all(isinstance(i, type) for i in t):
@@ -112,7 +112,7 @@ class validate_base:
 
     def __call__(self, f):
         def wrapper(f, *args, **kwargs):
-            if configuration["debug"]:
+            if configuration["type_check"]:
                 self.nargs = f.func_code.co_argcount
                 self.defaults = f.func_defaults or ()
                 self.varnames = f.func_code.co_varnames
