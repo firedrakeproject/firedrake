@@ -162,7 +162,6 @@ def test_constant_multiplies_function():
     assert np.allclose(f.dat.data_ro, 110)
 
 
-@pytest.mark.xfail
 def test_fresh_constant_hashes_different():
     c = Constant(1)
     d = Constant(1)
