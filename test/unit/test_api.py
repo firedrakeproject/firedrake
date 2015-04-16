@@ -2028,7 +2028,7 @@ class TestKernelAPI:
     def test_kernel_repr(self, backend, set):
         "Kernel should have the expected repr."
         k = op2.Kernel("int foo() { return 0; }", 'foo')
-        assert repr(k) == 'Kernel("""%s""", %r)' % (k.code, k.name)
+        assert repr(k) == 'Kernel("""%s""", %r)' % (k.code(), k.name)
 
     def test_kernel_str(self, backend, set):
         "Kernel should have the expected string representation."

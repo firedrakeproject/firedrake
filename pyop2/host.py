@@ -35,18 +35,17 @@
 common to backends executing on the host."""
 
 from textwrap import dedent
+from copy import deepcopy as dcopy
 
 import base
 import compilation
 from base import *
 from mpi import collective
 from configuration import configuration
-from utils import as_tuple
+from utils import as_tuple, strip
 
 import coffee.plan
-from coffee import base as ast
 from coffee.plan import ASTKernel
-from coffee.utils import get_fun_decls as ast_get_fun_decls
 
 
 class Kernel(base.Kernel):
@@ -54,8 +53,9 @@ class Kernel(base.Kernel):
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
+        self._original_ast = dcopy(ast)
         ast_handler = ASTKernel(ast, self._include_dirs)
-        ast_handler.plan_cpu(opts)
+        ast_handler.plan_cpu(self._opts)
         self._applied_blas = ast_handler.blas
         return ast_handler.gencode()
 
@@ -595,6 +595,7 @@ class JITModule(base.JITModule):
 
     _cppargs = []
     _libraries = []
+    _extension = 'c'
 
     def __init__(self, kernel, itspace, *args, **kwargs):
         """
@@ -645,16 +646,6 @@ class JITModule(base.JITModule):
         # If we weren't in the cache we /must/ have arguments
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
-        strip = lambda code: '\n'.join([l for l in code.splitlines()
-                                        if l.strip() and l.strip() != ';'])
-
-        # Attach semantical information to the kernel's AST
-        if self._kernel._ast:
-            fundecl = ast_get_fun_decls(self._kernel._ast)
-            if fundecl:
-                for arg, f_arg in zip(self._args, fundecl.args):
-                    if arg._uses_itspace and arg._is_INC:
-                        f_arg.pragma = ast.WRITE
 
         compiler = coffee.plan.compiler
         blas = coffee.plan.blas_interface
@@ -674,7 +665,7 @@ class JITModule(base.JITModule):
             %(externc_open)s
             %(code)s
             #undef OP2_STRIDE
-            """ % {'code': self._kernel.code,
+            """ % {'code': self._kernel.code(),
                    'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
@@ -684,7 +675,7 @@ class JITModule(base.JITModule):
             %(namespace)s
             %(externc_open)s
             %(code)s
-            """ % {'code': self._kernel.code,
+            """ % {'code': self._kernel.code(),
                    'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
@@ -713,10 +704,11 @@ class JITModule(base.JITModule):
         if configuration["debug"]:
             self._wrapper_code = code_to_compile
 
-        extension = "c"
-        cppargs = ["-I%s/include" % d for d in get_petsc_dir()] + \
-                  ["-I%s" % d for d in self._kernel._include_dirs] + \
-                  ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
+        extension = self._extension
+        cppargs = self._cppargs
+        cppargs += ["-I%s/include" % d for d in get_petsc_dir()] + \
+                   ["-I%s" % d for d in self._kernel._include_dirs] + \
+                   ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
         if compiler:
             cppargs += [compiler[coffee.plan.intrinsics['inst_set']]]
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \

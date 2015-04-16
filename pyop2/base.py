@@ -56,6 +56,7 @@ from sparsity import build_sparsity
 from version import __version__ as version
 
 from coffee.base import Node
+from coffee.utils import visit as ast_visit
 from coffee import base as ast
 
 
@@ -64,9 +65,10 @@ class LazyComputation(object):
     """Helper class holding computation to be carried later on.
     """
 
-    def __init__(self, reads, writes):
+    def __init__(self, reads, writes, incs):
         self.reads = set(flatten(reads))
         self.writes = set(flatten(writes))
+        self.incs = set(flatten(incs))
         self._scheduled = False
 
     def enqueue(self):
@@ -149,13 +151,19 @@ class ExecutionTrace(object):
             else:
                 comp._scheduled = False
 
-        new_trace = list()
+        to_run, new_trace = list(), list()
         for comp in self._trace:
             if comp._scheduled:
-                comp._run()
+                to_run.append(comp)
             else:
                 new_trace.append(comp)
         self._trace = new_trace
+
+        if configuration['loop_fusion']:
+            from fusion import fuse
+            to_run = fuse('from_trace', to_run, 0)
+        for comp in to_run:
+            comp._run()
 
 
 _trace = ExecutionTrace()
@@ -438,6 +446,14 @@ class Arg(object):
     @property
     def _is_indirect_and_not_read(self):
         return self._is_indirect and self._access is not READ
+
+    @property
+    def _is_read(self):
+        return self._access == READ
+
+    @property
+    def _is_written(self):
+        return not self._is_read
 
     @property
     def _is_indirect_reduction(self):
@@ -1480,6 +1496,9 @@ class IterationSpace(object):
         same :class:`Set` and have the same ``extent``."""
         return not self == other
 
+    def __hash__(self):
+        return hash((self._iterset, self._extents))
+
     def __str__(self):
         return "OP2 Iteration Space: %s with extents %s" % (self._iterset, self._extents)
 
@@ -1889,10 +1908,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Zero the data associated with this :class:`Dat`"""
         if not hasattr(self, '_zero_kernel'):
             k = ast.FunDecl("void", "zero",
-                            [ast.Decl(self.ctype, ast.Symbol("*self"))],
+                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("self", ("n", )),
-                                                      ast.FlatBlock("(%s)0" % self.ctype)),
+                                                      ast.Symbol("(%s)0" % self.ctype)),
                                            pragma=None))
             self._zero_kernel = _make_object('Kernel', k, 'zero')
         par_loop(self._zero_kernel, self.dataset.set, self(WRITE))
@@ -1912,9 +1931,9 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Create the :class:`ParLoop` implementing copy."""
         if not hasattr(self, '_copy_kernel'):
             k = ast.FunDecl("void", "copy",
-                            [ast.Decl(self.ctype, ast.Symbol("*self"),
+                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
                                       qualifiers=["const"]),
-                             ast.Decl(other.ctype, ast.Symbol("*other"))],
+                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"))],
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("other", ("n", )),
                                                       ast.Symbol("self", ("n", ))),
@@ -2002,41 +2021,39 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                              self.dataset.dim, other.dataset.dim)
 
     def _op(self, other, op):
-        ops = {operator.add: '+',
-               operator.sub: '-',
-               operator.mul: '*',
-               operator.div: '/'}
+        ops = {operator.add: ast.Sum,
+               operator.sub: ast.Sub,
+               operator.mul: ast.Prod,
+               operator.div: ast.Div}
         ret = _make_object('Dat', self.dataset, None, self.dtype)
         name = "binop_%s" % op.__name__
         if np.isscalar(other):
             other = _make_object('Global', 1, data=other)
             k = ast.FunDecl("void", name,
-                            [ast.Decl(self.ctype, ast.Symbol("*self"),
+                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
                                       qualifiers=["const"]),
-                             ast.Decl(other.ctype, ast.Symbol("*other"),
+                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
                                       qualifiers=["const"]),
                              ast.Decl(self.ctype, ast.Symbol("*ret"))],
                             ast.c_for("n", self.cdim,
                                       ast.Assign(ast.Symbol("ret", ("n", )),
-                                                 ast.BinExpr(ast.Symbol("self", ("n", )),
-                                                             ast.Symbol("other", ("0", )),
-                                                             op=ops[op])),
+                                                 ops[op](ast.Symbol("self", ("n", )),
+                                                         ast.Symbol("other", ("0", )))),
                                       pragma=None))
 
             k = _make_object('Kernel', k, name)
         else:
             self._check_shape(other)
             k = ast.FunDecl("void", name,
-                            [ast.Decl(self.ctype, ast.Symbol("*self"),
+                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
                                       qualifiers=["const"]),
-                             ast.Decl(other.ctype, ast.Symbol("*other"),
+                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
                                       qualifiers=["const"]),
-                             ast.Decl(self.ctype, ast.Symbol("*ret"))],
+                             ast.Decl("%s*" % self.ctype, ast.Symbol("ret"))],
                             ast.c_for("n", self.cdim,
                                       ast.Assign(ast.Symbol("ret", ("n", )),
-                                                 ast.BinExpr(ast.Symbol("self", ("n", )),
-                                                             ast.Symbol("other", ("n", )),
-                                                             op=ops[op])),
+                                                 ops[op](ast.Symbol("self", ("n", )),
+                                                         ast.Symbol("other", ("n", )))),
                                       pragma=None))
 
             k = _make_object('Kernel', k, name)
@@ -2053,8 +2070,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         if np.isscalar(other):
             other = _make_object('Global', 1, data=other)
             k = ast.FunDecl("void", name,
-                            [ast.Decl(self.ctype, ast.Symbol("*self")),
-                             ast.Decl(other.ctype, ast.Symbol("*other"),
+                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self")),
+                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
                                       qualifiers=["const"])],
                             ast.c_for("n", self.cdim,
                                       ops[op](ast.Symbol("self", ("n", )),
@@ -2065,8 +2082,8 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             self._check_shape(other)
             quals = ["const"] if self is not other else []
             k = ast.FunDecl("void", name,
-                            [ast.Decl(self.ctype, ast.Symbol("*self")),
-                             ast.Decl(other.ctype, ast.Symbol("*other"),
+                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self")),
+                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
                                       qualifiers=quals)],
                             ast.c_for("n", self.cdim,
                                       ops[op](ast.Symbol("self", ("n", )),
@@ -2080,7 +2097,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         ops = {operator.sub: ast.Neg}
         name = "uop_%s" % op.__name__
         k = ast.FunDecl("void", name,
-                        [ast.Decl(self.ctype, ast.Symbol("*self"))],
+                        [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
                         ast.c_for("n", self.cdim,
                                   ast.Assign(ast.Symbol("self", ("n", )),
                                              ops[op](ast.Symbol("self", ("n", )))),
@@ -2100,9 +2117,9 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         ret = _make_object('Global', 1, data=0, dtype=self.dtype)
 
         k = ast.FunDecl("void", "inner",
-                        [ast.Decl(self.ctype, ast.Symbol("*self"),
+                        [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
                                   qualifiers=["const"]),
-                         ast.Decl(other.ctype, ast.Symbol("*other"),
+                         ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
                                   qualifiers=["const"]),
                          ast.Decl(self.ctype, ast.Symbol("*ret"))],
                         ast.c_for("n", self.cdim,
@@ -3504,7 +3521,7 @@ class Mat(SetAssociated):
 
         Called lazily after user calls :meth:`assemble`"""
         def __init__(self, mat):
-            super(Mat._Assembly, self).__init__(reads=mat, writes=mat)
+            super(Mat._Assembly, self).__init__(reads=mat, writes=mat, incs=mat)
             self._mat = mat
 
         def _run(self):
@@ -3705,7 +3722,6 @@ class Kernel(Cached):
         self._include_dirs = include_dirs
         self._headers = headers
         self._user_code = user_code
-        self._code = code
         # If an AST is provided, code generation is deferred
         self._ast, self._code = (code, None) if isinstance(code, Node) else (None, code)
         self._initialized = True
@@ -3715,7 +3731,6 @@ class Kernel(Cached):
         """Kernel name, must match the kernel function name in the code."""
         return self._name
 
-    @property
     def code(self):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
@@ -3729,6 +3744,9 @@ class Kernel(Cached):
     def __repr__(self):
         code = self._ast.gencode() if self._ast else self._code
         return 'Kernel("""%s""", %r)' % (code, self._name)
+
+    def __eq__(self, other):
+        return self.cache_key == other.cache_key
 
 
 class JITModule(Cached):
@@ -3859,7 +3877,8 @@ class ParLoop(LazyComputation):
     def __init__(self, kernel, iterset, *args, **kwargs):
         LazyComputation.__init__(self,
                                  set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
-                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]))
+                                 set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]),
+                                 set([a.data for a in args if a.access in [INC]]))
         # INCs into globals need to start with zero and then sum back
         # into the input global at the end.  This has the same number
         # of reductions but means that successive par_loops
@@ -3903,6 +3922,15 @@ class ParLoop(LazyComputation):
                     raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
 
         self._it_space = self.build_itspace(iterset)
+
+        # Attach semantic information to the kernel's AST
+        if hasattr(self._kernel, '_ast') and self._kernel._ast:
+            ast_info = ast_visit(self._kernel._ast, search=ast.FunDecl)
+            fundecl = ast_info['search'][ast.FunDecl]
+            if len(fundecl) == 1:
+                for arg, f_arg in zip(self._actual_args, fundecl[0].args):
+                    if arg._uses_itspace and arg._is_INC:
+                        f_arg.pragma = set([ast.WRITE])
 
     def _run(self):
         return self.compute()
