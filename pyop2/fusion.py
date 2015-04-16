@@ -54,6 +54,11 @@ import coffee
 from coffee import base as ast
 from coffee.utils import visit as ast_visit, ast_c_make_alias as ast_make_alias
 
+try:
+    import slope_python as slope
+except ImportError:
+    slope = None
+
 
 class Arg(host.Arg):
 
@@ -918,7 +923,7 @@ class Inspector(Cached):
             base_fundecl = base_fundecl[0]
             fuse_fundecl = fuse_fundecl[0]
 
-            ### Craft the /fusion/ kernel ###
+            # Craft the /fusion/ kernel #
 
             # 1A) Create /fusion/ arguments and signature
             body = ast.Block([])
@@ -947,7 +952,7 @@ class Inspector(Cached):
             fuse_for = ast.c_for('i', fused_map.arity, fuse_body, pragma=None)
             body.children.extend([base_funcall, fuse_for.children[0]])
 
-            ### Modify the /fuse/ kernel ###
+            # Modify the /fuse/ kernel #
             # This is to take into account that many arguments are shared with
             # /base/, so they will only staged once for /base/. This requires
             # tweaking the way the arguments are declared and accessed in /fuse/
@@ -1200,11 +1205,11 @@ def fuse(name, loop_chain, tile_size):
     if tile_size > 0:
         mode = 'tile'
         # Loop tiling requires the SLOPE library to be available on the system.
-        try:
-            import slope_python as slope
-            os.environ['SLOPE_DIR']
-        except ImportError:
+        if slope is None:
             warning("Requested tiling, but couldn't locate SLOPE. Check the PYTHONPATH")
+            return loop_chain + remainder
+        try:
+            os.environ['SLOPE_DIR']
         except KeyError:
             warning("Set the env variable SLOPE_DIR to the location of SLOPE")
             warning("Loops won't be fused, and plain ParLoops will be executed")
