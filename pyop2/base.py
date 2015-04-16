@@ -3914,6 +3914,14 @@ class ParLoop(LazyComputation):
     def _run(self):
         return self.compute()
 
+    def prepare_arglist(self, iterset, *args):
+        """Prepare the argument list for calling generated code.
+
+        :arg iterset: The :class:`Set` iterated over.
+        :arg args: A list of :class:`Args`, the argument to the :fn:`par_loop`.
+        """
+        return ()
+
     @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
@@ -3934,8 +3942,12 @@ class ParLoop(LazyComputation):
         self.maybe_set_dat_dirty()
 
     @collective
-    def _compute(self, part):
-        """Executes the kernel over all members of a MPI-part of the iteration space."""
+    def _compute(self, part, *arglist):
+        """Executes the kernel over all members of a MPI-part of the iteration space.
+
+        :arg part: The :class:`SetPartition` to compute over
+        :arg arglist: The arguments to pass to the compiled code (may
+             be ignored by the backend, depending on the exact implementation)"""
         raise RuntimeError("Must select a backend")
 
     def maybe_set_dat_dirty(self):
