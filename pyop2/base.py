@@ -1692,7 +1692,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path=None, flatten=False):
-        if isinstance(path, Arg):
+        if isinstance(path, _MapArg):
             return _make_object('Arg', data=self, map=path.map, idx=path.idx,
                                 access=access, flatten=flatten)
         if configuration["debug"] and path and path.toset != self.dataset.set:
@@ -2747,6 +2747,19 @@ property is `idx`.
 """
 
 
+class _MapArg(object):
+
+    def __init__(self, map, idx):
+        """
+        Temporary :class:`Arg`-like object for :class:`Map`\s.
+
+        :arg map: The :class:`Map`.
+        :arg idx: The index into the map.
+        """
+        self.map = map
+        self.idx = idx
+
+
 class Map(object):
 
     """OP2 map, a relation between two :class:`Set` objects.
@@ -2810,7 +2823,7 @@ class Map(object):
                 raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
             if isinstance(index, IterationIndex) and index.index not in [0, 1]:
                 raise IndexValueError("IterationIndex must be in interval [0,1]")
-        return _make_object('Arg', map=self, idx=index)
+        return _MapArg(self, index)
 
     # This is necessary so that we can convert a Map to a tuple
     # (needed in as_tuple).  Because, __getitem__ no longer returns a
@@ -3464,7 +3477,7 @@ class Mat(SetAssociated):
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path, flatten=False):
-        path = as_tuple(path, Arg, 2)
+        path = as_tuple(path, _MapArg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
         if configuration["debug"] and tuple(path_maps) not in self.sparsity:
