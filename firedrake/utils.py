@@ -42,9 +42,7 @@ def _init():
     from pyop2 import op2
     from parameters import parameters
     if not op2.initialised():
-        op2.init(log_level='INFO',
-                 compiler=parameters["coffee"]["compiler"],
-                 simd_isa=parameters["coffee"]["simd_isa"])
+        op2.init(**parameters["pyop2_options"])
 
 
 def unique_name(name, nameset):
