@@ -124,6 +124,7 @@ class _Facets(object):
         return op2.Map(self.set, self.bottom_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
 
+
 def _from_gmsh(filename):
     """Read a Gmsh .msh file from `filename`"""
 

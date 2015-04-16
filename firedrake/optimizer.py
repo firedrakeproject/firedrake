@@ -1,5 +1,3 @@
-import slope_python
-
 def slope(mesh, debug=False):
     """Initialize the SLOPE library by providing information about the mesh,
     including:
@@ -7,6 +5,11 @@ def slope(mesh, debug=False):
         * Mesh coordinates
         * All available maps binding sets of mesh components
     """
+    try:
+        import slope_python
+    except ImportError:
+        return
+
     # Add coordinates
     if debug:
         coords = mesh.coordinates.dat
