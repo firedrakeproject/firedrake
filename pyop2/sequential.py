@@ -138,6 +138,7 @@ class ParLoop(host.ParLoop):
 
         if iterset._extruded:
             region = self.iteration_region
+            # Set up appropriate layer iteration bounds
             if region is ON_BOTTOM:
                 arglist.append(0)
                 arglist.append(1)
