@@ -111,7 +111,7 @@ class TestVersioning:
         return op2.Mat(sparsity, 'float64', "mat")
 
     def test_initial_version(self, backend, skip_opencl, mat, g, x):
-        assert mat._version == 1
+        assert mat._version == 0
         assert g._version == 1
         assert x._version == 1
         c = op2.Const(1, 1, name='c2', dtype=numpy.uint32)
