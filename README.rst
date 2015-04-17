@@ -8,9 +8,9 @@ Installing PyOP2
 ================
 
 The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python
-2.7.3. Other UNIX-like systems may or may not work. Mac OS X 10.7 and
-10.9 are also known to work. Microsoft Windows may work, but is not a
-supported platform.
+2.7.3. Other UNIX-like systems may or may not work. Mac OS X 10.7,
+10.9 and 10.10 are also known to work. Microsoft Windows may work, but
+is not a supported platform.
 
 Quick start installations
 -------------------------
@@ -94,6 +94,7 @@ PyOP2 requires a number of tools and libraries to be available:
 * MPI
 * Blas and Lapack
 * Git, Mercurial
+* Python version 2.7
 * pip and the Python headers 
 
 The following dependencies are part of the Python
@@ -159,20 +160,6 @@ On a Debian-based system (Ubuntu, Mint, etc.) install core packages::
 Install dependencies via ``pip``::
 
   sudo pip install "Cython>=0.20" decorator "numpy>=1.6" "mpi4py>=1.3.1"
-
-.. note::
-
-   If your OS release is very old and you are therefore using
-   Python 2.6 instead of 2.7, you need two additional dependencies.
-
-Additional Python 2.6 dependencies: 
-
-* argparse 
-* ordereddict
-
-Install these via ``pip``::
-
-  sudo pip install argparse ordereddict
 
 .. hint::
    
