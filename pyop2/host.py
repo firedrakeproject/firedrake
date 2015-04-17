@@ -595,6 +595,7 @@ class JITModule(base.JITModule):
 
     _cppargs = []
     _libraries = []
+    _system_headers = []
     _extension = 'c'
 
     def __init__(self, kernel, itspace, *args, **kwargs):
@@ -625,6 +626,7 @@ class JITModule(base.JITModule):
         # Copy the class variables, so we don't overwrite them
         self._cppargs = dcopy(type(self)._cppargs)
         self._libraries = dcopy(type(self)._libraries)
+        self._system_headers = dcopy(type(self)._system_headers)
 
     @collective
     def __call__(self, *args, **kwargs):
@@ -701,7 +703,7 @@ class JITModule(base.JITModule):
         """ % {'consts': _const_decs, 'kernel': kernel_code,
                'wrapper': code_to_compile,
                'externc_close': externc_close,
-               'sys_headers': '\n'.join(self._kernel._headers)}
+               'sys_headers': '\n'.join(self._kernel._headers + self._system_headers)}
 
         self._dump_generated_code(code_to_compile)
         if configuration["debug"]:
