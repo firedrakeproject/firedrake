@@ -89,6 +89,10 @@ class Kernel(base.Kernel):
         self._func = code
         self._name = name
 
+    def __getattr__(self, attr):
+        """Return None on unrecognised attributes"""
+        return None
+
     def __call__(self, *args):
         return self._func(*args)
 
