@@ -85,8 +85,8 @@ class Arg(host.Arg):
             # Instantiate and initialize new, specialized Arg
             _arg = Arg(arg.data, arg.map, arg.idx, arg.access, arg._flatten)
             _arg._loop_position = loop_id
-            _arg._position = arg._position
-            _arg._indirect_position = arg._indirect_position
+            _arg.position = arg.position
+            _arg.indirect_position = arg.indirect_position
             _arg._c_local_maps = c_local_maps
             return _arg
 
@@ -192,7 +192,7 @@ class Kernel(host.Kernel, tuple):
         self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
         self._headers = list(set(flatten([k._headers for k in kernels])))
         self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
-
+        self._attached_info = False
         # Code generation is delayed until actually needed
         self._ast = asts
         self._code = None
@@ -267,17 +267,31 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             return
         self._all_args = kwargs.pop('all_args')
         self._executor = kwargs.pop('executor')
+        self._it_space = it_space
         super(JITModule, self).__init__(kernel, it_space, *args, **kwargs)
 
-    def compile(self, argtypes=None, restype=None):
-        if hasattr(self, '_fun'):
-            # It should not be possible to pull a jit module out of
-            # the cache /with/ arguments
-            if hasattr(self, '_args'):
-                raise RuntimeError("JITModule is holding onto args, memory leak!")
-            self._fun.argtypes = argtypes
-            self._fun.restype = restype
-            return self._fun
+    def set_argtypes(self, iterset, *args):
+        argtypes = [slope.Executor.meta['py_ctype_exec']]
+        for it_space in self._it_space:
+            if isinstance(it_space.iterset, Subset):
+                argtypes.append(it_space.iterset._argtype)
+        for arg in args:
+            if arg._is_mat:
+                argtypes.append(arg.data._argtype)
+            else:
+                for d in arg.data:
+                    argtypes.append(d._argtype)
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.Map, Map)
+                for map in maps:
+                    for m in map:
+                        argtypes.append(m._argtype)
+        for c in Const._definitions():
+            argtypes.append(c._argtype)
+
+        return argtypes
+
+    def compile(self):
         # If we weren't in the cache we /must/ have arguments
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule not in cache, but has no args associated")
@@ -296,7 +310,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                             '-l%s' % slope.get_lib_name()]
         compiler = coffee.plan.compiler.get('name')
         self._cppargs += slope.get_compile_opts(compiler)
-        fun = super(JITModule, self).compile(argtypes, restype)
+        fun = super(JITModule, self).compile()
 
         if hasattr(self, '_all_args'):
             # After the JITModule is compiled, can drop any reference to now
@@ -401,52 +415,46 @@ class ParLoop(host.ParLoop):
     @profile
     def compute(self):
         """Execute the kernel over all members of the iteration space."""
+        arglist = self.prepare_arglist(None, *self.args)
         with timed_region("ParLoopChain: compute"):
-            self._compute()
+            self._compute(*arglist)
+
+    def prepare_arglist(self, part, *args):
+        arglist = [self._inspection]
+        for it_space in self.it_space:
+            if isinstance(it_space._iterset, Subset):
+                arglist.append(it_space._iterset._indices.ctypes.data)
+        for arg in args:
+            if arg._is_mat:
+                arglist.append(arg.data.handle.handle)
+            else:
+                for d in arg.data:
+                    # Cannot access a property of the Dat or we will force
+                    # evaluation of the trace
+                    arglist.append(d._data.ctypes.data)
+
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                    for m in map:
+                        arglist.append(m._values.ctypes.data)
+
+        for c in Const._definitions():
+            arglist.append(c._data.ctypes.data)
+
+        return arglist
 
     @collective
     @lineprof
-    def _compute(self):
+    def _compute(self, *arglist):
         kwargs = {
             'all_args': self._all_args,
             'executor': self._executor,
         }
         fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
 
-        # Build restype, argtypes and argvalues
-        self._restype = None
-        self._argtypes = [slope.Executor.meta['py_ctype_exec']]
-        self._jit_args = [self._inspection]
-        for it_space in self.it_space:
-            if isinstance(it_space._iterset, Subset):
-                self._argtypes.append(it_space._iterset._argtype)
-                self._jit_args.append(it_space._iterset._indices)
-        for arg in self.args:
-            if arg._is_mat:
-                self._argtypes.append(arg.data._argtype)
-                self._jit_args.append(arg.data.handle.handle)
-            else:
-                for d in arg.data:
-                    # Cannot access a property of the Dat or we will force
-                    # evaluation of the trace
-                    self._argtypes.append(d._argtype)
-                    self._jit_args.append(d._data)
-
-            if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.map, Map)
-                for map in maps:
-                    for m in map:
-                        self._argtypes.append(m._argtype)
-                        self._jit_args.append(m.values_with_halo)
-
-        for c in Const._definitions():
-            self._argtypes.append(c._argtype)
-            self._jit_args.append(c.data)
-
-        # Compile and run the JITModule
-        fun = fun.compile(argtypes=self._argtypes, restype=self._restype)
         with timed_region("ParLoopChain: executor"):
-            fun(*self._jit_args)
+            fun(*arglist)
 
 
 # Possible Schedules as produced by an Inspector
