@@ -141,6 +141,7 @@ common_tests = [
 scalar_tests = common_tests + [
     'interpolatetest(f, 0.0, 0)',
     'interpolatetest(f, "sin(pi/2)", 1)',
+    pytest.mark.xfail(reason='Mathfunctions not dealt with properly')('assigntest(f, sqrt(one), 1)'),
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
     'exprtest(ufl.sign(minusthree), -1)',
