@@ -622,6 +622,9 @@ class JITModule(base.JITModule):
         self._direct = kwargs.get('direct', False)
         self._iteration_region = kwargs.get('iterate', ALL)
         self._initialized = True
+        # Copy the class variables, so we don't overwrite them
+        self._cppargs = dcopy(type(self)._cppargs)
+        self._libraries = dcopy(type(self)._libraries)
 
     @collective
     def __call__(self, *args, **kwargs):
