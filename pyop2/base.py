@@ -2577,7 +2577,9 @@ class Const(DataCarrier):
 
     @classmethod
     def _definitions(cls):
-        return sorted(Const._defs, key=lambda c: c.name)
+        if Const._defs:
+            return sorted(Const._defs, key=lambda c: c.name)
+        return ()
 
     def remove_from_namespace(self):
         """Remove this Const object from the namespace
