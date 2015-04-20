@@ -283,10 +283,14 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
         return arglist
 
+    @cached_property
+    def _jitmodule(self):
+        return JITModule(self.kernel, self.it_space, *self.args,
+                         direct=self.is_direct, iterate=self.iteration_region)
+
     @collective
     @lineprof
-    def _compute(self, part, *arglist):
-        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
+    def _compute(self, part, fun, *arglist):
         if part.size > 0:
             # TODO: compute partition size
             plan = self._get_plan(part, 1024)

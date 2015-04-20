@@ -41,9 +41,7 @@ import host
 from mpi import collective
 from petsc_base import *
 from host import Kernel, Arg  # noqa: needed by BackendSelector
-from utils import as_tuple
-
-# Parallel loop API
+from utils import as_tuple, cached_property
 
 
 class JITModule(host.JITModule):
@@ -153,10 +151,13 @@ class ParLoop(host.ParLoop):
                 arglist.append(iterset.layers - 1)
         return arglist
 
+    @cached_property
+    def _jitmodule(self):
+        return JITModule(self.kernel, self.it_space, *self.args,
+                         direct=self.is_direct, iterate=self.iteration_region)
+
     @collective
-    def _compute(self, part, *arglist):
-        fun = JITModule(self.kernel, self.it_space, *self.args,
-                        direct=self.is_direct, iterate=self.iteration_region)
+    def _compute(self, part, fun, *arglist):
         fun(part.offset, part.offset + part.size, *arglist)
 
 

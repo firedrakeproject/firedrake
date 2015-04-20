@@ -3922,30 +3922,41 @@ class ParLoop(LazyComputation):
         """
         return ()
 
+    @property
+    @collective
+    def _jitmodule(self):
+        """Return the :class:`JITModule` that encapsulates the compiled par_loop code.
+
+        Return None if the child class should deal with this in another way."""
+        return None
+
     @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         self.halo_exchange_begin()
         iterset = self.iterset
         arglist = self.prepare_arglist(iterset, *self.args)
-        self._compute(iterset.core_part, *arglist)
+        fun = self._jitmodule
+        self._compute(iterset.core_part, fun, *arglist)
         self.halo_exchange_end()
-        self._compute(iterset.owned_part, *arglist)
+        self._compute(iterset.owned_part, fun, *arglist)
         self.reduction_begin()
         if self._only_local:
             self.reverse_halo_exchange_begin()
             self.reverse_halo_exchange_end()
         if not self._only_local and self.needs_exec_halo:
-            self._compute(iterset.exec_part, *arglist)
+            self._compute(iterset.exec_part, fun, *arglist)
         self.reduction_end()
         self.maybe_set_halo_update_needed()
         self.maybe_set_dat_dirty()
 
     @collective
-    def _compute(self, part, *arglist):
+    def _compute(self, part, fun, *arglist):
         """Executes the kernel over all members of a MPI-part of the iteration space.
 
         :arg part: The :class:`SetPartition` to compute over
+        :arg fun: The :class:`JITModule` encapsulating the compiled
+             code (may be ignored by the backend).
         :arg arglist: The arguments to pass to the compiled code (may
              be ignored by the backend, depending on the exact implementation)"""
         raise RuntimeError("Must select a backend")
