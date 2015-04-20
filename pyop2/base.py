@@ -4040,13 +4040,13 @@ class ParLoop(LazyComputation):
             _iterset = iterset.superset
         else:
             _iterset = iterset
-        if isinstance(_iterset, MixedSet):
-            raise SetTypeError("Cannot iterate over MixedSets")
         block_shape = None
-        for i, arg in enumerate(self._actual_args):
-            if arg._is_global:
-                continue
-            if configuration["type_check"]:
+        if configuration["type_check"]:
+            if isinstance(_iterset, MixedSet):
+                raise SetTypeError("Cannot iterate over MixedSets")
+            for i, arg in enumerate(self.args):
+                if arg._is_global:
+                    continue
                 if arg._is_direct:
                     if arg.data.dataset.set != _iterset:
                         raise MapValueError(
@@ -4060,11 +4060,16 @@ class ParLoop(LazyComputation):
                     elif m.iterset != _iterset and m.iterset not in _iterset:
                         raise MapValueError(
                             "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-            if arg._uses_itspace:
-                _block_shape = arg._block_shape
-                if block_shape and block_shape != _block_shape:
-                    raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                block_shape = _block_shape
+                if arg._uses_itspace:
+                    _block_shape = arg._block_shape
+                    if block_shape and block_shape != _block_shape:
+                        raise IndexValueError("Mismatching iteration space size for argument %d" % i)
+                    block_shape = _block_shape
+        else:
+            for arg in self.args:
+                if arg._uses_itspace:
+                    block_shape = arg._block_shape
+                    break
         return IterationSpace(iterset, block_shape)
 
     @cached_property
