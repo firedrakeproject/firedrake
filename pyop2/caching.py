@@ -38,6 +38,7 @@ import gzip
 import os
 import zlib
 from mpi import MPI
+from utils import cached_property
 
 
 def report_cache(typ):
@@ -229,7 +230,7 @@ class Cached(object):
         .. note:: The cache key must be hashable."""
         return tuple(args) + tuple([(k, v) for k, v in kwargs.items()])
 
-    @property
+    @cached_property
     def cache_key(self):
         """Cache key."""
         return self._key
