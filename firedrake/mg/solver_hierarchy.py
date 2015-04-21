@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import weakref
 
 import firedrake
 from firedrake.petsc import PETSc
@@ -226,12 +227,12 @@ class NLVSHierarchy(object):
         dm = self.snes.getDM()
 
         nlevel = len(self.ctx._problems)
-        dm.setAppCtx(self.ctx)
+        dm.setAppCtx(weakref.proxy(self.ctx))
         dm.setCreateMatrix(self.ctx.create_matrix)
         # FIXME: Need to set this up on the subDMs
         for i in range(nlevel - 1, 0, -1):
             dm = dm.coarsen()
-            dm.setAppCtx(self.ctx)
+            dm.setAppCtx(weakref.proxy(self.ctx))
 
         for i in range(nlevel - 1):
             dm.setCreateInterpolation(create_interpolation)
