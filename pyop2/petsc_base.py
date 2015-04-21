@@ -396,8 +396,8 @@ class MatBlock(base.Mat):
         rset, cset = self._parent.sparsity.dsets
         rowis = rset.local_ises[i]
         colis = cset.local_ises[j]
-        self._handle = parent.handle.getLocalSubMatrix(isrow=rowis,
-                                                       iscol=colis)
+        self.handle = parent.handle.getLocalSubMatrix(isrow=rowis,
+                                                      iscol=colis)
 
     def __getitem__(self, idx):
         return self
@@ -427,10 +427,6 @@ class MatBlock(base.Mat):
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.INSERT_VALUES)
-
-    @property
-    def handle(self):
-        return self._handle
 
     def assemble(self):
         pass
@@ -486,7 +482,7 @@ class Mat(base.Mat, CopyOnWrite):
                       bsize=1)
         rset, cset = self.sparsity.dsets
         mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
-        self._handle = mat
+        self.handle = mat
         self._blocks = []
         rows, cols = self.sparsity.shape
         for i in range(rows):
@@ -526,7 +522,7 @@ class Mat(base.Mat, CopyOnWrite):
         # PETSc Mat.createNest wants a flattened list of Mats
         mat.createNest([[m.handle for m in row_] for row_ in self._blocks],
                        isrows=rset.field_ises, iscols=cset.field_ises)
-        self._handle = mat
+        self.handle = mat
 
     def _init_block(self):
         self._blocks = [[self]]
@@ -575,7 +571,7 @@ class Mat(base.Mat, CopyOnWrite):
         # "complete", we can ignore subsequent zero entries.
         if not block_sparse:
             mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
-        self._handle = mat
+        self.handle = mat
         # Matrices start zeroed.
         self._version_set_zero()
 
@@ -648,7 +644,7 @@ class Mat(base.Mat, CopyOnWrite):
                 self.handle.setDiagonal(v)
 
     def _cow_actual_copy(self, src):
-        self._handle = src.handle.duplicate(copy=True)
+        self.handle = src.handle.duplicate(copy=True)
         return self
 
     @modifies
@@ -695,11 +691,9 @@ class Mat(base.Mat, CopyOnWrite):
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.INSERT_VALUES)
 
-    @property
+    @cached_property
     def blocks(self):
         """2-dimensional array of matrix blocks."""
-        if not hasattr(self, '_blocks'):
-            self._init()
         return self._blocks
 
     @property
@@ -708,13 +702,6 @@ class Mat(base.Mat, CopyOnWrite):
         base._trace.evaluate(set([self]), set())
         self._assemble()
         return self.handle[:, :]
-
-    @property
-    def handle(self):
-        """Petsc4py Mat holding matrix data."""
-        if not hasattr(self, '_handle'):
-            self._init()
-        return self._handle
 
     def __mul__(self, v):
         """Multiply this :class:`Mat` with the vector ``v``."""
