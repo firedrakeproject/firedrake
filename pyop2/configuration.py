@@ -33,14 +33,13 @@
 
 """PyOP2 global configuration."""
 
-import copy
 import os
 from tempfile import gettempdir
 
 from exceptions import ConfigurationError
 
 
-class Configuration(object):
+class Configuration(dict):
     """PyOP2 configuration parameters
 
     :param backend: Select the PyOP2 backend (one of `cuda`,
@@ -103,26 +102,21 @@ class Configuration(object):
                 return typ(os.environ.get(env, v))
             except ValueError:
                 raise ValueError("Cannot convert value of environment variable %s to %r" % (env, typ))
-        self._conf = dict((k, convert(env, typ, v))
-                          for k, (env, typ, v) in Configuration.DEFAULTS.items())
+        defaults = dict((k, convert(env, typ, v))
+                        for k, (env, typ, v) in Configuration.DEFAULTS.items())
+        super(Configuration, self).__init__(**defaults)
         self._set = set()
-        self._defaults = copy.copy(self._conf)
+        self._defaults = defaults
 
     def reset(self):
         """Reset the configuration parameters to the default values."""
-        self._conf = copy.copy(self._defaults)
+        self.update(self._defaults)
         self._set = set()
 
     def reconfigure(self, **kwargs):
         """Update the configuration parameters with new values."""
         for k, v in kwargs.items():
             self[k] = v
-
-    def __getitem__(self, key):
-        """Return the value of a configuration parameter.
-
-        :arg key: The parameter to query"""
-        return self._conf[key]
 
     def __setitem__(self, key, value):
         """Set the value of a configuration parameter.
@@ -143,6 +137,6 @@ class Configuration(object):
                 raise ConfigurationError("Values for configuration key %s must be of type %r, not %r"
                                          % (key, valid_type, type(value)))
         self._set.add(key)
-        self._conf[key] = value
+        super(Configuration, self).__setitem__(key, value)
 
 configuration = Configuration()
