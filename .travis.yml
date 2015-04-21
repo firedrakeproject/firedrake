@@ -35,6 +35,8 @@ before_install:
     libvtk5-dev python-vtk libparmetis-dev python-vtk cython"
   - wget https://raw.github.com/OP2/PyOP2/master/requirements-minimal.txt
   - pip install psutil
+  - pip install cachetools
+  - pip install pytest-benchmark
   - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
        --allow-external petsc --allow-unverified petsc \
        --allow-external petsc4py  --allow-unverified petsc4py \
