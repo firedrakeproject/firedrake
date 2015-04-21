@@ -1,3 +1,4 @@
+import weakref
 import ufl
 
 from pyop2.profiling import timed_function, profile
@@ -144,7 +145,7 @@ class NonlinearVariationalSolver(object):
     @profile
     def solve(self):
         dm = self.snes.getDM()
-        dm.setAppCtx(self._ctx)
+        dm.setAppCtx(weakref.proxy(self._ctx))
         dm.setCreateMatrix(self._ctx.create_matrix)
 
         # Apply the boundary conditions to the initial guess.
