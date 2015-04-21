@@ -421,12 +421,14 @@ class MatBlock(base.Mat):
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.ADD_VALUES)
+        self._needs_assembly = True
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.INSERT_VALUES)
+        self._needs_assembly = True
 
     def assemble(self):
         pass
@@ -459,6 +461,7 @@ class Mat(base.Mat, CopyOnWrite):
     def __init__(self, *args, **kwargs):
         base.Mat.__init__(self, *args, **kwargs)
         CopyOnWrite.__init__(self, *args, **kwargs)
+        self._needs_assembly = False
         self._init()
 
     @collective
@@ -470,6 +473,7 @@ class Mat(base.Mat, CopyOnWrite):
         if self.sparsity.shape > (1, 1):
             if self.sparsity.nested:
                 self._init_nest()
+                self._nested = True
             else:
                 self._init_monolithic()
         else:
@@ -677,6 +681,12 @@ class Mat(base.Mat, CopyOnWrite):
 
     @collective
     def _assemble(self):
+        if self.sparsity.nested:
+            for m in self:
+                if m._needs_assembly:
+                    m.handle.assemble()
+                    m._needs_assembly = False
+            return
         self.handle.assemble()
 
     def addto_values(self, rows, cols, values):
@@ -684,12 +694,14 @@ class Mat(base.Mat, CopyOnWrite):
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.ADD_VALUES)
+        self._needs_assembly = True
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.INSERT_VALUES)
+        self._needs_assembly = True
 
     @cached_property
     def blocks(self):

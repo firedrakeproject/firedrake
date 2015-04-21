@@ -3944,11 +3944,10 @@ class ParLoop(LazyComputation):
         if self._only_local:
             self.reverse_halo_exchange_begin()
             self.reverse_halo_exchange_end()
-        if not self._only_local and self.needs_exec_halo:
+        if self.needs_exec_halo:
             self._compute(iterset.exec_part, fun, *arglist)
         self.reduction_end()
-        self.maybe_set_halo_update_needed()
-        self.maybe_set_dat_dirty()
+        self.update_arg_data_state()
 
     @collective
     def _compute(self, part, fun, *arglist):
@@ -3960,12 +3959,6 @@ class ParLoop(LazyComputation):
         :arg arglist: The arguments to pass to the compiled code (may
              be ignored by the backend, depending on the exact implementation)"""
         raise RuntimeError("Must select a backend")
-
-    def maybe_set_dat_dirty(self):
-        for arg in self.dat_args:
-            if arg.data._is_allocated:
-                for d in arg.data:
-                    d._data.setflags(write=False)
 
     @collective
     @timed_function('ParLoop halo exchange begin')
@@ -4030,12 +4023,20 @@ class ParLoop(LazyComputation):
             glob._data += self.args[i].data._data
 
     @collective
-    def maybe_set_halo_update_needed(self):
-        """Set halo update needed for :class:`Dat` arguments that are written to
-        in this parallel loop."""
+    def update_arg_data_state(self):
+        """Update the state of the :class:`DataCarrier`\s in the arguments to the `par_loop`.
+
+        This marks :class:`Dat`\s that need halo updates, sets the
+        data to read-only, and marks :class:`Mat`\s that need assembly."""
         for arg in self.args:
-            if arg._is_dat and arg.access in [INC, WRITE, RW]:
-                arg.data.needs_halo_update = True
+            if arg._is_dat:
+                if arg.access in [INC, WRITE, RW]:
+                    arg.data.needs_halo_update = True
+                if arg.data._is_allocated:
+                    for d in arg.data:
+                        d._data.setflags(write=False)
+            if arg._is_mat:
+                arg.data._needs_assembly = True
 
     def build_itspace(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
@@ -4129,9 +4130,12 @@ class ParLoop(LazyComputation):
 
     @cached_property
     def needs_exec_halo(self):
-        """Does the parallel loop need an exec halo?"""
-        return any(arg._is_indirect_and_not_read or arg._is_mat
-                   for arg in self.args)
+        """Does the parallel loop need an exec halo?
+
+        True if the parallel loop is not a "local" loop and there are
+        any indirect arguments that are not read-only."""
+        return not self._only_local and any(arg._is_indirect_and_not_read or arg._is_mat
+                                            for arg in self.args)
 
     @cached_property
     def kernel(self):
