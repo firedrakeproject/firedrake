@@ -651,6 +651,12 @@ class Mat(base.Mat, CopyOnWrite):
         self.handle = src.handle.duplicate(copy=True)
         return self
 
+    @cached_property
+    def _left_vec(self):
+        vec = self.handle.createVecLeft()
+        vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        return vec
+
     @modifies
     @collective
     def inc_local_diagonal_entries(self, rows, diag_val=1.0):
@@ -666,8 +672,8 @@ class Mat(base.Mat, CopyOnWrite):
         are incremented by zero.
         """
         base._trace.evaluate(set([self]), set([self]))
-        vec = self.handle.createVecLeft()
-        vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        vec = self._left_vec
+        vec.set(0)
         rows = np.asarray(rows)
         rows = rows[rows < self.sparsity.rmaps[0].toset.size]
         # If the row DataSet has dimension > 1 we need to treat the given rows
