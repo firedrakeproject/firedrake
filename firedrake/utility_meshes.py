@@ -586,7 +586,7 @@ def UnitIcosahedralSphereMesh(refinement_level=0, reorder=None):
                                  reorder=reorder)
 
 
-def _cubedsphere_cells_and_coords(radius, refinement_level):
+def _cubedsphere_cells_and_coords(radius, refinement_level, sphere=True):
     """Generate vertex and face lists for cubed sphere """
     # We build the mesh out of 6 panels of the cube
     # this allows to build the gnonomic cube transformation
@@ -687,18 +687,23 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     # for each of the panels
     panel_numbering.shape = (6, Nx**2)
 
-    def coordinates_on_panel(panel_num, X, Y, Z):
+    def coordinates_on_panel(panel_num, X, Y, Z, sphere=True):
         I = panel_numbering[panel_num, :]
-        coords[I, 0] = radius / r * X
-        coords[I, 1] = radius / r * Y
-        coords[I, 2] = radius / r * Z
-
-    coordinates_on_panel(0, lX, lY, -a)
-    coordinates_on_panel(1, -a, lY, -lX)
-    coordinates_on_panel(2, a, lY, lX)
-    coordinates_on_panel(3, lX, a, lY)
-    coordinates_on_panel(4, lX, -a, -lY)
-    coordinates_on_panel(5, lX, -lY, a)
+        if(sphere):
+            coords[I, 0] = radius / r * X
+            coords[I, 1] = radius / r * Y
+            coords[I, 2] = radius / r * Z
+        else:
+            coords[I, 0] = X
+            coords[I, 1] = Y
+            coords[I, 2] = Z
+            
+    coordinates_on_panel(0, lX, lY, -a, sphere)
+    coordinates_on_panel(1, -a, lY, -lX, sphere)
+    coordinates_on_panel(2, a, lY, lX, sphere)
+    coordinates_on_panel(3, lX, a, lY, sphere)
+    coordinates_on_panel(4, lX, -a, -lY, sphere)
+    coordinates_on_panel(5, lX, -lY, a, sphere)
 
     # Now we need to build the face numbering
     # in local coordinates
@@ -714,7 +719,8 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
 
 def CubedSphereMesh(radius, refinement_level=0, reorder=None,
-                    use_dmplex_refinement=False):
+                    use_dmplex_refinement=False, 
+                    sphere=True):
     """Generate an cubed approximation to the surface of the
     sphere.
 
@@ -759,17 +765,19 @@ def CubedSphereMesh(radius, refinement_level=0, reorder=None,
         scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
         coords *= scale
     else:
-        cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
+        cells, coords = _cubedsphere_cells_and_coords(radius, 
+                                                      refinement_level,
+                                                      sphere)
         plex = _from_cell_list(2, cells, coords)
 
     return mesh.Mesh(plex, dim=3, reorder=reorder)
 
 
-def UnitCubedSphereMesh(refinement_level=0, reorder=None):
+def UnitCubedSphereMesh(refinement_level=0, reorder=None, sphere=True):
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
     :kwarg reorder: (optional), should the mesh be reordered?
     """
     return CubedSphereMesh(1.0, refinement_level=refinement_level,
-                           reorder=reorder)
+                           reorder=reorder, sphere=sphere)
