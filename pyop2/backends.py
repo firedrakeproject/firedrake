@@ -69,7 +69,7 @@ def _make_object(obj, *args, **kwargs):
 
     That way, the correct type of `ParLoop` will be instantiated at
     runtime."""
-    return _BackendSelector(obj, (object,), {})(*args, **kwargs)
+    return _BackendSelector._backend.__dict__[obj](*args, **kwargs)
 
 
 class _BackendSelector(type):

@@ -108,7 +108,7 @@ class Arg(base.Arg):
     def c_wrapper_dec(self):
         val = ""
         if self._is_mixed_mat:
-            rows, cols = self._dat.sparsity.shape
+            rows, cols = self.data.sparsity.shape
             for i in range(rows):
                 for j in range(cols):
                     val += "Mat %(iname)s; MatNestGetSubMat(%(name)s_, %(i)d, %(j)d, &%(iname)s);\n" \
@@ -618,6 +618,7 @@ class JITModule(base.JITModule):
         if self._initialized:
             return
         self._kernel = kernel
+        self._fun = None
         self._itspace = itspace
         self._args = args
         self._direct = kwargs.get('direct', False)
@@ -627,27 +628,19 @@ class JITModule(base.JITModule):
         self._cppargs = dcopy(type(self)._cppargs)
         self._libraries = dcopy(type(self)._libraries)
         self._system_headers = dcopy(type(self)._system_headers)
+        self.set_argtypes(itspace.iterset, *args)
+        self.compile()
 
     @collective
-    def __call__(self, *args, **kwargs):
-        argtypes = kwargs.get('argtypes', None)
-        restype = kwargs.get('restype', None)
-        return self.compile(argtypes, restype)(*args)
+    def __call__(self, *args):
+        return self._fun(*args)
 
     @property
     def _wrapper_name(self):
         return 'wrap_%s' % self._kernel.name
 
     @collective
-    def compile(self, argtypes=None, restype=None):
-        if hasattr(self, '_fun'):
-            # It should not be possible to pull a jit module out of
-            # the cache /with/ arguments
-            if hasattr(self, '_args'):
-                raise RuntimeError("JITModule is holding onto args, causing a memory leak (should never happen)")
-            self._fun.argtypes = argtypes
-            self._fun.restype = restype
-            return self._fun
+    def compile(self):
         # If we weren't in the cache we /must/ have arguments
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
@@ -732,15 +725,14 @@ class JITModule(base.JITModule):
                                      self._wrapper_name,
                                      cppargs=cppargs,
                                      ldargs=ldargs,
-                                     argtypes=argtypes,
-                                     restype=restype,
+                                     argtypes=self._argtypes,
+                                     restype=None,
                                      compiler=compiler.get('name'))
         # Blow away everything we don't need any more
         del self._args
         del self._kernel
         del self._itspace
         del self._direct
-        del self._iteration_region
         return self._fun
 
     def generate_code(self):

@@ -34,7 +34,6 @@
 """OP2 sequential backend."""
 
 import ctypes
-from numpy.ctypeslib import ndpointer
 
 from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS
 from exceptions import *
@@ -42,10 +41,7 @@ import host
 from mpi import collective
 from petsc_base import *
 from host import Kernel, Arg  # noqa: needed by BackendSelector
-from profiling import lineprof
-from utils import as_tuple
-
-# Parallel loop API
+from utils import as_tuple, cached_property
 
 
 class JITModule(host.JITModule):
@@ -79,75 +75,90 @@ void %(wrapper_name)s(int start, int end,
 }
 """
 
+    def set_argtypes(self, iterset, *args):
+        argtypes = [ctypes.c_int, ctypes.c_int]
+        offset_args = []
+        if isinstance(iterset, Subset):
+            argtypes.append(iterset._argtype)
+        for arg in args:
+            if arg._is_mat:
+                argtypes.append(arg.data._argtype)
+            else:
+                for d in arg.data:
+                    argtypes.append(d._argtype)
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                    for m in map:
+                        argtypes.append(m._argtype)
+                        if m.iterset._extruded:
+                            offset_args.append(ctypes.c_voidp)
+
+        for c in Const._definitions():
+            argtypes.append(c._argtype)
+
+        argtypes.extend(offset_args)
+
+        if iterset._extruded:
+            argtypes.append(ctypes.c_int)
+            argtypes.append(ctypes.c_int)
+
+        self._argtypes = argtypes
+
 
 class ParLoop(host.ParLoop):
 
-    def __init__(self, *args, **kwargs):
-        host.ParLoop.__init__(self, *args, **kwargs)
+    def prepare_arglist(self, iterset, *args):
+        arglist = []
+        offset_args = []
+        if isinstance(iterset, Subset):
+            arglist.append(iterset._indices.ctypes.data)
+
+        for arg in args:
+            if arg._is_mat:
+                arglist.append(arg.data.handle.handle)
+            else:
+                for d in arg.data:
+                    # Cannot access a property of the Dat or we will force
+                    # evaluation of the trace
+                    arglist.append(d._data.ctypes.data)
+            if arg._is_indirect or arg._is_mat:
+                for map in arg._map:
+                    for m in map:
+                        arglist.append(m._values.ctypes.data)
+                        if m.iterset._extruded:
+                            offset_args.append(m.offset.ctypes.data)
+
+        for c in Const._definitions():
+            arglist.append(c._data.ctypes.data)
+
+        arglist.extend(offset_args)
+
+        if iterset._extruded:
+            region = self.iteration_region
+            # Set up appropriate layer iteration bounds
+            if region is ON_BOTTOM:
+                arglist.append(0)
+                arglist.append(1)
+            elif region is ON_TOP:
+                arglist.append(iterset.layers - 2)
+                arglist.append(iterset.layers - 1)
+            elif region is ON_INTERIOR_FACETS:
+                arglist.append(0)
+                arglist.append(iterset.layers - 2)
+            else:
+                arglist.append(0)
+                arglist.append(iterset.layers - 1)
+        return arglist
+
+    @cached_property
+    def _jitmodule(self):
+        return JITModule(self.kernel, self.it_space, *self.args,
+                         direct=self.is_direct, iterate=self.iteration_region)
 
     @collective
-    @lineprof
-    def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
-        if not hasattr(self, '_jit_args'):
-            self._argtypes = [ctypes.c_int, ctypes.c_int]
-            self._jit_args = [0, 0]
-            if isinstance(self._it_space._iterset, Subset):
-                self._argtypes.append(self._it_space._iterset._argtype)
-                self._jit_args.append(self._it_space._iterset._indices)
-            for arg in self.args:
-                if arg._is_mat:
-                    self._argtypes.append(arg.data._argtype)
-                    self._jit_args.append(arg.data.handle.handle)
-                else:
-                    for d in arg.data:
-                        # Cannot access a property of the Dat or we will force
-                        # evaluation of the trace
-                        self._argtypes.append(d._argtype)
-                        self._jit_args.append(d._data)
-
-                if arg._is_indirect or arg._is_mat:
-                    maps = as_tuple(arg.map, Map)
-                    for map in maps:
-                        for m in map:
-                            self._argtypes.append(m._argtype)
-                            self._jit_args.append(m.values_with_halo)
-
-            for c in Const._definitions():
-                self._argtypes.append(c._argtype)
-                self._jit_args.append(c.data)
-
-            for a in self.offset_args:
-                self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
-                self._jit_args.append(a)
-
-            if self.iteration_region in [ON_BOTTOM]:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(0)
-                self._jit_args.append(1)
-            if self.iteration_region in [ON_TOP]:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(self._it_space.layers - 2)
-                self._jit_args.append(self._it_space.layers - 1)
-            elif self.iteration_region in [ON_INTERIOR_FACETS]:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(0)
-                self._jit_args.append(self._it_space.layers - 2)
-            elif self._it_space._extruded:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(0)
-                self._jit_args.append(self._it_space.layers - 1)
-
-        self._jit_args[0] = part.offset
-        self._jit_args[1] = part.offset + part.size
-        # Must call fun on all processes since this may trigger
-        # compilation.
-        with timed_region("ParLoop kernel"):
-            fun(*self._jit_args, argtypes=self._argtypes, restype=None)
+    def _compute(self, part, fun, *arglist):
+        fun(part.offset, part.offset + part.size, *arglist)
 
 
 def _setup():

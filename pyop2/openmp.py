@@ -36,7 +36,6 @@
 import ctypes
 import math
 import numpy as np
-from numpy.ctypeslib import ndpointer
 import os
 from subprocess import Popen, PIPE
 
@@ -185,6 +184,42 @@ void %(wrapper_name)s(int boffset,
 }
 """
 
+    def set_argtypes(self, iterset, *args):
+        """Set the ctypes argument types for the JITModule.
+
+        :arg iterset: The iteration :class:`Set`
+        :arg args: A list of :class:`Arg`\s, the arguments to the :fn:`.par_loop`.
+        """
+        argtypes = [ctypes.c_int, ctypes.c_int,                      # start end
+                    ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]  # plan args
+        offset_args = []
+        if isinstance(iterset, Subset):
+            argtypes.append(iterset._argtype)
+        for arg in args:
+            if arg._is_mat:
+                argtypes.append(arg.data._argtype)
+            else:
+                for d in arg.data:
+                    argtypes.append(d._argtype)
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                    for m in map:
+                        argtypes.append(m._argtype)
+                        if m.iterset._extruded:
+                            offset_args.append(ctypes.c_voidp)
+
+        for c in Const._definitions():
+            argtypes.append(c._argtype)
+
+        argtypes.extend(offset_args)
+
+        if iterset._extruded:
+            argtypes.append(ctypes.c_int)
+            argtypes.append(ctypes.c_int)
+
+        self._argtypes = argtypes
+
     def generate_code(self):
 
         # Most of the code to generate is the same as that for sequential
@@ -206,96 +241,68 @@ void %(wrapper_name)s(int boffset,
 
 class ParLoop(device.ParLoop, host.ParLoop):
 
+    def prepare_arglist(self, iterset, *args):
+        arglist = []
+        offset_args = []
+
+        if isinstance(iterset, Subset):
+            arglist.append(iterset._indices.ctypes.data)
+        for arg in self.args:
+            if arg._is_mat:
+                arglist.append(arg.data.handle.handle)
+            else:
+                for d in arg.data:
+                    arglist.append(d._data.ctypes.data)
+            if arg._is_indirect or arg._is_mat:
+                maps = as_tuple(arg.map, Map)
+                for map in maps:
+                    for m in map:
+                        arglist.append(m._values.ctypes.data)
+                        if m.iterset._extruded:
+                            offset_args.append(m.offset.ctypes.data)
+        for c in Const._definitions():
+            arglist.append(c._data.ctypes.data)
+
+        arglist.extend(offset_args)
+
+        if iterset._extruded:
+            region = self.iteration_region
+            # Set up appropriate layer iteration bounds
+            if region is ON_BOTTOM:
+                arglist.append(0)
+                arglist.append(1)
+            elif region is ON_TOP:
+                arglist.append(iterset.layers - 2)
+                arglist.append(iterset.layers - 1)
+            elif region is ON_INTERIOR_FACETS:
+                arglist.append(0)
+                arglist.append(iterset.layers - 2)
+            else:
+                arglist.append(0)
+                arglist.append(iterset.layers - 1)
+
+        return arglist
+
+    @cached_property
+    def _jitmodule(self):
+        return JITModule(self.kernel, self.it_space, *self.args,
+                         direct=self.is_direct, iterate=self.iteration_region)
+
     @collective
     @lineprof
-    def _compute(self, part):
-        fun = JITModule(self.kernel, self.it_space, *self.args, direct=self.is_direct, iterate=self.iteration_region)
-        if not hasattr(self, '_jit_args'):
-            self._jit_args = [None] * 5
-            self._argtypes = [None] * 5
-            self._argtypes[0] = ctypes.c_int
-            self._argtypes[1] = ctypes.c_int
-            if isinstance(self._it_space._iterset, Subset):
-                self._argtypes.append(self._it_space._iterset._argtype)
-                self._jit_args.append(self._it_space._iterset._indices)
-            for arg in self.args:
-                if arg._is_mat:
-                    self._argtypes.append(arg.data._argtype)
-                    self._jit_args.append(arg.data.handle.handle)
-                else:
-                    for d in arg.data:
-                        # Cannot access a property of the Dat or we will force
-                        # evaluation of the trace
-                        self._argtypes.append(d._argtype)
-                        self._jit_args.append(d._data)
-
-                if arg._is_indirect or arg._is_mat:
-                    maps = as_tuple(arg.map, Map)
-                    for map in maps:
-                        for m in map:
-                            self._argtypes.append(m._argtype)
-                            self._jit_args.append(m.values_with_halo)
-
-            for c in Const._definitions():
-                self._argtypes.append(c._argtype)
-                self._jit_args.append(c.data)
-
-            # offset_args returns an empty list if there are none
-            for a in self.offset_args:
-                self._argtypes.append(ndpointer(a.dtype, shape=a.shape))
-                self._jit_args.append(a)
-
-            if self.iteration_region in [ON_BOTTOM]:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(0)
-                self._jit_args.append(1)
-            if self.iteration_region in [ON_TOP]:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(self._it_space.layers - 2)
-                self._jit_args.append(self._it_space.layers - 1)
-            elif self.iteration_region in [ON_INTERIOR_FACETS]:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(0)
-                self._jit_args.append(self._it_space.layers - 2)
-            elif self._it_space._extruded:
-                self._argtypes.append(ctypes.c_int)
-                self._argtypes.append(ctypes.c_int)
-                self._jit_args.append(0)
-                self._jit_args.append(self._it_space.layers - 1)
-
+    def _compute(self, part, fun, *arglist):
         if part.size > 0:
             # TODO: compute partition size
             plan = self._get_plan(part, 1024)
-            self._argtypes[2] = ndpointer(plan.blkmap.dtype, shape=plan.blkmap.shape)
-            self._jit_args[2] = plan.blkmap
-            self._argtypes[3] = ndpointer(plan.offset.dtype, shape=plan.offset.shape)
-            self._jit_args[3] = plan.offset
-            self._argtypes[4] = ndpointer(plan.nelems.dtype, shape=plan.nelems.shape)
-            self._jit_args[4] = plan.nelems
-            # Must call compile on all processes even if partition size is
-            # zero since compilation is collective.
-            fun = fun.compile(argtypes=self._argtypes, restype=None)
-
+            blkmap = plan.blkmap.ctypes.data
+            offset = plan.offset.ctypes.data
+            nelems = plan.nelems.ctypes.data
             boffset = 0
             for c in range(plan.ncolors):
                 nblocks = plan.ncolblk[c]
-                self._jit_args[0] = boffset
-                self._jit_args[1] = nblocks
                 with timed_region("ParLoop kernel"):
-                    fun(*self._jit_args)
+                    fun(boffset, nblocks, blkmap, offset, nelems, *arglist)
                 boffset += nblocks
-        else:
-            # Fake types for arguments so that ctypes doesn't complain
-            self._argtypes[2] = ndpointer(np.int32, shape=(0, ))
-            self._argtypes[3] = ndpointer(np.int32, shape=(0, ))
-            self._argtypes[4] = ndpointer(np.int32, shape=(0, ))
-            # No need to actually call function since partition size
-            # is zero, however we must compile it because compilation
-            # is collective
-            fun.compile(argtypes=self._argtypes, restype=None)
 
     def _get_plan(self, part, part_size):
         if self._is_indirect:

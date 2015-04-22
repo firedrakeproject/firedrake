@@ -43,6 +43,26 @@ import argparse
 from subprocess import Popen, PIPE
 
 from exceptions import DataTypeError, DataValueError
+from configuration import configuration
+
+
+class cached_property(object):
+
+    '''A read-only @property that is only evaluated once. The value is cached
+    on the object itself rather than the function or class; this should prevent
+    memory leakage.'''
+
+    def __init__(self, fget, doc=None):
+        self.fget = fget
+        self.__doc__ = doc or fget.__doc__
+        self.__name__ = fget.__name__
+        self.__module__ = fget.__module__
+
+    def __get__(self, obj, cls):
+        if obj is None:
+            return self
+        obj.__dict__[self.__name__] = result = self.fget(obj)
+        return result
 
 
 def as_tuple(item, type=None, length=None):
@@ -56,10 +76,11 @@ def as_tuple(item, type=None, length=None):
         # ... or create a list of a single item
         except (TypeError, NotImplementedError):
             t = (item,) * (length or 1)
-    if length and not len(t) == length:
-        raise ValueError("Tuple needs to be of length %d" % length)
-    if type and not all(isinstance(i, type) for i in t):
-        raise TypeError("Items need to be of type %s" % type)
+    if configuration["type_check"]:
+        if length and not len(t) == length:
+            raise ValueError("Tuple needs to be of length %d" % length)
+        if type and not all(isinstance(i, type) for i in t):
+            raise TypeError("Items need to be of type %s" % type)
     return t
 
 
@@ -91,12 +112,13 @@ class validate_base:
 
     def __call__(self, f):
         def wrapper(f, *args, **kwargs):
-            self.nargs = f.func_code.co_argcount
-            self.defaults = f.func_defaults or ()
-            self.varnames = f.func_code.co_varnames
-            self.file = f.func_code.co_filename
-            self.line = f.func_code.co_firstlineno + 1
-            self.check_args(args, kwargs)
+            if configuration["type_check"]:
+                self.nargs = f.func_code.co_argcount
+                self.defaults = f.func_defaults or ()
+                self.varnames = f.func_code.co_varnames
+                self.file = f.func_code.co_filename
+                self.line = f.func_code.co_firstlineno + 1
+                self.check_args(args, kwargs)
             return f(*args, **kwargs)
         return decorator(wrapper, f)
 

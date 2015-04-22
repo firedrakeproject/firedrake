@@ -396,8 +396,8 @@ class MatBlock(base.Mat):
         rset, cset = self._parent.sparsity.dsets
         rowis = rset.local_ises[i]
         colis = cset.local_ises[j]
-        self._handle = parent.handle.getLocalSubMatrix(isrow=rowis,
-                                                       iscol=colis)
+        self.handle = parent.handle.getLocalSubMatrix(isrow=rowis,
+                                                      iscol=colis)
 
     def __getitem__(self, idx):
         return self
@@ -421,16 +421,14 @@ class MatBlock(base.Mat):
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.ADD_VALUES)
+        self._needs_assembly = True
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.INSERT_VALUES)
-
-    @property
-    def handle(self):
-        return self._handle
+        self._needs_assembly = True
 
     def assemble(self):
         pass
@@ -460,6 +458,12 @@ class Mat(base.Mat, CopyOnWrite):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
 
+    def __init__(self, *args, **kwargs):
+        base.Mat.__init__(self, *args, **kwargs)
+        CopyOnWrite.__init__(self, *args, **kwargs)
+        self._needs_assembly = False
+        self._init()
+
     @collective
     def _init(self):
         if not self.dtype == PETSc.ScalarType:
@@ -469,6 +473,7 @@ class Mat(base.Mat, CopyOnWrite):
         if self.sparsity.shape > (1, 1):
             if self.sparsity.nested:
                 self._init_nest()
+                self._nested = True
             else:
                 self._init_monolithic()
         else:
@@ -481,7 +486,7 @@ class Mat(base.Mat, CopyOnWrite):
                       bsize=1)
         rset, cset = self.sparsity.dsets
         mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
-        self._handle = mat
+        self.handle = mat
         self._blocks = []
         rows, cols = self.sparsity.shape
         for i in range(rows):
@@ -521,7 +526,7 @@ class Mat(base.Mat, CopyOnWrite):
         # PETSc Mat.createNest wants a flattened list of Mats
         mat.createNest([[m.handle for m in row_] for row_ in self._blocks],
                        isrows=rset.field_ises, iscols=cset.field_ises)
-        self._handle = mat
+        self.handle = mat
 
     def _init_block(self):
         self._blocks = [[self]]
@@ -570,7 +575,7 @@ class Mat(base.Mat, CopyOnWrite):
         # "complete", we can ignore subsequent zero entries.
         if not block_sparse:
             mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
-        self._handle = mat
+        self.handle = mat
         # Matrices start zeroed.
         self._version_set_zero()
 
@@ -643,8 +648,14 @@ class Mat(base.Mat, CopyOnWrite):
                 self.handle.setDiagonal(v)
 
     def _cow_actual_copy(self, src):
-        self._handle = src.handle.duplicate(copy=True)
+        self.handle = src.handle.duplicate(copy=True)
         return self
+
+    @cached_property
+    def _left_vec(self):
+        vec = self.handle.createVecLeft()
+        vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        return vec
 
     @modifies
     @collective
@@ -661,8 +672,8 @@ class Mat(base.Mat, CopyOnWrite):
         are incremented by zero.
         """
         base._trace.evaluate(set([self]), set([self]))
-        vec = self.handle.createVecLeft()
-        vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        vec = self._left_vec
+        vec.set(0)
         rows = np.asarray(rows)
         rows = rows[rows < self.sparsity.rmaps[0].toset.size]
         # If the row DataSet has dimension > 1 we need to treat the given rows
@@ -676,6 +687,12 @@ class Mat(base.Mat, CopyOnWrite):
 
     @collective
     def _assemble(self):
+        if self.sparsity.nested:
+            for m in self:
+                if m._needs_assembly:
+                    m.handle.assemble()
+                    m._needs_assembly = False
+            return
         self.handle.assemble()
 
     def addto_values(self, rows, cols, values):
@@ -683,18 +700,18 @@ class Mat(base.Mat, CopyOnWrite):
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.ADD_VALUES)
+        self._needs_assembly = True
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
 
         self.handle.setValuesBlockedLocal(rows, cols, values,
                                           addv=PETSc.InsertMode.INSERT_VALUES)
+        self._needs_assembly = True
 
-    @property
+    @cached_property
     def blocks(self):
         """2-dimensional array of matrix blocks."""
-        if not hasattr(self, '_blocks'):
-            self._init()
         return self._blocks
 
     @property
@@ -703,13 +720,6 @@ class Mat(base.Mat, CopyOnWrite):
         base._trace.evaluate(set([self]), set())
         self._assemble()
         return self.handle[:, :]
-
-    @property
-    def handle(self):
-        """Petsc4py Mat holding matrix data."""
-        if not hasattr(self, '_handle'):
-            self._init()
-        return self._handle
 
     def __mul__(self, v):
         """Multiply this :class:`Mat` with the vector ``v``."""

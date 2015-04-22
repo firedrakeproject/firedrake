@@ -39,6 +39,7 @@ subclass these as required to implement backend-specific features.
 import itertools
 import weakref
 import numpy as np
+import ctypes
 import operator
 import types
 from hashlib import md5
@@ -51,7 +52,7 @@ from exceptions import *
 from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
-from profiling import profile, timed_region, timed_function
+from profiling import timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
 
@@ -188,9 +189,6 @@ class Access(object):
     def __init__(self, mode):
         self._mode = mode
 
-    def __eq__(self, other):
-        return self._mode == other._mode
-
     def __str__(self):
         return "OP2 Access: %s" % self._mode
 
@@ -256,17 +254,15 @@ class Arg(object):
            defined on.
 
         A :class:`MapValueError` is raised if these conditions are not met."""
-        self._dat = data
+        self.data = data
         self._map = map
         self._idx = idx
         self._access = access
         self._flatten = flatten
         self._in_flight = False  # some kind of comms in flight for this arg
-        self._position = None
-        self._indirect_position = None
 
         # Check arguments for consistency
-        if not (self._is_global or map is None):
+        if configuration["type_check"] and not (self._is_global or map is None):
             for j, m in enumerate(map):
                 if m.iterset.total_size > 0 and len(m.values_with_halo) == 0:
                     raise MapValueError("%s is not initialized." % map)
@@ -299,7 +295,7 @@ class Arg(object):
         """:class:`Arg`\s compare equal of they are defined on the same data,
         use the same :class:`Map` with the same index and the same access
         descriptor."""
-        return self._dat == other._dat and self._map == other._map and \
+        return self.data == other.data and self._map == other._map and \
             self._idx == other._idx and self._access == other._access
 
     def __ne__(self, other):
@@ -310,22 +306,22 @@ class Arg(object):
 
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
-            (self._dat, self._map, self._idx, self._access)
+            (self.data, self._map, self._idx, self._access)
 
     def __repr__(self):
         return "Arg(%r, %r, %r, %r)" % \
-            (self._dat, self._map, self._idx, self._access)
+            (self.data, self._map, self._idx, self._access)
 
     def __iter__(self):
         for arg in self.split:
             yield arg
 
-    @property
+    @cached_property
     def split(self):
         """Split a mixed argument into a tuple of constituent arguments."""
         if self._is_mixed_dat:
             return tuple(_make_object('Arg', d, m, self._idx, self._access)
-                         for d, m in zip(self._dat, self._map))
+                         for d, m in zip(self.data, self._map))
         elif self._is_mixed_mat:
             s = self.data.sparsity.shape
             mr, mc = self.map
@@ -335,131 +331,109 @@ class Arg(object):
         else:
             return (self,)
 
-    @property
+    @cached_property
     def name(self):
         """The generated argument name."""
-        return "arg%d" % self._position
+        return "arg%d" % self.position
 
-    @property
-    def position(self):
-        """The position of this :class:`Arg` in the :class:`ParLoop` argument list"""
-        return self._position
-
-    @position.setter
-    def position(self, val):
-        """Set the position of this :class:`Arg` in the :class:`ParLoop` argument list"""
-        self._position = val
-
-    @property
-    def indirect_position(self):
-        """The position of the first unique occurence of this
-    indirect :class:`Arg` in the :class:`ParLoop` argument list."""
-        return self._indirect_position
-
-    @indirect_position.setter
-    def indirect_position(self, val):
-        """Set the position of the first unique occurence of this
-    indirect :class:`Arg` in the :class:`ParLoop` argument list."""
-        self._indirect_position = val
-
-    @property
+    @cached_property
     def ctype(self):
         """String representing the C type of the data in this ``Arg``."""
         return self.data.ctype
 
-    @property
+    @cached_property
     def dtype(self):
         """Numpy datatype of this Arg"""
         return self.data.dtype
 
-    @property
+    @cached_property
     def map(self):
         """The :class:`Map` via which the data is to be accessed."""
         return self._map
 
-    @property
+    @cached_property
     def idx(self):
         """Index into the mapping."""
         return self._idx
 
-    @property
+    @cached_property
     def access(self):
         """Access descriptor. One of the constants of type :class:`Access`"""
         return self._access
 
-    @property
+    @cached_property
     def _is_soa(self):
-        return self._is_dat and self._dat.soa
+        return self._is_dat and self.data.soa
 
-    @property
+    @cached_property
     def _is_vec_map(self):
         return self._is_indirect and self._idx is None
 
-    @property
+    @cached_property
     def _is_mat(self):
-        return isinstance(self._dat, Mat)
+        return isinstance(self.data, Mat)
 
-    @property
+    @cached_property
     def _is_mixed_mat(self):
-        return self._is_mat and self._dat.sparsity.shape > (1, 1)
+        return self._is_mat and self.data.sparsity.shape > (1, 1)
 
-    @property
+    @cached_property
     def _is_global(self):
-        return isinstance(self._dat, Global)
+        return isinstance(self.data, Global)
 
-    @property
+    @cached_property
     def _is_global_reduction(self):
         return self._is_global and self._access in [INC, MIN, MAX]
 
-    @property
+    @cached_property
     def _is_dat(self):
-        return isinstance(self._dat, Dat)
+        return isinstance(self.data, Dat)
 
-    @property
+    @cached_property
     def _is_mixed_dat(self):
-        return isinstance(self._dat, MixedDat)
+        return isinstance(self.data, MixedDat)
 
-    @property
+    @cached_property
     def _is_mixed(self):
         return self._is_mixed_dat or self._is_mixed_mat
 
-    @property
+    @cached_property
     def _is_INC(self):
         return self._access == INC
 
-    @property
+    @cached_property
     def _is_MIN(self):
         return self._access == MIN
 
-    @property
+    @cached_property
     def _is_MAX(self):
         return self._access == MAX
 
-    @property
+    @cached_property
     def _is_direct(self):
-        return isinstance(self._dat, Dat) and self.map is None
+        return isinstance(self.data, Dat) and self.map is None
 
-    @property
+    @cached_property
     def _is_indirect(self):
-        return isinstance(self._dat, Dat) and self.map is not None
+        return isinstance(self.data, Dat) and self.map is not None
 
-    @property
+    @cached_property
     def _is_indirect_and_not_read(self):
-        return self._is_indirect and self._access is not READ
+        return self._is_indirect and not self._is_read
 
-    @property
+    @cached_property
     def _is_read(self):
         return self._access == READ
 
-    @property
+    @cached_property
     def _is_written(self):
         return not self._is_read
 
-    @property
+    @cached_property
     def _is_indirect_reduction(self):
         return self._is_indirect and self._access is INC
 
-    @property
+    @cached_property
     def _uses_itspace(self):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
@@ -491,8 +465,8 @@ class Arg(object):
         if update_inc:
             access.append(INC)
         if self.access in access and self._in_flight:
-            self._in_flight = False
             self.data.halo_exchange_end()
+            self._in_flight = False
 
     @collective
     def reduction_begin(self):
@@ -529,12 +503,6 @@ class Arg(object):
             # Must have a copy here, because otherwise we just grab a
             # pointer.
             self.data._data = np.copy(self.data._buf)
-
-    @property
-    def data(self):
-        """Data carrier of this argument: :class:`Dat`, :class:`Mat`,
-        :class:`Const` or :class:`Global`."""
-        return self._dat
 
 
 class Set(object):
@@ -602,17 +570,17 @@ class Set(object):
         self._cache = {}
         Set._globalcount += 1
 
-    @property
+    @cached_property
     def core_size(self):
         """Core set size.  Owned elements not touching halo elements."""
         return self._sizes[Set._CORE_SIZE]
 
-    @property
+    @cached_property
     def size(self):
         """Set size, owned elements."""
         return self._sizes[Set._OWNED_SIZE]
 
-    @property
+    @cached_property
     def exec_size(self):
         """Set size including execute halo elements.
 
@@ -621,22 +589,38 @@ class Set(object):
         """
         return self._sizes[Set._IMPORT_EXEC_SIZE]
 
-    @property
+    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return self._sizes[Set._IMPORT_NON_EXEC_SIZE]
 
-    @property
+    @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
         return self._sizes
 
-    @property
+    @cached_property
+    def core_part(self):
+        return SetPartition(self, 0, self.core_size)
+
+    @cached_property
+    def owned_part(self):
+        return SetPartition(self, self.core_size, self.size - self.core_size)
+
+    @cached_property
+    def exec_part(self):
+        return SetPartition(self, self.size, self.exec_size - self.size)
+
+    @cached_property
+    def all_part(self):
+        return SetPartition(self, 0, self.exec_size)
+
+    @cached_property
     def name(self):
         """User-defined label"""
         return self._name
 
-    @property
+    @cached_property
     def halo(self):
         """:class:`Halo` associated with this Set"""
         return self._halo
@@ -696,7 +680,7 @@ class Set(object):
         """Derive a :class:`DataSet` with dimension ``e``"""
         return _make_object('DataSet', self, dim=e)
 
-    @property
+    @cached_property
     def layers(self):
         """Return None (not an :class:`ExtrudedSet`)."""
         return None
@@ -709,22 +693,6 @@ class Set(object):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
         return cls(size[0], name)
-
-    @property
-    def core_part(self):
-        return SetPartition(self, 0, self.core_size)
-
-    @property
-    def owned_part(self):
-        return SetPartition(self, self.core_size, self.size - self.core_size)
-
-    @property
-    def exec_part(self):
-        return SetPartition(self, self.size, self.exec_size - self.size)
-
-    @property
-    def all_part(self):
-        return SetPartition(self, 0, self.exec_size)
 
 
 class ExtrudedSet(Set):
@@ -765,11 +733,11 @@ class ExtrudedSet(Set):
     def __repr__(self):
         return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
 
-    @property
+    @cached_property
     def parent(self):
         return self._parent
 
-    @property
+    @cached_property
     def layers(self):
         """The number of layers in this extruded set."""
         return self._layers
@@ -817,7 +785,7 @@ class LocalSet(ExtrudedSet, ObjectCached):
         """Look up attributes on the contained :class:`Set`."""
         return getattr(self._superset, name)
 
-    @property
+    @cached_property
     def superset(self):
         return self._superset
 
@@ -897,20 +865,20 @@ class Subset(ExtrudedSet):
                 indices = [indices]
         return _make_object('Subset', self, indices)
 
-    @property
+    @cached_property
     def superset(self):
         """Returns the superset Set"""
         return self._superset
 
-    @property
+    @cached_property
     def indices(self):
         """Returns the indices pointing in the superset."""
         return self._indices
 
-    @property
+    @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Subset`"""
-        return np.ctypeslib.ndpointer(self._indices.dtype, shape=self._indices.shape)
+        return ctypes.c_voidp
 
 
 class SetPartition(object):
@@ -950,52 +918,52 @@ class MixedSet(Set, ObjectCached):
         """Return :class:`Set` with index ``idx`` or a given slice of sets."""
         return self._sets[idx]
 
-    @property
+    @cached_property
     def split(self):
         """The underlying tuple of :class:`Set`\s."""
         return self._sets
 
-    @property
+    @cached_property
     def core_size(self):
         """Core set size. Owned elements not touching halo elements."""
         return sum(s.core_size for s in self._sets)
 
-    @property
+    @cached_property
     def size(self):
         """Set size, owned elements."""
         return sum(s.size for s in self._sets)
 
-    @property
+    @cached_property
     def exec_size(self):
         """Set size including execute halo elements."""
         return sum(s.exec_size for s in self._sets)
 
-    @property
+    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return sum(s.total_size for s in self._sets)
 
-    @property
+    @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
         return (self.core_size, self.size, self.exec_size, self.total_size)
 
-    @property
+    @cached_property
     def name(self):
         """User-defined labels."""
         return tuple(s.name for s in self._sets)
 
-    @property
+    @cached_property
     def halo(self):
         """:class:`Halo`\s associated with these :class:`Set`\s."""
         halos = tuple(s.halo for s in self._sets)
         return halos if any(halos) else None
 
-    @property
+    @cached_property
     def _extruded(self):
         return isinstance(self._sets[0], ExtrudedSet)
 
-    @property
+    @cached_property
     def layers(self):
         """Numbers of layers in the extruded mesh (or None if this MixedSet is not extruded)."""
         return self._sets[0].layers
@@ -1068,23 +1036,23 @@ class DataSet(ObjectCached):
         assert idx == 0
         return self
 
-    @property
+    @cached_property
     def dim(self):
         """The shape tuple of the values for each element of the set."""
         return self._dim
 
-    @property
+    @cached_property
     def cdim(self):
         """The scalar number of values for each member of the set. This is
         the product of the dim tuple."""
         return self._cdim
 
-    @property
+    @cached_property
     def name(self):
         """Returns the name of the data set."""
         return self._name
 
-    @property
+    @cached_property
     def set(self):
         """Returns the parent set of the data set."""
         return self._set
@@ -1188,28 +1156,28 @@ class MixedDataSet(DataSet, ObjectCached):
         """Return :class:`DataSet` with index ``idx`` or a given slice of datasets."""
         return self._dsets[idx]
 
-    @property
+    @cached_property
     def split(self):
         """The underlying tuple of :class:`DataSet`\s."""
         return self._dsets
 
-    @property
+    @cached_property
     def dim(self):
         """The shape tuple of the values for each element of the sets."""
         return tuple(s.dim for s in self._dsets)
 
-    @property
+    @cached_property
     def cdim(self):
         """The sum of the scalar number of values for each member of the sets.
         This is the sum of products of the dim tuples."""
         return sum(s.cdim for s in self._dsets)
 
-    @property
+    @cached_property
     def name(self):
         """Returns the name of the data sets."""
         return tuple(s.name for s in self._dsets)
 
-    @property
+    @cached_property
     def set(self):
         """Returns the :class:`MixedSet` this :class:`MixedDataSet` is
         defined on."""
@@ -1413,63 +1381,63 @@ class IterationSpace(object):
             self._extents = ()
         self._block_shape = block_shape or ((self._extents,),)
 
-    @property
+    @cached_property
     def iterset(self):
         """The :class:`Set` over which this IterationSpace is defined."""
         return self._iterset
 
-    @property
+    @cached_property
     def extents(self):
         """Extents of the IterationSpace within each item of ``iterset``"""
         return self._extents
 
-    @property
+    @cached_property
     def name(self):
         """The name of the :class:`Set` over which this IterationSpace is
         defined."""
         return self._iterset.name
 
-    @property
+    @cached_property
     def core_size(self):
         """The number of :class:`Set` elements which don't touch halo elements in the set
         over which this IterationSpace is defined"""
         return self._iterset.core_size
 
-    @property
+    @cached_property
     def size(self):
         """The size of the :class:`Set` over which this IterationSpace is defined."""
         return self._iterset.size
 
-    @property
+    @cached_property
     def exec_size(self):
         """The size of the :class:`Set` over which this IterationSpace
         is defined, including halo elements to be executed over"""
         return self._iterset.exec_size
 
-    @property
+    @cached_property
     def layers(self):
         """Number of layers in the extruded set (or None if this is not an
         extruded iteration space)
         """
         return self._iterset.layers
 
-    @property
+    @cached_property
     def _extruded(self):
         return self._iterset._extruded
 
-    @property
+    @cached_property
     def partition_size(self):
         """Default partition size"""
         return self.iterset.partition_size
 
-    @property
+    @cached_property
     def total_size(self):
         """The total size of :class:`Set` over which this IterationSpace is defined.
 
         This includes all halo set elements."""
         return self._iterset.total_size
 
-    @property
+    @cached_property
     def _extent_ranges(self):
         return [e for e in self.extents]
 
@@ -1505,7 +1473,7 @@ class IterationSpace(object):
     def __repr__(self):
         return "IterationSpace(%r, %r)" % (self._iterset, self._extents)
 
-    @property
+    @cached_property
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
         return self._extents, self._block_shape, self.iterset._extruded, \
@@ -1539,12 +1507,12 @@ class DataCarrier(Versioned):
         method will return a full duplicate object."""
         return type(self).Snapshot(self)
 
-    @property
+    @cached_property
     def dtype(self):
         """The Python type of the data."""
         return self._data.dtype
 
-    @property
+    @cached_property
     def ctype(self):
         """The c type of the data."""
         # FIXME: Complex and float16 not supported
@@ -1563,17 +1531,17 @@ class DataCarrier(Versioned):
                    "float64": "double"}
         return typemap[self.dtype.name]
 
-    @property
+    @cached_property
     def name(self):
         """User-defined label."""
         return self._name
 
-    @property
+    @cached_property
     def dim(self):
         """The shape tuple of the values for each element of the object."""
         return self._dim
 
-    @property
+    @cached_property
     def cdim(self):
         """The scalar number of values for each member of the object. This is
         the product of the dim tuple."""
@@ -1706,7 +1674,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         self._dataset = dataset
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        self._needs_halo_update = False
+        self.needs_halo_update = False
         # If the uid is not passed in from outside, assume that Dats
         # have been declared in the same order everywhere.
         if uid is None:
@@ -1724,10 +1692,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path=None, flatten=False):
-        if isinstance(path, Arg):
+        if isinstance(path, _MapArg):
             return _make_object('Arg', data=self, map=path.map, idx=path.idx,
                                 access=access, flatten=flatten)
-        if path and path.toset != self.dataset.set:
+        if configuration["type_check"] and path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
         return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
 
@@ -1737,36 +1705,36 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             raise IndexValueError("Can only extract component 0 from %r" % self)
         return self
 
-    @property
+    @cached_property
     def split(self):
         """Tuple containing only this :class:`Dat`."""
         return (self,)
 
-    @property
+    @cached_property
     def dataset(self):
         """:class:`DataSet` on which the Dat is defined."""
         return self._dataset
 
-    @property
+    @cached_property
     def dim(self):
         """The shape of the values for each element of the object."""
         return self.dataset.dim
 
-    @property
+    @cached_property
     def cdim(self):
         """The scalar number of values for each member of the object. This is
         the product of the dim tuple."""
         return self.dataset.cdim
 
-    @property
+    @cached_property
     def soa(self):
         """Are the data in SoA format?"""
         return self._soa
 
-    @property
+    @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Dat`"""
-        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+        return ctypes.c_voidp
 
     @property
     @modifies
@@ -1870,15 +1838,15 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         else:
             self.data[:] = np.load(filename)
 
-    @property
+    @cached_property
     def shape(self):
         return self._shape
 
-    @property
+    @cached_property
     def dtype(self):
         return self._dtype
 
-    @property
+    @cached_property
     def nbytes(self):
         """Return an estimate of the size of the data associated with this
         :class:`Dat` in bytes. This will be the correct size of the data
@@ -1891,30 +1859,21 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
         return self.dtype.itemsize * self.dataset.total_size * self.dataset.cdim
 
-    @property
-    def needs_halo_update(self):
-        '''Has this :class:`Dat` been written to since the last halo exchange?'''
-        return self._needs_halo_update
-
-    @needs_halo_update.setter
-    @collective
-    def needs_halo_update(self, val):
-        """Indictate whether this Dat requires a halo update"""
-        self._needs_halo_update = val
-
     @zeroes
     @collective
     def zero(self):
         """Zero the data associated with this :class:`Dat`"""
-        if not hasattr(self, '_zero_kernel'):
+        if not hasattr(self, '_zero_parloop'):
             k = ast.FunDecl("void", "zero",
                             [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("self", ("n", )),
                                                       ast.Symbol("(%s)0" % self.ctype)),
                                            pragma=None))
-            self._zero_kernel = _make_object('Kernel', k, 'zero')
-        par_loop(self._zero_kernel, self.dataset.set, self(WRITE))
+            k = _make_object('Kernel', k, 'zero')
+            self._zero_parloop = _make_object('ParLoop', k, self.dataset.set,
+                                              self(WRITE))
+        self._zero_parloop.enqueue()
 
     @modifies_argn(0)
     @collective
@@ -2265,27 +2224,27 @@ class MixedDat(Dat):
         """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
         return self._dats[idx]
 
-    @property
+    @cached_property
     def dtype(self):
         """The NumPy dtype of the data."""
         return self._dats[0].dtype
 
-    @property
+    @cached_property
     def split(self):
         """The underlying tuple of :class:`Dat`\s."""
         return self._dats
 
-    @property
+    @cached_property
     def dataset(self):
         """:class:`MixedDataSet`\s this :class:`MixedDat` is defined on."""
         return _make_object('MixedDataSet', tuple(s.dataset for s in self._dats))
 
-    @property
+    @cached_property
     def soa(self):
         """Are the data in SoA format?"""
         return tuple(s.soa for s in self._dats)
 
-    @property
+    @cached_property
     def _data(self):
         """Return the user-provided data buffer, or a zeroed buffer of
         the correct size if none was provided."""
@@ -2342,7 +2301,7 @@ class MixedDat(Dat):
         for d in self._dats:
             d.zero()
 
-    @property
+    @cached_property
     def nbytes(self):
         """Return an estimate of the size of the data associated with this
         :class:`MixedDat` in bytes. This will be the correct size of the data
@@ -2549,7 +2508,7 @@ class Const(DataCarrier):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Const`"""
-        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+        return ctypes.c_voidp
 
     @property
     def data(self):
@@ -2580,7 +2539,9 @@ class Const(DataCarrier):
 
     @classmethod
     def _definitions(cls):
-        return sorted(Const._defs, key=lambda c: c.name)
+        if Const._defs:
+            return sorted(Const._defs, key=lambda c: c.name)
+        return ()
 
     def remove_from_namespace(self):
         """Remove this Const object from the namespace
@@ -2688,7 +2649,7 @@ class Global(DataCarrier, _EmptyDataMixin):
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Global`"""
-        return np.ctypeslib.ndpointer(self._data.dtype, shape=self._data.shape)
+        return ctypes.c_voidp
 
     @property
     def shape(self):
@@ -2786,6 +2747,19 @@ property is `idx`.
 """
 
 
+class _MapArg(object):
+
+    def __init__(self, map, idx):
+        """
+        Temporary :class:`Arg`-like object for :class:`Map`\s.
+
+        :arg map: The :class:`Map`.
+        :arg idx: The index into the map.
+        """
+        self.map = map
+        self.idx = idx
+
+
 class Map(object):
 
     """OP2 map, a relation between two :class:`Set` objects.
@@ -2844,11 +2818,12 @@ class Map(object):
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
-        if isinstance(index, int) and not (0 <= index < self.arity):
-            raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
-        if isinstance(index, IterationIndex) and index.index not in [0, 1]:
-            raise IndexValueError("IterationIndex must be in interval [0,1]")
-        return _make_object('Arg', map=self, idx=index)
+        if configuration["type_check"]:
+            if isinstance(index, int) and not (0 <= index < self.arity):
+                raise IndexValueError("Index must be in interval [0,%d]" % (self._arity - 1))
+            if isinstance(index, IterationIndex) and index.index not in [0, 1]:
+                raise IndexValueError("IterationIndex must be in interval [0,1]")
+        return _MapArg(self, index)
 
     # This is necessary so that we can convert a Map to a tuple
     # (needed in as_tuple).  Because, __getitem__ no longer returns a
@@ -2864,46 +2839,46 @@ class Map(object):
     def __getslice__(self, i, j):
         raise NotImplementedError("Slicing maps is not currently implemented")
 
-    @property
+    @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Map`"""
-        return np.ctypeslib.ndpointer(self._values.dtype, shape=self._values.shape)
+        return ctypes.c_voidp
 
-    @property
+    @cached_property
     def split(self):
         return (self,)
 
-    @property
+    @cached_property
     def iteration_region(self):
         """Return the iteration region for the current map. For a normal map it
         will always be ALL. For a :class:`DecoratedMap` it will specify over which mesh
         region the iteration will take place."""
         return frozenset([ALL])
 
-    @property
+    @cached_property
     def implicit_bcs(self):
         """Return any implicit (extruded "top" or "bottom") bcs to
-        apply to this :class:`Map`.  Normally empty except in the case of
+        apply to this :class:`Map`. Normally empty except in the case of
         some :class:`DecoratedMap`\s."""
         return frozenset([])
 
-    @property
+    @cached_property
     def iterset(self):
         """:class:`Set` mapped from."""
         return self._iterset
 
-    @property
+    @cached_property
     def toset(self):
         """:class:`Set` mapped to."""
         return self._toset
 
-    @property
+    @cached_property
     def arity(self):
         """Arity of the mapping: number of toset elements mapped to per
         iterset element."""
         return self._arity
 
-    @property
+    @cached_property
     def arities(self):
         """Arity of the mapping: number of toset elements mapped to per
         iterset element.
@@ -2911,12 +2886,12 @@ class Map(object):
         :rtype: tuple"""
         return (self._arity,)
 
-    @property
+    @cached_property
     def arange(self):
         """Tuple of arity offsets for each constituent :class:`Map`."""
         return (0, self._arity)
 
-    @property
+    @cached_property
     def values(self):
         """Mapping array.
 
@@ -2924,7 +2899,7 @@ class Map(object):
         halo points too, use :meth:`values_with_halo`."""
         return self._values[:self.iterset.size]
 
-    @property
+    @cached_property
     def values_with_halo(self):
         """Mapping array.
 
@@ -2933,22 +2908,22 @@ class Map(object):
         points."""
         return self._values
 
-    @property
+    @cached_property
     def name(self):
         """User-defined label"""
         return self._name
 
-    @property
+    @cached_property
     def offset(self):
         """The vertical offset."""
         return self._offset
 
-    @property
+    @cached_property
     def top_mask(self):
         """The top layer mask to be applied on a mesh cell."""
         return self._top_mask
 
-    @property
+    @cached_property
     def bottom_mask(self):
         """The bottom layer mask to be applied on a mesh cell."""
         return self._bottom_mask
@@ -3026,7 +3001,7 @@ class DecoratedMap(Map, ObjectCached):
         if implicit_bcs is None:
             implicit_bcs = []
         implicit_bcs = as_tuple(implicit_bcs)
-        self._implicit_bcs = frozenset(implicit_bcs)
+        self.implicit_bcs = frozenset(implicit_bcs)
         self._initialized = True
 
     @classmethod
@@ -3057,21 +3032,15 @@ class DecoratedMap(Map, ObjectCached):
     def __getattr__(self, name):
         return getattr(self._map, name)
 
-    @property
+    @cached_property
     def map(self):
         """The :class:`Map` this :class:`DecoratedMap` is decorating"""
         return self._map
 
-    @property
+    @cached_property
     def iteration_region(self):
         """Returns the type of the iteration to be performed."""
         return self._iteration_region
-
-    @property
-    def implicit_bcs(self):
-        """Return the set (if any) of implicit ("top" or "bottom") bcs
-    to be applied to the :class:`Map`."""
-        return self._implicit_bcs
 
 
 class MixedMap(Map, ObjectCached):
@@ -3097,28 +3066,28 @@ class MixedMap(Map, ObjectCached):
     def _cache_key(cls, maps):
         return maps
 
-    @property
+    @cached_property
     def split(self):
         """The underlying tuple of :class:`Map`\s."""
         return self._maps
 
-    @property
+    @cached_property
     def iterset(self):
         """:class:`MixedSet` mapped from."""
         return self._maps[0].iterset
 
-    @property
+    @cached_property
     def toset(self):
         """:class:`MixedSet` mapped to."""
         return MixedSet(tuple(m.toset for m in self._maps))
 
-    @property
+    @cached_property
     def arity(self):
         """Arity of the mapping: total number of toset elements mapped to per
         iterset element."""
         return sum(m.arity for m in self._maps)
 
-    @property
+    @cached_property
     def arities(self):
         """Arity of the mapping: number of toset elements mapped to per
         iterset element.
@@ -3126,12 +3095,12 @@ class MixedMap(Map, ObjectCached):
         :rtype: tuple"""
         return tuple(m.arity for m in self._maps)
 
-    @property
+    @cached_property
     def arange(self):
         """Tuple of arity offsets for each constituent :class:`Map`."""
         return (0,) + tuple(np.cumsum(self.arities))
 
-    @property
+    @cached_property
     def values(self):
         """Mapping arrays excluding data for halos.
 
@@ -3139,7 +3108,7 @@ class MixedMap(Map, ObjectCached):
         halo points too, use :meth:`values_with_halo`."""
         return tuple(m.values for m in self._maps)
 
-    @property
+    @cached_property
     def values_with_halo(self):
         """Mapping arrays including data for halos.
 
@@ -3148,12 +3117,12 @@ class MixedMap(Map, ObjectCached):
         points."""
         return tuple(m.values_with_halo for m in self._maps)
 
-    @property
+    @cached_property
     def name(self):
         """User-defined labels"""
         return tuple(m.name for m in self._maps)
 
-    @property
+    @cached_property
     def offset(self):
         """Vertical offsets."""
         return tuple(m.offset for m in self._maps)
@@ -3335,13 +3304,13 @@ class Sparsity(ObjectCached):
         except TypeError:
             return self._blocks[idx]
 
-    @property
+    @cached_property
     def dsets(self):
         """A pair of :class:`DataSet`\s for the left and right function
         spaces this :class:`Sparsity` maps between."""
         return self._dsets
 
-    @property
+    @cached_property
     def maps(self):
         """A list of pairs (rmap, cmap) where each pair of
         :class:`Map` objects will later be used to assemble into this
@@ -3353,17 +3322,17 @@ class Sparsity(ObjectCached):
         the ``Sparsity``."""
         return zip(self._rmaps, self._cmaps)
 
-    @property
+    @cached_property
     def cmaps(self):
         """The list of column maps this sparsity is assembled from."""
         return self._cmaps
 
-    @property
+    @cached_property
     def rmaps(self):
         """The list of row maps this sparsity is assembled from."""
         return self._rmaps
 
-    @property
+    @cached_property
     def dims(self):
         """A tuple of tuples where the ``i,j``th entry
         is a pair giving the number of rows per entry of the row
@@ -3373,22 +3342,22 @@ class Sparsity(ObjectCached):
         """
         return self._dims
 
-    @property
+    @cached_property
     def shape(self):
         """Number of block rows and columns."""
         return len(self._dsets[0]), len(self._dsets[1])
 
-    @property
+    @cached_property
     def nrows(self):
         """The number of rows in the ``Sparsity``."""
         return self._nrows
 
-    @property
+    @cached_property
     def ncols(self):
         """The number of columns in the ``Sparsity``."""
         return self._ncols
 
-    @property
+    @cached_property
     def nested(self):
         """Whether a sparsity is monolithic (even if it has a block structure).
 
@@ -3402,7 +3371,7 @@ class Sparsity(ObjectCached):
         """
         return self._nested
 
-    @property
+    @cached_property
     def name(self):
         """A user-defined label."""
         return self._name
@@ -3420,17 +3389,17 @@ class Sparsity(ObjectCached):
     def __repr__(self):
         return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
 
-    @property
+    @cached_property
     def rowptr(self):
         """Row pointer array of CSR data structure."""
         return self._rowptr
 
-    @property
+    @cached_property
     def colidx(self):
         """Column indices array of CSR data structure."""
         return self._colidx
 
-    @property
+    @cached_property
     def nnz(self):
         """Array containing the number of non-zeroes in the various rows of the
         diagonal portion of the local submatrix.
@@ -3439,7 +3408,7 @@ class Sparsity(ObjectCached):
         PETSc's MatMPIAIJSetPreallocation_."""
         return self._d_nnz
 
-    @property
+    @cached_property
     def onnz(self):
         """Array containing the number of non-zeroes in the various rows of the
         off-diagonal portion of the local submatrix.
@@ -3448,13 +3417,13 @@ class Sparsity(ObjectCached):
         PETSc's MatMPIAIJSetPreallocation_."""
         return self._o_nnz
 
-    @property
+    @cached_property
     def nz(self):
         """Number of non-zeroes in the diagonal portion of the local
         submatrix."""
         return int(self._d_nz)
 
-    @property
+    @cached_property
     def onz(self):
         """Number of non-zeroes in the off-diagonal portion of the local
         submatrix."""
@@ -3508,10 +3477,10 @@ class Mat(SetAssociated):
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path, flatten=False):
-        path = as_tuple(path, Arg, 2)
+        path = as_tuple(path, _MapArg, 2)
         path_maps = [arg.map for arg in path]
         path_idxs = [arg.idx for arg in path]
-        if tuple(path_maps) not in self.sparsity:
+        if configuration["type_check"] and tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
@@ -3549,12 +3518,12 @@ class Mat(SetAssociated):
         raise NotImplementedError(
             "Abstract Mat base class doesn't know how to set values.")
 
-    @property
+    @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Mat`"""
-        return np.ctypeslib.ctypes.c_voidp
+        return ctypes.c_voidp
 
-    @property
+    @cached_property
     def dims(self):
         """A pair of integers giving the number of matrix rows and columns for
         each member of the row :class:`Set` and column :class:`Set`
@@ -3562,12 +3531,12 @@ class Mat(SetAssociated):
         :class:`DataSet`."""
         return self._sparsity._dims
 
-    @property
+    @cached_property
     def nrows(self):
         "The number of rows in the matrix (local to this process)"
         return sum(d.size * d.cdim for d in self.sparsity.dsets[0])
 
-    @property
+    @cached_property
     def nblock_rows(self):
         """The number "block" rows in the matrix (local to this process).
 
@@ -3577,7 +3546,7 @@ class Mat(SetAssociated):
         assert len(self.sparsity.dsets[0]) == 1, "Block rows don't make sense for mixed Mats"
         return self.sparsity.dsets[0].size
 
-    @property
+    @cached_property
     def nblock_cols(self):
         """The number of "block" columns in the matrix (local to this process).
 
@@ -3587,23 +3556,23 @@ class Mat(SetAssociated):
         assert len(self.sparsity.dsets[1]) == 1, "Block cols don't make sense for mixed Mats"
         return self.sparsity.dsets[1].size
 
-    @property
+    @cached_property
     def ncols(self):
         "The number of columns in the matrix (local to this process)"
         return sum(d.size * d.cdim for d in self.sparsity.dsets[1])
 
-    @property
+    @cached_property
     def sparsity(self):
         """:class:`Sparsity` on which the ``Mat`` is defined."""
         return self._sparsity
 
-    @property
+    @cached_property
     def _is_scalar_field(self):
         # Sparsity from Dat to MixedDat has a shape like (1, (1, 1))
         # (which you can't take the product of)
         return all(np.prod(d) == 1 for d in self.dims)
 
-    @property
+    @cached_property
     def _is_vector_field(self):
         return not self._is_scalar_field
 
@@ -3618,12 +3587,12 @@ class Mat(SetAssociated):
         """
         raise NotImplementedError("Abstract base Mat does not implement values()")
 
-    @property
+    @cached_property
     def dtype(self):
         """The Python type of the data."""
         return self._datatype
 
-    @property
+    @cached_property
     def nbytes(self):
         """Return an estimate of the size of the data associated with this
         :class:`Mat` in bytes. This will be the correct size of the
@@ -3724,6 +3693,10 @@ class Kernel(Cached):
         self._user_code = user_code
         # If an AST is provided, code generation is deferred
         self._ast, self._code = (code, None) if isinstance(code, Node) else (None, code)
+        if self._code:
+            self._attached_info = True
+        else:
+            self._attached_info = False
         self._initialized = True
 
     @property
@@ -3835,7 +3808,7 @@ class IterationRegion(object):
     def __init__(self, iterate):
         self._iterate = iterate
 
-    @property
+    @cached_property
     def where(self):
         return self._iterate
 
@@ -3890,7 +3863,7 @@ class ParLoop(LazyComputation):
             if arg._is_global_reduction and arg.access == INC:
                 glob = arg.data
                 self._reduced_globals[i] = glob
-                args[i]._dat = _make_object('Global', glob.dim, data=np.zeros_like(glob.data_ro), dtype=glob.dtype)
+                args[i].data = _make_object('Global', glob.dim, data=np.zeros_like(glob.data_ro), dtype=glob.dtype)
 
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
@@ -3899,6 +3872,8 @@ class ParLoop(LazyComputation):
         self._iteration_region = kwargs.get("iterate", None)
         # Are we only computing over owned set entities?
         self._only_local = isinstance(iterset, LocalSet)
+
+        self.iterset = iterset
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -3924,57 +3899,75 @@ class ParLoop(LazyComputation):
         self._it_space = self.build_itspace(iterset)
 
         # Attach semantic information to the kernel's AST
-        if hasattr(self._kernel, '_ast') and self._kernel._ast:
+        # Only need to do this once, since the kernel "defines" the
+        # access descriptors, if they were to have changed, the kernel
+        # would be invalid for this par_loop.
+        if not self._kernel._attached_info and hasattr(self._kernel, '_ast') and self._kernel._ast:
             ast_info = ast_visit(self._kernel._ast, search=ast.FunDecl)
             fundecl = ast_info['search'][ast.FunDecl]
             if len(fundecl) == 1:
                 for arg, f_arg in zip(self._actual_args, fundecl[0].args):
                     if arg._uses_itspace and arg._is_INC:
                         f_arg.pragma = set([ast.WRITE])
+            self._kernel._attached_info = True
 
     def _run(self):
         return self.compute()
 
+    def prepare_arglist(self, iterset, *args):
+        """Prepare the argument list for calling generated code.
+
+        :arg iterset: The :class:`Set` iterated over.
+        :arg args: A list of :class:`Args`, the argument to the :fn:`par_loop`.
+        """
+        return ()
+
+    @property
     @collective
-    @timed_function('ParLoop compute')
-    @profile
+    def _jitmodule(self):
+        """Return the :class:`JITModule` that encapsulates the compiled par_loop code.
+
+        Return None if the child class should deal with this in another way."""
+        return None
+
+    @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         self.halo_exchange_begin()
-        self.maybe_set_dat_dirty()
-        self._compute(self.it_space.iterset.core_part)
+        iterset = self.iterset
+        arglist = self.prepare_arglist(iterset, *self.args)
+        fun = self._jitmodule
+        self._compute(iterset.core_part, fun, *arglist)
         self.halo_exchange_end()
-        self._compute(self.it_space.iterset.owned_part)
+        self._compute(iterset.owned_part, fun, *arglist)
         self.reduction_begin()
         if self._only_local:
             self.reverse_halo_exchange_begin()
             self.reverse_halo_exchange_end()
-        if not self._only_local and self.needs_exec_halo:
-            self._compute(self.it_space.iterset.exec_part)
+        if self.needs_exec_halo:
+            self._compute(iterset.exec_part, fun, *arglist)
         self.reduction_end()
-        self.maybe_set_halo_update_needed()
+        self.update_arg_data_state()
 
     @collective
-    def _compute(self, part):
-        """Executes the kernel over all members of a MPI-part of the iteration space."""
-        raise RuntimeError("Must select a backend")
+    def _compute(self, part, fun, *arglist):
+        """Executes the kernel over all members of a MPI-part of the iteration space.
 
-    def maybe_set_dat_dirty(self):
-        for arg in self.args:
-            if arg._is_dat and arg.data._is_allocated:
-                for d in arg.data:
-                    maybe_setflags(d._data, write=False)
+        :arg part: The :class:`SetPartition` to compute over
+        :arg fun: The :class:`JITModule` encapsulating the compiled
+             code (may be ignored by the backend).
+        :arg arglist: The arguments to pass to the compiled code (may
+             be ignored by the backend, depending on the exact implementation)"""
+        raise RuntimeError("Must select a backend")
 
     @collective
     @timed_function('ParLoop halo exchange begin')
     def halo_exchange_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
-            # No need for halo exchanges for a direct loop
             return
-        for arg in self.args:
-            if arg._is_dat:
-                arg.halo_exchange_begin(update_inc=self._only_local)
+        for arg in self.dat_args:
+            arg.halo_exchange_begin(update_inc=self._only_local)
 
     @collective
     @timed_function('ParLoop halo exchange end')
@@ -3982,18 +3975,17 @@ class ParLoop(LazyComputation):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
             return
-        for arg in self.args:
-            if arg._is_dat:
-                arg.halo_exchange_end(update_inc=self._only_local)
+        for arg in self.dat_args:
+            arg.halo_exchange_end(update_inc=self._only_local)
 
     @collective
     @timed_function('ParLoop reverse halo exchange begin')
     def reverse_halo_exchange_begin(self):
         """Start reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
-            raise RuntimeError("Should never happen")
-        for arg in self.args:
-            if arg._is_dat and arg.access is INC:
+            return
+        for arg in self.dat_args:
+            if arg.access is INC:
                 arg.data.halo_exchange_begin(reverse=True)
 
     @collective
@@ -4001,26 +3993,24 @@ class ParLoop(LazyComputation):
     def reverse_halo_exchange_end(self):
         """Finish reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
-            raise RuntimeError("Should never happen")
-        for arg in self.args:
-            if arg._is_dat and arg.access is INC:
+            return
+        for arg in self.dat_args:
+            if arg.access is INC:
                 arg.data.halo_exchange_end(reverse=True)
 
     @collective
     @timed_function('ParLoop reduction begin')
     def reduction_begin(self):
         """Start reductions"""
-        for arg in self.args:
-            if arg._is_global_reduction:
-                arg.reduction_begin()
+        for arg in self.global_reduction_args:
+            arg.reduction_begin()
 
     @collective
     @timed_function('ParLoop reduction end')
     def reduction_end(self):
         """End reductions"""
-        for arg in self.args:
-            if arg._is_global_reduction:
-                arg.reduction_end()
+        for arg in self.global_reduction_args:
+            arg.reduction_end()
         # Finalise global increments
         for i, glob in self._reduced_globals.iteritems():
             # These can safely access the _data member directly
@@ -4033,12 +4023,20 @@ class ParLoop(LazyComputation):
             glob._data += self.args[i].data._data
 
     @collective
-    def maybe_set_halo_update_needed(self):
-        """Set halo update needed for :class:`Dat` arguments that are written to
-        in this parallel loop."""
+    def update_arg_data_state(self):
+        """Update the state of the :class:`DataCarrier`\s in the arguments to the `par_loop`.
+
+        This marks :class:`Dat`\s that need halo updates, sets the
+        data to read-only, and marks :class:`Mat`\s that need assembly."""
         for arg in self.args:
-            if arg._is_dat and arg.access in [INC, WRITE, RW]:
-                arg.data.needs_halo_update = True
+            if arg._is_dat:
+                if arg.access in [INC, WRITE, RW]:
+                    arg.data.needs_halo_update = True
+                if arg.data._is_allocated:
+                    for d in arg.data:
+                        d._data.setflags(write=False)
+            if arg._is_mat:
+                arg.data._needs_assembly = True
 
     def build_itspace(self, iterset):
         """Checks that the iteration set of the :class:`ParLoop` matches the
@@ -4054,33 +4052,47 @@ class ParLoop(LazyComputation):
             _iterset = iterset.superset
         else:
             _iterset = iterset
-        if isinstance(_iterset, MixedSet):
-            raise SetTypeError("Cannot iterate over MixedSets")
         block_shape = None
-        for i, arg in enumerate(self._actual_args):
-            if arg._is_global:
-                continue
-            if arg._is_direct:
-                if arg.data.dataset.set != _iterset:
-                    raise MapValueError(
-                        "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
-                continue
-            for j, m in enumerate(arg._map):
-                if isinstance(_iterset, ExtrudedSet):
-                    if m.iterset != _iterset and m.iterset not in _iterset:
+        if configuration["type_check"]:
+            if isinstance(_iterset, MixedSet):
+                raise SetTypeError("Cannot iterate over MixedSets")
+            for i, arg in enumerate(self.args):
+                if arg._is_global:
+                    continue
+                if arg._is_direct:
+                    if arg.data.dataset.set != _iterset:
+                        raise MapValueError(
+                            "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
+                    continue
+                for j, m in enumerate(arg._map):
+                    if isinstance(_iterset, ExtrudedSet):
+                        if m.iterset != _iterset and m.iterset not in _iterset:
+                            raise MapValueError(
+                                "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+                    elif m.iterset != _iterset and m.iterset not in _iterset:
                         raise MapValueError(
                             "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-                elif m.iterset != _iterset and m.iterset not in _iterset:
-                    raise MapValueError(
-                        "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-            if arg._uses_itspace:
-                _block_shape = arg._block_shape
-                if block_shape and block_shape != _block_shape:
-                    raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                block_shape = _block_shape
+                if arg._uses_itspace:
+                    _block_shape = arg._block_shape
+                    if block_shape and block_shape != _block_shape:
+                        raise IndexValueError("Mismatching iteration space size for argument %d" % i)
+                    block_shape = _block_shape
+        else:
+            for arg in self.args:
+                if arg._uses_itspace:
+                    block_shape = arg._block_shape
+                    break
         return IterationSpace(iterset, block_shape)
 
-    @property
+    @cached_property
+    def dat_args(self):
+        return [arg for arg in self.args if arg._is_dat]
+
+    @cached_property
+    def global_reduction_args(self):
+        return [arg for arg in self.args if arg._is_global_reduction]
+
+    @cached_property
     def offset_args(self):
         """The offset args that need to be added to the argument list."""
         _args = []
@@ -4093,55 +4105,58 @@ class ParLoop(LazyComputation):
                             _args.append(m.offset)
         return _args
 
-    @property
+    @cached_property
     def layer_arg(self):
         """The layer arg that needs to be added to the argument list."""
         if self._is_layered:
             return [self._it_space.layers]
         return []
 
-    @property
+    @cached_property
     def it_space(self):
         """Iteration space of the parallel loop."""
         return self._it_space
 
-    @property
+    @cached_property
     def is_direct(self):
         """Is this parallel loop direct? I.e. are all the arguments either
         :class:Dats accessed through the identity map, or :class:Global?"""
         return all(a.map is None for a in self.args)
 
-    @property
+    @cached_property
     def is_indirect(self):
         """Is the parallel loop indirect?"""
         return not self.is_direct
 
-    @property
+    @cached_property
     def needs_exec_halo(self):
-        """Does the parallel loop need an exec halo?"""
-        return any(arg._is_indirect_and_not_read or arg._is_mat
-                   for arg in self.args)
+        """Does the parallel loop need an exec halo?
 
-    @property
+        True if the parallel loop is not a "local" loop and there are
+        any indirect arguments that are not read-only."""
+        return not self._only_local and any(arg._is_indirect_and_not_read or arg._is_mat
+                                            for arg in self.args)
+
+    @cached_property
     def kernel(self):
         """Kernel executed by this parallel loop."""
         return self._kernel
 
-    @property
+    @cached_property
     def args(self):
         """Arguments to this parallel loop."""
         return self._actual_args
 
-    @property
+    @cached_property
     def _has_soa(self):
         return any(a._is_soa for a in self._actual_args)
 
-    @property
+    @cached_property
     def is_layered(self):
         """Flag which triggers extrusion"""
         return self._is_layered
 
-    @property
+    @cached_property
     def iteration_region(self):
         """Specifies the part of the mesh the parallel loop will
         be iterating over. The effect is the loop only iterates over

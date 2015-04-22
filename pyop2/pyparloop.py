@@ -89,6 +89,10 @@ class Kernel(base.Kernel):
         self._func = code
         self._name = name
 
+    def __getattr__(self, attr):
+        """Return None on unrecognised attributes"""
+        return None
+
     def __call__(self, *args):
         return self._func(*args)
 
@@ -99,7 +103,7 @@ class Kernel(base.Kernel):
 # Inherit from parloop for type checking and init
 class ParLoop(base.ParLoop):
 
-    def _compute(self, part):
+    def _compute(self, part, *arglist):
         if part.set._extruded:
             raise NotImplementedError
         subset = isinstance(self._it_space._iterset, base.Subset)
