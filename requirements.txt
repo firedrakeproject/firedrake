@@ -1,5 +1,6 @@
 six
 sympy
+cachetools
 git+https://bitbucket.org/fenics-project/instant.git#egg=instant
 git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
 git+https://bitbucket.org/mapdes/fiat.git#egg=fiat

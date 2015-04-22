@@ -5,6 +5,7 @@ import ufl
 import coffee.base as ast
 
 from pyop2 import op2
+from pyop2.logger import warning
 
 import assemble_expressions
 import expression as expression_t
@@ -12,6 +13,11 @@ import functionspace
 import projection
 import utils
 import vector
+try:
+    import cachetools
+except ImportError:
+    warning("cachetools not available, expression assembly will be slowed down")
+    cachetools = None
 
 
 __all__ = ['Function', 'interpolate']
@@ -84,6 +90,11 @@ class Function(ufl.Coefficient):
         self._repr = None
         self._split = None
 
+        if cachetools:
+            # LRU cache for expressions assembled onto this function
+            self._expression_cache = cachetools.LRUCache(maxsize=50)
+        else:
+            self._expression_cache = None
         if isinstance(function_space, Function):
             self.assign(function_space)
 

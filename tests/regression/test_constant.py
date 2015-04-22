@@ -162,6 +162,13 @@ def test_constant_multiplies_function():
     assert np.allclose(f.dat.data_ro, 110)
 
 
+def test_fresh_constant_hashes_different():
+    c = Constant(1)
+    d = Constant(1)
+
+    assert hash(c) != hash(d)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

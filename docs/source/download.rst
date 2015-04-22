@@ -83,6 +83,19 @@ In addition to PyOP2, you will need to install Firedrake. There are two
 routes, depending on whether you intend to contribute to Firedrake
 development.
 
+For performance reasons, there are various levels of caching with
+eviction policies.  To support these, you will need to install
+cachetools::
+
+   sudo pip install cachetools
+
+or (for your user only)::
+
+   pip install --user cachetools
+
+Firedrake will perform entirely correctly without this package, but
+will be less efficient for tight time-stepping loops.
+
 In order to have the form assembly cache operate in the most automatic
 fashion possible, you are also advised to install psutil::
 

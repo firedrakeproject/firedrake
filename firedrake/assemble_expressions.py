@@ -1,3 +1,5 @@
+import weakref
+
 import ufl
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero, IntValue
@@ -511,6 +513,10 @@ def expression_kernel(expr, args):
     """Produce a :class:`pyop2.Kernel` from the processed UFL expression
     expr and the corresponding args."""
 
+    # Empty slot indicating assignment to indexed LHS, so don't do anything
+    if type(expr) is Zero:
+        return
+
     fs = args[0].function.function_space()
 
     d = ast.Symbol("dim")
@@ -530,13 +536,7 @@ def expression_kernel(expr, args):
                       "expression")
 
 
-def evaluate_preprocessed_expression(expr, args, subset=None):
-
-    # Empty slot indicating assignment to indexed LHS, so don't do anything
-    if type(expr) is Zero:
-        return
-    kernel = expression_kernel(expr, args)
-
+def evaluate_preprocessed_expression(kernel, args, subset=None):
     # We need to splice the args according to the components of the
     # MixedFunctionSpace if we have one
     for j, dats in enumerate(zip(*tuple(a.function.dat for a in args))):
@@ -549,9 +549,38 @@ def evaluate_preprocessed_expression(expr, args, subset=None):
 def evaluate_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s."""
 
+    # We cache the generated kernel and the argument list on the
+    # result function, keyed on the hash of the expression
+    # (implemented by UFL).  Since the argument list references
+    # objects that we may want collected, we do a little magic in the
+    # cache.  The "function" slot in the DummyFunction argument is
+    # replaced by a weakref to the function in the cached arglist.
+    # This ensures that we don't leak objects.  However, sometimes, it
+    # means that the proxy will have been collected and will be out of
+    # date.  So we catch this error and fall back to the slow code
+    # path in that case.
+    result = expr.ufl_operands[0]
+    if result._expression_cache is not None:
+        key = hash(expr)
+        vals = result._expression_cache.get(key)
+        if vals:
+            try:
+                for k, args in vals:
+                    evaluate_preprocessed_expression(k, args, subset=subset)
+                return
+            except ReferenceError:
+                pass
+    vals = []
     for tree in ExpressionSplitter().split(expr):
         e, args, _ = ExpressionWalker().walk(tree)
-        evaluate_preprocessed_expression(e, args, subset)
+        k = expression_kernel(e, args)
+        evaluate_preprocessed_expression(k, args, subset)
+        # Replace function slot by weakref to avoid leaking objects
+        for a in args:
+            a.function = weakref.proxy(a.function)
+        vals.append((k, args))
+    if result._expression_cache is not None:
+        result._expression_cache[key] = vals
 
 
 def assemble_expression(expr, subset=None):
@@ -568,11 +597,12 @@ _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _as
 _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
 _ast_map = {
-    MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
+    MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
     ufl.algebra.Sum: (lambda e: ast.Par(_to_sum(e.ufl_operands))),
     ufl.algebra.Product: (lambda e: ast.Par(_to_prod(e.ufl_operands))),
     ufl.algebra.Division: (lambda e: ast.Par(ast.Div(*[_ast(o) for o in e.ufl_operands]))),
     ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
+    Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
     ufl.constantvalue.Zero: (lambda e: ast.Symbol(0)),

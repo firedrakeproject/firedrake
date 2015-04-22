@@ -116,6 +116,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # Pass this through for assembly caching purposes
     form_compiler_parameters["matnest"] = nest
 
+    zero_tensor = lambda: None
+
     if is_mat:
         test, trial = f.arguments()
 
@@ -123,49 +125,49 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         cell_domains = []
         exterior_facet_domains = []
         interior_facet_domains = []
-        # For horizontal facets of extrded meshes, the corresponding domain
-        # in the base mesh is the cell domain. Hence all the maps used for top
-        # bottom and interior horizontal facets will use the cell to dofs map
-        # coming from the base mesh as a starting point for the actual dynamic map
-        # computation.
-        for integral in integrals:
-            integral_type = integral.integral_type()
-            if integral_type == "cell":
-                cell_domains.append(op2.ALL)
-            elif integral_type == "exterior_facet":
-                exterior_facet_domains.append(op2.ALL)
-            elif integral_type == "interior_facet":
-                interior_facet_domains.append(op2.ALL)
-            elif integral_type == "exterior_facet_bottom":
-                cell_domains.append(op2.ON_BOTTOM)
-            elif integral_type == "exterior_facet_top":
-                cell_domains.append(op2.ON_TOP)
-            elif integral_type == "exterior_facet_vert":
-                exterior_facet_domains.append(op2.ALL)
-            elif integral_type == "interior_facet_horiz":
-                cell_domains.append(op2.ON_INTERIOR_FACETS)
-            elif integral_type == "interior_facet_vert":
-                interior_facet_domains.append(op2.ALL)
-            else:
-                raise RuntimeError('Unknown integral type "%s"' % integral_type)
-
-        # To avoid an extra check for extruded domains, the maps that are being passed in
-        # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
-        # space over which we iterate as the domains are dropped at Sparsity construction
-        # time. In the extruded case the cell domains are used to identify the regions of the
-        # mesh which require allocation in the sparsity.
-        if cell_domains:
-            map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
-                              op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
-        if exterior_facet_domains:
-            map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
-                              op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
-        if interior_facet_domains:
-            map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
-                              op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
-
-        map_pairs = tuple(map_pairs)
         if tensor is None:
+            # For horizontal facets of extrded meshes, the corresponding domain
+            # in the base mesh is the cell domain. Hence all the maps used for top
+            # bottom and interior horizontal facets will use the cell to dofs map
+            # coming from the base mesh as a starting point for the actual dynamic map
+            # computation.
+            for integral in integrals:
+                integral_type = integral.integral_type()
+                if integral_type == "cell":
+                    cell_domains.append(op2.ALL)
+                elif integral_type == "exterior_facet":
+                    exterior_facet_domains.append(op2.ALL)
+                elif integral_type == "interior_facet":
+                    interior_facet_domains.append(op2.ALL)
+                elif integral_type == "exterior_facet_bottom":
+                    cell_domains.append(op2.ON_BOTTOM)
+                elif integral_type == "exterior_facet_top":
+                    cell_domains.append(op2.ON_TOP)
+                elif integral_type == "exterior_facet_vert":
+                    exterior_facet_domains.append(op2.ALL)
+                elif integral_type == "interior_facet_horiz":
+                    cell_domains.append(op2.ON_INTERIOR_FACETS)
+                elif integral_type == "interior_facet_vert":
+                    interior_facet_domains.append(op2.ALL)
+                else:
+                    raise RuntimeError('Unknown integral type "%s"' % integral_type)
+
+            # To avoid an extra check for extruded domains, the maps that are being passed in
+            # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
+            # space over which we iterate as the domains are dropped at Sparsity construction
+            # time. In the extruded case the cell domains are used to identify the regions of the
+            # mesh which require allocation in the sparsity.
+            if cell_domains:
+                map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
+                                  op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
+            if exterior_facet_domains:
+                map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
+                                  op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
+            if interior_facet_domains:
+                map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
+                                  op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
+
+            map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
             fs_names = (
                 test.function_space().name, trial.function_space().name)
@@ -182,6 +184,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # Replace any bcs on the tensor we passed in
             result_matrix.bcs = bcs
             tensor = tensor._M
+            zero_tensor = lambda: tensor.zero()
 
         def mat(testmap, trialmap, i, j):
             return tensor[i, j](op2.INC,
@@ -197,6 +200,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         else:
             result_function = tensor
             tensor = result_function.dat
+            zero_tensor = lambda: tensor.zero()
 
         def vec(testmap, i):
             return tensor[i](op2.INC,
@@ -221,10 +225,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # solve, we funcall the closure with any bcs the Matrix now has to
     # assemble it.
     def thunk(bcs):
-        try:
-            tensor.zero()
-        except AttributeError:
-            pass
+        zero_tensor()
         for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel in kernels:
             m = coords.function_space().mesh()
             if needs_orientations:

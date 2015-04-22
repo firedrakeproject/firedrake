@@ -67,7 +67,7 @@ class Constant(ufl.Coefficient):
             e = ufl.TensorElement("Real", domain, 0, shape=shape)
         super(Constant, self).__init__(e)
         self._ufl_element = self.element()
-        self._repr = 'Constant(%r)' % self._ufl_element
+        self._repr = 'Constant(%r, %r)' % (self._ufl_element, self.count())
 
     def evaluate(self, x, mapping, component, index_values):
         """Return the evaluation of this :class:`Constant`.
