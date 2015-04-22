@@ -1,6 +1,6 @@
 # Some generic python utilities not really specific to our work.
 from decorator import decorator
-from pyop2.utils import cached_property
+from pyop2.utils import cached_property  # noqa: imported from here elsewhere
 
 
 # after https://micheles.googlecode.com/hg/decorator/documentation.html and
