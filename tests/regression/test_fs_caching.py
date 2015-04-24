@@ -7,6 +7,30 @@ def howmany(cls):
     return len([x for x in gc.get_objects() if isinstance(x, cls)])
 
 
+def test_meshes_collected():
+    before = howmany(Mesh)
+
+    def foo():
+        old_val = parameters['assembly_cache']['enabled']
+        parameters['assembly_cache']['enabled'] = False
+        for i in range(10):
+            m = UnitSquareMesh(1, 1)
+            V = FunctionSpace(m, 'CG', 1)
+            u = TrialFunction(V)
+            v = TestFunction(V)
+            f = Function(V)
+            solve((i+1)*u*v*dx == v*dx, f)
+        parameters['assembly_cache']['enabled'] = old_val
+
+    foo()
+    gc.collect()
+    gc.collect()
+    gc.collect()
+    after = howmany(Mesh)
+
+    assert before >= after
+
+
 def test_same_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
 
