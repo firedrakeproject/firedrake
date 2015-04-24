@@ -502,12 +502,13 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         # Put zeros in all the places we might eventually put a value.
-        for i in range(rows):
-            for j in range(cols):
-                sparsity.fill_with_zeros(self[i, j].handle,
-                                         self[i, j].sparsity.dims[0][0],
-                                         self[i, j].sparsity.maps,
-                                         set_diag=(i == j))
+        with timed_region("Zero initial matrix"):
+            for i in range(rows):
+                for j in range(cols):
+                    sparsity.fill_with_zeros(self[i, j].handle,
+                                             self[i, j].sparsity.dims[0][0],
+                                             self[i, j].sparsity.maps,
+                                             set_diag=(i == j))
 
         mat.assemble()
         mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
@@ -569,7 +570,8 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
 
         # Put zeros in all the places we might eventually put a value.
-        sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps)
+        with timed_region("Zero initial matrix"):
+            sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps)
 
         # Now we've filled up our matrix, so the sparsity is
         # "complete", we can ignore subsequent zero entries.
