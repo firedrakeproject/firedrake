@@ -223,7 +223,11 @@ def par_loop(kernel, measure, args, **kwargs):
         if not mesh:
             raise TypeError("No Functions passed to direct par_loop")
     else:
-        mesh = measure.subdomain_data().function_space().mesh()
+        sd = measure.subdomain_data()
+        # subdomain data is a weakref
+        sd = sd()
+        assert sd is not None, "Lost reference to subdomain data, argh!"
+        mesh = sd.function_space().mesh()
 
     op2args = [_form_kernel(kernel, measure, args, **kwargs)]
 
