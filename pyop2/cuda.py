@@ -925,7 +925,6 @@ class ParLoop(op2.ParLoop):
                 # Data state is updated in finalise_reduction for Global
                 if arg.access is not op2.READ:
                     arg.data.state = DeviceDataMixin.DEVICE
-        self.maybe_set_dat_dirty()
 
 
 _device = None
