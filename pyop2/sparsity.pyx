@@ -189,6 +189,8 @@ cdef inline void add_entries_extruded(rset, rmap, cset, cmap,
                             row += rdim * roffset[i]
 
 
+@cython.boundscheck(False)
+@cython.cdivision(True)
 def build_sparsity(object sparsity, bint parallel, bool block=True):
     """Build a sparsity pattern defined by a list of pairs of maps
 
@@ -203,7 +205,8 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
         vector[vector[vecset[PetscInt]]] diag, odiag
         vecset[PetscInt].const_iterator it
         PetscInt nrows, i, cur_nrows, rarity
-        PetscInt row_offset, row
+        PetscInt row_offset, row, val
+        int c
         bint should_block = False
         bint make_rowptr = False
         bint alloc_diag
@@ -259,7 +262,6 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
                         diag[c][row_offset + i].reserve(6*rarity)
                         if parallel:
                             odiag[c][row_offset + i].reserve(6*rarity)
-
                 if should_block:
                     cdim = 1
                 else:
@@ -297,22 +299,24 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
 
     nz = 0
     onz = 0
-    for row in range(nrows):
+    for c in range(len(cset)):
+        for row in range(nrows):
+            val = diag[c][row].size()
+            nnz[row] += val
+            nz += val
+    if parallel:
         for c in range(len(cset)):
-            nnz[row] += diag[c][row].size()
-        nz += nnz[row]
-        if make_rowptr:
-            rowptr[row+1] = rowptr[row] + nnz[row]
-        if parallel:
-            for c in range(len(cset)):
-                onnz[row] += odiag[c][row].size()
-            onz += onnz[row]
+            for row in range(nrows):
+                val = odiag[c][row].size()
+                onnz[row] += val
+                onz += val
 
     if make_rowptr:
         colidx = np.empty(nz, dtype=PETSc.IntType)
         assert diag.size() == 1, "Can't make rowptr for mixed monolithic mat"
         for row in range(nrows):
             diag[0][row].sort()
+            rowptr[row+1] = rowptr[row] + nnz[row]
             i = rowptr[row]
             it = diag[0][row].begin()
             while it != diag[0][row].end():
