@@ -82,6 +82,7 @@ class NonlinearVariationalSolver(object):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the :data:`solver_parameters` dict.
+
         .. code-block:: python
 
             {'snes_type': 'ksponly'}
