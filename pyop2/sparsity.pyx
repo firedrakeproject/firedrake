@@ -63,8 +63,7 @@ cdef inline void add_entries(rset, rmap, cset, cmap,
                              PetscInt row_offset,
                              vector[vecset[PetscInt]]& diag,
                              vector[vecset[PetscInt]]& odiag,
-                             bint should_block,
-                             bint alloc_diag):
+                             bint should_block):
     cdef:
         PetscInt nrows, ncols, i, j, k, l, nent, e
         PetscInt rarity, carity, row, col, rdim, cdim
@@ -95,9 +94,6 @@ cdef inline void add_entries(rset, rmap, cset, cmap,
                 continue
             row += row_offset
             for j in range(rdim):
-                # Always reserve space for diagonal
-                if alloc_diag and row + j - row_offset < ncols:
-                    diag[row+j].insert(row+j - row_offset)
                 for k in range(carity):
                     for l in range(cdim):
                         col = cdim * cmap_vals[e, k] + l
@@ -113,8 +109,7 @@ cdef inline void add_entries_extruded(rset, rmap, cset, cmap,
                                       PetscInt row_offset,
                                       vector[vecset[PetscInt]]& diag,
                                       vector[vecset[PetscInt]]& odiag,
-                                      bint should_block,
-                                      bint alloc_diag):
+                                      bint should_block):
     cdef:
         PetscInt nrows, ncols, i, j, k, l, nent, e, start, end, layer
         PetscInt rarity, carity, row, col, rdim, cdim, layers, tmp_row
@@ -174,9 +169,6 @@ cdef inline void add_entries_extruded(rset, rmap, cset, cmap,
                     for rrep in range(reps):
                         row = tmp_row + j + rdim*rrep*roffset[i]
                         for layer in range(start, end):
-                            # Always reserve space for diagonal
-                            if alloc_diag and row - row_offset < ncols:
-                                diag[row].insert(row - row_offset)
                             for k in range(carity):
                                 for l in range(cdim):
                                     for crep in range(reps):
@@ -204,7 +196,7 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
     cdef:
         vector[vector[vecset[PetscInt]]] diag, odiag
         vecset[PetscInt].const_iterator it
-        PetscInt nrows, i, cur_nrows, rarity
+        PetscInt nrows, ncols, i, cur_nrows, rarity
         PetscInt row_offset, row, val
         int c
         bint should_block = False
@@ -255,32 +247,37 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
                 rdim = rset[r].cdim
             for c, cmap in enumerate(cmaps):
                 if not diag[c][row_offset].capacity():
+                    if should_block:
+                        ncols = cset[c].size
+                    else:
+                        ncols = cset[c].size * cset[c].cdim
                     # Preallocate set entries heuristically based on arity
                     cur_nrows = rset[r].size * rdim
                     rarity = rmap.arity
+                    alloc_diag = r == c
                     for i in range(cur_nrows):
                         diag[c][row_offset + i].reserve(6*rarity)
+                        if alloc_diag and i < ncols:
+                            # Always allocate space for diagonal.
+                            # Note we only add the row_offset to the
+                            # index, not the inserted value, since
+                            # when we walk over the column maps we
+                            # don't add offsets.
+                            diag[c][row_offset + i].insert(i)
                         if parallel:
                             odiag[c][row_offset + i].reserve(6*rarity)
-                if should_block:
-                    cdim = 1
-                else:
-                    cdim = cset[c].cdim
-                alloc_diag = r == c
                 if extruded:
                     add_entries_extruded(rset[r], rmap,
                                          cset[c], cmap,
                                          row_offset,
                                          diag[c], odiag[c],
-                                         should_block,
-                                         alloc_diag)
+                                         should_block)
                 else:
                     add_entries(rset[r], rmap,
                                 cset[c], cmap,
                                 row_offset,
                                 diag[c], odiag[c],
-                                should_block,
-                                alloc_diag)
+                                should_block)
             # Increment only by owned rows
             row_offset += rset[r].size * rdim
 
