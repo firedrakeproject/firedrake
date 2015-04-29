@@ -198,7 +198,7 @@ class FunctionSpaceBase(ObjectCached):
     def dof_dset(self):
         """A :class:`pyop2.DataSet` containing the degrees of freedom of
         this :class:`.FunctionSpace`."""
-        return op2.DataSet(self.node_set, self.dim)
+        return op2.DataSet(self.node_set, self.dim, name="%s_nodes_dset" % self.name)
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Dat` defined on the
@@ -790,8 +790,8 @@ class MixedFunctionSpace(FunctionSpaceBase):
             assert len(val) == len(self)
         else:
             val = [None for _ in self]
-        return op2.MixedDat(s.make_dat(v, valuetype, name, utils._new_uid())
-                            for s, v in zip(self._spaces, val))
+        return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
+                            for i, (s, v) in enumerate(zip(self._spaces, val)))
 
 
 class IndexedFunctionSpace(FunctionSpaceBase):
