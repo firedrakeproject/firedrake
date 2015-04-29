@@ -579,6 +579,18 @@ class TestSparsity:
             m = op2.Map(s, s, 1)
             op2.Sparsity((s, s), (m, m))
 
+    @pytest.mark.xfail(reason="Broken")
+    def test_sparsity_always_has_diagonal_space(self, backend):
+        # A sparsity should always have space for diagonal entries
+        s = op2.Set(1)
+        d = op2.Set(4)
+        m = op2.Map(s, d, 1, [2])
+        d2 = op2.Set(5)
+        m2 = op2.Map(s, d2, 2, [1, 4])
+        sparsity = op2.Sparsity((d, d2), (m, m2))
+
+        assert all(sparsity.nnz == [1, 1, 3, 1])
+
 
 class TestMatrices:
 
