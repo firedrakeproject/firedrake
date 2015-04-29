@@ -74,7 +74,7 @@ class Configuration(dict):
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
         "lazy_evaluation": ("PYOP2_LAZY", bool, True),
-        "lazy_max_trace_length": ("PYOP2_MAX_TRACE_LENGTH", int, 0),
+        "lazy_max_trace_length": ("PYOP2_MAX_TRACE_LENGTH", int, 100),
         "loop_fusion": ("PYOP2_LOOP_FUSION", bool, False),
         "dump_gencode": ("PYOP2_DUMP_GENCODE", bool, False),
         "cache_dir": ("PYOP2_CACHE_DIR", str,
