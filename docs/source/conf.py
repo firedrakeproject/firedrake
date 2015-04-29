@@ -27,6 +27,9 @@ extensions = ['sphinx.ext.autodoc',
               'sphinx.ext.mathjax', 'sphinx.ext.intersphinx',
               'sphinxcontrib.youtube',
               'sphinxcontrib.bibtex']
+
+mathjax_path = 'https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML'
+
 # Both the class’ and the __init__ method’s docstring are concatenated and
 # inserted into the class definition
 autoclass_content = 'both'
