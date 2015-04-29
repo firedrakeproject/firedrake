@@ -612,6 +612,24 @@ class TestMatrices:
         mat.inc_local_diagonal_entries(range(nrows))
         assert (mat.values == np.identity(nrows * n)).all()
 
+    def test_mat_always_has_diagonal_space(self, backend):
+        # A sparsity should always have space for diagonal entries
+        s = op2.Set(1)
+        d = op2.Set(4)
+        m = op2.Map(s, d, 1, [2])
+        d2 = op2.Set(3)
+        m2 = op2.Map(s, d2, 1, [1])
+        sparsity = op2.Sparsity((d, d2), (m, m2))
+
+        from petsc4py import PETSc
+        # petsc4py default error handler swallows SETERRQ, so just
+        # install the abort handler to notice an error.
+        PETSc.Sys.pushErrorHandler("abort")
+        mat = op2.Mat(sparsity)
+        PETSc.Sys.popErrorHandler()
+
+        assert np.allclose(mat.handle.getDiagonal().array, 0.0)
+
     def test_minimal_zero_mat(self, backend, skip_cuda):
         """Assemble a matrix that is all zeros."""
 
