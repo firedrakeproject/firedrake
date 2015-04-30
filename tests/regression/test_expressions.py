@@ -444,6 +444,37 @@ def test_vector_increment_fails():
     assert np.allclose(e.n, 1.0)
 
 
+@pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
+                         ids=lambda v: "(f = %d)" % v)
+@pytest.mark.parametrize('expr', ['f',
+                                  '2*f',
+                                  'tanh(f)',
+                                  '2 * tanh(f)',
+                                  'f + tanh(f)',
+                                  'cos(f) + sin(f)',
+                                  'cos(f)*cos(f) + sin(f)*sin(f)',
+                                  'tanh(f) + cos(f) + sin(f)',
+                                  '1.0/tanh(f) + 1.0/f',
+                                  'sqrt(f*f)',
+                                  'sin(cos(f))',
+                                  'sqrt(2 + cos(f))',
+                                  'sin(sqrt(abs(f)))',
+                                  '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'])
+def test_math_functions(expr, value):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, 'CG', 1)
+    f = Function(V)
+    f.assign(value)
+
+    actual = Function(V)
+
+    actual.assign(eval(expr))
+    from math import *
+    f = value
+    expect = eval(expr)
+    assert np.allclose(actual.dat.data_ro, expect)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
