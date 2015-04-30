@@ -40,6 +40,7 @@ from exceptions import *
 import host
 from mpi import collective
 from petsc_base import *
+from profiling import timed_region
 from host import Kernel, Arg  # noqa: needed by BackendSelector
 from utils import as_tuple, cached_property
 
@@ -158,7 +159,8 @@ class ParLoop(host.ParLoop):
 
     @collective
     def _compute(self, part, fun, *arglist):
-        fun(part.offset, part.offset + part.size, *arglist)
+        with timed_region("ParLoop kernel"):
+            fun(part.offset, part.offset + part.size, *arglist)
 
 
 def _setup():
