@@ -34,6 +34,7 @@ before_install:
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran triangle-bin \
     libvtk5-dev python-vtk libparmetis-dev python-vtk cython"
   - wget https://raw.github.com/OP2/PyOP2/master/requirements-minimal.txt
+  - pip install -U pytest
   - pip install psutil
   - pip install cachetools
   - pip install pytest-benchmark
