@@ -1,6 +1,9 @@
+import ufl
+import assemble
 import function
 import solving_utils
 from petsc import PETSc
+from utils import cached_property
 
 
 __all__ = ["LinearSolver"]
@@ -69,6 +72,25 @@ class LinearSolver(object):
         # Force evaluation here
         self.ksp.setOperators(A=self.A.M.handle, P=self.P.M.handle)
 
+    @cached_property
+    def _b(self):
+        """A function to store the RHS.
+
+        Used in presence of BCs."""
+        return function.Function(self._W)
+
+    @cached_property
+    def _Abcs(self):
+        """A function storing the action of the operator on a zero Function
+        satisfying the BCs.
+
+        Used in the presence of BCs.
+        """
+        b = function.Function(self._W)
+        for bc in self.A.bcs:
+            bc.apply(b)
+        return assemble._assemble(ufl.action(self.A.a, b))
+
     @property
     def parameters(self):
         return self._parameters
@@ -92,11 +114,9 @@ class LinearSolver(object):
         # User may have updated parameters
         solving_utils.update_parameters(self, self.ksp)
         if self.A.has_bcs:
-            b_bc = function.Function(b.function_space())
-            for bc in self.A.bcs:
-                bc.apply(b_bc)
-            # rhs = b - action(A, b_bc)
-            b_bc.assign(b - self.A._form_action(b_bc))
+            b_bc = self._b
+            # rhs = b - action(A, zero_function_with_bcs_applied)
+            b_bc.assign(b - self._Abcs)
             # Now we need to apply the boundary conditions to the "RHS"
             for bc in self.A.bcs:
                 bc.apply(b_bc)
