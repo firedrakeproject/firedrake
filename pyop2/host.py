@@ -558,7 +558,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         buf_type = self.data.ctype
         dim = len(size)
         compiler = coffee.plan.compiler
-        isa = coffee.plan.intrinsics
+        isa = coffee.plan.isa
         align = compiler['align'](isa["alignment"]) if compiler and size[-1] % isa["dp_reg"] == 0 else ""
         init_expr = " = " + "{" * dim + "0.0" + "}" * dim if self.access in [WRITE, INC] else ""
         if not init:
@@ -646,7 +646,7 @@ class JITModule(base.JITModule):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
 
         compiler = coffee.plan.compiler
-        blas = coffee.plan.blas_interface
+        blas = coffee.plan.blas
         blas_header, blas_namespace, externc_open, externc_close = ("", "", "", "")
         if self._kernel._applied_blas:
             blas_header = blas.get('header')
@@ -708,7 +708,7 @@ class JITModule(base.JITModule):
                    ["-I%s" % d for d in self._kernel._include_dirs] + \
                    ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
         if compiler:
-            cppargs += [compiler[coffee.plan.intrinsics['inst_set']]]
+            cppargs += [compiler[coffee.plan.isa['inst_set']]]
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
