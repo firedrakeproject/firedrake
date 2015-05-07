@@ -2,6 +2,7 @@ import numpy as np
 import os
 import FIAT
 import ufl
+import weakref
 
 from pyop2 import op2
 from pyop2.profiling import timed_function, timed_region, profile
@@ -401,15 +402,19 @@ class Mesh(object):
             # HACK alert!
             # Replace coordinate Function by one that has a real domain on it (but don't copy values)
             self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat)
-            # Add domain and subdomain_data to the measure objects we store with the mesh.
-            self._dx = ufl.Measure('cell', domain=self, subdomain_data=self.coordinates)
-            self._ds = ufl.Measure('exterior_facet', domain=self, subdomain_data=self.coordinates)
-            self._dS = ufl.Measure('interior_facet', domain=self, subdomain_data=self.coordinates)
+            # Add subdomain_data to the measure objects we store with
+            # the mesh.  These are weakrefs for consistency with the
+            # "global" measure objects
+            self._dx = ufl.Measure('cell', subdomain_data=weakref.ref(self.coordinates))
+            self._ds = ufl.Measure('exterior_facet', subdomain_data=weakref.ref(self.coordinates))
+            self._dS = ufl.Measure('interior_facet', subdomain_data=weakref.ref(self.coordinates))
             # Set the subdomain_data on all the default measures to this
-            # coordinate field.  Also set the domain on the measure.
+            # coordinate field.
+            # We don't set the domain on the measure since this causes
+            # an uncollectable reference in the global space (dx is
+            # global).  Furthermore, it's never used anyway.
             for measure in [ufl.dx, ufl.ds, ufl.dS]:
-                measure._subdomain_data = self.coordinates
-                measure._domain = self.ufl_domain()
+                measure._subdomain_data = weakref.ref(self.coordinates)
         self._callback = callback
 
     def init(self):
@@ -839,18 +844,23 @@ class ExtrudedMesh(Mesh):
         # HACK alert!
         # Replace coordinate Function by one that has a real domain on it (but don't copy values)
         self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat)
-        self._dx = ufl.Measure('cell', domain=self, subdomain_data=self.coordinates)
-        self._ds = ufl.Measure('exterior_facet', domain=self, subdomain_data=self.coordinates)
-        self._dS = ufl.Measure('interior_facet', domain=self, subdomain_data=self.coordinates)
-        self._ds_t = ufl.Measure('exterior_facet_top', domain=self, subdomain_data=self.coordinates)
-        self._ds_b = ufl.Measure('exterior_facet_bottom', domain=self, subdomain_data=self.coordinates)
-        self._ds_v = ufl.Measure('exterior_facet_vert', domain=self, subdomain_data=self.coordinates)
-        self._dS_h = ufl.Measure('interior_facet_horiz', domain=self, subdomain_data=self.coordinates)
-        self._dS_v = ufl.Measure('interior_facet_vert', domain=self, subdomain_data=self.coordinates)
-        # Set the subdomain_data on all the default measures to this coordinate field.
+        # Add subdomain_data to the measure objects we store with
+        # the mesh.  These are weakrefs for consistency with the
+        # "global" measure objects
+        self._dx = ufl.Measure('cell', subdomain_data=weakref.ref(self.coordinates))
+        self._ds = ufl.Measure('exterior_facet', subdomain_data=weakref.ref(self.coordinates))
+        self._dS = ufl.Measure('interior_facet', subdomain_data=weakref.ref(self.coordinates))
+        self._ds_t = ufl.Measure('exterior_facet_top', subdomain_data=weakref.ref(self.coordinates))
+        self._ds_b = ufl.Measure('exterior_facet_bottom', subdomain_data=weakref.ref(self.coordinates))
+        self._ds_v = ufl.Measure('exterior_facet_vert', subdomain_data=weakref.ref(self.coordinates))
+        self._dS_h = ufl.Measure('interior_facet_horiz', subdomain_data=weakref.ref(self.coordinates))
+        self._dS_v = ufl.Measure('interior_facet_vert', subdomain_data=weakref.ref(self.coordinates))
+        # Set the subdomain_data on all the default measures to this
+        # coordinate field.  We don't set the domain on the measure
+        # since this causes an uncollectable reference in the global
+        # space (dx is global).  Furthermore, it's never used anyway.
         for measure in [ufl.ds, ufl.dS, ufl.dx, ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
-            measure._subdomain_data = self.coordinates
-            measure._domain = self.ufl_domain()
+            measure._subdomain_data = weakref.ref(self.coordinates)
 
     @property
     def cell_closure(self):
