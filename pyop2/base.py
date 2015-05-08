@@ -57,7 +57,7 @@ from sparsity import build_sparsity
 from version import __version__ as version
 
 from coffee.base import Node
-from coffee.utils import visit as ast_visit
+from coffee.visitors import FindInstances
 from coffee import base as ast
 
 
@@ -3903,8 +3903,7 @@ class ParLoop(LazyComputation):
         # access descriptors, if they were to have changed, the kernel
         # would be invalid for this par_loop.
         if not self._kernel._attached_info and hasattr(self._kernel, '_ast') and self._kernel._ast:
-            ast_info = ast_visit(self._kernel._ast, search=ast.FunDecl)
-            fundecl = ast_info['search'][ast.FunDecl]
+            fundecl = FindInstances(ast.FunDecl).visit(self._kernel._ast)[ast.FunDecl]
             if len(fundecl) == 1:
                 for arg, f_arg in zip(self._actual_args, fundecl[0].args):
                     if arg._uses_itspace and arg._is_INC:
