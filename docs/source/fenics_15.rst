@@ -21,9 +21,15 @@ a high productivity computational environment for finite element problems.
 Programme
 ---------
 
-The workshop will run from Monday afternoon until the end of
-Wednesday. This should allow for plenty of talk slots as well as a lot
-of time for discussions in smaller and larger groups.
+`The schedule is now online <http://easychair.org/smart-program/FEniCS'15/index.html>`_.
+
+* **Keynote lecture:** `Dr Jennifer Ryan <https://www.uea.ac.uk/mathematics/people/profile/jennifer-ryan>`_, University of East Anglia.
+* **Public lecture:** `Prof. Anders Logg <http://www.math.chalmers.se/~logg/>`_, Chalmers University.
+* **Featured talks:**
+   * `Dr Jack Hale <http://wwwen.uni.lu/recherche/fstc/research_unit_in_engineering_science_rues/members/jack_hale>`_ University of Luxembourg.
+   * `Dr Marie Rognes <http://www.simula.no/people/meg>`_ Simula Research Laboratory.
+   * `Dr Lawrence Mitchell <http://www.imperial.ac.uk/people/lawrence.mitchell>`_ Imperial College London.
+
 
 .. image:: _static/doggetts_terrace.jpg
    :width: 25%
@@ -45,11 +51,6 @@ Location
 The workshop will be held in the Huxley Building on Imperial College's
 main South Kensington campus. The street address is 180 Queen's Gate, London SW7 2RH.
 
-Call for abstracts
-------------------
-
-Abstract submission is `now open at EasyChair <https://easychair.org/conferences/?conf=fenics15>`_. The deadline for
-abstract submission is **30 April 2015**.
 
 Registration
 ------------
