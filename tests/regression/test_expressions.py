@@ -466,6 +466,18 @@ def test_vector_increment_fails():
     assert np.allclose(e.n, 1.0)
 
 
+def test_tensor_increment_fails():
+    e = Expression('n', n=[[1.0, 1.0], [1.0, 1.0]])
+
+    with pytest.raises((ValueError, RuntimeError)):
+        e.n += 1
+
+    with pytest.raises((ValueError, RuntimeError)):
+        e.n[0] += 2
+
+    assert np.allclose(e.n, 1.0)
+
+
 @pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
                          ids=lambda v: "(f = %d)" % v)
 @pytest.mark.parametrize('expr', ['f',
