@@ -840,8 +840,7 @@ class JITModule(base.JITModule):
             _buf_size = list(self._itspace._extents)
             if not arg._is_mat:
                 # Readjust size to take into account the size of a vector space
-                dim = arg.data.dim
-                _dat_size = [s[0] for s in dim] if len(arg.data.dim) > 1 else dim
+                _dat_size = (arg.data.cdim, )
                 # Only adjust size if not flattening (in which case the buffer is extents*dat.dim)
                 if not arg._flatten:
                     _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
