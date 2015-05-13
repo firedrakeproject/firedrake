@@ -215,8 +215,13 @@ class Function(ufl.Coefficient):
             d = 0
             for fs, dat, dim in zip(self.function_space(), self.dat, dims):
                 idx = d if fs.rank == 0 else slice(d, d+dim)
+                if fs.rank == 0:
+                    code = expression.code[idx]
+                else:
+                    # Reshape so the sub-expression we build has the right shape.
+                    code = expression.code[idx].reshape(fs.ufl_element().value_shape())
                 self._interpolate(fs, dat,
-                                  expression_t.Expression(expression.code[idx],
+                                  expression_t.Expression(code,
                                                           **expression._kwargs),
                                   subset)
                 d += dim
@@ -260,7 +265,7 @@ class Function(ufl.Coefficient):
             args = [kernel, subset or self.cell_set,
                     dat(op2.WRITE, fs.cell_node_map()),
                     coords.dat(op2.READ, coords.cell_node_map())]
-        elif expression.code:
+        elif expression.code is not None:
             kernel = self._interpolate_c_kernel(expression,
                                                 to_pts, to_element, fs, coords)
             args = [kernel, subset or self.cell_set,
@@ -340,7 +345,7 @@ class Function(ufl.Coefficient):
             # FS will always either be a functionspace or
             # vectorfunctionspace, so just accessing dim here is safe
             # (we don't need to go through ufl_element.value_shape())
-            "nfdof": to_element.space_dimension() * fs.dim,
+            "nfdof": to_element.space_dimension() * np.prod(fs.dim, dtype=int),
             "ndof": to_element.space_dimension(),
             "assign_dim": np.prod(expression.value_shape(), dtype=int)
         }
