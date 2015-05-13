@@ -383,10 +383,10 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
         else:
             # The extruded case needs a little more work.
             layers = pair[0].iterset.layers
-            # We only need the *2 if we have an ON_INTERIOR_FACETS
+            # We only need the *4 if we have an ON_INTERIOR_FACETS
             # iteration region, but it doesn't hurt to make them all
             # bigger, since we can special case less code below.
-            PetscCalloc1(2*rarity*carity*rdim*cdim, &values)
+            PetscCalloc1(4*rarity*carity*rdim*cdim, &values)
             # Row values (generally only rarity of these)
             PetscMalloc1(2 * rarity, &rvals)
             # Col values (generally only rarity of these)
@@ -395,6 +395,8 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
             PetscMalloc1(rarity, &roffset)
             PetscMalloc1(carity, &coffset)
             # Walk over the iteration regions on this map.
+            if pair[0].iteration_region != pair[1].iteration_region:
+                raise NotImplementedError("fill_with_zeros: iteration regions of row and col maps don't match")
             for r in pair[0].iteration_region:
                 # Default is "ALL"
                 layer_start = 0
