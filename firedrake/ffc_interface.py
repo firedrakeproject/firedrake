@@ -192,6 +192,8 @@ class FFCKernel(DiskCached):
         inc = [path.dirname(__file__)]
         try:
             ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters)
+            if len(ffc_tree) == 0:
+                raise EmptyIntegrandError
             kernels = []
             # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
