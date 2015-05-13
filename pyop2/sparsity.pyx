@@ -57,6 +57,14 @@ cdef extern from "petsc.h":
                           PetscScalar*, PetscInsertMode)
 
 
+cdef object set_writeable(map):
+     flag = map.values_with_halo.flags['WRITEABLE']
+     map.values_with_halo.setflags(write=True)
+     return flag
+
+cdef void restore_writeable(map, flag):
+     map.values_with_halo.setflags(write=flag)
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline void add_entries(rset, rmap, cset, cmap,
@@ -245,7 +253,10 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
                 rdim = 1
             else:
                 rdim = rset[r].cdim
+            # Memoryviews require writeable buffers
+            rflag = set_writeable(rmap)
             for c, cmap in enumerate(cmaps):
+                cflag = set_writeable(cmap)
                 if not diag[c][row_offset].capacity():
                     if should_block:
                         ncols = cset[c].size
@@ -278,8 +289,10 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
                                 row_offset,
                                 diag[c], odiag[c],
                                 should_block)
+                restore_writeable(cmap, cflag)
             # Increment only by owned rows
             row_offset += rset[r].size * rdim
+            restore_writeable(rmap, rflag)
 
     cdef np.ndarray[PetscInt, ndim=1] nnz = np.zeros(nrows, dtype=PETSc.IntType)
     cdef np.ndarray[PetscInt, ndim=1] onnz = np.zeros(nrows, dtype=PETSc.IntType)
@@ -365,6 +378,9 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
         set_size = pair[0].iterset.exec_size
         if set_size == 0:
             continue
+        # Memoryviews require writeable buffers
+        rflag = set_writeable(pair[0])
+        cflag = set_writeable(pair[1])
         # Map values
         rmap = pair[0].values_with_halo
         cmap = pair[1].values_with_halo
@@ -448,6 +464,8 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
             PetscFree(cvals)
             PetscFree(roffset)
             PetscFree(coffset)
+        restore_writeable(pair[0], rflag)
+        restore_writeable(pair[1], cflag)
         PetscFree(values)
     # Aaaand, actually finalise the assembly.
     mat.assemble()
