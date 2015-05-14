@@ -10,7 +10,14 @@ def V():
     return V
 
 
-def test_firedrake_function(V):
+@pytest.fixture
+def W():
+    mesh = UnitSquareMesh(5, 5)
+    W = TensorFunctionSpace(mesh, "CG", 1)
+    return W
+
+
+def test_firedrake_scalar_function(V):
     f = Function(V)
     f.interpolate(Expression("1"))
     assert (f.dat.data_ro == 1.0).all()
@@ -25,12 +32,32 @@ def test_firedrake_function(V):
     assert (g.dat.data_ro == 1.0).all()
 
 
+def test_firedrake_tensor_function(W):
+    f = Function(W)
+    f.interpolate(Expression([["1", "2"], ["10", "20"]]))
+    print f.dat.data_ro
+    assert (f.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
+
+    g = Function(f)
+    assert (g.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
+
+    # Check that g is indeed a deep copy
+    f.interpolate(Expression([["5", "6"], ["7", "8"]]))
+
+    assert (f.dat.data_ro == np.array([[5.0, 6.0], [7.0, 8.0]])).all()
+    assert (g.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
+
+
 def test_mismatching_rank_interpolation(V):
     f = Function(V)
     with pytest.raises(RuntimeError):
         f.interpolate(Expression(('1', '2')))
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
+    with pytest.raises(RuntimeError):
+        f.interpolate(Expression(('1', '2')))
+    VVV = TensorFunctionSpace(V.mesh(), 'CG', 1)
+    f = Function(VVV)
     with pytest.raises(RuntimeError):
         f.interpolate(Expression(('1', '2')))
 
