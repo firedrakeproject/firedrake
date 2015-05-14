@@ -17,6 +17,13 @@ def W():
     return W
 
 
+@pytest.fixture
+def W_nonstandard_shape():
+    mesh = UnitSquareMesh(5, 5)
+    W_nonstandard_shape = TensorFunctionSpace(mesh, "CG", 1, shape=(2, 5, 3))
+    return W_nonstandard_shape
+
+
 def test_firedrake_scalar_function(V):
     f = Function(V)
     f.interpolate(Expression("1"))
@@ -35,7 +42,6 @@ def test_firedrake_scalar_function(V):
 def test_firedrake_tensor_function(W):
     f = Function(W)
     f.interpolate(Expression([["1", "2"], ["10", "20"]]))
-    print f.dat.data_ro
     assert (f.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
 
     g = Function(f)
@@ -46,6 +52,27 @@ def test_firedrake_tensor_function(W):
 
     assert (f.dat.data_ro == np.array([[5.0, 6.0], [7.0, 8.0]])).all()
     assert (g.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
+
+
+def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
+    f = Function(W_nonstandard_shape)
+    f.interpolate(Expression([[["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"]],
+    [["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"]]]))
+    assert (f.dat.data_ro == np.array([[[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]],
+    [[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]]])).all()
+
+    g = Function(f)
+    assert (g.dat.data_ro == np.array([[[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]],
+    [[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]]])).all()
+
+    # Check that g is indeed a deep copy
+    f.interpolate(Expression([[["10", "20", "30"], ["40", "50", "60"], ["70", "80", "90"], ["100", "110", "120"], ["130", "140", "150"]],
+    [["10", "20", "30"], ["40", "50", "60"], ["70", "80", "90"], ["100", "110", "120"], ["130", "140", "150"]]]))
+
+    assert (f.dat.data_ro == np.array([[[10, 20, 30], [40, 50, 60], [70, 80, 90], [100, 110, 120], [130, 140, 150]],
+    [[10, 20, 30], [40, 50, 60], [70, 80, 90], [100, 110, 120], [130, 140, 150]]])).all()
+    assert (g.dat.data_ro == np.array([[[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]],
+    [[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]]])).all()
 
 
 def test_mismatching_rank_interpolation(V):
