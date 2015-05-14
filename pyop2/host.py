@@ -419,7 +419,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                         'dim': m.arity,
                                         'ind': idx,
                                         'dat_dim': d.cdim,
-                                        'ind_flat': m.arity * k + idx,
+                                        'ind_flat': (2 if is_facet else 1) * m.arity * k + idx,
                                         'offset': ' + '+str(k) if k > 0 else '',
                                         'off_top': ' + start_layer * '+str(m.offset[idx]) if is_top else ''})
                     else:
@@ -437,7 +437,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                             'dim': m.arity,
                                             'ind': idx,
                                             'dat_dim': d.cdim,
-                                            'ind_flat': m.arity * (k + d.cdim) + idx,
+                                            'ind_flat': m.arity * (k * 2 + 1) + idx,
                                             'offset': ' + '+str(k) if k > 0 else '',
                                             'off': ' + ' + str(m.offset[idx])})
                         else:
