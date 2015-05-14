@@ -33,11 +33,12 @@ def run_vector_test(x, degree=1, family='CG'):
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
-@pytest.mark.xfail
+
 def run_tensor_test(x, degree=1, family='CG'):
     m = UnitSquareMesh(2 ** x, 2 ** x)
     V = TensorFunctionSpace(m, family, degree)
-    expr = [['cos(x[0]*pi*2)*sin(x[1]*pi*2)', 'cos(x[0]*pi*2)*sin(x[1]*pi*2)']*2]
+    expr = [['cos(x[0]*pi*2)*sin(x[1]*pi*2)', 'cos(x[0]*pi*2)*sin(x[1]*pi*2)'],
+            ['cos(x[0]*pi*2)*sin(x[1]*pi*2)', 'cos(x[0]*pi*2)*sin(x[1]*pi*2)']]
     e = Expression(expr)
     exact = Function(TensorFunctionSpace(m, 'CG', 5))
     exact.interpolate(e)
@@ -46,7 +47,6 @@ def run_tensor_test(x, degree=1, family='CG'):
     # alternate syntax in which the target Function is already
     # available.
     ret = Function(V)
-    # FIXME: Cannot currently project onto TensorFunctionSpaces.
     project(e, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
@@ -93,7 +93,6 @@ def test_vector_convergence(degree, family, expected_convergence):
     assert (conv > expected_convergence).all()
 
 
-@pytest.mark.xfail
 @pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
     (1, 'CG', 1.8),
     (2, 'CG', 2.6),

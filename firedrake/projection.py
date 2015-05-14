@@ -63,8 +63,9 @@ def project(v, V, bcs=None, mesh=None,
                                                    deg+1,
                                                    dim=shape[0])
         else:
-            raise NotImplementedError(
-                "Don't know how to project onto tensor-valued function spaces")
+            fs = functionspace.TensorFunctionSpace(V.mesh(), 'DG',
+                                                   deg+1,
+                                                   shape=shape)
         f = function.Function(fs)
         f.interpolate(v)
         v = f
