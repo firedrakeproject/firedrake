@@ -26,23 +26,29 @@ def mesh():
                          ids=lambda x: 'f=(%d)' % x)
 @pytest.mark.parametrize('typ',
                          ['Function', 'Constant'])
-@pytest.mark.parametrize('vector',
-                         [False, True],
-                         ids=['scalar', 'vector'])
-def test_math_functions(mesh, expr, value, typ, vector):
+@pytest.mark.parametrize('fs_type',
+                         ['scalar', 'vector', 'tensor'])
+def test_math_functions(mesh, expr, value, typ, fs_type):
     if typ == 'Function':
-        if vector:
+        if fs_type == 'vector':
             V = VectorFunctionSpace(mesh, 'CG', 1)
+        elif fs_type == 'tensor':
+            V = TensorFunctionSpace(mesh, 'CG', 1)
         else:
             V = FunctionSpace(mesh, 'CG', 1)
         f = Function(V)
         f.assign(value)
-        if vector:
+        if fs_type == 'vector':
             f = dot(f, f)
+        elif fs_type == 'tensor':
+            f = inner(f, f)
     elif typ == 'Constant':
-        if vector:
+        if fs_type == 'vector':
             f = Constant([value, value], domain=mesh)
             f = dot(f, f)
+        elif fs_type == 'tensor':
+            f = Constant([[value, value], [value, value]], domain=mesh)
+            f = inner(f, f)
         else:
             f = Constant(value, domain=mesh)
 
