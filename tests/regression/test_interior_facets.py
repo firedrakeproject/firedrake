@@ -36,6 +36,32 @@ def test_interior_facet_solve_parallel():
     run_test()
 
 
+def test_interior_facet_vfs_horiz():
+    mesh = UnitSquareMesh(1, 2, quadrilateral=True)
+
+    U = VectorFunctionSpace(mesh, 'DG', 1)
+    w = TestFunction(U)
+    n = FacetNormal(mesh)
+
+    temp = assemble(jump(w, n)*dS).dat.data
+
+    assert np.all(temp[:, 0] == 0.0)
+    assert not np.all(temp[:, 1] == 0.0)
+
+
+def test_interior_facet_vfs_vert():
+    mesh = UnitSquareMesh(2, 1, quadrilateral=True)
+
+    U = VectorFunctionSpace(mesh, 'DG', 1)
+    w = TestFunction(U)
+    n = FacetNormal(mesh)
+
+    temp = assemble(jump(w, n)*dS).dat.data
+
+    assert not np.all(temp[:, 0] == 0.0)
+    assert np.all(temp[:, 1] == 0.0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
