@@ -1,5 +1,4 @@
 import pytest
-import itertools
 from firedrake import *
 
 
@@ -8,23 +7,29 @@ def mesh():
     return UnitSquareMesh(10, 10)
 
 
-@pytest.mark.parametrize(['expr', 'value', 'typ', 'vector'],
-                         itertools.product(['f',
-                                            '2*f',
-                                            'tanh(f)',
-                                            '2 * tanh(f)',
-                                            'f + tanh(f)',
-                                            'cos(f) + sin(f)',
-                                            'cos(f)*cos(f) + sin(f)*sin(f)',
-                                            'tanh(f) + cos(f) + sin(f)',
-                                            '1.0/tanh(f) + 1.0/f',
-                                            'sqrt(f*f)',
-                                            '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'],
-                                           [1, 10, 20, -1, -10, -20],
-                                           ['function', 'constant'],
-                                           [False, True]))
+@pytest.mark.parametrize('expr',
+                         ['f',
+                          '2*f',
+                          'tanh(f)',
+                          '2 * tanh(f)',
+                          'f + tanh(f)',
+                          'cos(f) + sin(f)',
+                          'cos(f)*cos(f) + sin(f)*sin(f)',
+                          'tanh(f) + cos(f) + sin(f)',
+                          '1.0/tanh(f) + 1.0/f',
+                          'sqrt(f*f)',
+                          '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'],
+                         ids=lambda x: 'expr=(%s)' % x)
+@pytest.mark.parametrize('value',
+                         [1, 10, 20, -1, -10, -20],
+                         ids=lambda x: 'f=(%d)' % x)
+@pytest.mark.parametrize('typ',
+                         ['Function', 'Constant'])
+@pytest.mark.parametrize('vector',
+                         [False, True],
+                         ids=['scalar', 'vector'])
 def test_math_functions(mesh, expr, value, typ, vector):
-    if typ == 'function':
+    if typ == 'Function':
         if vector:
             V = VectorFunctionSpace(mesh, 'CG', 1)
         else:
@@ -33,7 +38,7 @@ def test_math_functions(mesh, expr, value, typ, vector):
         f.assign(value)
         if vector:
             f = dot(f, f)
-    elif typ == 'constant':
+    elif typ == 'Constant':
         if vector:
             f = Constant([value, value], domain=mesh)
             f = dot(f, f)
