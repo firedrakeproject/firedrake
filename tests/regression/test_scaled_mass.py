@@ -111,9 +111,9 @@ def test_scalar_scaled_mass(m, value, typ, degree):
 
 
 @pytest.mark.parametrize("value",
-                         [pytest.mark.xfail(reason="COFFEE bug")(-1),
+                         [pytest.mark.xfail(reason="COFFEE bug #49")(-1),
                           1,
-                          pytest.mark.xfail(reason="COFFEE bug")(2)],
+                          pytest.mark.xfail(reason="COFFEE bug #49")(2)],
                          ids=lambda x: "Scaling[%d]" % x)
 @pytest.mark.parametrize("typ",
                          ["number", "Constant", "Function"],
@@ -153,9 +153,9 @@ def test_vector_scaled_mass(m, value, typ, degree, space):
 
 
 @pytest.mark.parametrize("value",
-                         [pytest.mark.xfail(reason="COFFEE bug")(-1),
+                         [pytest.mark.xfail(reason="COFFEE bug #49")(-1),
                           1,
-                          pytest.mark.xfail(reason="COFFEE bug")(2)],
+                          pytest.mark.xfail(reason="COFFEE bug #49")(2)],
                          ids=lambda x: "Scaling[%d]" % x)
 @pytest.mark.parametrize("typ",
                          ["number", "Constant", "Function"],
