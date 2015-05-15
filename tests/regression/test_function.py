@@ -41,38 +41,36 @@ def test_firedrake_scalar_function(V):
 
 def test_firedrake_tensor_function(W):
     f = Function(W)
-    f.interpolate(Expression([["1", "2"], ["10", "20"]]))
-    assert (f.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
+    vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)
+    f.interpolate(Expression(vals.astype("string")))
+    assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
-    assert (g.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
+    assert np.allclose(g.dat.data_ro, vals)
 
     # Check that g is indeed a deep copy
-    f.interpolate(Expression([["5", "6"], ["7", "8"]]))
+    fvals = np.array([5.0, 6.0, 7.0, 8.0]).reshape(2, 2)
+    f.interpolate(Expression(fvals.astype("string")))
 
-    assert (f.dat.data_ro == np.array([[5.0, 6.0], [7.0, 8.0]])).all()
-    assert (g.dat.data_ro == np.array([[1.0, 2.0], [10.0, 20.0]])).all()
+    assert np.allclose(f.dat.data_ro, fvals)
+    assert np.allclose(g.dat.data_ro, vals)
 
 
 def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
     f = Function(W_nonstandard_shape)
-    f.interpolate(Expression([[["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"]],
-    [["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"], ["3.5", "5.5", "7.5"]]]))
-    assert (f.dat.data_ro == np.array([[[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]],
-    [[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]]])).all()
+    vals = np.arange(1, W_nonstandard_shape.cdim+1).reshape(f.ufl_shape)
+    f.interpolate(Expression(vals.astype("string")))
+    assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
-    assert (g.dat.data_ro == np.array([[[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]],
-    [[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]]])).all()
+    assert np.allclose(g.dat.data_ro, vals)
 
     # Check that g is indeed a deep copy
-    f.interpolate(Expression([[["10", "20", "30"], ["40", "50", "60"], ["70", "80", "90"], ["100", "110", "120"], ["130", "140", "150"]],
-    [["10", "20", "30"], ["40", "50", "60"], ["70", "80", "90"], ["100", "110", "120"], ["130", "140", "150"]]]))
+    fvals = vals + 10
+    f.interpolate(Expression(fvals.astype("string")))
 
-    assert (f.dat.data_ro == np.array([[[10, 20, 30], [40, 50, 60], [70, 80, 90], [100, 110, 120], [130, 140, 150]],
-    [[10, 20, 30], [40, 50, 60], [70, 80, 90], [100, 110, 120], [130, 140, 150]]])).all()
-    assert (g.dat.data_ro == np.array([[[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]],
-    [[3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5], [3.5, 5.5, 7.5]]])).all()
+    assert np.allclose(f.dat.data_ro, fvals)
+    assert np.allclose(g.dat.data_ro, vals)
 
 
 def test_mismatching_rank_interpolation(V):
