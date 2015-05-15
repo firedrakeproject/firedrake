@@ -36,7 +36,7 @@ def test_interior_facet_solve_parallel():
     run_test()
 
 
-def test_interior_facet_vfs_horiz():
+def test_interior_facet_vfs_horiz_rhs():
     mesh = UnitSquareMesh(1, 2, quadrilateral=True)
 
     U = VectorFunctionSpace(mesh, 'DG', 1)
@@ -47,6 +47,10 @@ def test_interior_facet_vfs_horiz():
 
     assert np.all(temp[:, 0] == 0.0)
     assert not np.all(temp[:, 1] == 0.0)
+
+
+def test_interior_facet_vfs_horiz_lhs():
+    mesh = UnitSquareMesh(1, 2, quadrilateral=True)
 
     U = VectorFunctionSpace(mesh, 'DG', 0)
     u = TrialFunction(U)
@@ -61,7 +65,30 @@ def test_interior_facet_vfs_horiz():
     assert temp.M.values[3, 3] != 0.0
 
 
-def test_interior_facet_vfs_vert():
+def test_interior_facet_vfs_horiz_mixed():
+    mesh = UnitSquareMesh(1, 2, quadrilateral=True)
+
+    U = VectorFunctionSpace(mesh, 'DG', 0)
+    V = FunctionSpace(mesh, 'RTCF', 1)
+    W = U*V
+
+    u1, u2 = TrialFunctions(W)
+    v1, v2 = TestFunctions(W)
+
+    pp = assemble(dot(v1('+'), u2('+'))*dS)
+    pm = assemble(dot(v1('+'), u2('-'))*dS)
+    mp = assemble(dot(v1('-'), u2('+'))*dS)
+    mm = assemble(dot(v1('-'), u2('-'))*dS)
+
+    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
+    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
+    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
+    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
+    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
+    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
+
+
+def test_interior_facet_vfs_vert_rhs():
     mesh = UnitSquareMesh(2, 1, quadrilateral=True)
 
     U = VectorFunctionSpace(mesh, 'DG', 1)
@@ -72,6 +99,10 @@ def test_interior_facet_vfs_vert():
 
     assert not np.all(temp[:, 0] == 0.0)
     assert np.all(temp[:, 1] == 0.0)
+
+
+def test_interior_facet_vfs_vert_lhs():
+    mesh = UnitSquareMesh(2, 1, quadrilateral=True)
 
     U = VectorFunctionSpace(mesh, 'DG', 0)
     u = TrialFunction(U)
@@ -84,6 +115,29 @@ def test_interior_facet_vfs_vert():
     assert temp.M.values[1, 1] == 0.0
     assert temp.M.values[2, 2] != 0.0
     assert temp.M.values[3, 3] == 0.0
+
+
+def test_interior_facet_vfs_vert_mixed():
+    mesh = UnitSquareMesh(2, 1, quadrilateral=True)
+
+    U = VectorFunctionSpace(mesh, 'DG', 0)
+    V = FunctionSpace(mesh, 'RTCF', 1)
+    W = U*V
+
+    u1, u2 = TrialFunctions(W)
+    v1, v2 = TestFunctions(W)
+
+    pp = assemble(dot(v1('+'), u2('+'))*dS)
+    pm = assemble(dot(v1('+'), u2('-'))*dS)
+    mp = assemble(dot(v1('-'), u2('+'))*dS)
+    mm = assemble(dot(v1('-'), u2('-'))*dS)
+
+    assert not np.all(pp.M[0, 1].values == pm.M[0, 1].values)
+    assert not np.all(pp.M[0, 1].values == mp.M[0, 1].values)
+    assert not np.all(pp.M[0, 1].values == mm.M[0, 1].values)
+    assert not np.all(pm.M[0, 1].values == mp.M[0, 1].values)
+    assert not np.all(pm.M[0, 1].values == mm.M[0, 1].values)
+    assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
 
 
 if __name__ == '__main__':
