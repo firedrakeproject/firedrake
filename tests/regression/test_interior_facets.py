@@ -40,26 +40,50 @@ def test_interior_facet_vfs_horiz():
     mesh = UnitSquareMesh(1, 2, quadrilateral=True)
 
     U = VectorFunctionSpace(mesh, 'DG', 1)
-    w = TestFunction(U)
+    v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(w, n)*dS).dat.data
+    temp = assemble(jump(v, n)*dS).dat.data
 
     assert np.all(temp[:, 0] == 0.0)
     assert not np.all(temp[:, 1] == 0.0)
+
+    U = VectorFunctionSpace(mesh, 'DG', 0)
+    u = TrialFunction(U)
+    v = TestFunction(U)
+    n = FacetNormal(mesh)
+
+    temp = assemble(avg(dot(u, n)*dot(v, n))*dS)
+
+    assert temp.M.values[0, 0] == 0.0
+    assert temp.M.values[1, 1] != 0.0
+    assert temp.M.values[2, 2] == 0.0
+    assert temp.M.values[3, 3] != 0.0
 
 
 def test_interior_facet_vfs_vert():
     mesh = UnitSquareMesh(2, 1, quadrilateral=True)
 
     U = VectorFunctionSpace(mesh, 'DG', 1)
-    w = TestFunction(U)
+    v = TestFunction(U)
     n = FacetNormal(mesh)
 
-    temp = assemble(jump(w, n)*dS).dat.data
+    temp = assemble(jump(v, n)*dS).dat.data
 
     assert not np.all(temp[:, 0] == 0.0)
     assert np.all(temp[:, 1] == 0.0)
+
+    U = VectorFunctionSpace(mesh, 'DG', 0)
+    u = TrialFunction(U)
+    v = TestFunction(U)
+    n = FacetNormal(mesh)
+
+    temp = assemble(avg(dot(u, n)*dot(v, n))*dS)
+
+    assert temp.M.values[0, 0] != 0.0
+    assert temp.M.values[1, 1] == 0.0
+    assert temp.M.values[2, 2] != 0.0
+    assert temp.M.values[3, 3] == 0.0
 
 
 if __name__ == '__main__':
