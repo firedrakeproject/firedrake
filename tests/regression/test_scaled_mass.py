@@ -152,6 +152,42 @@ def test_vector_scaled_mass(m, value, typ, degree, space):
     assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
 
 
+@pytest.mark.parametrize("value",
+                         [pytest.mark.xfail(reason="COFFEE bug")(-1),
+                          1,
+                          pytest.mark.xfail(reason="COFFEE bug")(2)],
+                         ids=lambda x: "Scaling[%d]" % x)
+@pytest.mark.parametrize("typ",
+                         ["number", "Constant", "Function"],
+                         ids=lambda x: "Type=%s" % x)
+@pytest.mark.parametrize("degree",
+                         [0, 1, 2],
+                         ids=lambda x: "(%d)" % x)
+def test_tensor_scaled_mass(m, value, typ, degree):
+    if typ == "number":
+        c = value
+    elif typ == "Constant":
+        c = Constant(value)
+    elif typ == "Function":
+        V = FunctionSpace(m, "DG", 0)
+        c = Function(V)
+        c.assign(value)
+
+    V = TensorFunctionSpace(m, "DG", degree)
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    mass = assemble(inner(u, v)*dx)
+    scaled = assemble(c*inner(u, v)*dx)
+
+    assert np.allclose(mass.M.values * value, scaled.M.values)
+
+    scaled_sum = assemble(c*inner(u, v)*dx + inner(u, v)*dx)
+
+    assert np.allclose(mass.M.values * (value + 1), scaled_sum.M.values)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
