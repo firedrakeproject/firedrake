@@ -59,6 +59,11 @@ def vcg1(mesh):
 
 
 @pytest.fixture(scope='module')
+def tcg1(mesh):
+    return TensorFunctionSpace(mesh, "CG", 1)
+
+
+@pytest.fixture(scope='module')
 def cg1cg1(cg1):
     return cg1 * cg1
 

@@ -33,6 +33,12 @@ def vfs(request, vcg1, cg1vcg1):
             'cg1vcg1[1]': cg1vcg1[1]}[request.param]
 
 
+@pytest.fixture(scope='module', params=['tcg1'])
+def tfs(request, tcg1):
+    """A parametrized fixture for tensor function spaces."""
+    return {'tcg1': tcg1}[request.param]
+
+
 @pytest.fixture(scope='module', params=['cg1cg1', 'cg1vcg1', 'cg1dg0', 'cg2dg1'])
 def mfs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
     """A parametrized fixture for mixed function spaces."""
@@ -61,6 +67,11 @@ def vfunctions(request, vfs):
 
 
 @pytest.fixture()
+def tfunctions(request, tfs):
+    return func_factory(tfs)
+
+
+@pytest.fixture()
 def mfunctions(request, mfs):
     return func_factory(mfs)
 
@@ -81,13 +92,18 @@ def vf(vcg1):
 
 
 @pytest.fixture
+def tf(tcg1):
+    return Function(tcg1, name="tf")
+
+
+@pytest.fixture
 def mf(cg1, vcg1):
     return Function(cg1 * vcg1, name="mf")
 
 
-@pytest.fixture(params=permutations(['sf', 'vf', 'mf'], 2))
-def fs_combinations(sf, vf, mf, request):
-    funcs = {'sf': sf, 'vf': vf, 'mf': mf}
+@pytest.fixture(params=permutations(['sf', 'vf', 'tf', 'mf'], 2))
+def fs_combinations(sf, vf, tf, mf, request):
+    funcs = {'sf': sf, 'vf': vf, 'tf': tf, 'mf': mf}
     return [funcs[p] for p in request.param]
 
 
@@ -182,6 +198,12 @@ def test_scalar_expressions(expr, functions):
 @pytest.mark.parametrize('expr', common_tests)
 def test_vector_expressions(expr, vfunctions):
     f, one, two, minusthree = vfunctions
+    assert eval(expr)
+
+
+@pytest.mark.parametrize('expr', common_tests)
+def test_tensor_expressions(expr, tfunctions):
+    f, one, two, minusthree = tfunctions
     assert eval(expr)
 
 
@@ -434,6 +456,18 @@ def test_scalar_increment_fails():
 
 def test_vector_increment_fails():
     e = Expression('n', n=[1.0, 1.0])
+
+    with pytest.raises((ValueError, RuntimeError)):
+        e.n += 1
+
+    with pytest.raises((ValueError, RuntimeError)):
+        e.n[0] += 2
+
+    assert np.allclose(e.n, 1.0)
+
+
+def test_tensor_increment_fails():
+    e = Expression('n', n=[[1.0, 1.0], [1.0, 1.0]])
 
     with pytest.raises((ValueError, RuntimeError)):
         e.n += 1

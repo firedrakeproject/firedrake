@@ -19,7 +19,8 @@ import utils
 
 
 __all__ = ['FunctionSpace', 'VectorFunctionSpace',
-           'MixedFunctionSpace', 'IndexedFunctionSpace']
+           'TensorFunctionSpace', 'MixedFunctionSpace',
+           'IndexedFunctionSpace']
 
 
 class FunctionSpaceBase(ObjectCached):
@@ -171,7 +172,7 @@ class FunctionSpaceBase(ObjectCached):
         """The number of global degrees of freedom in the function
         space. Cf. :attr:`node_count`."""
 
-        return self._node_count*self._dim
+        return self._node_count*self.cdim
 
     @utils.cached_property
     def node_set(self):
@@ -440,19 +441,18 @@ class FunctionSpaceBase(ObjectCached):
 
     @property
     def dim(self):
-        """The vector dimension of the :class:`.FunctionSpace`. For a
+        """The dimension of the :class:`.FunctionSpace`. For a
         :class:`.FunctionSpace` this is always one. For a
         :class:`.VectorFunctionSpace` it is the value given to the
-        constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
+        constructor, and defaults to the geometric dimension of the :class:`Mesh`.
+        For a :class:`.TensorFunctionSpace` this is the shape of the
+        space."""
         return self._dim
 
     @property
     def cdim(self):
-        """The sum of the vector dimensions of the :class:`.FunctionSpace`. For a
-        :class:`.FunctionSpace` this is always one. For a
-        :class:`.VectorFunctionSpace` it is the value given to the
-        constructor, and defaults to the geometric dimension of the :class:`Mesh`. """
-        return self._dim
+        """The product of the :attr:`.dim` of the :class:`.FunctionSpace`."""
+        return np.prod(self.dim, dtype=int)
 
     def ufl_element(self):
         """The :class:`ufl.FiniteElement` used to construct this
@@ -592,6 +592,45 @@ class VectorFunctionSpace(FunctionSpaceBase):
     @classmethod
     def _cache_key(cls, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
         return family, degree, dim, vfamily, vdegree
+
+    def __getitem__(self, i):
+        """Return self if ``i`` is 0, otherwise raise an error."""
+        assert i == 0, "Can only extract subspace 0 from %r" % self
+        return self
+
+
+class TensorFunctionSpace(FunctionSpaceBase):
+    """
+    A tensor-valued :class:`FunctionSpace`.
+    """
+    def __init__(self, mesh, family, degree, shape=None, symmetry=None, name=None,
+                 vfamily=None, vdegree=None):
+        if mesh.ufl_cell().cellname() == "quadrilateral":
+            raise NotImplementedError("Cannot currently build a TensorFunctionSpace on a quadrilateral mesh.")
+
+        if self._initialized:
+            return
+        mesh.init()
+        # TensorFunctionSpace shape defaults to the (gdim, gdim)
+        shape = shape or (mesh.ufl_cell().geometric_dimension(), )*2
+
+        if isinstance(mesh, mesh_t.ExtrudedMesh):
+            raise NotImplementedError("TFS on extruded meshes not implemented")
+        else:
+            element = ufl.TensorElement(family, domain=mesh.ufl_domain(),
+                                        degree=degree, shape=shape,
+                                        symmetry=symmetry)
+        super(TensorFunctionSpace, self).__init__(mesh, element, name,
+                                                  dim=shape, rank=len(shape))
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        return (args[0], ) + args, kwargs
+
+    @classmethod
+    def _cache_key(cls, mesh, family, degree=None, shape=None, symmetry=None, name=None, vfamily=None, vdegree=None):
+        return family, degree, shape, symmetry, vfamily, vdegree
 
     def __getitem__(self, i):
         """Return self if ``i`` is 0, otherwise raise an error."""

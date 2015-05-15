@@ -118,14 +118,13 @@ class Expression(ufl.Coefficient):
         """
         # Init also called in mesh constructor, but expression can be built without mesh
         utils._init()
-        self.code = code
+        self.code = None
         self._shape = ()
         if code is not None:
-            shape = np.array(code).shape
-            self._shape = shape
-            if self.rank() == 0:
-                # Make code slot iterable even for scalar expressions
-                self.code = [code]
+            arr = np.array(code)
+            self._shape = arr.shape
+            # Flatten to something indexable for use.
+            self.code = arr.flatten()
         self.cell = cell
         self.degree = degree
         # These attributes are required by ufl.Coefficient to render the repr

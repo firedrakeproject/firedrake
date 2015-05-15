@@ -10,7 +10,21 @@ def V():
     return V
 
 
-def test_firedrake_function(V):
+@pytest.fixture
+def W():
+    mesh = UnitSquareMesh(5, 5)
+    W = TensorFunctionSpace(mesh, "CG", 1)
+    return W
+
+
+@pytest.fixture
+def W_nonstandard_shape():
+    mesh = UnitSquareMesh(5, 5)
+    W_nonstandard_shape = TensorFunctionSpace(mesh, "CG", 1, shape=(2, 5, 3))
+    return W_nonstandard_shape
+
+
+def test_firedrake_scalar_function(V):
     f = Function(V)
     f.interpolate(Expression("1"))
     assert (f.dat.data_ro == 1.0).all()
@@ -25,12 +39,50 @@ def test_firedrake_function(V):
     assert (g.dat.data_ro == 1.0).all()
 
 
+def test_firedrake_tensor_function(W):
+    f = Function(W)
+    vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)
+    f.interpolate(Expression(vals.astype("string")))
+    assert np.allclose(f.dat.data_ro, vals)
+
+    g = Function(f)
+    assert np.allclose(g.dat.data_ro, vals)
+
+    # Check that g is indeed a deep copy
+    fvals = np.array([5.0, 6.0, 7.0, 8.0]).reshape(2, 2)
+    f.interpolate(Expression(fvals.astype("string")))
+
+    assert np.allclose(f.dat.data_ro, fvals)
+    assert np.allclose(g.dat.data_ro, vals)
+
+
+def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
+    f = Function(W_nonstandard_shape)
+    vals = np.arange(1, W_nonstandard_shape.cdim+1).reshape(f.ufl_shape)
+    f.interpolate(Expression(vals.astype("string")))
+    assert np.allclose(f.dat.data_ro, vals)
+
+    g = Function(f)
+    assert np.allclose(g.dat.data_ro, vals)
+
+    # Check that g is indeed a deep copy
+    fvals = vals + 10
+    f.interpolate(Expression(fvals.astype("string")))
+
+    assert np.allclose(f.dat.data_ro, fvals)
+    assert np.allclose(g.dat.data_ro, vals)
+
+
 def test_mismatching_rank_interpolation(V):
     f = Function(V)
     with pytest.raises(RuntimeError):
         f.interpolate(Expression(('1', '2')))
     VV = VectorFunctionSpace(V.mesh(), 'CG', 1)
     f = Function(VV)
+    with pytest.raises(RuntimeError):
+        f.interpolate(Expression(('1', '2')))
+    VVV = TensorFunctionSpace(V.mesh(), 'CG', 1)
+    f = Function(VVV)
     with pytest.raises(RuntimeError):
         f.interpolate(Expression(('1', '2')))
 
