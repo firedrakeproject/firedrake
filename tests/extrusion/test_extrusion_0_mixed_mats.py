@@ -3,9 +3,6 @@ import numpy as np
 from firedrake import *
 
 
-xfail = pytest.mark.xfail
-
-
 @pytest.fixture(scope='module')
 def m(request):
     return ExtrudedMesh(UnitTriangleMesh(), layers=2, layer_height=0.5)
