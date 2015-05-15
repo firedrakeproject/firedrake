@@ -621,7 +621,7 @@ class TensorFunctionSpace(FunctionSpaceBase):
                                         degree=degree, shape=shape,
                                         symmetry=symmetry)
         super(TensorFunctionSpace, self).__init__(mesh, element, name,
-                                                  dim=shape, rank=2)
+                                                  dim=shape, rank=len(shape))
         self._initialized = True
 
     @classmethod
