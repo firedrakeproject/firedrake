@@ -86,10 +86,19 @@ class Compiler(object):
         # atomically (avoiding races).
         tmpname = os.path.join(cachedir, "%s.so.tmp" % basename)
 
-        if configuration['debug']:
+        if configuration['check_src_hashes'] or configuration['debug']:
             basenames = MPI.comm.allgather(basename)
             if not all(b == basename for b in basenames):
-                raise CompilationError('Hashes of generated code differ on different ranks')
+                # Dump all src code to disk for debugging
+                output = os.path.join(cachedir, basenames[0])
+                src = os.path.join(output, "src-rank%d.c" % MPI.comm.rank)
+                if MPI.comm.rank == 0:
+                    if not os.path.exists(output):
+                        os.makedirs(output)
+                MPI.comm.barrier()
+                with open(src, "w") as f:
+                    f.write(src)
+                raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
         try:
             # Are we in the cache?
             return ctypes.CDLL(soname)
