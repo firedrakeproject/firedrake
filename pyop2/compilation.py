@@ -91,12 +91,12 @@ class Compiler(object):
             if not all(b == basename for b in basenames):
                 # Dump all src code to disk for debugging
                 output = os.path.join(cachedir, basenames[0])
-                src = os.path.join(output, "src-rank%d.c" % MPI.comm.rank)
+                srcfile = os.path.join(output, "src-rank%d.c" % MPI.comm.rank)
                 if MPI.comm.rank == 0:
                     if not os.path.exists(output):
                         os.makedirs(output)
                 MPI.comm.barrier()
-                with open(src, "w") as f:
+                with open(srcfile, "w") as f:
                     f.write(src)
                 raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
         try:
