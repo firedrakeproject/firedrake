@@ -11,31 +11,30 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 
 from subprocess import check_call
-from sys import executable
-from functools import wraps
-from inspect import getsourcefile
 from mpi4py import MPI
+from functools import wraps
 
 
-def parallel(nprocs=3):
-    """Run a test in parallel
-    :arg nprocs: The number of processes to run.
+def parallel(item):
+    """Run a test in parallel.
 
-    .. note ::
-        Parallel tests need to either be in the same folder as the utils
-        module or the test folder needs to be on the PYTHONPATH."""
-    def _parallel_test(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            if MPI.COMM_WORLD.size > 1:
-                fn(*args, **kwargs)
-            else:
-                check_call(' '.join(['mpiexec', '-n', '%d' % nprocs, executable,
-                                     '-c', '"import %s; %s.%s()"' %
-                                     (fn.__module__, fn.__module__, fn.__name__)]),
-                           cwd=os.path.dirname(getsourcefile(fn)), shell=True)
-        return wrapper
-    return _parallel_test
+    :arg item: The test item to run.
+    """
+    if MPI.COMM_WORLD.size > 1:
+        raise RuntimeError("parallel test can't be run within parallel environment")
+    marker = item.get_marker("parallel")
+    if marker is None:
+        raise RuntimeError("Parallel test doesn't have parallel marker")
+    nprocs = marker.kwargs.get("nprocs", 3)
+    if nprocs < 2:
+        raise RuntimeError("Need at least two processes to run parallel test")
+
+    # Only spew tracebacks on rank 0.
+    # Run xfailing tests to ensure that errors are reported to calling process
+    zerocall = " ".join(["py.test", "--runxfail", "-s", "-q", str(item.fspath), "-k", item.name])
+    restcall = " ".join(["py.test", "--runxfail", "--tb=no", "-q", str(item.fspath), "-k", item.name])
+    call = "mpiexec -n 1 %s : -n %d %s" % (zerocall, nprocs - 1, restcall)
+    check_call(call, shell=True)
 
 
 def pytest_addoption(parser):
@@ -50,10 +49,37 @@ def pytest_configure(config):
         "parallel(nprocs): mark test to run in parallel on nprocs processors")
 
 
+def check_src_hashes(fn):
+    """Decorator that turns on PyOP2 option to check for source hashes.
+
+    Used in parallel tests."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        from firedrake.parameters import parameters
+        val = parameters["pyop2_options"]["check_src_hashes"]
+        try:
+            parameters["pyop2_options"]["check_src_hashes"] = True
+            return fn(*args, **kwargs)
+        finally:
+            parameters["pyop2_options"]["check_src_hashes"] = val
+    return wrapper
+
+
 def pytest_runtest_setup(item):
-    run_parallel = item.keywords.get("parallel", None)
-    if run_parallel:
-        item._obj = parallel(run_parallel.kwargs.get('nprocs', 3))(item._obj)
+    if item.get_marker("parallel"):
+        if MPI.COMM_WORLD.size > 1:
+            # Ensure source hash checking is enabled.
+            item.obj = check_src_hashes(item.obj)
+        else:
+            # Blow away function arg in "master" process, to ensure
+            # this test isn't run on only one process.
+            item.obj = lambda *args, **kwargs: True
+
+
+def pytest_runtest_call(item):
+    if item.get_marker("parallel") and MPI.COMM_WORLD.size == 1:
+        # Spawn parallel processes to run test
+        parallel(item)
 
 
 def pytest_cmdline_preparse(config, args):
