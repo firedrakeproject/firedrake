@@ -30,9 +30,8 @@ def mesh(request):
                          "2*mu_s*inner(outer(v, n), grad(u))*ds"),
                         ("-(inner(outer(v, n), dot(grad(u), mu)) + inner(outer(u, n), dot(grad(v), mu)))*ds",
                          "-2*mu_s*inner(outer(v, n), grad(u))*ds"),
-                        pytest.mark.xfail(reason="COFFEE bug #45")(
-                            ("(-inner(outer(v, n), dot(grad(u), mu)) - inner(outer(u, n), dot(grad(v), mu)))*ds",
-                             "-2*mu_s*inner(outer(v, n), grad(u))*ds"))],
+                        ("(-inner(outer(v, n), dot(grad(u), mu)) - inner(outer(u, n), dot(grad(v), mu)))*ds",
+                         "-2*mu_s*inner(outer(v, n), grad(u))*ds")],
                 ids=lambda x: x[0])
 def form_expect(request, mesh):
     dim = mesh.ufl_cell().geometric_dimension()
