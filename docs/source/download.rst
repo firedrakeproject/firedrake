@@ -97,7 +97,8 @@ Firedrake will perform entirely correctly without this package, but
 will be less efficient for tight time-stepping loops.
 
 In order to have the form assembly cache operate in the most automatic
-fashion possible, you are also advised to install psutil::
+fashion possible, you are also advised to install psutil (version 2.0.0
+or newer is required)::
 
   sudo pip install psutil
 

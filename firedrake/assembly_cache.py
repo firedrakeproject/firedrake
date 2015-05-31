@@ -48,7 +48,7 @@ try:
     memory = np.array([psutil.virtual_memory().total/psutil.cpu_count()])
     if MPI.comm.size > 1:
         MPI.comm.Allreduce(_MPI.IN_PLACE, memory, _MPI.MIN)
-except ImportError:
+except (ImportError, AttributeError):
     memory = None
 
 
@@ -240,7 +240,7 @@ guaranteed to result in the same evictions on each processor.
 
         if max_cache_size == float("inf"):
             if not self.evictwarned:
-                warning("No maximum assembly cache size. Install psutil or risk leaking memory!")
+                warning("No maximum assembly cache size. Install psutil >= 2.0.0 or risk leaking memory!")
                 self.evictwarned = True
             return
 
