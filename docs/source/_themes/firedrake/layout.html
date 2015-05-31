@@ -29,7 +29,7 @@
 {# override upper relbar to show our navigation menu #}
 {% block relbar1 %}
 <div class="wrapper">
-  {% if pagename == "fenics_15" %}
+  {% if pagename[:9] == "fenics_15" %}
   <a href="{{ pathto('fenics_15.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner_fenics_15', 'png'), 1) }}" width="900px" alt="firedrake Project Banner" /></a>
   {% else %}
   <a href="{{ pathto('index.html', 1) }}"><img src="{{ pathto('_static/%s.%s' % ('banner', 'png'), 1) }}" width="900px" alt="firedrake Project Banner" /></a>
@@ -37,7 +37,7 @@
   <div id="access">
     <div class="menu">
       <ul>
-        {% if pagename == "fenics_15" %}
+        {% if pagename[:9] == "fenics_15" %}
           <li class="page_item"><a href="{{ pathto('index.html', 1) }}" title="Documentation for Firedrake">Firedrake Homepage</a></li>
         {% else %}
           <li class="page_item"><a href="{{ pathto('fenics_15.html', 1) }}" title="2015 FEniCS Workshop at Imperial">FEniCS '15</a></li>

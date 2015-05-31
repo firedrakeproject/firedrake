@@ -4,7 +4,7 @@
 
 .. image:: _static/queens_tower_narrow.jpg
    :width: 30%
-   :alt: alternate text
+   :alt: Queen's Tower, Imperial College
    :align: right
 
 The :doc:`Firedrake project <index>` is proud to host the 2015 FEniCS
@@ -43,13 +43,18 @@ The workshop dinner will be a terrace barbeque at `Doggett's Coat and
 Badge
 <http://www.nicholsonspubs.co.uk/doggettscoatandbadgesouthbanklondon/>`_
 featuring views across the Thames to St Paul's Cathedral and a fine
-selection of English real ales and other delights.
+selection of English real ales and other delights. For information on
+getting to Doggett's, see :ref:`the directions <to-doggetts>`.
 
-Location
-~~~~~~~~
+
+Location and travel
+~~~~~~~~~~~~~~~~~~~
 
 The workshop will be held in the Huxley Building on Imperial College's
-main South Kensington campus. The street address is 180 Queen's Gate, London SW7 2RH.
+main South Kensington campus. The street address is 180 Queen's Gate,
+London SW7 2RH. For information on getting to the venue, including
+Transport for London tickets, see :doc:`the directions page
+<fenics_15_directions>`.
 
 
 Registration
