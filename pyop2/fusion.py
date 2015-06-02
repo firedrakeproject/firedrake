@@ -52,7 +52,8 @@ from utils import flatten, strip, as_tuple
 
 import coffee
 from coffee import base as ast
-from coffee.utils import visit as ast_visit, ast_make_alias
+from coffee.utils import ast_make_alias
+from coffee.visitors import FindInstances, SymbolReferences
 
 try:
     import slope_python as slope
@@ -762,15 +763,15 @@ class Inspector(Cached):
             fuse_asts = [k._original_ast if k._code else k._ast for k in kernels]
             # Fuse the actual kernels' bodies
             base_ast = dcopy(fuse_asts[0])
-            base_info = ast_visit(base_ast, search=ast.FunDecl)
-            base_fundecl = base_info['search'][ast.FunDecl]
+            retval = FindInstances.default_retval()
+            base_fundecl = FindInstances(ast.FunDecl).visit(base_ast, ret=retval)[ast.FunDecl]
             if len(base_fundecl) != 1:
                 raise RuntimeError("Fusing kernels, but found unexpected AST")
             base_fundecl = base_fundecl[0]
             for unique_id, _fuse_ast in enumerate(fuse_asts[1:], 1):
                 fuse_ast = dcopy(_fuse_ast)
-                fuse_info = ast_visit(fuse_ast, search=ast.FunDecl)
-                fuse_fundecl = fuse_info['search'][ast.FunDecl]
+                retval = FindInstances.default_retval()
+                fuse_fundecl = FindInstances(ast.FunDecl).visit(fuse_ast, ret=retval)[ast.FunDecl]
                 if len(fuse_fundecl) != 1:
                     raise RuntimeError("Fusing kernels, but found unexpected AST")
                 fuse_fundecl = fuse_fundecl[0]
@@ -779,7 +780,8 @@ class Inspector(Cached):
                 # 2) Concatenate the arguments in the signature
                 base_fundecl.args.extend(fuse_fundecl.args)
                 # 3) Uniquify symbols identifiers
-                fuse_symbols = fuse_info['symbol_refs']
+                retval = SymbolReferences.default_retval()
+                fuse_symbols = SymbolReferences().visit(fuse_ast, ret=retval)
                 for decl in fuse_fundecl.args:
                     for symbol, _ in fuse_symbols[decl.sym.symbol]:
                         symbol.symbol = "%s_%d" % (symbol.symbol, unique_id)
@@ -918,14 +920,17 @@ class Inspector(Cached):
             # are provided for computation on iteration spaces)
             base, fuse = base_loop.kernel, fuse_loop.kernel
             base_ast = dcopy(base._original_ast) if base._code else dcopy(base._ast)
-            base_info = ast_visit(base_ast, search=(ast.FunDecl, ast.PreprocessNode))
-            base_headers = base_info['search'][ast.PreprocessNode]
-            base_fundecl = base_info['search'][ast.FunDecl]
+            retval = FindInstances.default_retval()
+            base_info = FindInstances((ast.FunDecl, ast.PreprocessNode)).visit(base_ast, ret=retval)
+            base_headers = base_info[ast.PreprocessNode]
+            base_fundecl = base_info[ast.FunDecl]
             fuse_ast = dcopy(fuse._original_ast) if fuse._code else dcopy(fuse._ast)
-            fuse_info = ast_visit(fuse_ast, search=(ast.FunDecl, ast.PreprocessNode))
-            fuse_headers = fuse_info['search'][ast.PreprocessNode]
-            fuse_fundecl = fuse_info['search'][ast.FunDecl]
-            fuse_symbol_refs = fuse_info['symbol_refs']
+            retval = FindInstances.default_retval()
+            fuse_info = FindInstances((ast.FunDecl, ast.PreprocessNode)).visit(fuse_ast, ret=retval)
+            fuse_headers = fuse_info[ast.PreprocessNode]
+            fuse_fundecl = fuse_info[ast.FunDecl]
+            retval = SymbolReferences.default_retval()
+            fuse_symbol_refs = SymbolReferences().visit(fuse_ast, ret=retval)
             if len(base_fundecl) != 1 or len(fuse_fundecl) != 1:
                 raise RuntimeError("Fusing kernels, but found unexpected AST")
             base_fundecl = base_fundecl[0]
