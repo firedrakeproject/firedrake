@@ -996,7 +996,7 @@ class Inspector(Cached):
                             _ofs_vals = [[0] for j in range(len(rc))]
                             for j, ofs in enumerate(rc):
                                 ofs_sym_id = 'm_ofs_%d_%d' % (i, j)
-                                ofs_syms.append(ast.Symbol(ofs_sym_id))
+                                ofs_syms.append(ofs_sym_id)
                                 ofs_decls.append(ast.Decl('int', ast.Symbol(ofs_sym_id)))
                                 _ofs_vals[j].append(ofs)
                             for s in fuse_inc_refs:
@@ -1048,11 +1048,11 @@ class Inspector(Cached):
                 'int', ast.Symbol('ofs', (len(ofs_vals), fused_map.arity)),
                 ast.ArrayInit(init(ofs_vals)), ['static', 'const']))
             if_exec.children[0].children[0:0] = \
-                [ast.Decl('int', dcopy(s), ast.Symbol('ofs', (i, 'i')))
+                [ast.Decl('int', ast.Symbol(s), ast.Symbol('ofs', (i, 'i')))
                  for i, s in enumerate(ofs_syms)]
 
             # 2C) Change /fuse/ kernel invocation, declaration, and body
-            fuse_funcall.children.extend(ofs_syms)
+            fuse_funcall.children.extend([ast.Symbol(s) for s in ofs_syms])
             fuse_fundecl.args.extend(ofs_decls)
 
             # 2D) Hard fusion breaks any padding applied to the /fuse/ kernel, so
