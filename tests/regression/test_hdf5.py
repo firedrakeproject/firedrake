@@ -73,5 +73,37 @@ def test_hdf5_scalar_parallel():
     h5file << x
 
 
+@pytest.mark.skipif("h5py is None", reason='h5py not available')
+def test_hdf5_multifield(mesh, filepath):
+    mesh = UnitCubeMesh(2, 2, 2)
+
+    fs = FunctionSpace(mesh, "CG", 1)
+    x = Function(fs, name='xcoord')
+    x.interpolate(Expression("x[0]"))
+    y = Function(fs, name='ycoord')
+    y.interpolate(Expression("x[1]"))
+
+    h5file = File(filepath)
+    h5file << mesh.coordinates
+    h5file << x
+    h5file << y
+
+    h5file << mesh.coordinates
+    h5file << x
+    h5file << y
+    del h5file
+
+    assert os.path.exists(_xmffile)
+    h5out = h5py.File(filepath, 'r')
+    vals = h5out['vertex_fields']['Coordinates'][:, :]
+    xy = h5out['geometry']['vertices'][:, :]
+    assert np.max(np.abs(vals - xy)) < 1e-6
+    xval = h5out['vertex_fields']['xcoord'][:]
+    x = h5out['geometry']['vertices'][:, 0]
+    assert np.max(np.abs(xval - x)) < 1e-6
+    yval = h5out['vertex_fields']['ycoord'][:]
+    y = h5out['geometry']['vertices'][:, 1]
+    assert np.max(np.abs(yval - y)) < 1e-6
+
 if __name__ == '__main__':
     pytest.main(os.path.abspath(__file__))

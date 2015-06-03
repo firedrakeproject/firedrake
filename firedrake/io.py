@@ -4,6 +4,7 @@ from evtk.hl import _requiresLargeVTKFileSize
 from ufl import Cell, OuterProductCell
 import numpy as np
 import os
+from collections import defaultdict
 
 from pyop2.logger import warning, RED
 from pyop2.mpi import MPI
@@ -143,7 +144,7 @@ class _HDF5File(object):
         self._viewer = PETSc.ViewerHDF5().create(filename,
                                                  mode="w",
                                                  comm=MPI.comm)
-        self._time_step = 0
+        self._time_step = defaultdict(int)
         self._has_topology = False
 
     def __del__(self):
@@ -161,6 +162,7 @@ class _HDF5File(object):
 
     def __lshift__(self, data, timestep=None):
         """It allows file << function syntax for writing data out to disk. """
+        name = str(data)
         fspace = data.function_space()
         plex = fspace.mesh()._plex
 
@@ -179,10 +181,10 @@ class _HDF5File(object):
 
         # Output data via the PetscViewer
         with data.dat.vec as v:
-            v.setName(str(data))
+            v.setName(name)
             v.view(self._viewer)
 
-        self._time_step += 1
+        self._time_step[name] += 1
 
 
 class _VTUFile(object):
