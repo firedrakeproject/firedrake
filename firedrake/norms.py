@@ -100,7 +100,7 @@ def norm(v, norm_type="L2", mesh=None):
 
     typ = norm_type.lower()
     mesh = v.function_space().mesh()
-    dx = mesh._dx
+    dx = mesh.dx
     if typ == 'l2':
         form = inner(v, v)*dx
     elif typ == 'h1':

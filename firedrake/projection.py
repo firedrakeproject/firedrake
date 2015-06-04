@@ -80,8 +80,8 @@ def project(v, V, bcs=None, mesh=None,
 
     p = ufl_expr.TestFunction(V)
     q = ufl_expr.TrialFunction(V)
-    a = ufl.inner(p, q) * V.mesh()._dx
-    L = ufl.inner(p, v) * V.mesh()._dx
+    a = ufl.inner(p, q) * V.mesh().dx
+    L = ufl.inner(p, v) * V.mesh().dx
 
     # Default to 1e-8 relative tolerance
     if solver_parameters is None:

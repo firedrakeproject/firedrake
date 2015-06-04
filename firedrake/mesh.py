@@ -277,6 +277,14 @@ class Mesh(object):
 
         """
 
+        # The following lines are here to force the generation of documentation.
+        #: The volume measure on this :class:`Mesh`
+        self.dx = None
+        #: The exterior facet measure on this :class:`Mesh`
+        self.ds = None
+        #: The interior facet measure on this :class:`Mesh`
+        self.dS = None
+
         utils._init()
 
         geometric_dim = kwargs.get("dim", None)
@@ -405,9 +413,12 @@ class Mesh(object):
             # Add subdomain_data to the measure objects we store with
             # the mesh.  These are weakrefs for consistency with the
             # "global" measure objects
-            self._dx = ufl.Measure('cell', subdomain_data=weakref.ref(self.coordinates))
-            self._ds = ufl.Measure('exterior_facet', subdomain_data=weakref.ref(self.coordinates))
-            self._dS = ufl.Measure('interior_facet', subdomain_data=weakref.ref(self.coordinates))
+            #: The volume measure on this :class:`Mesh`
+            self.dx = ufl.Measure('cell', subdomain_data=weakref.ref(self.coordinates))
+            #: The exterior facet measure on this :class:`Mesh`
+            self.ds = ufl.Measure('exterior_facet', subdomain_data=weakref.ref(self.coordinates))
+            #: The interior facet measure on this :class:`Mesh`
+            self.dS = ufl.Measure('interior_facet', subdomain_data=weakref.ref(self.coordinates))
             # Set the subdomain_data on all the default measures to this
             # coordinate field.
             # We don't set the domain on the measure since this causes
@@ -847,14 +858,22 @@ class ExtrudedMesh(Mesh):
         # Add subdomain_data to the measure objects we store with
         # the mesh.  These are weakrefs for consistency with the
         # "global" measure objects
-        self._dx = ufl.Measure('cell', subdomain_data=weakref.ref(self.coordinates))
-        self._ds = ufl.Measure('exterior_facet', subdomain_data=weakref.ref(self.coordinates))
-        self._dS = ufl.Measure('interior_facet', subdomain_data=weakref.ref(self.coordinates))
-        self._ds_t = ufl.Measure('exterior_facet_top', subdomain_data=weakref.ref(self.coordinates))
-        self._ds_b = ufl.Measure('exterior_facet_bottom', subdomain_data=weakref.ref(self.coordinates))
-        self._ds_v = ufl.Measure('exterior_facet_vert', subdomain_data=weakref.ref(self.coordinates))
-        self._dS_h = ufl.Measure('interior_facet_horiz', subdomain_data=weakref.ref(self.coordinates))
-        self._dS_v = ufl.Measure('interior_facet_vert', subdomain_data=weakref.ref(self.coordinates))
+        #: The volume measure on this :class:`ExtrudedMesh`
+        self.dx = ufl.Measure('cell', subdomain_data=weakref.ref(self.coordinates))
+        #: The exterior facet measure on this :class:`ExtrudedMesh`
+        self.ds = ufl.Measure('exterior_facet', subdomain_data=weakref.ref(self.coordinates))
+        #: The interior facet measure on this :class:`ExtrudedMesh`
+        self.dS = ufl.Measure('interior_facet', subdomain_data=weakref.ref(self.coordinates))
+        #: The exterior facet measure on the top surface of this :class:`ExtrudedMesh`
+        self.ds_t = ufl.Measure('exterior_facet_top', subdomain_data=weakref.ref(self.coordinates))
+        #: The exterior facet measure on the bottom surface of this :class:`ExtrudedMesh`
+        self.ds_b = ufl.Measure('exterior_facet_bottom', subdomain_data=weakref.ref(self.coordinates))
+        #: The exterior facet measure on the vertical (side) surfaces of this :class:`ExtrudedMesh`
+        self.ds_v = ufl.Measure('exterior_facet_vert', subdomain_data=weakref.ref(self.coordinates))
+        #: The interior facet measure on the horizontal surfaces of this :class:`ExtrudedMesh`
+        self.dS_h = ufl.Measure('interior_facet_horiz', subdomain_data=weakref.ref(self.coordinates))
+        #: The interior facet measure on the vertical surfaces of this :class:`ExtrudedMesh`
+        self.dS_v = ufl.Measure('interior_facet_vert', subdomain_data=weakref.ref(self.coordinates))
         # Set the subdomain_data on all the default measures to this
         # coordinate field.  We don't set the domain on the measure
         # since this causes an uncollectable reference in the global
