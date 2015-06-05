@@ -99,10 +99,6 @@ class NonlinearVariationalSolver(object):
 
         ctx = solving_utils._SNESContext(problem)
 
-        # Mixed problem, use jacobi pc if user has not supplied one.
-        if ctx.is_mixed:
-            parameters.setdefault('pc_type', 'jacobi')
-
         self.snes = PETSc.SNES().create()
         if options_prefix is not None:
             self._opt_prefix = options_prefix
@@ -111,6 +107,16 @@ class NonlinearVariationalSolver(object):
             NonlinearVariationalSolver._id += 1
 
         self.snes.setOptionsPrefix(self._opt_prefix)
+
+        # Mixed problem, use jacobi pc if user has not supplied one.
+        if ctx.is_mixed:
+            parameters.setdefault('pc_type', 'jacobi')
+
+        # Allow command-line arguments to override dict parameters
+        opts = PETSc.Options()
+        for k, v in opts.getAll().iteritems():
+            if k.startswith(self._opt_prefix):
+                parameters[k[len(self._opt_prefix):]] = v
 
         self.parameters = parameters
 

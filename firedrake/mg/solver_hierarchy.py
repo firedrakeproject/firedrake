@@ -211,6 +211,13 @@ class NLVSHierarchy(object):
             self._opt_prefix = "firedrake_nlvsh_%d_" % NLVSHierarchy._id
             NLVSHierarchy._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
+
+        # Allow command-line arguments to override dict parameters
+        opts = PETSc.Options()
+        for k, v in opts.getAll().iteritems():
+            if k.startswith(self._opt_prefix):
+                parameters[k[len(self._opt_prefix):]] = v
+
         self.parameters = parameters
 
     @property

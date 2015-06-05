@@ -54,6 +54,12 @@ class LinearSolver(object):
         self.ksp = PETSc.KSP().create()
         self.ksp.setOptionsPrefix(self._opt_prefix)
 
+        # Allow command-line arguments to override dict parameters
+        opts = PETSc.Options()
+        for k, v in opts.getAll().iteritems():
+            if k.startswith(self._opt_prefix):
+                parameters[k[len(self._opt_prefix):]] = v
+
         self.parameters = parameters
 
         W = self.A.a.arguments()[0].function_space()
