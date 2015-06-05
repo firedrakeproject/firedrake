@@ -102,7 +102,9 @@ class Function(ufl.Coefficient):
         """Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`FunctionSpace`."""
         if self._split is None:
-            self._split = tuple(Function(fs, dat) for fs, dat in zip(self._function_space, self.dat))
+            self._split = tuple(Function(fs, dat, name="%s[%d]" % (self.name(), i))
+                                for i, (fs, dat) in
+                                enumerate(zip(self._function_space, self.dat)))
         return self._split
 
     def sub(self, i):
