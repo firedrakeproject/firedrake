@@ -205,6 +205,7 @@ class Function(ufl.Coefficient):
                                % (sum(dims), np.prod(expression.value_shape(), dtype=int)))
 
         if hasattr(expression, 'eval'):
+            fs = self.function_space()
             if isinstance(fs, functionspace.MixedFunctionSpace):
                 raise NotImplementedError(
                     "Python expressions for mixed functions are not yet supported.")
