@@ -99,18 +99,26 @@ class NonlinearVariationalSolver(object):
 
         ctx = solving_utils._SNESContext(problem)
 
+        self.snes = PETSc.SNES().create()
+        if options_prefix is not None:
+            self._opt_prefix = options_prefix
+            self._auto_prefix = False
+        else:
+            self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
+            self._auto_prefix = True
+            NonlinearVariationalSolver._id += 1
+
+        self.snes.setOptionsPrefix(self._opt_prefix)
+
         # Mixed problem, use jacobi pc if user has not supplied one.
         if ctx.is_mixed:
             parameters.setdefault('pc_type', 'jacobi')
 
-        self.snes = PETSc.SNES().create()
-        if options_prefix is not None:
-            self._opt_prefix = options_prefix
-        else:
-            self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
-            NonlinearVariationalSolver._id += 1
-
-        self.snes.setOptionsPrefix(self._opt_prefix)
+        # Allow command-line arguments to override dict parameters
+        opts = PETSc.Options()
+        for k, v in opts.getAll().iteritems():
+            if k.startswith(self._opt_prefix):
+                parameters[k[len(self._opt_prefix):]] = v
 
         self.parameters = parameters
 
@@ -126,7 +134,7 @@ class NonlinearVariationalSolver(object):
     def __del__(self):
         # Remove stuff from the options database
         # It's fixed size, so if we don't it gets too big.
-        if hasattr(self, '_opt_prefix'):
+        if self._auto_prefix and hasattr(self, '_opt_prefix'):
             opts = PETSc.Options()
             for k in self.parameters.iterkeys():
                 del opts[self._opt_prefix + k]

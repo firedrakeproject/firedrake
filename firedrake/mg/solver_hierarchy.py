@@ -207,11 +207,27 @@ class NLVSHierarchy(object):
 
         if options_prefix is not None:
             self._opt_prefix = options_prefix
+            self._auto_prefix = False
         else:
             self._opt_prefix = "firedrake_nlvsh_%d_" % NLVSHierarchy._id
+            self._auto_prefix = True
             NLVSHierarchy._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
+
+        # Allow command-line arguments to override dict parameters
+        opts = PETSc.Options()
+        for k, v in opts.getAll().iteritems():
+            if k.startswith(self._opt_prefix):
+                parameters[k[len(self._opt_prefix):]] = v
+
         self.parameters = parameters
+
+    def __del__(self):
+        if self._auto_prefix and hasattr(self, '_opt_prefix'):
+            opts = PETSc.Options()
+            for k in self.parameters.iterkeys():
+                del opts[self._opt_prefix + k]
+            delattr(self, '_opt_prefix')
 
     @property
     def parameters(self):

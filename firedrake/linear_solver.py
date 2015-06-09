@@ -47,12 +47,20 @@ class LinearSolver(object):
 
         if options_prefix is not None:
             self._opt_prefix = options_prefix
+            self._auto_prefix = False
         else:
             self._opt_prefix = "firedrake_ksp_%d_" % LinearSolver._id
+            self._auto_prefix = True
             LinearSolver._id += 1
 
         self.ksp = PETSc.KSP().create()
         self.ksp.setOptionsPrefix(self._opt_prefix)
+
+        # Allow command-line arguments to override dict parameters
+        opts = PETSc.Options()
+        for k, v in opts.getAll().iteritems():
+            if k.startswith(self._opt_prefix):
+                parameters[k[len(self._opt_prefix):]] = v
 
         self.parameters = parameters
 
@@ -102,7 +110,7 @@ class LinearSolver(object):
         solving_utils.update_parameters(self, self.ksp)
 
     def __del__(self):
-        if hasattr(self, '_opt_prefix'):
+        if self._auto_prefix and hasattr(self, '_opt_prefix'):
             opts = PETSc.Options()
             for k in self.parameters.iterkeys():
                 del opts[self._opt_prefix + k]
