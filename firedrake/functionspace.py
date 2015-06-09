@@ -76,9 +76,15 @@ class FunctionSpaceBase(ObjectCached):
             # Sorting the keys of the closure entity dofs, the whole cell
             # comes last [-1], before that the horizontal facet [-2], before
             # that vertical facets [-3]. We need the horizontal facets here.
-            closure_dofs = self.fiat_element.entity_closure_dofs()
-            b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
-            t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
+            #closure_dofs = self.fiat_element.entity_closure_dofs()
+            #b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
+            #t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
+
+            # Use geometric facet dofs instead
+            # Two last facets are the top/bottom
+            facet_dofs = self.fiat_element.facet_support_dofs()
+            b_mask = facet_dofs[facet_dofs.keys()[-2]]
+            t_mask = facet_dofs[facet_dofs.keys()[-1]]
             self.bt_masks = (b_mask, t_mask)  # conversion to tuple
 
             self.extruded = True
