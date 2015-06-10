@@ -87,9 +87,6 @@ def test_dsn_parallel_on_quadrilaterals():
                                            ['function', 'constant'],
                                            ['scalar', 'vector', 'tensor']))
 def test_math_functions(mesh, expr, value, typ, fs_type):
-    if fs_type == "tensor" and mesh.ufl_cell().cellname() == "quadrilateral":
-        pytest.xfail("No support for tensor function spaces on quadrilateral meshes")
-
     if typ == 'function':
         if fs_type == "vector":
             V = VectorFunctionSpace(mesh, 'CG', 1)

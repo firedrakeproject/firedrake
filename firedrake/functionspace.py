@@ -605,9 +605,6 @@ class TensorFunctionSpace(FunctionSpaceBase):
     """
     def __init__(self, mesh, family, degree, shape=None, symmetry=None, name=None,
                  vfamily=None, vdegree=None):
-        if mesh.ufl_cell().cellname() == "quadrilateral":
-            raise NotImplementedError("Cannot currently build a TensorFunctionSpace on a quadrilateral mesh.")
-
         if self._initialized:
             return
         mesh.init()
