@@ -176,6 +176,19 @@ class NLVSHierarchy(object):
            that is you can use :data:`"snes_type": "fas"` or
            :data:`"pc_type": "mg"` transparently.
         """
+        # Do this first so __del__ doesn't barf horribly if we get an
+        # error in __init__
+        parameters, nullspace, options_prefix \
+            = firedrake.solving_utils._extract_kwargs(**kwargs)
+
+        if options_prefix is not None:
+            self._opt_prefix = options_prefix
+            self._auto_prefix = False
+        else:
+            self._opt_prefix = "firedrake_nlvsh_%d_" % NLVSHierarchy._id
+            self._auto_prefix = True
+            NLVSHierarchy._id += 1
+
         if isinstance(problem, firedrake.NonlinearVariationalProblem):
             # We just got a single problem so coarsen up the hierarchy
             problems = []
@@ -191,9 +204,6 @@ class NLVSHierarchy(object):
             problems = problem
         ctx = firedrake.solving_utils._SNESContext(problems)
 
-        parameters, nullspace, options_prefix \
-            = firedrake.solving_utils._extract_kwargs(**kwargs)
-
         if nullspace is not None:
             raise NotImplementedError("Coarsening nullspaces no yet implemented")
         snes = PETSc.SNES().create()
@@ -205,13 +215,6 @@ class NLVSHierarchy(object):
         self.ctx.set_function(self.snes)
         self.ctx.set_jacobian(self.snes)
 
-        if options_prefix is not None:
-            self._opt_prefix = options_prefix
-            self._auto_prefix = False
-        else:
-            self._opt_prefix = "firedrake_nlvsh_%d_" % NLVSHierarchy._id
-            self._auto_prefix = True
-            NLVSHierarchy._id += 1
         self.snes.setOptionsPrefix(self._opt_prefix)
 
         # Allow command-line arguments to override dict parameters

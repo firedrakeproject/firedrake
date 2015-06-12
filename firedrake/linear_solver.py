@@ -36,6 +36,16 @@ class LinearSolver(object):
           Any boundary conditions for this solve *must* have been
           applied when assembling the operator.
         """
+        # Do this first so __del__ doesn't barf horribly if we get an
+        # error in __init__
+        if options_prefix is not None:
+            self._opt_prefix = options_prefix
+            self._auto_prefix = False
+        else:
+            self._opt_prefix = "firedrake_ksp_%d_" % LinearSolver._id
+            self._auto_prefix = True
+            LinearSolver._id += 1
+
         self.A = A
         self.P = P if P is not None else A
 
@@ -44,14 +54,6 @@ class LinearSolver(object):
 
         if self.P._M.sparsity.shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
-
-        if options_prefix is not None:
-            self._opt_prefix = options_prefix
-            self._auto_prefix = False
-        else:
-            self._opt_prefix = "firedrake_ksp_%d_" % LinearSolver._id
-            self._auto_prefix = True
-            LinearSolver._id += 1
 
         self.ksp = PETSc.KSP().create()
         self.ksp.setOptionsPrefix(self._opt_prefix)

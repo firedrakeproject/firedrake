@@ -93,13 +93,10 @@ class NonlinearVariationalSolver(object):
 
             {'snes_monitor': True}
         """
-        assert isinstance(problem, NonlinearVariationalProblem)
-
         parameters, nullspace, options_prefix = solving_utils._extract_kwargs(**kwargs)
 
-        ctx = solving_utils._SNESContext(problem)
-
-        self.snes = PETSc.SNES().create()
+        # Do this first so __del__ doesn't barf horribly if we get an
+        # error in __init__
         if options_prefix is not None:
             self._opt_prefix = options_prefix
             self._auto_prefix = False
@@ -107,6 +104,12 @@ class NonlinearVariationalSolver(object):
             self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
             self._auto_prefix = True
             NonlinearVariationalSolver._id += 1
+
+        assert isinstance(problem, NonlinearVariationalProblem)
+
+        ctx = solving_utils._SNESContext(problem)
+
+        self.snes = PETSc.SNES().create()
 
         self.snes.setOptionsPrefix(self._opt_prefix)
 
