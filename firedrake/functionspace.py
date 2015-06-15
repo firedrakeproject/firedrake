@@ -80,11 +80,10 @@ class FunctionSpaceBase(ObjectCached):
             #b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
             #t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
 
-            # Use geometric facet dofs instead
-            # Two last facets are the top/bottom
-            facet_dofs = self.fiat_element.facet_support_dofs()
-            b_mask = facet_dofs[facet_dofs.keys()[-2]]
-            t_mask = facet_dofs[facet_dofs.keys()[-1]]
+            # Geometric facet dofs
+            facet_dofs = self.fiat_element.horiz_facet_support_dofs()
+            b_mask = facet_dofs[0]
+            t_mask = facet_dofs[1]
             self.bt_masks = (b_mask, t_mask)  # conversion to tuple
 
             self.extruded = True
