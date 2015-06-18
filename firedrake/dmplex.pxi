@@ -42,6 +42,7 @@ cdef extern from "petscdmplex.h":
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
 cdef extern from "petscis.h":
+    int PetscSectionGetStorageSize(PETSc.PetscSection,PetscInt*)
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])

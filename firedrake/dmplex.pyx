@@ -554,6 +554,30 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def inverse_numbering(PETSc.DM plex, PETSc.Section global_numbering, PetscInt cdim):
+    """Return an array that inverts the local reordering permutation
+    and restores the global numbering, as required for I/O.
+    """
+    cdef:
+        PetscInt v, size, vStart, vEnd, dof, offset, i = 0
+        PETSc.Section universal_numbering
+        np.ndarray[np.int32_t, mode="c"] inverse
+
+    vStart, vEnd = plex.getChart()
+    universal_numbering = global_numbering.createGlobalSection(plex.getPointSF())
+    CHKERR(PetscSectionGetStorageSize(universal_numbering.sec, &size))
+    inverse = np.empty(size*cdim, dtype=np.int32)
+    for v in range(vStart, vEnd):
+        CHKERR(PetscSectionGetDof(universal_numbering.sec, v, &dof))
+        if dof > 0:
+            CHKERR(PetscSectionGetOffset(universal_numbering.sec, v, &offset))
+            for c in range(cdim):
+                inverse[i] = cdim*offset + c
+                i += 1
+    return inverse
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     """Return coordinates for the plex, reordered according to the
     global numbering permutation for the coordinate function space.

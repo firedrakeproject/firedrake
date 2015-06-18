@@ -3,6 +3,7 @@ from evtk.vtk import _get_byte_order
 from evtk.hl import _requiresLargeVTKFileSize
 from ufl import Cell, OuterProductCell
 import numpy as np
+import dmplex
 import os
 from collections import defaultdict
 
@@ -180,9 +181,20 @@ class _HDF5File(object):
             self._has_topology = True
 
         # Output data via the PetscViewer
-        with data.dat.vec as v:
-            v.setName(name)
-            v.view(self._viewer)
+        with data.dat.vec_ro as v:
+            inverse = dmplex.inverse_numbering(fspace._mesh._plex,
+                                               fspace._global_numbering,
+                                               fspace.cdim)
+            vout = v.getSubVector(PETSc.IS().createGeneral(inverse))
+            vout.setName(name)
+            vout.setBlockSize(fspace.cdim)
+            self._viewer.pushGroup("/vertex_fields")
+            vout.view(self._viewer)
+            ftype = "vector" if isinstance(fspace, fs.VectorFunctionSpace) else "scalar"
+            fpath = "/vertex_fields/%s" % name
+            if not self._viewer.hasAttribute(fpath, "vector_field_type"):
+                self._viewer.writeAttribute(fpath, "vector_field_type", ftype)
+            self._viewer.popGroup()
 
         self._time_step[name] += 1
 
