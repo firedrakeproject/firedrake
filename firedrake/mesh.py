@@ -401,7 +401,8 @@ class Mesh(object):
             self._coordinate_fs._ufl_element = self._coordinate_fs.ufl_element().reconstruct(domain=self.ufl_domain())
             # HACK alert!
             # Replace coordinate Function by one that has a real domain on it (but don't copy values)
-            self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat)
+            self.coordinates = function.Function(self._coordinate_fs, val=self.coordinates.dat,
+                                                 name="Coordinates")
             # Add subdomain_data to the measure objects we store with
             # the mesh.  These are weakrefs for consistency with the
             # "global" measure objects
