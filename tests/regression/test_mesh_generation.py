@@ -1,5 +1,6 @@
 from math import pi
 import pytest
+import numpy as np
 
 from firedrake import *
 # Must come after firedrake import (that loads MPI)
@@ -141,6 +142,44 @@ def test_cubed_sphere_mesh_num_exterior_facets():
 @pytest.mark.parallel(nprocs=2)
 def test_cubed_sphere_mesh_num_exterior_facets_parallel():
     run_cubed_sphere_mesh_num_exterior_facets()
+
+
+def run_bendy_icos():
+    for d in range(1, 4):
+        m = IcosahedralSphereMesh(5.0, refinement_level=1, degree=d)
+        coords = m.coordinates.dat.data
+        assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+
+
+def run_bendy_icos_unit():
+    for d in range(1, 4):
+        m = UnitIcosahedralSphereMesh(refinement_level=1, degree=d)
+        coords = m.coordinates.dat.data
+        assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+
+
+def test_bendy_icos():
+    run_bendy_icos()
+    run_bendy_icos_unit()
+
+
+def run_bendy_cube():
+    for d in range(1, 4):
+        m = CubedSphereMesh(5.0, refinement_level=1, degree=d)
+        coords = m.coordinates.dat.data
+        assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+
+
+def run_bendy_cube_unit():
+    for d in range(1, 4):
+        m = UnitCubedSphereMesh(refinement_level=1, degree=d)
+        coords = m.coordinates.dat.data
+        assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+
+
+def test_bendy_cube():
+    run_bendy_cube()
+    run_bendy_cube_unit()
 
 
 if __name__ == '__main__':
