@@ -163,6 +163,12 @@ def test_bendy_icos():
     run_bendy_icos_unit()
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_icos_parallel():
+    run_bendy_icos()
+    run_bendy_icos_unit()
+
+
 def run_bendy_cube():
     for d in range(1, 4):
         m = CubedSphereMesh(5.0, refinement_level=1, degree=d)
@@ -178,6 +184,12 @@ def run_bendy_cube_unit():
 
 
 def test_bendy_cube():
+    run_bendy_cube()
+    run_bendy_cube_unit()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_cube_parallel():
     run_bendy_cube()
     run_bendy_cube_unit()
 
