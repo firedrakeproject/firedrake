@@ -144,54 +144,40 @@ def test_cubed_sphere_mesh_num_exterior_facets_parallel():
     run_cubed_sphere_mesh_num_exterior_facets()
 
 
-def run_bendy_icos():
+def test_bendy_icos():
     for d in range(1, 4):
         m = IcosahedralSphereMesh(5.0, refinement_level=1, degree=d)
         coords = m.coordinates.dat.data
         assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
 
 
-def run_bendy_icos_unit():
+def test_bendy_icos_unit():
     for d in range(1, 4):
         m = UnitIcosahedralSphereMesh(refinement_level=1, degree=d)
         coords = m.coordinates.dat.data
         assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
 
 
-def test_bendy_icos():
-    run_bendy_icos()
-    run_bendy_icos_unit()
+test_bendy_icos_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_icos)
+test_bendy_icos_unit_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_icos_unit)
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_bendy_icos_parallel():
-    run_bendy_icos()
-    run_bendy_icos_unit()
-
-
-def run_bendy_cube():
+def test_bendy_cube():
     for d in range(1, 4):
         m = CubedSphereMesh(5.0, refinement_level=1, degree=d)
         coords = m.coordinates.dat.data
         assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
 
 
-def run_bendy_cube_unit():
+def test_bendy_cube_unit():
     for d in range(1, 4):
         m = UnitCubedSphereMesh(refinement_level=1, degree=d)
         coords = m.coordinates.dat.data
         assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
 
 
-def test_bendy_cube():
-    run_bendy_cube()
-    run_bendy_cube_unit()
-
-
-@pytest.mark.parallel(nprocs=2)
-def test_bendy_cube_parallel():
-    run_bendy_cube()
-    run_bendy_cube_unit()
+test_bendy_cube_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_cube)
+test_bendy_cube_unit_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_cube_unit)
 
 
 if __name__ == '__main__':
