@@ -531,7 +531,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
     :kwarg reorder: (optional), should the mesh be reordered?
     """
     if degree < 1:
-        raise RuntimeError("Mesh coordinate degree must be at least 1")
+        raise ValueError("Mesh coordinate degree must be at least 1")
     from math import sqrt
     phi = (1 + sqrt(5)) / 2
     # vertices of an icosahedron with an edge length of 2
@@ -583,7 +583,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1,1)
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m.coordinates = new_coords
     return m
 
@@ -742,7 +742,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         the refinement.
     """
     if degree < 1:
-        raise RuntimeError("Mesh coordinate degree must be at least 1")
+        raise ValueError("Mesh coordinate degree must be at least 1")
 
     if use_dmplex_refinement:
         # vertices of a cube with an edge length of 2
@@ -788,7 +788,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
         new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
         # "push out" to sphere
-        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1,1)
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m.coordinates = new_coords
 
     return m
