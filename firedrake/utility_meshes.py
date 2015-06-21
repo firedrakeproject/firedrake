@@ -7,6 +7,9 @@ from pyop2.mpi import MPI
 from pyop2.profiling import profile
 
 import mesh
+import expression
+import function
+import functionspace
 from petsc import PETSc
 
 
@@ -509,7 +512,7 @@ def UnitCubeMesh(nx, ny, nz, reorder=None):
 
 
 @profile
-def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
+def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
     """Generate an icosahedral approximation to the surface of the
     sphere.
 
@@ -523,8 +526,12 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
     :kwarg reorder: (optional), should the mesh be reordered?
     """
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
     from math import sqrt
     phi = (1 + sqrt(5)) / 2
     # vertices of an icosahedron with an edge length of 2
@@ -572,18 +579,26 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
     coords *= scale
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     m._icosahedral_sphere = radius
+    if degree > 1:
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
+        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        # "push out" to sphere
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
+        m.coordinates = new_coords
     return m
 
 
-def UnitIcosahedralSphereMesh(refinement_level=0, reorder=None):
+def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None):
     """Generate an icosahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
     :kwarg reorder: (optional), should the mesh be reordered?
     """
     return IcosahedralSphereMesh(1.0, refinement_level=refinement_level,
-                                 reorder=reorder)
+                                 degree=degree, reorder=reorder)
 
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
@@ -713,17 +728,22 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     return cells, coords
 
 
-def CubedSphereMesh(radius, refinement_level=0, reorder=None,
-                    use_dmplex_refinement=False):
+def CubedSphereMesh(radius, refinement_level=0, degree=1,
+                    reorder=None, use_dmplex_refinement=False):
     """Generate an cubed approximation to the surface of the
     sphere.
 
     :arg radius: The radius of the sphere to approximate.
     :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: bilinear quads)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg use_dmplex_refinement: (optional), use dmplex to apply
         the refinement.
     """
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
+
     if use_dmplex_refinement:
         # vertices of a cube with an edge length of 2
         vertices = np.array([[-1., -1., -1.],
@@ -762,14 +782,25 @@ def CubedSphereMesh(radius, refinement_level=0, reorder=None,
         cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
         plex = _from_cell_list(2, cells, coords)
 
-    return mesh.Mesh(plex, dim=3, reorder=reorder)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+
+    if degree > 1:
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
+        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        # "push out" to sphere
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
+        m.coordinates = new_coords
+
+    return m
 
 
-def UnitCubedSphereMesh(refinement_level=0, reorder=None):
+def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None):
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: bilinear quads)
     :kwarg reorder: (optional), should the mesh be reordered?
     """
     return CubedSphereMesh(1.0, refinement_level=refinement_level,
-                           reorder=reorder)
+                           degree=degree, reorder=reorder)
