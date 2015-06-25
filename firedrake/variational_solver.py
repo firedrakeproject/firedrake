@@ -123,8 +123,6 @@ class NonlinearVariationalSolver(object):
             if k.startswith(self._opt_prefix):
                 parameters[k[len(self._opt_prefix):]] = v
 
-        self.parameters = parameters
-
         self._problem = problem
 
         self._ctx = ctx
@@ -133,6 +131,8 @@ class NonlinearVariationalSolver(object):
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises)
+
+        self.parameters = parameters
 
     def __del__(self):
         # Remove stuff from the options database
