@@ -5,6 +5,7 @@ from ufl import Cell, OuterProductCell
 import numpy as np
 import dmplex
 import os
+import py
 from collections import defaultdict
 
 from pyop2.logger import warning, RED
@@ -91,16 +92,11 @@ class File(object):
     """
 
     def __init__(self, filename):
-        # Ensure output directory exists
-        outdir = os.path.dirname(os.path.abspath(filename))
-        if MPI.comm.rank == 0:
-            if not os.path.exists(outdir):
-                os.makedirs(outdir)
-        MPI.comm.barrier()
+        filepath = py.path.local(str(filename))
+        filename = str(filepath)
+        filepath.ensure()
 
-        basename, ext = os.path.splitext(filename)
-
-        if ext in ['.h5']:
+        if filepath.ext in ['.h5']:
             self._file = _HDF5File(filename)
             return
 
