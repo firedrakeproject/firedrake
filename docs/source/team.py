@@ -13,7 +13,7 @@ team = OrderedDict([
     ("Graham Markall", "http://www.doc.ic.ac.uk/~grm08/"),
     ("Andrew McRae", "http://www.imperial.ac.uk/people/a.mcrae12/"),
     ("Michael Lange", "http://www.imperial.ac.uk/people/michael.lange/"),
-    ("Simon Funke", "http://www.imperial.ac.uk/people/s.funke09/"),
+    ("Simon Funke", "http://www.simonfunke.com"),
     ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter/")
 ])
 
