@@ -234,6 +234,166 @@ def format_array_literal(arr):
     return "{{"+"},\n{".join([",".join(map(lambda x: "%g" % x, x)) for x in arr])+"}}"
 
 
+def get_injection_matrix_kernel(fiat_element, unique_indices, dim=1):
+    weights = get_injection_weights(fiat_element)[unique_indices].T
+    ncdof = weights.shape[0]
+    nfdof = weights.shape[1]
+    # What if we have multiple nodes in same location (DG)?  Divide by
+    # rowsum.
+    weights = weights / np.sum(weights, axis=1).reshape(-1, 1)
+    all_same = np.allclose(weights, weights[0, 0])
+    arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, nfdof*dim)))]
+
+    if all_same:
+        w_sym = ast.Symbol("weights", ())
+        w = [ast.Decl("double", w_sym, weights[0, 0],
+                      qualifiers=["const"])]
+    else:
+        init = ast.ArrayInit(format_array_literal(weights))
+        w_sym = ast.Symbol("weights", (ncdof, nfdof))
+        w = [ast.Decl("double", w_sym, init,
+                      qualifiers=["const"])]
+
+    i = ast.Symbol("i", ())
+    j = ast.Symbol("j", ())
+    k = ast.Symbol("k", ())
+    l = ast.Symbol("l", ())
+
+    if all_same:
+        assign = w_sym
+    else:
+        assign = ast.Symbol("weights", (i, j))
+
+    assignment = ast.Assign(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, dim)),
+                                                  ast.Sum(l, ast.Prod(j, dim)))),
+                            assign)
+    l_loop = ast.For(ast.Decl("int", l, ast.c_sym(0)),
+                     ast.Less(l, ast.c_sym(dim)),
+                     ast.Incr(l, ast.c_sym(1)),
+                     ast.Block([assignment], open_scope=True))
+    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
+                     ast.Less(j, ast.c_sym(nfdof)),
+                     ast.Incr(j, ast.c_sym(1)),
+                     ast.Block([l_loop], open_scope=True))
+    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
+                     ast.Less(k, ast.c_sym(dim)),
+                     ast.Incr(k, ast.c_sym(1)),
+                     ast.Block([j_loop], open_scope=True))
+    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                     ast.Less(i, ast.c_sym(ncdof)),
+                     ast.Incr(i, ast.c_sym(1)),
+                     ast.Block([k_loop], open_scope=True))
+    k = ast.FunDecl("void", "injection", arglist, ast.Block(w + [i_loop]),
+                    pred=["static", "inline"])
+
+    return op2.Kernel(k, "injection", opts=parameters["coffee"])
+    
+
+def get_prolongation_matrix_kernel(fiat_element, unique_indices, dim=1):
+    weights = get_restriction_weights(fiat_element)[unique_indices]
+    nfdof = weights.shape[0]
+    ncdof = weights.shape[1]
+
+    all_same = np.allclose(weights, weights[0, 0])
+    arglist = [ast.Decl("double", ast.Symbol("fine", (nfdof*dim, ncdof*dim)))]
+
+    if all_same:
+        w_sym = ast.Symbol("weights", ())
+        w = [ast.Decl("double", w_sym, weights[0, 0],
+                      qualifiers=["const"])]
+    else:
+        init = ast.ArrayInit(format_array_literal(weights))
+        w_sym = ast.Symbol("weights", (nfdof, ncdof))
+        w = [ast.Decl("double", w_sym, init,
+                      qualifiers=["const"])]
+
+    i = ast.Symbol("i", ())
+    j = ast.Symbol("j", ())
+    k = ast.Symbol("k", ())
+    l = ast.Symbol("l", ())
+
+    if all_same:
+        assign = w_sym
+    else:
+        assign = ast.Symbol("weights", (i, j))
+
+    assignment = ast.Assign(ast.Symbol("fine", (ast.Sum(k, ast.Prod(i, dim)),
+                                                  ast.Sum(l, ast.Prod(j, dim)))),
+                            assign)
+    l_loop = ast.For(ast.Decl("int", l, ast.c_sym(0)),
+                     ast.Less(l, ast.c_sym(dim)),
+                     ast.Incr(l, ast.c_sym(1)),
+                     ast.Block([assignment], open_scope=True))
+    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
+                     ast.Less(j, ast.c_sym(ncdof)),
+                     ast.Incr(j, ast.c_sym(1)),
+                     ast.Block([l_loop], open_scope=True))
+    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
+                     ast.Less(k, ast.c_sym(dim)),
+                     ast.Incr(k, ast.c_sym(1)),
+                     ast.Block([j_loop], open_scope=True))
+    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                     ast.Less(i, ast.c_sym(nfdof)),
+                     ast.Incr(i, ast.c_sym(1)),
+                     ast.Block([k_loop], open_scope=True))
+    k = ast.FunDecl("void", "prolongation", arglist, ast.Block(w + [i_loop]),
+                    pred=["static", "inline"])
+
+    return op2.Kernel(k, "prolongation", opts=parameters["coffee"])
+    
+
+def get_restriction_matrix_kernel(fiat_element, unique_indices, dim=1):
+    weights = get_restriction_weights(fiat_element)[unique_indices].T
+    ncdof = weights.shape[0]
+    nfdof = weights.shape[1]
+
+    all_same = np.allclose(weights, weights[0, 0])
+    arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, nfdof*dim)))]
+
+    all_ones = np.allclose(weights, 1.0)
+    if all_ones:
+        w = []
+    else:
+        init = ast.ArrayInit(format_array_literal(weights))
+        w_sym = ast.Symbol("weights", (ncdof, nfdof))
+        w = [ast.Decl("double", w_sym, init,
+                      qualifiers=["const"])]
+
+    i = ast.Symbol("i", ())
+    j = ast.Symbol("j", ())
+    k = ast.Symbol("k", ())
+    l = ast.Symbol("l", ())
+
+    if all_ones:
+        assign = ast.c_sym(1.0)
+    else:
+        assign = ast.Symbol("weights", (i, j))
+
+    assignment = ast.Assign(ast.Symbol("coarse", (ast.Sum(k, ast.Prod(i, dim)),
+                                                  ast.Sum(l, ast.Prod(j, dim)))),
+                            assign)
+    l_loop = ast.For(ast.Decl("int", l, ast.c_sym(0)),
+                     ast.Less(l, ast.c_sym(dim)),
+                     ast.Incr(l, ast.c_sym(1)),
+                     ast.Block([assignment], open_scope=True))
+    j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
+                     ast.Less(j, ast.c_sym(nfdof)),
+                     ast.Incr(j, ast.c_sym(1)),
+                     ast.Block([l_loop], open_scope=True))
+    k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
+                     ast.Less(k, ast.c_sym(dim)),
+                     ast.Incr(k, ast.c_sym(1)),
+                     ast.Block([j_loop], open_scope=True))
+    i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
+                     ast.Less(i, ast.c_sym(ncdof)),
+                     ast.Incr(i, ast.c_sym(1)),
+                     ast.Block([k_loop], open_scope=True))
+    k = ast.FunDecl("void", "restriction", arglist, ast.Block(w + [i_loop]),
+                    pred=["static", "inline"])
+
+    return op2.Kernel(k, "restriction", opts=parameters["coffee"])
+    
+
 def get_injection_kernel(fiat_element, unique_indices, dim=1):
     weights = get_injection_weights(fiat_element)[unique_indices].T
     ncdof = weights.shape[0]

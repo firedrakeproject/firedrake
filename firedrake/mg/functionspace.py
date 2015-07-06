@@ -66,6 +66,9 @@ class BaseHierarchy(object):
             self._restrict_kernel = utils.get_restriction_kernel(element, indices, self.dim,
                                                                  no_weights=self._discontinuous)
             self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
+            self._inject_matrix = utils.get_injection_matrix_kernel(element, indices, self.dim)
+            self._prolong_matrix = utils.get_prolongation_matrix_kernel(element, indices, self.dim)
+            self._restrict_matrix = utils.get_restriction_matrix_kernel(element, indices, self.dim)
         except:
             pass
 

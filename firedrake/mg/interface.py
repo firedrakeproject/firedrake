@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import numpy as np
 import ufl
 
 from pyop2 import op2
@@ -9,9 +10,89 @@ import firedrake.utils
 from . import utils
 
 
-__all__ = ["prolong", "restrict", "inject"]
+__all__ = ["prolong", "restrict", "inject",
+           "prolong_matrix", "restrict_matrix",
+           "inject_matrix"]
 
 
+def prolong_matrix(coarse, fine):
+    if hasattr(coarse, '_prolongation'):
+        return coarse._prolongation
+    hierarchy, lvl = utils.get_level(coarse.function_space())
+    if hierarchy is None:
+        raise RuntimeError("Coarse function not from hierarchy")
+
+    fine_map = hierarchy.cell_node_map(lvl)
+    sparsity = op2.Sparsity((fine.function_space().dof_dset,
+                             coarse.function_space().dof_dset),
+                            (fine_map,
+                             coarse.cell_node_map()),
+                            "prolongation_%s_%s" % (coarse.function_space().name,
+                                                    fine.function_space().name),
+                            nest=False)
+    mat = op2.Mat(sparsity, np.float64)
+
+    op2.par_loop(hierarchy._prolong_matrix,
+                 coarse.cell_set,
+                 mat(op2.WRITE, (fine_map[op2.i[0]],
+                                 coarse.cell_node_map()[op2.i[1]])))
+    mat.assemble()
+    coarse._prolongation = mat
+    return mat
+
+
+def restrict_matrix(fine, coarse):
+    if hasattr(fine, "_restriction"):
+        return fine._restriction
+    hierarchy, lvl = utils.get_level(coarse.function_space())
+    if hierarchy is None:
+        raise RuntimeError("Coarse function not from hierarchy")
+
+    fine_map = hierarchy.cell_node_map(lvl)
+    sparsity = op2.Sparsity((coarse.function_space().dof_dset,
+                             fine.function_space().dof_dset),
+                            (coarse.cell_node_map(),
+                             fine_map),
+                            "restriction_%s_%s" % (fine.function_space().name,
+                                                   coarse.function_space().name),
+                            nest=False)
+    mat = op2.Mat(sparsity, np.float64)
+
+    op2.par_loop(hierarchy._restrict_matrix,
+                 coarse.cell_set,
+                 mat(op2.WRITE, (coarse.cell_node_map()[op2.i[0]],
+                                 fine_map[op2.i[1]])))
+    mat.assemble()
+    fine._restriction = mat
+    return mat
+
+
+def inject_matrix(fine, coarse):
+    if hasattr(fine, "_injection"):
+        return fine._injection
+    hierarchy, lvl = utils.get_level(coarse.function_space())
+    if hierarchy is None:
+        raise RuntimeError("Coarse function not from hierarchy")
+
+    fine_map = hierarchy.cell_node_map(lvl)
+    sparsity = op2.Sparsity((coarse.function_space().dof_dset,
+                             fine.function_space().dof_dset),
+                            (coarse.cell_node_map(),
+                             fine_map),
+                            "injection_%s_%s" % (fine.function_space().name,
+                                                 coarse.function_space().name),
+                            nest=False)
+    mat = op2.Mat(sparsity, np.float64)
+
+    op2.par_loop(hierarchy._inject_matrix,
+                 coarse.cell_set,
+                 mat(op2.WRITE, (coarse.cell_node_map()[op2.i[0]],
+                                 fine_map[op2.i[1]])))
+    mat.assemble()
+    fine._injection = mat
+    return mat
+    
+    
 @firedrake.utils.known_pyop2_safe
 def prolong(coarse, fine):
     cfs = coarse.function_space()
