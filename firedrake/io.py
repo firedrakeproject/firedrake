@@ -186,7 +186,9 @@ class _HDF5File(object):
             vout.setBlockSize(fspace.cdim)
             self._viewer.pushGroup("/vertex_fields")
             vout.view(self._viewer)
-            ftype = "vector" if isinstance(fspace, fs.VectorFunctionSpace) else "scalar"
+            ftype = "scalar"
+            if isinstance(fspace, fs.VectorFunctionSpace): ftype = "vector"
+            if isinstance(fspace, fs.TensorFunctionSpace): ftype = "tensor"
             fpath = "/vertex_fields/%s" % name
             if not self._viewer.hasAttribute(fpath, "vector_field_type"):
                 self._viewer.writeAttribute(fpath, "vector_field_type", ftype)

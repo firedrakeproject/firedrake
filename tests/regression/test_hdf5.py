@@ -55,6 +55,23 @@ def test_hdf5_vector(mesh, filepath):
 
 
 @pytest.mark.skipif("h5py is None", reason='h5py not available')
+def test_hdf5_tensor(mesh, filepath):
+    mesh = UnitSquareMesh(2, 2)
+    h5file = File(filepath)
+    tfs = TensorFunctionSpace(mesh, "CG", 1)
+    tf = Function(tfs, name='tensor')
+    tf.interpolate(Expression((("x[0]", "x[1]"), ("x[0]", "x[1]"))))
+
+    h5file << tf
+    del h5file
+
+    h5out = h5py.File(filepath, 'r')
+    vals = h5out['vertex_fields']['tensor'][:, :2]
+    xy = h5out['geometry']['vertices'][:, :]
+    assert np.max(np.abs(vals - xy)) < 1e-6
+
+
+@pytest.mark.skipif("h5py is None", reason='h5py not available')
 @pytest.mark.parallel(nprocs=2)
 def test_hdf5_scalar_parallel():
     mesh = UnitSquareMesh(2, 2)
