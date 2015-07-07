@@ -242,15 +242,15 @@ def get_injection_matrix_kernel(fiat_element, unique_indices, dim=1):
     # rowsum.
     weights = weights / np.sum(weights, axis=1).reshape(-1, 1)
     all_same = np.allclose(weights, weights[0, 0])
-    arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, nfdof*dim)))]
+    arglist = [ast.Decl("double", ast.Symbol("coarse", (nfdof*dim, ncdof*dim)))]
 
     if all_same:
         w_sym = ast.Symbol("weights", ())
         w = [ast.Decl("double", w_sym, weights[0, 0],
                       qualifiers=["const"])]
     else:
-        init = ast.ArrayInit(format_array_literal(weights))
-        w_sym = ast.Symbol("weights", (ncdof, nfdof))
+        init = ast.ArrayInit(format_array_literal(weights.T))
+        w_sym = ast.Symbol("weights", (nfdof, ncdof))
         w = [ast.Decl("double", w_sym, init,
                       qualifiers=["const"])]
 
@@ -272,7 +272,7 @@ def get_injection_matrix_kernel(fiat_element, unique_indices, dim=1):
                      ast.Incr(l, ast.c_sym(1)),
                      ast.Block([assignment], open_scope=True))
     j_loop = ast.For(ast.Decl("int", j, ast.c_sym(0)),
-                     ast.Less(j, ast.c_sym(nfdof)),
+                     ast.Less(j, ast.c_sym(ncdof)),
                      ast.Incr(j, ast.c_sym(1)),
                      ast.Block([l_loop], open_scope=True))
     k_loop = ast.For(ast.Decl("int", k, ast.c_sym(0)),
@@ -280,7 +280,7 @@ def get_injection_matrix_kernel(fiat_element, unique_indices, dim=1):
                      ast.Incr(k, ast.c_sym(1)),
                      ast.Block([j_loop], open_scope=True))
     i_loop = ast.For(ast.Decl("int", i, ast.c_sym(0)),
-                     ast.Less(i, ast.c_sym(ncdof)),
+                     ast.Less(i, ast.c_sym(nfdof)),
                      ast.Incr(i, ast.c_sym(1)),
                      ast.Block([k_loop], open_scope=True))
     k = ast.FunDecl("void", "injection", arglist, ast.Block(w + [i_loop]),

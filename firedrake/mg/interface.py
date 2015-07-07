@@ -15,29 +15,30 @@ __all__ = ["prolong", "restrict", "inject",
            "inject_matrix"]
 
 
-def prolong_matrix(coarse, fine):
-    if hasattr(coarse, '_prolongation'):
-        return coarse._prolongation
+def prolong_matrix(coarse, fine, cbcs=None, fbcs=None):
     hierarchy, lvl = utils.get_level(coarse.function_space())
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
 
     fine_map = hierarchy.cell_node_map(lvl)
+    coarse_map = coarse.cell_node_map()
     sparsity = op2.Sparsity((fine.function_space().dof_dset,
                              coarse.function_space().dof_dset),
                             (fine_map,
-                             coarse.cell_node_map()),
+                             coarse_map),
                             "prolongation_%s_%s" % (coarse.function_space().name,
                                                     fine.function_space().name),
                             nest=False)
     mat = op2.Mat(sparsity, np.float64)
 
+    fine_map = hierarchy.cell_node_map(lvl, fbcs)
+    coarse_map = coarse.cell_node_map(cbcs)
     op2.par_loop(hierarchy._prolong_matrix,
                  coarse.cell_set,
                  mat(op2.WRITE, (fine_map[op2.i[0]],
-                                 coarse.cell_node_map()[op2.i[1]])))
+                                 coarse_map[op2.i[1]])))
     mat.assemble()
-    coarse._prolongation = mat
+    mat._force_evaluation()
     return mat
 
 
@@ -63,11 +64,13 @@ def restrict_matrix(fine, coarse):
                  mat(op2.WRITE, (coarse.cell_node_map()[op2.i[0]],
                                  fine_map[op2.i[1]])))
     mat.assemble()
+    mat._force_evaluation()
     fine._restriction = mat
     return mat
 
 
 def inject_matrix(fine, coarse):
+    # Matrix has nfine rows, ncoarse cols
     if hasattr(fine, "_injection"):
         return fine._injection
     hierarchy, lvl = utils.get_level(coarse.function_space())
@@ -75,10 +78,10 @@ def inject_matrix(fine, coarse):
         raise RuntimeError("Coarse function not from hierarchy")
 
     fine_map = hierarchy.cell_node_map(lvl)
-    sparsity = op2.Sparsity((coarse.function_space().dof_dset,
-                             fine.function_space().dof_dset),
-                            (coarse.cell_node_map(),
-                             fine_map),
+    sparsity = op2.Sparsity((fine.function_space().dof_dset,
+                             coarse.function_space().dof_dset),
+                            (fine_map,
+                             coarse.cell_node_map()),
                             "injection_%s_%s" % (fine.function_space().name,
                                                  coarse.function_space().name),
                             nest=False)
@@ -86,9 +89,10 @@ def inject_matrix(fine, coarse):
 
     op2.par_loop(hierarchy._inject_matrix,
                  coarse.cell_set,
-                 mat(op2.WRITE, (coarse.cell_node_map()[op2.i[0]],
-                                 fine_map[op2.i[1]])))
+                 mat(op2.WRITE, (fine_map[op2.i[1]],
+                                 coarse.cell_node_map()[op2.i[0]])))
     mat.assemble()
+    mat._force_evaluation()
     fine._injection = mat
     return mat
     

@@ -96,7 +96,7 @@ class BaseHierarchy(object):
     def ufl_element(self):
         return self._ufl_element
 
-    def cell_node_map(self, level):
+    def cell_node_map(self, level, bcs=None):
         """A :class:`pyop2.Map` from cells on a coarse mesh to the
         corresponding degrees of freedom on a the fine mesh below it.
 
@@ -105,8 +105,12 @@ class BaseHierarchy(object):
         if not 0 <= level < len(self) - 1:
             raise RuntimeError("Requested coarse level %d outside permissible range [0, %d)" %
                                (level, len(self) - 1))
+        if bcs is None:
+            key = (level, ())
+        else:
+            key = (level, tuple(sorted(bcs, key=lambda bc: bc.__hash__())))
         try:
-            return self._map_cache[level]
+            return self._map_cache[key]
         except KeyError:
             pass
         Vc = self._hierarchy[level]
@@ -115,6 +119,15 @@ class BaseHierarchy(object):
         c2f, vperm = self._mesh_hierarchy._cells_vperm[level]
 
         map_vals, offset = impl.create_cell_node_map(Vc, Vf, c2f, vperm)
+
+        if bcs:
+            import numpy as np
+            nodes = [bc.nodes for bc in bcs]
+            if nodes:
+                ids = reduce(np.union1d, nodes)
+                vals = np.arange(Vf.node_set.total_size)
+                vals[ids] = -100000000
+                map_vals = vals.take(map_vals)
         map = op2.Map(self._cell_sets[level],
                       Vf.node_set,
                       map_vals.shape[1],
