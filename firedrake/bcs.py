@@ -7,6 +7,7 @@ from pyop2.profiling import timed_function
 
 import expression
 import function
+import functionspace
 import matrix
 import projection
 import utils
@@ -63,6 +64,8 @@ class DirichletBC(object):
 
         if V.extruded and method == "geometric":
             raise ValueError("Geometric boundary conditions are not yet supported on extruded meshes")
+        if V.extruded and isinstance(V, functionspace.IndexedVFS):
+            raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
 
     @property
     def function_arg(self):
