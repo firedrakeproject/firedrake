@@ -2937,6 +2937,10 @@ class Map(object):
         return frozenset([])
 
     @cached_property
+    def vector_index(self):
+        return None
+
+    @cached_property
     def iterset(self):
         """:class:`Set` mapped from."""
         return self._iterset
@@ -3046,7 +3050,8 @@ class DecoratedMap(Map, ObjectCached):
     :data:`implicit_bcs` arguments are :data:`None`, they will be
     copied over from the supplied :data:`map`."""
 
-    def __new__(cls, map, iteration_region=None, implicit_bcs=None):
+    def __new__(cls, map, iteration_region=None, implicit_bcs=None,
+                vector_index=None):
         if isinstance(map, DecoratedMap):
             # Need to add information, rather than replace if we
             # already have a decorated map (but overwrite if we're
@@ -3055,16 +3060,22 @@ class DecoratedMap(Map, ObjectCached):
                 iteration_region = [x for x in map.iteration_region]
             if implicit_bcs is None:
                 implicit_bcs = [x for x in map.implicit_bcs]
+            if vector_index is None:
+                vector_index = map.vector_index
             return DecoratedMap(map.map, iteration_region=iteration_region,
-                                implicit_bcs=implicit_bcs)
+                                implicit_bcs=implicit_bcs,
+                                vector_index=vector_index)
         if isinstance(map, MixedMap):
             return MixedMap([DecoratedMap(m, iteration_region=iteration_region,
-                                          implicit_bcs=implicit_bcs)
+                                          implicit_bcs=implicit_bcs,
+                                          vector_index=vector_index)
                              for m in map])
         return super(DecoratedMap, cls).__new__(cls, map, iteration_region=iteration_region,
-                                                implicit_bcs=implicit_bcs)
+                                                implicit_bcs=implicit_bcs,
+                                                vector_index=vector_index)
 
-    def __init__(self, map, iteration_region=None, implicit_bcs=None):
+    def __init__(self, map, iteration_region=None, implicit_bcs=None,
+                 vector_index=None):
         if self._initialized:
             return
         self._map = map
@@ -3076,6 +3087,7 @@ class DecoratedMap(Map, ObjectCached):
             implicit_bcs = []
         implicit_bcs = as_tuple(implicit_bcs)
         self.implicit_bcs = frozenset(implicit_bcs)
+        self.vector_index = vector_index
         self._initialized = True
 
     @classmethod
@@ -3083,17 +3095,18 @@ class DecoratedMap(Map, ObjectCached):
         return (m, ) + (m, ), kwargs
 
     @classmethod
-    def _cache_key(cls, map, iteration_region=None, implicit_bcs=None):
+    def _cache_key(cls, map, iteration_region=None, implicit_bcs=None,
+                   vector_index=None):
         ir = as_tuple(iteration_region, IterationRegion) if iteration_region else ()
         bcs = as_tuple(implicit_bcs) if implicit_bcs else ()
-        return (map, ir, bcs)
+        return (map, ir, bcs, vector_index)
 
     def __repr__(self):
-        return "DecoratedMap(%r, %r, %r)" % (self._map, self._iteration_region, self.implicit_bcs)
+        return "DecoratedMap(%r, %r, %r, %r)" % (self._map, self._iteration_region, self.implicit_bcs, self.vector_index)
 
     def __str__(self):
-        return "OP2 DecoratedMap on %s with region %s, implicit bcs %s" % \
-            (self._map, self._iteration_region, self.implicit_bcs)
+        return "OP2 DecoratedMap on %s with region %s, implicit bcs %s, vector index %s" % \
+            (self._map, self._iteration_region, self.implicit_bcs, self.vector_index)
 
     def __le__(self, other):
         """self<=other if the iteration regions of self are a subset of the
