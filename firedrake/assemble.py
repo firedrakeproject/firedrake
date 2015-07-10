@@ -404,8 +404,21 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                             # Set diagonal entries on bc nodes to 1 if the current
                             # block is on the matrix diagonal and its index matches the
                             # index of the function space the bc is defined on.
-                            if i == j and (fs.index is None or fs.index == i):
+                            if i != j:
+                                continue
+                            if isinstance(fs, functionspace.IndexedFunctionSpace):
+                                # Mixed, index
+                                if fs.index == i:
+                                    tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+                            elif isinstance(fs, functionspace.IndexedVFS):
+                                if isinstance(fs._parent, functionspace.IndexedFunctionSpace):
+                                    if fs._parent.index != i:
+                                        continue
+                                tensor[i, j].inc_local_diagonal_entries(bc.nodes, idx=fs.index)
+                            elif fs.index is None:
                                 tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+                            else:
+                                raise RuntimeError("Unhandled BC case")
         if bcs is not None and is_vec:
             for bc in bcs:
                 bc.apply(result_function)
