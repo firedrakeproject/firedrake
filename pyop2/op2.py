@@ -39,6 +39,7 @@ import backends
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, i
 from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL
+from base import DatView
 from configuration import configuration
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
@@ -53,7 +54,8 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo',
            'Dat', 'MixedDat', 'Mat', 'Const', 'Global', 'Map', 'MixedMap',
-           'Sparsity', 'Solver', 'par_loop', 'solve']
+           'Sparsity', 'Solver', 'par_loop', 'solve',
+           'DatView']
 
 
 def initialised():

@@ -67,9 +67,12 @@ class LazyComputation(object):
     """
 
     def __init__(self, reads, writes, incs):
-        self.reads = set(flatten(reads))
-        self.writes = set(flatten(writes))
-        self.incs = set(flatten(incs))
+        self.reads = set((x._parent if isinstance(x, DatView) else x)
+                         for x in flatten(reads))
+        self.writes = set((x._parent if isinstance(x, DatView) else x)
+                          for x in flatten(writes))
+        self.incs = set((x._parent if isinstance(x, DatView) else x)
+                        for x in flatten(incs))
         self._scheduled = False
 
     def enqueue(self):
@@ -360,6 +363,10 @@ class Arg(object):
     def access(self):
         """Access descriptor. One of the constants of type :class:`Access`"""
         return self._access
+
+    @cached_property
+    def _is_dat_view(self):
+        return isinstance(self.data, DatView)
 
     @cached_property
     def _is_soa(self):
@@ -2194,6 +2201,73 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         soa = slot.attrs['type'].find(':soa') > 0
         ret = cls(dataset, data, name=name, soa=soa)
         return ret
+
+
+class DatView(Dat):
+    """An indexed view into a :class:`Dat`.
+
+    This object can be used like a :class:`Dat` but the kernel will
+    only see the requested index, rather than the full data.
+
+    :arg dat: The :class:`Dat` to create a view into.
+    :arg index: The component to select a view of.
+    """
+    def __init__(self, dat, index):
+        cdim = dat.cdim
+        if not (0 <= index < cdim):
+            raise IndexTypeError("Can't create DatView with index %d for Dat with shape %s" % (index, dat.dim))
+        self.index = index
+        # Point at underlying data
+        super(DatView, self).__init__(dat.dataset,
+                                      dat._data,
+                                      dtype=dat.dtype,
+                                      name="view[%s](%s)" % (index, dat.name))
+        # Remember parent for lazy computation forcing
+        self._parent = dat
+
+    @cached_property
+    def cdim(self):
+        return 1
+
+    @cached_property
+    def dim(self):
+        return (1, )
+
+    @cached_property
+    def shape(self):
+        return (self.dataset.total_size, )
+
+    @property
+    def data(self):
+        cdim = self._parent.cdim
+        full = self._parent.data
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
+
+    @property
+    def data_ro(self):
+        cdim = self._parent.cdim
+        full = self._parent.data_ro
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
+
+    @property
+    def data_with_halos(self):
+        cdim = self._parent.cdim
+        full = self._parent.data_with_halos
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
+
+    @property
+    def data_ro_with_halos(self):
+        cdim = self._parent.cdim
+        full = self._parent.data_ro_with_halos
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
 
 
 class MixedDat(Dat):
