@@ -598,6 +598,13 @@ class VectorFunctionSpace(FunctionSpaceBase):
         assert i == 0, "Can only extract subspace 0 from %r" % self
         return self
 
+    def sub(self, i):
+        """Return an :class:`IndexedVFS` for the requested component.
+
+        This can be used to apply :class:`~.DirichletBC`\s to components
+        of a :class:`VectorFunctionSpace`."""
+        return IndexedVFS(self, i)
+
 
 class TensorFunctionSpace(FunctionSpaceBase):
     """
@@ -828,6 +835,33 @@ class MixedFunctionSpace(FunctionSpaceBase):
             val = [None for _ in self]
         return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
+
+
+class IndexedVFS(FunctionSpaceBase):
+    """A helper class used to keep track of indexing of a
+    :class:`VectorFunctionSpace`.
+
+    Users should not instantiate this by hand.  Instead call
+    :meth:`VectorFunctionSpace.sub`."""
+    def __init__(self, parent, index):
+        assert isinstance(parent, VectorFunctionSpace), "Only valid for VFS"
+        assert 0 <= index < parent.dim, \
+            "Invalid index %d, not in [0, %d)" % (index, parent.dim)
+        if index > 2:
+            raise NotImplementedError("Indexing VFS not implemented for index > 2")
+        element = parent._ufl_element.sub_elements()[0]
+        super(IndexedVFS, self).__init__(parent.mesh(),
+                                         element)
+        self._parent = parent
+        self._index = index
+
+    @classmethod
+    def _process_args(self, parent, index):
+        return (parent.mesh(), parent, index), {}
+
+    @classmethod
+    def _cache_key(self, parent, index):
+        return parent, index
 
 
 class IndexedFunctionSpace(FunctionSpaceBase):
