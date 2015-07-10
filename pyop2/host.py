@@ -99,7 +99,7 @@ class Arg(base.Arg):
 
     def c_vec_dec(self, is_facet=False):
         facet_mult = 2 if is_facet else 1
-        cdim = self.data.dataset.cdim if self._flatten else 1
+        cdim = self.data.cdim if self._flatten else 1
         return "%(type)s *%(vec_name)s[%(arity)s];\n" % \
             {'type': self.ctype,
              'vec_name': self.c_vec_name(),
@@ -194,7 +194,7 @@ class Arg(base.Arg):
         for i, (m, d) in enumerate(zip(self.map, self.data)):
             is_top = is_top_init and m.iterset._extruded
             if self._flatten:
-                for k in range(d.dataset.cdim):
+                for k in range(d.cdim):
                     for idx in range(m.arity):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
@@ -332,14 +332,14 @@ class Arg(base.Arg):
         val = []
         vec_idx = 0
         for i, (m, d) in enumerate(zip(self.map, self.data)):
-            for k in range(d.dataset.cdim if self._flatten else 1):
+            for k in range(d.cdim if self._flatten else 1):
                 for idx in range(m.arity):
                     val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
                                 'i': idx,
                                 'j': vec_idx,
                                 'offset': self.c_offset_name(i, 0),
-                                'dim': d.dataset.cdim})
+                                'dim': d.cdim})
                     vec_idx += 1
                 if is_facet:
                     for idx in range(m.arity):
@@ -348,7 +348,7 @@ class Arg(base.Arg):
                                     'i': idx,
                                     'j': vec_idx,
                                     'offset': self.c_offset_name(i, 0),
-                                    'dim': d.dataset.cdim})
+                                    'dim': d.cdim})
                         vec_idx += 1
         return '\n'.join(val)+'\n'
 
