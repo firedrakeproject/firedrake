@@ -3820,7 +3820,12 @@ class JITModule(Cached):
                 else:
                     idx = arg.idx
                 map_arity = arg.map.arity if arg.map else None
-                key += (arg.data.dim, arg.data.dtype, map_arity, idx, arg.access)
+                if arg._is_dat_view:
+                    view_idx = arg.data.index
+                else:
+                    view_idx = None
+                key += (arg.data.dim, arg.data.dtype, map_arity,
+                        idx, view_idx, arg.access)
             elif arg._is_mat:
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
                         arg.idx[1].index)

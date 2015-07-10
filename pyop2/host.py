@@ -153,6 +153,8 @@ class Arg(base.Arg):
         return self.c_kernel_arg_name(i, j)
 
     def c_kernel_arg(self, count, i=0, j=0, shape=(0,), is_top=False, layers=1):
+        if self._is_dat_view and not self._is_direct:
+            raise NotImplementedError("Indirect DatView not implemented")
         if self._uses_itspace:
             if self._is_mat:
                 if self.data[i, j]._is_vector_field:
@@ -184,8 +186,13 @@ class Arg(base.Arg):
         elif isinstance(self.data, Global):
             return self.c_arg_name(i)
         else:
-            return "%(name)s + i * %(dim)s" % {'name': self.c_arg_name(i),
-                                               'dim': self.data[i].cdim}
+            if self._is_dat_view:
+                idx = "(%(idx)s + i * %(dim)s)" % {'idx': self.data[i].index,
+                                                   'dim': super(DatView, self.data[i]).cdim}
+            else:
+                idx = "(i * %(dim)s)" % {'dim': self.data[i].cdim}
+            return "%(name)s + %(idx)s" % {'name': self.c_arg_name(i),
+                                           'idx': idx}
 
     def c_vec_init(self, is_top, layers, is_facet=False):
         is_top_init = is_top
