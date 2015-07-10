@@ -296,6 +296,71 @@ class Arg(base.Arg):
                         'tmp_name': tmp_name}]
                 addto_name = tmp_name
 
+            rmap, cmap = maps
+            rdim, cdim = self.data.dims[i][j]
+            if rmap.vector_index is not None or cmap.vector_index is not None:
+                rows_str = "rowmap"
+                cols_str = "colmap"
+                addto = "MatSetValuesLocal"
+                fdict = {'nrows': nrows,
+                         'ncols': ncols,
+                         'rdim': rdim,
+                         'cdim': cdim,
+                         'rowmap': self.c_map_name(0, i),
+                         'colmap': self.c_map_name(1, j),
+                         'drop_full_row': 0 if rmap.vector_index is not None else 1,
+                         'drop_full_col': 0 if cmap.vector_index is not None else 1}
+                # Horrible hack alert
+                # To apply BCs to a component of a Dat with cdim > 1
+                # we encode which components to apply things to in the
+                # high bits of the map value
+                # The value that comes in is:
+                # -(row + 1 + sum_i 2 ** (30 - i))
+                # where i are the components to zero
+                #
+                # So, the actual row (if it's negative) is:
+                # (~input) & ~0x70000000
+                # And we can determine which components to zero by
+                # inspecting the high bits (1 << 30 - i)
+                ret.append("""
+                PetscInt rowmap[%(nrows)d*%(rdim)d];
+                PetscInt colmap[%(ncols)d*%(cdim)d];
+                int discard, tmp, block_row, block_col;
+                for ( int j = 0; j < %(nrows)d; j++ ) {
+                    block_row = %(rowmap)s[i*%(nrows)d + j];
+                    discard = 0;
+                    if ( block_row < 0 ) {
+                        tmp = -(block_row + 1);
+                        discard = 1;
+                        block_row = tmp & ~0x70000000;
+                    }
+                    for ( int k = 0; k < %(rdim)d; k++ ) {
+                        if ( discard && (%(drop_full_row)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                            rowmap[j*%(rdim)d + k] = -1;
+                        } else {
+                            rowmap[j*%(rdim)d + k] = (block_row)*%(rdim)d + k;
+                        }
+                    }
+                }
+                for ( int j = 0; j < %(ncols)d; j++ ) {
+                    discard = 0;
+                    block_col = %(colmap)s[i*%(ncols)d + j];
+                    if ( block_col < 0 ) {
+                        tmp = -(block_col + 1);
+                        discard = 1;
+                        block_col = tmp & ~0x70000000;
+                    }
+                    for ( int k = 0; k < %(cdim)d; k++ ) {
+                        if ( discard && (%(drop_full_col)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                            colmap[j*%(rdim)d + k] = -1;
+                        } else {
+                            colmap[j*%(cdim)d + k] = (block_col)*%(cdim)d + k;
+                        }
+                    }
+                }
+                """ % fdict)
+                nrows *= rdim
+                ncols *= cdim
         ret.append("""%(addto)s(%(mat)s, %(nrows)s, %(rows)s,
                                          %(ncols)s, %(cols)s,
                                          (const PetscScalar *)%(vals)s,

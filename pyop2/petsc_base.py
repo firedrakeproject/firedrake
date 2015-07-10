@@ -405,13 +405,16 @@ class MatBlock(base.Mat):
     def __iter__(self):
         yield self
 
-    def inc_local_diagonal_entries(self, rows, diag_val=1.0):
+    def inc_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
         rbs, _ = self.dims[0][0]
         # No need to set anything if we didn't get any rows.
         if len(rows) == 0:
             return
         if rbs > 1:
-            rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+            if idx is not None:
+                rows = rbs * rows + idx
+            else:
+                rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         vals = np.repeat(diag_val, len(rows))
         self.handle.setValuesLocalRCV(rows.reshape(-1, 1), rows.reshape(-1, 1),
                                       vals.reshape(-1, 1), addv=PETSc.InsertMode.ADD_VALUES)
@@ -661,7 +664,7 @@ class Mat(base.Mat, CopyOnWrite):
 
     @modifies
     @collective
-    def inc_local_diagonal_entries(self, rows, diag_val=1.0):
+    def inc_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
         """Increment the diagonal entry in ``rows`` by a particular value.
 
         :param rows: a :class:`Subset` or an iterable.
@@ -682,7 +685,10 @@ class Mat(base.Mat, CopyOnWrite):
         # as block indices and set all rows in each block
         rdim = self.sparsity.dsets[0].cdim
         if rdim > 1:
-            rows = np.dstack([rdim*rows + i for i in range(rdim)]).flatten()
+            if idx is not None:
+                rows = rdim*rows + idx
+            else:
+                rows = np.dstack([rdim*rows + i for i in range(rdim)]).flatten()
         with vec as array:
             array[rows] = diag_val
         self.handle.setDiagonal(vec, addv=PETSc.InsertMode.ADD_VALUES)
