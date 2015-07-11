@@ -516,7 +516,5 @@ Start with the unit tests with the sequential backend ::
 With all the sequential tests passing, move on to the next backend in the same
 manner as required.
 
-.. _PPA: https://launchpad.net/~amcg/+archive/petsc3.4/
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
-.. _Instant: https://bitbucket.org/fenics-project/instant
