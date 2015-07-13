@@ -11,10 +11,10 @@ team = OrderedDict([
     ("Doru Bercea", "http://www.imperial.ac.uk/people/gheorghe-teodor.bercea08"),
     ("Nicolas Loriant", "http://www.doc.ic.ac.uk/~nloriant/"),
     ("Graham Markall", "http://www.doc.ic.ac.uk/~grm08/"),
-    ("Andrew McRae", "http://www.imperial.ac.uk/people/a.mcrae12/"),
-    ("Michael Lange", "http://www.imperial.ac.uk/people/michael.lange/"),
+    ("Andrew McRae", "http://www.imperial.ac.uk/people/a.mcrae12"),
+    ("Michael Lange", "http://www.imperial.ac.uk/people/michael.lange"),
     ("Simon Funke", "http://www.simonfunke.com"),
-    ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter/")
+    ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter")
 ])
 
 cols = 4
