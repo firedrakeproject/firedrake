@@ -67,9 +67,12 @@ class LazyComputation(object):
     """
 
     def __init__(self, reads, writes, incs):
-        self.reads = set(flatten(reads))
-        self.writes = set(flatten(writes))
-        self.incs = set(flatten(incs))
+        self.reads = set((x._parent if isinstance(x, DatView) else x)
+                         for x in flatten(reads))
+        self.writes = set((x._parent if isinstance(x, DatView) else x)
+                          for x in flatten(writes))
+        self.incs = set((x._parent if isinstance(x, DatView) else x)
+                        for x in flatten(incs))
         self._scheduled = False
 
     def enqueue(self):
@@ -360,6 +363,10 @@ class Arg(object):
     def access(self):
         """Access descriptor. One of the constants of type :class:`Access`"""
         return self._access
+
+    @cached_property
+    def _is_dat_view(self):
+        return isinstance(self.data, DatView)
 
     @cached_property
     def _is_soa(self):
@@ -2196,6 +2203,73 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return ret
 
 
+class DatView(Dat):
+    """An indexed view into a :class:`Dat`.
+
+    This object can be used like a :class:`Dat` but the kernel will
+    only see the requested index, rather than the full data.
+
+    :arg dat: The :class:`Dat` to create a view into.
+    :arg index: The component to select a view of.
+    """
+    def __init__(self, dat, index):
+        cdim = dat.cdim
+        if not (0 <= index < cdim):
+            raise IndexTypeError("Can't create DatView with index %d for Dat with shape %s" % (index, dat.dim))
+        self.index = index
+        # Point at underlying data
+        super(DatView, self).__init__(dat.dataset,
+                                      dat._data,
+                                      dtype=dat.dtype,
+                                      name="view[%s](%s)" % (index, dat.name))
+        # Remember parent for lazy computation forcing
+        self._parent = dat
+
+    @cached_property
+    def cdim(self):
+        return 1
+
+    @cached_property
+    def dim(self):
+        return (1, )
+
+    @cached_property
+    def shape(self):
+        return (self.dataset.total_size, )
+
+    @property
+    def data(self):
+        cdim = self._parent.cdim
+        full = self._parent.data
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
+
+    @property
+    def data_ro(self):
+        cdim = self._parent.cdim
+        full = self._parent.data_ro
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
+
+    @property
+    def data_with_halos(self):
+        cdim = self._parent.cdim
+        full = self._parent.data_with_halos
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
+
+    @property
+    def data_ro_with_halos(self):
+        cdim = self._parent.cdim
+        full = self._parent.data_ro_with_halos
+
+        sub = full.reshape(-1, cdim)[:, self.index]
+        return sub
+
+
 class MixedDat(Dat):
     """A container for a bag of :class:`Dat`\s.
 
@@ -2863,6 +2937,10 @@ class Map(object):
         return frozenset([])
 
     @cached_property
+    def vector_index(self):
+        return None
+
+    @cached_property
     def iterset(self):
         """:class:`Set` mapped from."""
         return self._iterset
@@ -2972,7 +3050,8 @@ class DecoratedMap(Map, ObjectCached):
     :data:`implicit_bcs` arguments are :data:`None`, they will be
     copied over from the supplied :data:`map`."""
 
-    def __new__(cls, map, iteration_region=None, implicit_bcs=None):
+    def __new__(cls, map, iteration_region=None, implicit_bcs=None,
+                vector_index=None):
         if isinstance(map, DecoratedMap):
             # Need to add information, rather than replace if we
             # already have a decorated map (but overwrite if we're
@@ -2981,16 +3060,22 @@ class DecoratedMap(Map, ObjectCached):
                 iteration_region = [x for x in map.iteration_region]
             if implicit_bcs is None:
                 implicit_bcs = [x for x in map.implicit_bcs]
+            if vector_index is None:
+                vector_index = map.vector_index
             return DecoratedMap(map.map, iteration_region=iteration_region,
-                                implicit_bcs=implicit_bcs)
+                                implicit_bcs=implicit_bcs,
+                                vector_index=vector_index)
         if isinstance(map, MixedMap):
             return MixedMap([DecoratedMap(m, iteration_region=iteration_region,
-                                          implicit_bcs=implicit_bcs)
+                                          implicit_bcs=implicit_bcs,
+                                          vector_index=vector_index)
                              for m in map])
         return super(DecoratedMap, cls).__new__(cls, map, iteration_region=iteration_region,
-                                                implicit_bcs=implicit_bcs)
+                                                implicit_bcs=implicit_bcs,
+                                                vector_index=vector_index)
 
-    def __init__(self, map, iteration_region=None, implicit_bcs=None):
+    def __init__(self, map, iteration_region=None, implicit_bcs=None,
+                 vector_index=None):
         if self._initialized:
             return
         self._map = map
@@ -3002,6 +3087,7 @@ class DecoratedMap(Map, ObjectCached):
             implicit_bcs = []
         implicit_bcs = as_tuple(implicit_bcs)
         self.implicit_bcs = frozenset(implicit_bcs)
+        self.vector_index = vector_index
         self._initialized = True
 
     @classmethod
@@ -3009,17 +3095,18 @@ class DecoratedMap(Map, ObjectCached):
         return (m, ) + (m, ), kwargs
 
     @classmethod
-    def _cache_key(cls, map, iteration_region=None, implicit_bcs=None):
+    def _cache_key(cls, map, iteration_region=None, implicit_bcs=None,
+                   vector_index=None):
         ir = as_tuple(iteration_region, IterationRegion) if iteration_region else ()
         bcs = as_tuple(implicit_bcs) if implicit_bcs else ()
-        return (map, ir, bcs)
+        return (map, ir, bcs, vector_index)
 
     def __repr__(self):
-        return "DecoratedMap(%r, %r, %r)" % (self._map, self._iteration_region, self.implicit_bcs)
+        return "DecoratedMap(%r, %r, %r, %r)" % (self._map, self._iteration_region, self.implicit_bcs, self.vector_index)
 
     def __str__(self):
-        return "OP2 DecoratedMap on %s with region %s, implicit bcs %s" % \
-            (self._map, self._iteration_region, self.implicit_bcs)
+        return "OP2 DecoratedMap on %s with region %s, implicit bcs %s, vector index %s" % \
+            (self._map, self._iteration_region, self.implicit_bcs, self.vector_index)
 
     def __le__(self, other):
         """self<=other if the iteration regions of self are a subset of the
@@ -3746,7 +3833,12 @@ class JITModule(Cached):
                 else:
                     idx = arg.idx
                 map_arity = arg.map.arity if arg.map else None
-                key += (arg.data.dim, arg.data.dtype, map_arity, idx, arg.access)
+                if arg._is_dat_view:
+                    view_idx = arg.data.index
+                else:
+                    view_idx = None
+                key += (arg.data.dim, arg.data.dtype, map_arity,
+                        idx, view_idx, arg.access)
             elif arg._is_mat:
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
                         arg.idx[1].index)

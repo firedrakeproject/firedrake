@@ -99,7 +99,7 @@ class Arg(base.Arg):
 
     def c_vec_dec(self, is_facet=False):
         facet_mult = 2 if is_facet else 1
-        cdim = self.data.dataset.cdim if self._flatten else 1
+        cdim = self.data.cdim if self._flatten else 1
         return "%(type)s *%(vec_name)s[%(arity)s];\n" % \
             {'type': self.ctype,
              'vec_name': self.c_vec_name(),
@@ -153,6 +153,8 @@ class Arg(base.Arg):
         return self.c_kernel_arg_name(i, j)
 
     def c_kernel_arg(self, count, i=0, j=0, shape=(0,), is_top=False, layers=1):
+        if self._is_dat_view and not self._is_direct:
+            raise NotImplementedError("Indirect DatView not implemented")
         if self._uses_itspace:
             if self._is_mat:
                 if self.data[i, j]._is_vector_field:
@@ -184,8 +186,13 @@ class Arg(base.Arg):
         elif isinstance(self.data, Global):
             return self.c_arg_name(i)
         else:
-            return "%(name)s + i * %(dim)s" % {'name': self.c_arg_name(i),
-                                               'dim': self.data[i].cdim}
+            if self._is_dat_view:
+                idx = "(%(idx)s + i * %(dim)s)" % {'idx': self.data[i].index,
+                                                   'dim': super(DatView, self.data[i]).cdim}
+            else:
+                idx = "(i * %(dim)s)" % {'dim': self.data[i].cdim}
+            return "%(name)s + %(idx)s" % {'name': self.c_arg_name(i),
+                                           'idx': idx}
 
     def c_vec_init(self, is_top, layers, is_facet=False):
         is_top_init = is_top
@@ -194,7 +201,7 @@ class Arg(base.Arg):
         for i, (m, d) in enumerate(zip(self.map, self.data)):
             is_top = is_top_init and m.iterset._extruded
             if self._flatten:
-                for k in range(d.dataset.cdim):
+                for k in range(d.cdim):
                     for idx in range(m.arity):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
@@ -289,6 +296,71 @@ class Arg(base.Arg):
                         'tmp_name': tmp_name}]
                 addto_name = tmp_name
 
+            rmap, cmap = maps
+            rdim, cdim = self.data.dims[i][j]
+            if rmap.vector_index is not None or cmap.vector_index is not None:
+                rows_str = "rowmap"
+                cols_str = "colmap"
+                addto = "MatSetValuesLocal"
+                fdict = {'nrows': nrows,
+                         'ncols': ncols,
+                         'rdim': rdim,
+                         'cdim': cdim,
+                         'rowmap': self.c_map_name(0, i),
+                         'colmap': self.c_map_name(1, j),
+                         'drop_full_row': 0 if rmap.vector_index is not None else 1,
+                         'drop_full_col': 0 if cmap.vector_index is not None else 1}
+                # Horrible hack alert
+                # To apply BCs to a component of a Dat with cdim > 1
+                # we encode which components to apply things to in the
+                # high bits of the map value
+                # The value that comes in is:
+                # -(row + 1 + sum_i 2 ** (30 - i))
+                # where i are the components to zero
+                #
+                # So, the actual row (if it's negative) is:
+                # (~input) & ~0x70000000
+                # And we can determine which components to zero by
+                # inspecting the high bits (1 << 30 - i)
+                ret.append("""
+                PetscInt rowmap[%(nrows)d*%(rdim)d];
+                PetscInt colmap[%(ncols)d*%(cdim)d];
+                int discard, tmp, block_row, block_col;
+                for ( int j = 0; j < %(nrows)d; j++ ) {
+                    block_row = %(rowmap)s[i*%(nrows)d + j];
+                    discard = 0;
+                    if ( block_row < 0 ) {
+                        tmp = -(block_row + 1);
+                        discard = 1;
+                        block_row = tmp & ~0x70000000;
+                    }
+                    for ( int k = 0; k < %(rdim)d; k++ ) {
+                        if ( discard && (%(drop_full_row)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                            rowmap[j*%(rdim)d + k] = -1;
+                        } else {
+                            rowmap[j*%(rdim)d + k] = (block_row)*%(rdim)d + k;
+                        }
+                    }
+                }
+                for ( int j = 0; j < %(ncols)d; j++ ) {
+                    discard = 0;
+                    block_col = %(colmap)s[i*%(ncols)d + j];
+                    if ( block_col < 0 ) {
+                        tmp = -(block_col + 1);
+                        discard = 1;
+                        block_col = tmp & ~0x70000000;
+                    }
+                    for ( int k = 0; k < %(cdim)d; k++ ) {
+                        if ( discard && (%(drop_full_col)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                            colmap[j*%(rdim)d + k] = -1;
+                        } else {
+                            colmap[j*%(cdim)d + k] = (block_col)*%(cdim)d + k;
+                        }
+                    }
+                }
+                """ % fdict)
+                nrows *= rdim
+                ncols *= cdim
         ret.append("""%(addto)s(%(mat)s, %(nrows)s, %(rows)s,
                                          %(ncols)s, %(cols)s,
                                          (const PetscScalar *)%(vals)s,
@@ -332,14 +404,14 @@ class Arg(base.Arg):
         val = []
         vec_idx = 0
         for i, (m, d) in enumerate(zip(self.map, self.data)):
-            for k in range(d.dataset.cdim if self._flatten else 1):
+            for k in range(d.cdim if self._flatten else 1):
                 for idx in range(m.arity):
                     val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
                                {'name': self.c_vec_name(),
                                 'i': idx,
                                 'j': vec_idx,
                                 'offset': self.c_offset_name(i, 0),
-                                'dim': d.dataset.cdim})
+                                'dim': d.cdim})
                     vec_idx += 1
                 if is_facet:
                     for idx in range(m.arity):
@@ -348,7 +420,7 @@ class Arg(base.Arg):
                                     'i': idx,
                                     'j': vec_idx,
                                     'offset': self.c_offset_name(i, 0),
-                                    'dim': d.dataset.cdim})
+                                    'dim': d.cdim})
                         vec_idx += 1
         return '\n'.join(val)+'\n'
 

@@ -132,6 +132,8 @@ cdef class _Plan:
         self._nargs = len([arg for arg in args if not arg._is_mat])
         d = OrderedDict()
         for arg in args:
+            if arg._is_dat_view:
+                raise NotImplementedError("Plan not implemented for DatViews")
             if arg._is_indirect and not arg._is_mat:
                 k = arg.data, arg.map
                 if not k in d:
