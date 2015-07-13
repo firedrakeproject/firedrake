@@ -4,7 +4,7 @@ team = OrderedDict([
     ("David Ham", "http://www.imperial.ac.uk/people/david.ham"),
     ("Paul Kelly", "http://www.imperial.ac.uk/people/p.kelly"),
     ("Florian Rathgeber",
-     "http://www.imperial.ac.uk/people/f.rathgeber10"),
+     "https://kynan.github.io"),
     ("Lawrence Mitchell",
      "http://www.imperial.ac.uk/people/lawrence.mitchell"),
     ("Fabio Luporini", "http://www.imperial.ac.uk/people/f.luporini12"),
