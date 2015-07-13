@@ -81,7 +81,7 @@ class Function(ufl.Coefficient):
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
 
-        if isinstance(val, op2.Dat):
+        if isinstance(val, (op2.Dat, op2.DatView)):
             self.dat = val
         else:
             self.dat = self._function_space.make_dat(val, dtype,
@@ -112,7 +112,16 @@ class Function(ufl.Coefficient):
 
         :arg i: the index to extract
 
-        See also :meth:`split`"""
+        See also :meth:`split`.
+
+        If the :class:`Function` is defined on a
+        :class:`.~VectorFunctionSpace`, this returns a proxy object
+        indexing the ith component of the space, suitable for use in
+        boundary condition application."""
+        if isinstance(self.function_space(), functionspace.VectorFunctionSpace):
+            fs = self.function_space().sub(i)
+            return Function(fs, val=op2.DatView(self.dat, i),
+                            name="view[%d](%s)" % (i, self.name()))
         return self.split()[i]
 
     @property

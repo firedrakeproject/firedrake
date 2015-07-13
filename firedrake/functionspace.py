@@ -319,8 +319,12 @@ class FunctionSpaceBase(ObjectCached):
             # empty.  tuple(set([])) == tuple().
             lbcs = tuple()
         else:
-            if not all(bc.function_space() == self for bc in bcs):
-                raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
+            for bc in bcs:
+                fs = bc.function_space()
+                if isinstance(fs, IndexedVFS):
+                    fs = fs._parent
+                if fs != self:
+                    raise RuntimeError("DirichletBC defined on a different FunctionSpace!")
             # Ensure bcs is a tuple in a canonical order for the hash key.
             lbcs = tuple(sorted(bcs, key=lambda bc: bc.__hash__()))
         try:
@@ -337,10 +341,37 @@ class FunctionSpaceBase(ObjectCached):
 
             # Any top and bottom bcs (for the extruded case) are handled elsewhere.
             nodes = [bc.nodes for bc in lbcs if bc.sub_domain not in ['top', 'bottom']]
+            decorate = False
             if nodes:
                 bcids = reduce(np.union1d, nodes)
-                node_list_bc = np.arange(self.node_count)
-                node_list_bc[bcids] = -10000000
+                negids = np.copy(bcids)
+                for bc in lbcs:
+                    if bc.sub_domain in ["top", "bottom"]:
+                        continue
+                    if isinstance(bc.function_space(), IndexedVFS):
+                        # For indexed VFS bcs, we encode the component
+                        # in the high bits of the map value.
+                        # That value is then negated to indicate to
+                        # the generated code to discard the values
+                        #
+                        # So here we do:
+                        #
+                        # node = -(node + 2**(30-cmpt) + 1)
+                        #
+                        # And in the generated code we can then
+                        # extract the information to discard the
+                        # correct entries.
+                        val = 2 ** (30 - bc.function_space().index)
+                        # bcids is sorted, so use searchsorted to find indices
+                        idx = np.searchsorted(bcids, bc.nodes)
+                        negids[idx] += val
+                        decorate = True
+                node_list_bc = np.arange(self.node_count, dtype=np.int32)
+                # Fix up for extruded, doesn't commute with indexedvfs for now
+                if isinstance(self.mesh(), mesh_t.ExtrudedMesh):
+                    node_list_bc[bcids] = -10000000
+                else:
+                    node_list_bc[bcids] = -(negids + 1)
                 new_entity_node_list = node_list_bc.take(entity_node_list)
             else:
                 new_entity_node_list = entity_node_list
@@ -353,6 +384,8 @@ class FunctionSpaceBase(ObjectCached):
                           parent,
                           self.bt_masks)
 
+            if decorate:
+                val = op2.DecoratedMap(val, vector_index=True)
             cache[lbcs] = val
             if implicit_bcs:
                 return op2.DecoratedMap(val, implicit_bcs=implicit_bcs)
@@ -598,6 +631,13 @@ class VectorFunctionSpace(FunctionSpaceBase):
         assert i == 0, "Can only extract subspace 0 from %r" % self
         return self
 
+    def sub(self, i):
+        """Return an :class:`IndexedVFS` for the requested component.
+
+        This can be used to apply :class:`~.DirichletBC`\s to components
+        of a :class:`VectorFunctionSpace`."""
+        return IndexedVFS(self, i)
+
 
 class TensorFunctionSpace(FunctionSpaceBase):
     """
@@ -828,6 +868,33 @@ class MixedFunctionSpace(FunctionSpaceBase):
             val = [None for _ in self]
         return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
+
+
+class IndexedVFS(FunctionSpaceBase):
+    """A helper class used to keep track of indexing of a
+    :class:`VectorFunctionSpace`.
+
+    Users should not instantiate this by hand.  Instead call
+    :meth:`VectorFunctionSpace.sub`."""
+    def __init__(self, parent, index):
+        assert isinstance(parent, VectorFunctionSpace), "Only valid for VFS"
+        assert 0 <= index < parent.dim, \
+            "Invalid index %d, not in [0, %d)" % (index, parent.dim)
+        if index > 2:
+            raise NotImplementedError("Indexing VFS not implemented for index > 2")
+        element = parent._ufl_element.sub_elements()[0]
+        super(IndexedVFS, self).__init__(parent.mesh(),
+                                         element)
+        self._parent = parent
+        self._index = index
+
+    @classmethod
+    def _process_args(self, parent, index):
+        return (parent.mesh(), parent, index), {}
+
+    @classmethod
+    def _cache_key(self, parent, index):
+        return parent, index
 
 
 class IndexedFunctionSpace(FunctionSpaceBase):
