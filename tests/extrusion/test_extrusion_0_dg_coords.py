@@ -1,4 +1,5 @@
 from firedrake import *
+import weakref
 import pytest
 import ufl
 
@@ -11,7 +12,7 @@ def test_extruded_interval_area():
     m._coordinate_fs = new_coords.function_space()
     m.coordinates = new_coords
 
-    ufl.dx._subdomain_data = m.coordinates
+    ufl.dx._subdomain_data = weakref.ref(m.coordinates)
     V = FunctionSpace(m, 'CG', 1)
     u = Function(V)
     u.assign(1)

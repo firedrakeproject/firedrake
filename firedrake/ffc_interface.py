@@ -8,7 +8,7 @@ from os import path, environ, getuid, makedirs
 import tempfile
 
 import ufl
-from ufl import Form, MixedElement, as_vector
+from ufl import Form, as_vector
 from ufl.measure import Measure
 from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
@@ -206,8 +206,13 @@ class FFCKernel(DiskCached):
                 kernels.append((Kernel(Root(incl + [_kernel]), '%s_%s_integral_0_%s' %
                                        (name, it.integral_type(), it.subdomain_id()), opts, inc),
                                 needs_orientations))
-            self.kernels = tuple(kernels)
-            self._empty = False
+            # Sometimes FFC returns an empty list without raising
+            # EmptyIntegrandError, catch that here.
+            if len(kernels) == 0:
+                self._empty = True
+            else:
+                self.kernels = tuple(kernels)
+                self._empty = False
         except EmptyIntegrandError:
             # FFC noticed that the integrand was zero and simplified
             # it, catch this here and set a flag telling us to ignore
@@ -262,23 +267,6 @@ def compile_form(form, name, parameters=None, inverse=False):
            params == parameters:
             return kernels
 
-    # need compute_form_data since we use preproc. form integrals later
-    fd = compute_form_data(form)
-
-    # If there is no mixed element involved, return the kernels FFC produces
-    # Note: using type rather than isinstance because UFL's VectorElement,
-    # TensorElement and OPVectorElement all inherit from MixedElement
-    if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
-        kernels = [((0, 0),
-                    it.integral_type(), it.subdomain_id(),
-                    it.domain().data().coordinates,
-                    fd.preprocessed_form.coefficients(), needs_orientations, kernel)
-                   for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
-                                                               FFCKernel(form, name,
-                                                                         parameters).kernels)]
-        form._cache["firedrake_kernels"] = (kernels, parameters)
-        return kernels
-    # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
     for forms in FormSplitter().split(form):
         for (i, j), f in forms:
