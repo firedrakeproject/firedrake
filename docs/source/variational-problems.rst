@@ -480,6 +480,51 @@ details of how Firedrake applies strong boundary conditions are
 slightly involved and therefore have :doc:`their own section
 <boundary_conditions>` in the manual.
 
+Specifying conditions on components of a space
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When solving a problem defined on either a
+:class:`~.MixedFunctionSpace` or a :class:`~.VectorFunctionSpace`, it is
+common to want to specify boundary values for only some of the
+components.  In the former case, this is the only supported method of
+setting boundary values, the latter also supports setting the value
+for all components.  In both cases, the syntax is the same.  When
+defining the :py:class:`~.DirichletBC` we must index the FunctionSpace
+used.  For example, to specify that the third component of a
+:py:class:`~.VectorFunctionSpace` should take the boundary value 0, we write:
+
+.. code-block:: python
+
+   V = VectorFunctionSpace(mesh, ...)
+   bc = DirichletBC(V.sub(2), Constant(0), boundary_ids)
+
+Note that when indexing a :py:class:`~.MixedFunctionSpace` in this
+manner, one pulls out the indexed sub-space, rather than a component.
+For example, to specify the velocity values in a Taylor-Hood
+discretisation we write:
+
+.. code-block:: python
+
+   V = VectorFunctionSpace(mesh, "CG", 2)
+   P = FunctionSpace(mesh, "CG", 1)
+   W = V*P
+
+   bcv = DirichletBC(W.sub(0), Constant((0, 0)), boundary_ids)
+
+If we only wanted to specify a single component, we would have to
+index twice.  For example, specifying that the x-component of the
+velocity is zero, using the same function space definitions:
+
+.. code-block:: python
+
+   bcv_x = DirichletBC(W.sub(0).sub(0), Constant(0), boundary_ids)
+
+.. note::
+
+   Extruded meshes have full support for indexing
+   :py:class:`~.MixedFunctionSpace`\s, but currently do not support
+   indexing on :py:class:`~.VectorFunctionSpace`\s.
+
 Boundary conditions in discontinuous spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
