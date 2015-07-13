@@ -4,7 +4,7 @@ team = OrderedDict([
     ("David Ham", "http://www.imperial.ac.uk/people/david.ham"),
     ("Paul Kelly", "http://www.imperial.ac.uk/people/p.kelly"),
     ("Florian Rathgeber",
-     "http://www.imperial.ac.uk/people/f.rathgeber10"),
+     "https://kynan.github.io"),
     ("Lawrence Mitchell",
      "http://www.imperial.ac.uk/people/lawrence.mitchell"),
     ("Fabio Luporini", "http://www.imperial.ac.uk/people/f.luporini12"),
@@ -13,7 +13,7 @@ team = OrderedDict([
     ("Graham Markall", "http://www.doc.ic.ac.uk/~grm08/"),
     ("Andrew McRae", "http://www.imperial.ac.uk/people/a.mcrae12/"),
     ("Michael Lange", "http://www.imperial.ac.uk/people/michael.lange/"),
-    ("Simon Funke", "http://www.imperial.ac.uk/people/s.funke09/"),
+    ("Simon Funke", "http://www.simonfunke.com"),
     ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter/")
 ])
 
