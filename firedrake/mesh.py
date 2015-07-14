@@ -52,7 +52,8 @@ class _Facets(object):
         # assert that markers is a proper subset of unique_markers
         if markers is not None:
             for marker in markers:
-                assert(marker in unique_markers)
+                assert (marker in unique_markers), \
+                    "Every marker has to be contained in unique_markers"
 
         self.markers = markers
         self.unique_markers = [] if unique_markers is None else unique_markers
