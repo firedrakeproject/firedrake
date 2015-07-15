@@ -3847,8 +3847,9 @@ class JITModule(Cached):
                 # "bottom") affect generated code, and therefore need
                 # to be part of cache key
                 map_bcs = (arg.map[0].implicit_bcs, arg.map[1].implicit_bcs)
+                map_cmpts = (arg.map[0].vector_index, arg.map[1].vector_index)
                 key += (arg.data.dims, arg.data.dtype, idxs,
-                        map_arities, map_bcs, arg.access)
+                        map_arities, map_bcs, map_cmpts, arg.access)
 
         iterate = kwargs.get("iterate", None)
         if iterate is not None:
