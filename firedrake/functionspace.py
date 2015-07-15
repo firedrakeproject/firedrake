@@ -709,8 +709,28 @@ class MixedFunctionSpace(FunctionSpaceBase):
             dm.setGlobalVector(v.duplicate())
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setCreateFieldDecomposition(self.create_field_decomp)
+        dm.setCreateSubDM(self.create_subdm)
         self._dm = dm
         self._ises = self.dof_dset.field_ises
+        self._subspaces = []
+
+    @classmethod
+    def create_subdm(cls, dm, fields, *args, **kwargs):
+        W = dm.getAttr('__fs__')()
+        if len(fields) == 1:
+            # Subspace is just a single FunctionSpace.
+            subspace = W[fields[0]]
+        else:
+            # Need to build an MFS for the subspace
+            subspace = MixedFunctionSpace([W[f] for f in fields])
+        # Sub-DM is just the DM belonging to the subspace.
+        subdm = subspace._dm
+        # Keep hold of strong reference, to created subspace (given we
+        # only hold a weakref in the shell DM)
+        W._subspaces.append(subspace)
+        # Index set mapping from W into subspace.
+        iset = PETSc.IS().createGeneral(np.concatenate([W._ises[f].indices for f in fields]))
+        return iset, subdm
 
     @classmethod
     def create_field_decomp(cls, dm, *args, **kwargs):
