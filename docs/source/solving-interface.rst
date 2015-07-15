@@ -483,9 +483,9 @@ precondition by forming a schur complement of the first two fields
 into the third, and then using a multiplicative fieldsplit with LU on
 each split for the approximation to :math:`A^{-1}` and ILU to
 precondition the schur complement.  The solver parameters we need are
-as follows::
+as follows:
 
-.. code-block::
+.. code-block:: python
 
    parameters = {"pc_type": "fieldsplit",
                  "pc_fieldsplit_type": "schur",
