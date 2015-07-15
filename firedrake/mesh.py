@@ -604,10 +604,23 @@ class Mesh(object):
         body.append(ast.Decl("double", "dot"))
         body.append(ast.Assign("dot", 0.0))
         body.append(ast.Decl("int", "i"))
-        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
-                            [ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
-                             ast.Assign(v1("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
-                             ast.Assign(x("i"), 0.0)]))
+
+        # if triangle, use v0 = x1 - x0, v1 = x2 - x0
+        # otherwise, for the various quads, use v0 = x2 - x0, v1 = x1 - x0
+        # recall reference element ordering:
+        # triangle: 2        quad: 1 3
+        #           0 1            0 2
+        if self.ufl_cell() == ufl.Cell('triangle', 3):
+            body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                                [ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
+                                 ast.Assign(v1("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
+                                 ast.Assign(x("i"), 0.0)]))
+        else:
+            body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
+                                [ast.Assign(v0("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
+                                 ast.Assign(v1("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
+                                 ast.Assign(x("i"), 0.0)]))
+
         # n = v0 x v1
         body.append(ast.Assign(n(0), ast.Sub(ast.Prod(v0(1), v1(2)), ast.Prod(v0(2), v1(1)))))
         body.append(ast.Assign(n(1), ast.Sub(ast.Prod(v0(2), v1(0)), ast.Prod(v0(0), v1(2)))))
