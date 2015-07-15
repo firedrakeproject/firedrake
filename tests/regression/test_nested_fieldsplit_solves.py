@@ -127,6 +127,26 @@ def test_nested_fieldsplit_solve(W, A, b, expect, parameters):
     assert norm(f) < 1e-11
 
 
+@pytest.mark.parallel(nprocs=3)
+def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
+    parameters = {"ksp_type": "preonly",
+                  "pc_type": "fieldsplit",
+                  "pc_fieldsplit_type": "additive",
+                  "pc_fieldsplit_0_fields": "0, 3",
+                  "pc_fieldsplit_1_fields": "1, 2",
+                  "fieldsplit_ksp_type": "cg",
+                  "fieldsplit_ksp_rtol": 1e-12,
+                  "fieldsplit_pc_type": "bjacobi",
+                  "fieldsplit_sub_pc_type": "lu"}
+    solver = LinearSolver(A, solver_parameters=parameters)
+    f = Function(W)
+
+    solver.solve(f, b)
+
+    f -= expect
+    assert norm(f) < 1e-11
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))
