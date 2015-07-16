@@ -1942,8 +1942,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         # Force the execution of the copy parloop
 
         # We need to ensure that PyOP2 allocates fresh storage for this copy.
+        # But only if the copy has not already run.
         try:
-            del self._numpy_data
+            if self._numpy_data is src._numpy_data:
+                del self._numpy_data
         except AttributeError:
             pass
 
