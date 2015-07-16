@@ -2412,14 +2412,14 @@ class MixedDat(Dat):
         # Force the execution of the copy parloop
 
         for d, s in zip(self._dats, src._dats):
-            d._cow_actual_copy(d, s)
+            d._cow_actual_copy(s)
 
     @collective
     def _cow_shallow_copy(self):
 
         other = shallow_copy(self)
 
-        other._dats = [d._cow_shallow_copy() for d in self._dats]
+        other._dats = [d.duplicate() for d in self._dats]
 
         return other
 
