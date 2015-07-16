@@ -203,6 +203,36 @@ class TestCopyOnWrite:
         assert all(x_dup.data_ro == numpy.arange(nelems) + 1)
         assert all(x.data_ro == numpy.arange(nelems))
 
+    def test_CoW_MixedDat_duplicate_original_changes(self, backend, x, y):
+        md = op2.MixedDat([x, y])
+        md_dup = md.duplicate()
+        x += 1
+        y += 2
+        for a, b in zip(md, md_dup):
+            assert not self.same_data(a, b)
+
+        assert numpy.allclose(md_dup.data_ro[0], numpy.arange(nelems))
+        assert numpy.allclose(md_dup.data_ro[1], 0)
+
+        assert numpy.allclose(md.data_ro[0], numpy.arange(nelems) + 1)
+        assert numpy.allclose(md.data_ro[1], 2)
+
+    def test_CoW_MixedDat_duplicate_copy_changes(self, backend, x, y):
+        md = op2.MixedDat([x, y])
+        md_dup = md.duplicate()
+        x_dup = md_dup[0]
+        y_dup = md_dup[1]
+        x_dup += 1
+        y_dup += 2
+        for a, b in zip(md, md_dup):
+            assert not self.same_data(a, b)
+
+        assert numpy.allclose(md_dup.data_ro[0], numpy.arange(nelems) + 1)
+        assert numpy.allclose(md_dup.data_ro[1], 2)
+
+        assert numpy.allclose(md.data_ro[0], numpy.arange(nelems))
+        assert numpy.allclose(md.data_ro[1], 0)
+
     def test_CoW_mat_duplicate_original_changes(self, backend, mat, skip_cuda, skip_opencl):
         mat_dup = mat.duplicate()
         mat.zero_rows([0], 1.0)
