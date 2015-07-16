@@ -468,14 +468,44 @@ inverses of the block system.  These work for any number of blocks,
 whereas the Schur complement approach mentioned above only works for
 two by two blocks.
 
-.. note::
+Recursive fieldsplits
++++++++++++++++++++++
 
-   PETSc offers support for composing fieldsplit preconditioners
-   recursively.  That is, defining a :math:`3\times3` block system as
-   composed of a :math:`2\times2` piece and a :math:`1\times1` piece.
-   However, the Firedrake interface to the solver options does not
-   currently support this.  At present, we cannot tell PETSc that the
-   blocks should be split recursively.
+If your system contains more than two fields, it is possible to
+recursively define block preconditioners by specifying the
+fields which should belong to each split.  Note that at present this
+only works for "monolithically assembled" matrices, so you should
+either specify ``nest=False`` when solving your system or assembling
+your matrix, or else set the global parameter ``parameters["matnest"] = False``.
+
+As an example, consider a three field system which we wish to
+precondition by forming a schur complement of the first two fields
+into the third, and then using a multiplicative fieldsplit with LU on
+each split for the approximation to :math:`A^{-1}` and ILU to
+precondition the schur complement.  The solver parameters we need are
+as follows:
+
+.. code-block:: python
+
+   parameters = {"pc_type": "fieldsplit",
+                 "pc_fieldsplit_type": "schur",
+                 # first split contains first two fields, second
+                 # contains the third
+                 "pc_fieldsplit_0_fields": "0, 1",
+                 "pc_fieldsplit_1_fields": "2",
+                 # Multiplicative fieldsplit for first field
+                 "fieldsplit_0_pc_type": "fieldsplit",
+                 "fieldsplit_0_pc_fieldsplit_type": "multiplicative",
+                 # LU on each field
+                 "fieldsplit_0_fieldsplit_0_pc_type": "lu",
+                 "fieldsplit_0_fieldsplit_1_pc_type": "lu",
+                 # ILU on the schur complement block
+                 # Note that the fieldsplit number is the that of the
+                 # outer field number
+                 "fieldsplit_2_pc_type": "ilu"}
+
+
+.. note::
 
    Future versions of Firedrake may offer a symbolic language for
    describing the composition of such physics-like preconditioners,
