@@ -2301,6 +2301,10 @@ class MixedDat(Dat):
         """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
         return self._dats[idx]
 
+    @property
+    def _version(self):
+        return tuple(x._version for x in self.split)
+
     @cached_property
     def dtype(self):
         """The NumPy dtype of the data."""

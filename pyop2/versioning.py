@@ -68,7 +68,7 @@ class Versioned(object):
 
     def __new__(cls, *args, **kwargs):
         obj = super(Versioned, cls).__new__(cls)
-        obj._version = 1
+        obj.__version = 1
         obj._version_before_zero = 1
         return obj
 
@@ -78,12 +78,16 @@ class Versioned(object):
 
         self._version_before_zero += 1
         # Undo_version = 0
-        self._version = self._version_before_zero
+        self.__version = self._version_before_zero
 
     def _version_set_zero(self):
         """Set the data version of this object to zero (usually when
         self.zero() is called)."""
-        self._version = 0
+        self.__version = 0
+
+    @property
+    def _version(self):
+        return self.__version
 
 
 def _force_copies(obj):
