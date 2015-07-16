@@ -146,6 +146,24 @@ class TestVersioning:
         x += 1
         assert not s.is_valid()
 
+    def test_mixed_dat_versioning(self, backend, x, y):
+        md = op2.MixedDat([x, y])
+        mdv = md._version
+        x += 1
+        assert md._version != mdv
+        mdv1 = md._version
+        y += 1
+        assert md._version != mdv1
+        assert md._version != mdv
+        mdv2 = md._version
+        md.zero()
+        assert md._version == (0, 0)
+        y += 2
+        assert md._version != mdv2
+        assert md._version != mdv1
+        assert md._version != mdv
+        assert md._version != (0, 0)
+
 
 class TestCopyOnWrite:
     @pytest.fixture
