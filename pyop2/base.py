@@ -3949,7 +3949,7 @@ class ParLoop(LazyComputation):
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args, **kwargs):
         LazyComputation.__init__(self,
-                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in args if a.access in [READ, RW, INC]]) | Const._defs,
                                  set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]),
                                  set([a.data for a in args if a.access in [INC]]))
         # INCs into globals need to start with zero and then sum back
