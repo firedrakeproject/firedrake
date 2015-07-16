@@ -12,6 +12,7 @@ hcurl = [("N1curl", 1), ("N1curl", 2), ("N2curl", 1), ("N2curl", 2)]
 
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
                          [(f, d, vf, vd) for (vf, vd) in CG + DG for (f, d) in CG + DG])
+@longtest
 def test_scalar_assembly(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
     fspace = FunctionSpace(mesh, hfamily, hdegree, vfamily=vfamily, vdegree=vdegree)
@@ -28,6 +29,7 @@ def test_scalar_assembly(hfamily, hdegree, vfamily, vdegree):
                          [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hdiv]
                          + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hcurl]
                          + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in DG])
+@longtest
 def test_hdiv_assembly(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
 
@@ -48,6 +50,7 @@ def test_hdiv_assembly(hfamily, hdegree, vfamily, vdegree):
                          [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hcurl]
                          + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hdiv]
                          + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in CG])
+@longtest
 def test_hcurl_assembly(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
 
