@@ -1966,8 +1966,9 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         # Set up the copy to happen when required.
         other._cow_parloop = self._copy_parloop(other)
         # Remove the write dependency of the copy (in order to prevent
-        # premature execution of the loop).
-        other._cow_parloop.writes = set()
+        # premature execution of the loop), and replace it with the
+        # one dat we're writing to.
+        other._cow_parloop.writes = set([other])
         if configuration['lazy_evaluation']:
             # In the lazy case, we enqueue now to ensure we are at the
             # right point in the trace.
