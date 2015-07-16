@@ -903,9 +903,9 @@ class IndexedVFS(FunctionSpaceBase):
         if index > 2:
             raise NotImplementedError("Indexing VFS not implemented for index > 2")
         element = parent._ufl_element.sub_elements()[0]
+        self._parent = parent
         super(IndexedVFS, self).__init__(parent.mesh(),
                                          element)
-        self._parent = parent
         self._index = index
 
     @classmethod
@@ -915,6 +915,10 @@ class IndexedVFS(FunctionSpaceBase):
     @classmethod
     def _cache_key(self, parent, index):
         return parent, index
+
+    @utils.cached_property
+    def node_set(self):
+        return self._parent.node_set
 
 
 class IndexedFunctionSpace(FunctionSpaceBase):

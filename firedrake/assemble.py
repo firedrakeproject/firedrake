@@ -103,6 +103,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     is_mat = rank == 2
     is_vec = rank == 1
 
+    if any(isinstance(coeff.function_space(), functionspace.IndexedVFS)
+           for coeff in f.coefficients()):
+        raise NotImplementedError("Integration of subscribed VFS not yet implemented")
+
     if inverse and rank != 2:
         raise ValueError("Can only assemble the inverse of a 2-form")
 
