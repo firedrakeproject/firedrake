@@ -356,6 +356,14 @@ def test_empty_exterior_facet_node_list():
     assert V.exterior_facet_node_map([bc])
 
 
+def test_invalid_marker_raises_error(a, V):
+    with pytest.raises(LookupError):
+        # UnitSquareMesh has region IDs from 1 to 4. Thus 100 should raise an
+        # exception.
+        bc1 = DirichletBC(V, 0, 100)
+        assemble(a, bcs=[bc1])
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

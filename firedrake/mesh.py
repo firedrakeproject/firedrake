@@ -49,6 +49,12 @@ class _Facets(object):
 
         self.local_facet_number = local_facet_number
 
+        # assert that markers is a proper subset of unique_markers
+        if markers is not None:
+            for marker in markers:
+                assert (marker in unique_markers), \
+                    "Every marker has to be contained in unique_markers"
+
         self.markers = markers
         self.unique_markers = [] if unique_markers is None else unique_markers
         self._subsets = {}
@@ -106,6 +112,15 @@ class _Facets(object):
         try:
             return self._subsets[markers]
         except KeyError:
+            # check that the given markers are valid
+            for marker in markers:
+                if marker not in self.unique_markers:
+                    raise LookupError(
+                        '{0} is not a valid marker'.
+                        format(marker))
+
+            # build a list of indices corresponding to the subsets selected by
+            # markers
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
             self._subsets[markers] = op2.Subset(self.set, indices)
@@ -780,7 +795,8 @@ class ExtrudedMesh(Mesh):
                                         "exterior",
                                         exterior_f.facet_cell,
                                         exterior_f.local_facet_number,
-                                        exterior_f.markers)
+                                        exterior_f.markers,
+                                        unique_markers=exterior_f.unique_markers)
 
         self.ufl_cell_element = ufl.FiniteElement("Lagrange",
                                                   domain=mesh.ufl_cell(),
