@@ -31,6 +31,9 @@ Programme
    * `Dr Lawrence Mitchell <http://www.imperial.ac.uk/people/lawrence.mitchell>`_ Imperial College London.
 
 
+Videos of the talks are available `on the Firedrake youtube channel
+<https://www.youtube.com/playlist?list=PLz9uieREhSLN4XJAXR6OcQKRRQavWqKZL>`_.
+
 .. image:: _static/doggetts_terrace.jpg
    :width: 25%
    :alt: alternate text
