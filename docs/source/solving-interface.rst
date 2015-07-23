@@ -500,10 +500,24 @@ as follows:
                  "fieldsplit_0_fieldsplit_0_pc_type": "lu",
                  "fieldsplit_0_fieldsplit_1_pc_type": "lu",
                  # ILU on the schur complement block
-                 # Note that the fieldsplit number is the that of the
-                 # outer field number
-                 "fieldsplit_2_pc_type": "ilu"}
+                 "fieldsplit_1_pc_type": "ilu"}
 
+In this example, none of the :class:`~.FunctionSpace`\s used had
+names, and hence we referred to the fields by number.  If the
+FunctionSpaces are named, then any time a single field appears as a
+split, its options prefix is referred to by the space's *name* (rather
+than a number).  Concretely, if the previous example had use a set of
+FunctionSpace definitions:
+
+.. code-block:: python
+
+   V = FunctionSpace(..., name="V")
+   P = FunctionSpace(..., name="P")
+   T = FunctionSpace(..., name="T")
+   W = V*P*T
+
+Then we would have referred to the single (field 1) split using
+``fieldsplit_T_pc_type``, rather than ``fieldsplit_1_pc_type``.
 
 .. note::
 

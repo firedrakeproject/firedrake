@@ -735,7 +735,9 @@ class MixedFunctionSpace(FunctionSpaceBase):
     @classmethod
     def create_field_decomp(cls, dm, *args, **kwargs):
         W = dm.getAttr('__fs__')()
-        names = [s.name or str(i) for i, s in enumerate(W)]
+        # Don't pass split number if name is None (this way the
+        # recursively created splits have the names you want)
+        names = [s.name for s in W]
         dms = [V._dm for V in W]
         return names, W._ises, dms
 
