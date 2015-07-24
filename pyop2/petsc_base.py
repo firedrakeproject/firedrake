@@ -655,6 +655,7 @@ class Mat(base.Mat, CopyOnWrite):
                 self.handle.setDiagonal(v)
 
     def _cow_actual_copy(self, src):
+        base._trace.evaluate(set([src]), set())
         self.handle = src.handle.duplicate(copy=True)
         return self
 
