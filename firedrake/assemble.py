@@ -238,8 +238,17 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # FIXME Ugly variable renaming required because functions are not
             # lexical closures in Python and we're writing to these variables
             if is_mat and tensor.sparsity.shape > (1, 1):
-                tsbc = [bc for bc in bcs if bc.function_space().index == i]
-                trbc = [bc for bc in bcs if bc.function_space().index == j]
+                tsbc = []
+                trbc = []
+                # Unwind IndexedVFS to check for matching BCs
+                for bc in bcs:
+                    fs = bc.function_space()
+                    if isinstance(fs, functionspace.IndexedVFS):
+                        fs = fs._parent
+                    if fs.index == i:
+                        tsbc.append(bc)
+                    if fs.index == j:
+                        trbc.append(bc)
             elif is_mat:
                 tsbc, trbc = bcs, bcs
             if integral_type == 'cell':
