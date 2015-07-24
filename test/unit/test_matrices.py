@@ -609,7 +609,20 @@ class TestMatrices:
         "Set the diagonal of the entire matrix to 1.0"
         mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
         nrows = mat.sparsity.nrows
-        mat.inc_local_diagonal_entries(range(nrows))
+        mat.set_local_diagonal_entries(range(nrows))
+        mat.assemble()
+        assert (mat.values == np.identity(nrows * n)).all()
+
+    @pytest.mark.parametrize('n', [1, 2])
+    def test_mat_repeated_set_diagonal(self, backend, nodes, elem_node, n, skip_cuda):
+        "Set the diagonal of the entire matrix to 1.0"
+        mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
+        nrows = mat.sparsity.nrows
+        mat.set_local_diagonal_entries(range(nrows))
+        mat.assemble()
+        assert (mat.values == np.identity(nrows * n)).all()
+        mat.set_local_diagonal_entries(range(nrows))
+        mat.assemble()
         assert (mat.values == np.identity(nrows * n)).all()
 
     def test_mat_always_has_diagonal_space(self, backend):
