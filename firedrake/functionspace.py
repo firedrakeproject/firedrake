@@ -909,6 +909,7 @@ class IndexedVFS(FunctionSpaceBase):
         super(IndexedVFS, self).__init__(parent.mesh(),
                                          element)
         self._index = index
+        self._fs = parent
 
     @classmethod
     def _process_args(self, parent, index):
