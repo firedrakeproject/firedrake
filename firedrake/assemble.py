@@ -413,14 +413,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                             if isinstance(fs, functionspace.IndexedFunctionSpace):
                                 # Mixed, index
                                 if fs.index == i:
-                                    tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+                                    tensor[i, j].set_local_diagonal_entries(bc.nodes)
                             elif isinstance(fs, functionspace.IndexedVFS):
                                 if isinstance(fs._parent, functionspace.IndexedFunctionSpace):
                                     if fs._parent.index != i:
                                         continue
-                                tensor[i, j].inc_local_diagonal_entries(bc.nodes, idx=fs.index)
+                                tensor[i, j].set_local_diagonal_entries(bc.nodes, idx=fs.index)
                             elif fs.index is None:
-                                tensor[i, j].inc_local_diagonal_entries(bc.nodes)
+                                tensor[i, j].set_local_diagonal_entries(bc.nodes)
                             else:
                                 raise RuntimeError("Unhandled BC case")
         if bcs is not None and is_vec:

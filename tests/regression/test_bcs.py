@@ -323,7 +323,6 @@ def test_assemble_mass_bcs_2d(V):
     assert assemble(dot((w - f), (w - f))*dx) < 1e-12
 
 
-@pytest.mark.xfail(reason="Firedrake Bug #558")
 @pytest.mark.parametrize("quad",
                          [False, True],
                          ids=["triangle", "quad"])
