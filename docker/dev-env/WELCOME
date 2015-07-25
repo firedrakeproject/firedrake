@@ -1,0 +1,13 @@
+# Firedrake development environment image
+
+This image provides a development environment for building Firedrake
+and its dependencies. It does not provide an installation of Firedrake
+but is intended for users who want to build their own version of
+Firedrake. It also serves as a base image for
+<https://registry.hub.docker.com/u/firedrakeproject/dev>, which does
+provide the development version of Firedrake.
+
+We do provide a helper script in this container to build Firedrake
+automatically:
+
+    update_firedrake
