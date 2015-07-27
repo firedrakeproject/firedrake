@@ -323,6 +323,21 @@ def test_assemble_mass_bcs_2d(V):
     assert assemble(dot((w - f), (w - f))*dx) < 1e-12
 
 
+@pytest.mark.parametrize("quad",
+                         [False, True],
+                         ids=["triangle", "quad"])
+def test_overlapping_bc_nodes(quad):
+    m = UnitSquareMesh(1, 1, quadrilateral=quad)
+    V = FunctionSpace(m, 'CG', 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    bcs = [DirichletBC(V, 0, (1, 2, 3)),
+           DirichletBC(V, 1, 4)]
+    A = assemble(u*v*dx, bcs=bcs).M.values
+
+    assert np.allclose(A, np.identity(V.dof_dset.size))
+
+
 def test_mixed_bcs():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
