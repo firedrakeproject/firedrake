@@ -1942,8 +1942,10 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         # Force the execution of the copy parloop
 
         # We need to ensure that PyOP2 allocates fresh storage for this copy.
+        # But only if the copy has not already run.
         try:
-            del self._numpy_data
+            if self._numpy_data is src._numpy_data:
+                del self._numpy_data
         except AttributeError:
             pass
 
@@ -1964,8 +1966,9 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         # Set up the copy to happen when required.
         other._cow_parloop = self._copy_parloop(other)
         # Remove the write dependency of the copy (in order to prevent
-        # premature execution of the loop).
-        other._cow_parloop.writes = set()
+        # premature execution of the loop), and replace it with the
+        # one dat we're writing to.
+        other._cow_parloop.writes = set([other])
         if configuration['lazy_evaluation']:
             # In the lazy case, we enqueue now to ensure we are at the
             # right point in the trace.
@@ -2298,6 +2301,10 @@ class MixedDat(Dat):
         """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
         return self._dats[idx]
 
+    @property
+    def _version(self):
+        return tuple(x._version for x in self.split)
+
     @cached_property
     def dtype(self):
         """The NumPy dtype of the data."""
@@ -2405,14 +2412,14 @@ class MixedDat(Dat):
         # Force the execution of the copy parloop
 
         for d, s in zip(self._dats, src._dats):
-            d._cow_actual_copy(d, s)
+            d._cow_actual_copy(s)
 
     @collective
     def _cow_shallow_copy(self):
 
         other = shallow_copy(self)
 
-        other._dats = [d._cow_shallow_copy() for d in self._dats]
+        other._dats = [d.duplicate() for d in self._dats]
 
         return other
 
@@ -3942,7 +3949,7 @@ class ParLoop(LazyComputation):
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args, **kwargs):
         LazyComputation.__init__(self,
-                                 set([a.data for a in args if a.access in [READ, RW]]) | Const._defs,
+                                 set([a.data for a in args if a.access in [READ, RW, INC]]) | Const._defs,
                                  set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]),
                                  set([a.data for a in args if a.access in [INC]]))
         # INCs into globals need to start with zero and then sum back

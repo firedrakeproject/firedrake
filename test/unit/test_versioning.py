@@ -146,6 +146,24 @@ class TestVersioning:
         x += 1
         assert not s.is_valid()
 
+    def test_mixed_dat_versioning(self, backend, x, y):
+        md = op2.MixedDat([x, y])
+        mdv = md._version
+        x += 1
+        assert md._version != mdv
+        mdv1 = md._version
+        y += 1
+        assert md._version != mdv1
+        assert md._version != mdv
+        mdv2 = md._version
+        md.zero()
+        assert md._version == (0, 0)
+        y += 2
+        assert md._version != mdv2
+        assert md._version != mdv1
+        assert md._version != mdv
+        assert md._version != (0, 0)
+
 
 class TestCopyOnWrite:
     @pytest.fixture
@@ -184,6 +202,36 @@ class TestCopyOnWrite:
         assert not self.same_data(x, x_dup)
         assert all(x_dup.data_ro == numpy.arange(nelems) + 1)
         assert all(x.data_ro == numpy.arange(nelems))
+
+    def test_CoW_MixedDat_duplicate_original_changes(self, backend, x, y):
+        md = op2.MixedDat([x, y])
+        md_dup = md.duplicate()
+        x += 1
+        y += 2
+        for a, b in zip(md, md_dup):
+            assert not self.same_data(a, b)
+
+        assert numpy.allclose(md_dup.data_ro[0], numpy.arange(nelems))
+        assert numpy.allclose(md_dup.data_ro[1], 0)
+
+        assert numpy.allclose(md.data_ro[0], numpy.arange(nelems) + 1)
+        assert numpy.allclose(md.data_ro[1], 2)
+
+    def test_CoW_MixedDat_duplicate_copy_changes(self, backend, x, y):
+        md = op2.MixedDat([x, y])
+        md_dup = md.duplicate()
+        x_dup = md_dup[0]
+        y_dup = md_dup[1]
+        x_dup += 1
+        y_dup += 2
+        for a, b in zip(md, md_dup):
+            assert not self.same_data(a, b)
+
+        assert numpy.allclose(md_dup.data_ro[0], numpy.arange(nelems) + 1)
+        assert numpy.allclose(md_dup.data_ro[1], 2)
+
+        assert numpy.allclose(md.data_ro[0], numpy.arange(nelems))
+        assert numpy.allclose(md.data_ro[1], 0)
 
     def test_CoW_mat_duplicate_original_changes(self, backend, mat, skip_cuda, skip_opencl):
         mat_dup = mat.duplicate()
