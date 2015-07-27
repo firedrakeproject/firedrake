@@ -720,6 +720,9 @@ class Mat(base.Mat, CopyOnWrite):
     def values(self):
         base._trace.evaluate(set([self]), set())
         self._assemble()
+        if self.nrows * self.ncols > 1000000:
+            raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
+                             "Are you sure you wanted to do this?")
         return self.handle[:, :]
 
     def __mul__(self, v):
