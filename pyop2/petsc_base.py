@@ -405,7 +405,8 @@ class MatBlock(base.Mat):
     def __iter__(self):
         yield self
 
-    def inc_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
+    def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
+        rows = np.asarray(rows, dtype=PETSc.IntType)
         rbs, _ = self.dims[0][0]
         # No need to set anything if we didn't get any rows.
         if len(rows) == 0:
@@ -417,7 +418,8 @@ class MatBlock(base.Mat):
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         vals = np.repeat(diag_val, len(rows))
         self.handle.setValuesLocalRCV(rows.reshape(-1, 1), rows.reshape(-1, 1),
-                                      vals.reshape(-1, 1), addv=PETSc.InsertMode.ADD_VALUES)
+                                      vals.reshape(-1, 1),
+                                      addv=PETSc.InsertMode.INSERT_VALUES)
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
@@ -653,45 +655,36 @@ class Mat(base.Mat, CopyOnWrite):
                 self.handle.setDiagonal(v)
 
     def _cow_actual_copy(self, src):
+        base._trace.evaluate(set([src]), set())
         self.handle = src.handle.duplicate(copy=True)
         return self
 
-    @cached_property
-    def _left_vec(self):
-        vec = self.handle.createVecLeft()
-        vec.setOption(vec.Option.IGNORE_OFF_PROC_ENTRIES, True)
-        return vec
-
     @modifies
     @collective
-    def inc_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
-        """Increment the diagonal entry in ``rows`` by a particular value.
+    def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
+        """Set the diagonal entry in ``rows`` to a particular value.
 
         :param rows: a :class:`Subset` or an iterable.
         :param diag_val: the value to add
 
         The indices in ``rows`` should index the process-local rows of
         the matrix (no mapping to global indexes is applied).
-
-        The diagonal entries corresponding to the complement of rows
-        are incremented by zero.
         """
-        base._trace.evaluate(set([self]), set([self]))
-        vec = self._left_vec
-        vec.set(0)
-        rows = np.asarray(rows)
-        rows = rows[rows < self.sparsity.rmaps[0].toset.size]
-        # If the row DataSet has dimension > 1 we need to treat the given rows
-        # as block indices and set all rows in each block
-        rdim = self.sparsity.dsets[0].cdim
-        if rdim > 1:
+        rows = np.asarray(rows, dtype=PETSc.IntType)
+        rbs, _ = self.dims[0][0]
+        # No need to set anything if we didn't get any rows.
+        if len(rows) == 0:
+            return
+        if rbs > 1:
             if idx is not None:
-                rows = rdim*rows + idx
+                rows = rbs * rows + idx
             else:
-                rows = np.dstack([rdim*rows + i for i in range(rdim)]).flatten()
-        with vec as array:
-            array[rows] = diag_val
-        self.handle.setDiagonal(vec, addv=PETSc.InsertMode.ADD_VALUES)
+                rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
+        vals = np.repeat(diag_val, len(rows))
+        self.handle.setValuesLocalRCV(rows.reshape(-1, 1), rows.reshape(-1, 1),
+                                      vals.reshape(-1, 1),
+                                      addv=PETSc.InsertMode.INSERT_VALUES)
+        self._needs_assembly = True
 
     @collective
     def _assemble(self):
