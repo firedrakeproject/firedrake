@@ -96,9 +96,7 @@ COPY firedrake.conf $HOME/firedrake.conf
 # and the README
 COPY WELCOME $HOME/WELCOME
 RUN chown firedrake:firedrake $HOME/WELCOME && \
-    chown firedrake:firedrake $HOME/firedrake.conf && \
-    chmod u+rw $HOME/WELCOME && \
-    chmod u+rw $HOME/firedrake.conf
+    chown firedrake:firedrake $HOME/firedrake.conf
 
 # OpenBLAS threads should be 1 to ensure performance
 RUN echo "export OPENBLAS_NUM_THREADS=1" >> $HOME/.bashrc && \
@@ -106,9 +104,8 @@ RUN echo "export OPENBLAS_NUM_THREADS=1" >> $HOME/.bashrc && \
 
 # This makes sure we launch with ENTRYPOINT /bin/bash into the home directory
 RUN echo ". $HOME/firedrake.conf" >> $HOME/.bashrc && \
-    cp $HOME/.bashrc $HOME/.bashrc.tmp && \
-    echo "cat $HOME/WELCOME" >> $HOME/.bashrc.tmp
+    echo "cat $HOME/WELCOME" >> $HOME/.bashrc
 
 WORKDIR $HOME
 ENTRYPOINT ["/sbin/my_init","--quiet","--","/sbin/setuser","firedrake","/bin/sh","-c"]
-CMD ["/bin/bash --rcfile /home/firedrake/.bashrc.tmp"]
+CMD ["/bin/bash"]
