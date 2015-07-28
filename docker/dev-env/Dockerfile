@@ -107,8 +107,8 @@ RUN echo "export OPENBLAS_NUM_THREADS=1" >> $HOME/.bashrc && \
 # This makes sure we launch with ENTRYPOINT /bin/bash into the home directory
 RUN echo ". $HOME/firedrake.conf" >> $HOME/.bashrc && \
     cp $HOME/.bashrc $HOME/.bashrc.tmp && \
-    echo "cd $HOME" >> $HOME/.bashrc.tmp && \
     echo "cat $HOME/WELCOME" >> $HOME/.bashrc.tmp
 
+WORKDIR $HOME
 ENTRYPOINT ["/sbin/my_init","--quiet","--","/sbin/setuser","firedrake","/bin/sh","-c"]
 CMD ["/bin/bash --rcfile /home/firedrake/.bashrc.tmp"]
