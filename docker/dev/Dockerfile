@@ -20,4 +20,4 @@ RUN /bin/bash -c ". $HOME/firedrake.conf && \
 COPY WELCOME $HOME/WELCOME
 USER root
 ENTRYPOINT ["/sbin/my_init","--quiet","--","/sbin/setuser","firedrake","/bin/sh","-c"]
-CMD ["/bin/bash --rcfile /home/firedrake/.bashrc.tmp"]
+CMD ["/bin/bash"]
