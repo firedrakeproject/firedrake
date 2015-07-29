@@ -7,8 +7,10 @@ __all__ = ['c_evaluate']
 def c_evaluate(function):
     function_space = function.function_space()
     ufl_element = function_space.ufl_element()
+    coordinates = function_space.mesh().coordinates
+    coordinates_ufl_element = coordinates.function_space().ufl_element()
 
-    (src,) = compile_element(ufl_element)
+    src = compile_element(ufl_element, coordinates_ufl_element)
     with open("locate.c") as f:
         src += f.read()
 

@@ -3,7 +3,6 @@
 from ffc import compile_element
 from ufl import *
 
-result = compile_element(FiniteElement("P", triangle, 2))
-assert len(result) == 1
+src = compile_element(FiniteElement("P", triangle, 2), FiniteElement("P", triangle, 1))
 with open("evaluate.c", "w") as outfile:
-    outfile.write(result[0])
+    outfile.write(src)
