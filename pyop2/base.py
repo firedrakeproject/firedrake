@@ -53,7 +53,6 @@ from utils import *
 from backends import _make_object
 from mpi import MPI, _MPI, _check_comm, collective
 from profiling import timed_region, timed_function
-from sparsity import build_sparsity
 from version import __version__ as version
 
 from coffee.base import Node
@@ -3312,6 +3311,7 @@ class Sparsity(ObjectCached):
             self._d_nz = sum(s._d_nz for s in self)
             self._o_nz = sum(s._o_nz for s in self)
         else:
+            from sparsity import build_sparsity
             with timed_region("Build sparsity"):
                 build_sparsity(self, parallel=MPI.parallel, block=self._block_sparse)
             self._blocks = [[self]]
