@@ -191,19 +191,45 @@ class DirichletBC(object):
             r.add_bc(self)
             return
         fs = self._function_space
-        # Check if the FunctionSpace of the Function r to apply is compatible.
-        # If fs is an IndexedFunctionSpace and r is defined on a
-        # MixedFunctionSpace, we need to compare the parent of fs
-        if not (fs == r.function_space() or (hasattr(fs, "_parent") and
-                                             fs._parent == r.function_space())):
-            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
-        # If this BC is defined on a subspace of a mixed function space, make
-        # sure we only apply to the appropriate subspace of the Function r
-        if fs.index is not None:
-            r = r.sub(fs.index)
-        if u:
+
+        # Check that u matches r if supplied
+        if u and u.function_space() != r.function_space():
+            raise RuntimeError("Mismatching spaces for %s and %s" % (r, u))
+
+        # Check that r's function space matches the BC's function
+        # space. Run up through parents (IndexedFunctionSpace or
+        # IndexedVFS) until we either match the function space, or
+        # else we have a mismatch and raise an error.
+        while True:
+            if fs == r.function_space():
+                break
+            elif hasattr(fs, "_parent"):
+                fs = fs._parent
+            else:
+                raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+
+        # If this BC is defined on a subspace (IndexedFunctionSpace or
+        # IndexedVFS, possibly recursively), pull out the appropriate
+        # indices.
+        indices = []
+        fs = self._function_space
+        while True:
+            # Add index to indices if found
             if fs.index is not None:
-                u = u.sub(fs.index)
+                indices.append(fs.index)
+            # Now try the parent
+            if hasattr(fs, "_parent"):
+                fs = fs._parent
+            else:
+                # All done
+                break
+
+        # Apply the indexing to r (and u if supplied)
+        for idx in reversed(indices):
+            r = r.sub(idx)
+            if u:
+                u = u.sub(idx)
+        if u:
             r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)

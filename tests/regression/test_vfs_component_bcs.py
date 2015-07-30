@@ -84,6 +84,57 @@ def test_poisson_in_components(V):
     assert np.allclose(g.dat.data, expect.dat.data)
 
 
+@pytest.mark.parametrize("nested",
+                         [False, True])
+def test_poisson_in_mixed_plus_vfs_components(V, nested):
+    # Solve five decoupled poisson problems with different boundary
+    # conditions in a mixed space composed of two VectorFunctionSpaces
+    # and one scalar FunctionSpace.
+    # Tests application of boundary conditions to components in mixed
+    # spaces.
+    Q = FunctionSpace(V.mesh(), "CG", 2)
+    W = V*Q*V
+
+    g = Function(W)
+
+    bcs = [DirichletBC(W.sub(0).sub(0), 0, 1),
+           DirichletBC(W.sub(0).sub(0), 42, 2),
+           DirichletBC(W.sub(0).sub(1), 10, 3),
+           DirichletBC(W.sub(0).sub(1), 15, 4),
+
+           DirichletBC(W.sub(1), 4, 1),
+           DirichletBC(W.sub(1), 10, 2),
+
+           DirichletBC(W.sub(2).sub(0), -10, 1),
+           DirichletBC(W.sub(2).sub(0), 10, 2),
+           DirichletBC(W.sub(2).sub(1), 15, 3),
+           DirichletBC(W.sub(2).sub(1), 5, 4)]
+
+    u, p, r = TrialFunctions(W)
+    v, q, s = TestFunctions(W)
+
+    a = inner(grad(u), grad(v))*dx + \
+        inner(grad(r), grad(s))*dx + \
+        dot(grad(p), grad(q))*dx
+
+    L = dot(Constant((0, 0)), v)*dx + \
+        Constant(0)*q*dx + \
+        dot(Constant((0, 0)), s)*dx
+
+    solve(a == L, g, bcs=bcs, nest=nested)
+
+    expected = Function(W)
+
+    u, p, r = expected.split()
+
+    u.interpolate(Expression(("42*x[0]", "5*x[1] + 10")))
+    p.interpolate(Expression("6*x[0] + 4"))
+    r.interpolate(Expression(("20*x[0] - 10", "-10*x[1] + 15")))
+
+    for actual, expect in zip(g.dat.data, expected.dat.data):
+        assert np.allclose(actual, expect)
+           
+    
 def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
     with pytest.raises(NotImplementedError):
