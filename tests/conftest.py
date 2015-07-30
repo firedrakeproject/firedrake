@@ -11,7 +11,6 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
 
 from subprocess import check_call
-from mpi4py import MPI
 from functools import wraps
 
 
@@ -20,6 +19,7 @@ def parallel(item):
 
     :arg item: The test item to run.
     """
+    from mpi4py import MPI
     if MPI.COMM_WORLD.size > 1:
         raise RuntimeError("parallel test can't be run within parallel environment")
     marker = item.get_marker("parallel")
@@ -66,6 +66,7 @@ def check_src_hashes(fn):
 
 
 def pytest_runtest_setup(item):
+    from mpi4py import MPI
     if item.get_marker("parallel"):
         if MPI.COMM_WORLD.size > 1:
             # Ensure source hash checking is enabled.
@@ -77,6 +78,7 @@ def pytest_runtest_setup(item):
 
 
 def pytest_runtest_call(item):
+    from mpi4py import MPI
     if item.get_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)
