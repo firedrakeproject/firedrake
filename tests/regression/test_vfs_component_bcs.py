@@ -133,8 +133,8 @@ def test_poisson_in_mixed_plus_vfs_components(V, nested):
 
     for actual, expect in zip(g.dat.data, expected.dat.data):
         assert np.allclose(actual, expect)
-           
-    
+
+
 def test_cant_integrate_subscripted_VFS(V):
     f = Function(V)
     with pytest.raises(NotImplementedError):
