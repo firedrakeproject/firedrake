@@ -33,7 +33,7 @@
 
 import os
 from mpi import MPI, collective
-import prefork
+from pyop2_utils import prefork
 import sys
 import ctypes
 from hashlib import md5
