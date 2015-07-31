@@ -44,18 +44,6 @@ initialized = False
 def enable_mpi_prefork():
     """Start a fork server and then enable MPI."""
     global initialized
-    import mpi4py.rc
-    mpi4py.rc.initialize = False
-    mpi4py.rc.finalize = True
-    from mpi4py import MPI
-    # Forker must be enabled before MPI is initialized, hence this
-    # dance.
-    if not initialized and MPI.Is_initialized():
-        raise RuntimeError("MPI initialized before fork server")
-
     if not initialized:
         prefork.enable_prefork()
         initialized = True
-
-    if not MPI.Is_initialized():
-        MPI.Init()
