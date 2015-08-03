@@ -17,7 +17,7 @@ def uniform_mesh(request):
 
 @pytest.fixture(params=["circlemanifold",
                         "icosahedron",
-                        pytest.mark.xfail(reason="Bad coordinate extrusion code")("cubedsphere")])
+                        "cubedsphere"])
 def hedgehog_mesh(request):
     if request.param == "circlemanifold":
         # Circumference of 1
