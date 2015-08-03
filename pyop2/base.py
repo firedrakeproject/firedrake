@@ -3785,11 +3785,23 @@ class Kernel(Cached):
         self._include_dirs = include_dirs
         self._headers = headers
         self._user_code = user_code
-        # If an AST is provided, code generation is deferred
-        self._ast, self._code = (code, None) if isinstance(code, Node) else (None, code)
-        if self._code:
+        if not isinstance(code, Node):
+            # Got a C string, nothing we can do, just use it as Kernel body
+            self._ast = None
+            self._code = code
             self._attached_info = True
-        else:
+        elif isinstance(code, Node) and configuration['loop_fusion']:
+            # Got an AST and loop fusion is enabled, so code generation needs
+            # be deferred because optimisation of a kernel in a fused chain of
+            # loops may differ from optimisation in a non-fusion context
+            self._ast = code
+            self._code = None
+            self._attached_info = False
+        elif isinstance(code, Node) and not configuration['loop_fusion']:
+            # Got an AST, need to go through COFFEE for optimization and
+            # code generation
+            self._ast = code
+            self._code = self._ast_to_c(self._ast, self._opts)
             self._attached_info = False
         self._initialized = True
 
