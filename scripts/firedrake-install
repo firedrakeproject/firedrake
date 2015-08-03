@@ -1,0 +1,11 @@
+#! /usr/bin/env python
+import platform
+
+# Check operating system.
+osname = platform.uname()[0]
+if osname == "Linux":
+    # Check for apt.
+    
+# Install minimal OS packages.
+
+# Install python packages.
