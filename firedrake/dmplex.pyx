@@ -1,6 +1,7 @@
 # Utility functions to derive global and local numbering from DMPlex
 from petsc import PETSc
 from pyop2 import MPI as _MPI
+from pyop2.logger import info_blue
 import numpy as np
 cimport numpy as np
 import cython
@@ -1529,6 +1530,8 @@ def quadrilateral_facet_orientations(
 
         np.ndarray[np.int8_t, ndim=1, mode="c"] result
 
+        int nrounds = 0
+
     # Get communication lists
     get_communication_lists(plex, vertex_numbering, cell_ranks,
                             &nranks, &ranks, &offsets, &facets, &facet2index)
@@ -1573,6 +1576,8 @@ def quadrilateral_facet_orientations(
     # Synchronise shared edge directions in parallel
     conflict = int(_MPI.comm.size > 1)
     while conflict != 0:
+        nrounds += 1
+
         # Populate 'theirs' by communication from the 'ours' of others.
         exchange_edge_orientation_data(nranks, ranks, offsets, ours, theirs)
 
@@ -1612,6 +1617,8 @@ def quadrilateral_facet_orientations(
         # If there was a conflict anywhere, do another round
         # of communication everywhere.
         conflict = _MPI.comm.allreduce(conflict)
+
+    info_blue("Communication rounds for cell closure: %d" % nrounds)
 
     CHKERR(PetscFree(ranks))
     CHKERR(PetscFree(offsets))
