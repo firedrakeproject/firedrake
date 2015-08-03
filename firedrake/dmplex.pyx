@@ -1618,7 +1618,8 @@ def quadrilateral_facet_orientations(
         # of communication everywhere.
         conflict = _MPI.comm.allreduce(conflict)
 
-    info_blue("Communication rounds for cell closure: %d" % nrounds)
+    if _MPI.comm.rank == 0:
+        info_blue("Communication rounds for cell closure: %d" % nrounds)
 
     CHKERR(PetscFree(ranks))
     CHKERR(PetscFree(offsets))
