@@ -208,8 +208,8 @@ def make_extruded_coords(extruded_mesh, layer_height,
              */
             norm = sqrt(norm);
             norm *= (dot < 0 ? -1 : 1);
-            for (d = 0; d < %(base_coord_dim)d; ++d) {
-                for (c = 0; c < %(base_map_arity)d; ++c ) {
+            for (d = 0; d < %(base_map_arity)d; ++d) {
+                for (c = 0; c < %(base_coord_dim)d; ++c ) {
                     ext_coords[2*d][c] = base_coords[d][c] + n[c] * layer_height[0] * layer[0][0] / norm;
                     ext_coords[2*d+1][c] = base_coords[d][c] + n[c] * layer_height[0] * (layer[0][0] + 1)/ norm;
                 }
