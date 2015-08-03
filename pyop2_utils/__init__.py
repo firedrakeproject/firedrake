@@ -1,6 +1,6 @@
 # This file is part of PyOP2
 #
-# PyOP2 is Copyright (c) 2012, Imperial College London and
+# PyOP2 is Copyright (c) 2012-2015, Imperial College London and
 # others. Please see the AUTHORS file in the main source directory for
 # a full list of copyright holders.  All rights reserved.
 #
@@ -31,26 +31,19 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Code-generation strings for FFC to generate PyOP2 code."""
+from __future__ import absolute_import
 
-__date__ = "2012-08-06"
-__version__ = "0.0.3"
+__all__ = ["enable_mpi_prefork"]
 
-PYOP2_VERSION_MAJOR = 0
-PYOP2_VERSION_MINOR = 0
-PYOP2_VERSION_MAINTENANCE = 3
+from pyop2_utils import prefork
 
-PYOP2_VERSION = __version__
 
-from integrals import *
-from finite_element import *
-from dofmap import *
-from form import *
+initialized = False
 
-templates = {"cell_integral_combined": cell_integral_combined,
-             "exterior_facet_integral_combined": exterior_facet_integral_combined,
-             "interior_facet_integral_combined": interior_facet_integral_combined,
-             "point_integral_combined": point_integral_combined,
-             "finite_element_combined": finite_element_combined,
-             "dofmap_combined": dofmap_combined,
-             "form_combined": form_combined}
+
+def enable_mpi_prefork():
+    """Start a fork server and then enable MPI."""
+    global initialized
+    if not initialized:
+        prefork.enable_prefork()
+        initialized = True
