@@ -4028,11 +4028,17 @@ class ParLoop(LazyComputation):
 
     @property
     def num_flops(self):
-        kflops = self._kernel.num_flops
-        size = self.iterset.size
+        iterset = self.iterset
+        size = iterset.size
         if self.needs_exec_halo:
-            size = self.iterset.exec_size
-        return size * kflops
+            size = iterset.exec_size
+        if self.is_indirect and iterset._extruded:
+            region = self.iteration_region
+            if region is ON_INTERIOR_FACETS:
+                size *= iterset.layers - 2
+            elif region not in [ON_TOP, ON_BOTTOM]:
+                size *= iterset.layers - 1
+        return size * self._kernel.num_flops
 
     def log_flops(self):
         pass
