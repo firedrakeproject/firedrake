@@ -56,7 +56,7 @@ from profiling import timed_region, timed_function
 from version import __version__ as version
 
 from coffee.base import Node
-from coffee.visitors import FindInstances
+from coffee.visitors import FindInstances, EstimateFlops
 from coffee import base as ast
 
 
@@ -3804,6 +3804,11 @@ class Kernel(Cached):
         if not self._code:
             self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
+
+    @cached_property
+    def num_flops(self):
+        v = EstimateFlops()
+        return v.visit(self._ast)
 
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
