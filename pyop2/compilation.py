@@ -138,8 +138,8 @@ Compile errors in %s
 Original error: %s""" % (cc, logfile, errfile, e))
                     else:
                         cc = [self._cc] + self._cppargs + \
-                             ['-c', oname, cname]
-                        ld = [self._ld] + ['-o', tmpname, oname] + self._ldargs
+                             ['-c', '-o', oname, cname]
+                        ld = self._ld.split() + ['-o', tmpname, oname] + self._ldargs
                         with file(logfile, "w") as log:
                             with file(errfile, "w") as err:
                                 log.write("Compilation command:\n")
@@ -149,13 +149,7 @@ Original error: %s""" % (cc, logfile, errfile, e))
                                 log.write(" ".join(ld))
                                 log.write("\n\n")
                                 try:
-                                    retval, stdout, stderr = prefork.call(cc, error_on_nonzero=False)
-                                    log.write(stdout)
-                                    err.write(stderr)
-                                    if retval != 0:
-                                        raise prefork.ExecError("status %d invoking '%s'" %
-                                                                (retval, " ".join(cc)))
-                                    retval, stdout, stderr = prefork.call(ld, error_on_nonzero=False)
+                                    retval, stdout, stderr = prefork.call_capture_output(cc, error_on_nonzero=False)
                                     log.write(stdout)
                                     err.write(stderr)
                                     if retval != 0:
@@ -167,7 +161,23 @@ Original error: %s""" % (cc, logfile, errfile, e))
 Unable to compile code
 Compile log in %s
 Compile errors in %s
-Original error: %s""" % (cc, logfile, errfile, e))
+Original error: %s""" % (cc, retval, logfile, errfile, e))
+
+                                try:
+                                    retval, stdout, stderr = prefork.call_capture_output(ld, error_on_nonzero=False)
+                                    log.write(stdout)
+                                    err.write(stderr)
+                                    if retval != 0:
+                                        raise prefork.ExecError("status %d invoking '%s'" %
+                                                                (retval, " ".join(ld)))
+                                except prefork.ExecError as e:
+                                    raise CompilationError(
+                                        """Command "%s" return error status %d.
+Unable to compile code
+Compile log in %s
+Compile errors in %s
+Original error: %s""" % (ld, retval, logfile, errfile, e))
+
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
