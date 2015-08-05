@@ -4027,6 +4027,17 @@ class ParLoop(LazyComputation):
         return ()
 
     @property
+    def num_flops(self):
+        kflops = self._kernel.num_flops
+        size = self.iterset.size
+        if self.needs_exec_halo:
+            size = self.iterset.exec_size
+        return size * kflops
+
+    def log_flops(self):
+        pass
+
+    @property
     @collective
     def _jitmodule(self):
         """Return the :class:`JITModule` that encapsulates the compiled par_loop code.
@@ -4052,6 +4063,7 @@ class ParLoop(LazyComputation):
             self._compute(iterset.exec_part, fun, *arglist)
         self.reduction_end()
         self.update_arg_data_state()
+        self.log_flops()
 
     @collective
     def _compute(self, part, fun, *arglist):
