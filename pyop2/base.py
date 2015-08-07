@@ -3765,7 +3765,7 @@ class Kernel(Cached):
         if isinstance(code, Node):
             code = code.gencode()
         return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                   str(headers) + version).hexdigest()
+                   str(headers) + version + str(configuration['loop_fusion'])).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
