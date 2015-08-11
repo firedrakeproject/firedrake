@@ -307,7 +307,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         for c in Const._definitions():
             argtypes.append(c._argtype)
 
-        return argtypes
+        self._argtypes = argtypes
 
     def compile(self):
         # If we weren't in the cache we /must/ have arguments
