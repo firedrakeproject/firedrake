@@ -214,23 +214,18 @@ class IterationSpace(base.IterationSpace):
 
     """A simple bag of :class:`IterationSpace` objects."""
 
-    def __init__(self, sub_itspaces):
-        self._sub_itspaces = sub_itspaces
-        super(IterationSpace, self).__init__([i._iterset for i in sub_itspaces])
-
-    @property
-    def sub_itspaces(self):
-        return self._sub_itspaces
+    def __init__(self, all_itspaces):
+        self._iterset = [i._iterset for i in all_itspaces]
 
     def __str__(self):
         output = "OP2 Fused Iteration Space:"
         output += "\n  ".join(["%s with extents %s" % (i._iterset, i._extents)
-                               for i in self.sub_itspaces])
+                               for i in self.iterset])
         return output
 
     def __repr__(self):
         return "\n".join(["IterationSpace(%r, %r)" % (i._iterset, i._extents)
-                          for i in self.sub_itspaces])
+                          for i in self.iterset])
 
 
 class JITModule(sequential.JITModule):
@@ -277,21 +272,25 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
     @classmethod
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         key = (hash(kwargs['executor']),)
+        all_kernels = kwargs['all_kernels']
+        all_itspaces = kwargs['all_itspaces']
         all_args = kwargs['all_args']
-        for kernel_i, itspace_i, args_i in zip(kernel, itspace.sub_itspaces, all_args):
-            key += super(JITModule, cls)._cache_key(kernel_i, itspace_i, *args_i)
+        for kernel, itspace, args in zip(all_kernels, all_itspaces, all_args):
+            key += super(JITModule, cls)._cache_key(kernel, itspace, *args)
         return key
 
     def __init__(self, kernel, itspace, *args, **kwargs):
         if self._initialized:
             return
+        self._all_kernels = kwargs.pop('all_kernels')
+        self._all_itspaces = kwargs.pop('all_itspaces')
         self._all_args = kwargs.pop('all_args')
         self._executor = kwargs.pop('executor')
         super(JITModule, self).__init__(kernel, itspace, *args, **kwargs)
 
     def set_argtypes(self, iterset, *args):
         argtypes = [slope.Executor.meta['py_ctype_exec']]
-        for itspace in self._itspace.sub_itspaces:
+        for itspace in self._all_itspaces:
             if isinstance(itspace.iterset, Subset):
                 argtypes.append(itspace.iterset._argtype)
         for arg in args:
@@ -315,10 +314,6 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule not in cache, but has no args associated")
 
-        # Prior to the instantiation and compilation of the JITModule, a fusion
-        # kernel object needs be created. This is because the superclass' method
-        # expects a single kernel, not a list as we have at this point.
-        self._kernel = Kernel(self._kernel)
         # Set compiler and linker options
         slope_dir = os.environ['SLOPE_DIR']
         self._kernel._name = 'executor'
@@ -367,8 +362,8 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
         # Construct kernels invocation
         _loop_chain_body, _user_code, _ssinds_arg = [], [], []
-        for i, (kernel, it_space, args) in enumerate(zip(self._kernel,
-                                                         self._itspace.sub_itspaces,
+        for i, (kernel, it_space, args) in enumerate(zip(self._all_kernels,
+                                                         self._all_itspaces,
                                                          self._all_args)):
             # Obtain /code_dicts/ of individual kernels, since these have pieces of
             # code that can be straightforwardly reused for this code generation
@@ -428,7 +423,8 @@ class ParLoop(sequential.ParLoop):
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
 
-        # These parameters are expected in a tiled ParLoop
+        self._all_kernels = kwargs.get('all_kernels', [kernel])
+        self._all_itspaces = kwargs.get('all_itspaces', [kernel])
         self._all_args = kwargs.get('all_args', [args])
         self._inspection = kwargs.get('inspection')
         self._executor = kwargs.get('executor')
@@ -443,7 +439,7 @@ class ParLoop(sequential.ParLoop):
 
     def prepare_arglist(self, part, *args):
         arglist = [self._inspection]
-        for itspace in self.it_space.sub_itspaces:
+        for itspace in self._all_itspaces:
             if isinstance(itspace._iterset, Subset):
                 arglist.append(itspace._iterset._indices.ctypes.data)
         for arg in args:
@@ -470,6 +466,8 @@ class ParLoop(sequential.ParLoop):
     @lineprof
     def _compute(self, *arglist):
         kwargs = {
+            'all_kernels': self._all_kernels,
+            'all_itspaces': self._all_itspaces,
             'all_args': self._all_args,
             'executor': self._executor,
         }
@@ -591,14 +589,20 @@ class TilingSchedule(Schedule):
 
     def __call__(self, loop_chain):
         loop_chain = self._schedule(loop_chain)
-        args = Arg.filter_args([loop.args for loop in loop_chain]).values()
-        kernel = tuple((loop.kernel for loop in loop_chain))
+        # Track the individual kernels, and the args of each kernel
+        all_kernels = tuple((loop.kernel for loop in loop_chain))
+        all_itspaces = tuple(loop.it_space for loop in loop_chain)
         all_args = tuple((Arg.specialize(loop.args, gtl_map, i) for i, (loop, gtl_map)
                          in enumerate(zip(loop_chain, self._executor.gtl_maps))))
-        it_space = IterationSpace(tuple(loop.it_space for loop in loop_chain))
+        # Data for the actual ParLoop
+        kernel = Kernel(all_kernels)
+        it_space = IterationSpace(all_itspaces)
+        args = Arg.filter_args([loop.args for loop in loop_chain]).values()
         kwargs = {
-            'inspection': self._inspection,
+            'all_kernels': all_kernels,
+            'all_itspaces': all_itspaces,
             'all_args': all_args,
+            'inspection': self._inspection,
             'executor': self._executor
         }
         return [ParLoop(kernel, it_space, *args, **kwargs)]
