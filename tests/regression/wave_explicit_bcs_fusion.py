@@ -2,6 +2,8 @@
 
 from firedrake import *
 
+import numpy as np
+import sys
 from time import time
 
 from pyop2.profiling import summary, timed_region, Timer
@@ -10,19 +12,18 @@ from pyop2.fusion import loop_chain
 from pyop2.base import _trace
 from pyop2.mpi import MPI
 
-import numpy as np
-import sys
-
 verbose = True if len(sys.argv) == 2 and sys.argv[1] == '--verbose' else False
 output = False
 
 mesh = UnitSquareMesh(10, 10)
-
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
 # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
+
 slope(mesh, debug=True)
 
+# Remove trace bound to avoid running inspections over and over
+configuration['lazy_max_trace_length'] = 0
 # Switch on PyOP2 profiling
 configuration['profiling'] = True
 
