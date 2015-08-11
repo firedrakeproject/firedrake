@@ -695,13 +695,14 @@ class JITModule(base.JITModule):
         self._args = args
         self._direct = kwargs.get('direct', False)
         self._iteration_region = kwargs.get('iterate', ALL)
-        self._initialized = True
         # Copy the class variables, so we don't overwrite them
         self._cppargs = dcopy(type(self)._cppargs)
         self._libraries = dcopy(type(self)._libraries)
         self._system_headers = dcopy(type(self)._system_headers)
         self.set_argtypes(itspace.iterset, *args)
-        self.compile()
+        if not kwargs.get('delay', False):
+            self.compile()
+            self._initialized = True
 
     @collective
     def __call__(self, *args):
