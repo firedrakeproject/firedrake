@@ -85,7 +85,7 @@ class Arg(sequential.Arg):
                     c_local_maps[i][j] = gtl_map["%s%d_%d" % (m.name, i, j)]
             # Instantiate and initialize new, specialized Arg
             _arg = Arg(arg.data, arg.map, arg.idx, arg.access, arg._flatten)
-            _arg._loop_position = loop_id
+            _arg.loop_position = loop_id
             _arg.position = arg.position
             _arg.indirect_position = arg.indirect_position
             _arg._c_local_maps = c_local_maps
@@ -136,7 +136,7 @@ class Arg(sequential.Arg):
     @property
     def name(self):
         """The generated argument name."""
-        return "arg_exec_loop%d_%d" % (self._loop_position, self._position)
+        return "arg_exec_loop%d_%d" % (self.loop_position, self.position)
 
 
 class Kernel(sequential.Kernel, tuple):
