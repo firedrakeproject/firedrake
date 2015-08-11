@@ -305,7 +305,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                 for d in arg.data:
                     argtypes.append(d._argtype)
             if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.Map, Map)
+                maps = as_tuple(arg.map, Map)
                 for map in maps:
                     for m in map:
                         argtypes.append(m._argtype)
