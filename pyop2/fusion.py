@@ -268,10 +268,6 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
   %(buffer_decl)s;
   %(buffer_gather)s
   %(kernel_name)s(%(kernel_args)s);
-  %(layout_decl)s;
-  %(layout_loop)s
-      %(layout_assign)s;
-  %(layout_loop_close)s
   i = %(index_expr)s;
   %(itset_loop_body)s;
 }
