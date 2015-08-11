@@ -210,6 +210,29 @@ class Kernel(host.Kernel, tuple):
 
 # Parallel loop API
 
+class IterationSpace(base.IterationSpace):
+
+    """A simple bag of :class:`IterationSpace` objects."""
+
+    def __init__(self, sub_itspaces):
+        self._sub_itspaces = sub_itspaces
+        super(IterationSpace, self).__init__([i._iterset for i in sub_itspaces])
+
+    @property
+    def sub_itspaces(self):
+        return self._sub_itspaces
+
+    def __str__(self):
+        output = "OP2 Fused Iteration Space:"
+        output += "\n  ".join(["%s with extents %s" % (i._iterset, i._extents)
+                               for i in self.sub_itspaces])
+        return output
+
+    def __repr__(self):
+        return "\n".join(["IterationSpace(%r, %r)" % (i._iterset, i._extents)
+                          for i in self.sub_itspaces])
+
+
 class JITModule(host.JITModule):
 
     _cppargs = []
@@ -256,26 +279,25 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 """
 
     @classmethod
-    def _cache_key(cls, kernel, it_space, *args, **kwargs):
+    def _cache_key(cls, kernel, itspace, *args, **kwargs):
         key = (hash(kwargs['executor']),)
         all_args = kwargs['all_args']
-        for kernel_i, it_space_i, args_i in zip(kernel, it_space, all_args):
-            key += super(JITModule, cls)._cache_key(kernel_i, it_space_i, *args_i)
+        for kernel_i, itspace_i, args_i in zip(kernel, itspace.sub_itspaces, all_args):
+            key += super(JITModule, cls)._cache_key(kernel_i, itspace_i, *args_i)
         return key
 
-    def __init__(self, kernel, it_space, *args, **kwargs):
+    def __init__(self, kernel, itspace, *args, **kwargs):
         if self._initialized:
             return
         self._all_args = kwargs.pop('all_args')
         self._executor = kwargs.pop('executor')
-        self._it_space = it_space
-        super(JITModule, self).__init__(kernel, it_space, *args, **kwargs)
+        super(JITModule, self).__init__(kernel, itspace, *args, **kwargs)
 
     def set_argtypes(self, iterset, *args):
         argtypes = [slope.Executor.meta['py_ctype_exec']]
-        for it_space in self._it_space:
-            if isinstance(it_space.iterset, Subset):
-                argtypes.append(it_space.iterset._argtype)
+        for itspace in self._itspace.sub_itspaces:
+            if isinstance(itspace.iterset, Subset):
+                argtypes.append(itspace.iterset._argtype)
         for arg in args:
             if arg._is_mat:
                 argtypes.append(arg.data._argtype)
@@ -346,9 +368,9 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
         # Construct kernels invocation
         _loop_chain_body, _user_code, _ssinds_arg = [], [], []
-        for i, loop in enumerate(zip(self._kernel, self._itspace, self._all_args)):
-            kernel, it_space, args = loop
-
+        for i, (kernel, it_space, args) in enumerate(zip(self._kernel,
+                                                         self._itspace.sub_itspaces,
+                                                         self._all_args)):
             # Obtain code_dicts of individual kernels, since these have pieces of
             # code that can be straightforwardly reused for this code generation
             loop_code_dict = host.JITModule(kernel, it_space, *args).generate_code()
@@ -422,9 +444,9 @@ class ParLoop(host.ParLoop):
 
     def prepare_arglist(self, part, *args):
         arglist = [self._inspection]
-        for it_space in self.it_space:
-            if isinstance(it_space._iterset, Subset):
-                arglist.append(it_space._iterset._indices.ctypes.data)
+        for itspace in self.it_space.sub_itspaces:
+            if isinstance(itspace._iterset, Subset):
+                arglist.append(itspace._iterset._indices.ctypes.data)
         for arg in args:
             if arg._is_mat:
                 arglist.append(arg.data.handle.handle)
@@ -574,7 +596,7 @@ class TilingSchedule(Schedule):
         kernel = tuple((loop.kernel for loop in loop_chain))
         all_args = tuple((Arg.specialize(loop.args, gtl_map, i) for i, (loop, gtl_map)
                          in enumerate(zip(loop_chain, self._executor.gtl_maps))))
-        it_space = tuple((loop.it_space for loop in loop_chain))
+        it_space = IterationSpace(tuple(loop.it_space for loop in loop_chain))
         kwargs = {
             'inspection': self._inspection,
             'all_args': all_args,
