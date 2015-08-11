@@ -41,7 +41,7 @@ import os
 from base import *
 import base
 import compilation
-import host
+import sequential
 from backends import _make_object
 from caching import Cached
 from profiling import lineprof, timed_region, profile
@@ -61,15 +61,15 @@ except ImportError:
     slope = None
 
 
-class Arg(host.Arg):
+class Arg(sequential.Arg):
 
     @staticmethod
     def specialize(args, gtl_map, loop_id):
         """Given ``args``, instances of some :class:`fusion.Arg` superclass,
         create and return specialized :class:`fusion.Arg` objects.
 
-        :param args: either a single :class:`host.Arg` object or an iterator
-                     (accepted: list, tuple) of :class:`host.Arg` objects.
+        :param args: either a single :class:`sequential.Arg` object or an iterator
+                     (accepted: list, tuple) of :class:`sequential.Arg` objects.
         :gtl_map: a dict associating global maps' names to local maps' c_names.
         :param loop_id: indicates the position of the args` loop in the loop
                         chain
@@ -139,7 +139,7 @@ class Arg(host.Arg):
         return "arg_exec_loop%d_%d" % (self._loop_position, self._position)
 
 
-class Kernel(host.Kernel, tuple):
+class Kernel(sequential.Kernel, tuple):
 
     """A :class:`fusion.Kernel` object represents an ordered sequence of kernels.
     The sequence can either be the result of the concatenation of the kernels
@@ -183,7 +183,7 @@ class Kernel(host.Kernel, tuple):
             # If kernels' need be concatenated, discard duplicates
             kernels = dict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
             asts = [k._ast for k in kernels]
-        kernels = as_tuple(kernels, (Kernel, host.Kernel, base.Kernel))
+        kernels = as_tuple(kernels, (Kernel, sequential.Kernel, base.Kernel))
 
         Kernel._globalcount += 1
         self._kernels = kernels
@@ -233,7 +233,7 @@ class IterationSpace(base.IterationSpace):
                           for i in self.sub_itspaces])
 
 
-class JITModule(host.JITModule):
+class JITModule(sequential.JITModule):
 
     _cppargs = []
     _libraries = []
@@ -373,7 +373,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                                                          self._all_args)):
             # Obtain code_dicts of individual kernels, since these have pieces of
             # code that can be straightforwardly reused for this code generation
-            loop_code_dict = host.JITModule(kernel, it_space, *args).generate_code()
+            loop_code_dict = sequential.JITModule(kernel, it_space, *args).generate_code()
 
             # Need to bind executor arguments to this kernel's arguments
             # Using a dict because need comparison on identity, not equality
@@ -404,7 +404,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         return code_dict
 
 
-class ParLoop(host.ParLoop):
+class ParLoop(sequential.ParLoop):
 
     def __init__(self, kernel, it_space, *args, **kwargs):
         read_args = [a.data for a in args if a.access in [READ, RW]]
