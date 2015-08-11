@@ -345,11 +345,14 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
     def generate_code(self):
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
-        code_dict = {}
 
+        code_dict = {}
         code_dict['wrapper_name'] = 'wrap_executor'
         code_dict['executor_arg'] = "%s %s" % (slope.Executor.meta['ctype_exec'],
                                                slope.Executor.meta['name_param_exec'])
+
+        # Uniquify arguments so that we don't have to pass in duplicates
+        args_dict = dict(zip([_a.data for _a in self._args], self._args))
 
         # Construct the wrapper
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
@@ -371,13 +374,13 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         for i, (kernel, it_space, args) in enumerate(zip(self._kernel,
                                                          self._itspace.sub_itspaces,
                                                          self._all_args)):
-            # Obtain code_dicts of individual kernels, since these have pieces of
+            # Obtain /code_dicts/ of individual kernels, since these have pieces of
             # code that can be straightforwardly reused for this code generation
-            loop_code_dict = sequential.JITModule(kernel, it_space, *args).generate_code()
+            loop_code_dict = sequential.JITModule(kernel, it_space, *args, delay=True)
+            loop_code_dict = loop_code_dict.generate_code()
 
             # Need to bind executor arguments to this kernel's arguments
-            # Using a dict because need comparison on identity, not equality
-            args_dict = dict(zip([_a.data for _a in self._args], self._args))
+            # Using dicts because need comparison on identity, not equality
             binding = OrderedDict(zip(args, [args_dict[a.data] for a in args]))
             if len(binding) != len(args):
                 raise RuntimeError("Tiling code gen failed due to args mismatching")
