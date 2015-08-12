@@ -107,21 +107,21 @@ class Arg(sequential.Arg):
         filtered_args = OrderedDict()
         for args in loop_args:
             for a in args:
-                filtered_args[a.data] = filtered_args.get(a.data, a)
-                if a.access != filtered_args[a.data].access:
-                    if READ in [a.access, filtered_args[a.data].access]:
+                fa = filtered_args.setdefault(a.data, a)
+                if a.access != fa.access:
+                    if READ in [a.access, fa.access]:
                         # If a READ and some sort of write (MIN, MAX, RW, WRITE,
                         # INC), then the access mode becomes RW
-                        filtered_args[a.data]._access = RW
-                    elif WRITE in [a.access, filtered_args[a.data].access]:
+                        fa._access = RW
+                    elif WRITE in [a.access, fa.access]:
                         # Can't be a READ, so just stick to WRITE regardless of what
                         # the other access mode is
-                        filtered_args[a.data]._access = WRITE
+                        fa._access = WRITE
                     else:
                         # Neither READ nor WRITE, so access modes are some
                         # combinations of RW, INC, MIN, MAX. For simplicity,
                         # just make it RW.
-                        filtered_args[a.data]._access = RW
+                        fa._access = RW
         return filtered_args
 
     def c_arg_bindto(self, arg):
@@ -341,9 +341,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         code_dict['wrapper_name'] = 'wrap_executor'
         code_dict['executor_arg'] = "%s %s" % (slope.Executor.meta['ctype_exec'],
                                                slope.Executor.meta['name_param_exec'])
-
-        # Uniquify arguments so that we don't have to pass in duplicates
-        args_dict = dict(zip([_a.data for _a in self._args], self._args))
+        args_dict = dict(zip([a.data for a in self._args], self._args))
 
         # Construct the wrapper
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
@@ -412,6 +410,7 @@ class ParLoop(sequential.ParLoop):
         self._it_space = it_space
 
         for i, arg in enumerate(self._actual_args):
+            arg.name = "arg%d" % i  # Override the previously cached_property name
             arg.position = i
             arg.indirect_position = i
         for i, arg1 in enumerate(self._actual_args):
