@@ -329,6 +329,8 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         if hasattr(self, '_all_args'):
             # After the JITModule is compiled, can drop any reference to now
             # useless fields, which would otherwise cause memory leaks
+            del self._all_kernels
+            del self._all_itspaces
             del self._all_args
             del self._executor
 
@@ -1115,23 +1117,40 @@ class Inspector(Cached):
         for loop in self._loop_chain:
             slope_desc = set()
             # Add sets
-            insp_sets.add((loop.it_space.name, loop.it_space.core_size))
+            iterset = loop.it_space.iterset
+            issubset = isinstance(iterset, Subset)
+            iterset_name = iterset.name if not issubset else "%s_ss" % iterset.name
+            insp_sets.add((iterset_name,
+                           iterset.core_size,
+                           iterset.exec_size - iterset.core_size,
+                           iterset.total_size - iterset.exec_size,
+                           issubset))
             for a in loop.args:
+                # Add access descriptors
                 maps = as_tuple(a.map, Map)
-                # Add maps (there can be more than one per argument if the arg
-                # is actually a Mat - in which case there are two maps - or if
-                # a MixedMap) and relative descriptors
-                if not maps:
+                if issubset:
+                    # If the iteration is over a subset, then we fake an indirect
+                    # par loop from the subset to the superset. This allows tiling
+                    # to be simply propagated from the superset down to the subset
+                    map_name = "%s_tosuperset" % iterset_name
+                    insp_maps[iterset_name] = (map_name, iterset_name,
+                                               iterset.superset.name, iterset.indices)
+                    slope_desc.add((map_name, a.access._mode))
+                elif not maps:
+                    # Simplest case: direct loop
                     slope_desc.add(('DIRECT', a.access._mode))
-                    continue
-                for i, map in enumerate(maps):
-                    for j, m in enumerate(map):
-                        map_name = "%s%d_%d" % (m.name, i, j)
-                        insp_maps[m.name] = (map_name, m.iterset.name,
-                                             m.toset.name, m.values)
-                        slope_desc.add((map_name, a.access._mode))
+                else:
+                    # Add maps (there can be more than one per argument if the arg
+                    # is actually a Mat - in which case there are two maps - or if
+                    # a MixedMap) and relative descriptors
+                    for i, map in enumerate(maps):
+                        for j, m in enumerate(map):
+                            map_name = "%s%d_%d" % (m.name, i, j)
+                            insp_maps[m.name] = (map_name, m.iterset.name,
+                                                 m.toset.name, m.values)
+                            slope_desc.add((map_name, a.access._mode))
             # Add loop
-            insp_loops.append((loop.kernel.name, loop.it_space.name, list(slope_desc)))
+            insp_loops.append((loop.kernel.name, iterset_name, list(slope_desc)))
         # Provide structure of loop chain to the SLOPE's inspector
         arguments.extend([inspector.add_sets(insp_sets)])
         arguments.extend([inspector.add_maps(insp_maps.values())])
