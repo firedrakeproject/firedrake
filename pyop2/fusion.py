@@ -1286,22 +1286,32 @@ def loop_chain(name, num_unroll=1, tile_size=0):
                       If ``0`` is passed in, only soft fusion is performed.
     """
     from base import _trace
-    trace = _trace._trace
-    stamp = trace[-1:]
+
+    # Get a snapshot of the trace before new par loops are added within this
+    # context manager
+    stamp = list(_trace._trace)
 
     yield
 
-    if num_unroll < 1:
+    trace = _trace._trace
+    if num_unroll < 1 or stamp == trace:
         return
 
-    start_point = trace.index(stamp[0])+1 if stamp else 0
-    extracted_loop_chain = trace[start_point:]
+    # What's the first item /B/ that appeared in the trace /before/ entering the
+    # context manager and that still has to be executed ?
+    # The loop chain will be (B, end_of_current_trace]
+    bottom = 0
+    for i in reversed(stamp):
+        if i in trace:
+            bottom = trace.index(i) + 1
+            break
+    extracted_loop_chain = trace[bottom:]
 
     # Unroll the loop chain /num_unroll/ times before fusion/tiling
     total_loop_chain = loop_chain.unrolled_loop_chain + extracted_loop_chain
     if len(total_loop_chain) / len(extracted_loop_chain) == num_unroll:
-        start_point = trace.index(total_loop_chain[0])
-        trace[start_point:] = fuse(name, total_loop_chain, tile_size)
+        bottom = trace.index(total_loop_chain[0])
+        trace[bottom:] = fuse(name, total_loop_chain, tile_size)
         loop_chain.unrolled_loop_chain = []
     else:
         loop_chain.unrolled_loop_chain.extend(extracted_loop_chain)
