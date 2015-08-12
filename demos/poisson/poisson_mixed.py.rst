@@ -20,8 +20,8 @@ boundary :math:`\Gamma`
 for some known function :math:`f`. The solution to this equation will be some
 functions :math:`u\in V` and :math:`\sigma\in \Sigma` for some suitable
 function space :math:`V` and :math:`\Sigma` that satisfy these equations. We
-multiply by arbitrary test functions :math:`\tau \in V` and :math:`\nu \in
-\Sigma`, integrate over the domain and then integrate by parts to obtain a
+multiply by arbitrary test functions :math:`\tau \in \Sigma` and :math:`\nu \in
+V`, integrate over the domain and then integrate by parts to obtain a
 weak formulation of the variational problem: find :math:`\sigma\in \Sigma` and
 :math:`\nu\in V` such that:
 
