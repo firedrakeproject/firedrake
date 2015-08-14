@@ -3788,6 +3788,7 @@ class Kernel(Cached):
         if not isinstance(code, Node):
             # Got a C string, nothing we can do, just use it as Kernel body
             self._ast = None
+            self._original_ast = None
             self._code = code
             self._attached_info = True
         elif isinstance(code, Node) and configuration['loop_fusion']:
@@ -3795,11 +3796,12 @@ class Kernel(Cached):
             # be deferred because optimisation of a kernel in a fused chain of
             # loops may differ from optimisation in a non-fusion context
             self._ast = code
+            self._original_ast = code
             self._code = None
             self._attached_info = False
         elif isinstance(code, Node) and not configuration['loop_fusion']:
             # Got an AST, need to go through COFFEE for optimization and
-            # code generation
+            # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
             self._ast = code
             self._code = self._ast_to_c(self._ast, self._opts)
             self._attached_info = False
