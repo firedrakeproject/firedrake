@@ -160,7 +160,6 @@ class Kernel(sequential.Kernel, tuple):
         if not isinstance(asts, (ast.FunDecl, ast.Root)):
             asts = ast.Root(asts)
         self._ast = asts
-        self._original_ast = dcopy(asts)
         return super(Kernel, self)._ast_to_c(self._ast, opts)
 
     def __init__(self, kernels, fused_ast=None, loop_chain_index=None):
@@ -196,6 +195,7 @@ class Kernel(sequential.Kernel, tuple):
         self._attached_info = False
         # Code generation is delayed until actually needed
         self._ast = asts
+        self._original_ast = asts
         self._code = None
 
         self._initialized = True
