@@ -148,15 +148,14 @@ class Kernel(sequential.Kernel, tuple):
 
     @classmethod
     def _cache_key(cls, kernels, fused_ast=None, loop_chain_index=None):
-        keys = "".join([super(Kernel, cls)._cache_key(k._code or k._ast.gencode(),
-                                                      k._name, k._opts, k._include_dirs,
-                                                      k._headers, k._user_code)
-                        for k in kernels])
+        keys = "".join([super(Kernel, cls)._cache_key(
+            k._original_ast.gencode() if k._original_ast else k._code,
+            k._name, k._opts, k._include_dirs, k._headers, k._user_code) for k in kernels])
         return str(loop_chain_index) + keys
 
     def _ast_to_c(self, asts, opts):
-        """Fuse Abstract Syntax Trees of a collection of kernels and transform
-        them into a string of C code."""
+        """Fuse kernel abstract syntax trees (if needed) and transform the fused
+        kernel into a string of C code."""
         if not isinstance(asts, (ast.FunDecl, ast.Root)):
             asts = ast.Root(asts)
         self._ast = asts
@@ -167,7 +166,7 @@ class Kernel(sequential.Kernel, tuple):
 
         :param kernels: an iterator of some :class:`Kernel` objects. The objects
                         can be of class `fusion.Kernel` or of any superclass.
-        :param fused_ast: the Abstract Syntax Tree of the fused kernel. If not
+        :param fused_ast: the abstract syntax tree of the fused kernel. If not
                           provided, kernels are simply concatenated.
         :param loop_chain_index: index (i.e., position) of the kernel in a loop
                                  chain. This can be used to identify the same
@@ -177,14 +176,22 @@ class Kernel(sequential.Kernel, tuple):
         if self._initialized:
             return
 
-        asts = fused_ast
-        if not asts:
-            # If kernels' need be concatenated, discard duplicates
-            kernels = dict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
-            asts = [k._ast for k in kernels]
-        kernels = as_tuple(kernels, (Kernel, sequential.Kernel, base.Kernel))
-
         Kernel._globalcount += 1
+
+        # What sort of fusion Kernel do I have?
+        if fused_ast:
+            # A single, already fused AST (code generation delayed)
+            self._ast = fused_ast
+            self._code = None
+        else:
+            # Multiple kernels that need be put one after the other (so discard duplicates)
+            self._ast = None
+            kernels = OrderedDict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
+            self._code = "\n".join([super(Kernel, k)._ast_to_c(dcopy(k._original_ast), k._opts)
+                                    if k._original_ast else k._code for k in kernels])
+        self._original_ast = self._ast
+
+        kernels = as_tuple(kernels, (Kernel, sequential.Kernel, base.Kernel))
         self._kernels = kernels
         self._name = "_".join([k.name for k in kernels])
         self._opts = dict(flatten([k._opts.items() for k in kernels]))
@@ -193,10 +200,6 @@ class Kernel(sequential.Kernel, tuple):
         self._headers = list(set(flatten([k._headers for k in kernels])))
         self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
         self._attached_info = False
-        # Code generation is delayed until actually needed
-        self._ast = asts
-        self._original_ast = asts
-        self._code = None
 
         self._initialized = True
 
@@ -627,7 +630,7 @@ class Inspector(Cached):
         for loop in loop_chain:
             if isinstance(loop, Mat._Assembly):
                 continue
-            key += (hash(str(loop.kernel._ast)),)
+            key += (hash(str(loop.kernel._original_ast)),)
             for arg in loop.args:
                 if arg._is_global:
                     key += (arg.data.dim, arg.data.dtype, arg.access)
