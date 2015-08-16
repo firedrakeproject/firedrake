@@ -1,11 +1,184 @@
 #! /usr/bin/env python
 import platform
+import subprocess
+import sys
+import os
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+
+
+# Handle command line arguments.
+parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
+                        epilog="""The install process has three steps.
+
+1. Any required system packages are installed using brew (MacOS) or apt (Ubuntu
+   and similar Linux systems). On a Linux system without apt, the installation
+   will fail if a dependency is not found.
+
+2. A set of standard and/or third party Python packages is installed to the
+   specified install location.
+
+3. The core set of Python packages is downloaded to ./firedrake/src/ and
+   installed to the specified location.
+
+The install location may be specified using the --global, --prefix, or --user
+options. If none of these options are provided, a local installation into
+./firedrake will be performed.""",
+                        formatter_class=RawDescriptionHelpFormatter)
+
+group = parser.add_mutually_exclusive_group()
+group.add_argument("--global", action='store_true', dest="system",
+                   help="Install to the default global location on the current platform.")
+group.add_argument("--prefix", type=str, nargs=1,
+                    help="Install to subdirectories of the specified directory.")
+group.add_argument("--user", action='store_true',
+                   help="Install using the current user's home directory as the prefix.")
+parser.add_argument("--sudo", action='store_true',
+                    help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
+
+parser.add_argument("--log", action='store_true',
+                    help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
+
+args = parser.parse_args()
+print args
+
+if args.sudo and (args.system or args.prefix):
+    sudopip = ["sudo", "pip", "install"]
+else:
+    sudopip = ["pip", "install"]
+if args.user:
+    sudopip.append("--user")
+elif args.prefix:
+    sudopip += ["--root", args.prefix]
+elif args.system:
+    pass
+else:
+    sudopip += ["--root", os.getcwd() + "/firedrake"]
+
+class Log(object):
+    """Class to enable logging to screen and logfile at once."""
+    def __init__(self, screen, log):
+        self.files = [screen]
+        if log:
+            self.files.append(log)
+
+    def write(self, string):
+        for f in self.files:
+            f.write(string)
+
+log = file("firedrake-install.log", "w") if args.log else None
+stdout = Log(sys.stdout, log)
+stderr = Log(sys.stderr, log)
+
+
+def check_call(args):
+    try:
+        stdout.write(subprocess.check_output(args, stderr=subprocess.STDOUT))
+    except subprocess.CalledProcessError as e:
+        stdout.write(e.output)
+        raise
+
+def brewinstall(name):
+    check_call(["brew", "install", name])
+
+    
+def aptinstall(name):
+    check_call(["sudo", "apt-get", "install", name])
+
+    
+def gitclone(name, url):
+    stdout.write("Cloning %s\n" % name)
+    plainurl = url.split("://")[1]
+    try:
+        check_call(["git", "clone", "git@%s:%s" % tuple(plainurl.split("/", 1))])
+    except subprocess.CalledProcessError:
+        stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
+        try:
+            check_call(["git", "clone", "https://%s" % plainurl])
+            stdout.write("Successfully cloded %s" % name)
+        except subprocess.CalledProcessError:
+            stderr.write("Failed to clone %s\n" % name)
+            raise
+
+    
+def clone_dependencies(name):
+    stdout.write("Cloning the dependencies of %s\n" % name)
+    for dep in open(name + "/requirements-git.txt", "r"):
+        gitclone(dep.strip())
+
+
+def piprequirements(package, filename):
+    stdout.write("Installing pip dependencies for %s\n" % package)
+    check_call(sudopip + ["install", "-r", filename])
+
+
+def install(package):
+    stdout.write("Installing %s\n" % package)
+    #check_call(["pip", "install", ...])
+    raise NotImplementedError
+
+
+def quit(message):
+    log.write(message)
+    sys.exit(message)
+
 
 # Check operating system.
 osname = platform.uname()[0]
 if osname == "Linux":
     # Check for apt.
-    
-# Install minimal OS packages.
+    try:
+        check_call(["apt-get", "--version"])
+        have_apt = True
+    except subprocess.CalledProcessError:
+        have_apt = False
 
-# Install python packages.
+# Install minimal OS packages.
+if osname not in ["Linux", "Darwin"]:
+    stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
+
+if osname == "Darwin":
+    try:
+        check_call(["xcodebuild", "-version"])
+    except:
+        raise
+        quit("Xcode not found. Please install xcode from the App Store and try again.")
+
+    try:
+        check_call(["brew", "--version"])
+    except:
+        quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
+
+    stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
+    brewinstall("openmpi")
+    brewinstall("python")
+    check_call(["brew", "tap", "homebrew/python"])
+    brewinstall("numpy")
+    
+else:
+    # If not MacOS then try the Linux options.
+    raise Exception("NotAMac")
+
+print "Creating firedrake directory structure"
+try:
+    os.mkdir("firedrake")
+except OSError:
+    stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
+    raise
+
+os.chdir("firedrake")
+os.mkdir("src")
+os.chdir("src")
+
+gitclone("firedrake", "git+https://github.com/firedrakeproject/firedrake.git@install_script")
+packages = clone_dependencies("firedrake")
+packages += clone_dependencies("PyOP2")
+packages += ["PyOP2", "firedrake"]
+
+print "Installing required Python packages."
+piprequirements("PyOP2/requirements-ext.txt")
+piprequirements("firedrake/requirements-ext.txt")
+
+for p in packages:
+    install(p)
+
+# Build environment script and update script.
