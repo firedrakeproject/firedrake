@@ -32,6 +32,8 @@ group.add_argument("--prefix", type=str, nargs=1,
                     help="Install to subdirectories of the specified directory.")
 group.add_argument("--user", action='store_true',
                    help="Install using the current user's home directory as the prefix.")
+parser.add_argument("--developer", action='store_true',
+                    help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
 parser.add_argument("--sudo", action='store_true',
                     help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
 
@@ -40,19 +42,31 @@ parser.add_argument("--log", action='store_true',
 
 args = parser.parse_args()
 print args
+#in Where are packages installed relative to --root?
+# This is a bit of a hack.
+v = sys.version_info
+sitepackages="/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
+path_extension = ""
 
 if args.sudo and (args.system or args.prefix):
     sudopip = ["sudo", "pip", "install"]
 else:
     sudopip = ["pip", "install"]
 if args.user:
-    sudopip.append("--user")
+    sudopip += ["--user"]
 elif args.prefix:
+    path_extension = args.prefix + sitepackages + os.pathsep
     sudopip += ["--root", args.prefix]
 elif args.system:
     pass
 else:
+    path_extension = os.getcwd() + "/firedrake" + sitepackages + os.pathsep
     sudopip += ["--root", os.getcwd() + "/firedrake"]
+
+if args.developer:
+    path_extension += os.getcwd() + "/firedrake/src"
+
+os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH","")
 
 class Log(object):
     """Class to enable logging to screen and logfile at once."""
@@ -77,6 +91,7 @@ def check_call(args):
         stdout.write(e.output)
         raise
 
+    
 def brewinstall(name):
     check_call(["brew", "install", name])
 
@@ -85,36 +100,49 @@ def aptinstall(name):
     check_call(["sudo", "apt-get", "install", name])
 
     
-def gitclone(name, url):
+def gitclone(url):
+    name = url.split(".git")[0].split("#")[0].split("/")[-1]
     stdout.write("Cloning %s\n" % name)
-    plainurl = url.split("://")[1]
+    spliturl = url.split("://")[1].split("#")[0].split("@")
     try:
-        check_call(["git", "clone", "git@%s:%s" % tuple(plainurl.split("/", 1))])
+        plainurl, branch = spliturl
+    except ValueError:
+        plainurl = spliturl[0]
+        branch = "master"
+    try:
+        check_call(["git", "clone", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
+        stdout.write("Successfully cloned %s.\n" % name)
     except subprocess.CalledProcessError:
         stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
         try:
-            check_call(["git", "clone", "https://%s" % plainurl])
-            stdout.write("Successfully cloded %s" % name)
+            check_call(["git", "clone",  "-b", branch, "https://%s" % plainurl])
+            stdout.write("Successfully cloned %s.\n" % name)
         except subprocess.CalledProcessError:
-            stderr.write("Failed to clone %s\n" % name)
+            stderr.write("Failed to clone %s.\n" % name)
             raise
+    return name
 
-    
+
 def clone_dependencies(name):
     stdout.write("Cloning the dependencies of %s\n" % name)
+    deps = []
     for dep in open(name + "/requirements-git.txt", "r"):
-        gitclone(dep.strip())
+        deps.append(gitclone(dep.strip()))
+    return deps
 
 
-def piprequirements(package, filename):
+def piprequirements(package):
     stdout.write("Installing pip dependencies for %s\n" % package)
-    check_call(sudopip + ["install", "-r", filename])
+    check_call(sudopip + ["-r", "%s/requirements-ext.txt" % package])
 
 
 def install(package):
     stdout.write("Installing %s\n" % package)
-    #check_call(["pip", "install", ...])
-    raise NotImplementedError
+    # The following outrageous hack works around the fact that petsc4py cannot be installed in developer mode.
+    if args.developer or package == "petsc4py":
+        check_call(sudopip + ["-e", package])        
+    else:
+        check_call(sudopip + ["--ignore-installed", package])
 
 
 def quit(message):
@@ -169,16 +197,17 @@ os.chdir("firedrake")
 os.mkdir("src")
 os.chdir("src")
 
-gitclone("firedrake", "git+https://github.com/firedrakeproject/firedrake.git@install_script")
+gitclone("git+https://github.com/firedrakeproject/firedrake.git@install_script")
 packages = clone_dependencies("firedrake")
 packages += clone_dependencies("PyOP2")
 packages += ["PyOP2", "firedrake"]
 
 print "Installing required Python packages."
-piprequirements("PyOP2/requirements-ext.txt")
-piprequirements("firedrake/requirements-ext.txt")
+piprequirements("PyOP2")
+piprequirements("firedrake")
 
+sudopip.append("--no-deps")
 for p in packages:
-    install(p)
+    install(p+"/")
 
 # Build environment script and update script.
