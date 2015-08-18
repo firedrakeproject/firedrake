@@ -14,10 +14,12 @@ struct Function {
 	double *f;
 	int *f_map;
 
+	/* Spatial index */
+	void *sidx;
+
 	/*
 	 * TODO:
 	 * - cell orientation
-	 * - spatial index
 	 */
 };
 

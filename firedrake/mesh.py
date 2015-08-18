@@ -14,6 +14,7 @@ import coffee.base as ast
 import firedrake.dmplex as dmplex
 import firedrake.extrusion_utils as eutils
 import firedrake.fiat_utils as fiat_utils
+import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
@@ -591,6 +592,16 @@ class Mesh(object):
                                      self.cell_closure,
                                      fiat_element)
 
+    @utils.cached_property
+    def spatial_index(self):
+        cell_node_list = self.coordinates.function_space().cell_node_list
+        cell_coords = self.coordinates.dat.data[cell_node_list]
+
+        cell_coords_min = cell_coords.min(axis=1)
+        cell_coords_max = cell_coords.max(axis=1)
+
+        return spatialindex.from_regions(cell_coords_min, cell_coords_max)
+
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
@@ -948,6 +959,10 @@ class ExtrudedMesh(Mesh):
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
                                      fiat_utils.FlattenedElement(fiat_element))
+
+    @utils.cached_property
+    def spatial_index(self):
+        raise NotImplementedError("Spatial index not available for extruded meshes.")
 
     @property
     def layers(self):

@@ -1,5 +1,5 @@
 import ctypes
-from ctypes import POINTER, c_int, c_double
+from ctypes import POINTER, c_int, c_double, c_void_p
 
 from os import path
 
@@ -11,7 +11,8 @@ class _CFunction(ctypes.Structure):
                 ("coords", POINTER(c_double)),
                 ("coords_map", POINTER(c_int)),
                 ("f", POINTER(c_double)),
-                ("f_map", POINTER(c_int))]
+                ("f_map", POINTER(c_int)),
+                ("sidx", c_void_p)]
 
 
 def cFunction(function):
@@ -28,6 +29,7 @@ def cFunction(function):
     c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
     c_function.f = function.dat.data.ctypes.data_as(POINTER(c_double))
     c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+    c_function.sidx = mesh.spatial_index.ctypes
 
     # Return pointer
     return ctypes.pointer(c_function)
@@ -43,24 +45,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     coordinates_ufl_element = coordinates.function_space().ufl_element()
 
     src = compile_element(ufl_element, coordinates_ufl_element)
-    src += """
-#include <evaluate.h>
-
-int locate_cell(struct Function *f, double *x, int dim, inside_predicate try_candidate, void *data_)
-{
-    int c;
-    for (c = 0; c < f->n_cells; c++) {
-        if ((*try_candidate)(data_, f, c, x)) {
-            return c;
-        }
-    }
-    (void) dim;
-    return -1;
-}
-"""
 
     if ldargs is None:
-        kwargs = {}
-    else:
-        kwargs = dict(ldargs=ldargs)
-    return compilation.load(src, "c", c_name, cppargs=["-I%s" % path.dirname(__file__)], **kwargs)
+        ldargs = []
+    ldargs += [path.join(path.dirname(__file__), "locate.o"), "-lspatialindex"]
+    return compilation.load(src, "c", c_name, cppargs=["-I%s" % path.dirname(__file__)], ldargs=ldargs)
