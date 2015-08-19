@@ -1,7 +1,7 @@
 #include <locate.h>
 #include <function.h>
 
-int locate_cell(struct Function *f, double *x,
+int locate_cell(struct Function *f, double *x, int dim,
 		inside_p try_candidate, void *data_)
 {
 	int c;
