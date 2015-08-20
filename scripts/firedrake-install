@@ -62,12 +62,9 @@ else:
     # Use the pip from the virtualenv
     sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
 
-if args.developer:
-    path_extension += os.getcwd() + "/firedrake/src"
-
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 
-if os.environ["PETSC_DIR"]:
+if os.environ.has_key("PETSC_DIR"):
     sys.stdout("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
@@ -148,6 +145,7 @@ def clone_dependencies(name):
 
 
 def run_pip(args):
+    stdout.write(" ".join(sudopip + args) + "\n")
     check_call(sudopip + args)
 
 
@@ -158,8 +156,8 @@ def pip_requirements(package):
 
 def install(package):
     stdout.write("Installing %s\n" % package)
-    # The following outrageous hack works around the fact that petsc4py cannot be installed in developer mode.
-    if args.developer and package != "petsc4py/":
+    # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
+    if args.developer and package not in ["petsc/", "petsc4py/"]:
         run_pip(["-e", package])
     else:
         run_pip(["--ignore-installed", package])
@@ -249,5 +247,13 @@ pip_requirements("firedrake")
 sudopip.append("--no-deps")
 for p in packages:
     install(p+"/")
+    if args.developer:
+        pdir = os.getcwd() + "/" + p + os.pathsep
+        os.environ["PYTHONPATH"] = pdir + os.environ.get("PYTHONPATH", "")
+        path_extension = pdir + path_extension
+
+#if args.developer:
+#    # Append the source directories to the pythonpath.
+#    open("../bin/activate", "a").write(
 
 # Build environment script and update script.
