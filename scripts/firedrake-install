@@ -140,7 +140,7 @@ def piprequirements(package):
 def install(package):
     stdout.write("Installing %s\n" % package)
     # The following outrageous hack works around the fact that petsc4py cannot be installed in developer mode.
-    if args.developer or package == "petsc4py":
+    if args.developer and package != "petsc4py/":
         check_call(sudopip + ["-e", package])
     else:
         check_call(sudopip + ["--ignore-installed", package])
