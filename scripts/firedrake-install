@@ -256,6 +256,17 @@ for p in packages:
         os.environ["PYTHONPATH"] = pdir + os.environ.get("PYTHONPATH", "")
         path_extension = pdir + path_extension
 
+# Work around easy-install.pth bug.
+if args.developer:
+    packages.remove("petsc")
+    packages.remove("petsc4py")
+    packages.remove("firedrake")
+    v = sys.version_info
+    easyinstall = file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
+    new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
+    file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
+        easyinstall[:1] + new_packages + easyinstall[1:])
+
 #if args.developer:
 #    # Append the source directories to the pythonpath.
 #    open("../bin/activate", "a").write(
