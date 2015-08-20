@@ -41,7 +41,6 @@ parser.add_argument("--log", action='store_true',
                     help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
 
 args = parser.parse_args()
-print args
 # Where are packages installed relative to --root?
 # This is a bit of a hack.
 v = sys.version_info
@@ -60,13 +59,16 @@ elif args.prefix:
 elif args.system:
     pass
 else:
-    path_extension = os.getcwd() + "/firedrake" + sitepackages + os.pathsep
-    sudopip += ["--root", os.getcwd() + "/firedrake"]
+    # Use the pip from the virtualenv
+    sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
 
 if args.developer:
     path_extension += os.getcwd() + "/firedrake/src"
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+
+if os.environ["PETSC_DIR"]:
+    sys.stdout("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
 class Log(object):
@@ -93,15 +95,28 @@ def check_call(args):
         raise
 
 
-def brewinstall(name):
+def brew_install(name):
     check_call(["brew", "install", name])
 
 
-def aptinstall(name):
-    check_call(["sudo", "apt-get", "install", name])
+def apt_check(name):
+    stdout.write("Checking for presence of package %s..." % name)
+    # Note that subprocess return codes have the opposite logical
+    # meanings to those of Python variables.
+    if not subprocess.call(["dpkg", "-l", name]):
+        stdout.write("installed.\n")
+        return True
+    else:
+        stdout.write("missing.\n")
+        return False
 
 
-def gitclone(url):
+def apt_install(names):
+    stdout.write("Installing missing packages: %s.\n" % ", ".join(names))
+    check_call(["sudo", "apt-get", "install"] + names)
+
+
+def git_clone(url):
     name = url.split(".git")[0].split("#")[0].split("/")[-1]
     stdout.write("Cloning %s\n" % name)
     spliturl = url.split("://")[1].split("#")[0].split("@")
@@ -128,22 +143,26 @@ def clone_dependencies(name):
     stdout.write("Cloning the dependencies of %s\n" % name)
     deps = []
     for dep in open(name + "/requirements-git.txt", "r"):
-        deps.append(gitclone(dep.strip()))
+        deps.append(git_clone(dep.strip()))
     return deps
 
 
-def piprequirements(package):
+def run_pip(args):
+    check_call(sudopip + args)
+
+
+def pip_requirements(package):
     stdout.write("Installing pip dependencies for %s\n" % package)
-    check_call(sudopip + ["-r", "%s/requirements-ext.txt" % package])
+    run_pip(["-r", "%s/requirements-ext.txt" % package])
 
 
 def install(package):
     stdout.write("Installing %s\n" % package)
     # The following outrageous hack works around the fact that petsc4py cannot be installed in developer mode.
     if args.developer and package != "petsc4py/":
-        check_call(sudopip + ["-e", package])
+        run_pip(["-e", package])
     else:
-        check_call(sudopip + ["--ignore-installed", package])
+        run_pip(["--ignore-installed", package])
 
 
 def quit(message):
@@ -153,18 +172,6 @@ def quit(message):
 
 # Check operating system.
 osname = platform.uname()[0]
-if osname == "Linux":
-    # Check for apt.
-    try:
-        check_call(["apt-get", "--version"])
-        have_apt = True
-    except subprocess.CalledProcessError:
-        have_apt = False
-
-# Install minimal OS packages.
-if osname not in ["Linux", "Darwin"]:
-    stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
-
 if osname == "Darwin":
     try:
         check_call(["xcodebuild", "-version"])
@@ -178,34 +185,66 @@ if osname == "Darwin":
         quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
     stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
-    brewinstall("openmpi")
-    brewinstall("python")
+    brew_install("openmpi")
+    brew_install("python")
     check_call(["brew", "tap", "homebrew/python"])
-    brewinstall("numpy")
+    brew_install("numpy")
+
+elif osname == "Linux":
+    # Check for apt.
+    try:
+        check_call(["apt-get", "--version"])
+
+        apt_packages = ["build-essential", "python-dev", "git-core",
+                        "mercurial", "python-pip", "libopenmpi-dev", "openmpi-bin",
+                        "libblas-dev", "liblapack-dev", "gfortran", "libhdf5-mpi-dev"]
+
+        missing_packages = [p for p in apt_packages if not apt_check(p)]
+        if missing_packages:
+            apt_install(missing_packages)
+
+    except subprocess.CalledProcessError:
+        stdout.write("apt-get not found. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
+        stdout.write("If this is not the case, please install the following and try again:\n")
+        stdout.write("A C compiler (for example gcc or clang), make.\n")
+        stdout.write("A Fortran compiler (for PETSc).\n")
+        stdout.write("MPI.\n")
+        stdout.write("Blas and Lapack.\n")
+        stdout.write("Git, Mercurial.\n")
+        stdout.write("Python version 2.7.\n")
+        stdout.write("pip and the Python headers.\n")
 
 else:
-    # If not MacOS then try the Linux options.
-    raise Exception("NotAMac")
+    stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
 
-print "Creating firedrake directory structure"
-try:
-    os.mkdir("firedrake")
-except OSError:
-    stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
-    raise
+
+if args.system or args.user or args.prefix:
+    stdout.write("Creating firedrake directory structure.\n")
+    try:
+        os.mkdir("firedrake")
+    except OSError:
+        stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
+        raise
+
+else:
+    stdout.write("Installing virtualenv.\n")
+    check_call(["pip", "install", "--user", "virtualenv"])
+    import virtualenv
+    stdout.write("Creating firedrake virtualenv.\n")
+    virtualenv.create_environment("firedrake")
+    execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
 
 os.chdir("firedrake")
 os.mkdir("src")
 os.chdir("src")
 
-gitclone("git+https://github.com/firedrakeproject/firedrake.git@install_script")
+git_clone("git+https://github.com/firedrakeproject/firedrake.git@install_script")
 packages = clone_dependencies("firedrake")
-packages += clone_dependencies("PyOP2")
-packages += ["PyOP2", "firedrake"]
+packages = clone_dependencies("PyOP2") + packages
+packages += ["firedrake"]
 
-print "Installing required Python packages."
-piprequirements("PyOP2")
-piprequirements("firedrake")
+pip_requirements("PyOP2")
+pip_requirements("firedrake")
 
 sudopip.append("--no-deps")
 for p in packages:
