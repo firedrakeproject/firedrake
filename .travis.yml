@@ -23,6 +23,7 @@ addons:
         - liblapack-dev
         - gfortran
         - libhdf5-mpi-dev
+        - swig
 env:
   global:
     - C_INCLUDE_PATH=/usr/lib/openmpi/include
