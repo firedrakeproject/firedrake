@@ -22,6 +22,7 @@ addons:
         - libblas-dev
         - liblapack-dev
         - gfortran
+        - libhdf5-mpi-dev
 env:
   global:
     - C_INCLUDE_PATH=/usr/lib/openmpi/include
