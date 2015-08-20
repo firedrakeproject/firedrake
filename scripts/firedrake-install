@@ -63,8 +63,9 @@ else:
     sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+os.environ["PETSC_CONFIGURE_OPTIONS"] = "--download-ctetgen --download-triangle --download-chaco"
 
-if os.environ.has_key("PETSC_DIR"):
+if "PETSC_DIR" in os.environ:
     sys.stdout("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
@@ -225,9 +226,12 @@ if args.system or args.user or args.prefix:
         raise
 
 else:
-    stdout.write("Installing virtualenv.\n")
-    check_call(["pip", "install", "--user", "virtualenv"])
-    import virtualenv
+    try:
+        import virtualenv
+    except:
+        stdout.write("Installing virtualenv.\n")
+        check_call(["pip", "install", "--user", "virtualenv"])
+        quit("Virtual env installed. Please run firedrake-install again.\n")
     stdout.write("Creating firedrake virtualenv.\n")
     virtualenv.create_environment("firedrake")
     execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
