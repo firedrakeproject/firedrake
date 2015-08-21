@@ -49,10 +49,9 @@ before_install:
   - mkdir tmp
   - cd tmp
 install:
-  - ../scripts/firedrake-install --disable_ssh
+  - ../scripts/firedrake-install --disable_ssh --global
 # command to run tests
 script:
-  - . firedrake/bin/activate
   - cd firedrake/src/firedrake
   - make lint
   - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
