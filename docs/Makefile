@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish serve
+publish serve scp
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -46,6 +46,12 @@ TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex
 GENERATED_FILES = source/teamgrid.rst source/obtaining_pyop2.rst source/demos
 
 publish: html
+# Note that godaddy don't currently do rsync, unfortunately.
+# The raw IP address is used to circumvent some dns fiddling which
+# Imperial's ICT department are doing.
+	scp -r build/html/* 'o3ce6600@146.255.44.1:html/'
+
+scp:
 # Note that godaddy don't currently do rsync, unfortunately.
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
