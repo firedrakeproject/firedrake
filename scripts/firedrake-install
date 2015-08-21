@@ -277,13 +277,16 @@ if (args.system or args.user or args.prefix) and mode == "install":
         stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
         raise
 
-# sys.real_prefix exists if we are already in the virtualenv
-elif not (args.system or args.user or args.prefix) and not hasattr(sys, "real_prefix"):
+elif not (args.system or args.user or args.prefix):
     try:
         import virtualenv
     except:
         stdout.write("Installing virtualenv.\n")
-        check_call(["pip", "install", "--user", "virtualenv"])
+        # sys.real_prefix exists if we are already in the virtualenv
+        if hasattr(sys, "real_prefix"):
+            check_call(["pip", "install", "virtualenv"])
+        else:
+            check_call(["pip", "install", "--user", "virtualenv"])
         quit("Virtual env installed. Please run firedrake-install again.\n")
     if mode == "install":
         stdout.write("Creating firedrake virtualenv.\n")
