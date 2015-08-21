@@ -295,7 +295,7 @@ elif not (args.system or args.user or args.prefix):
         quit("Virtual env installed. Please run firedrake-install again.\n")
     if mode == "install":
         stdout.write("Creating firedrake virtualenv.\n")
-        virtualenv.create_environment("firedrake")
+        virtualenv.create_environment("firedrake", site_packages=True)
     execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
 
 os.chdir("firedrake")
