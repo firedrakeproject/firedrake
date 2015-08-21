@@ -9,7 +9,7 @@ if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
 elif os.path.basename(__file__) == "firedrake-update":
     mode = "update"
-    os.chdir(os.path.dirname(__file__) + "../")
+    os.chdir(os.path.dirname(__file__) + "/../..")
 else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
@@ -183,9 +183,9 @@ def git_update(name):
     # Update the named git repo and return true if the current branch actually changed.
     stdout.write("Updating the git repository for %s\n" % name)
     os.chdir(name)
-    git_sha = check_output(["git", "rev-parse", "head"])
+    git_sha = check_output(["git", "rev-parse", "HEAD"])
     check_call(["git", "pull"])
-    git_sha_new = check_output(["git", "rev-parse", "head"])
+    git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     os.chdir("..")
     return git_sha != git_sha_new
 
@@ -277,7 +277,8 @@ if (args.system or args.user or args.prefix) and mode == "install":
         stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
         raise
 
-elif not (args.system or args.user or args.prefix):
+# sys.real_prefix exists if we are already in the virtualenv
+elif not (args.system or args.user or args.prefix) and not hasattr(sys, "real_prefix"):
     try:
         import virtualenv
     except:
@@ -374,3 +375,4 @@ if not (args.system or args.user or args.prefix):
     stdout.write("  . firedrake/bin/activate\n\n")
     stdout.write("The virtualenv can be deactivated by running:\n\n")
     stdout.write("  deactivate\n")
+
