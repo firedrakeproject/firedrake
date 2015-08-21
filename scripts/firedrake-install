@@ -47,6 +47,8 @@ options. If none of these options are provided, a local installation into
 
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
+    parser.add_argument("--disable_ssh", action="store_true",
+                        help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
 
     args = parser.parse_args()
     args.prefix = False  # Disabled as untested
@@ -158,9 +160,11 @@ def git_clone(url):
         plainurl = spliturl[0]
         branch = "master"
     try:
+        if args.disable_ssh:
+            raise Exception
         check_call(["git", "clone", "-q", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
         stdout.write("Successfully cloned %s.\n" % name)
-    except subprocess.CalledProcessError:
+    except:
         stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
         try:
             check_call(["git", "clone", "-b", branch, "https://%s" % plainurl])

@@ -47,7 +47,7 @@ before_install:
   - mkdir tmp
   - cd tmp
 install:
-  - ../scripts/firedrake-install
+  - ../scripts/firedrake-install --disable_ssh
 # command to run tests
 script:
   - . firedrake/bin/activate
