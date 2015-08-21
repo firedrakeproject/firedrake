@@ -20,11 +20,16 @@ before_install:
     cmake cmake-curses-gui libmed1 gmsh python-pip libhdf5-openmpi-dev \
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran \
     triangle-bin cython"
+  - pip install --upgrade pip
 # Force installation of requirements IN THE ORDER WE SPECIFIED!  AAAARGH.
   - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
        --allow-external petsc --allow-unverified petsc \
        --allow-external petsc4py  --allow-unverified petsc4py \
-       < requirements-minimal.txt"
+       < requirements-ext.txt"
+  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
+       --allow-external petsc --allow-unverified petsc \
+       --allow-external petsc4py  --allow-unverified petsc4py \
+       < requirements-git.txt"
 install: "python setup.py develop"
 # command to run tests
 script:
