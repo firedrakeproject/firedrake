@@ -369,6 +369,10 @@ update_script = open("firedrake/scripts/firedrake-install", "r").read()
 for switch in ["developer", "user", "system", "sudo", "prefix"]:
     update_script = update_script.replace("args.%s = False" % switch,
                                           "args.%s = %s" % (switch, args.__getattribute__(switch)))
+try:
+    os.mkdir("../bin")
+except:
+    pass
 open("../bin/firedrake-update", "w").write(update_script)
 check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
