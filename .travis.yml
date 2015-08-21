@@ -44,6 +44,7 @@ virtualenv:
 before_install:
   - pip install -U pip
   - pip install -U pytest
+  - pip install -U Cython
   - pip install pytest-benchmark
   - mkdir tmp
   - cd tmp
