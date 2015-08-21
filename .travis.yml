@@ -42,6 +42,7 @@ virtualenv:
   system_site_packages: true
 # command to install dependencies
 before_install:
+  - pip install -U pip
   - pip install -U pytest
   - pip install pytest-benchmark
   - mkdir tmp
