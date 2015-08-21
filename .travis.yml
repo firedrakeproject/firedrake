@@ -42,21 +42,15 @@ virtualenv:
   system_site_packages: true
 # command to install dependencies
 before_install:
-  - wget https://raw.github.com/OP2/PyOP2/master/requirements-minimal.txt
   - pip install -U pytest
-  - pip install psutil
-  - pip install cachetools
   - pip install pytest-benchmark
-  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
-       --allow-external petsc --allow-unverified petsc \
-       --allow-external petsc4py  --allow-unverified petsc4py \
-       < requirements-minimal.txt"
-  - pip install -r requirements.txt
-  - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
+  - mkdir tmp
+  - cd tmp
 install:
-  - make
+  - ../scripts/firedrake-install
 # command to run tests
 script:
-  - export PYTHONPATH=`pwd`:$PYTHONPATH
+  - . firedrake/bin/activate
+  - cd firedrake/src/firedrake
   - make lint
   - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
