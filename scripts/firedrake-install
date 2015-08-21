@@ -158,7 +158,7 @@ def git_clone(url):
         plainurl = spliturl[0]
         branch = "master"
     try:
-        check_call(["git", "clone", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
+        check_call(["git", "clone", "-q", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
         stdout.write("Successfully cloned %s.\n" % name)
     except subprocess.CalledProcessError:
         stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
