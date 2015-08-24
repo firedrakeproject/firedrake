@@ -29,5 +29,6 @@ path="/home/mh1714/Documents/diderot-git/examples/"+ex+"/lib_"+ex+".dylib"
 V = FunctionSpace(mesh, "P", p)
 f = Function(V).interpolate(Expression(exp))
 fptr=cFunction(f)
-libwasp = ctypes.cdll.LoadLibrary(path)
-brush=libwasp.callDiderot2_step(fptr,sizeU,sizeV,ctypes.c_float(steps))
+from c_evaluate import c_evaluate as make_c_evaluate
+callDiderot2_step = make_c_evaluate(f)
+brush=callDiderot2_step(fptr,sizeU,sizeV,ctypes.c_float(steps))

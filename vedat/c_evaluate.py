@@ -14,4 +14,4 @@ def c_evaluate(function):
     with open("locate.c") as f:
         src += f.read()
 
-    return compilation.load(src, "c", "evaluate", cppargs=["-I."])
+    return compilation.load(src, "c", "callDiderot2_step", cppargs=["-I."], ldargs=["init.o", "simple_d2s.o", "-lteem"])
