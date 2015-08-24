@@ -40,8 +40,6 @@ from copy import deepcopy as dcopy
 import base
 import compilation
 from base import *
-# Override base ParLoop with flop-logging version in petsc_base
-from petsc_base import ParLoop  # noqa: pass-through
 from mpi import collective
 from configuration import configuration
 from utils import as_tuple, strip
