@@ -1,7 +1,9 @@
 import ctypes
 from ctypes import POINTER, c_int, c_double
 
-__all__ = ['cFunction']
+from os import path
+
+__all__ = ['cFunction', 'c_evaluate']
 
 
 class _CFunction(ctypes.Structure):
@@ -29,3 +31,36 @@ def cFunction(function):
 
     # Return pointer
     return ctypes.pointer(c_function)
+
+
+def c_evaluate(function, c_name="evaluate", ldargs=None):
+    from pyop2 import compilation
+    from ffc import compile_element
+
+    function_space = function.function_space()
+    ufl_element = function_space.ufl_element()
+    coordinates = function_space.mesh().coordinates
+    coordinates_ufl_element = coordinates.function_space().ufl_element()
+
+    src = compile_element(ufl_element, coordinates_ufl_element)
+    src += """
+#include <locate.h>
+#include <function.h>
+
+int locate_cell(struct Function *f, double *x, int dim, inside_p try_candidate, void *data_)
+{
+    int c;
+    for (c = 0; c < f->n_cells; c++) {
+        if ((*try_candidate)(data_, f, c, x)) {
+            return c;
+        }
+    }
+    return -1;
+}
+"""
+
+    if ldargs is None:
+        kwargs = {}
+    else:
+        kwargs = dict(ldargs=ldargs)
+    return compilation.load(src, "c", c_name, cppargs=["-I%s" % path.dirname(__file__)], **kwargs)
