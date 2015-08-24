@@ -207,7 +207,7 @@ def pip_requirements(package):
     elif os.path.isfile("%s/requirements.txt"):
         run_pip(["-r", "%s/requirements.txt" % package])
     else:
-        stdout.write("No dependencies found. Skipping.\n" % package)
+        stdout.write("No dependencies found. Skipping.\n")
 
 
 def install(package):
