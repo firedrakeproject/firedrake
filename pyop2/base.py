@@ -56,7 +56,7 @@ from profiling import timed_region, timed_function
 from version import __version__ as version
 
 from coffee.base import Node
-from coffee.visitors import FindInstances, EstimateFlops
+from coffee.visitors import FindInstances
 from coffee import base as ast
 
 
@@ -3805,11 +3805,6 @@ class Kernel(Cached):
             self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
 
-    @cached_property
-    def num_flops(self):
-        v = EstimateFlops()
-        return v.visit(self._ast)
-
     def __str__(self):
         return "OP2 Kernel: %s" % self._name
 
@@ -4027,23 +4022,6 @@ class ParLoop(LazyComputation):
         return ()
 
     @property
-    def num_flops(self):
-        iterset = self.iterset
-        size = iterset.size
-        if self.needs_exec_halo:
-            size = iterset.exec_size
-        if self.is_indirect and iterset._extruded:
-            region = self.iteration_region
-            if region is ON_INTERIOR_FACETS:
-                size *= iterset.layers - 2
-            elif region not in [ON_TOP, ON_BOTTOM]:
-                size *= iterset.layers - 1
-        return size * self._kernel.num_flops
-
-    def log_flops(self):
-        pass
-
-    @property
     @collective
     def _jitmodule(self):
         """Return the :class:`JITModule` that encapsulates the compiled par_loop code.
@@ -4069,7 +4047,6 @@ class ParLoop(LazyComputation):
             self._compute(iterset.exec_part, fun, *arglist)
         self.reduction_end()
         self.update_arg_data_state()
-        self.log_flops()
 
     @collective
     def _compute(self, part, fun, *arglist):
