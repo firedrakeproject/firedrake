@@ -46,7 +46,7 @@ before_install:
   - pip install -U pytest
   - pip install -U Cython
   - pip install pytest-benchmark
-  - export BRANCH = $(git symbolic-ref --short -q HEAD)
+  - export BRANCH=$(git symbolic-ref --short -q HEAD)
   - mkdir tmp
   - cd tmp
 install:
