@@ -42,7 +42,8 @@ virtualenv:
   system_site_packages: true
 # command to install dependencies
 before_install:
-  - wget https://raw.github.com/OP2/PyOP2/master/requirements-minimal.txt
+  - wget -O pyop2-ext.txt https://raw.github.com/OP2/PyOP2/master/requirements-ext.txt
+  - wget -O pyop2-git.txt https://raw.github.com/OP2/PyOP2/master/requirements-git.txt
   - pip install -U pytest
   - pip install psutil
   - pip install cachetools
@@ -50,7 +51,11 @@ before_install:
   - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
        --allow-external petsc --allow-unverified petsc \
        --allow-external petsc4py  --allow-unverified petsc4py \
-       < requirements-minimal.txt"
+       < pyop2-ext.txt"
+  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
+       --allow-external petsc --allow-unverified petsc \
+       --allow-external petsc4py  --allow-unverified petsc4py \
+       < pyop2-git.txt"
   - pip install -r requirements.txt
   - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
 install:
