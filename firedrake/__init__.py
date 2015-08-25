@@ -34,6 +34,7 @@ from pyop2 import op2                                           # noqa
 
 from assemble import *
 from bcs import *
+from cfunction import *
 from constant import *
 from expression import *
 from function import *
@@ -54,7 +55,7 @@ from utility_meshes import *
 from variational_solver import *
 from vector import *
 from version import __version__ as ver, __version_info__, check  # noqa
-import visualise
+import visualise  # noqa
 
 # Set default log level
 set_log_level(INFO)

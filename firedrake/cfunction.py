@@ -3,7 +3,7 @@ from ctypes import POINTER, c_int, c_double
 
 from os import path
 
-__all__ = ['cFunction', 'c_evaluate']
+__all__ = ['cFunction', 'make_c_evaluate']
 
 
 class _CFunction(ctypes.Structure):
@@ -33,7 +33,7 @@ def cFunction(function):
     return ctypes.pointer(c_function)
 
 
-def c_evaluate(function, c_name="evaluate", ldargs=None):
+def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     from pyop2 import compilation
     from ffc import compile_element
 
