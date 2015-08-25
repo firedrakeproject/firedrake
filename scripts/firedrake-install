@@ -314,7 +314,7 @@ if mode == "install":
     packages += ["firedrake"]
 
     for p in packages:
-        pip_requirements("p")
+        pip_requirements(p)
 
     sudopip.append("--no-deps")
     for p in packages:
