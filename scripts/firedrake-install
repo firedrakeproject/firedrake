@@ -40,8 +40,8 @@ options. If none of these options are provided, a local installation into
     #                   help="Install to subdirectories of the specified directory.")
     group.add_argument("--user", action='store_true',
                        help="Install using the current user's home directory as the prefix.")
-    parser.add_argument("--developer", action='store_true',
-                        help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
+    group.add_argument("--developer", action='store_true',
+                       help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
     parser.add_argument("--sudo", action='store_true',
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
 
@@ -369,7 +369,8 @@ else:
         install(p)
 
 stdout.write("Creating firedrake-update script.\n")
-update_script = open("firedrake/scripts/firedrake-install", "r").read()
+with open("firedrake/scripts/firedrake-install", "r") as f:
+    update_script = f.read()
 
 for switch in ["developer", "user", "system", "sudo", "prefix"]:
     update_script = update_script.replace("args.%s = False" % switch,
@@ -378,8 +379,9 @@ try:
     os.mkdir("../bin")
 except:
     pass
-open("../bin/firedrake-update", "w").write(update_script)
-check_call(["chmod", "a+x", "../bin/firedrake-update"])
+with open("../bin/firedrake-update", "w") as f:
+    f.write(update_script)
+os.chmod("../bin/firedrake-update", "a+x")
 
 os.chdir("../..")
 
@@ -392,4 +394,3 @@ if not (args.system or args.user or args.prefix):
     stdout.write("  . firedrake/bin/activate\n\n")
     stdout.write("The virtualenv can be deactivated by running:\n\n")
     stdout.write("  deactivate\n")
-
