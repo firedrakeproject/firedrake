@@ -44,10 +44,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
 
     src = compile_element(ufl_element, coordinates_ufl_element)
     src += """
-#include <locate.h>
-#include <function.h>
+#include <evaluate.h>
 
-int locate_cell(struct Function *f, double *x, int dim, inside_p try_candidate, void *data_)
+int locate_cell(struct Function *f, double *x, int dim, inside_predicate try_candidate, void *data_)
 {
     int c;
     for (c = 0; c < f->n_cells; c++) {
@@ -55,6 +54,7 @@ int locate_cell(struct Function *f, double *x, int dim, inside_p try_candidate, 
             return c;
         }
     }
+    (void) dim;
     return -1;
 }
 """
