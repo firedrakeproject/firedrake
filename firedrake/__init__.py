@@ -54,6 +54,7 @@ from utility_meshes import *
 from variational_solver import *
 from vector import *
 from version import __version__ as ver, __version_info__, check  # noqa
+import visualise
 
 # Set default log level
 set_log_level(INFO)
