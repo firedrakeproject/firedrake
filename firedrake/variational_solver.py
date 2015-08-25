@@ -1,12 +1,12 @@
+from __future__ import absolute_import
 import weakref
 import ufl
 
 from pyop2.profiling import timed_function, profile
 
-import solving
-import solving_utils
-import ufl_expr
-from petsc import PETSc
+from firedrake import solving_utils
+from firedrake import ufl_expr
+from firedrake.petsc import PETSc
 
 
 __all__ = ["LinearVariationalProblem",
@@ -38,6 +38,7 @@ class NonlinearVariationalProblem(object):
                preconditioning).  If not provided, uses the default
                given by :data:`parameters["matnest"]`.
         """
+        from firedrake import solving
 
         # Extract and check arguments
         u = solving._extract_u(u)

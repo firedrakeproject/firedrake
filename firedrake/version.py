@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 __version_info__ = (0, 12, 0)
 __version__ = '.'.join(map(str, __version_info__))
 __compatible_ffc_version_info__ = (0, 12, 0)

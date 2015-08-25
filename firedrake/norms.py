@@ -1,10 +1,11 @@
+from __future__ import absolute_import
 from pyop2.logger import warning
 from ufl import inner, div, grad, curl, sqrt
 
-import assemble
-import function
-import functionspace
-import projection
+from firedrake import assemble
+from firedrake import function
+from firedrake import functionspace
+from firedrake import projection
 
 __all__ = ['errornorm', 'norm']
 

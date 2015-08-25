@@ -1,5 +1,6 @@
 """Provides the interface to FFC for compiling a form, and transforms the FFC-
 generated code in order to make it suitable for passing to the backends."""
+from __future__ import absolute_import
 
 from collections import defaultdict
 from hashlib import md5
@@ -12,7 +13,7 @@ from ufl import Form, MixedElement, as_vector
 from ufl.measure import Measure
 from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
-from ufl_expr import Argument
+from firedrake.ufl_expr import Argument
 
 from ffc import compile_form as ffc_compile_form
 from ffc import constants
@@ -25,9 +26,9 @@ from pyop2.mpi import MPI
 
 from coffee.base import PreprocessNode, Root, Invert
 
-import fiat_utils
-import functionspace
-from parameters import parameters as default_parameters
+import firedrake.fiat_utils as fiat_utils
+import firedrake.functionspace as functionspace
+from firedrake.parameters import parameters as default_parameters
 
 _form_cache = {}
 
@@ -38,7 +39,7 @@ del log
 
 
 def _check_version():
-    from version import __compatible_ffc_version_info__ as compatible_version, \
+    from firedrake.version import __compatible_ffc_version_info__ as compatible_version, \
         __compatible_ffc_version__ as version
     try:
         if constants.FIREDRAKE_VERSION_INFO[:2] == compatible_version[:2]:

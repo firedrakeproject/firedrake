@@ -1,9 +1,9 @@
+from __future__ import absolute_import
 import numpy as np
 
 from pyop2 import op2
 
-import fiat_utils
-import functionspace as fs
+import firedrake.fiat_utils as fiat_utils
 
 
 def compute_extruded_dofs(fiat_element, flat_dofs, layers):
@@ -221,6 +221,7 @@ def make_extruded_coords(extruded_mesh, layer_height,
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
     # Dat to hold layer number
+    import firedrake.functionspace as fs
     layer_fs = fs.FunctionSpace(extruded_mesh, 'DG', 0)
     layers = extruded_mesh.layers
     layer = op2.Dat(layer_fs.dof_dset,

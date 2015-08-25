@@ -30,6 +30,7 @@ assembly_cache:
   limit on the size of the assembly cache relative to the amount of
   memory per core on the current system. This defaults to 0.6.
 """
+from __future__ import absolute_import
 import numpy as np
 import weakref
 from collections import defaultdict
@@ -37,10 +38,8 @@ from collections import defaultdict
 from pyop2.logger import debug, warning
 from pyop2.mpi import MPI, _MPI
 
-import function
-import matrix
-from parameters import parameters
-from petsc import PETSc
+from firedrake.parameters import parameters
+from firedrake.petsc import PETSc
 
 try:
     # Estimate the amount of memory per core may use.
@@ -312,6 +311,8 @@ guaranteed to result in the same evictions on each processor.
 def _cache_thunk(thunk, form, result, form_compiler_parameters=None):
     """Wrap thunk so that thunk is only executed if its target is not in
     the cache."""
+    from firedrake import function
+    from firedrake import matrix
 
     if form_compiler_parameters is None:
         form_compiler_parameters = parameters["form_compiler"]

@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import ufl
 import weakref
@@ -8,14 +9,13 @@ from pyop2 import op2
 from pyop2.caching import ObjectCached
 from pyop2.utils import flatten, as_tuple
 
-from petsc import PETSc
-import dmplex
-import extrusion_utils as eutils
-import function
-import fiat_utils
-import mesh as mesh_t
-import halo
-import utils
+from firedrake.petsc import PETSc
+from firedrake import dmplex
+import firedrake.extrusion_utils as eutils
+from firedrake import fiat_utils
+import firedrake.mesh as mesh_t
+from firedrake import halo
+from firedrake import utils
 
 
 __all__ = ['FunctionSpace', 'VectorFunctionSpace',
@@ -119,7 +119,8 @@ class FunctionSpaceBase(ObjectCached):
                 self.dof_classes[i] += ndofs * mesh._entity_classes[d, i]
 
         # Tell the DM about the layout of the global vector
-        with function.Function(self).dat.vec_ro as v:
+        from firedrake.function import Function
+        with Function(self).dat.vec_ro as v:
             self._dm.setGlobalVector(v.duplicate())
 
         self._node_count = self._global_numbering.getStorageSize()
@@ -705,7 +706,8 @@ class MixedFunctionSpace(FunctionSpaceBase):
         self._index = None
         self._initialized = True
         dm = PETSc.DMShell().create()
-        with function.Function(self).dat.vec_ro as v:
+        from firedrake.function import Function
+        with Function(self).dat.vec_ro as v:
             dm.setGlobalVector(v.duplicate())
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setCreateFieldDecomposition(self.create_field_decomp)

@@ -1,12 +1,12 @@
+from __future__ import absolute_import
 import ufl
 
 from pyop2.logger import warning, RED
 from pyop2.utils import as_tuple
 
 from firedrake.mg import utils
-import assemble
-import function
-from petsc import PETSc
+from firedrake import function
+from firedrake.petsc import PETSc
 
 
 def update_parameters(obj, petsc_obj):
@@ -99,6 +99,7 @@ class _SNESContext(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
+        from firedrake import assemble
         self._jacs = tuple(assemble.assemble(problem.J, bcs=problem.bcs,
                                              form_compiler_parameters=problem.form_compiler_parameters,
                                              nest=problem._nest)
@@ -164,6 +165,8 @@ class _SNESContext(object):
         :arg X: the current guess (a Vec)
         :arg F: the residual at X (a Vec)
         """
+        from firedrake import assemble
+
         dm = snes.getDM()
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
@@ -199,6 +202,8 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
+        from firedrake import assemble
+
         dm = snes.getDM()
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)

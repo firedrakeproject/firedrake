@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 from evtk import hl
 from evtk.vtk import _get_byte_order
 from evtk.hl import _requiresLargeVTKFileSize
@@ -8,8 +9,8 @@ import os
 from pyop2.logger import warning, RED
 from pyop2.mpi import MPI
 
-import functionspace as fs
-import projection
+import firedrake.functionspace as fs
+import firedrake.projection as projection
 
 
 __all__ = ['File']

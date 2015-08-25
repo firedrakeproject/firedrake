@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import os
 import tempfile
@@ -6,11 +7,11 @@ from shutil import rmtree
 from pyop2.mpi import MPI
 from pyop2.profiling import profile
 
-import mesh
-import expression
-import function
-import functionspace
-from petsc import PETSc
+from firedrake import mesh
+from firedrake import expression
+from firedrake import function
+from firedrake import functionspace
+from firedrake.petsc import PETSc
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -93,39 +94,6 @@ def _get_msh_file(source, name, dimension, meshed=False):
     return output + '.msh'
 
 
-def _from_cell_list(dim, cells, coords, comm=None):
-    """
-    Create a DMPlex from a list of cells and coords.
-
-    :arg dim: The topological dimension of the mesh
-    :arg cells: The vertices of each cell
-    :arg coords: The coordinates of each vertex
-    :arg comm: An optional MPI communicator to build the plex on
-         (defaults to ``COMM_WORLD``)
-    """
-
-    if comm is None:
-        comm = MPI.comm
-    if comm.rank == 0:
-        cells = np.asarray(cells, dtype=PETSc.IntType)
-        coords = np.asarray(coords, dtype=float)
-        comm.bcast(cells.shape, root=0)
-        comm.bcast(coords.shape, root=0)
-        # Provide the actual data on rank 0.
-        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-
-    cell_shape = list(comm.bcast(None, root=0))
-    coord_shape = list(comm.bcast(None, root=0))
-    cell_shape[0] = 0
-    coord_shape[0] = 0
-    # Provide empty plex on other ranks
-    # A subsequent call to plex.distribute() takes care of parallel partitioning
-    return PETSc.DMPlex().createFromCellList(dim,
-                                             np.zeros(cell_shape, dtype=PETSc.IntType),
-                                             np.zeros(coord_shape, dtype=float),
-                                             comm=comm)
-
-
 @profile
 def IntervalMesh(ncells, length_or_left, right=None):
     """
@@ -155,7 +123,7 @@ def IntervalMesh(ncells, length_or_left, right=None):
     coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
-    plex = _from_cell_list(1, cells, coords)
+    plex = mesh._from_cell_list(1, cells, coords)
     # Apply boundary IDs
     plex.createLabel("boundary_ids")
     coordinates = plex.getCoordinates()
@@ -247,7 +215,7 @@ def UnitTriangleMesh():
     """Generate a mesh of the reference triangle"""
     coords = [[0., 0.], [1., 0.], [0., 1.]]
     cells = [[0, 1, 2]]
-    plex = _from_cell_list(2, cells, coords)
+    plex = mesh._from_cell_list(2, cells, coords)
     return mesh.Mesh(plex, reorder=False)
 
 
@@ -281,7 +249,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
         cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
 
-        plex = _from_cell_list(2, cells, coords)
+        plex = mesh._from_cell_list(2, cells, coords)
     else:
         boundary = PETSc.DMPlex().create(MPI.comm)
         boundary.setDimension(1)
@@ -401,7 +369,7 @@ def CircleManifoldMesh(ncells, radius=1):
     cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
-    plex = _from_cell_list(1, cells, vertices)
+    plex = mesh._from_cell_list(1, cells, vertices)
     m = mesh.Mesh(plex, dim=2, reorder=False)
     m._circle_manifold = radius
     return m
@@ -411,7 +379,7 @@ def UnitTetrahedronMesh():
     """Generate a mesh of the reference tetrahedron"""
     coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
     cells = [[0, 1, 2, 3]]
-    plex = _from_cell_list(3, cells, coords)
+    plex = mesh._from_cell_list(3, cells, coords)
     return mesh.Mesh(plex, reorder=False)
 
 
@@ -569,7 +537,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
                       [8, 6, 7],
                       [9, 8, 1]], dtype=np.int32)
 
-    plex = _from_cell_list(2, faces, vertices)
+    plex = mesh._from_cell_list(2, faces, vertices)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
@@ -768,7 +736,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
                           [0, 2, 6, 4],
                           [1, 3, 7, 5]], dtype=np.int32)
 
-        plex = _from_cell_list(2, faces, vertices)
+        plex = mesh._from_cell_list(2, faces, vertices)
         plex.setRefinementUniform(True)
         for i in range(refinement_level):
             plex = plex.refine()
@@ -780,7 +748,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         coords *= scale
     else:
         cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-        plex = _from_cell_list(2, cells, coords)
+        plex = mesh._from_cell_list(2, cells, coords)
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
 

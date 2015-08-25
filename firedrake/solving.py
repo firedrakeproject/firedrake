@@ -16,6 +16,7 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with DOLFIN. If not, see <http://www.gnu.org/licenses/>.
+from __future__ import absolute_import
 
 __all__ = ["solve"]
 
@@ -24,8 +25,8 @@ import ufl
 from pyop2.logger import progress, INFO
 from pyop2.profiling import profile
 
-import linear_solver as ls
-import variational_solver as vs
+import firedrake.linear_solver as ls
+import firedrake.variational_solver as vs
 
 
 @profile

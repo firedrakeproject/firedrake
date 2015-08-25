@@ -1,9 +1,10 @@
+from __future__ import absolute_import
 import numpy as np
 from mpi4py import MPI
 
 from pyop2 import op2
 
-from petsc import PETSc
+from firedrake.petsc import PETSc
 
 
 __all__ = ['Vector']
