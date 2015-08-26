@@ -93,9 +93,6 @@ os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
     os.environ["PETSC_CONFIGURE_OPTIONS"] = "--download-ctetgen --download-triangle --download-chaco"
 
-if "PETSC_DIR" in os.environ:
-    sys.stdout("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
-
 
 class Log(object):
     """Class to enable logging to screen and logfile at once."""
@@ -111,6 +108,9 @@ class Log(object):
 log = file("firedrake-%s.log" % mode, "w") if args.log else None
 stdout = Log(sys.stdout, log)
 stderr = Log(sys.stderr, log)
+
+if "PETSC_DIR" in os.environ:
+    stdout.write("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
 def check_call(args):
