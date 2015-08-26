@@ -308,7 +308,7 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    git_clone("git+https://github.com/firedrakeproject/firedrake.git@install_script")
+    git_clone("git+https://github.com/firedrakeproject/firedrake.git")
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]
