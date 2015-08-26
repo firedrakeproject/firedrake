@@ -381,7 +381,7 @@ except:
     pass
 with open("../bin/firedrake-update", "w") as f:
     f.write(update_script)
-os.chmod("../bin/firedrake-update", "a+x")
+check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 os.chdir("../..")
 
