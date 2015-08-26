@@ -256,7 +256,7 @@ if osname == "Darwin":
         brew_install("numpy")
 
     else:
-        stdout.write("Xcode and homebre installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
+        stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
 
 elif osname == "Linux":
     # Check for apt.
@@ -381,7 +381,7 @@ stdout.write("Creating firedrake-update script.\n")
 with open("firedrake/scripts/firedrake-install", "r") as f:
     update_script = f.read()
 
-for switch in ["developer", "user", "system", "sudo", "prefix", "no_package_manager"]:
+for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager"]:
     update_script = update_script.replace("args.%s = False" % switch,
                                           "args.%s = %s" % (switch, args.__getattribute__(switch)))
 try:
