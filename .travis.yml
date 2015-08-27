@@ -42,26 +42,19 @@ virtualenv:
   system_site_packages: true
 # command to install dependencies
 before_install:
-  - wget -O pyop2-ext.txt https://raw.github.com/OP2/PyOP2/master/requirements-ext.txt
-  - wget -O pyop2-git.txt https://raw.github.com/OP2/PyOP2/master/requirements-git.txt
+  - pip install -U pip
   - pip install -U pytest
-  - pip install psutil
-  - pip install cachetools
+  - pip install -U Cython
   - pip install pytest-benchmark
-  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
-       --allow-external petsc --allow-unverified petsc \
-       --allow-external petsc4py  --allow-unverified petsc4py \
-       < pyop2-ext.txt"
-  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
-       --allow-external petsc --allow-unverified petsc \
-       --allow-external petsc4py  --allow-unverified petsc4py \
-       < pyop2-git.txt"
-  - pip install -r requirements.txt
-  - if [[ $TRAVIS_PYTHON_VERSION == "2.6" ]]; then pip install argparse ordereddict; fi
+  - export BRANCH=$(git symbolic-ref --short -q HEAD)
+  - mkdir tmp
+  - cd tmp
 install:
-  - make
+  - ../scripts/firedrake-install --disable_ssh --global
+  - cd firedrake/src/firedrake
+  - git checkout $BRANCH
+  - python setup.py build_ext --inplace
 # command to run tests
 script:
-  - export PYTHONPATH=`pwd`:$PYTHONPATH
   - make lint
   - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)

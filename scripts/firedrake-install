@@ -1,0 +1,396 @@
+#! /usr/bin/env python
+import platform
+import subprocess
+import sys
+import os
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+
+if os.path.basename(__file__) == "firedrake-install":
+    mode = "install"
+elif os.path.basename(__file__) == "firedrake-update":
+    mode = "update"
+    os.chdir(os.path.dirname(__file__) + "/../..")
+else:
+    sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
+
+if mode == "install":
+# Handle command line arguments.
+    parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
+                            epilog="""The install process has three steps.
+
+1. Any required system packages are installed using brew (MacOS) or apt (Ubuntu
+   and similar Linux systems). On a Linux system without apt, the installation
+   will fail if a dependency is not found.
+
+2. A set of standard and/or third party Python packages is installed to the
+   specified install location.
+
+3. The core set of Python packages is downloaded to ./firedrake/src/ and
+   installed to the specified location.
+
+The install location may be specified using the --global, --prefix, or --user
+options. If none of these options are provided, a local installation into
+./firedrake will be performed.""",
+                            formatter_class=RawDescriptionHelpFormatter)
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--global", action='store_true', dest="system",
+                       help="Install to the default global location on the current platform.")
+    # group.add_argument("--prefix", type=str, nargs=1,
+    #                   help="Install to subdirectories of the specified directory.")
+    group.add_argument("--user", action='store_true',
+                       help="Install using the current user's home directory as the prefix.")
+    group.add_argument("--developer", action='store_true',
+                       help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
+    parser.add_argument("--sudo", action='store_true',
+                        help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
+
+    parser.add_argument("--log", action='store_true',
+                        help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
+    parser.add_argument("--disable_ssh", action="store_true",
+                        help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
+
+    args = parser.parse_args()
+    args.prefix = False  # Disabled as untested
+else:
+    parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
+                            formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument("--rebuild", action="store_true",
+                        help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
+    parser.add_argument("--log", action='store_true',
+                        help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
+
+    args = parser.parse_args()
+    args.system = False
+    args.prefix = False
+    args.user = False
+    args.developer = False
+    args.sudo = False
+
+
+# Where are packages installed relative to --root?
+# This is a bit of a hack.
+v = sys.version_info
+sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
+path_extension = ""
+
+if args.sudo and (args.system or args.prefix):
+    sudopip = ["sudo", "pip", "install"]
+else:
+    sudopip = ["pip", "install"]
+if args.user:
+    sudopip += ["--user"]
+elif args.prefix:
+    path_extension = args.prefix + sitepackages + os.pathsep
+    sudopip += ["--root", args.prefix]
+elif args.system:
+    pass
+else:
+    # Use the pip from the virtualenv
+    sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
+
+os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = "--download-ctetgen --download-triangle --download-chaco"
+
+if "PETSC_DIR" in os.environ:
+    sys.stdout("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
+
+
+class Log(object):
+    """Class to enable logging to screen and logfile at once."""
+    def __init__(self, screen, log):
+        self.files = [screen]
+        if log:
+            self.files.append(log)
+
+    def write(self, string):
+        for f in self.files:
+            f.write(string)
+
+log = file("firedrake-%s.log" % mode, "w") if args.log else None
+stdout = Log(sys.stdout, log)
+stderr = Log(sys.stderr, log)
+
+
+def check_call(args):
+    try:
+        stdout.write(subprocess.check_output(args, stderr=subprocess.STDOUT))
+    except subprocess.CalledProcessError as e:
+        stdout.write(e.output)
+        raise
+
+
+def check_output(args):
+    try:
+        return subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        stdout.write(e.output)
+        raise
+
+
+def brew_install(name):
+    check_call(["brew", "install", name])
+
+
+def apt_check(name):
+    stdout.write("Checking for presence of package %s..." % name)
+    # Note that subprocess return codes have the opposite logical
+    # meanings to those of Python variables.
+    if not subprocess.call(["dpkg", "-l", name]):
+        stdout.write("installed.\n")
+        return True
+    else:
+        stdout.write("missing.\n")
+        return False
+
+
+def apt_install(names):
+    stdout.write("Installing missing packages: %s.\n" % ", ".join(names))
+    check_call(["sudo", "apt-get", "install"] + names)
+
+
+def git_clone(url):
+    name = url.split(".git")[0].split("#")[0].split("/")[-1]
+    stdout.write("Cloning %s\n" % name)
+    spliturl = url.split("://")[1].split("#")[0].split("@")
+    try:
+        plainurl, branch = spliturl
+    except ValueError:
+        plainurl = spliturl[0]
+        branch = "master"
+    try:
+        if args.disable_ssh:
+            raise Exception
+        check_call(["git", "clone", "-q", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
+        stdout.write("Successfully cloned %s.\n" % name)
+    except:
+        if not args.disable_ssh:
+            stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
+        try:
+            check_call(["git", "clone", "-b", branch, "https://%s" % plainurl])
+            stdout.write("Successfully cloned %s.\n" % name)
+        except subprocess.CalledProcessError:
+            stderr.write("Failed to clone %s.\n" % name)
+            raise
+    return name
+
+
+def clone_dependencies(name):
+    stdout.write("Cloning the dependencies of %s\n" % name)
+    deps = []
+    for dep in open(name + "/requirements-git.txt", "r"):
+        deps.append(git_clone(dep.strip()))
+    return deps
+
+
+def git_update(name):
+    # Update the named git repo and return true if the current branch actually changed.
+    stdout.write("Updating the git repository for %s\n" % name)
+    os.chdir(name)
+    git_sha = check_output(["git", "rev-parse", "HEAD"])
+    check_call(["git", "pull"])
+    git_sha_new = check_output(["git", "rev-parse", "HEAD"])
+    os.chdir("..")
+    return git_sha != git_sha_new
+
+
+def run_pip(args):
+    stdout.write(" ".join(sudopip + args) + "\n")
+    check_call(sudopip + args)
+
+
+def pip_requirements(package):
+    stdout.write("Installing pip dependencies for %s\n" % package)
+    if os.path.isfile("%s/requirements-ext.txt" % package):
+        run_pip(["-r", "%s/requirements-ext.txt" % package])
+    elif os.path.isfile("%s/requirements.txt" % package):
+        run_pip(["-r", "%s/requirements.txt" % package])
+    else:
+        stdout.write("No dependencies found. Skipping.\n")
+
+
+def install(package):
+    stdout.write("Installing %s\n" % package)
+    # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
+    if args.developer and package not in ["petsc/", "petsc4py/"]:
+        run_pip(["-e", package])
+    else:
+        run_pip(["--ignore-installed", package])
+
+
+def clean(package):
+    stdout.write("Cleaning %s\n" % package)
+    os.chdir(package)
+    check_call(["python", "setup.py", "clean"])
+    os.chdir("..")
+
+
+def quit(message):
+    log.write(message)
+    sys.exit(message)
+
+
+# Check operating system.
+osname = platform.uname()[0]
+if osname == "Darwin":
+    try:
+        check_call(["xcodebuild", "-version"])
+    except:
+        raise
+        quit("Xcode not found. Please install xcode from the App Store and try again.")
+
+    try:
+        check_call(["brew", "--version"])
+    except:
+        quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
+
+    stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
+    brew_install("openmpi")
+    brew_install("python")
+    check_call(["brew", "tap", "homebrew/python"])
+    brew_install("numpy")
+
+elif osname == "Linux":
+    # Check for apt.
+    try:
+        check_call(["apt-get", "--version"])
+
+        apt_packages = ["build-essential", "python-dev", "git-core",
+                        "mercurial", "python-pip", "libopenmpi-dev", "openmpi-bin",
+                        "libblas-dev", "liblapack-dev", "gfortran", "libhdf5-mpi-dev"]
+
+        missing_packages = [p for p in apt_packages if not apt_check(p)]
+        if missing_packages:
+            apt_install(missing_packages)
+
+    except subprocess.CalledProcessError:
+        stdout.write("apt-get not found. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
+        stdout.write("If this is not the case, please install the following and try again:\n")
+        stdout.write("A C compiler (for example gcc or clang), make.\n")
+        stdout.write("A Fortran compiler (for PETSc).\n")
+        stdout.write("MPI.\n")
+        stdout.write("Blas and Lapack.\n")
+        stdout.write("Git, Mercurial.\n")
+        stdout.write("Python version 2.7.\n")
+        stdout.write("pip and the Python headers.\n")
+
+else:
+    stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
+
+
+if (args.system or args.user or args.prefix) and mode == "install":
+    stdout.write("Creating firedrake directory structure.\n")
+    try:
+        os.mkdir("firedrake")
+    except OSError:
+        stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
+        raise
+
+elif not (args.system or args.user or args.prefix):
+    try:
+        import virtualenv
+    except:
+        stdout.write("Installing virtualenv.\n")
+        # sys.real_prefix exists if we are already in the virtualenv
+        if hasattr(sys, "real_prefix"):
+            check_call(["pip", "install", "virtualenv"])
+        else:
+            check_call(["pip", "install", "--user", "virtualenv"])
+        quit("Virtual env installed. Please run firedrake-install again.\n")
+    if mode == "install":
+        stdout.write("Creating firedrake virtualenv.\n")
+        virtualenv.create_environment("firedrake", site_packages=True)
+    execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
+
+os.chdir("firedrake")
+if mode == "install":
+    os.mkdir("src")
+    os.chdir("src")
+
+    git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+    packages = clone_dependencies("firedrake")
+    packages = clone_dependencies("PyOP2") + packages
+    packages += ["firedrake"]
+
+    for p in packages:
+        pip_requirements(p)
+
+    sudopip.append("--no-deps")
+    for p in packages:
+        install(p+"/")
+        if args.developer:
+            pdir = os.getcwd() + "/" + p + os.pathsep
+            os.environ["PYTHONPATH"] = pdir + os.environ.get("PYTHONPATH", "")
+            path_extension = pdir + path_extension
+
+    # Work around easy-install.pth bug.
+    if args.developer:
+        packages.remove("petsc")
+        packages.remove("petsc4py")
+        packages.remove("firedrake")
+        v = sys.version_info
+        easyinstall = file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
+        new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
+        file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
+            easyinstall[:1] + new_packages + easyinstall[1:])
+
+else:
+    # Update mode
+    os.chdir("src")
+    packages = os.listdir(".")
+    # update packages.
+    petsc_changed = git_update("petsc")
+    petsc4py_changed = git_update("petsc4py")
+
+    packages.remove("petsc")
+    packages.remove("petsc4py")
+
+    for p in packages:
+        git_update(p)
+
+    # update dependencies.
+    pip_requirements("PyOP2")
+    pip_requirements("firedrake")
+    sudopip.append("--no-deps")
+
+    # Only rebuild petsc if it has changed.
+    if args.rebuild or petsc_changed:
+        clean("petsc/")
+        install("petsc/")
+    if args.rebuild or petsc_changed or petsc4py_changed:
+        clean("petsc4py/")
+        install("petsc4py/")
+    packages.remove("PyOP2")
+    packages.remove("firedrake")
+    packages += ("PyOP2", "firedrake")
+    for p in packages:
+        clean(p)
+        install(p)
+
+stdout.write("Creating firedrake-update script.\n")
+with open("firedrake/scripts/firedrake-install", "r") as f:
+    update_script = f.read()
+
+for switch in ["developer", "user", "system", "sudo", "prefix"]:
+    update_script = update_script.replace("args.%s = False" % switch,
+                                          "args.%s = %s" % (switch, args.__getattribute__(switch)))
+try:
+    os.mkdir("../bin")
+except:
+    pass
+with open("../bin/firedrake-update", "w") as f:
+    f.write(update_script)
+check_call(["chmod", "a+x", "../bin/firedrake-update"])
+
+os.chdir("../..")
+
+stdout.write("Successfully installed Firedrake.\n\n")
+
+stdout.write("To upgrade firedrake, run firedrake/bin/firedrake-update\n")
+
+if not (args.system or args.user or args.prefix):
+    stdout.write("\nFiredrake has been installed in a python virtualenv. You activate it with:\n\n")
+    stdout.write("  . firedrake/bin/activate\n\n")
+    stdout.write("The virtualenv can be deactivated by running:\n\n")
+    stdout.write("  deactivate\n")

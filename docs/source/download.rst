@@ -1,6 +1,57 @@
 Obtaining Firedrake
 ===================
 
+The simplest way to install Firedrake is to use our install script::
+
+  curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+  python firedrake-install
+
+Running `firedrake-install` with no arguments will install firedrake in
+a python virtualenv_ created in a `firedrake` subdirectory of the
+current directory. Run::
+
+  python firedrake-install --help
+
+for a full list of install options including user- or system-wide
+installs and installation in developer mode. If you install in
+virtualenv_ mode, you will need to activate the virtualenv in each
+shell from which you use Firedrake::
+
+  source firedrake/bin/activate
+
+
+System requirements
+-------------------
+
+The installation script is tested on Ubuntu and MacOS X. Installation
+is likely to work well on other Linux platforms, although the script
+may stop to ask you to install some dependency packages. Installation
+on other Unix platforms may work but is untested. Installation on
+Windows is very unlikely work.
+
+Upgrade
+-------
+
+The install script will install an upgrade script in
+`firedrake/bin/firedrake-update`. Running this script will update
+Firedrake and all its dependencies.
+
+Cleaning disk caches after upgrade
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+After upgrading, you may need to clear any disk caches that Firedrake
+maintains to ensure that your problem does not pick up any out of date
+compiled modules. To do this run::
+
+  firedrake-clean
+
+If you installed to a virtualenv, you will need to activate the
+virtualenv first.
+
+
+Installing from individual components
+=====================================
+
 Firedrake depends on PyOP2_, FFC_, FIAT_, and UFL_. It is easiest to obtain
 all of these components on Ubuntu Linux and related distributions such as Mint
 or Debian. Installation on other Unix-like operating systems is likely to be
@@ -209,3 +260,4 @@ Finally install the Bibtex plugin::
 .. _Sphinx: http://www.sphinx-doc.org
 .. _wget: http://www.gnu.org/software/wget/
 .. _Swig: http://www.swig.org/
+.. _virtualenv: https://virtualenv.pypa.io/
