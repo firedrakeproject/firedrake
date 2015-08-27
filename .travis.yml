@@ -51,8 +51,8 @@ install:
   - cd tmp
   - ../scripts/firedrake-install --disable_ssh --global
   - cd firedrake/src/firedrake
-  - echo $(cd ../../../../; git symbolic-ref --short -q HEAD)
-  - git checkout $(cd ../../../../; git symbolic-ref --short -q HEAD)
+  - echo $(cd ../../../../; git rev-parse HEAD)
+  - git checkout $(cd ../../../../; git rev-parse HEAD)
   - python setup.py build_ext --inplace
 # command to run tests
 script:
