@@ -51,10 +51,7 @@ install:
   - cd tmp
   - ../scripts/firedrake-install --disable_ssh --global
   - cd firedrake/src/firedrake
-  - git fetch origin pull/$TRAVIS_PULL_REQUEST/head
-  - echo $TRAVIS_COMMIT
-  - echo $(cd ../../../../; git rev-parse HEAD)
-  - git checkout $(cd ../../../../; git rev-parse HEAD)
+  - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace
 # command to run tests
 script:
