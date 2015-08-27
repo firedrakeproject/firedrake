@@ -47,13 +47,12 @@ before_install:
   - pip install -U Cython
   - pip install pytest-benchmark
 install:
-  - export BRANCH=$(git symbolic-ref --short -q HEAD)
-  - echo $BRANCH
   - mkdir tmp
   - cd tmp
   - ../scripts/firedrake-install --disable_ssh --global
   - cd firedrake/src/firedrake
-  - git checkout $BRANCH
+  - echo $(cd ../../../../; git symbolic-ref --short -q HEAD)
+  - git checkout $(cd ../../../../; git symbolic-ref --short -q HEAD)
   - python setup.py build_ext --inplace
 # command to run tests
 script:
