@@ -30,7 +30,12 @@ if mode == "install":
 
 The install location may be specified using the --global, --prefix, or --user
 options. If none of these options are provided, a local installation into
-./firedrake will be performed.""",
+./firedrake will be performed.
+
+The installer will ensure that the required configuration options are
+passed to PETSc. In addition, any configure options which you provide
+in the PETSC_CONFIGURE_OPTIONS environment variable will be
+honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
     group = parser.add_mutually_exclusive_group()
@@ -93,8 +98,13 @@ else:
     sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+petsc_opts = "--download-ctetgen --download-triangle --download-chaco"
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
     os.environ["PETSC_CONFIGURE_OPTIONS"] = "--download-ctetgen --download-triangle --download-chaco"
+else:
+    for opt in petsc_opts.split():
+        if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
+            os.environ["PETSC_CONFIGURE_OPTIONS"] + " " + opt
 
 
 class Log(object):
