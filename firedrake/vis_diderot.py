@@ -6,7 +6,6 @@ from cfunction import *
 __all__ = ['simple_d2s']
 
 
-#hello 
 #################### Visualizing with Diderot ##############################################
 #
 #             Overview
@@ -35,7 +34,7 @@ __all__ = ['simple_d2s']
 # file         - fem/examples/d2s/simple_lerp
 # calls        - callDiderot2_lerp()
 # field#k(2)[] - 2d scalar field
-def simple_lerp(name,f, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn ):
+def simple2_lerp(name,f, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn ):
     
     p_cf = cFunction(f)
     init_file = path.join(path.dirname(__file__), '../diderot/simple_lerp_init.o')
@@ -47,7 +46,7 @@ def simple_lerp(name,f, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn 
 # file          - fem/examples/d2s/simple_sample
 # calls         - callDiderot2_step()
 # field#k(2)[]  - 2d scalar field
-def simple_sample(name,f, resU, resV, stepSize):
+def simple2_sample(name,f, resU, resV, stepSize):
     p_cf = cFunction(f)
     init_file = path.join(path.dirname(__file__), '../diderot/simple_sample_init.o')
     diderot_file = path.join(path.dirname(__file__), '../diderot/simple_sample.o')
@@ -55,10 +54,21 @@ def simple_sample(name,f, resU, resV, stepSize):
     
     return call(ctypes.c_char_p(name),p_cf, resU, resV, ctypes.c_float(stepSize))
 
+# file         - fem/examples/d3s/simple
+# calls        - callDiderot3()
+# field#k(3)[] - 3d scalar field
+def simple3(name,f, resU, resV,resW, physicalx0,physicalxn,physicaly0,physicalyn,physicalz0,physicalzn ):
+    p_cf = cFunction(f)
+    init_file = path.join(path.dirname(__file__), '../diderot/simple_init.o')
+    diderot_file = path.join(path.dirname(__file__), '../diderot/simple.o')
+    call = make_c_evaluate(f, "callDiderot3", ldargs=[init_file, diderot_file, "-lteem"])
+    
+    return call(ctypes.c_char_p(name),p_cf, resU, resV, resW,physicalx0,physicalxn,physicaly0,physicalyn,physicalz0,physicalzn)
+
 
 
 ########################################## iso ##########################################################
-
+# Note- Look at .diderot file and rewrite
 # file          - fem/examples/d2s/iso_sample
 # call          - callDiderot2_iso
 # field#k(2)[]  - 2d scalar field
@@ -71,3 +81,21 @@ def iso_sample(name,f, resU, resV, stepSize,stepsMax,isovalue,epsilon):
     call = make_c_evaluate(f, "callDiderot2_iso", ldargs=[init_file, diderot_file, "-lteem"])
     
     return call(ctypes.c_char_p(name),p_cf, resU, resV, ctypes.c_float(stepSize),stepsMax,ctypes.c_float(isovalue),ctypes.c_float(epsilon))
+
+
+
+########################################## Mips ##########################################################
+# Maximum Intensity Projection
+# file          - fem/examples/d3s/mip
+# call          - callDiderot3_noCam()
+# field#k(3)[]  - 3d scalar field
+# steps:float   - rayStep
+def mip(name,f, resU, resV, steps):
+    p_cf = cFunction(f)
+    init_file = path.join(path.dirname(__file__), '../diderot/mip_init.o')
+    diderot_file = path.join(path.dirname(__file__), '../diderot/mip.o')
+    call = make_c_evaluate(f, "callDiderot3_noCam", ldargs=[init_file, diderot_file, "-lteem"])
+    
+    return call(ctypes.c_char_p(name),p_cf, resU, resV, ctypes.c_float(steps))
+
+
