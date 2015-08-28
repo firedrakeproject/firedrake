@@ -104,7 +104,7 @@ if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
 else:
     for opt in petsc_opts.split():
         if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
-            os.environ["PETSC_CONFIGURE_OPTIONS"] + " " + opt
+            os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
 
 
 class Log(object):
