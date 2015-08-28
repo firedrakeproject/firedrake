@@ -150,7 +150,7 @@ def apt_check(name):
 
 def apt_install(names):
     stdout.write("Installing missing packages: %s.\n" % ", ".join(names))
-    check_call(["sudo", "apt-get", "install"] + names)
+    subprocess.check_call(["sudo", "apt-get", "install"] + names)
 
 
 def git_clone(url):
