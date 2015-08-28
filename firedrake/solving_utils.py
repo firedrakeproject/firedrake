@@ -99,15 +99,15 @@ class _SNESContext(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        from firedrake import assemble
-        self._jacs = tuple(assemble.assemble(problem.J, bcs=problem.bcs,
-                                             form_compiler_parameters=problem.form_compiler_parameters,
-                                             nest=problem._nest)
+        from firedrake.assemble import assemble
+        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
+                                    form_compiler_parameters=problem.form_compiler_parameters,
+                                    nest=problem._nest)
                            for problem in problems)
         if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble.assemble(problem.Jp, bcs=problem.bcs,
-                                                  form_compiler_parameters=problem.form_compiler_parameters,
-                                                  nest=problem._nest)
+            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
+                                         form_compiler_parameters=problem.form_compiler_parameters,
+                                         nest=problem._nest)
                                 for problem in problems)
         else:
             self._pjacs = self._jacs
@@ -165,7 +165,7 @@ class _SNESContext(object):
         :arg X: the current guess (a Vec)
         :arg F: the residual at X (a Vec)
         """
-        from firedrake import assemble
+        from firedrake.assemble import assemble
 
         dm = snes.getDM()
         ctx = dm.getAppCtx()
@@ -182,9 +182,9 @@ class _SNESContext(object):
             if v != X:
                 X.copy(v)
 
-        assemble.assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
-                          form_compiler_parameters=problem.form_compiler_parameters,
-                          nest=problem._nest)
+        assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
+                 form_compiler_parameters=problem.form_compiler_parameters,
+                 nest=problem._nest)
         for bc in problem.bcs:
             bc.zero(ctx._Fs[lvl])
 
@@ -202,7 +202,7 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        from firedrake import assemble
+        from firedrake.assemble import assemble
 
         dm = snes.getDM()
         ctx = dm.getAppCtx()
@@ -223,16 +223,16 @@ class _SNESContext(object):
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
             X.copy(v)
-        assemble.assemble(ctx.Js[lvl],
-                          tensor=ctx._jacs[lvl],
-                          bcs=problem.bcs,
-                          form_compiler_parameters=problem.form_compiler_parameters,
-                          nest=problem._nest)
+        assemble(ctx.Js[lvl],
+                 tensor=ctx._jacs[lvl],
+                 bcs=problem.bcs,
+                 form_compiler_parameters=problem.form_compiler_parameters,
+                 nest=problem._nest)
         ctx._jacs[lvl].M._force_evaluation()
         if ctx.Jps[lvl] is not None:
-            assemble.assemble(ctx.Jps[lvl],
-                              tensor=ctx._pjacs[lvl],
-                              bcs=problem.bcs,
-                              form_compiler_parameters=problem.form_compiler_parameters,
-                              nest=problem._nest)
+            assemble(ctx.Jps[lvl],
+                     tensor=ctx._pjacs[lvl],
+                     bcs=problem.bcs,
+                     form_compiler_parameters=problem.form_compiler_parameters,
+                     nest=problem._nest)
             ctx._pjacs[lvl].M._force_evaluation()

@@ -2,7 +2,7 @@ from __future__ import absolute_import
 from pyop2.logger import warning
 from ufl import inner, div, grad, curl, sqrt
 
-from firedrake import assemble
+from firedrake.assemble import assemble
 from firedrake import function
 from firedrake import functionspace
 from firedrake import projection
@@ -113,4 +113,4 @@ def norm(v, norm_type="L2", mesh=None):
     else:
         raise RuntimeError("Unknown norm type '%s'" % norm_type)
 
-    return sqrt(assemble.assemble(form))
+    return sqrt(assemble(form))
