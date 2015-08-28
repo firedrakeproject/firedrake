@@ -42,7 +42,12 @@ from functionspace import *
 from io import *
 from linear_solver import *
 from mesh import *
-from mg import *
+from mg.mesh import *
+from mg.function import *
+from mg.functionspace import *
+from mg.ufl_utils import *
+from mg.interface import *
+from mg.solver_hierarchy import *
 from norms import *
 from nullspace import *
 from optimizer import *
