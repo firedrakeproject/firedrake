@@ -41,7 +41,7 @@ def _init():
     :func:`pyop2.init` if she wants to set a non-default option, for example
     to switch the backend or the debug or log level."""
     from pyop2 import op2
-    from parameters import parameters
+    from firedrake.parameters import parameters
     if not op2.initialised():
         op2.init(**parameters["pyop2_options"])
 
