@@ -691,6 +691,7 @@ class JITModule(base.JITModule):
             return
         self._kernel = kernel
         self._fun = None
+        self._code_dict = None
         self._itspace = itspace
         self._args = args
         self._direct = kwargs.get('direct', False)
@@ -828,6 +829,9 @@ class JITModule(base.JITModule):
             if self._direct:
                 return "{"
             return "for (int j_0 = start_layer; j_0 < end_layer; ++j_0){"
+
+        if self._code_dict:
+            return self._code_dict
 
         _ssinds_arg = ""
         _index_expr = "n"
@@ -993,31 +997,35 @@ class JITModule(base.JITModule):
                 'addtos': indent(_addtos, 2),
             }
 
-        return {'kernel_name': self._kernel.name,
-                'wrapper_name': self._wrapper_name,
-                'ssinds_arg': _ssinds_arg,
-                'index_expr': _index_expr,
-                'wrapper_args': _wrapper_args,
-                'user_code': self._kernel._user_code,
-                'wrapper_decs': indent(_wrapper_decs, 1),
-                'const_args': _const_args,
-                'const_inits': indent(_const_inits, 1),
-                'vec_inits': indent(_vec_inits, 2),
-                'off_args': _off_args,
-                'layer_arg': _layer_arg,
-                'map_decl': indent(_map_decl, 2),
-                'vec_decs': indent(_vec_decs, 2),
-                'map_init': indent(_map_init, 5),
-                'apply_offset': indent(_apply_offset, 3),
-                'extr_loop': indent(_extr_loop, 5),
-                'map_bcs_m': indent(_map_bcs_m, 5),
-                'map_bcs_p': indent(_map_bcs_p, 5),
-                'extr_loop_close': indent(_extr_loop_close, 2),
-                'interm_globals_decl': indent(_intermediate_globals_decl, 3),
-                'interm_globals_init': indent(_intermediate_globals_init, 3),
-                'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
-                'buffer_decl': _buf_decl,
-                'buffer_gather': _buf_gather,
-                'kernel_args': _kernel_args,
-                'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(self._iteration_region == ON_INTERIOR_FACETS))
-                                              for i, j, shape, offsets in self._itspace])}
+        self._code_dict = {
+            'kernel_name': self._kernel.name,
+            'wrapper_name': self._wrapper_name,
+            'ssinds_arg': _ssinds_arg,
+            'index_expr': _index_expr,
+            'wrapper_args': _wrapper_args,
+            'user_code': self._kernel._user_code,
+            'wrapper_decs': indent(_wrapper_decs, 1),
+            'const_args': _const_args,
+            'const_inits': indent(_const_inits, 1),
+            'vec_inits': indent(_vec_inits, 2),
+            'off_args': _off_args,
+            'layer_arg': _layer_arg,
+            'map_decl': indent(_map_decl, 2),
+            'vec_decs': indent(_vec_decs, 2),
+            'map_init': indent(_map_init, 5),
+            'apply_offset': indent(_apply_offset, 3),
+            'extr_loop': indent(_extr_loop, 5),
+            'map_bcs_m': indent(_map_bcs_m, 5),
+            'map_bcs_p': indent(_map_bcs_p, 5),
+            'extr_loop_close': indent(_extr_loop_close, 2),
+            'interm_globals_decl': indent(_intermediate_globals_decl, 3),
+            'interm_globals_init': indent(_intermediate_globals_init, 3),
+            'interm_globals_writeback': indent(_intermediate_globals_writeback, 3),
+            'buffer_decl': _buf_decl,
+            'buffer_gather': _buf_gather,
+            'kernel_args': _kernel_args,
+            'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(self._iteration_region == ON_INTERIOR_FACETS))
+                                          for i, j, shape, offsets in self._itspace])
+        }
+
+        return self._code_dict
