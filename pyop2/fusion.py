@@ -262,7 +262,7 @@ void %(wrapper_name)s(%(executor_arg)s,
 for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
   int i = %(index_expr)s;
   %(vec_inits)s;
-  i = %(tile_iter)s[%(index_expr)s];
+  i = %(tile_iter)s;
   %(buffer_decl)s;
   %(buffer_gather)s
   %(kernel_name)s(%(kernel_args)s);
@@ -381,22 +381,21 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             binding = ';\n'.join([a0.c_arg_bindto(a1) for a0, a1 in binding.items()])
 
             loop_code_dict['args_binding'] = binding
-            loop_code_dict['tile_iter'] = self._executor.gtl_maps[i]['DIRECT']
             loop_code_dict['tile_init'] = self._executor.c_loop_init[i]
             loop_code_dict['tile_start'] = slope.Executor.meta['tile_start']
             loop_code_dict['tile_end'] = slope.Executor.meta['tile_end']
+            loop_code_dict['tile_iter'] = '%s[n]' % self._executor.gtl_maps[i]['DIRECT']
+            if loop_code_dict['ssinds_arg']:
+                loop_code_dict['tile_iter'] = 'ssinds[%s]' % loop_code_dict['tile_iter']
 
             _loop_chain_body.append(strip(JITModule._kernel_wrapper % loop_code_dict))
             _user_code.append(kernel._user_code)
             _ssinds_arg.append(loop_code_dict['ssinds_arg'])
-        _loop_chain_body = "\n\n".join(_loop_chain_body)
-        _user_code = "\n".join(_user_code)
-        _ssinds_arg = ", ".join([s for s in _ssinds_arg if s])
+        _loop_chain_body = indent("\n\n".join(_loop_chain_body), 2)
 
-        code_dict['user_code'] = indent(_user_code, 1)
-        code_dict['ssinds_arg'] = _ssinds_arg
-        executor_code = indent(self._executor.c_code(indent(_loop_chain_body, 2)), 1)
-        code_dict['executor_code'] = executor_code
+        code_dict['user_code'] = indent("\n".join(_user_code), 1)
+        code_dict['ssinds_arg'] = ", ".join([s for s in _ssinds_arg if s])
+        code_dict['executor_code'] = indent(self._executor.c_code(_loop_chain_body), 1)
 
         return code_dict
 
