@@ -3846,6 +3846,7 @@ class JITModule(Cached):
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         key = (kernel.cache_key, itspace.cache_key)
         for arg in args:
+            key += (arg.__class__,)
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
             elif arg._is_dat:
