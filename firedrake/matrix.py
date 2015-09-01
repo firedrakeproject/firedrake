@@ -64,7 +64,7 @@ class Matrix(object):
             raise RuntimeError('Trying to assemble a Matrix, but no thunk found')
         if self._assembled:
             if self._needs_reassembly:
-                from firedrake.assemble import assemble
+                from firedrake.assemble import _assemble
                 _assemble(self.a, tensor=self, bcs=self.bcs)
                 return self.assemble()
             return
@@ -192,7 +192,7 @@ class Matrix(object):
         self._a_action_coeff = u
         # Since we assemble the cached form, the kernels will already have
         # been compiled and stashed on the form the second time round
-        from firedrake.assemble import assemble
+        from firedrake.assemble import _assemble
         return _assemble(self._a_action)
 
     def __repr__(self):
