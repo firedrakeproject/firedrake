@@ -128,11 +128,14 @@ if "PETSC_DIR" in os.environ:
 
 
 def check_call(args):
-    try:
-        stdout.write(subprocess.check_output(args, stderr=subprocess.STDOUT))
-    except subprocess.CalledProcessError as e:
-        stdout.write(e.output)
-        raise
+    if args.log:
+        try:
+            stdout.write(subprocess.check_output(args, stderr=subprocess.STDOUT))
+        except subprocess.CalledProcessError as e:
+            stdout.write(e.output)
+            raise
+    else:
+        subprocess.check_call(args)
 
 
 def check_output(args):
