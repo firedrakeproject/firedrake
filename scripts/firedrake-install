@@ -127,15 +127,15 @@ if "PETSC_DIR" in os.environ:
     stdout.write("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
-def check_call(args):
+def check_call(arguments):
     if args.log:
         try:
-            stdout.write(subprocess.check_output(args, stderr=subprocess.STDOUT))
+            stdout.write(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
         except subprocess.CalledProcessError as e:
             stdout.write(e.output)
             raise
     else:
-        subprocess.check_call(args)
+        subprocess.check_call(arguments)
 
 
 def check_output(args):
