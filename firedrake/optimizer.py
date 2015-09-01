@@ -1,3 +1,6 @@
+from __future__ import absolute_import
+
+
 def slope(mesh, debug=False):
     """Initialize the SLOPE library by providing information about the mesh,
     including:

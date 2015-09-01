@@ -1,9 +1,9 @@
+from __future__ import absolute_import
 import ufl
-import assemble
-import function
-import solving_utils
-from petsc import PETSc
-from utils import cached_property
+import firedrake.function as function
+import firedrake.solving_utils as solving_utils
+from firedrake.petsc import PETSc
+from firedrake.utils import cached_property
 
 
 __all__ = ["LinearSolver"]
@@ -99,7 +99,8 @@ class LinearSolver(object):
         b = function.Function(self._W)
         for bc in self.A.bcs:
             bc.apply(b)
-        return assemble._assemble(ufl.action(self.A.a, b))
+        from firedrake.assemble import _assemble
+        return _assemble(ufl.action(self.A.a, b))
 
     @property
     def parameters(self):

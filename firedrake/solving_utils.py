@@ -1,12 +1,12 @@
+from __future__ import absolute_import
 import ufl
 
 from pyop2.logger import warning, RED
 from pyop2.utils import as_tuple
 
 from firedrake.mg import utils
-import assemble
-import function
-from petsc import PETSc
+from firedrake import function
+from firedrake.petsc import PETSc
 
 
 def update_parameters(obj, petsc_obj):
@@ -99,14 +99,15 @@ class _SNESContext(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        self._jacs = tuple(assemble.assemble(problem.J, bcs=problem.bcs,
-                                             form_compiler_parameters=problem.form_compiler_parameters,
-                                             nest=problem._nest)
+        from firedrake.assemble import assemble
+        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
+                                    form_compiler_parameters=problem.form_compiler_parameters,
+                                    nest=problem._nest)
                            for problem in problems)
         if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble.assemble(problem.Jp, bcs=problem.bcs,
-                                                  form_compiler_parameters=problem.form_compiler_parameters,
-                                                  nest=problem._nest)
+            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
+                                         form_compiler_parameters=problem.form_compiler_parameters,
+                                         nest=problem._nest)
                                 for problem in problems)
         else:
             self._pjacs = self._jacs
@@ -164,6 +165,8 @@ class _SNESContext(object):
         :arg X: the current guess (a Vec)
         :arg F: the residual at X (a Vec)
         """
+        from firedrake.assemble import assemble
+
         dm = snes.getDM()
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
@@ -179,9 +182,9 @@ class _SNESContext(object):
             if v != X:
                 X.copy(v)
 
-        assemble.assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
-                          form_compiler_parameters=problem.form_compiler_parameters,
-                          nest=problem._nest)
+        assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
+                 form_compiler_parameters=problem.form_compiler_parameters,
+                 nest=problem._nest)
         for bc in problem.bcs:
             bc.zero(ctx._Fs[lvl])
 
@@ -199,6 +202,8 @@ class _SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
+        from firedrake.assemble import assemble
+
         dm = snes.getDM()
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
@@ -218,16 +223,16 @@ class _SNESContext(object):
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
             X.copy(v)
-        assemble.assemble(ctx.Js[lvl],
-                          tensor=ctx._jacs[lvl],
-                          bcs=problem.bcs,
-                          form_compiler_parameters=problem.form_compiler_parameters,
-                          nest=problem._nest)
+        assemble(ctx.Js[lvl],
+                 tensor=ctx._jacs[lvl],
+                 bcs=problem.bcs,
+                 form_compiler_parameters=problem.form_compiler_parameters,
+                 nest=problem._nest)
         ctx._jacs[lvl].M._force_evaluation()
         if ctx.Jps[lvl] is not None:
-            assemble.assemble(ctx.Jps[lvl],
-                              tensor=ctx._pjacs[lvl],
-                              bcs=problem.bcs,
-                              form_compiler_parameters=problem.form_compiler_parameters,
-                              nest=problem._nest)
+            assemble(ctx.Jps[lvl],
+                     tensor=ctx._pjacs[lvl],
+                     bcs=problem.bcs,
+                     form_compiler_parameters=problem.form_compiler_parameters,
+                     nest=problem._nest)
             ctx._pjacs[lvl].M._force_evaluation()

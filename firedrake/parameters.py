@@ -1,4 +1,5 @@
 """The parameters dictionary contains global parameter settings."""
+from __future__ import absolute_import
 
 from ffc import default_parameters
 from pyop2.configuration import configuration

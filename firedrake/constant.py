@@ -1,10 +1,11 @@
+from __future__ import absolute_import
 import numpy as np
 import ufl
 
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
 
-import utils
+import firedrake.utils as utils
 
 
 __all__ = ['Constant']

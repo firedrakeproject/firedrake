@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import os
 import FIAT
@@ -10,15 +11,12 @@ from pyop2.utils import as_tuple
 
 import coffee.base as ast
 
-import dmplex
-import extrusion_utils as eutils
-import fiat_utils
-import function
-import functionspace
-import utility_meshes
-import utils
-from parameters import parameters
-from petsc import PETSc
+import firedrake.dmplex as dmplex
+import firedrake.extrusion_utils as eutils
+import firedrake.fiat_utils as fiat_utils
+import firedrake.utils as utils
+from firedrake.parameters import parameters
+from firedrake.petsc import PETSc
 
 
 __all__ = ['Mesh', 'ExtrudedMesh']
@@ -223,7 +221,7 @@ def _from_triangle(filename, dim):
         tdim = op2.MPI.comm.bcast(None, root=0)
         cells = None
         coordinates = None
-    plex = utility_meshes._from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
+    plex = _from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
 
     # Apply boundary IDs
     if op2.MPI.comm.rank == 0:
@@ -245,6 +243,39 @@ def _from_triangle(filename, dim):
                 plex.setLabelValue("boundary_ids", join[0], bid)
 
     return plex
+
+
+def _from_cell_list(dim, cells, coords, comm=None):
+    """
+    Create a DMPlex from a list of cells and coords.
+
+    :arg dim: The topological dimension of the mesh
+    :arg cells: The vertices of each cell
+    :arg coords: The coordinates of each vertex
+    :arg comm: An optional MPI communicator to build the plex on
+         (defaults to ``COMM_WORLD``)
+    """
+
+    if comm is None:
+        comm = op2.MPI.comm
+    if comm.rank == 0:
+        cells = np.asarray(cells, dtype=PETSc.IntType)
+        coords = np.asarray(coords, dtype=float)
+        comm.bcast(cells.shape, root=0)
+        comm.bcast(coords.shape, root=0)
+        # Provide the actual data on rank 0.
+        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
+
+    cell_shape = list(comm.bcast(None, root=0))
+    coord_shape = list(comm.bcast(None, root=0))
+    cell_shape[0] = 0
+    coord_shape[0] = 0
+    # Provide empty plex on other ranks
+    # A subsequent call to plex.distribute() takes care of parallel partitioning
+    return PETSc.DMPlex().createFromCellList(dim,
+                                             np.zeros(cell_shape, dtype=PETSc.IntType),
+                                             np.zeros(coord_shape, dtype=float),
+                                             comm=comm)
 
 
 class Mesh(object):
@@ -356,6 +387,9 @@ class Mesh(object):
         self._grown_halos = False
 
         def callback(self):
+            import firedrake.function as function
+            import firedrake.functionspace as functionspace
+
             del self._callback
             if op2.MPI.comm.size > 1:
                 self._plex.distributeOverlap(1)
@@ -600,6 +634,9 @@ class Mesh(object):
              reference normal direction.
 
         """
+        import firedrake.function as function
+        import firedrake.functionspace as functionspace
+
         if expr.value_shape()[0] != 3:
             raise NotImplementedError('Only implemented for 3-vectors')
         if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.Cell("quadrilateral", 3), ufl.OuterProductCell(ufl.Cell('interval', 3), ufl.Cell('interval')), ufl.OuterProductCell(ufl.Cell('interval', 2), ufl.Cell('interval'), gdim=3)):
@@ -770,6 +807,9 @@ class ExtrudedMesh(Mesh):
     @profile
     def __init__(self, mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
         # A cache of function spaces that have been built on this mesh
+        import firedrake.function as function
+        import firedrake.functionspace as functionspace
+
         self._cache = {}
         mesh.init()
         self._old_mesh = mesh
