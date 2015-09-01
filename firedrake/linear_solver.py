@@ -99,8 +99,8 @@ class LinearSolver(object):
         b = function.Function(self._W)
         for bc in self.A.bcs:
             bc.apply(b)
-        import firedrake.assemble as assemble
-        return assemble._assemble(ufl.action(self.A.a, b))
+        from firedrake.assemble import _assemble
+        return _assemble(ufl.action(self.A.a, b))
 
     @property
     def parameters(self):
