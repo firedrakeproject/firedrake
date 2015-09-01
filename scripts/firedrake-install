@@ -14,7 +14,7 @@ else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
 if mode == "install":
-# Handle command line arguments.
+    # Handle command line arguments.
     parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
                             epilog="""The install process has three steps.
 
@@ -98,9 +98,10 @@ else:
     sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
-petsc_opts = "--download-ctetgen --download-triangle --download-chaco"
+petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre=1 --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = "--download-ctetgen --download-triangle --download-chaco"
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
 else:
     for opt in petsc_opts.split():
         if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
@@ -264,6 +265,8 @@ if osname == "Darwin":
         brew_install("python")
         check_call(["brew", "tap", "homebrew/python"])
         brew_install("numpy")
+        brew_install("swig")
+        brew_install("cmake")
 
     else:
         stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
@@ -277,7 +280,7 @@ elif osname == "Linux":
 
         apt_packages = ["build-essential", "python-dev", "git-core",
                         "mercurial", "python-pip", "libopenmpi-dev", "openmpi-bin",
-                        "libblas-dev", "liblapack-dev", "gfortran", "libhdf5-mpi-dev"]
+                        "libblas-dev", "liblapack-dev", "gfortran", "cmake"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
@@ -293,6 +296,8 @@ elif osname == "Linux":
         stdout.write("Git, Mercurial.\n")
         stdout.write("Python version 2.7.\n")
         stdout.write("pip and the Python headers.\n")
+        stdout.write("cmake.\n")
+        stdout.write("swig.\n")
 
 else:
     stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")

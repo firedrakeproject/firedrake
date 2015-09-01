@@ -9,7 +9,8 @@ lint:
 	@flake8 firedrake
 	@echo "    Linting firedrake test suite"
 	@flake8 tests
-
+	@echo "    Linting firedrake install script"
+	@flake8 scripts/firedrake-install
 
 clean:
 	@echo "    Cleaning extension modules"
