@@ -616,14 +616,13 @@ class VectorFunctionSpace(FunctionSpaceBase):
         self._initialized = True
 
     @classmethod
-    def _process_args(cls, mesh, family, degree, dim=None, vfamily=None, vdegree=None, **kwargs):
+    def _process_args(cls, mesh, family, degree=None, dim=None, vfamily=None, vdegree=None, **kwargs):
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
         if isinstance(mesh, mesh_t.ExtrudedMesh) and isinstance(family, ufl.OuterProductElement):
-            raise NotImplementedError("Not yet implemented")
-
-        if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
+            element = ufl.OuterProductVectorElement(family, dim=dim)
+        elif isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
             la = ufl.FiniteElement(family,
                                    domain=mesh._old_mesh.ufl_cell(),
                                    degree=degree)
