@@ -14,7 +14,7 @@ from pyop2.mpi import MPI
 verbose = True if len(sys.argv) == 2 and sys.argv[1] == '--verbose' else False
 output = False
 
-mesh = UnitSquareMesh(10, 10)
+mesh = UnitSquareMesh(3, 3)
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
 # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
@@ -37,30 +37,23 @@ phi = Function(fs)
 u = TrialFunction(fs)
 v = TestFunction(fs)
 
+# Mass lumping
+Ml = assemble(v * dx)
+Ml.dat._force_evaluation()
+
 p.interpolate(Expression("exp(-40*((x[0]-.5)*(x[0]-.5)+(x[1]-.5)*(x[1]-.5)))"))
 
 if output:
     #outfile = File("out.pvd")
     phifile = File("phi.pvd")
 
-# Mass matrix
-m = u * v * dx
-
-lump_mass = True
-
-step = 0
 while t <= T:
-    with loop_chain("main", num_unroll=2, tile_size=2000):
-        step += 1
-
+    with loop_chain("main", num_unroll=1, tile_size=4):
         phi -= dt / 2 * p
 
-        if lump_mass:
-            p += (assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
-                  / assemble(v * dx))
-        else:
-            solve(u * v * dx == v * p * dx + dt * inner(
-                nabla_grad(v), nabla_grad(phi)) * dx, p)
+        asm = assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
+
+        p += asm / Ml
 
         phi -= dt / 2 * p
 
@@ -71,6 +64,7 @@ start = time()
 with timed_region("Time stepping"):
     phi.dat._force_evaluation()
 end = time()
+print phi.dat.data
 
 # Print runtime summary
 if MPI.comm.rank in range(1, MPI.comm.size):
