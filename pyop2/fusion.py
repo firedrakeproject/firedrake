@@ -1171,7 +1171,7 @@ class Inspector(Cached):
                         for j, m in enumerate(map):
                             map_name = "%s%d_%d" % (m.name, i, j)
                             insp_maps[m.name] = (map_name, m.iterset.name,
-                                                 m.toset.name, m.values)
+                                                 m.toset.name, m.values_with_halo)
                             slope_desc.add((map_name, a.access._mode))
             # Add loop
             insp_loops.append((loop.kernel.name, iterset_name, list(slope_desc)))
