@@ -44,7 +44,7 @@ import compilation
 import sequential
 from backends import _make_object
 from caching import Cached
-from profiling import lineprof, timed_region, profile
+from profiling import lineprof, timed_region
 from logger import warning, info as log_info
 from mpi import MPI, collective
 from configuration import configuration
@@ -415,6 +415,7 @@ class ParLoop(sequential.ParLoop):
         self._kernel = kernel
         self._actual_args = args
         self._it_space = it_space
+        self._only_local = False
 
         for i, arg in enumerate(self._actual_args):
             arg.name = "arg%d" % i  # Override the previously cached_property name
@@ -434,14 +435,6 @@ class ParLoop(sequential.ParLoop):
         self._all_args = kwargs.get('all_args', [args])
         self._inspection = kwargs.get('inspection')
         self._executor = kwargs.get('executor')
-
-    @collective
-    @profile
-    def compute(self):
-        """Execute the kernel over all members of the iteration space."""
-        arglist = self.prepare_arglist(None, *self.args)
-        with timed_region("ParLoopChain: compute"):
-            self._compute(*arglist)
 
     def prepare_arglist(self, part, *args):
         arglist = [self._inspection]
@@ -469,8 +462,8 @@ class ParLoop(sequential.ParLoop):
         return arglist
 
     @collective
-    @lineprof
-    def _compute(self, *arglist):
+    def compute(self):
+        """Execute the kernel over all members of the iteration space."""
         kwargs = {
             'all_kernels': self._all_kernels,
             'all_itspaces': self._all_itspaces,
@@ -478,9 +471,11 @@ class ParLoop(sequential.ParLoop):
             'executor': self._executor,
         }
         fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
-
+        arglist = self.prepare_arglist(None, *self.args)
         with timed_region("ParLoopChain: executor"):
+            self.halo_exchange_begin()
             fun(*arglist)
+            self.halo_exchange_end()
 
 
 # An Inspector produces one of the following Schedules
