@@ -1186,6 +1186,9 @@ class Inspector(Cached):
         # Set a specific tile size
         arguments.extend([inspector.set_tile_size(self._tile_size)])
 
+        # Tell SLOPE the rank of the MPI process
+        arguments.extend([inspector.set_mpi_rank(MPI.comm.rank)])
+
         # Arguments types and values
         argtypes, argvalues = zip(*arguments)
 
