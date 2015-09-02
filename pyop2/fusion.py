@@ -46,7 +46,7 @@ from backends import _make_object
 from caching import Cached
 from profiling import lineprof, timed_region, profile
 from logger import warning, info as log_info
-from mpi import collective
+from mpi import MPI, collective
 from configuration import configuration
 from utils import flatten, strip, as_tuple
 
@@ -1113,17 +1113,29 @@ class Inspector(Cached):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
-        try:
-            backend_map = {'sequential': 'SEQUENTIAL', 'openmp': 'OMP'}
-            slope_backend = backend_map[configuration['backend']]
-            slope.set_exec_mode(slope_backend)
-            log_info("SLOPE backend set to %s" % slope_backend)
-        except KeyError:
-            warning("Unable to set backend %s for SLOPE" % configuration['backend'])
 
+        # Set the SLOPE backend
+        global MPI
+        if not MPI.parallel:
+            if configuration['backend'] == 'sequential':
+                slope_backend = 'SEQUENTIAL'
+            if configuration['backend'] == 'openmp':
+                slope_backend = 'OMP'
+        elif configuration['backend'] == 'sequential':
+            slope_backend = 'ONLY_MPI'
+        elif configuration['backend'] == 'openmp':
+            slope_backend = 'OMP_MPI'
+        else:
+            warning("Could not find a valid SLOPE backend, tiling skipped")
+            return
+        slope.set_exec_mode(slope_backend)
+        log_info("SLOPE backend set to %s" % slope_backend)
+
+        # The SLOPE inspector, which needs be populated with sets, maps,
+        # descriptors, and loop chain structure
         inspector = slope.Inspector()
 
-        # Build arguments types and values
+        # Build inspector and argument types and values
         arguments = []
         insp_sets, insp_maps, insp_loops = set(), {}, []
         for loop in self._loop_chain:
