@@ -735,10 +735,10 @@ class Inspector(Cached):
         """Decide heuristically whether to run an inspection or not."""
         # At the moment, a simple heuristic is used. If tiling is not requested,
         # then inspection is performed. If tiling is, on the other hand, requested,
-        # then inspection is performed on the second time it is requested, which
+        # then inspection is performed on the third time it is requested, which
         # would suggest the inspection is being asked in a loop chain context; this
         # is for amortizing the cost of data flow analysis performed by SLOPE.
-        if mode == 'tile' and self._inspected < 2:
+        if mode == 'tile' and self._inspected < 3:
             return True
         return False
 
