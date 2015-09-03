@@ -245,12 +245,14 @@ class JITModule(sequential.JITModule):
     _wrapper = """
 extern "C" void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
-                      %(wrapper_args)s
-                      %(const_args)s);
+                      %(wrapper_args)s,
+                      %(const_args)s
+                      %(region_flag)s);
 void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
-                      %(wrapper_args)s
-                      %(const_args)s) {
+                      %(wrapper_args)s,
+                      %(const_args)s
+                      %(region_flag)s) {
   %(user_code)s
   %(wrapper_decs)s;
   %(const_inits)s;
@@ -314,6 +316,8 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                         argtypes.append(m._argtype)
         for c in Const._definitions():
             argtypes.append(c._argtype)
+        # For the MPI region flag
+        argtypes.append(ctypes.c_int)
 
         self._argtypes = argtypes
 
@@ -357,8 +361,8 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
         if len(Const._defs) > 0:
-            _const_args = ', '
-            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
+            _const_args = ', '.join([c_const_arg(c) for c in Const._definitions()])
+            _const_args += ', '
         else:
             _const_args = ''
         _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
@@ -366,6 +370,8 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         code_dict['const_args'] = _const_args
         code_dict['wrapper_decs'] = indent(_wrapper_decs, 1)
         code_dict['const_inits'] = indent(_const_inits, 1)
+        code_dict['region_flag'] = "%s %s" % (slope.Executor.meta['ctype_region_flag'],
+                                              slope.Executor.meta['region_flag'])
 
         # 2) Construct the kernel invocations
         _loop_chain_body, _user_code, _ssinds_arg = [], [], []
@@ -474,8 +480,10 @@ class ParLoop(sequential.ParLoop):
         arglist = self.prepare_arglist(None, *self.args)
         with timed_region("ParLoopChain: executor"):
             self.halo_exchange_begin()
-            fun(*arglist)
+            fun(*(arglist + [0]))
             self.halo_exchange_end()
+            fun(*(arglist + [1]))
+            self.update_arg_data_state()
 
 
 # An Inspector produces one of the following Schedules
