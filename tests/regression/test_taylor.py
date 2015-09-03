@@ -2,7 +2,7 @@ import pytest
 from firedrake import *
 import numpy
 
-#Test the 1D Taylor DG elements from FIAT
+# Test the 1D Taylor DG elements from FIAT
 
 
 def test_Taylor():
