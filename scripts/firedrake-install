@@ -5,6 +5,12 @@ import sys
 import os
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
+
+class InstallError(Exception):
+    # Exception for generic install problems.
+    pass
+
+
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
 elif os.path.basename(__file__) == "firedrake-update":
@@ -285,7 +291,7 @@ elif osname == "Linux":
     # Check for apt.
     try:
         if not args.package_manager:
-            raise subprocess.CalledProcessError
+            raise InstallError
         check_call(["apt-get", "--version"])
 
         apt_packages = ["build-essential", "python-dev", "git-core",
@@ -296,7 +302,7 @@ elif osname == "Linux":
         if missing_packages:
             apt_install(missing_packages)
 
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, InstallError):
         stdout.write("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
         stdout.write("If this is not the case, please install the following and try again:\n")
         stdout.write("A C compiler (for example gcc or clang), make.\n")
