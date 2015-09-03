@@ -549,6 +549,11 @@ class FunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        # The argument list is a joke at this point: if uninitialised,
+        # the real arguments are like that of _cache_key. We need the
+        # argument list above though:
+        # - to prevent a failure when already initialised, and
+        # - for "smart" code assistant tools.
         mesh.init()
         element = family.reconstruct(domain=mesh.ufl_domain())
         super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
@@ -600,6 +605,11 @@ class VectorFunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        # The argument list is a joke at this point: if uninitialised,
+        # the real arguments are like that of _cache_key. We need the
+        # argument list above though:
+        # - to prevent a failure when already initialised, and
+        # - for "smart" code assistant tools.
         mesh.init()
         element = family.reconstruct(domain=mesh.ufl_domain())
         super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
@@ -650,6 +660,11 @@ class TensorFunctionSpace(FunctionSpaceBase):
                  vfamily=None, vdegree=None):
         if self._initialized:
             return
+        # The argument list is a joke at this point: if uninitialised,
+        # the real arguments are like that of _cache_key. We need the
+        # argument list above though:
+        # - to prevent a failure when already initialised, and
+        # - for "smart" code assistant tools.
         mesh.init()
         element = family.reconstruct(domain=mesh.ufl_domain())
         super(TensorFunctionSpace, self).__init__(mesh, element, name,
