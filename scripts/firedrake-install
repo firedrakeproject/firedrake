@@ -161,7 +161,7 @@ def apt_check(name):
     stdout.write("Checking for presence of package %s..." % name)
     # Note that subprocess return codes have the opposite logical
     # meanings to those of Python variables.
-    if not subprocess.call(["dpkg", "-l", name]):
+    if not subprocess.call(["dpkg-query", "-s", name]):
         stdout.write("installed.\n")
         return True
     else:
