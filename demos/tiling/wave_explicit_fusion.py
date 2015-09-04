@@ -5,10 +5,9 @@ from firedrake import *
 import sys
 from time import time
 
-from pyop2.profiling import summary, timed_region, Timer, tic, toc
+from pyop2.profiling import summary, timed_region, Timer
 from pyop2.configuration import configuration
 from pyop2.fusion import loop_chain
-from pyop2.base import _trace
 from pyop2.mpi import MPI
 
 verbose = True if len(sys.argv) == 2 and sys.argv[1] == '--verbose' else False
