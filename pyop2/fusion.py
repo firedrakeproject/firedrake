@@ -44,7 +44,7 @@ import compilation
 import sequential
 from backends import _make_object
 from caching import Cached
-from profiling import lineprof, timed_region
+from profiling import timed_region
 from logger import warning, info as log_info
 from mpi import MPI, collective
 from configuration import configuration
@@ -632,7 +632,7 @@ class Inspector(Cached):
     .. note:: For tiling, the Inspector relies on the SLOPE library."""
 
     _cache = {}
-    _modes = ['soft', 'hard', 'tile']
+    _modes = ['soft', 'hard', 'tile', 'only_tile']
 
     @classmethod
     def _cache_key(cls, name, loop_chain, tile_size):
@@ -673,7 +673,7 @@ class Inspector(Cached):
         """Inspect this Inspector's loop chain and produce a :class:`Schedule`.
 
         :arg mode: can take any of the values in ``Inspector._modes``, namely
-            ``soft``, ``hard``, and ``tile``.
+            ``soft``, ``hard``, ``tile``, ``only_tile``.
 
             * ``soft``: consecutive loops over the same iteration set that do
                 not present RAW or WAR dependencies through indirections
@@ -683,6 +683,7 @@ class Inspector(Cached):
                 dependencies.
             * ``tile``: ``soft`` and ``hard`` fusion; then, tiling through the
                 SLOPE library takes place.
+            * ``only_tile``: only tiling through the SLOPE library (i.e., no fusion)
         """
         self._inspected += 1
         if self._heuristic_skip_inspection(mode):
@@ -714,13 +715,13 @@ class Inspector(Cached):
             raise TypeError("Inspection accepts only %s fusion modes",
                             str(Inspector._modes))
         self._mode = mode
-        mode = Inspector._modes.index(mode)
 
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
-            self._soft_fuse()
-            if mode > 0:
+            if mode in ['soft', 'hard', 'tile']:
+                self._soft_fuse()
+            if mode in ['hard', 'tile']:
                 self._hard_fuse()
-            if mode > 1:
+            if mode in ['tile', 'only_tile']:
                 self._tile()
 
         # A schedule has been computed by any of /_soft_fuse/, /_hard_fuse/ or
@@ -741,7 +742,7 @@ class Inspector(Cached):
         # then inspection is performed on the third time it is requested, which
         # would suggest the inspection is being asked in a loop chain context; this
         # is for amortizing the cost of data flow analysis performed by SLOPE.
-        if mode == 'tile' and self._inspected < 3:
+        if mode in ['tile', 'only_tile'] and self._inspected < 3:
             return True
         return False
 
@@ -1227,7 +1228,7 @@ class Inspector(Cached):
 
 # Interface for triggering loop fusion
 
-def fuse(name, loop_chain, tile_size):
+def fuse(name, loop_chain, **kwargs):
     """Apply fusion (and possibly tiling) to an iterator of :class:`ParLoop`
     obecjts, which we refer to as ``loop_chain``. Return an iterator of
     :class:`ParLoop` objects, in which some loops may have been fused or tiled.
@@ -1245,6 +1246,10 @@ def fuse(name, loop_chain, tile_size):
 
         * a global reduction/write occurs in ``loop_chain``
     """
+    tile_size = kwargs.get('tile_size', 0)
+    force_glb = kwargs.get('force_glb', False)
+    mode = kwargs.get('mode', 'hard')
+
     # If there is nothing to fuse, just return
     if len(loop_chain) in [0, 1]:
         return loop_chain
@@ -1264,19 +1269,23 @@ def fuse(name, loop_chain, tile_size):
     if len(loop_chain) in [0, 1]:
         return loop_chain + remainder
 
-    # If loops in /loop_chain/ are already /fusion/ objects (this could happen
-    # when loops had already been fused because in a /loop_chain/ context) or
-    # if global reductions are present, return
-    if any([isinstance(l, ParLoop) for l in loop_chain]) or \
-            any([l._reduced_globals for l in loop_chain]):
+    # Skip if loops in /loop_chain/ are already /fusion/ objects: this could happen
+    # when loops had already been fused in a /loop_chain/ context
+    if any([isinstance(l, ParLoop) for l in loop_chain]):
+        return loop_chain + remainder
+
+    # Global reductions are dangerous for correctness, so avoid fusion unless the
+    # user is forcing it
+    if not force_glb and any([l._reduced_globals for l in loop_chain]):
         return loop_chain + remainder
 
     # Loop fusion requires modifying kernels, so ASTs must be present...
-    if any([not hasattr(l.kernel, '_ast') or not l.kernel._ast for l in loop_chain]):
-        return loop_chain + remainder
-    # ...and must not be "fake" ASTs
-    if any([isinstance(l.kernel._ast, ast.FlatBlock) for l in loop_chain]):
-        return loop_chain + remainder
+    if not mode == 'only_tile':
+        if any([not hasattr(l.kernel, '_ast') or not l.kernel._ast for l in loop_chain]):
+            return loop_chain + remainder
+        # ...and must not be "fake" ASTs
+        if any([isinstance(l.kernel._ast, ast.FlatBlock) for l in loop_chain]):
+            return loop_chain + remainder
 
     # Mixed still not supported
     if any(a._is_mixed for a in flatten([l.args for l in loop_chain])):
@@ -1287,9 +1296,7 @@ def fuse(name, loop_chain, tile_size):
         return loop_chain + remainder
 
     # Check if tiling needs be applied
-    mode = 'hard'
-    if tile_size > 0:
-        mode = 'tile'
+    if mode in ['tile', 'only_tile']:
         # Loop tiling requires the SLOPE library to be available on the system.
         if slope is None:
             warning("Requested tiling, but couldn't locate SLOPE. Check the PYTHONPATH")
@@ -1309,7 +1316,7 @@ def fuse(name, loop_chain, tile_size):
 
 
 @contextmanager
-def loop_chain(name, num_unroll=1, tile_size=0):
+def loop_chain(name, tile_size=1, **kwargs):
     """Analyze the sub-trace of loops lazily evaluated in this contextmanager ::
 
         [loop_0, loop_1, ..., loop_n-1]
@@ -1325,17 +1332,25 @@ def loop_chain(name, num_unroll=1, tile_size=0):
     original trace slice.
 
     :arg name: identifier of the loop chain
-    :arg num_unroll: (optional) in a time stepping loop, the length of the loop
-        chain is given by ``num_loops * num_unroll``, where ``num_loops`` is the
-        number of loops per time loop iteration. Therefore, setting this value to
-        a number >1 enables fusing/tiling longer chains.
-    :arg tile_size: (optional) suggest a tile size in case loop tiling is used.
-        If ``0`` is passed in, only soft fusion is performed.
+    :arg tile_size: suggest a starting average tile size
+    :arg kwargs:
+        * num_unroll (default=1): in a time stepping loop, the length of the loop
+            chain is given by ``num_loops * num_unroll``, where ``num_loops`` is the
+            number of loops per time loop iteration. Therefore, setting this value
+            to a number >1 enables tiling longer chains.
+        * force_glb (default=False): force tiling even in presence of global
+            reductions. In this case, the user becomes responsible of semantic
+            correctness.
+        * mode (default='tile'): the fusion/tiling mode (accepted: soft, hard,
+            tile, only_tile)
     """
-    from base import _trace
+    num_unroll = kwargs.get('num_unroll', 1)
+    force_glb = kwargs.get('force_glb', False)
+    mode = kwargs.get('mode', 'tile')
 
     # Get a snapshot of the trace before new par loops are added within this
     # context manager
+    from base import _trace
     stamp = list(_trace._trace)
 
     yield
@@ -1358,7 +1373,8 @@ def loop_chain(name, num_unroll=1, tile_size=0):
     total_loop_chain = loop_chain.unrolled_loop_chain + extracted_loop_chain
     if len(total_loop_chain) / len(extracted_loop_chain) == num_unroll:
         bottom = trace.index(total_loop_chain[0])
-        trace[bottom:] = fuse(name, total_loop_chain, tile_size)
+        trace[bottom:] = fuse(name, total_loop_chain,
+                              tile_size=tile_size, force_glb=force_glb, mode=mode)
         loop_chain.unrolled_loop_chain = []
     else:
         loop_chain.unrolled_loop_chain.extend(extracted_loop_chain)

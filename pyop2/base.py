@@ -164,7 +164,7 @@ class ExecutionTrace(object):
 
         if configuration['loop_fusion']:
             from fusion import fuse
-            to_run = fuse('from_trace', to_run, 0)
+            to_run = fuse('from_trace', to_run)
         for comp in to_run:
             comp._run()
 
