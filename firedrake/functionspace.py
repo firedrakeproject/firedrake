@@ -549,14 +549,25 @@ class FunctionSpace(FunctionSpaceBase):
     def __init__(self, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        # The argument list is a joke at this point: if uninitialised,
+        # the real arguments are like that of _cache_key. We need the
+        # argument list above though:
+        # - to prevent a failure when already initialised, and
+        # - for "smart" code assistant tools.
         mesh.init()
+        element = family.reconstruct(domain=mesh.ufl_domain())
+        super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, mesh, family, degree=None, vfamily=None, vdegree=None, **kwargs):
         # Two choices:
         # 1) pass in mesh, family, degree to generate a simple function space
         # 2) set up the function space using FiniteElement, EnrichedElement,
         #       OuterProductElement and so on
         if isinstance(family, ufl.FiniteElementBase):
             # Second case...
-            element = family.reconstruct(domain=mesh.ufl_domain())
+            element = family
         else:
             # First case...
             if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
@@ -569,23 +580,18 @@ class FunctionSpace(FunctionSpaceBase):
                                        domain=ufl.Cell("interval", 1),
                                        degree=vdegree)
                 # now make the OPE
-                element = ufl.OuterProductElement(la, lb, domain=mesh.ufl_domain())
+                element = ufl.OuterProductElement(la, lb)
             else:
                 # if not an extruded mesh, just make the element
                 element = ufl.FiniteElement(family,
-                                            domain=mesh.ufl_domain(),
+                                            domain=mesh.ufl_cell(),
                                             degree=degree)
 
-        super(FunctionSpace, self).__init__(mesh, element, name, dim=1)
-        self._initialized = True
+        return (mesh, mesh, element), kwargs
 
     @classmethod
-    def _process_args(cls, *args, **kwargs):
-        return (args[0], ) + args, kwargs
-
-    @classmethod
-    def _cache_key(cls, mesh, family, degree=None, name=None, vfamily=None, vdegree=None):
-        return family, degree, vfamily, vdegree
+    def _cache_key(cls, mesh, element, name=None, **kwargs):
+        return element, name
 
     def __getitem__(self, i):
         """Return self if ``i`` is 0, otherwise raise an error."""
@@ -596,36 +602,41 @@ class FunctionSpace(FunctionSpaceBase):
 class VectorFunctionSpace(FunctionSpaceBase):
     """A vector finite element :class:`FunctionSpace`."""
 
-    def __init__(self, mesh, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
+    def __init__(self, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
         if self._initialized:
             return
+        # The argument list is a joke at this point: if uninitialised,
+        # the real arguments are like that of _cache_key. We need the
+        # argument list above though:
+        # - to prevent a failure when already initialised, and
+        # - for "smart" code assistant tools.
         mesh.init()
+        element = family.reconstruct(domain=mesh.ufl_domain())
+        super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
+        self._initialized = True
+
+    @classmethod
+    def _process_args(cls, mesh, family, degree=None, dim=None, vfamily=None, vdegree=None, **kwargs):
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
         if isinstance(mesh, mesh_t.ExtrudedMesh) and isinstance(family, ufl.OuterProductElement):
-            raise NotImplementedError("Not yet implemented")
-
-        if isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
+            element = ufl.OuterProductVectorElement(family, dim=dim)
+        elif isinstance(mesh, mesh_t.ExtrudedMesh) and vfamily is not None and vdegree is not None:
             la = ufl.FiniteElement(family,
                                    domain=mesh._old_mesh.ufl_cell(),
                                    degree=degree)
             lb = ufl.FiniteElement(vfamily, domain=ufl.Cell("interval", 1),
                                    degree=vdegree)
-            element = ufl.OuterProductVectorElement(la, lb, dim=dim, domain=mesh.ufl_domain())
+            element = ufl.OuterProductVectorElement(la, lb, dim=dim)
         else:
-            element = ufl.VectorElement(family, domain=mesh.ufl_domain(),
+            element = ufl.VectorElement(family, domain=mesh.ufl_cell(),
                                         degree=degree, dim=dim)
-        super(VectorFunctionSpace, self).__init__(mesh, element, name, dim=dim, rank=1)
-        self._initialized = True
+        return (mesh, mesh, element), dict(kwargs, dim=dim)
 
     @classmethod
-    def _process_args(cls, *args, **kwargs):
-        return (args[0], ) + args, kwargs
-
-    @classmethod
-    def _cache_key(cls, mesh, family, degree=None, dim=None, name=None, vfamily=None, vdegree=None):
-        return family, degree, dim, vfamily, vdegree
+    def _cache_key(cls, mesh, element, name=None, **kwargs):
+        return element, name
 
     def __getitem__(self, i):
         """Return self if ``i`` is 0, otherwise raise an error."""
@@ -644,31 +655,38 @@ class TensorFunctionSpace(FunctionSpaceBase):
     """
     A tensor-valued :class:`FunctionSpace`.
     """
-    def __init__(self, mesh, family, degree, shape=None, symmetry=None, name=None,
+    def __init__(self, mesh, family, degree=None, shape=None, symmetry=None, name=None,
                  vfamily=None, vdegree=None):
         if self._initialized:
             return
+        # The argument list is a joke at this point: if uninitialised,
+        # the real arguments are like that of _cache_key. We need the
+        # argument list above though:
+        # - to prevent a failure when already initialised, and
+        # - for "smart" code assistant tools.
         mesh.init()
-        # TensorFunctionSpace shape defaults to the (gdim, gdim)
-        shape = shape or (mesh.ufl_cell().geometric_dimension(), )*2
-
-        if isinstance(mesh, mesh_t.ExtrudedMesh):
-            raise NotImplementedError("TFS on extruded meshes not implemented")
-        else:
-            element = ufl.TensorElement(family, domain=mesh.ufl_domain(),
-                                        degree=degree, shape=shape,
-                                        symmetry=symmetry)
+        element = family.reconstruct(domain=mesh.ufl_domain())
         super(TensorFunctionSpace, self).__init__(mesh, element, name,
                                                   dim=shape, rank=len(shape))
         self._initialized = True
 
     @classmethod
-    def _process_args(cls, *args, **kwargs):
-        return (args[0], ) + args, kwargs
+    def _process_args(cls, mesh, family, degree, shape=None, symmetry=None,
+                      vfamily=None, vdegree=None, **kwargs):
+        # TensorFunctionSpace shape defaults to the (gdim, gdim)
+        shape = shape or (mesh.ufl_cell().geometric_dimension(),) * 2
+
+        if isinstance(mesh, mesh_t.ExtrudedMesh):
+            raise NotImplementedError("TFS on extruded meshes not implemented")
+        else:
+            element = ufl.TensorElement(family, domain=mesh.ufl_cell(),
+                                        degree=degree, shape=shape,
+                                        symmetry=symmetry)
+        return (mesh, mesh, element), dict(kwargs, shape=shape)
 
     @classmethod
-    def _cache_key(cls, mesh, family, degree=None, shape=None, symmetry=None, name=None, vfamily=None, vdegree=None):
-        return family, degree, shape, symmetry, vfamily, vdegree
+    def _cache_key(cls, mesh, element, name=None, **kwargs):
+        return element, name
 
     def __getitem__(self, i):
         """Return self if ``i`` is 0, otherwise raise an error."""
