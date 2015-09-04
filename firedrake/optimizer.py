@@ -17,5 +17,5 @@ def slope(mesh, debug=False):
     if debug:
         coords = mesh.coordinates.dat
         slope_python.set_debug_mode('VERY_LOW', (coords.dataset.set.name,
-                                                 coords._data,
+                                                 coords.data_ro,
                                                  coords.shape[1]))
