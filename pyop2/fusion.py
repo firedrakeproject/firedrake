@@ -1118,6 +1118,12 @@ class Inspector(Cached):
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
 
+        def format_set(s):
+            issubset = isinstance(s, Subset)
+            s_name = s.name if not issubset else "%s_ss" % s.name
+            return s_name, s.core_size, s.exec_size - s.core_size, \
+                s.total_size - s.exec_size, issubset
+
         # Set the SLOPE backend
         global MPI
         if not MPI.parallel:
@@ -1146,13 +1152,8 @@ class Inspector(Cached):
             slope_desc = set()
             # Add sets
             iterset = loop.it_space.iterset
-            issubset = isinstance(iterset, Subset)
-            iterset_name = iterset.name if not issubset else "%s_ss" % iterset.name
-            insp_sets.add((iterset_name,
-                           iterset.core_size,
-                           iterset.exec_size - iterset.core_size,
-                           iterset.total_size - iterset.exec_size,
-                           issubset))
+            is_name, is_cs, is_es, is_ts, issubset = format_set(iterset)
+            insp_sets.add((is_name, is_cs, is_es, is_ts, issubset))
             for a in loop.args:
                 # Add access descriptors
                 maps = as_tuple(a.map, Map)
@@ -1160,9 +1161,9 @@ class Inspector(Cached):
                     # If the iteration is over a subset, then we fake an indirect
                     # par loop from the subset to the superset. This allows tiling
                     # to be simply propagated from the superset down to the subset
-                    map_name = "%s_tosuperset" % iterset_name
-                    insp_maps[iterset_name] = (map_name, iterset_name,
-                                               iterset.superset.name, iterset.indices)
+                    map_name = "%s_tosuperset" % is_name
+                    insp_maps[is_name] = (map_name, is_name,
+                                          iterset.superset.name, iterset.indices)
                     slope_desc.add((map_name, a.access._mode))
                 elif not maps:
                     # Simplest case: direct loop
@@ -1177,8 +1178,10 @@ class Inspector(Cached):
                             insp_maps[m.name] = (map_name, m.iterset.name,
                                                  m.toset.name, m.values_with_halo)
                             slope_desc.add((map_name, a.access._mode))
+                            insp_sets.add(format_set(m.iterset))
+                            insp_sets.add(format_set(m.toset))
             # Add loop
-            insp_loops.append((loop.kernel.name, iterset_name, list(slope_desc)))
+            insp_loops.append((loop.kernel.name, is_name, list(slope_desc)))
         # Provide structure of loop chain to SLOPE
         arguments.extend([inspector.add_sets(insp_sets)])
         arguments.extend([inspector.add_maps(insp_maps.values())])
