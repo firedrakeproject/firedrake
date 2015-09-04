@@ -47,7 +47,7 @@ if output:
     phifile = File("phi.pvd")
 
 while t <= T:
-    with loop_chain("main", num_unroll=1, tile_size=4):
+    with loop_chain("main", tile_size=4, num_unroll=1):
         phi -= dt / 2 * p
 
         asm = assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
