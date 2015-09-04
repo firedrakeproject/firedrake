@@ -1154,18 +1154,18 @@ class Inspector(Cached):
             iterset = loop.it_space.iterset
             is_name, is_cs, is_es, is_ts, issubset = format_set(iterset)
             insp_sets.add((is_name, is_cs, is_es, is_ts, issubset))
+            # If the iteration is over a subset, then we fake an indirect
+            # par loop from the subset to the superset. This allows tiling
+            # to be simply propagated from the superset down to the subset
+            if issubset:
+                map_name = "%s_tosuperset" % is_name
+                insp_maps[is_name] = (map_name, is_name,
+                                      iterset.superset.name, iterset.indices)
+                slope_desc.add((map_name, INC._mode))
             for a in loop.args:
                 # Add access descriptors
                 maps = as_tuple(a.map, Map)
-                if issubset:
-                    # If the iteration is over a subset, then we fake an indirect
-                    # par loop from the subset to the superset. This allows tiling
-                    # to be simply propagated from the superset down to the subset
-                    map_name = "%s_tosuperset" % is_name
-                    insp_maps[is_name] = (map_name, is_name,
-                                          iterset.superset.name, iterset.indices)
-                    slope_desc.add((map_name, a.access._mode))
-                elif not maps:
+                if not maps:
                     # Simplest case: direct loop
                     slope_desc.add(('DIRECT', a.access._mode))
                 else:
