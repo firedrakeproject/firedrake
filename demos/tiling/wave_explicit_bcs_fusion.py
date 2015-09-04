@@ -68,7 +68,7 @@ dp = dtc * Ml * b
 
 # 2) Solve -- Timestepping
 while t < N*dt:
-    with loop_chain("main", num_unroll=1, tile_size=20):
+    with loop_chain("main", tile_size=20, num_unroll=1):
         print "Executing timestep ", t
         bcval.assign(sin(2*pi*5*t))
 
