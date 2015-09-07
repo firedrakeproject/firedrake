@@ -513,21 +513,22 @@ class Mesh(object):
 
         elif topological_dim == 2 and cell_facets == 4:
             # Quadrilateral mesh
-            cell_ranks = dmplex.get_cell_remote_ranks(plex)
+            with timed_region("Mesh: cell_closure (quadrilateral)"):
+                cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
-            facet_orientations = dmplex.quadrilateral_facet_orientations(
-                plex, vertex_numbering, cell_ranks)
+                facet_orientations = dmplex.quadrilateral_facet_orientations(
+                    plex, vertex_numbering, cell_ranks)
 
-            cell_orientations = dmplex.orientations_facet2cell(
-                plex, vertex_numbering, cell_ranks,
-                facet_orientations, cell_numbering)
+                cell_orientations = dmplex.orientations_facet2cell(
+                    plex, vertex_numbering, cell_ranks,
+                    facet_orientations, cell_numbering)
 
-            dmplex.exchange_cell_orientations(plex,
-                                              cell_numbering,
-                                              cell_orientations)
+                dmplex.exchange_cell_orientations(plex,
+                                                  cell_numbering,
+                                                  cell_orientations)
 
-            return dmplex.quadrilateral_closure_ordering(
-                plex, vertex_numbering, cell_numbering, cell_orientations)
+                return dmplex.quadrilateral_closure_ordering(
+                    plex, vertex_numbering, cell_numbering, cell_orientations)
 
         else:
             raise RuntimeError("Unsupported mesh: neither simplex, nor quadrilateral.")
