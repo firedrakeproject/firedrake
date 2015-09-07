@@ -165,7 +165,7 @@ def PeriodicIntervalMesh(ncells, length):
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
     old_coordinates = Function(m.coordinates)
     new_coordinates = Function(coord_fs)
-    
+
     periodic_kernel = """double Y,pi;
             Y = 0.5*(old_coords[0][1]-old_coords[1][1]);
             pi=3.141592653589793;
@@ -176,11 +176,11 @@ def PeriodicIntervalMesh(ncells, length):
             new_coords[i][0] *= L;
             }"""
 
-    periodic_kernel = periodic_kernel.replace('L',str(length))
+    periodic_kernel = periodic_kernel.replace('L', str(length))
 
     par_loop(periodic_kernel, dx,
-             {"new_coords":(new_coordinates,WRITE),
-              "old_coords":(old_coordinates,READ)})
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ)})
 
     m.coordinates = new_coordinates
     return m
@@ -357,25 +357,6 @@ def CircleManifoldMesh(ncells, radius=1):
     m._circle_manifold = radius
     return m
 
-def PeriodicIntervalHackMesh(ncells, L=1):
-    """Generated a 1D periodic interval mesh.
-
-    :arg ncells: number of cells the interval should be
-         divided into (min 3)
-    :kwarg L: (optional) Length of interval
-           (defaults to 1).
-    """
-    if ncells < 3:
-        raise ValueError("PeriodicIntervalHackMesh must have at least three cells")
-
-    vertices = (L*np.arange(ncells)/ncells).reshape((1,ncells))
-
-    cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
-                             np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
-
-    plex = mesh._from_cell_list(1, cells, vertices)
-    m = mesh.Mesh(plex, dim=1, reorder=False)
-    return m
 
 def UnitTetrahedronMesh():
     """Generate a mesh of the reference tetrahedron"""
