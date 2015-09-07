@@ -1119,10 +1119,12 @@ class Inspector(Cached):
         library."""
 
         def format_set(s):
-            issubset = isinstance(s, Subset)
-            s_name = s.name if not issubset else "%s_ss" % s.name
+            superset, s_name = None, s.name
+            if isinstance(s, Subset):
+                superset = s.superset.name
+                s_name = "%s_ss" % s.name
             return s_name, s.core_size, s.exec_size - s.core_size, \
-                s.total_size - s.exec_size, issubset
+                s.total_size - s.exec_size, superset
 
         # Set the SLOPE backend
         global MPI
@@ -1152,15 +1154,15 @@ class Inspector(Cached):
             slope_desc = set()
             # Add sets
             iterset = loop.it_space.iterset
-            is_name, is_cs, is_es, is_ts, issubset = format_set(iterset)
-            insp_sets.add((is_name, is_cs, is_es, is_ts, issubset))
-            # If the iteration is over a subset, then we fake an indirect
-            # par loop from the subset to the superset. This allows tiling
-            # to be simply propagated from the superset down to the subset
-            if issubset:
+            is_name, is_cs, is_es, is_ts, superset = format_set(iterset)
+            insp_sets.add((is_name, is_cs, is_es, is_ts, superset))
+            # If iterating over a subset, we fake an indirect parloop from the
+            # (iteration) subset to the superset. This allows the propagation of
+            # tiling across the hierarchy of sets (see SLOPE for further info)
+            if superset:
                 map_name = "%s_tosuperset" % is_name
-                insp_maps[is_name] = (map_name, is_name,
-                                      iterset.superset.name, iterset.indices)
+                insp_maps[is_name] = (map_name, is_name, iterset.superset.name,
+                                      iterset.indices)
                 slope_desc.add((map_name, INC._mode))
             for a in loop.args:
                 # Add access descriptors
