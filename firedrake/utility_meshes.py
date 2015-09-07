@@ -7,6 +7,8 @@ from shutil import rmtree
 from pyop2.mpi import MPI
 from pyop2.profiling import profile
 
+from firedrake import VectorFunctionSpace, Function, par_loop, dx, \
+    WRITE, READ
 from firedrake import mesh
 from firedrake import expression
 from firedrake import function
@@ -159,48 +161,29 @@ def PeriodicIntervalMesh(ncells, length):
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
 
-    if MPI.comm.size > 1:
-        raise NotImplementedError("Periodic intervals not yet implemented in parallel")
-    nvert = ncells
-    nedge = ncells
-    plex = PETSc.DMPlex().create()
-    plex.setDimension(1)
-    plex.setChart(0, nvert+nedge)
-    for e in range(nedge):
-        plex.setConeSize(e, 2)
-    plex.setUp()
-    for e in range(nedge-1):
-        plex.setCone(e, [nedge+e, nedge+e+1])
-        plex.setConeOrientation(e, [0, 0])
-    # Connect v_(n-1) with v_0
-    plex.setCone(nedge-1, [nedge+nvert-1, nedge])
-    plex.setConeOrientation(nedge-1, [0, 0])
-    plex.symmetrize()
-    plex.stratify()
+    m = CircleManifoldMesh(ncells)
+    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
+    old_coordinates = Function(m.coordinates)
+    new_coordinates = Function(coord_fs)
+    
+    periodic_kernel = """double Y,pi;
+            Y = 0.5*(old_coords[0][1]-old_coords[1][1]);
+            pi=3.141592653589793;
+            for(int i=0;i<2;i++){
+            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
+            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
+            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
+            new_coords[i][0] *= L;
+            }"""
 
-    # Build coordinate section
-    dx = float(length) / ncells
-    coords = [x for x in np.arange(0, length + 0.01 * dx, dx)]
+    periodic_kernel = periodic_kernel.replace('L',str(length))
 
-    coordsec = plex.getCoordinateSection()
-    coordsec.setChart(nedge, nedge+nvert)
-    for v in range(nedge, nedge+nvert):
-        coordsec.setDof(v, 1)
-    coordsec.setUp()
-    size = coordsec.getStorageSize()
-    coordvec = PETSc.Vec().createWithArray(coords, size=size)
-    plex.setCoordinatesLocal(coordvec)
+    par_loop(periodic_kernel, dx,
+             {"new_coords":(new_coordinates,WRITE),
+              "old_coords":(old_coordinates,READ)})
 
-    dx = length / ncells
-    # HACK ALERT!
-    # Almost certainly not right when symbolic geometry stuff lands.
-    # Hopefully DMPlex will eventually give us a DG coordinate
-    # field.  Until then, we build one by hand.
-    coords = np.dstack((np.arange(dx, length + dx*0.01, dx),
-                        np.arange(0, length - dx*0.01, dx))).flatten()
-    # Last cell is back to front.
-    coords[-2:] = coords[-2:][::-1]
-    return mesh.Mesh(plex, periodic_coords=coords, reorder=False)
+    m.coordinates = new_coordinates
+    return m
 
 
 def PeriodicUnitIntervalMesh(ncells):
@@ -374,6 +357,25 @@ def CircleManifoldMesh(ncells, radius=1):
     m._circle_manifold = radius
     return m
 
+def PeriodicIntervalHackMesh(ncells, L=1):
+    """Generated a 1D periodic interval mesh.
+
+    :arg ncells: number of cells the interval should be
+         divided into (min 3)
+    :kwarg L: (optional) Length of interval
+           (defaults to 1).
+    """
+    if ncells < 3:
+        raise ValueError("PeriodicIntervalHackMesh must have at least three cells")
+
+    vertices = (L*np.arange(ncells)/ncells).reshape((1,ncells))
+
+    cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
+                             np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
+
+    plex = mesh._from_cell_list(1, cells, vertices)
+    m = mesh.Mesh(plex, dim=1, reorder=False)
+    return m
 
 def UnitTetrahedronMesh():
     """Generate a mesh of the reference tetrahedron"""
