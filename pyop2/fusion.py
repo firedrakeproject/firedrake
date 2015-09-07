@@ -717,6 +717,7 @@ class Inspector(Cached):
         self._mode = mode
 
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
+            self._schedule = PlainSchedule()
             if mode in ['soft', 'hard', 'tile']:
                 self._soft_fuse()
             if mode in ['hard', 'tile']:
