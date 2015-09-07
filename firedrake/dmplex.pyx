@@ -1,7 +1,7 @@
 # Utility functions to derive global and local numbering from DMPlex
 from petsc import PETSc
 from pyop2 import MPI as _MPI
-from pyop2.logger import info_blue
+from pyop2.logger import info
 import numpy as np
 cimport numpy as np
 import cython
@@ -1619,7 +1619,7 @@ def quadrilateral_facet_orientations(
         conflict = _MPI.comm.allreduce(conflict)
 
     if _MPI.comm.rank == 0:
-        info_blue("Communication rounds for cell closure: %d" % nrounds)
+        info("Communication rounds for cell closure: %d" % nrounds)
 
     CHKERR(PetscFree(ranks))
     CHKERR(PetscFree(offsets))
