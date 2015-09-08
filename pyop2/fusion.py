@@ -424,6 +424,29 @@ class ParLoop(sequential.ParLoop):
                                  kwargs['written_args'],
                                  kwargs['inc_args'])
 
+        # Inspector related stuff
+        self._all_kernels = kwargs.get('all_kernels', [kernel])
+        self._all_itspaces = kwargs.get('all_itspaces', [kernel])
+        self._all_args = kwargs.get('all_args', [args])
+        self._inspection = kwargs.get('inspection')
+        self._executor = kwargs.get('executor')
+
+        # Global reductions are obviously forbidden when tiling; however, the user
+        # might have bypassed this condition because sure about safety. Therefore,
+        # we act as in the super class, computing the result in a temporary buffer,
+        # and then copying it back into the original input. This is for safety of
+        # parallel global reductions (for more details, see base.ParLoop)
+        self._reduced_globals = {}
+        for _globs, _args in zip(kwargs.get('reduced_globals', []), self._all_args):
+            if not _globs:
+                continue
+            for i, glob in _globs.iteritems():
+                shadow_glob = _args[i].data
+                for j, data in enumerate([a.data for a in args]):
+                    if shadow_glob is data:
+                        self._reduced_globals[j] = glob
+                        break
+
         self._kernel = kernel
         self._actual_args = args
         self._it_space = it_space
@@ -441,12 +464,6 @@ class ParLoop(sequential.ParLoop):
                     # the same)
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
-
-        self._all_kernels = kwargs.get('all_kernels', [kernel])
-        self._all_itspaces = kwargs.get('all_itspaces', [kernel])
-        self._all_args = kwargs.get('all_args', [args])
-        self._inspection = kwargs.get('inspection')
-        self._executor = kwargs.get('executor')
 
     def prepare_arglist(self, part, *args):
         arglist = [self._inspection]
@@ -484,11 +501,18 @@ class ParLoop(sequential.ParLoop):
         }
         fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
         arglist = self.prepare_arglist(None, *self.args)
+
         with timed_region("ParLoopChain: executor"):
             self.halo_exchange_begin()
             fun(*(arglist + [0]))
             self.halo_exchange_end()
             fun(*(arglist + [1]))
+
+            # Only meaningful if the user is enforcing tiling in presence of
+            # global reductions
+            self.reduction_begin()
+            self.reduction_end()
+
             self.update_arg_data_state()
 
 
@@ -619,6 +643,7 @@ class TilingSchedule(Schedule):
         kernel = Kernel(all_kernels)
         it_space = IterationSpace(all_itspaces)
         args = Arg.filter_args([loop.args for loop in loop_chain]).values()
+        reduced_globals = [loop._reduced_globals for loop in loop_chain]
         read_args = set(flatten([loop.reads for loop in loop_chain]))
         written_args = set(flatten([loop.writes for loop in loop_chain]))
         inc_args = set(flatten([loop.incs for loop in loop_chain]))
@@ -628,6 +653,7 @@ class TilingSchedule(Schedule):
             'all_args': all_args,
             'read_args': read_args,
             'written_args': written_args,
+            'reduced_globals': reduced_globals,
             'inc_args': inc_args,
             'inspection': self._inspection,
             'executor': self._executor
