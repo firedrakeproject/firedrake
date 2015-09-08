@@ -131,6 +131,18 @@ class Arg(sequential.Arg):
             raise RuntimeError("Cannot bind arguments having mismatching types")
         return "%s* %s = %s" % (self.ctype, self.c_arg_name(), arg.c_arg_name())
 
+    def c_ind_data(self, idx, i, j=0, is_top=False, layers=1, offset=None):
+        return "%(name)s + (%(map_name)s[n * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
+            {'name': self.c_arg_name(i),
+             'map_name': self.c_map_name(i, 0),
+             'arity': self.map.split[i].arity,
+             'idx': idx,
+             'top': ' + start_layer' if is_top else '',
+             'dim': self.data[i].cdim,
+             'off': ' + %d' % j if j else '',
+             'off_mul': ' * %d' % offset if is_top and offset is not None else '',
+             'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
+
     def c_map_name(self, i, j):
         return self._c_local_maps[i][j]
 
@@ -267,9 +279,8 @@ void %(wrapper_name)s(%(executor_arg)s,
 %(args_binding)s;
 %(tile_init)s;
 for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
-  int i = %(index_expr)s;
+  int i = %(tile_iter)s;
   %(vec_inits)s;
-  i = %(tile_iter)s;
   %(buffer_decl)s;
   %(buffer_gather)s
   %(kernel_name)s(%(kernel_args)s);
