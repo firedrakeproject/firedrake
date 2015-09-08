@@ -412,11 +412,10 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 class ParLoop(sequential.ParLoop):
 
     def __init__(self, kernel, it_space, *args, **kwargs):
-        read_args = [a.data for a in args if a.access in [READ, RW]]
-        written_args = [a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]
-        inc_args = [a.data for a in args if a.access in [INC]]
-        LazyComputation.__init__(self, set(read_args) | Const._defs,
-                                 set(written_args), set(inc_args))
+        LazyComputation.__init__(self,
+                                 kwargs['read_args'] | Const._defs,
+                                 kwargs['written_args'],
+                                 kwargs['inc_args'])
 
         self._kernel = kernel
         self._actual_args = args
@@ -613,10 +612,16 @@ class TilingSchedule(Schedule):
         kernel = Kernel(all_kernels)
         it_space = IterationSpace(all_itspaces)
         args = Arg.filter_args([loop.args for loop in loop_chain]).values()
+        read_args = set(flatten([loop.reads for loop in loop_chain]))
+        written_args = set(flatten([loop.writes for loop in loop_chain]))
+        inc_args = set(flatten([loop.incs for loop in loop_chain]))
         kwargs = {
             'all_kernels': all_kernels,
             'all_itspaces': all_itspaces,
             'all_args': all_args,
+            'read_args': read_args,
+            'written_args': written_args,
+            'inc_args': inc_args,
             'inspection': self._inspection,
             'executor': self._executor
         }
