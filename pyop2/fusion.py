@@ -245,12 +245,12 @@ class JITModule(sequential.JITModule):
     _wrapper = """
 extern "C" void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
-                      %(wrapper_args)s,
+                      %(wrapper_args)s
                       %(const_args)s
                       %(region_flag)s);
 void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
-                      %(wrapper_args)s,
+                      %(wrapper_args)s
                       %(const_args)s
                       %(region_flag)s) {
   %(user_code)s
@@ -360,21 +360,14 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                                                slope.Executor.meta['name_param_exec'])
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
-        if len(Const._defs) > 0:
-            _const_args = ', '.join([c_const_arg(c) for c in Const._definitions()])
-            _const_args += ', '
-        else:
-            _const_args = ''
-        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
         code_dict['wrapper_args'] = _wrapper_args
-        code_dict['const_args'] = _const_args
         code_dict['wrapper_decs'] = indent(_wrapper_decs, 1)
-        code_dict['const_inits'] = indent(_const_inits, 1)
-        code_dict['region_flag'] = "%s %s" % (slope.Executor.meta['ctype_region_flag'],
-                                              slope.Executor.meta['region_flag'])
+        code_dict['region_flag'] = ", %s %s" % (slope.Executor.meta['ctype_region_flag'],
+                                                slope.Executor.meta['region_flag'])
 
         # 2) Construct the kernel invocations
-        _loop_chain_body, _user_code, _ssinds_arg = [], [], []
+        _loop_body, _user_code, _ssinds_arg = [], [], []
+        _const_args, _const_inits = set(), set()
         # For each kernel ...
         for i, (kernel, it_space, args) in enumerate(zip(self._all_kernels,
                                                          self._all_itspaces,
@@ -389,21 +382,35 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             # since bits of code generation can be reused
             loop_code_dict = sequential.JITModule(kernel, it_space, *args, delay=True)
             loop_code_dict = loop_code_dict.generate_code()
+
+            # ... build the subset indirection array, if necessary
+            _ssind_arg, _ssind_decl = '', ''
+            if loop_code_dict['ssinds_arg']:
+                _ssind_arg = 'ssinds_%d' % i
+                _ssind_decl = 'int* %s' % _ssind_arg
+                loop_code_dict['index_expr'] = '%s[n]' % _ssind_arg
+
+            # ... finish building up the /code_dict/
             loop_code_dict['args_binding'] = binding
             loop_code_dict['tile_init'] = self._executor.c_loop_init[i]
             loop_code_dict['tile_start'] = slope.Executor.meta['tile_start']
             loop_code_dict['tile_end'] = slope.Executor.meta['tile_end']
             loop_code_dict['tile_iter'] = '%s[n]' % self._executor.gtl_maps[i]['DIRECT']
-            if loop_code_dict['ssinds_arg']:
-                loop_code_dict['tile_iter'] = 'ssinds[%s]' % loop_code_dict['tile_iter']
+            if _ssind_arg:
+                loop_code_dict['tile_iter'] = '%s[%s]' % (_ssind_arg, loop_code_dict['tile_iter'])
 
-            _loop_chain_body.append(strip(JITModule._kernel_wrapper % loop_code_dict))
+            # ... concatenate the rest, i.e., body, user code, constants, ...
+            _loop_body.append(strip(JITModule._kernel_wrapper % loop_code_dict))
             _user_code.append(kernel._user_code)
-            _ssinds_arg.append(loop_code_dict['ssinds_arg'])
+            _ssinds_arg.append(_ssind_decl)
+            _const_args.add(loop_code_dict['const_args'])
+            _const_inits.add(loop_code_dict['const_inits'])
 
-        _loop_chain_body = indent("\n\n".join(_loop_chain_body), 2)
+        _loop_chain_body = indent("\n\n".join(_loop_body), 2)
+        code_dict['const_args'] = "".join(_const_args)
+        code_dict['const_inits'] = indent("".join(_const_inits), 1)
         code_dict['user_code'] = indent("\n".join(_user_code), 1)
-        code_dict['ssinds_arg'] = ", ".join([s for s in _ssinds_arg if s])
+        code_dict['ssinds_arg'] = "".join(["%s," % s for s in _ssinds_arg if s])
         code_dict['executor_code'] = indent(self._executor.c_code(_loop_chain_body), 1)
 
         return code_dict
