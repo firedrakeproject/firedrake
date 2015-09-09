@@ -804,6 +804,14 @@ class Mesh(object):
         return self.parent.cell_set if self.parent else \
             op2.Set(size, "%s_cells" % self.name)
 
+    @utils.cached_property
+    def cell_set_hierarchy(self):
+        hierarchy = np.empty((self.s_depth, 4), dtype=np.int32)
+        for s in range(self.s_depth):
+            entity_classes = dmplex.get_entity_classes(self._plex, s+1)
+            hierarchy[s, :] = entity_classes[self.cell_dimension(), :]
+        return hierarchy
+
     def facet_dimension(self):
         """Returns the facet dimension."""
         # Facets have co-dimension 1
