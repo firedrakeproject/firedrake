@@ -15,6 +15,7 @@ verbose = True if len(sys.argv) == 2 and sys.argv[1] == '--verbose' else False
 output = False
 
 mesh = UnitSquareMesh(10, 10)
+mesh.init(s_depth=1)
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
 # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
