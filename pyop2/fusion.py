@@ -1167,14 +1167,35 @@ class Inspector(Cached):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
+        slope_backend = 'SEQUENTIAL'
+        loop_chain = self._loop_chain
 
-        def format_set(s):
+        def inspect_set(s):
+            """Inspect the iteration set of a loop and return information suitable
+            for SLOPE. As part of this process, check that such iteration set has
+            a sufficiently depth halo region for correct execution in the case a
+            SLOPE MPI backend is enabled."""
+            # Get and format some iterset info
             superset, s_name = None, s.name
             if isinstance(s, Subset):
                 superset = s.superset.name
                 s_name = "%s_ss" % s.name
-            return s_name, s.core_size, s.exec_size - s.core_size, \
-                s.total_size - s.exec_size, superset
+            # If not an MPI backend, return "standard" values for core, exec, and
+            # non-exec regions (recall that SLOPE expects owned to be part of exec)
+            if slope_backend not in ['OMP_MPI', 'ONLY_MPI']:
+                return s_name, s.core_size, s.exec_size - s.core_size, \
+                    s.total_size - s.exec_size, superset
+            if not hasattr(s, '_deep_size') and len(s._deep_size) < len(loop_chain):
+                warning("Invalid SLOPE backend (%s) with available halo", slope_backend)
+                warning("tiling skipped")
+                return ()
+            else:
+                # Assume [0, 1, ..., N] levels of halo depth
+                levelN = s._deep_size[-1]
+                core_size = levelN[0]
+                exec_size = levelN[2] - core_size
+                nonexec_size = levelN[3] - levelN[2]
+                return s_name, core_size, exec_size, nonexec_size, superset
 
         # Set the SLOPE backend
         global MPI
@@ -1200,22 +1221,25 @@ class Inspector(Cached):
         # Build inspector and argument types and values
         arguments = []
         insp_sets, insp_maps, insp_loops = set(), {}, []
-        for loop in self._loop_chain:
+        for loop in loop_chain:
             slope_desc = set()
-            # Add sets
+            # 1) Add sets
             iterset = loop.it_space.iterset
-            is_name, is_cs, is_es, is_ts, superset = format_set(iterset)
-            insp_sets.add((is_name, is_cs, is_es, is_ts, superset))
+            infoset = inspect_set(iterset)
+            if not infoset:
+                return
+            insp_sets.add(infoset)
+            iterset_name, superset = infoset[0], infoset[4]
             # If iterating over a subset, we fake an indirect parloop from the
             # (iteration) subset to the superset. This allows the propagation of
             # tiling across the hierarchy of sets (see SLOPE for further info)
             if superset:
-                map_name = "%s_tosuperset" % is_name
-                insp_maps[is_name] = (map_name, is_name, iterset.superset.name,
-                                      iterset.indices)
+                map_name = "%s_tosuperset" % iterset_name
+                insp_maps[iterset_name] = (map_name, iterset_name,
+                                           iterset.superset.name, iterset.indices)
                 slope_desc.add((map_name, INC._mode))
             for a in loop.args:
-                # Add access descriptors
+                # 2) Add access descriptors
                 maps = as_tuple(a.map, Map)
                 if not maps:
                     # Simplest case: direct loop
@@ -1230,10 +1254,10 @@ class Inspector(Cached):
                             insp_maps[m.name] = (map_name, m.iterset.name,
                                                  m.toset.name, m.values_with_halo)
                             slope_desc.add((map_name, a.access._mode))
-                            insp_sets.add(format_set(m.iterset))
-                            insp_sets.add(format_set(m.toset))
-            # Add loop
-            insp_loops.append((loop.kernel.name, is_name, list(slope_desc)))
+                            insp_sets.add(inspect_set(m.iterset))
+                            insp_sets.add(inspect_set(m.toset))
+            # 3) Add loop
+            insp_loops.append((loop.kernel.name, iterset_name, list(slope_desc)))
         # Provide structure of loop chain to SLOPE
         arguments.extend([inspector.add_sets(insp_sets)])
         arguments.extend([inspector.add_maps(insp_maps.values())])
