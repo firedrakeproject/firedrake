@@ -802,9 +802,12 @@ class Mesh(object):
 
     @utils.cached_property
     def cell_set(self):
-        size = list(self.cell_classes)
-        return self.parent.cell_set if self.parent else \
-            op2.Set(size, "%s_cells" % self.name)
+        if self.parent:
+            return self.parent.cell_set
+        else:
+            s = op2.Set(list(self.cell_classes), "%s_cells" % self.name)
+            s._deep_size = self.cell_set_hierarchy
+            return s
 
     @utils.cached_property
     def cell_set_hierarchy(self):
