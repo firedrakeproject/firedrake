@@ -201,6 +201,7 @@ class FunctionSpaceBase(ObjectCached):
         if self._halo:
             s = op2.Set(self.dof_classes, name,
                         halo=self._halo)
+            s._deep_size = self.node_set_hierarchy
             if self.extruded:
                 return op2.ExtrudedSet(s, layers=self._mesh.layers)
             return s
