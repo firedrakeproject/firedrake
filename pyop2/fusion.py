@@ -113,16 +113,16 @@ class Arg(sequential.Arg):
                     if READ in [a.access, fa.access]:
                         # If a READ and some sort of write (MIN, MAX, RW, WRITE,
                         # INC), then the access mode becomes RW
-                        fa._access = RW
+                        fa.access = RW
                     elif WRITE in [a.access, fa.access]:
                         # Can't be a READ, so just stick to WRITE regardless of what
                         # the other access mode is
-                        fa._access = WRITE
+                        fa.access = WRITE
                     else:
                         # Neither READ nor WRITE, so access modes are some
                         # combinations of RW, INC, MIN, MAX. For simplicity,
                         # just make it RW.
-                        fa._access = RW
+                        fa.access = RW
         return filtered_args
 
     def c_arg_bindto(self, arg):
