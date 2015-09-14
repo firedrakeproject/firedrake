@@ -5,10 +5,12 @@ from firedrake import *
 import sys
 from time import time
 
-from pyop2.profiling import summary, timed_region, Timer
+from pyop2.profiling import timed_region
 from pyop2.configuration import configuration
 from pyop2.fusion import loop_chain
 from pyop2.mpi import MPI
+
+from utils.timing import output_time
 
 verbose = True if len(sys.argv) == 2 and sys.argv[1] == '--verbose' else False
 output = False
@@ -68,33 +70,7 @@ end = time()
 print phi.dat.data
 
 # Print runtime summary
-if MPI.comm.rank in range(1, MPI.comm.size):
-    MPI.comm.isend([start, end], dest=0)
-elif MPI.comm.rank == 0:
-    starts, ends = [0]*MPI.comm.size, [0]*MPI.comm.size
-    starts[0], ends[0] = start, end
-    for i in range(1, MPI.comm.size):
-        starts[i], ends[i] = MPI.comm.recv(source=i)
-    print "MPI starts: %s" % str(starts)
-    print "MPI ends: %s" % str(ends)
-    start = min(starts)
-    end = max(ends)
-    tot = end - start
-    print "Time stepping: ", tot
-
-if verbose:
-    print "Num procs:", MPI.comm.size
-    for i in range(MPI.comm.size):
-        if MPI.comm.rank == i:
-            summary()
-        MPI.comm.barrier()
-
-    if MPI.comm.rank == 0:
-        print "MPI rank", MPI.comm.rank, ":"
-        print "  Time stepping loop:", Timer._timers['Time stepping'].total
-        print "  ParLoop kernel:", Timer._timers['ParLoop kernel'].total
-        if "ParLoopChain: executor" in Timer._timers:
-            print "ParLoopChain: compute: ", Timer._timers['ParLoopChain: compute'].total
+output_time(start, end, verbose=verbose, tofile=True)
 
 if output:
     #outfile << p
