@@ -39,9 +39,7 @@ from copy import deepcopy as dcopy, copy as scopy
 import os
 
 from base import *
-import base
-import compilation
-import sequential
+import base, compilation, sequential, host
 from backends import _make_object
 from caching import Cached
 from profiling import timed_region
@@ -219,7 +217,7 @@ class Kernel(sequential.Kernel, tuple):
             # in which case duplicates are discarded
             self._ast = None
             kernels = OrderedDict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
-            self._code = "\n".join([super(Kernel, k)._ast_to_c(dcopy(k._original_ast), k._opts)
+            self._code = "\n".join([host.Kernel._ast_to_c(k, dcopy(k._original_ast), k._opts)
                                     if k._original_ast else k._code for k in kernels])
         self._original_ast = self._ast
 
