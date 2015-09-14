@@ -45,7 +45,7 @@ class Parameters(dict):
 parameters = Parameters()
 
 parameters.add(Parameters("assembly_cache",
-                          enabled=True,
+                          enabled=False,
                           eviction=True,
                           max_bytes=float("Inf"),
                           max_factor=0.6,
