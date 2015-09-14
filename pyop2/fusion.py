@@ -47,7 +47,6 @@ from caching import Cached
 from profiling import timed_region
 from logger import warning, info as log_info
 from mpi import MPI, collective
-from configuration import configuration
 from utils import flatten, strip, as_tuple
 
 import coffee
@@ -55,9 +54,25 @@ from coffee import base as ast
 from coffee.utils import ast_make_alias
 from coffee.visitors import FindInstances, SymbolReferences
 
+
 try:
+    """Is SLOPE accessible ?"""
     import slope_python as slope
-except ImportError:
+    os.environ['SLOPE_DIR']
+
+    # Set the SLOPE backend
+    backend = os.environ.get('SLOPE_BACKEND')
+    if backend not in ['SEQUENTIAL', 'OMP']:
+        backend = 'SEQUENTIAL'
+    if MPI.parallel:
+        if backend == 'SEQUENTIAL':
+            backend = 'ONLY_MPI'
+        if backend == 'OMP':
+            backend = 'OMP_MPI'
+    slope.set_exec_mode(backend)
+    log_info("SLOPE backend set to %s" % backend)
+except:
+    warning("Couldn't locate SLOPE. Check PYTHONPATH and SLOPE_DIR env variables")
     slope = None
 
 
@@ -681,7 +696,7 @@ class Inspector(Cached):
     .. note:: For tiling, the Inspector relies on the SLOPE library."""
 
     _cache = {}
-    _modes = ['soft', 'hard', 'tile', 'only_tile']
+    _modes = ['soft', 'hard', 'tile', 'only_tile', 'only_omp']
 
     @classmethod
     def _cache_key(cls, name, loop_chain, tile_size):
@@ -733,6 +748,7 @@ class Inspector(Cached):
             * ``tile``: ``soft`` and ``hard`` fusion; then, tiling through the
                 SLOPE library takes place.
             * ``only_tile``: only tiling through the SLOPE library (i.e., no fusion)
+            * ``only_omp``: ompize individual parloops through the SLOPE library
         """
         self._inspected += 1
         if self._heuristic_skip_inspection(mode):
@@ -771,7 +787,7 @@ class Inspector(Cached):
                 self._soft_fuse()
             if mode in ['hard', 'tile']:
                 self._hard_fuse()
-            if mode in ['tile', 'only_tile']:
+            if mode in ['tile', 'only_tile', 'only_omp']:
                 self._tile()
 
         # A schedule has been computed by any of /_soft_fuse/, /_hard_fuse/ or
@@ -786,12 +802,13 @@ class Inspector(Cached):
         return self._schedule
 
     def _heuristic_skip_inspection(self, mode):
-        """Decide heuristically whether to run an inspection or not."""
-        # At the moment, a simple heuristic is used. If tiling is not requested,
-        # then inspection is performed. If tiling is, on the other hand, requested,
-        # then inspection is performed on the third time it is requested, which
-        # would suggest the inspection is being asked in a loop chain context; this
-        # is for amortizing the cost of data flow analysis performed by SLOPE.
+        """Decide, heuristically, whether to run an inspection or not.
+        If tiling is not requested, then inspection is always performed.
+        If tiling is requested, then inspection is performed on the third
+        invocation. The fact that an inspection for the same loop chain
+        is requested multiple times suggests the parloops originate in a
+        time stepping loop. The cost of building tiles in SLOPE-land would
+        then be amortized over several iterations."""
         if mode in ['tile', 'only_tile'] and self._inspected < 3:
             return True
         return False
@@ -1167,7 +1184,6 @@ class Inspector(Cached):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
-        slope_backend = 'SEQUENTIAL'
         loop_chain = self._loop_chain
 
         def inspect_set(s):
@@ -1182,11 +1198,11 @@ class Inspector(Cached):
                 s_name = "%s_ss" % s.name
             # If not an MPI backend, return "standard" values for core, exec, and
             # non-exec regions (recall that SLOPE expects owned to be part of exec)
-            if slope_backend not in ['OMP_MPI', 'ONLY_MPI']:
+            if slope.get_exec_mode() not in ['OMP_MPI', 'ONLY_MPI']:
                 return s_name, s.core_size, s.exec_size - s.core_size, \
                     s.total_size - s.exec_size, superset
             if not hasattr(s, '_deep_size') and len(s._deep_size) < len(loop_chain):
-                warning("Invalid SLOPE backend (%s) with available halo", slope_backend)
+                warning("Invalid SLOPE backend (%s) with available halo", slope.get_exec_mode())
                 warning("tiling skipped")
                 return ()
             else:
@@ -1196,23 +1212,6 @@ class Inspector(Cached):
                 exec_size = levelN[2] - core_size
                 nonexec_size = levelN[3] - levelN[2]
                 return s_name, core_size, exec_size, nonexec_size, superset
-
-        # Set the SLOPE backend
-        global MPI
-        if not MPI.parallel:
-            if configuration['backend'] == 'sequential':
-                slope_backend = 'SEQUENTIAL'
-            if configuration['backend'] == 'openmp':
-                slope_backend = 'OMP'
-        elif configuration['backend'] == 'sequential':
-            slope_backend = 'ONLY_MPI'
-        elif configuration['backend'] == 'openmp':
-            slope_backend = 'OMP_MPI'
-        else:
-            warning("Could not find a valid SLOPE backend, tiling skipped")
-            return
-        slope.set_exec_mode(slope_backend)
-        log_info("SLOPE backend set to %s" % slope_backend)
 
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
@@ -1305,7 +1304,7 @@ class Inspector(Cached):
         return self._mode
 
 
-# Interface for triggering loop fusion
+# Loop fusion interface
 
 def fuse(name, loop_chain, **kwargs):
     """Apply fusion (and possibly tiling) to an iterator of :class:`ParLoop`
@@ -1374,18 +1373,9 @@ def fuse(name, loop_chain, **kwargs):
     if any([l.is_layered for l in loop_chain]):
         return loop_chain + remainder
 
-    # Check if tiling needs be applied
-    if mode in ['tile', 'only_tile']:
-        # Loop tiling requires the SLOPE library to be available on the system.
-        if slope is None:
-            warning("Requested tiling, but couldn't locate SLOPE. Check the PYTHONPATH")
-            return loop_chain + remainder
-        try:
-            os.environ['SLOPE_DIR']
-        except KeyError:
-            warning("Set the env variable SLOPE_DIR to the location of SLOPE")
-            warning("Loops won't be fused, and plain ParLoops will be executed")
-            return loop_chain + remainder
+    # If tiling is requested, SLOPE must be visible
+    if mode in ['tile', 'only_tile'] and not slope:
+        return loop_chain + remainder
 
     # Get an inspector for fusing this loop_chain, possibly retrieving it from
     # the cache, and obtain the fused ParLoops through the schedule it produces
@@ -1435,7 +1425,7 @@ def loop_chain(name, tile_size=1, **kwargs):
     yield
 
     trace = _trace._trace
-    if num_unroll < 1 or stamp == trace:
+    if trace == stamp:
         return
 
     # What's the first item /B/ that appeared in the trace /before/ entering the
@@ -1446,15 +1436,24 @@ def loop_chain(name, tile_size=1, **kwargs):
         if i in trace:
             bottom = trace.index(i) + 1
             break
-    extracted_loop_chain = trace[bottom:]
+    extracted_trace = trace[bottom:]
+
+    if num_unroll < 1:
+        # No fusion, but openmp parallelization could still occur through SLOPE
+        if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
+            blk_size = tile_size  # There is actually no tiling, just need a block size
+            new_trace = [Inspector(name, [loop], blk_size).inspect('only_omp')([loop])
+                         for loop in extracted_trace]
+            trace[bottom:] = list(flatten(new_trace))
+        return
 
     # Unroll the loop chain /num_unroll/ times before fusion/tiling
-    total_loop_chain = loop_chain.unrolled_loop_chain + extracted_loop_chain
-    if len(total_loop_chain) / len(extracted_loop_chain) == num_unroll:
+    total_loop_chain = loop_chain.unrolled_loop_chain + extracted_trace
+    if len(total_loop_chain) / len(extracted_trace) == num_unroll:
         bottom = trace.index(total_loop_chain[0])
         trace[bottom:] = fuse(name, total_loop_chain,
                               tile_size=tile_size, force_glb=force_glb, mode=mode)
         loop_chain.unrolled_loop_chain = []
     else:
-        loop_chain.unrolled_loop_chain.extend(extracted_loop_chain)
+        loop_chain.unrolled_loop_chain.extend(extracted_trace)
 loop_chain.unrolled_loop_chain = []
