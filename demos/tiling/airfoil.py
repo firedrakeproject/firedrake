@@ -1,25 +1,30 @@
 import h5py
 from math import sqrt
 import numpy as np
-import os
 
-from pyop2 import op2, utils
+from pyop2 import op2
 from pyop2.configuration import configuration
-from pyop2.mpi import MPI
 from pyop2.fusion import loop_chain
 
+from utils.benchmarking import parser
+
 import slope_python
+
 
 configuration['lazy_max_trace_length'] = 0
 configuration['profiling'] = True
 
 
-def main(opt):
+def main(args):
+
+    num_unroll = args.num_unroll
+    tile_size = args.tile_size
+    mesh = args.mesh
 
     save_soln, adt_calc, res_calc, bres_calc, update = kernels()
 
     try:
-        with h5py.File(opt['mesh'], 'r') as f:
+        with h5py.File(mesh, 'r') as f:
 
             # Declare sets, maps, datasets and global constants
 
@@ -60,7 +65,7 @@ def main(opt):
 
     except IOError:
         import sys
-        print "Failed reading mesh: Could not read from %s\n" % opt['mesh']
+        print "Failed reading mesh: Could not read from %s\n" % mesh
         sys.exit(1)
 
     # Main time-marching loop
@@ -69,7 +74,7 @@ def main(opt):
 
     for i in range(1, niter + 1):
 
-        with loop_chain("main", tile_size=2000, num_unroll=1, force_glb=True, mode='only_tile'):
+        with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, force_glb=True, mode='only_tile'):
 
             # Save old flow solution
             op2.par_loop(save_soln, cells,
@@ -252,17 +257,6 @@ def kernels():
     return save_soln, adt_calc, res_calc, bres_calc, update
 
 if __name__ == '__main__':
-    parser = utils.parser(group=True, description="PyOP2 airfoil demo")
-    parser.add_argument('-m', '--mesh', default='meshes/new_grid.h5',
-                        help='HDF5 mesh file to use (default: meshes/new_grid.h5)')
-    parser.add_argument('-p', '--profile', action='store_true',
-                        help='Create a cProfile for the run')
-    opt = vars(parser.parse_args())
-    op2.init(**opt)
-
-    if opt['profile']:
-        import cProfile
-        filename = 'airfoil.%s.cprofile' % os.path.split(opt['mesh'])[-1]
-        cProfile.run('main(opt)', filename=filename)
-    else:
-        main(opt)
+    op2.init()
+    args = parser(mesh='meshes/new_grid.h5')
+    main(args)

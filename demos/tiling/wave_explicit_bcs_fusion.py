@@ -1,29 +1,27 @@
-# NOTE This is a demo, not a regression test
-
 from firedrake import *
 
-import numpy as np
-import sys
 from time import time
 
 from pyop2.profiling import timed_region
 from pyop2.configuration import configuration
 from pyop2.fusion import loop_chain
-from pyop2.mpi import MPI
 
-from utils.timing import output_time
+from utils.benchmarking import parser, output_time
 
-verbose = False
-output = False
+
+# Get the input
+args = parser()
+num_unroll = args.num_unroll
+tile_size = args.tile_size
+mesh_size = args.mesh_size
+verbose = args.verbose
+output = args.output
+mode = args.fusion_mode
 
 # Constants
 loop_chain_length = 4
 
-# Parameters
-num_unroll = 1
-tile_size = 20
-
-mesh = UnitSquareMesh(10, 10)
+mesh = UnitSquareMesh(mesh_size, mesh_size)
 mesh.init(s_depth=1)
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
@@ -72,7 +70,7 @@ dp = dtc * Ml * b
 
 # 2) Solve -- Timestepping
 while t < N*dt:
-    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll):
+    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode):
         print "Executing timestep ", t
         bcval.assign(sin(2*pi*5*t))
 
