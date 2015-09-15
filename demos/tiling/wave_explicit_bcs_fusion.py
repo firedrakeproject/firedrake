@@ -13,8 +13,15 @@ from pyop2.mpi import MPI
 
 from utils.timing import output_time
 
-verbose = True if len(sys.argv) == 2 and sys.argv[1] == '--verbose' else False
+verbose = False
 output = False
+
+# Constants
+loop_chain_length = 4
+
+# Parameters
+num_unroll = 1
+tile_size = 20
 
 mesh = UnitSquareMesh(10, 10)
 mesh.init(s_depth=1)
@@ -29,18 +36,12 @@ configuration['lazy_max_trace_length'] = 0
 # Switch on PyOP2 profiling
 configuration['profiling'] = True
 
-print "MPI rank", MPI.comm.rank, "has a Mesh size of", mesh.num_cells(), "cells."
-
 # Simulation
 scale = 1.0
 N = 100
 
 # 1) Solve -- Setup
 V = FunctionSpace(mesh, 'Lagrange', 1)
-total_dofs = np.zeros(1, dtype=int)
-op2.MPI.comm.Allreduce(np.array([V.dof_dset.size], dtype=int), total_dofs)
-if verbose:
-    print '[%d]' % op2.MPI.comm.rank, 'DOFs:', V.dof_dset.size
 
 p = Function(V)
 phi = Function(V, name="phi")
@@ -71,7 +72,7 @@ dp = dtc * Ml * b
 
 # 2) Solve -- Timestepping
 while t < N*dt:
-    with loop_chain("main", tile_size=20, num_unroll=1):
+    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll):
         print "Executing timestep ", t
         bcval.assign(sin(2*pi*5*t))
 
@@ -93,7 +94,8 @@ with timed_region("Time stepping"):
 end = time()
 
 # Print runtime summary
-output_time(start, end, verbose=verbose, tofile=True)
+output_time(start, end, verbose=verbose, tofile=True, fs=V, nloops=loop_chain_length,
+            tile_size=tile_size)
 
 if output:
     #outfile << p
