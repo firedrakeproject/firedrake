@@ -12,8 +12,15 @@ from pyop2.mpi import MPI
 
 from utils.timing import output_time
 
-verbose = True if len(sys.argv) == 2 and sys.argv[1] == '--verbose' else False
+verbose = False
 output = False
+
+# Constants
+loop_chain_length = 3
+
+# Parameters
+num_unroll = 1
+tile_size = 4
 
 mesh = UnitSquareMesh(3, 3)
 mesh.init(s_depth=1)
@@ -47,11 +54,11 @@ Ml.dat._force_evaluation()
 p.interpolate(Expression("exp(-40*((x[0]-.5)*(x[0]-.5)+(x[1]-.5)*(x[1]-.5)))"))
 
 if output:
-    #outfile = File("out.pvd")
+    outfile = File("out.pvd")
     phifile = File("phi.pvd")
 
 while t <= T:
-    with loop_chain("main", tile_size=4, num_unroll=1):
+    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll):
         phi -= dt / 2 * p
 
         asm = assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
@@ -70,8 +77,9 @@ end = time()
 print phi.dat.data
 
 # Print runtime summary
-output_time(start, end, verbose=verbose, tofile=True)
+output_time(start, end, verbose=verbose, tofile=True, fs=fs, nloops=loop_chain_length,
+            tile_size=tile_size)
 
 if output:
-    #outfile << p
+    outfile << p
     phifile << phi
