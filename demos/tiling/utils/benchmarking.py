@@ -1,9 +1,23 @@
 import sys
 import os
 import numpy as np
+import argparse
 
 from pyop2.mpi import MPI
 from pyop2.profiling import summary
+
+
+def parser(**kwargs):
+    p = argparse.ArgumentParser(description='Run a Firedrake program using loop tiling')
+    p.add_argument('-n', '--num-unroll', type=int, help='time loop unroll factor', default=1)
+    p.add_argument('-t', '--tile-size', type=int, help='initial average tile size', default=5)
+    p.add_argument('-e', '--fusion-mode', help='(soft, hard, tile, only_tile', default='tile')
+    p.add_argument('-m', '--mesh-size', type=int, help='drive the mesh size', default=3)
+    p.add_argument('-v', '--verbose', help='print additional information', default=False)
+    p.add_argument('-o', '--output', help='write to file the simulation output', default=False)
+    for opt, default in kwargs.iteritems():
+        p.add_argument("--%s" % opt, default=default)
+    return p.parse_args()
 
 
 def output_time(start, end, **kwargs):

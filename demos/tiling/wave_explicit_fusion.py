@@ -1,28 +1,27 @@
-# NOTE This is a demo, not a regression test
-
 from firedrake import *
 
-import sys
 from time import time
 
 from pyop2.profiling import timed_region
 from pyop2.configuration import configuration
 from pyop2.fusion import loop_chain
-from pyop2.mpi import MPI
 
-from utils.timing import output_time
+from utils.benchmarking import parser, output_time
 
-verbose = False
-output = False
+
+# Get the input
+args = parser()
+num_unroll = args.num_unroll
+tile_size = args.tile_size
+mesh_size = args.mesh_size
+verbose = args.verbose
+output = args.output
+mode = args.fusion_mode
 
 # Constants
 loop_chain_length = 3
 
-# Parameters
-num_unroll = 1
-tile_size = 4
-
-mesh = UnitSquareMesh(3, 3)
+mesh = UnitSquareMesh(mesh_size, mesh_size)
 mesh.init(s_depth=1)
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
@@ -34,8 +33,6 @@ slope(mesh, debug=True)
 configuration['lazy_max_trace_length'] = 0
 # Switch on PyOP2 profiling
 configuration['profiling'] = True
-
-print "MPI rank", MPI.comm.rank, "has a Mesh size of", mesh.num_cells(), "cells."
 
 T = 1
 dt = 0.001
@@ -58,7 +55,7 @@ if output:
     phifile = File("phi.pvd")
 
 while t <= T:
-    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll):
+    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode):
         phi -= dt / 2 * p
 
         asm = assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
