@@ -1,7 +1,13 @@
 import sys
 import os
-import numpy as np
+import re
 import argparse
+from collections import defaultdict
+
+# (fancy) plotting stuff
+import numpy as np
+import matplotlib.pyplot as plt
+import brewer2mpl
 
 from pyop2.mpi import MPI
 from pyop2.profiling import summary
@@ -97,3 +103,68 @@ def output_time(start, end, **kwargs):
             if MPI.comm.rank == i:
                 summary()
             MPI.comm.barrier()
+
+
+def plot():
+
+    runtimes = defaultdict(list)
+
+    toplot = [(i[0], i[2]) for i in os.walk("times/") if not i[1]]
+    for problem, experiments in toplot:
+        # Get info out of the problem name
+        info = problem.split('/')
+        name, mesh, mode = info[1], info[2], info[3]
+        for experiment in experiments:
+            num_procs, num_threads = re.findall(r'\d+', experiment)
+            num_cores = int(num_procs) * int(num_threads)
+            with open(os.path.join(problem, experiment), 'r') as f:
+                lines = [line.split(':') for line in f if line.strip()][1:]
+                # Recall that lines are already sorted based on runtime
+                # So get all runtimes available for what was the fastest version
+                # (that is, the instances with same number of unrolled loops and
+                # same tile size)
+                fastest = lines[0]
+                lines = [i[0] for i in lines if i[1] == fastest[1] and i[2] == fastest[2]]
+                avg = sum([float(i) for i in lines]) / len(lines)
+                runtimes[(name, mesh)].append((mode, num_cores, avg))
+
+    # Now we can plot
+
+    # Fancy colors (all colorbrewer scales: http://bl.ocks.org/mbostock/5577023)
+    set2 = brewer2mpl.get_map('Set2', 'qualitative', 8).mpl_colors
+
+    base_directory = "plots"
+    #mesh%d/%s/np%d_nt%d.txt" % \
+    #    (name, mesh_size, mode, num_procs, num_threads)
+    ## Create directory and file (if not exist)
+    #    os.makedirs(os.path.dirname(filename))
+    #if not os.path.exists(filename):
+    #    open(filename, 'a').close()
+
+    for (name, mesh), instance in runtimes.items():
+        # Now start crafting the plot ...
+        fig = plt.figure(1)
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_title("%s_%s" % (name, mesh))
+        # ... Each line in the plot represents a certain mode
+        runtime_by_mode = defaultdict(list)
+        for mode, num_cores, avg in instance:
+            runtime_by_mode[mode].append((num_cores, avg))
+        legend = []
+        # ... Add the various lines
+        for i, (mode, values) in enumerate(runtime_by_mode.items()):
+            x, y = zip(*values)
+            handle = ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i])[0]
+            legend.append((handle, mode))
+        # ... Add a sensible legend
+        handles, labels = zip(*legend)
+        ax.legend(handles, labels)
+        # ... Finally, output to a file
+        directory = os.path.join(base_directory, name)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        fig.savefig(os.path.join(directory, "%s.pdf" % mesh))
+
+
+if __name__ == '__main__':
+    plot()
