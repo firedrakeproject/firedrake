@@ -268,7 +268,6 @@ if osname == "Darwin":
         try:
             check_call(["xcodebuild", "-version"])
         except:
-            raise
             quit("Xcode not found. Please install xcode from the App Store and try again.")
 
         try:
