@@ -50,10 +50,9 @@ def output_time(start, end, **kwargs):
         starts[0], ends[0] = start, end
         for i in range(1, num_procs):
             starts[i], ends[i] = MPI.comm.recv(source=i)
-        print "MPI starts: %s" % str(starts)
-        print "MPI ends: %s" % str(ends)
         start, end = min(starts), max(ends)
-        print "Time stepping: ", end - start
+        tot = round(end - start, 3)
+        print "Time stepping: ", tot, "s"
 
     # Find the total mesh size
     mesh_size = 0
@@ -73,20 +72,24 @@ def output_time(start, end, **kwargs):
         for mode in modes:
             filename = "times/%s/mesh%d/%s/np%d_nt%d.txt" % \
                 (name, mesh_size, mode, num_procs, num_threads)
+            # Create directory and file (if not exist)
             if not os.path.exists(os.path.dirname(filename)):
                 os.makedirs(os.path.dirname(filename))
+            if not os.path.exists(filename):
+                open(filename, 'a').close()
             # Read the old content, add the new time value, order
             # everything based on <execution time, #loops tiled>, write
             # back to the file (overwriting existing content)
-            with open(filename, "w+") as f:
-                lines = [line for line in f if line.strip()]
-                lines = [i.split(':').replace(' ', '') for i in lines]
+            with open(filename, "r+") as f:
+                lines = [line.split(':') for line in f if line.strip()][1:]
                 lines = [(num(i[0]), num(i[1]), num(i[2])) for i in lines]
-                lines += [(end-start, nloops, tile_size)]
+                lines += [(tot, nloops, tile_size)]
                 lines.sort(key=lambda x: (x[0], -x[1]))
-                lines = "\n".join(["%s : %s : %s" % i for i in lines])
-                lines += "\n"
+                prepend = "time : nloops : tilesize\n"
+                lines = prepend + "\n".join(["%s : %s : %s" % i for i in lines]) + "\n"
+                f.seek(0)
                 f.write(lines)
+                f.truncate()
 
     if verbose:
         print "Num procs:", num_procs
