@@ -747,6 +747,12 @@ class Mat(base.Mat, CopyOnWrite):
         dat.needs_halo_update = True
         return dat
 
+
+class ParLoop(base.ParLoop):
+
+    def log_flops(self):
+        PETSc.Log.logFlops(self.num_flops)
+
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
 
