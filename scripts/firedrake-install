@@ -49,6 +49,8 @@ options. If none of these options are provided, a local installation into
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--disable_ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
+    parser.add_argument("--no_package_manager", action='store_false', dest="package_manager",
+                        help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
 
     args = parser.parse_args()
     args.prefix = False  # Disabled as untested
@@ -66,6 +68,7 @@ else:
     args.user = False
     args.developer = False
     args.sudo = False
+    args.package_manager = True
 
 
 # Where are packages installed relative to --root?
@@ -93,9 +96,6 @@ os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
     os.environ["PETSC_CONFIGURE_OPTIONS"] = "--download-ctetgen --download-triangle --download-chaco"
 
-if "PETSC_DIR" in os.environ:
-    sys.stdout("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
-
 
 class Log(object):
     """Class to enable logging to screen and logfile at once."""
@@ -111,6 +111,9 @@ class Log(object):
 log = file("firedrake-%s.log" % mode, "w") if args.log else None
 stdout = Log(sys.stdout, log)
 stderr = Log(sys.stderr, log)
+
+if "PETSC_DIR" in os.environ:
+    stdout.write("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
 def check_call(args):
@@ -234,26 +237,32 @@ def quit(message):
 # Check operating system.
 osname = platform.uname()[0]
 if osname == "Darwin":
-    try:
-        check_call(["xcodebuild", "-version"])
-    except:
-        raise
-        quit("Xcode not found. Please install xcode from the App Store and try again.")
+    if args.package_manager:
+        try:
+            check_call(["xcodebuild", "-version"])
+        except:
+            raise
+            quit("Xcode not found. Please install xcode from the App Store and try again.")
 
-    try:
-        check_call(["brew", "--version"])
-    except:
-        quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
+        try:
+            check_call(["brew", "--version"])
+        except:
+            quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
-    stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
-    brew_install("openmpi")
-    brew_install("python")
-    check_call(["brew", "tap", "homebrew/python"])
-    brew_install("numpy")
+        stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
+        brew_install("openmpi")
+        brew_install("python")
+        check_call(["brew", "tap", "homebrew/python"])
+        brew_install("numpy")
+
+    else:
+        stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
 
 elif osname == "Linux":
     # Check for apt.
     try:
+        if not args.package_manager:
+            raise subprocess.CalledProcessError
         check_call(["apt-get", "--version"])
 
         apt_packages = ["build-essential", "python-dev", "git-core",
@@ -265,7 +274,7 @@ elif osname == "Linux":
             apt_install(missing_packages)
 
     except subprocess.CalledProcessError:
-        stdout.write("apt-get not found. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
+        stdout.write("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
         stdout.write("If this is not the case, please install the following and try again:\n")
         stdout.write("A C compiler (for example gcc or clang), make.\n")
         stdout.write("A Fortran compiler (for PETSc).\n")
@@ -372,7 +381,7 @@ stdout.write("Creating firedrake-update script.\n")
 with open("firedrake/scripts/firedrake-install", "r") as f:
     update_script = f.read()
 
-for switch in ["developer", "user", "system", "sudo", "prefix"]:
+for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager"]:
     update_script = update_script.replace("args.%s = False" % switch,
                                           "args.%s = %s" % (switch, args.__getattribute__(switch)))
 try:
