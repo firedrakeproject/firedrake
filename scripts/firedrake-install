@@ -160,7 +160,12 @@ def check_output(args):
 
 
 def brew_install(name):
-    check_call(["brew", "install", name])
+    try:
+        # Check if it's already installed
+        check_call(["brew", "list", name])
+    except subprocess.CalledProcessError:
+        # If not found, go ahead and install
+        check_call(["brew", "install", name])
 
 
 def apt_check(name):
