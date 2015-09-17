@@ -268,7 +268,6 @@ if osname == "Darwin":
         try:
             check_call(["xcodebuild", "-version"])
         except:
-            raise
             quit("Xcode not found. Please install xcode from the App Store and try again.")
 
         try:
@@ -358,6 +357,12 @@ if mode == "install":
     # Force Cython to install first to work around pip dependency issues.
     run_pip(["Cython>=0.22"])
 
+    # Need to install petsc first in order to resolve hdf5 dependency.
+    sudopip.append("--no-deps")
+    packages.remove("petsc")
+    install("petsc/")
+    sudopip.pop()
+
     for p in packages:
         pip_requirements(p)
 
@@ -371,7 +376,6 @@ if mode == "install":
 
     # Work around easy-install.pth bug.
     if args.developer:
-        packages.remove("petsc")
         packages.remove("petsc4py")
         packages.remove("firedrake")
         v = sys.version_info
