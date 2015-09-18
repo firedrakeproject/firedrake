@@ -1,6 +1,8 @@
 from os.path import abspath, dirname
 import pytest
 import os
+
+
 from firedrake import *
 cwd = abspath(dirname(__file__))
 
@@ -20,35 +22,60 @@ def tile(namenrrd,namepng):
     os.system('unu quantize -b 8 -i a -o '+ namepng)
     os.system('open ' + namepng)
 
-
-def atest_simple_lerp1():
+# os calls quantize
+def test_simple_lerp1():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "P", 4)
     f = Function(V).interpolate(Expression(exp1))
     namenrrd='tmp/d2s_simple_lerp1.nrrd'
     namepng='tmp/d2s_simple_lerp1.png'
-    vis_diderot.simple2_lerp(namenrrd,f, 200,200, 0, 1, 0, 1)
+    res=200
+    lower_range=0
+    upper_range=1
+    type=0  # creates nrrd file
+    vis_diderot.simple2_lerp(namenrrd,f, res,res, lower_range, upper_range, lower_range, upper_range,type)
     quantize(namenrrd,namepng)
 
-def atest_simple_sample1():
+# c program calls quantize
+def test_simple_lerp2():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "P", 4)
+    f = Function(V).interpolate(Expression(exp2))
+    namenrrd='tmp/d2s_simple_lerp2.nrrd'
+    namepng='tmp/d2s_simple_lerp2.png'
+    res=200
+    lower_range=0
+    upper_range=1
+    type=1  # creates png file file
+    vis_diderot.simple2_lerp(namepng,f, res,res, lower_range, upper_range, lower_range, upper_range,type)
+    os.system('open ' + namepng)
+
+
+def test_simple_sample1():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "P", 4)
     f = Function(V).interpolate(Expression(exp2))
     namenrrd='tmp/d2s_simple_sampl1e.nrrd'
     namepng='tmp/d2s_simple_sample1.png'
-    vis_diderot.simple2_sample(namenrrd,f, 100, 100, 0.01) is None
+    res=100
+    stepSize=0.01
+    type=0  # creates nrrd file
+    vis_diderot.simple2_sample(namenrrd,f, res,res, stepSize,type) is None
     quantize(namenrrd,namepng)
 
-def atest_simple_sample2():
+def test_simple_sample2():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "P", 6)
     f = Function(V).interpolate(Expression(exp2))
     namenrrd='tmp/d2s_simple_sample2.nrrd'
     namepng='tmp/d2s_simple_sample2.png'
-    vis_diderot.simple2_sample(namenrrd,f, 100, 100, 0.01) is None
-    quantize(namenrrd,namepng)
+    res=100
+    stepSize=0.01
+    type=1  # creates png file
+    vis_diderot.simple2_sample(namepng,f,res,res, stepSize,type) is None
+    os.system('open ' + namepng)
 
-def test_simple3_1():
+def atest_simple3_1():
     mesh = UnitCubeMesh(2,2,2)
     V = FunctionSpace(mesh, "P", 4)
     f = Function(V).interpolate(Expression(exp4))
@@ -57,7 +84,7 @@ def test_simple3_1():
     vis_diderot.simple3(namenrrd,f,36,36,36,0,1,0,1,0,1)
     tile(namenrrd,namepng)
 
-def test_simple3_2():
+def atest_simple3_2():
     mesh = UnitCubeMesh(2,2,2)
     V = FunctionSpace(mesh, "P", 4)
     f = Function(V).interpolate(Expression(exp_z0))
@@ -76,7 +103,7 @@ def atest_mip1():
     vis_diderot.mip(namenrrd,f, 400,400, 0.01)
     quantize(namenrrd,namepng)
 
-def test_mip2():
+def atest_mip2():
     mesh = UnitCubeMesh(2,2,2)
     V = FunctionSpace(mesh, "P", 4)
     f = Function(V).interpolate(Expression(exp4))
@@ -85,11 +112,11 @@ def test_mip2():
     vis_diderot.mip(namenrrd,f, 400,400, 0.01)
     quantize(namenrrd,namepng)
 
-def atest_iso_sample1():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "P", 4)
-    f = Function(V).interpolate(Expression(exp1))
-    assert vis_diderot.iso_sample("tmp/d2s_iso_sample1.nrrd",f, 200, 200,0.01, 50,0.1875,0.001) is None
+#def atest_iso_sample1():
+#    mesh = UnitSquareMesh(2, 2)
+#    V = FunctionSpace(mesh, "P", 4)
+#    f = Function(V).interpolate(Expression(exp1))
+#    assert vis_diderot.iso_sample("tmp/d2s_iso_sample1.nrrd",f, 200, 200,0.01, 50,0.1875,0.001) is None
 
 
 #def test_iso_sample2():

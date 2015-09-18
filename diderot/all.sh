@@ -1,6 +1,6 @@
-scripts/firedrake-clean
+#scripts/firedrake-clean
 sh diderot/gather.sh
 scripts/firedrake-clean
-rm *.nrrd
+rm tmp/*.nrrd
+rm tmp/*.png
 py.test -v tests/regression/test_vis_diderot.py
-sh diderot/getImg.sh

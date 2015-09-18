@@ -20,8 +20,9 @@ __all__ = ['simple_d2s']
 #                               ex. a unit square mesh physicalx0=0, and physicalxn=1.0
 # stepSize:float         - scales spread over resolution.
 #                               ex. a unit square mesh res*=100 steps=.01
-# name:string            - name of output nrrd file
 # f:void *               - pointer to field
+# type:int               - type of output file. 0 for nrrd else png file
+# name:string            - name of output file for correct output type
 #
 #                More details
 # The resolution (resU,resV) of the image can be described with
@@ -34,25 +35,25 @@ __all__ = ['simple_d2s']
 # file         - fem/examples/d2s/simple_lerp
 # calls        - callDiderot2_lerp()
 # field#k(2)[] - 2d scalar field
-def simple2_lerp(name,f, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn ):
+def simple2_lerp(name,f, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn,type):
     
     p_cf = cFunction(f)
     init_file = path.join(path.dirname(__file__), '../diderot/simple_lerp_init.o')
     diderot_file = path.join(path.dirname(__file__), '../diderot/simple_lerp.o')
     call = make_c_evaluate(f, "callDiderot2_lerp", ldargs=[init_file, diderot_file, "-lteem"])
     
-    return call(ctypes.c_char_p(name),p_cf, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn)
+    return call(ctypes.c_char_p(name),type,p_cf, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn)
 
 # file          - fem/examples/d2s/simple_sample
 # calls         - callDiderot2_step()
 # field#k(2)[]  - 2d scalar field
-def simple2_sample(name,f, resU, resV, stepSize):
+def simple2_sample(name,f, resU, resV, stepSize,type):
     p_cf = cFunction(f)
     init_file = path.join(path.dirname(__file__), '../diderot/simple_sample_init.o')
     diderot_file = path.join(path.dirname(__file__), '../diderot/simple_sample.o')
     call = make_c_evaluate(f, "callDiderot2_step", ldargs=[init_file, diderot_file, "-lteem"])
     
-    return call(ctypes.c_char_p(name),p_cf, resU, resV, ctypes.c_float(stepSize))
+    return call(ctypes.c_char_p(name),type,p_cf, resU, resV, ctypes.c_float(stepSize))
 
 # file         - fem/examples/d3s/simple
 # calls        - callDiderot3()
