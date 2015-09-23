@@ -81,13 +81,11 @@ def test_interval_parallel():
     assert abs(integrate_one(IntervalMesh(30, 5.0)) - 5.0) < 1e-3
 
 
-@pytest.mark.xfail(reason='Periodic intervals not implemented in parallel')
 @pytest.mark.parallel
 def test_periodic_unit_interval_parallel():
     assert abs(integrate_one(PeriodicUnitIntervalMesh(30)) - 1) < 1e-3
 
 
-@pytest.mark.xfail(reason='Periodic intervals not implemented in parallel')
 @pytest.mark.parallel
 def test_periodic_interval_parallel():
     assert abs(integrate_one(PeriodicIntervalMesh(30, 5.0)) - 5.0) < 1e-3
