@@ -38,7 +38,7 @@ import sys
 import ctypes
 from hashlib import md5
 from configuration import configuration
-from logger import progress, INFO
+from logger import debug, progress, INFO
 from exceptions import CompilationError
 
 
@@ -139,6 +139,7 @@ class Compiler(object):
                     if self._ld is None:
                         cc = [self._cc] + self._cppargs + \
                              ['-o', tmpname, cname] + self._ldargs
+                        debug('Compilation command: %s', ' '.join(cc))
                         with file(logfile, "w") as log:
                             with file(errfile, "w") as err:
                                 log.write("Compilation command:\n")
@@ -164,6 +165,8 @@ Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                         cc = [self._cc] + self._cppargs + \
                              ['-c', '-o', oname, cname]
                         ld = self._ld.split() + ['-o', tmpname, oname] + self._ldargs
+                        debug('Compilation command: %s', ' '.join(cc))
+                        debug('Link command: %s', ' '.join(ld))
                         with file(logfile, "w") as log:
                             with file(errfile, "w") as err:
                                 log.write("Compilation command:\n")
