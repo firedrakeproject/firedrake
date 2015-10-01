@@ -1226,11 +1226,12 @@ class Inspector(Cached):
             if not infoset:
                 return
             insp_sets.add(infoset)
-            iterset_name, superset = infoset[0], infoset[4]
+            iterset_name, is_superset = infoset[0], infoset[4]
             # If iterating over a subset, we fake an indirect parloop from the
             # (iteration) subset to the superset. This allows the propagation of
             # tiling across the hierarchy of sets (see SLOPE for further info)
-            if superset:
+            if is_superset:
+                insp_sets.add(inspect_set(iterset.superset))
                 map_name = "%s_tosuperset" % iterset_name
                 insp_maps[iterset_name] = (map_name, iterset_name,
                                            iterset.superset.name, iterset.indices)
