@@ -74,7 +74,11 @@ class _Facets(object):
             else:
                 base = self.mesh._base_mesh.exterior_facets.set
             return op2.ExtrudedSet(base, layers=self.mesh.layers)
-        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+        retval = op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
+        if self.kind == "exterior":
+            # Exterior facets are special sets, because they do not cover the whole mesh
+            retval.subset = op2.Subset(retval, range(retval.total_size))
+        return retval
 
     @property
     def bottom_set(self):
