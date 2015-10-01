@@ -36,6 +36,7 @@
 from contextlib import contextmanager
 from collections import OrderedDict
 from copy import deepcopy as dcopy, copy as scopy
+from itertools import groupby
 import os
 
 from base import *
@@ -191,6 +192,34 @@ class Kernel(sequential.Kernel, tuple):
         self._ast = asts
         return super(Kernel, self)._ast_to_c(self._ast, opts)
 
+    def _multiple_ast_to_c(self, kernels):
+        """Resolve conflicts due to identical kernel names."""
+        identifier = lambda k: k.cache_key[1:]
+        unique_kernels, code = [], ""
+        kernels = sorted(kernels, key=identifier)
+        for i, (_, kernel_group) in enumerate(groupby(kernels, identifier)):
+            duplicates = list(kernel_group)
+            main = duplicates[0]
+            if main._original_ast:
+                function_name = "%s_%d" % (main._name, i)
+                main_ast = dcopy(main._original_ast)
+                retval = FindInstances.default_retval()
+                fundecl = FindInstances(ast.FunDecl).visit(main_ast, ret=retval)
+                fundecl = fundecl[ast.FunDecl][0]
+                fundecl.name = function_name
+                code += host.Kernel._ast_to_c(main, main_ast, main._opts)
+            else:
+                # AST not available so can't change the name, hopefully there
+                # will not be compile time clashes.
+                function_name = main._name
+                code += main._code
+            # Finally change the kernel name
+            for k in duplicates:
+                k._function_name = function_name
+            code += "\n"
+            unique_kernels.append(main)
+        return unique_kernels, code
+
     def __init__(self, kernels, fused_ast=None, loop_chain_index=None):
         """Initialize a :class:`fusion.Kernel` object.
 
@@ -204,8 +233,24 @@ class Kernel(sequential.Kernel, tuple):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
-
         Kernel._globalcount += 1
+
+        # We need to distinguish between the kernel name and the function name.
+        # The function name will be different than the kernel name if there are
+        # at least two different kernels (i.e., semantically different, they do
+        # different stuff) that, "unfortunately", have same name. Since in a
+        # fusion.Kernel multiple functions might be glued together (i.e., in the
+        # same file), we have to uniquify the names. Note that the original
+        # kernel name is still necessary for hitting the cache.
+        self._name = "_".join([k.name for k in kernels])
+        self._function_name = self._name
+
+        self._opts = dict(flatten([k._opts.items() for k in kernels]))
+        self._applied_blas = any(k._applied_blas for k in kernels)
+        self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
+        self._headers = list(set(flatten([k._headers for k in kernels])))
+        self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
+        self._attached_info = False
 
         # What sort of Kernel do I have?
         if fused_ast:
@@ -213,23 +258,13 @@ class Kernel(sequential.Kernel, tuple):
             self._ast = fused_ast
             self._code = None
         else:
-            # Multiple kernels that should be interpreted as different C functions,
-            # in which case duplicates are discarded
+            # Multiple kernels, interpreted as different C functions
             self._ast = None
-            kernels = OrderedDict(zip([k.cache_key[1:] for k in kernels], kernels)).values()
-            self._code = "\n".join([host.Kernel._ast_to_c(k, dcopy(k._original_ast), k._opts)
-                                    if k._original_ast else k._code for k in kernels])
+            # Note: the /_function_name/ of each kernel in /kernels/ may get
+            # modified here
+            kernels, self._code = self._multiple_ast_to_c(kernels)
         self._original_ast = self._ast
-
-        kernels = as_tuple(kernels, (Kernel, sequential.Kernel, base.Kernel))
         self._kernels = kernels
-        self._name = "_".join([k.name for k in kernels])
-        self._opts = dict(flatten([k._opts.items() for k in kernels]))
-        self._applied_blas = any(k._applied_blas for k in kernels)
-        self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
-        self._headers = list(set(flatten([k._headers for k in kernels])))
-        self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
-        self._attached_info = False
 
         self._initialized = True
 
@@ -239,6 +274,15 @@ class Kernel(sequential.Kernel, tuple):
 
     def __str__(self):
         return "OP2 FusionKernel: %s" % self._name
+
+    @property
+    def name(self):
+        return self._function_name
+
+    @name.setter
+    def name(self, val):
+        self._name = val
+        self._function_name = val
 
 
 # Parallel loop API
@@ -352,7 +396,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
         # Set compiler and linker options
         slope_dir = os.environ['SLOPE_DIR']
-        self._kernel._name = 'executor'
+        self._kernel.name = 'executor'
         self._kernel._headers.extend(slope.Executor.meta['headers'])
         self._kernel._include_dirs.extend(['%s/%s' % (slope_dir,
                                                       slope.get_include_dir())])
