@@ -1222,6 +1222,7 @@ class Inspector(Cached):
             slope_desc = set()
             # 1) Add sets
             iterset = loop.it_space.iterset
+            iterset = iterset.subset if hasattr(iterset, 'subset') else iterset
             infoset = inspect_set(iterset)
             if not infoset:
                 return
