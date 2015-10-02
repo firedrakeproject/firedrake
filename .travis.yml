@@ -14,12 +14,11 @@ env:
     - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
 # command to install dependencies
 before_install:
-  - sudo add-apt-repository -y ppa:cython-dev/master-ppa
   - sudo apt-get update -qq
   - "sudo apt-get install -qq build-essential python-dev git-core mercurial \
     cmake cmake-curses-gui libmed1 gmsh python-pip libhdf5-openmpi-dev \
     libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran \
-    triangle-bin cython"
+    triangle-bin"
   - pip install --upgrade pip
 # Force installation of requirements IN THE ORDER WE SPECIFIED!  AAAARGH.
   - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
