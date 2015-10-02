@@ -76,15 +76,13 @@ class FunctionSpaceBase(ObjectCached):
             # Sorting the keys of the closure entity dofs, the whole cell
             # comes last [-1], before that the horizontal facet [-2], before
             # that vertical facets [-3]. We need the horizontal facets here.
-            #closure_dofs = self.fiat_element.entity_closure_dofs()
-            #b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
-            #t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
-
+            closure_dofs = self.fiat_element.entity_closure_dofs()
+            b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
+            t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
+            self.bt_masks_topo = (b_mask, t_mask)  # conversion to tuple
             # Geometric facet dofs
             facet_dofs = self.fiat_element.horiz_facet_support_dofs()
-            b_mask = facet_dofs[0]
-            t_mask = facet_dofs[1]
-            self.bt_masks = (b_mask, t_mask)  # conversion to tuple
+            self.bt_masks_geo = (facet_dofs[0], facet_dofs[1])
 
             self.extruded = True
 
@@ -289,17 +287,29 @@ class FunctionSpaceBase(ObjectCached):
                                parent=parent,
                                offset=offset)
 
-    def bottom_nodes(self):
+    def bottom_nodes(self, method='topological'):
         """Return a list of the bottom boundary nodes of the extruded mesh.
         The bottom mask is applied to every bottom layer cell to get the
         dof ids."""
-        return np.unique(self.cell_node_list[:, self.bt_masks[0]])
+        if method not in ["topological", "geometric"]:
+            raise ValueError("Unknown boundary condition method %s" % method)
+        if method == 'topological':
+            mask = self.bt_masks_topo[0]
+        else:
+            mask = self.bt_masks_geo[0]
+        return np.unique(self.cell_node_list[:, mask])
 
-    def top_nodes(self):
+    def top_nodes(self, method='topological'):
         """Return a list of the top boundary nodes of the extruded mesh.
         The top mask is applied to every top layer cell to get the dof ids."""
-        voffs = self.offset.take(self.bt_masks[1])*(self._mesh.layers-2)
-        return np.unique(self.cell_node_list[:, self.bt_masks[1]] + voffs)
+        if method not in ["topological", "geometric"]:
+            raise ValueError("Unknown boundary condition method %s" % method)
+        if method == 'topological':
+            mask = self.bt_masks_topo[0]
+        else:
+            mask = self.bt_masks_geo[0]
+        voffs = self.offset.take(mask[1])*(self._mesh.layers-2)
+        return np.unique(self.cell_node_list[:, mask[1]] + voffs)
 
     def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
