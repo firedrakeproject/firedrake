@@ -230,7 +230,7 @@ class LinuxCompiler(Compiler):
         # gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
         # This is the default in Ubuntu 14.04 so work around this
         # problem by turning ivopts off.
-        opt_flags = ['-g', '-O3', '-fno-ivopts']
+        opt_flags = ['-O3', '-fno-ivopts']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
