@@ -201,7 +201,7 @@ class MacCompiler(Compiler):
     :arg cpp: Are we actually using the C++ compiler?"""
 
     def __init__(self, cppargs=[], ldargs=[], cpp=False):
-        opt_flags = ['-O3']
+        opt_flags = ['-march=native', '-O3']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
@@ -230,7 +230,7 @@ class LinuxCompiler(Compiler):
         # gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
         # This is the default in Ubuntu 14.04 so work around this
         # problem by turning ivopts off.
-        opt_flags = ['-O3', '-fno-ivopts']
+        opt_flags = ['-march=native', '-O3', '-fno-ivopts']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
