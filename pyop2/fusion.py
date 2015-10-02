@@ -175,7 +175,7 @@ class Kernel(sequential.Kernel, tuple):
         * the result of the concatenation of kernel bodies (so a single C function
             is present)
         * a list of separate kernels (multiple C functions, which have to be
-            suitably called by the wrapper)."""
+            suitably called within the wrapper function)."""
 
     @classmethod
     def _cache_key(cls, kernels, fused_ast=None, loop_chain_index=None):
@@ -193,32 +193,46 @@ class Kernel(sequential.Kernel, tuple):
         return super(Kernel, self)._ast_to_c(self._ast, opts)
 
     def _multiple_ast_to_c(self, kernels):
-        """Resolve conflicts due to identical kernel names."""
+        """Glue together different ASTs (or strings) such that: ::
+
+            * clashes due to identical function names are avoided;
+            * duplicate functions (same name, same body) are avoided.
+        """
+        code = ""
         identifier = lambda k: k.cache_key[1:]
-        unique_kernels, code = [], ""
-        kernels = sorted(kernels, key=identifier)
-        for i, (_, kernel_group) in enumerate(groupby(kernels, identifier)):
+        unsorted_kernels = sorted(kernels, key=identifier)
+        for i, (_, kernel_group) in enumerate(groupby(unsorted_kernels, identifier)):
             duplicates = list(kernel_group)
             main = duplicates[0]
             if main._original_ast:
-                function_name = "%s_%d" % (main._name, i)
                 main_ast = dcopy(main._original_ast)
-                retval = FindInstances.default_retval()
-                fundecl = FindInstances(ast.FunDecl).visit(main_ast, ret=retval)
-                fundecl = fundecl[ast.FunDecl][0]
-                fundecl.name = function_name
+                finder = FindInstances((ast.FunDecl, ast.FunCall))
+                found = finder.visit(main_ast, ret=FindInstances.default_retval())
+                for fundecl in found[ast.FunDecl]:
+                    new_name = "%s_%d" % (fundecl.name, i)
+                    # Need to change the name of any inner functions too
+                    for funcall in found[ast.FunCall]:
+                        if fundecl.name == funcall.funcall.symbol:
+                            funcall.funcall.symbol = new_name
+                    fundecl.name = new_name
+                function_name = "%s_%d" % (main._name, i)
                 code += host.Kernel._ast_to_c(main, main_ast, main._opts)
             else:
                 # AST not available so can't change the name, hopefully there
                 # will not be compile time clashes.
                 function_name = main._name
                 code += main._code
-            # Finally change the kernel name
+            # Finally track the function name within this /fusion.Kernel/
             for k in duplicates:
-                k._function_name = function_name
+                try:
+                    k._function_names[self.cache_key] = function_name
+                except AttributeError:
+                    k._function_names = {
+                        k.cache_key: k.name,
+                        self.cache_key: function_name
+                    }
             code += "\n"
-            unique_kernels.append(main)
-        return unique_kernels, code
+        return code
 
     def __init__(self, kernels, fused_ast=None, loop_chain_index=None):
         """Initialize a :class:`fusion.Kernel` object.
@@ -235,15 +249,13 @@ class Kernel(sequential.Kernel, tuple):
             return
         Kernel._globalcount += 1
 
-        # We need to distinguish between the kernel name and the function name.
-        # The function name will be different than the kernel name if there are
-        # at least two different kernels (i.e., semantically different, they do
-        # different stuff) that, "unfortunately", have same name. Since in a
-        # fusion.Kernel multiple functions might be glued together (i.e., in the
-        # same file), we have to uniquify the names. Note that the original
-        # kernel name is still necessary for hitting the cache.
+        # We need to distinguish between the kernel name and the function name(s).
+        # Since /fusion.Kernel/ are, in general, collections of functions, the same
+        # function (which is itself associated a Kernel) can appear in different
+        # /fusion.Kernel/ objects, but possibly under a different name (to avoid
+        # name clashes)
         self._name = "_".join([k.name for k in kernels])
-        self._function_name = self._name
+        self._function_names = {self.cache_key: self._name}
 
         self._opts = dict(flatten([k._opts.items() for k in kernels]))
         self._applied_blas = any(k._applied_blas for k in kernels)
@@ -260,9 +272,7 @@ class Kernel(sequential.Kernel, tuple):
         else:
             # Multiple kernels, interpreted as different C functions
             self._ast = None
-            # Note: the /_function_name/ of each kernel in /kernels/ may get
-            # modified here
-            kernels, self._code = self._multiple_ast_to_c(kernels)
+            self._code = self._multiple_ast_to_c(kernels)
         self._original_ast = self._ast
         self._kernels = kernels
 
@@ -275,14 +285,8 @@ class Kernel(sequential.Kernel, tuple):
     def __str__(self):
         return "OP2 FusionKernel: %s" % self._name
 
-    @property
-    def name(self):
-        return self._function_name
-
-    @name.setter
-    def name(self, val):
-        self._name = val
-        self._function_name = val
+    def function_name(self, kernel_id):
+        return self._function_names[kernel_id]
 
 
 # Parallel loop API
@@ -396,7 +400,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
         # Set compiler and linker options
         slope_dir = os.environ['SLOPE_DIR']
-        self._kernel.name = 'executor'
+        self._kernel._name = 'executor'
         self._kernel._headers.extend(slope.Executor.meta['headers'])
         self._kernel._include_dirs.extend(['%s/%s' % (slope_dir,
                                                       slope.get_include_dir())])
@@ -457,6 +461,10 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                 _ssind_arg = 'ssinds_%d' % i
                 _ssind_decl = 'int* %s' % _ssind_arg
                 loop_code_dict['index_expr'] = '%s[n]' % _ssind_arg
+
+            # ... use the proper function name (the function name of the kernel
+            # within *this* specific loop chain)
+            loop_code_dict['kernel_name'] = kernel.function_name(self._kernel.cache_key)
 
             # ... finish building up the /code_dict/
             loop_code_dict['args_binding'] = binding
@@ -611,8 +619,8 @@ class Schedule(object):
 
 class PlainSchedule(Schedule):
 
-    def __init__(self):
-        super(PlainSchedule, self).__init__([])
+    def __init__(self, kernels=None):
+        super(PlainSchedule, self).__init__(kernels or [])
 
     def __call__(self, loop_chain):
         return loop_chain
@@ -695,20 +703,19 @@ class TilingSchedule(Schedule):
     """Schedule an iterator of :class:`ParLoop` objects applying tiling on top
     of hard fusion and soft fusion."""
 
-    def __init__(self, schedule, inspection, executor):
+    def __init__(self, kernel, schedule, inspection, executor):
         self._schedule = schedule
         self._inspection = inspection
         self._executor = executor
+        self._kernel = kernel
 
     def __call__(self, loop_chain):
         loop_chain = self._schedule(loop_chain)
         # Track the individual kernels, and the args of each kernel
-        all_kernels = tuple((loop.kernel for loop in loop_chain))
         all_itspaces = tuple(loop.it_space for loop in loop_chain)
         all_args = tuple((Arg.specialize(loop.args, gtl_map, i) for i, (loop, gtl_map)
                          in enumerate(zip(loop_chain, self._executor.gtl_maps))))
         # Data for the actual ParLoop
-        kernel = Kernel(all_kernels)
         it_space = IterationSpace(all_itspaces)
         args = Arg.filter_args([loop.args for loop in loop_chain]).values()
         reduced_globals = [loop._reduced_globals for loop in loop_chain]
@@ -716,7 +723,7 @@ class TilingSchedule(Schedule):
         written_args = set(flatten([loop.writes for loop in loop_chain]))
         inc_args = set(flatten([loop.incs for loop in loop_chain]))
         kwargs = {
-            'all_kernels': all_kernels,
+            'all_kernels': self._kernel._kernels,
             'all_itspaces': all_itspaces,
             'all_args': all_args,
             'read_args': read_args,
@@ -726,7 +733,7 @@ class TilingSchedule(Schedule):
             'inspection': self._inspection,
             'executor': self._executor
         }
-        return [ParLoop(kernel, it_space, *args, **kwargs)]
+        return [ParLoop(self._kernel, it_space, *args, **kwargs)]
 
 
 # Loop chain inspection
@@ -746,7 +753,7 @@ class Inspector(Cached):
         for loop in loop_chain:
             if isinstance(loop, Mat._Assembly):
                 continue
-            key += (hash(str(loop.kernel._original_ast)),)
+            key += (loop.kernel.cache_key, loop.it_space.cache_key)
             for arg in loop.args:
                 if arg._is_global:
                     key += (arg.data.dim, arg.data.dtype, arg.access)
@@ -824,7 +831,7 @@ class Inspector(Cached):
         self._mode = mode
 
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
-            self._schedule = PlainSchedule()
+            self._schedule = PlainSchedule([loop.kernel for loop in self._loop_chain])
             if mode in ['soft', 'hard', 'tile']:
                 self._soft_fuse()
             if mode in ['hard', 'tile']:
@@ -1226,7 +1233,6 @@ class Inspector(Cached):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
-        loop_chain = self._loop_chain
 
         def inspect_set(s):
             """Inspect the iteration set of a loop and return information suitable
@@ -1243,7 +1249,7 @@ class Inspector(Cached):
             if slope.get_exec_mode() not in ['OMP_MPI', 'ONLY_MPI']:
                 return s_name, s.core_size, s.exec_size - s.core_size, \
                     s.total_size - s.exec_size, superset
-            if not hasattr(s, '_deep_size') and len(s._deep_size) < len(loop_chain):
+            if not hasattr(s, '_deep_size') and len(s._deep_size) < len(self._loop_chain):
                 warning("Invalid SLOPE backend (%s) with available halo", slope.get_exec_mode())
                 warning("tiling skipped")
                 return ()
@@ -1262,7 +1268,7 @@ class Inspector(Cached):
         # Build inspector and argument types and values
         arguments = []
         insp_sets, insp_maps, insp_loops = set(), {}, []
-        for loop in loop_chain:
+        for loop in self._loop_chain:
             slope_desc = set()
             # 1) Add sets
             iterset = loop.it_space.iterset
@@ -1341,7 +1347,8 @@ class Inspector(Cached):
         # code generation time
         executor = slope.Executor(inspector)
 
-        self._schedule = TilingSchedule(self._schedule, inspection, executor)
+        kernel = Kernel(tuple(loop.kernel for loop in self._loop_chain))
+        self._schedule = TilingSchedule(kernel, self._schedule, inspection, executor)
 
     @property
     def mode(self):
