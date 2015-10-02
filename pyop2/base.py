@@ -2894,12 +2894,11 @@ class Map(object):
         self._top_mask = {}
 
         if offset is not None and bt_masks is not None:
-            for name, mask in bt_masks[0]:
+            for name, mask in bt_masks.iteritems():
                 self._bottom_mask[name] = np.zeros(len(offset))
-                self._bottom_mask[name][mask] = -1
-            for name, mask in bt_masks[1]:
+                self._bottom_mask[name][mask[0]] = -1
                 self._top_mask[name] = np.zeros(len(offset))
-                self._top_mask[name][mask] = -1
+                self._top_mask[name][mask[1]] = -1
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
