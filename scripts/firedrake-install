@@ -19,6 +19,8 @@ elif os.path.basename(__file__) == "firedrake-update":
 else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
+branches = {}
+
 if mode == "install":
     # Handle command line arguments.
     parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
@@ -64,8 +66,14 @@ honoured.""",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
     parser.add_argument("--minimal_petsc", action="store_true",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
+    parser.add_argument("--package_branch", type=str, nargs=2, action="append",
+                        help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
 
     args = parser.parse_args()
+
+    for i in range(len(args.package_branch)/2):
+        branches[args.package_branch[i]] = args.package_branch[i+1]
+
     args.prefix = False  # Disabled as untested
 else:
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
@@ -194,6 +202,8 @@ def git_clone(url):
     except ValueError:
         plainurl = spliturl[0]
         branch = "master"
+    if name in branches:
+        branch = branches[name]
     try:
         if args.disable_ssh:
             raise Exception

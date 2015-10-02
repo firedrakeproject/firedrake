@@ -49,7 +49,7 @@ before_install:
 install:
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable_ssh --global --minimal_petsc
+  - ../scripts/firedrake-install --disable_ssh --global --minimal_petsc --package_branch PyOP2 multiple_top_bottom_masks
   - cd firedrake/src/firedrake
   - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace
