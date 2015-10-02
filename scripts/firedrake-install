@@ -198,15 +198,15 @@ def git_clone(url):
         if args.disable_ssh:
             raise Exception
         check_call(["git", "clone", "-q", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
-        stdout.write("Successfully cloned %s.\n" % name)
+        stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
     except:
         if not args.disable_ssh:
             stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
         try:
             check_call(["git", "clone", "-b", branch, "https://%s" % plainurl])
-            stdout.write("Successfully cloned %s.\n" % name)
+            stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
         except subprocess.CalledProcessError:
-            stderr.write("Failed to clone %s.\n" % name)
+            stderr.write("Failed to clone %s branch %s.\n" % (name, branch))
             raise
     return name
 
