@@ -2,4 +2,4 @@ git+https://bitbucket.org/fenics-project/instant.git#egg=instant
 git+https://bitbucket.org/mapdes/ufl.git#egg=ufl
 git+https://bitbucket.org/mapdes/fiat.git#egg=fiat
 git+https://bitbucket.org/mapdes/ffc.git#egg=ffc
-git+https://github.com/OP2/PyOP2.git#egg=pyop2
+git+https://github.com/OP2/PyOP2.git@multiple_top_bottom_masks#egg=pyop2
