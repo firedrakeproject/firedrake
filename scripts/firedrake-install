@@ -73,7 +73,7 @@ honoured.""",
 
     for i in range(len(args.package_branch)/2):
         branches[args.package_branch[i]] = args.package_branch[i+1]
-
+    print "Branches :", branches
     args.prefix = False  # Disabled as untested
 else:
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
