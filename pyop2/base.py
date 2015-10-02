@@ -2890,11 +2890,16 @@ class Map(object):
         self._cache = {}
         # Which indices in the extruded map should be masked out for
         # the application of strong boundary conditions
-        self._bottom_mask = np.zeros(len(offset)) if offset is not None else []
-        self._top_mask = np.zeros(len(offset)) if offset is not None else []
+        self._bottom_mask = {}
+        self._top_mask = {}
+
         if offset is not None and bt_masks is not None:
-            self._bottom_mask[bt_masks[0]] = -1
-            self._top_mask[bt_masks[1]] = -1
+            for name, mask in bt_masks[0]:
+                self._bottom_mask[name] = np.zeros(len(offset))
+                self._bottom_mask[name][mask] = -1
+            for name, mask in bt_masks[1]:
+                self._top_mask[name] = np.zeros(len(offset))
+                self._top_mask[name][mask] = -1
         Map._globalcount += 1
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))

@@ -534,16 +534,22 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             if not map.iterset._extruded:
                 continue
             for j, m in enumerate(map):
-                if 'bottom' not in m.implicit_bcs:
-                    continue
-                need_bottom = True
-                for idx in range(m.arity):
-                    if m.bottom_mask[idx] < 0:
-                        val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
-                                   {'name': self.c_map_name(i, j),
-                                    'val': max_int,
-                                    'ind': idx,
-                                    'sign': sign})
+                bottom_masks = None
+                for location, name in m.implicit_bcs:
+                    if location == "bottom":
+                        if bottom_masks is None:
+                            bottom_masks = m.bottom_mask[name]
+                        else:
+                            bottom_masks += m.bottom_mask[name]
+                        need_bottom = True
+                if bottom_masks is not None:
+                    for idx in range(m.arity):
+                        if bottom_masks[idx] < 0:
+                            val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
+                                       {'name': self.c_map_name(i, j),
+                                        'val': max_int,
+                                        'ind': idx,
+                                        'sign': sign})
         if need_bottom:
             val.insert(0, "if (j_0 == 0) {")
             val.append("}")
@@ -555,16 +561,22 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             if not map.iterset._extruded:
                 continue
             for j, m in enumerate(map):
-                if 'top' not in m.implicit_bcs:
-                    continue
-                need_top = True
-                for idx in range(m.arity):
-                    if m.top_mask[idx] < 0:
-                        val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
-                                   {'name': self.c_map_name(i, j),
-                                    'val': max_int,
-                                    'ind': idx,
-                                    'sign': sign})
+                top_masks = None
+                for location, name in m.implicit_bcs:
+                    if location == "top":
+                        if top_masks is None:
+                            top_masks = m.top_mask[name]
+                        else:
+                            top_masks += m.top_mask[name]
+                        need_top = True
+                if top_masks is not None:
+                    for idx in range(m.arity):
+                        if top_masks[idx] < 0:
+                            val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
+                                       {'name': self.c_map_name(i, j),
+                                        'val': max_int,
+                                        'ind': idx,
+                                        'sign': sign})
         if need_top:
             val.insert(pos, "if (j_0 == end_layer - 1) {")
             val.append("}")
