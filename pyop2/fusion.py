@@ -674,17 +674,18 @@ class HardFusionSchedule(FusionSchedule):
 
         # Update the input schedule to make use of hard fusion kernels
         kernel = scopy(schedule._kernel)
-        for fused_kernel, fused_map in fused:
+        for ofs, (fused_kernel, fused_map) in enumerate(fused):
+            # Find the position of the /fused/ kernel in the new loop chain.
             base, fuse = fused_kernel._kernels
             base_idx, fuse_idx = kernel.index(base), kernel.index(fuse)
             pos = min(base_idx, fuse_idx)
-            kernel.insert(pos, fused_kernel)
-            self._info[pos]['loop_indices'] = [base_idx, fuse_idx]
-            # In addition to the union of the /base/ and /fuse/ sets of arguments,
-            # a bitmap, with i-th bit indicating whether the i-th iteration in "fuse"
-            # has been executed, will have to be passed in
+            self._info[pos]['loop_indices'] = [base_idx + ofs, fuse_idx + ofs]
+            # We also need a bitmap, with the i-th bit indicating whether the i-th
+            # iteration in "fuse" has been executed or not
             self._info[pos]['extra_args'] = [((fused_map.toset, None, np.int32),
                                               (RW, fused_map))]
+            # Now we can modify the kernel sequence
+            kernel.insert(pos, fused_kernel)
             kernel.pop(pos+1)
             pos = max(base_idx, fuse_idx)
             self._info.pop(pos)
@@ -996,28 +997,31 @@ class Inspector(Cached):
         the presence of ``INC`` does not imply a real WAR dependency, because
         increments are associative."""
 
+        reads = lambda l: set([a.data for a in l.args if a.access in [READ, RW]])
+        writes = lambda l: set([a.data for a in l.args if a.access in [RW, WRITE, MIN, MAX]])
+        incs = lambda l: set([a.data for a in l.args if a.access in [INC]])
+
         def has_raw_or_war(loop1, loop2):
             # Note that INC after WRITE is a special case of RAW dependency since
             # INC cannot take place before WRITE.
-            return loop2.reads & loop1.writes or loop2.writes & loop1.reads or \
-                loop1.incs & (loop2.writes - loop2.incs) or \
-                loop2.incs & (loop1.writes - loop1.incs)
+            return reads(loop2) & writes(loop1) or writes(loop2) & reads(loop1) or \
+                incs(loop1) & (writes(loop2) - incs(loop2)) or \
+                incs(loop2) & (writes(loop1) - incs(loop1))
 
         def has_iai(loop1, loop2):
-            return loop1.incs & loop2.incs
+            return incs(loop1) & incs(loop2)
 
         def fuse(base_loop, loop_chain, fused):
             """Try to fuse one of the loops in ``loop_chain`` with ``base_loop``."""
             for loop in loop_chain:
                 if has_raw_or_war(loop, base_loop):
                     # Can't fuse across loops preseting RAW or WAR dependencies
-                    return
+                    return []
                 if loop.it_space == base_loop.it_space:
                     warning("Ignoring unexpected sequence of loops in loop fusion")
                     continue
-                # Is there an overlap in any incremented regions? If that is
-                # the case, then fusion can really be useful, by allowing to
-                # save on the number of indirect increments or matrix insertions
+                # Is there an overlap in any of the incremented regions? If that is
+                # the case, then fusion can really be beneficial
                 common_inc_data = has_iai(base_loop, loop)
                 if not common_inc_data:
                     continue
@@ -1032,17 +1036,22 @@ class Inspector(Cached):
                 fused_map = [m for m in maps if set1 == m.iterset and set2 == m.toset]
                 if fused_map:
                     fused.append((base_loop, loop, fused_map[0], common_incs[1]))
-                    return
+                    return loop_chain[:loop_chain.index(loop)+1]
                 fused_map = [m for m in maps if set1 == m.toset and set2 == m.iterset]
                 if fused_map:
                     fused.append((loop, base_loop, fused_map[0], common_incs[0]))
-                    return
+                    return loop_chain[:loop_chain.index(loop)+1]
+            return []
 
         # First, find fusible kernels
-        fused = []
+        fusible, skip = [], []
         for i, l in enumerate(self._loop_chain, 1):
-            fuse(l, self._loop_chain[i:], fused)
-        if not fused:
+            if l in skip:
+                # /l/ occurs between (hard) fusible loops, let's leave it where
+                # it is for safeness
+                continue
+            skip = fuse(l, self._loop_chain[i:], fusible)
+        if not fusible:
             return
 
         # Then, create a suitable hard-fusion kernel
@@ -1066,8 +1075,8 @@ class Inspector(Cached):
         #
         # Where /arity/ is the number of /kernel2/ iterations incident to
         # /kernel1/ iterations.
-        _fused = []
-        for base_loop, fuse_loop, fused_map, fused_inc_arg in fused:
+        fused = []
+        for base_loop, fuse_loop, fused_map, fused_inc_arg in fusible:
             # Start with analyzing the kernel ASTs. Note: fusion occurs on fresh
             # copies of the /base/ and /fuse/ ASTs. This is because the optimization
             # of the /fused/ AST should be independent of that of individual ASTs,
@@ -1223,10 +1232,10 @@ class Inspector(Cached):
             kernels = [base, fuse]
             loop_chain_index = (self._loop_chain.index(base_loop),
                                 self._loop_chain.index(fuse_loop))
-            _fused.append((Kernel(kernels, fused_ast, loop_chain_index), fused_map))
+            fused.append((Kernel(kernels, fused_ast, loop_chain_index), fused_map))
 
         # Finally, generate a new schedule
-        self._schedule = HardFusionSchedule(self._schedule, _fused)
+        self._schedule = HardFusionSchedule(self._schedule, fused)
         self._loop_chain = self._schedule(self._loop_chain, only_hard=True)
 
     def _tile(self):
