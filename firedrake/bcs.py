@@ -135,9 +135,9 @@ class DirichletBC(object):
 
         fs = self._function_space
         if self.sub_domain == "bottom":
-            return fs.bottom_nodes()
+            return fs.bottom_nodes(method=self.method)
         elif self.sub_domain == "top":
-            return fs.top_nodes()
+            return fs.top_nodes(method=self.method)
         else:
             if fs.extruded:
                 base_maps = fs.exterior_facet_boundary_node_map(
