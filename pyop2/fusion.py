@@ -50,7 +50,7 @@ from utils import flatten, strip, as_tuple
 
 import coffee
 from coffee import base as ast
-from coffee.utils import ast_make_alias
+from coffee.utils import ast_make_alias, ItSpace
 from coffee.visitors import FindInstances, SymbolReferences
 
 
@@ -1097,13 +1097,12 @@ class Inspector(Cached):
             fuse_headers = fuse_info[ast.PreprocessNode]
             fuse_fundecl = fuse_info[ast.FunDecl]
             retval = SymbolReferences.default_retval()
-            fuse_symbol_refs = SymbolReferences().visit(fuse_ast, ret=retval)
             if len(base_fundecl) != 1 or len(fuse_fundecl) != 1:
                 raise RuntimeError("Fusing kernels, but found unexpected AST")
             base_fundecl = base_fundecl[0]
             fuse_fundecl = fuse_fundecl[0]
 
-            # Craft the /fusion/ kernel #
+            # 1) Craft the /fusion/ kernel #
 
             # 1A) Create /fusion/ arguments and signature
             body = ast.Block([])
@@ -1132,7 +1131,7 @@ class Inspector(Cached):
             fuse_for = ast.c_for('i', fused_map.arity, fuse_body, pragma=None)
             body.children.extend([base_funcall, fuse_for.children[0]])
 
-            # Modify the /fuse/ kernel #
+            # 2) Modify the /fuse/ kernel #
             # This is to take into account that many arguments are shared with
             # /base/, so they will only staged once for /base/. This requires
             # tweaking the way the arguments are declared and accessed in /fuse/
@@ -1140,92 +1139,76 @@ class Inspector(Cached):
             # in the pseudocode in the comment above) now needs to take offsets
             # to be sure the locations that /base/ is supposed to increment are
             # actually accessed. The same concept apply to indirect arguments.
-            ofs_syms, ofs_decls, ofs_vals = [], [], []
             init = lambda v: '{%s}' % ', '.join([str(j) for j in v])
             for i, fuse_args in enumerate(zip(fuse_loop.args, fuse_fundecl.args)):
                 fuse_loop_arg, fuse_kernel_arg = fuse_args
                 sym_id = fuse_kernel_arg.sym.symbol
-                if fuse_loop_arg == fused_inc_arg:
-                    # 2A) The shared incremented argument. A 'buffer' of statically
-                    # known size is expected by the kernel, so the offset is used
-                    # to index into it
-                    # Note: the /fused_map/ is a factor of the /base/ iteration
-                    # set map, so the order the /fuse/ loop iterations are executed
-                    # (in the /for i=0 to arity/ loop) reflects the order of the
-                    # entries in /fused_map/
-                    fuse_inc_refs = fuse_symbol_refs[sym_id]
-                    fuse_inc_refs = [sym for sym, parent in fuse_inc_refs
-                                     if not isinstance(parent, ast.Decl)]
-                    # Handle the declaration
-                    fuse_kernel_arg.sym.rank = binding[fused_inc_arg].sym.rank
+                # 2A) Use temporaries to invoke the /fuse/ kernel
+                buffer = '_%s' % fuse_kernel_arg.sym.symbol
+                # 2B) How should I use the temporaries ?
+                if fuse_loop_arg.access == INC:
+                    op = ast.Incr
+                    lvalue, rvalue = sym_id, buffer
+                    extend_if_body = lambda body, block: body.children.extend(block)
+                    buffer_decl = ast.Decl('%s' % fuse_loop_arg.ctype, ast.Symbol(buffer))
+                elif fuse_loop_arg.access == READ:
+                    op = ast.Assign
+                    lvalue, rvalue = buffer, sym_id
+                    extend_if_body = lambda body, block: \
+                        [body.children.insert(0, b) for b in reversed(block)]
+                    buffer_decl = ast.Decl('%s*' % fuse_loop_arg.ctype, ast.Symbol(buffer))
+                # 2C) Now handle arguments depending on their type ...
+                if fuse_loop_arg._is_mat:
+                    # ... Handle Mats
+                    staging = []
                     for b in fused_inc_arg._block_shape:
                         for rc in b:
-                            _ofs_vals = [[0] for j in range(len(rc))]
-                            for j, ofs in enumerate(rc):
-                                ofs_sym_id = 'm_ofs_%d_%d' % (i, j)
-                                ofs_syms.append(ofs_sym_id)
-                                ofs_decls.append(ast.Decl('int', ast.Symbol(ofs_sym_id)))
-                                _ofs_vals[j].append(ofs)
-                            for s in fuse_inc_refs:
-                                s.offset = tuple((1, o) for o in ofs_syms)
-                            ofs_vals.extend([init(o) for o in _ofs_vals])
-                    # Tell COFFEE that the argument is not an empty buffer anymore,
-                    # so any write to it must actually be an increment
-                    fuse_kernel_arg.pragma = set([ast.INC])
+                            lvalue = ast.Symbol(lvalue, ('i', 'i'),
+                                                ((rc[0], 'j'), (rc[1], 'k')))
+                            rvalue = ast.Symbol(rvalue, ('j', 'k'))
+                            staging = ItSpace(mode=0).to_for([(0, rc[0]), (0, rc[1])],
+                                                             ('j', 'k'),
+                                                             [op(lvalue, rvalue)])[:1]
+                    # Set up the temporary
+                    buffer_decl.sym.rank = fuse_kernel_arg.sym.rank
+                    if fuse_loop_arg.access == INC:
+                        buffer_decl.init = ast.ArrayInit(init([init([0.0])]))
                 elif fuse_loop_arg._is_indirect:
-                    # 2B) All indirect arguments. At the C level, these arguments
+                    # ... Handle indirect arguments. At the C level, these arguments
                     # are of pointer type, so simple pointer arithmetic is used
                     # to ensure the kernel accesses are to the correct locations
                     fuse_arity = fuse_loop_arg.map.arity
                     base_arity = fuse_arity*fused_map.arity
                     cdim = fuse_loop_arg.data.dataset.cdim
                     size = fuse_arity*cdim
-                    if fuse_loop_arg._flatten and cdim > 1:
-                        # Set the proper storage layout before invoking /fuse/
-                        ofs_tmp = '_%s' % fuse_kernel_arg.sym.symbol
-                        ofs_tmp_sym = ast.Symbol(ofs_tmp, (size,))
-                        ofs_tmp_decl = ast.Decl('%s*' % fuse_loop_arg.ctype, ofs_tmp_sym)
-                        _ofs_vals = [[base_arity*j + k for k in range(fuse_arity)]
-                                     for j in range(cdim)]
-                        _ofs_vals = [[fuse_arity*j + k for k in flatten(_ofs_vals)]
-                                     for j in range(fused_map.arity)]
-                        _ofs_vals = list(flatten(_ofs_vals))
-                        ofs_idx_sym = 'v_i_ofs_%d' % i
-                        body.children.insert(0, ast.Decl(
-                            'int', ast.Symbol(ofs_idx_sym, (len(_ofs_vals),)),
-                            ast.ArrayInit(init(_ofs_vals)), ['static', 'const']))
-                        ofs_idx_syms = [ast.Symbol(ofs_idx_sym, ('i',), ((size, j),))
-                                        for j in range(size)]
-                        ofs_assigns = [ofs_tmp_decl]
-                        ofs_assigns += [ast.Assign(ast.Symbol(ofs_tmp, (j,)),
-                                                   ast.Symbol(sym_id, (k,)))
-                                        for j, k in enumerate(ofs_idx_syms)]
-                        # Need to reflect this onto the invocation of /fuse/
-                        fuse_funcall.children[fuse_loop.args.index(fuse_loop_arg)] = \
-                            ast.Symbol(ofs_tmp)
+                    # Set the proper storage layout before invoking /fuse/
+                    ofs_vals = [[base_arity*j + k for k in range(fuse_arity)]
+                                for j in range(cdim)]
+                    ofs_vals = [[fuse_arity*j + k for k in flatten(ofs_vals)]
+                                for j in range(fused_map.arity)]
+                    ofs_vals = list(flatten(ofs_vals))
+                    ofs_idx_sym = 'v_ofs_%d' % i
+                    body.children.insert(0, ast.Decl(
+                        'int', ast.Symbol(ofs_idx_sym, (len(ofs_vals),)),
+                        ast.ArrayInit(init(ofs_vals)), ['static', 'const']))
+                    ofs_idx_syms = [ast.Symbol(ofs_idx_sym, ('i',), ((size, j),))
+                                    for j in range(size)]
+                    # Set up the temporary and stage data into it
+                    buffer_decl.sym.rank = (size,)
+                    if fuse_loop_arg.access == INC:
+                        buffer_decl.init = ast.ArrayInit(init([0.0]))
+                        staging = [op(ast.Symbol(lvalue, (k,)), ast.Symbol(rvalue, (j,)))
+                                   for j, k in enumerate(ofs_idx_syms)]
                     else:
-                        # In this case, can just use offsets since it's not a
-                        # multi-dimensional Dat
-                        ofs_sym = ast.Symbol('ofs', (len(ofs_vals), 'i'))
-                        ofs_assigns = [ast.Assign(sym_id, ast.Sum(sym_id, ofs_sym))]
-                        ofs_vals.append(init([j*size for j in range(fused_map.arity)]))
-                    if_exec.children[0].children[0:0] = ofs_assigns
-            # Now change the /fusion/ kernel body accordingly
-            body.children.insert(0, ast.Decl(
-                'int', ast.Symbol('ofs', (len(ofs_vals), fused_map.arity)),
-                ast.ArrayInit(init(ofs_vals)), ['static', 'const']))
-            if_exec.children[0].children[0:0] = \
-                [ast.Decl('int', ast.Symbol(s), ast.Symbol('ofs', (i, 'i')))
-                 for i, s in enumerate(ofs_syms)]
+                        staging = [op(ast.Symbol(lvalue, (j,)), ast.Symbol(rvalue, (k,)))
+                                   for j, k in enumerate(ofs_idx_syms)]
+                # Update the If body to use the temporary
+                extend_if_body(if_exec.children[0], staging)
+                if_exec.children[0].children.insert(0, buffer_decl)
+                fuse_funcall.children[fuse_loop.args.index(fuse_loop_arg)] = \
+                    ast.Symbol(buffer)
 
-            # 2C) Change /fuse/ kernel invocation, declaration, and body
-            fuse_funcall.children.extend([ast.Symbol(s) for s in ofs_syms])
-            fuse_fundecl.args.extend(ofs_decls)
-
-            # 2D) Hard fusion breaks any padding applied to the /fuse/ kernel, so
-            # this transformation pass needs to be re-performed;
-
-            # Create a /fusion.Kernel/ object to be used to update the schedule
+            # 3) Create a /fusion.Kernel/ object to be used to update the schedule
             fused_headers = set([str(h) for h in base_headers + fuse_headers])
             fused_ast = ast.Root([ast.PreprocessNode(h) for h in fused_headers] +
                                  [base_fundecl, fuse_fundecl, fusion_fundecl])
