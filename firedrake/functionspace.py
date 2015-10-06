@@ -422,7 +422,14 @@ class FunctionSpaceBase(ObjectCached):
         if method == "topological":
             boundary_dofs = el.entity_closure_dofs()[dim]
         elif method == "geometric":
-            boundary_dofs = el.facet_support_dofs()
+            if self.extruded:
+                # This function is only called on extruded meshes when
+                # asking for the nodes that live on the "vertical"
+                # exterior facets.  Hence we don't need to worry about
+                # horiz_facet_support_dofs as well.
+                boundary_dofs = el.vert_facet_support_dofs()
+            else:
+                boundary_dofs = el.facet_support_dofs()
 
         nodes_per_facet = \
             len(boundary_dofs[0])
