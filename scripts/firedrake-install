@@ -266,8 +266,8 @@ def clean(package):
 
 
 def quit(message):
-    log.write(message)
-    sys.exit(message)
+    stderr.write(message)
+    sys.exit(1)
 
 
 def build_update_script():
@@ -301,7 +301,9 @@ if args.rebuild_script:
 
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
-    If you really want to use your own PETSc build, please run again with the --honour_petsc_dir option.""")
+If you really want to use your own PETSc build, please run again with the
+--honour_petsc_dir option.
+""")
 
 
 # Check operating system.
