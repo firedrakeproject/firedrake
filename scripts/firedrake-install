@@ -401,6 +401,9 @@ if mode == "install":
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]
 
+    if args.honour_petsc_dir:
+        packages.remove("petsc")
+
     # Force Cython to install first to work around pip dependency issues.
     run_pip(["Cython>=0.22"])
 
@@ -423,6 +426,10 @@ if mode == "install":
 
     # Work around easy-install.pth bug.
     if args.developer:
+        try:
+            packages.remove("petsc")
+        except ValueError:
+            pass
         packages.remove("petsc4py")
         packages.remove("firedrake")
         v = sys.version_info
@@ -436,7 +443,10 @@ else:
     os.chdir("src")
     packages = os.listdir(".")
     # update packages.
-    petsc_changed = git_update("petsc")
+    if not args.honour_petsc_dir:
+        petsc_changed = git_update("petsc")
+    else:
+        petsc_changed = False
     petsc4py_changed = git_update("petsc4py")
 
     packages.remove("petsc")
