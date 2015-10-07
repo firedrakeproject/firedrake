@@ -877,8 +877,6 @@ class JITModule(base.JITModule):
         _layer_arg = ""
         if self._itspace._extruded:
             _layer_arg = ", int start_layer, int end_layer"
-            _off_args = ''.join([arg.c_offset_init() for arg in self._args
-                                 if arg._uses_itspace or arg._is_vec_map])
             _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
             _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
@@ -891,8 +889,6 @@ class JITModule(base.JITModule):
                                          for arg in self._args if arg._is_vec_map])
             _extr_loop = '\n' + extrusion_loop()
             _extr_loop_close = '}\n'
-        else:
-            _off_args = ""
 
         # Build kernel invocation. Let X be a parameter of the kernel representing a
         # tensor accessed in an iteration space. Let BUFFER be an array of the same
@@ -999,7 +995,6 @@ class JITModule(base.JITModule):
                 'const_args': _const_args,
                 'const_inits': indent(_const_inits, 1),
                 'vec_inits': indent(_vec_inits, 2),
-                'off_args': _off_args,
                 'layer_arg': _layer_arg,
                 'map_decl': indent(_map_decl, 2),
                 'vec_decs': indent(_vec_decs, 2),
