@@ -135,15 +135,13 @@ class Arg(base.Arg):
              'off_mul': ' * %d' % offset if is_top and offset is not None else '',
              'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
 
-    def c_ind_data_xtr(self, idx, i, j=0, is_top=False, layers=1):
-        return "%(name)s + (xtr_%(map_name)s[%(idx)s]%(top)s%(offset)s)*%(dim)s%(off)s" % \
+    def c_ind_data_xtr(self, idx, i, j=0, layers=1):
+        return "%(name)s + (xtr_%(map_name)s[%(idx)s])*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
-             'top': ' + start_layer' if is_top else '',
              'dim': 1 if self._flatten else str(self.data[i].cdim),
-             'off': ' + %d' % j if j else '',
-             'offset': ' * _'+self.c_offset_name(i, 0)+'['+idx+']' if is_top else ''}
+             'off': ' + %d' % j if j else ''}
 
     def c_kernel_arg_name(self, i, j):
         return "p_%s" % self.c_arg_name(i, j)
@@ -154,7 +152,7 @@ class Arg(base.Arg):
     def c_local_tensor_name(self, i, j):
         return self.c_kernel_arg_name(i, j)
 
-    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), is_top=False, layers=1):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
         if self._is_dat_view and not self._is_direct:
             raise NotImplementedError("Indirect DatView not implemented")
         if self._uses_itspace:
@@ -170,7 +168,7 @@ class Arg(base.Arg):
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
                 if self.data is not None and self.data.dataset._extruded:
-                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i, is_top=is_top, layers=layers)
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i, layers=layers)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
                         {'name': self.c_arg_name(),
@@ -610,18 +608,6 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                         'off': m.offset[idx],
                                         'ind': m.arity + idx})
         return '\n'.join(val)+'\n'
-
-    def c_offset_init(self):
-        maps = as_tuple(self.map, Map)
-        val = []
-        for i, map in enumerate(maps):
-            if not map.iterset._extruded:
-                continue
-            for j, m in enumerate(map):
-                val.append("int *%s" % self.c_offset_name(i, j))
-        if len(val) == 0:
-            return ""
-        return ", " + ", ".join(val)
 
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False, init=True):
         buf_type = self.data.ctype

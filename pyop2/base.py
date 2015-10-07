@@ -4228,19 +4228,6 @@ class ParLoop(LazyComputation):
         return [arg for arg in self.args if arg._is_global_reduction]
 
     @cached_property
-    def offset_args(self):
-        """The offset args that need to be added to the argument list."""
-        _args = []
-        for arg in self.args:
-            if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.map, Map)
-                for map in maps:
-                    for m in map:
-                        if m.iterset._extruded:
-                            _args.append(m.offset)
-        return _args
-
-    @cached_property
     def layer_arg(self):
         """The layer arg that needs to be added to the argument list."""
         if self._is_layered:
