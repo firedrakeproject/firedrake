@@ -737,21 +737,17 @@ class JITModule(base.JITModule):
             #define OP2_STRIDE(a, idx) a[idx]
             %(header)s
             %(namespace)s
-            %(externc_open)s
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code(),
-                   'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
         else:
             kernel_code = """
             %(header)s
             %(namespace)s
-            %(externc_open)s
             %(code)s
             """ % {'code': self._kernel.code(),
-                   'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
@@ -768,10 +764,12 @@ class JITModule(base.JITModule):
 
         %(kernel)s
 
+        %(externc_open)s
         %(wrapper)s
         %(externc_close)s
         """ % {'consts': _const_decs, 'kernel': kernel_code,
                'wrapper': code_to_compile,
+               'externc_open': externc_open,
                'externc_close': externc_close,
                'sys_headers': '\n'.join(self._kernel._headers + self._system_headers)}
 
