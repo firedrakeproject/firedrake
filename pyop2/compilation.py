@@ -79,12 +79,13 @@ class Compiler(object):
         basename = hsh.hexdigest()
 
         cachedir = configuration['cache_dir']
-        cname = os.path.join(cachedir, "%s.%s" % (basename, extension))
-        oname = os.path.join(cachedir, "%s.o" % basename)
+        pid = os.getpid()
+        cname = os.path.join(cachedir, "%s_p%d.%s" % (basename, pid, extension))
+        oname = os.path.join(cachedir, "%s_p%d.o" % (basename, pid))
         soname = os.path.join(cachedir, "%s.so" % basename)
         # Link into temporary file, then rename to shared library
         # atomically (avoiding races).
-        tmpname = os.path.join(cachedir, "%s.so.tmp" % basename)
+        tmpname = os.path.join(cachedir, "%s_p%d.so.tmp" % (basename, pid))
 
         if configuration['check_src_hashes'] or configuration['debug']:
             basenames = MPI.comm.allgather(basename)
@@ -108,8 +109,8 @@ class Compiler(object):
                 # No need to do this on all ranks
                 if not os.path.exists(cachedir):
                     os.makedirs(cachedir)
-                logfile = os.path.join(cachedir, "%s.log" % basename)
-                errfile = os.path.join(cachedir, "%s.err" % basename)
+                logfile = os.path.join(cachedir, "%s_p%d.log" % (basename, pid))
+                errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
                     with file(cname, "w") as f:
                         f.write(src)
