@@ -408,20 +408,18 @@ class Arg(base.Arg):
         for i, (m, d) in enumerate(zip(self.map, self.data)):
             for k in range(d.cdim if self._flatten else 1):
                 for idx in range(m.arity):
-                    val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
+                    val.append("%(name)s[%(j)d] += %(offset)d * %(dim)s;" %
                                {'name': self.c_vec_name(),
-                                'i': idx,
                                 'j': vec_idx,
-                                'offset': self.c_offset_name(i, 0),
+                                'offset': m.offset[idx],
                                 'dim': d.cdim})
                     vec_idx += 1
                 if is_facet:
                     for idx in range(m.arity):
-                        val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
+                        val.append("%(name)s[%(j)d] += %(offset)d * %(dim)s;" %
                                    {'name': self.c_vec_name(),
-                                    'i': idx,
                                     'j': vec_idx,
-                                    'offset': self.c_offset_name(i, 0),
+                                    'offset': m.offset[idx],
                                     'dim': d.cdim})
                         vec_idx += 1
         return '\n'.join(val)+'\n'
@@ -587,33 +585,30 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 for idx in range(m.arity):
                     if self._is_dat and self._flatten and d.cdim > 1:
                         for k in range(d.cdim):
-                            val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
+                            val.append("xtr_%(name)s[%(ind_flat)s] += %(off)d * %(dim)s;" %
                                        {'name': self.c_map_name(i, j),
-                                        'off': self.c_offset_name(i, j),
-                                        'ind': idx,
+                                        'off': m.offset[idx],
                                         'ind_flat': m.arity * k + idx,
                                         'dim': d.cdim})
                     else:
-                        val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind)s];" %
+                        val.append("xtr_%(name)s[%(ind)s] += %(off)d;" %
                                    {'name': self.c_map_name(i, j),
-                                    'off': self.c_offset_name(i, j),
+                                    'off': m.offset[idx],
                                     'ind': idx})
                 if is_facet:
                     for idx in range(m.arity):
                         if self._is_dat and self._flatten and d.cdim > 1:
                             for k in range(d.cdim):
-                                val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
+                                val.append("xtr_%(name)s[%(ind_flat)s] += %(off)d * %(dim)s;" %
                                            {'name': self.c_map_name(i, j),
-                                            'off': self.c_offset_name(i, j),
-                                            'ind': idx,
+                                            'off': m.offset[idx],
                                             'ind_flat': m.arity * (k + d.cdim) + idx,
                                             'dim': d.cdim})
                         else:
-                            val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind_zero)s];" %
+                            val.append("xtr_%(name)s[%(ind)s] += %(off)d;" %
                                        {'name': self.c_map_name(i, j),
-                                        'off': self.c_offset_name(i, j),
-                                        'ind': m.arity + idx,
-                                        'ind_zero': idx})
+                                        'off': m.offset[idx],
+                                        'ind': m.arity + idx})
         return '\n'.join(val)+'\n'
 
     def c_offset_init(self):
