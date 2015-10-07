@@ -81,7 +81,7 @@ else:
     args.user = False
     args.developer = False
     args.sudo = False
-    args.package_manager = True
+    args.package_manager = False
     args.minimal_petsc = False
 
 
