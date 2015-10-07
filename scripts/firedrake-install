@@ -300,7 +300,7 @@ if args.rebuild_script:
 
 
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
-    stdout.write("""The PETSC_DIR environment variable is set. This is probably an error.
+    quit("""The PETSC_DIR environment variable is set. This is probably an error.
     If you really want to use your own PETSc build, please run again with the --honour_petsc_dir option.""")
 
 
