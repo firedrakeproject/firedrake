@@ -33,10 +33,11 @@ def output_time(start, end, **kwargs):
     fs = kwargs.get('fs', None)
     nloops = kwargs.get('nloops', 0)
     tile_size = kwargs.get('tile_size', 0)
+    backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
 
     # Find number of processes, and number of threads per process
     num_procs = MPI.comm.size
-    num_threads = os.environ.get("OMP_NUM_THREADS", 1)
+    num_threads = int(os.environ.get("OMP_NUM_THREADS", 1)) if backend == 'OMP' else 1
 
     # So what execution /mode/ is this?
     if num_procs == 1 and num_threads == 1:
