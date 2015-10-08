@@ -336,6 +336,7 @@ def UnitCircleMesh(resolution, reorder=None):
     return CircleMesh(1.0, resolution, reorder=reorder)
 
 
+@profile
 def CircleManifoldMesh(ncells, radius=1):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
@@ -680,6 +681,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     return cells, coords
 
 
+@profile
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
                     reorder=None, use_dmplex_refinement=False):
     """Generate an cubed approximation to the surface of the
@@ -758,6 +760,7 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None):
                            degree=degree, reorder=reorder)
 
 
+@profile
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
     """Generate a toroidal mesh
 
