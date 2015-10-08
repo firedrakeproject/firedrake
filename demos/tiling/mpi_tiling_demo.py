@@ -49,7 +49,7 @@ times2_code = """
 """
 
 while t <= T:
-    with loop_chain("main", tile_size=5, num_unroll=0):
+    with loop_chain("main", tile_size=5, num_unroll=1):
         par_loop(times2_code, direct, {'A': (p, RW)})
 
         par_loop(incr_code, dx, {'A': (p, INC)})
