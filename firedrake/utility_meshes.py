@@ -20,6 +20,8 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
            'UnitTriangleMesh',
            'RectangleMesh', 'SquareMesh', 'UnitSquareMesh',
+           'PeriodicRectangleMesh', 'PeriodicSquareMesh',
+           'PeriodicUnitSquareMesh',
            'CircleMesh', 'UnitCircleMesh',
            'CircleManifoldMesh',
            'UnitTetrahedronMesh',
@@ -300,6 +302,98 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False):
     * 4: plane y == 1
     """
     return SquareMesh(nx, ny, 1, reorder=reorder, quadrilateral=quadrilateral)
+
+
+@profile
+def PeriodicRectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
+    """Generate a periodic rectangular mesh
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg Lx: The extent in the x direction
+    :arg Ly: The extent in the y direction
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    """
+
+    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder)
+    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    old_coordinates = Function(m.coordinates)
+    new_coordinates = Function(coord_fs)
+
+    periodic_kernel = """
+double pi = 3.141592653589793;
+double eps = 1e-12;
+double bigeps = 1e-1;
+double phi, theta, Y, Z;
+Y = 0.0;
+Z = 0.0;
+
+for(int i=0; i<old_coords.dofs; i++) {
+    Y += old_coords[i][1];
+    Z += old_coords[i][2];
+}
+
+for(int i=0; i<new_coords.dofs; i++) {
+    phi = atan2(old_coords[i][1], old_coords[i][0]);
+    if (fabs(sin(phi)) > bigeps)
+        theta = atan2(old_coords[i][2], old_coords[i][1]/sin(phi) - 1.0);
+    else
+        theta = atan2(old_coords[i][2], old_coords[i][0]/cos(phi) - 1.0);
+
+    new_coords[i][0] = phi/(2.0*pi);
+    if(new_coords[i][0] < -eps) {
+        new_coords[i][0] += 1.0;
+    }
+    if(fabs(new_coords[i][0]) < eps && Y < 0.0) {
+        new_coords[i][0] = 1.0;
+    }
+
+    new_coords[i][1] = theta/(2.0*pi);
+    if(new_coords[i][1] < -eps) {
+        new_coords[i][1] += 1.0;
+    }
+    if(fabs(new_coords[i][1]) < eps && Z < 0.0) {
+        new_coords[i][1] = 1.0;
+    }
+
+    new_coords[i][0] *= Lx;
+    new_coords[i][1] *= Ly;
+}
+"""
+
+    periodic_kernel = periodic_kernel.replace('Lx', str(Lx))
+    periodic_kernel = periodic_kernel.replace('Ly', str(Ly))
+
+    par_loop(periodic_kernel, dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ)})
+
+    m.coordinates = new_coordinates
+    return m
+
+
+def PeriodicSquareMesh(nx, ny, L, quadrilateral=False, reorder=None):
+    """Generate a periodic square mesh
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg L: The extent in the x and y directions
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    """
+    return PeriodicRectangleMesh(nx, ny, L, L, quadrilateral=quadrilateral, reorder=reorder)
+
+
+def PeriodicUnitSquareMesh(nx, ny, reorder=None, quadrilateral=False):
+    """Generate a periodic unit square mesh
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    """
+    return PeriodicSquareMesh(nx, ny, 1.0, reorder=reorder, quadrilateral=quadrilateral)
 
 
 @profile
