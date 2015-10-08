@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import os
 import tempfile
@@ -6,11 +7,13 @@ from shutil import rmtree
 from pyop2.mpi import MPI
 from pyop2.profiling import profile
 
-import mesh
-import expression
-import function
-import functionspace
-from petsc import PETSc
+from firedrake import VectorFunctionSpace, Function, par_loop, dx, \
+    WRITE, READ
+from firedrake import mesh
+from firedrake import expression
+from firedrake import function
+from firedrake import functionspace
+from firedrake.petsc import PETSc
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -93,39 +96,6 @@ def _get_msh_file(source, name, dimension, meshed=False):
     return output + '.msh'
 
 
-def _from_cell_list(dim, cells, coords, comm=None):
-    """
-    Create a DMPlex from a list of cells and coords.
-
-    :arg dim: The topological dimension of the mesh
-    :arg cells: The vertices of each cell
-    :arg coords: The coordinates of each vertex
-    :arg comm: An optional MPI communicator to build the plex on
-         (defaults to ``COMM_WORLD``)
-    """
-
-    if comm is None:
-        comm = MPI.comm
-    if comm.rank == 0:
-        cells = np.asarray(cells, dtype=PETSc.IntType)
-        coords = np.asarray(coords, dtype=float)
-        comm.bcast(cells.shape, root=0)
-        comm.bcast(coords.shape, root=0)
-        # Provide the actual data on rank 0.
-        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-
-    cell_shape = list(comm.bcast(None, root=0))
-    coord_shape = list(comm.bcast(None, root=0))
-    cell_shape[0] = 0
-    coord_shape[0] = 0
-    # Provide empty plex on other ranks
-    # A subsequent call to plex.distribute() takes care of parallel partitioning
-    return PETSc.DMPlex().createFromCellList(dim,
-                                             np.zeros(cell_shape, dtype=PETSc.IntType),
-                                             np.zeros(coord_shape, dtype=float),
-                                             comm=comm)
-
-
 @profile
 def IntervalMesh(ncells, length_or_left, right=None):
     """
@@ -155,7 +125,7 @@ def IntervalMesh(ncells, length_or_left, right=None):
     coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
-    plex = _from_cell_list(1, cells, coords)
+    plex = mesh._from_cell_list(1, cells, coords)
     # Apply boundary IDs
     plex.createLabel("boundary_ids")
     coordinates = plex.getCoordinates()
@@ -191,48 +161,29 @@ def PeriodicIntervalMesh(ncells, length):
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
 
-    if MPI.comm.size > 1:
-        raise NotImplementedError("Periodic intervals not yet implemented in parallel")
-    nvert = ncells
-    nedge = ncells
-    plex = PETSc.DMPlex().create()
-    plex.setDimension(1)
-    plex.setChart(0, nvert+nedge)
-    for e in range(nedge):
-        plex.setConeSize(e, 2)
-    plex.setUp()
-    for e in range(nedge-1):
-        plex.setCone(e, [nedge+e, nedge+e+1])
-        plex.setConeOrientation(e, [0, 0])
-    # Connect v_(n-1) with v_0
-    plex.setCone(nedge-1, [nedge+nvert-1, nedge])
-    plex.setConeOrientation(nedge-1, [0, 0])
-    plex.symmetrize()
-    plex.stratify()
+    m = CircleManifoldMesh(ncells)
+    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
+    old_coordinates = Function(m.coordinates)
+    new_coordinates = Function(coord_fs)
 
-    # Build coordinate section
-    dx = float(length) / ncells
-    coords = [x for x in np.arange(0, length + 0.01 * dx, dx)]
+    periodic_kernel = """double Y,pi;
+            Y = 0.5*(old_coords[0][1]-old_coords[1][1]);
+            pi=3.141592653589793;
+            for(int i=0;i<2;i++){
+            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
+            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
+            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
+            new_coords[i][0] *= L;
+            }"""
 
-    coordsec = plex.getCoordinateSection()
-    coordsec.setChart(nedge, nedge+nvert)
-    for v in range(nedge, nedge+nvert):
-        coordsec.setDof(v, 1)
-    coordsec.setUp()
-    size = coordsec.getStorageSize()
-    coordvec = PETSc.Vec().createWithArray(coords, size=size)
-    plex.setCoordinatesLocal(coordvec)
+    periodic_kernel = periodic_kernel.replace('L', str(length))
 
-    dx = length / ncells
-    # HACK ALERT!
-    # Almost certainly not right when symbolic geometry stuff lands.
-    # Hopefully DMPlex will eventually give us a DG coordinate
-    # field.  Until then, we build one by hand.
-    coords = np.dstack((np.arange(dx, length + dx*0.01, dx),
-                        np.arange(0, length - dx*0.01, dx))).flatten()
-    # Last cell is back to front.
-    coords[-2:] = coords[-2:][::-1]
-    return mesh.Mesh(plex, periodic_coords=coords, reorder=False)
+    par_loop(periodic_kernel, dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ)})
+
+    m.coordinates = new_coordinates
+    return m
 
 
 def PeriodicUnitIntervalMesh(ncells):
@@ -247,7 +198,7 @@ def UnitTriangleMesh():
     """Generate a mesh of the reference triangle"""
     coords = [[0., 0.], [1., 0.], [0., 1.]]
     cells = [[0, 1, 2]]
-    plex = _from_cell_list(2, cells, coords)
+    plex = mesh._from_cell_list(2, cells, coords)
     return mesh.Mesh(plex, reorder=False)
 
 
@@ -281,7 +232,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
         cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
 
-        plex = _from_cell_list(2, cells, coords)
+        plex = mesh._from_cell_list(2, cells, coords)
     else:
         boundary = PETSc.DMPlex().create(MPI.comm)
         boundary.setDimension(1)
@@ -401,7 +352,7 @@ def CircleManifoldMesh(ncells, radius=1):
     cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
-    plex = _from_cell_list(1, cells, vertices)
+    plex = mesh._from_cell_list(1, cells, vertices)
     m = mesh.Mesh(plex, dim=2, reorder=False)
     m._circle_manifold = radius
     return m
@@ -411,7 +362,7 @@ def UnitTetrahedronMesh():
     """Generate a mesh of the reference tetrahedron"""
     coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
     cells = [[0, 1, 2, 3]]
-    plex = _from_cell_list(3, cells, coords)
+    plex = mesh._from_cell_list(3, cells, coords)
     return mesh.Mesh(plex, reorder=False)
 
 
@@ -569,7 +520,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
                       [8, 6, 7],
                       [9, 8, 1]], dtype=np.int32)
 
-    plex = _from_cell_list(2, faces, vertices)
+    plex = mesh._from_cell_list(2, faces, vertices)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
@@ -768,7 +719,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
                           [0, 2, 6, 4],
                           [1, 3, 7, 5]], dtype=np.int32)
 
-        plex = _from_cell_list(2, faces, vertices)
+        plex = mesh._from_cell_list(2, faces, vertices)
         plex.setRefinementUniform(True)
         for i in range(refinement_level):
             plex = plex.refine()
@@ -780,7 +731,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         coords *= scale
     else:
         cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-        plex = _from_cell_list(2, cells, coords)
+        plex = mesh._from_cell_list(2, cells, coords)
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
 

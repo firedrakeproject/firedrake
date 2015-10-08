@@ -1,16 +1,17 @@
 # A module implementing strong (Dirichlet) boundary conditions.
+from __future__ import absolute_import
 import numpy as np
 from ufl import as_ufl, UFLException
 
 import pyop2 as op2
 from pyop2.profiling import timed_function
 
-import expression
-import function
-import functionspace
-import matrix
-import projection
-import utils
+import firedrake.expression as expression
+import firedrake.function as function
+import firedrake.functionspace as functionspace
+import firedrake.matrix as matrix
+import firedrake.projection as projection
+import firedrake.utils as utils
 
 
 __all__ = ['DirichletBC', 'homogenize']

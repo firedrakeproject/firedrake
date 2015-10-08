@@ -1,4 +1,5 @@
 # Some generic python utilities not really specific to our work.
+from __future__ import absolute_import
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: imported from here elsewhere
 
@@ -40,7 +41,7 @@ def _init():
     :func:`pyop2.init` if she wants to set a non-default option, for example
     to switch the backend or the debug or log level."""
     from pyop2 import op2
-    from parameters import parameters
+    from firedrake.parameters import parameters
     if not op2.initialised():
         op2.init(**parameters["pyop2_options"])
 

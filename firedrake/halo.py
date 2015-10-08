@@ -1,8 +1,9 @@
+from __future__ import absolute_import
 from pyop2 import op2
 from pyop2.utils import maybe_setflags
 from mpi4py import MPI
 
-import dmplex
+import firedrake.dmplex as dmplex
 
 
 _MPI_types = {}

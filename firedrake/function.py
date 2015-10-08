@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import FIAT
 import ufl
@@ -7,12 +8,10 @@ import coffee.base as ast
 from pyop2 import op2
 from pyop2.logger import warning
 
-import assemble_expressions
-import expression as expression_t
-import functionspace
-import projection
-import utils
-import vector
+from firedrake import expression as expression_t
+from firedrake import functionspace
+from firedrake import utils
+from firedrake import vector
 try:
     import cachetools
 except ImportError:
@@ -165,6 +164,7 @@ class Function(ufl.Coefficient):
         Any of the additional arguments to :func:`~firedrake.projection.project`
         may also be passed, and they will have their usual effect.
         """
+        from firedrake import projection
         return projection.project(b, self, *args, **kwargs)
 
     def vector(self):
@@ -418,6 +418,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             expr.dat.copy(self.dat, subset=subset)
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.Assign(self, expr), subset)
 
@@ -433,6 +434,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat += expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.IAdd(self, expr))
 
@@ -448,6 +450,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat -= expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.ISub(self, expr))
 
@@ -463,6 +466,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat *= expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.IMul(self, expr))
 
@@ -478,6 +482,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat /= expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.IDiv(self, expr))
 

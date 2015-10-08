@@ -1,10 +1,9 @@
+from __future__ import absolute_import
 import copy
 import ufl
 
 from pyop2 import op2
 from pyop2.utils import as_tuple, flatten
-
-import assemble
 
 
 class Matrix(object):
@@ -65,7 +64,8 @@ class Matrix(object):
             raise RuntimeError('Trying to assemble a Matrix, but no thunk found')
         if self._assembled:
             if self._needs_reassembly:
-                assemble._assemble(self.a, tensor=self, bcs=self.bcs)
+                from firedrake.assemble import _assemble
+                _assemble(self.a, tensor=self, bcs=self.bcs)
                 return self.assemble()
             return
         self._bcs_at_point_of_assembly = copy.copy(self.bcs)
@@ -192,7 +192,8 @@ class Matrix(object):
         self._a_action_coeff = u
         # Since we assemble the cached form, the kernels will already have
         # been compiled and stashed on the form the second time round
-        return assemble._assemble(self._a_action)
+        from firedrake.assemble import _assemble
+        return _assemble(self._a_action)
 
     def __repr__(self):
         return '%sassembled firedrake.Matrix(form=%r, bcs=%r)' % \

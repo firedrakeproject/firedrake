@@ -1,10 +1,11 @@
+from __future__ import absolute_import
 import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
 from ufl.algorithms.analysis import extract_arguments
 
-import function
+from firedrake import function
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',

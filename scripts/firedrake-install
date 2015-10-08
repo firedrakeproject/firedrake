@@ -5,6 +5,12 @@ import sys
 import os
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
+
+class InstallError(Exception):
+    # Exception for generic install problems.
+    pass
+
+
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
 elif os.path.basename(__file__) == "firedrake-update":
@@ -14,7 +20,7 @@ else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
 if mode == "install":
-# Handle command line arguments.
+    # Handle command line arguments.
     parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
                             epilog="""The install process has three steps.
 
@@ -30,7 +36,12 @@ if mode == "install":
 
 The install location may be specified using the --global, --prefix, or --user
 options. If none of these options are provided, a local installation into
-./firedrake will be performed.""",
+./firedrake will be performed.
+
+The installer will ensure that the required configuration options are
+passed to PETSc. In addition, any configure options which you provide
+in the PETSC_CONFIGURE_OPTIONS environment variable will be
+honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
     group = parser.add_mutually_exclusive_group()
@@ -51,6 +62,8 @@ options. If none of these options are provided, a local installation into
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no_package_manager", action='store_false', dest="package_manager",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
+    parser.add_argument("--minimal_petsc", action="store_true",
+                        help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
 
     args = parser.parse_args()
     args.prefix = False  # Disabled as untested
@@ -68,7 +81,8 @@ else:
     args.user = False
     args.developer = False
     args.sudo = False
-    args.package_manager = True
+    args.package_manager = False
+    args.minimal_petsc = False
 
 
 # Where are packages installed relative to --root?
@@ -93,8 +107,18 @@ else:
     sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+if args.minimal_petsc:
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco"""
+else:
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre=1 --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+
+
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = "--download-ctetgen --download-triangle --download-chaco"
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
+else:
+    for opt in petsc_opts.split():
+        if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
+            os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
 
 
 class Log(object):
@@ -116,12 +140,15 @@ if "PETSC_DIR" in os.environ:
     stdout.write("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
-def check_call(args):
-    try:
-        stdout.write(subprocess.check_output(args, stderr=subprocess.STDOUT))
-    except subprocess.CalledProcessError as e:
-        stdout.write(e.output)
-        raise
+def check_call(arguments):
+    if args.log:
+        try:
+            stdout.write(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
+        except subprocess.CalledProcessError as e:
+            stdout.write(e.output)
+            raise
+    else:
+        subprocess.check_call(arguments)
 
 
 def check_output(args):
@@ -133,14 +160,19 @@ def check_output(args):
 
 
 def brew_install(name):
-    check_call(["brew", "install", name])
+    try:
+        # Check if it's already installed
+        check_call(["brew", "list", name])
+    except subprocess.CalledProcessError:
+        # If not found, go ahead and install
+        check_call(["brew", "install", name])
 
 
 def apt_check(name):
     stdout.write("Checking for presence of package %s..." % name)
     # Note that subprocess return codes have the opposite logical
     # meanings to those of Python variables.
-    if not subprocess.call(["dpkg", "-l", name]):
+    if not subprocess.call(["dpkg-query", "-s", name]):
         stdout.write("installed.\n")
         return True
     else:
@@ -150,7 +182,7 @@ def apt_check(name):
 
 def apt_install(names):
     stdout.write("Installing missing packages: %s.\n" % ", ".join(names))
-    check_call(["sudo", "apt-get", "install"] + names)
+    subprocess.check_call(["sudo", "apt-get", "install"] + names)
 
 
 def git_clone(url):
@@ -241,7 +273,6 @@ if osname == "Darwin":
         try:
             check_call(["xcodebuild", "-version"])
         except:
-            raise
             quit("Xcode not found. Please install xcode from the App Store and try again.")
 
         try:
@@ -254,6 +285,10 @@ if osname == "Darwin":
         brew_install("python")
         check_call(["brew", "tap", "homebrew/python"])
         brew_install("numpy")
+        brew_install("swig")
+        brew_install("cmake")
+        check_call(["brew", "tap", "homebrew/science"])
+        brew_install("hdf5")
 
     else:
         stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
@@ -262,18 +297,18 @@ elif osname == "Linux":
     # Check for apt.
     try:
         if not args.package_manager:
-            raise subprocess.CalledProcessError
+            raise InstallError
         check_call(["apt-get", "--version"])
 
         apt_packages = ["build-essential", "python-dev", "git-core",
                         "mercurial", "python-pip", "libopenmpi-dev", "openmpi-bin",
-                        "libblas-dev", "liblapack-dev", "gfortran", "libhdf5-mpi-dev"]
+                        "libblas-dev", "liblapack-dev", "gfortran", "cmake"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
             apt_install(missing_packages)
 
-    except subprocess.CalledProcessError:
+    except (subprocess.CalledProcessError, InstallError):
         stdout.write("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
         stdout.write("If this is not the case, please install the following and try again:\n")
         stdout.write("A C compiler (for example gcc or clang), make.\n")
@@ -283,6 +318,8 @@ elif osname == "Linux":
         stdout.write("Git, Mercurial.\n")
         stdout.write("Python version 2.7.\n")
         stdout.write("pip and the Python headers.\n")
+        stdout.write("cmake.\n")
+        stdout.write("swig.\n")
 
 else:
     stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
@@ -310,6 +347,8 @@ elif not (args.system or args.user or args.prefix):
     if mode == "install":
         stdout.write("Creating firedrake virtualenv.\n")
         virtualenv.create_environment("firedrake", site_packages=True)
+        # For some reason virtualenv does not always install the latest pip.
+        run_pip(["-U", "pip"])
     execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
 
 os.chdir("firedrake")
@@ -321,6 +360,15 @@ if mode == "install":
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]
+
+    # Force Cython to install first to work around pip dependency issues.
+    run_pip(["Cython>=0.22"])
+
+    # Need to install petsc first in order to resolve hdf5 dependency.
+    sudopip.append("--no-deps")
+    packages.remove("petsc")
+    install("petsc/")
+    sudopip.pop()
 
     for p in packages:
         pip_requirements(p)
@@ -335,7 +383,6 @@ if mode == "install":
 
     # Work around easy-install.pth bug.
     if args.developer:
-        packages.remove("petsc")
         packages.remove("petsc4py")
         packages.remove("firedrake")
         v = sys.version_info
@@ -381,7 +428,7 @@ stdout.write("Creating firedrake-update script.\n")
 with open("firedrake/scripts/firedrake-install", "r") as f:
     update_script = f.read()
 
-for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager"]:
+for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc"]:
     update_script = update_script.replace("args.%s = False" % switch,
                                           "args.%s = %s" % (switch, args.__getattribute__(switch)))
 try:

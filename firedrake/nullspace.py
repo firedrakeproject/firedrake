@@ -1,10 +1,11 @@
+from __future__ import absolute_import
 from numpy import prod
 
 from pyop2 import op2
 
-import function
-import functionspace
-from petsc import PETSc
+from firedrake import function
+from firedrake import functionspace
+from firedrake.petsc import PETSc
 
 
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']

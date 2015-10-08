@@ -1,10 +1,11 @@
 # Must happen first, to ensure prefork server is up and running.
+from __future__ import absolute_import
 from pyop2_utils import enable_mpi_prefork
 enable_mpi_prefork()
 del enable_mpi_prefork
 
 # Ensure petsc is initialised by us before anything else gets in there.
-import petsc
+import firedrake.petsc as petsc
 del petsc
 
 # UFL Exprs come with a custom __del__ method, but we hold references
@@ -32,35 +33,35 @@ from pyop2.logger import debug, info, warning, error, critical  # noqa
 from pyop2.logger import DEBUG, INFO, WARNING, ERROR, CRITICAL  # noqa
 from pyop2 import op2                                           # noqa
 
-from assemble import *
-from bcs import *
-from cfunction import *
-from constant import *
-from expression import *
-from function import *
-from functionspace import *
-from io import *
-from linear_solver import *
-from mesh import *
-from mg.mesh import *
-from mg.function import *
-from mg.functionspace import *
-from mg.ufl_utils import *
-from mg.interface import *
-from mg.solver_hierarchy import *
-from norms import *
-from nullspace import *
-from optimizer import *
-from parameters import *
-from parloops import *
-from projection import *
-from solving import *
-from ufl_expr import *
-from utility_meshes import *
-from variational_solver import *
-from vector import *
-from version import __version__ as ver, __version_info__, check  # noqa
-import visualise  # noqa
+from firedrake.assemble import *
+from firedrake.bcs import *
+from firedrake.cfunction import *
+from firedrake.constant import *
+from firedrake.expression import *
+from firedrake.function import *
+from firedrake.functionspace import *
+from firedrake.io import *
+from firedrake.linear_solver import *
+from firedrake.mesh import *
+from firedrake.mg.mesh import *
+from firedrake.mg.function import *
+from firedrake.mg.functionspace import *
+from firedrake.mg.ufl_utils import *
+from firedrake.mg.interface import *
+from firedrake.mg.solver_hierarchy import *
+from firedrake.norms import *
+from firedrake.nullspace import *
+from firedrake.optimizer import *
+from firedrake.parameters import *
+from firedrake.parloops import *
+from firedrake.projection import *
+from firedrake.solving import *
+from firedrake.ufl_expr import *
+from firedrake.utility_meshes import *
+from firedrake.variational_solver import *
+from firedrake.vector import *
+from firedrake.version import __version__ as ver, __version_info__, check  # noqa
+import firedrake.visualise  # noqa
 
 # Set default log level
 set_log_level(INFO)
@@ -68,6 +69,6 @@ set_log_level(INFO)
 check()
 del check
 
-from ._version import get_versions
+from firedrake._version import get_versions
 __version__ = get_versions(default={"version": ver, "full": ""})['version']
 del get_versions

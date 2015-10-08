@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy
 import ufl
 
@@ -5,14 +6,14 @@ from pyop2 import op2
 from pyop2.exceptions import MapValueError
 from pyop2.profiling import timed_region, profile
 
-import assembly_cache
-import assemble_expressions
-import ffc_interface
-import function
-import functionspace
-import matrix
-import parameters
-import solving
+from firedrake import assembly_cache
+from firedrake import assemble_expressions
+from firedrake import ffc_interface
+from firedrake import function
+from firedrake import functionspace
+from firedrake import matrix
+from firedrake import parameters
+from firedrake import solving
 
 
 __all__ = ["assemble"]

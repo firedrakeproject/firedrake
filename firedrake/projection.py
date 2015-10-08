@@ -1,10 +1,10 @@
+from __future__ import absolute_import
 import ufl
 
-import expression
-import function
-import functionspace
-import solving
-import ufl_expr
+from firedrake import expression
+from firedrake import functionspace
+from firedrake import solving
+from firedrake import ufl_expr
 
 
 __all__ = ['project']
@@ -37,6 +37,8 @@ def project(v, V, bcs=None, mesh=None,
 
     The ``bcs``, ``mesh`` and ``form_compiler_parameters`` are
     currently ignored."""
+    from firedrake import function
+
     if isinstance(V, functionspace.FunctionSpaceBase):
         ret = function.Function(V, name=name)
     elif isinstance(V, function.Function):
