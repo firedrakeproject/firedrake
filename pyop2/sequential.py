@@ -156,5 +156,43 @@ class ParLoop(host.ParLoop):
             fun(part.offset, part.offset + part.size, *arglist)
 
 
+def generate_cell_wrapper(itspace, args, kernel_name=None, wrapper_name=None):
+    direct = all(a.map is None for a in args)
+    snippets = host.wrapper_snippets(itspace, args, kernel_name=kernel_name, wrapper_name=wrapper_name)
+
+    if itspace._extruded:
+        snippets['index_exprs'] = """int i = cell / nlayers;
+    int j = cell % nlayers;"""
+        snippets['nlayers_arg'] = ", int nlayers"
+        snippets['extr_pos_loop'] = "{" if direct else "for (int j_0 = 0; j_0 < j; ++j_0) {"
+    else:
+        snippets['index_exprs'] = "int i = cell;"
+        snippets['nlayers_arg'] = ""
+        snippets['extr_pos_loop'] = ""
+
+    template = """static inline void %(wrapper_name)s(%(wrapper_args)s%(const_args)s%(nlayers_arg)s, int cell)
+{
+    %(user_code)s
+    %(wrapper_decs)s;
+    %(const_inits)s;
+    %(map_decl)s
+    %(vec_decs)s;
+    %(index_exprs)s
+    %(vec_inits)s;
+    %(map_init)s;
+    %(extr_pos_loop)s
+        %(apply_offset)s;
+    %(extr_loop_close)s
+    %(map_bcs_m)s;
+    %(buffer_decl)s;
+    %(buffer_gather)s
+    %(kernel_name)s(%(kernel_args)s);
+    %(itset_loop_body)s
+    %(map_bcs_p)s;
+}
+"""
+    return template % snippets
+
+
 def _setup():
     pass
