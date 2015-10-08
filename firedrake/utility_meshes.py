@@ -25,7 +25,8 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
-           'CubedSphereMesh', 'UnitCubedSphereMesh']
+           'CubedSphereMesh', 'UnitCubedSphereMesh',
+           'TorusMesh']
 
 
 _cachedir = os.path.join(tempfile.gettempdir(),
@@ -755,3 +756,41 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None):
     """
     return CubedSphereMesh(1.0, refinement_level=refinement_level,
                            degree=degree, reorder=reorder)
+
+
+def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
+    """Generate a toroidal mesh
+
+    :arg nR: The number of cells in the major direction (min 3)
+    :arg nr: The number of cells in the minor direction (min 3)
+    :arg R: The major radius
+    :arg r: The minor radius
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    """
+    if nR < 3 or nr < 3:
+        raise ValueError("Must have at least 3 cells in each direction")
+
+    # gives an array [[0, 0], [0, 1], ..., [1, 0], [1, 1], ...]
+    idx_temp = np.asarray(np.meshgrid(np.arange(nR), np.arange(nr))).swapaxes(0, 2).reshape(-1, 2)
+
+    # vertices - standard formula for (x, y, z), see Wikipedia
+    vertices = np.column_stack((
+        (R + r*np.cos(idx_temp[:, 1]*(2*np.pi/nr)))*np.cos(idx_temp[:, 0]*(2*np.pi/nR)),
+        (R + r*np.cos(idx_temp[:, 1]*(2*np.pi/nr)))*np.sin(idx_temp[:, 0]*(2*np.pi/nR)),
+        r*np.sin(idx_temp[:, 1]*(2*np.pi/nr))))
+
+    # cell vertices
+    i, j = np.meshgrid(np.arange(nR), np.arange(nr))
+    i = i.reshape(-1)  # Miklos's suggestion to make the code
+    j = j.reshape(-1)  # less impenetrable
+    cells = [i*nr + j, i*nr + (j+1) % nr, ((i+1) % nR)*nr + (j+1) % nr, ((i+1) % nR)*nr + j]
+    cells = np.column_stack(cells)
+    if not quadrilateral:
+        # two cells per cell above...
+        cells = [[[cell[0], cell[1], cell[3]], [cell[1], cell[2], cell[3]]] for cell in cells]
+        cells = np.asarray(cells).reshape(-1, 3)
+
+    plex = mesh._from_cell_list(2, cells, vertices)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    return m
