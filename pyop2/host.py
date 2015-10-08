@@ -123,7 +123,7 @@ class Arg(base.Arg):
                                                      'iname': self.c_arg_name(0, 0)}
         return val
 
-    def c_ind_data(self, idx, i, j=0, is_top=False, layers=1, offset=None):
+    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None):
         return "%(name)s + (%(map_name)s[i * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
@@ -135,7 +135,7 @@ class Arg(base.Arg):
              'off_mul': ' * %d' % offset if is_top and offset is not None else '',
              'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
 
-    def c_ind_data_xtr(self, idx, i, j=0, layers=1):
+    def c_ind_data_xtr(self, idx, i, j=0):
         return "%(name)s + (xtr_%(map_name)s[%(idx)s])*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
@@ -168,7 +168,7 @@ class Arg(base.Arg):
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
                 if self.data is not None and self.data.dataset._extruded:
-                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i, layers=layers)
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
                         {'name': self.c_arg_name(),
@@ -194,7 +194,7 @@ class Arg(base.Arg):
             return "%(name)s + %(idx)s" % {'name': self.c_arg_name(i),
                                            'idx': idx}
 
-    def c_vec_init(self, is_top, layers, is_facet=False):
+    def c_vec_init(self, is_top, is_facet=False):
         is_top_init = is_top
         val = []
         vec_idx = 0
@@ -206,7 +206,7 @@ class Arg(base.Arg):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
                                     'idx': vec_idx,
-                                    'data': self.c_ind_data(idx, i, k, is_top=is_top, layers=layers,
+                                    'data': self.c_ind_data(idx, i, k, is_top=is_top,
                                                             offset=m.offset[idx] if is_top else None)})
                         vec_idx += 1
                     # In the case of interior horizontal facets the map for the
@@ -220,7 +220,7 @@ class Arg(base.Arg):
                             val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                        {'vec_name': self.c_vec_name(),
                                         'idx': vec_idx,
-                                        'data': self.c_ind_data(idx, i, k, is_top=is_top, layers=layers,
+                                        'data': self.c_ind_data(idx, i, k, is_top=is_top,
                                                                 offset=m.offset[idx])})
                             vec_idx += 1
             else:
@@ -228,7 +228,7 @@ class Arg(base.Arg):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
                                 'idx': vec_idx,
-                                'data': self.c_ind_data(idx, i, is_top=is_top, layers=layers,
+                                'data': self.c_ind_data(idx, i, is_top=is_top,
                                                         offset=m.offset[idx] if is_top else None)})
                     vec_idx += 1
                 if is_facet:
@@ -236,7 +236,7 @@ class Arg(base.Arg):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
                                     'idx': vec_idx,
-                                    'data': self.c_ind_data(idx, i, is_top=is_top, layers=layers,
+                                    'data': self.c_ind_data(idx, i, is_top=is_top,
                                                             offset=m.offset[idx])})
                         vec_idx += 1
         return ";\n".join(val)
@@ -473,7 +473,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                            {'name': self.c_map_name(i, j), 'dim': dim})
         return '\n'.join(val)+'\n'
 
-    def c_map_init(self, is_top=False, layers=1, is_facet=False):
+    def c_map_init(self, is_top=False, is_facet=False):
         if self._is_mat:
             dsets = self.data.sparsity.dsets
         else:
@@ -887,7 +887,7 @@ def wrapper_snippets(itspace, args,
          for count, arg in enumerate(args)
          if arg._is_global_reduction])
 
-    _vec_inits = ';\n'.join([arg.c_vec_init(is_top, itspace.layers, is_facet=is_facet) for arg in args
+    _vec_inits = ';\n'.join([arg.c_vec_init(is_top, is_facet=is_facet) for arg in args
                              if not arg._is_mat and arg._is_vec_map])
 
     indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
@@ -904,7 +904,7 @@ def wrapper_snippets(itspace, args,
         _layer_arg = ", int start_layer, int end_layer, int top_layer"
         _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
                                  for arg in args if arg._uses_itspace])
-        _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=itspace.layers, is_facet=is_facet)
+        _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, is_facet=is_facet)
                                  for arg in args if arg._uses_itspace])
         _map_bcs_m += ';\n'.join([arg.c_map_bcs("-", is_facet) for arg in args if arg._is_mat])
         _map_bcs_p += ';\n'.join([arg.c_map_bcs("+", is_facet) for arg in args if arg._is_mat])
