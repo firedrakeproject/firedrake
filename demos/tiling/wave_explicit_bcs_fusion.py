@@ -13,7 +13,7 @@ from utils.benchmarking import parser, output_time
 args = parser()
 num_unroll = args.num_unroll
 tile_size = args.tile_size
-mesh_size = args.mesh_size
+mesh_size = int(args.mesh_size)
 verbose = args.verbose
 output = args.output
 mode = args.fusion_mode
@@ -22,7 +22,7 @@ mode = args.fusion_mode
 loop_chain_length = 4
 
 mesh = UnitSquareMesh(mesh_size, mesh_size)
-mesh.init(s_depth=1)
+mesh.init(s_depth=1+num_unroll)
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
 # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
