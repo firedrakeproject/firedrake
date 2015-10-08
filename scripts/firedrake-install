@@ -117,7 +117,7 @@ os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 if args.minimal_petsc:
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco"""
 else:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre=1 --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
