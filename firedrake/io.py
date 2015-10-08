@@ -104,8 +104,7 @@ class File(object):
             elif os.path.splitext(filename)[1] == ".pvd":
                 self._file = _VTUFile(new_file)
             else:
-                raise ValueError("On parallel writing, the filename written\
-                        must be vtu file.")
+                raise ValueError("On parallel writing, the filename written must be vtu file.")
         else:
             new_file = os.path.splitext(os.path.abspath(filename))[0]
             if os.path.splitext(filename)[1] == ".vtu":
@@ -113,8 +112,7 @@ class File(object):
             elif os.path.splitext(filename)[1] == ".pvd":
                 self._file = _PVDFile(new_file)
             else:
-                raise ValueError("File name is wrong. It must be either vtu\
-                        file or pvd file.")
+                raise ValueError("File name is wrong. It must be either vtu file or pvd file.")
 
     def __lshift__(self, data):
         self._file << data
