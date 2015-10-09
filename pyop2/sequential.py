@@ -156,7 +156,7 @@ class ParLoop(host.ParLoop):
             fun(part.offset, part.offset + part.size, *arglist)
 
 
-def generate_cell_wrapper(itspace, args, kernel_name=None, wrapper_name=None):
+def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrapper_name=None):
     direct = all(a.map is None for a in args)
     snippets = host.wrapper_snippets(itspace, args, kernel_name=kernel_name, wrapper_name=wrapper_name)
 
@@ -170,7 +170,10 @@ def generate_cell_wrapper(itspace, args, kernel_name=None, wrapper_name=None):
         snippets['nlayers_arg'] = ""
         snippets['extr_pos_loop'] = ""
 
-    template = """static inline void %(wrapper_name)s(%(wrapper_args)s%(const_args)s%(nlayers_arg)s, int cell)
+    snippets['wrapper_fargs'] = "".join("{1} farg{0}, ".format(i, arg) for i, arg in enumerate(forward_args))
+    snippets['kernel_fargs'] = "".join("farg{0}, ".format(i) for i in xrange(len(forward_args)))
+
+    template = """static inline void %(wrapper_name)s(%(wrapper_fargs)s%(wrapper_args)s%(const_args)s%(nlayers_arg)s, int cell)
 {
     %(user_code)s
     %(wrapper_decs)s;
@@ -186,7 +189,7 @@ def generate_cell_wrapper(itspace, args, kernel_name=None, wrapper_name=None):
     %(map_bcs_m)s;
     %(buffer_decl)s;
     %(buffer_gather)s
-    %(kernel_name)s(%(kernel_args)s);
+    %(kernel_name)s(%(kernel_fargs)s%(kernel_args)s);
     %(itset_loop_body)s
     %(map_bcs_p)s;
 }
