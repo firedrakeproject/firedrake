@@ -8,6 +8,7 @@ from collections import defaultdict
 import numpy as np
 import matplotlib.pyplot as plt
 import brewer2mpl
+import matplotlib.ticker as ticker
 
 from pyop2.mpi import MPI
 from pyop2.profiling import summary
@@ -41,7 +42,7 @@ def output_time(start, end, **kwargs):
 
     # So what execution /mode/ is this?
     if num_procs == 1 and num_threads == 1:
-        modes = ['sequential', 'omp', 'mpi', 'mpi_openmp']
+        modes = ['sequential', 'openmp', 'mpi', 'mpi_openmp']
     elif num_procs == 1 and num_threads > 1:
         modes = ['openmp']
     elif num_procs > 1 and num_threads == 1:
@@ -108,6 +109,7 @@ def output_time(start, end, **kwargs):
 
 def plot():
 
+    base_directory = "plots"
     runtimes = defaultdict(list)
 
     toplot = [(i[0], i[2]) for i in os.walk("times/") if not i[1]]
@@ -129,22 +131,15 @@ def plot():
                 avg = sum([float(i) for i in lines]) / len(lines)
                 runtimes[(name, mesh)].append((mode, num_cores, avg))
 
-    # Now we can plot
+    # Now we can plot !
 
     # Fancy colors (all colorbrewer scales: http://bl.ocks.org/mbostock/5577023)
     set2 = brewer2mpl.get_map('Set2', 'qualitative', 8).mpl_colors
 
-    base_directory = "plots"
-    #mesh%d/%s/np%d_nt%d.txt" % \
-    #    (name, mesh_size, mode, num_procs, num_threads)
-    ## Create directory and file (if not exist)
-    #    os.makedirs(os.path.dirname(filename))
-    #if not os.path.exists(filename):
-    #    open(filename, 'a').close()
-
+    # 1) Plot by number of processes/threads
     for (name, mesh), instance in runtimes.items():
         # Now start crafting the plot ...
-        fig = plt.figure(1)
+        fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_title("%s_%s" % (name, mesh))
         # ... Each line in the plot represents a certain mode
@@ -157,6 +152,8 @@ def plot():
             x, y = zip(*values)
             handle = ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i])[0]
             legend.append((handle, mode))
+        # ... The x axis represent number of procs, so needs be integer
+        ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
         # ... Add a sensible legend
         handles, labels = zip(*legend)
         ax.legend(handles, labels)
