@@ -7,8 +7,8 @@ from shutil import rmtree
 from pyop2.mpi import MPI
 from pyop2.profiling import profile
 
-from firedrake import VectorFunctionSpace, Function, par_loop, dx, \
-    WRITE, READ
+from firedrake import VectorFunctionSpace, Function, Constant, \
+    par_loop, dx, WRITE, READ
 from firedrake import mesh
 from firedrake import expression
 from firedrake import function
@@ -176,14 +176,15 @@ def PeriodicIntervalMesh(ncells, length):
             new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
             if(new_coords[i][0]<0.) new_coords[i][0] += 1;
             if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
-            new_coords[i][0] *= L;
+            new_coords[i][0] *= L[0];
             }"""
 
-    periodic_kernel = periodic_kernel.replace('L', str(length))
+    cL = Constant(length)
 
     par_loop(periodic_kernel, dx,
              {"new_coords": (new_coordinates, WRITE),
-              "old_coords": (old_coordinates, READ)})
+              "old_coords": (old_coordinates, READ),
+              "L": (cL, READ)})
 
     m.coordinates = new_coordinates
     return m
@@ -357,17 +358,19 @@ for(int i=0; i<new_coords.dofs; i++) {
         new_coords[i][1] = 1.0;
     }
 
-    new_coords[i][0] *= Lx;
-    new_coords[i][1] *= Ly;
+    new_coords[i][0] *= Lx[0];
+    new_coords[i][1] *= Ly[0];
 }
 """
 
-    periodic_kernel = periodic_kernel.replace('Lx', str(Lx))
-    periodic_kernel = periodic_kernel.replace('Ly', str(Ly))
+    cLx = Constant(Lx)
+    cLy = Constant(Ly)
 
     par_loop(periodic_kernel, dx,
              {"new_coords": (new_coordinates, WRITE),
-              "old_coords": (old_coordinates, READ)})
+              "old_coords": (old_coordinates, READ),
+              "Lx": (cLx, READ),
+              "Ly": (cLy, READ)})
 
     m.coordinates = new_coordinates
     return m
