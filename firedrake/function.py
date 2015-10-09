@@ -487,3 +487,59 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             assemble_expressions.IDiv(self, expr))
 
         return self
+
+    @utils.cached_property
+    def ctypes(self):
+        from firedrake.cfunction import cFunction
+        return cFunction(self)
+
+    @utils.cached_property
+    def c_evaluate(self):
+        from firedrake.cfunction import make_c_evaluate
+        result = make_c_evaluate(self)
+        result.restype = int
+        return result
+
+    def evaluate(self, coord, mapping, component, index_values):
+        return self._evaluate(coord)
+
+    def _evaluate(self, arg, *args, **kwargs):
+        if args:
+            arg = (arg,) + args
+        arg = np.array(arg, dtype=float)
+
+        fill_value = kwargs.get('fill_value')
+
+        # Handle f(0.3)
+        if not arg.shape:
+            arg = arg.reshape(-1)
+
+        # Validate geometric dimension
+        gdim = self.function_space().mesh().ufl_cell().geometric_dimension()
+        if arg.shape[-1] != gdim:
+            raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
+
+        def single_eval(x, buf):
+            """Helper function to evaluate at a single point."""
+            err = self.c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
+            if err == -1:
+                if fill_value is not None:
+                    buf.fill(fill_value)
+                else:
+                    raise RuntimeError("Point %s is outside domain." % x.reshape(-1))
+
+        value_shape = self.function_space().ufl_element().value_shape()
+        if len(arg.shape) == 1:
+            result = np.empty(value_shape, dtype=float)
+            single_eval(arg, result)
+            # Flatten if single value
+            # if not result.shape:
+            #     result = float(result)
+        elif len(arg.shape) == 2:
+            result = np.empty((len(arg),) + value_shape, dtype=float)
+            for i in xrange(len(arg)):
+                single_eval(arg[i:i+1], result[i:i+1])
+        else:
+            raise ValueError("Function expects point or array of points.")
+
+        return result
