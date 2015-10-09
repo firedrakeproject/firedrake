@@ -110,8 +110,10 @@ def output_time(start, end, **kwargs):
 def plot():
 
     base_directory = "plots"
-    runtimes = defaultdict(list)
+    y_runtimes_x_threads = defaultdict(list)
+    y_runtimes_x_tilesize = defaultdict(list)
 
+    # Structure data into suitable data structures
     toplot = [(i[0], i[2]) for i in os.walk("times/") if not i[1]]
     for problem, experiments in toplot:
         # Get info out of the problem name
@@ -119,17 +121,22 @@ def plot():
         name, mesh, mode = info[1], info[2], info[3]
         for experiment in experiments:
             num_procs, num_threads = re.findall(r'\d+', experiment)
-            num_cores = int(num_procs) * int(num_threads)
+            num_procs, num_threads = int(num_procs), int(num_threads)
+            num_cores = num_procs * num_threads
             with open(os.path.join(problem, experiment), 'r') as f:
-                lines = [line.split(':') for line in f if line.strip()][1:]
                 # Recall that lines are already sorted based on runtime
-                # So get all runtimes available for what was the fastest version
-                # (that is, the instances with same number of unrolled loops and
-                # same tile size)
+                lines = [line.split(':') for line in f if line.strip()][1:]
+                # 1) Structure for runtimes (taking averages, if possible)
                 fastest = lines[0]
-                lines = [i[0] for i in lines if i[1] == fastest[1] and i[2] == fastest[2]]
-                avg = sum([float(i) for i in lines]) / len(lines)
-                runtimes[(name, mesh)].append((mode, num_cores, avg))
+                _lines = [i[0] for i in lines if i[1] == fastest[1] and i[2] == fastest[2]]
+                avg = sum([float(i) for i in _lines]) / len(_lines)
+                y_runtimes_x_threads[(name, mesh)].append((mode, num_cores, avg))
+                # 2) Structure to plot by tile size
+                for runtime, nloops, tile_size in lines:
+                    key = (name, mesh, int(nloops), num_procs, num_threads)
+                    val = (int(tile_size), float(runtime))
+                    if val not in y_runtimes_x_tilesize[key]:
+                        y_runtimes_x_tilesize[key].append(val)
 
     # Now we can plot !
 
@@ -137,12 +144,13 @@ def plot():
     set2 = brewer2mpl.get_map('Set2', 'qualitative', 8).mpl_colors
 
     # 1) Plot by number of processes/threads
-    for (name, mesh), instance in runtimes.items():
-        # Now start crafting the plot ...
+    plot_directory = "by_threads"
+    for (name, mesh), instance in y_runtimes_x_threads.items():
+        # Start crafting the plot ...
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_title("%s_%s" % (name, mesh))
-        # ... Each line in the plot represents a certain mode
+        # ... Each line in the plot represents a mode
         runtime_by_mode = defaultdict(list)
         for mode, num_cores, avg in instance:
             runtime_by_mode[mode].append((num_cores, avg))
@@ -158,10 +166,43 @@ def plot():
         handles, labels = zip(*legend)
         ax.legend(handles, labels)
         # ... Finally, output to a file
-        directory = os.path.join(base_directory, name)
+        directory = os.path.join(base_directory, plot_directory, name)
         if not os.path.exists(directory):
             os.makedirs(directory)
         fig.savefig(os.path.join(directory, "%s.pdf" % mesh))
+
+    # 2) Plot by tile size
+    plot_directory = "by_tilesize"
+    colors = defaultdict(int)
+    for (name, mesh, nloops, num_procs, num_threads), instance in y_runtimes_x_tilesize.items():
+        # Start crafting the plot ...
+        plot_id = "%s_%s_nloops%d" % (name, mesh, nloops)
+        fig = plt.figure(plot_id)
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_title(plot_id)
+        # What's the next color that I should use ?
+        colors[plot_id] += 1
+        # ... Set a proper label for the legend
+        if num_procs == 1 and num_threads == 1:
+            label = "sequential"
+        elif num_procs == 1:
+            label = "%d omp" % num_threads
+        elif num_threads == 1:
+            label = "%d mpi" % num_procs
+        else:
+            label = "%d mpi x %d omp" % (num_procs, num_threads)
+        # ... Add a line for this <num_procs, num_threads> instance
+        tile_size, runtime = zip(*sorted(instance))
+        ax.set_xlim([0, tile_size[-1]+50])
+        ax.set_xticks(tile_size)
+        ax.set_xticklabels(tile_size)
+        ax.plot(tile_size, runtime, '-', linewidth=2, marker='o', color=set2[colors[plot_id]], label=label)
+        ax.legend()
+        # ... Finally, output to a file
+        directory = os.path.join(base_directory, plot_directory, name)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        fig.savefig(os.path.join(directory, "%s_nloops%d.pdf" % (mesh, nloops)))
 
 
 if __name__ == '__main__':
