@@ -885,8 +885,7 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
     cells = np.column_stack(cells)
     if not quadrilateral:
         # two cells per cell above...
-        cells = [[[cell[0], cell[1], cell[3]], [cell[1], cell[2], cell[3]]] for cell in cells]
-        cells = np.asarray(cells).reshape(-1, 3)
+        cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
     plex = mesh._from_cell_list(2, cells, vertices)
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
