@@ -3856,7 +3856,7 @@ class JITModule(Cached):
                     idx = (arg.idx.__class__, arg.idx.index)
                 else:
                     idx = arg.idx
-                map_arity = arg.map.arity if arg.map else None
+                map_arity = arg.map and (tuplify(arg.map.offset) or arg.map.arity)
                 if arg._is_dat_view:
                     view_idx = arg.data.index
                 else:
@@ -3866,7 +3866,8 @@ class JITModule(Cached):
             elif arg._is_mat:
                 idxs = (arg.idx[0].__class__, arg.idx[0].index,
                         arg.idx[1].index)
-                map_arities = (arg.map[0].arity, arg.map[1].arity)
+                map_arities = (tuplify(arg.map[0].offset) or arg.map[0].arity,
+                               tuplify(arg.map[1].offset) or arg.map[1].arity)
                 # Implicit boundary conditions (extruded "top" or
                 # "bottom") affect generated code, and therefore need
                 # to be part of cache key
@@ -4225,19 +4226,6 @@ class ParLoop(LazyComputation):
     @cached_property
     def global_reduction_args(self):
         return [arg for arg in self.args if arg._is_global_reduction]
-
-    @cached_property
-    def offset_args(self):
-        """The offset args that need to be added to the argument list."""
-        _args = []
-        for arg in self.args:
-            if arg._is_indirect or arg._is_mat:
-                maps = as_tuple(arg.map, Map)
-                for map in maps:
-                    for m in map:
-                        if m.iterset._extruded:
-                            _args.append(m.offset)
-        return _args
 
     @cached_property
     def layer_arg(self):

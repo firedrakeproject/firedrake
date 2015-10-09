@@ -52,7 +52,6 @@ void %(wrapper_name)s(int start, int end,
                       %(ssinds_arg)s
                       %(wrapper_args)s
                       %(const_args)s
-                      %(off_args)s
                       %(layer_arg)s) {
   %(user_code)s
   %(wrapper_decs)s;
@@ -78,7 +77,6 @@ void %(wrapper_name)s(int start, int end,
 
     def set_argtypes(self, iterset, *args):
         argtypes = [ctypes.c_int, ctypes.c_int]
-        offset_args = []
         if isinstance(iterset, Subset):
             argtypes.append(iterset._argtype)
         for arg in args:
@@ -92,13 +90,9 @@ void %(wrapper_name)s(int start, int end,
                 for map in maps:
                     for m in map:
                         argtypes.append(m._argtype)
-                        if m.iterset._extruded:
-                            offset_args.append(ctypes.c_voidp)
 
         for c in Const._definitions():
             argtypes.append(c._argtype)
-
-        argtypes.extend(offset_args)
 
         if iterset._extruded:
             argtypes.append(ctypes.c_int)
@@ -111,7 +105,6 @@ class ParLoop(host.ParLoop):
 
     def prepare_arglist(self, iterset, *args):
         arglist = []
-        offset_args = []
         if isinstance(iterset, Subset):
             arglist.append(iterset._indices.ctypes.data)
 
@@ -127,13 +120,9 @@ class ParLoop(host.ParLoop):
                 for map in arg._map:
                     for m in map:
                         arglist.append(m._values.ctypes.data)
-                        if m.iterset._extruded:
-                            offset_args.append(m.offset.ctypes.data)
 
         for c in Const._definitions():
             arglist.append(c._data.ctypes.data)
-
-        arglist.extend(offset_args)
 
         if iterset._extruded:
             region = self.iteration_region

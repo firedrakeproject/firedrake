@@ -135,15 +135,13 @@ class Arg(base.Arg):
              'off_mul': ' * %d' % offset if is_top and offset is not None else '',
              'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
 
-    def c_ind_data_xtr(self, idx, i, j=0, is_top=False, layers=1):
-        return "%(name)s + (xtr_%(map_name)s[%(idx)s]%(top)s%(offset)s)*%(dim)s%(off)s" % \
+    def c_ind_data_xtr(self, idx, i, j=0, layers=1):
+        return "%(name)s + (xtr_%(map_name)s[%(idx)s])*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
-             'top': ' + start_layer' if is_top else '',
              'dim': 1 if self._flatten else str(self.data[i].cdim),
-             'off': ' + %d' % j if j else '',
-             'offset': ' * _'+self.c_offset_name(i, 0)+'['+idx+']' if is_top else ''}
+             'off': ' + %d' % j if j else ''}
 
     def c_kernel_arg_name(self, i, j):
         return "p_%s" % self.c_arg_name(i, j)
@@ -154,7 +152,7 @@ class Arg(base.Arg):
     def c_local_tensor_name(self, i, j):
         return self.c_kernel_arg_name(i, j)
 
-    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), is_top=False, layers=1):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
         if self._is_dat_view and not self._is_direct:
             raise NotImplementedError("Indirect DatView not implemented")
         if self._uses_itspace:
@@ -170,7 +168,7 @@ class Arg(base.Arg):
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
                 if self.data is not None and self.data.dataset._extruded:
-                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i, is_top=is_top, layers=layers)
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i, layers=layers)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
                         {'name': self.c_arg_name(),
@@ -408,20 +406,18 @@ class Arg(base.Arg):
         for i, (m, d) in enumerate(zip(self.map, self.data)):
             for k in range(d.cdim if self._flatten else 1):
                 for idx in range(m.arity):
-                    val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
+                    val.append("%(name)s[%(j)d] += %(offset)d * %(dim)s;" %
                                {'name': self.c_vec_name(),
-                                'i': idx,
                                 'j': vec_idx,
-                                'offset': self.c_offset_name(i, 0),
+                                'offset': m.offset[idx],
                                 'dim': d.cdim})
                     vec_idx += 1
                 if is_facet:
                     for idx in range(m.arity):
-                        val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
+                        val.append("%(name)s[%(j)d] += %(offset)d * %(dim)s;" %
                                    {'name': self.c_vec_name(),
-                                    'i': idx,
                                     'j': vec_idx,
-                                    'offset': self.c_offset_name(i, 0),
+                                    'offset': m.offset[idx],
                                     'dim': d.cdim})
                         vec_idx += 1
         return '\n'.join(val)+'\n'
@@ -587,46 +583,31 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 for idx in range(m.arity):
                     if self._is_dat and self._flatten and d.cdim > 1:
                         for k in range(d.cdim):
-                            val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
+                            val.append("xtr_%(name)s[%(ind_flat)s] += %(off)d * %(dim)s;" %
                                        {'name': self.c_map_name(i, j),
-                                        'off': self.c_offset_name(i, j),
-                                        'ind': idx,
+                                        'off': m.offset[idx],
                                         'ind_flat': m.arity * k + idx,
                                         'dim': d.cdim})
                     else:
-                        val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind)s];" %
+                        val.append("xtr_%(name)s[%(ind)s] += %(off)d;" %
                                    {'name': self.c_map_name(i, j),
-                                    'off': self.c_offset_name(i, j),
+                                    'off': m.offset[idx],
                                     'ind': idx})
                 if is_facet:
                     for idx in range(m.arity):
                         if self._is_dat and self._flatten and d.cdim > 1:
                             for k in range(d.cdim):
-                                val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
+                                val.append("xtr_%(name)s[%(ind_flat)s] += %(off)d * %(dim)s;" %
                                            {'name': self.c_map_name(i, j),
-                                            'off': self.c_offset_name(i, j),
-                                            'ind': idx,
+                                            'off': m.offset[idx],
                                             'ind_flat': m.arity * (k + d.cdim) + idx,
                                             'dim': d.cdim})
                         else:
-                            val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind_zero)s];" %
+                            val.append("xtr_%(name)s[%(ind)s] += %(off)d;" %
                                        {'name': self.c_map_name(i, j),
-                                        'off': self.c_offset_name(i, j),
-                                        'ind': m.arity + idx,
-                                        'ind_zero': idx})
+                                        'off': m.offset[idx],
+                                        'ind': m.arity + idx})
         return '\n'.join(val)+'\n'
-
-    def c_offset_init(self):
-        maps = as_tuple(self.map, Map)
-        val = []
-        for i, map in enumerate(maps):
-            if not map.iterset._extruded:
-                continue
-            for j, m in enumerate(map):
-                val.append("int *%s" % self.c_offset_name(i, j))
-        if len(val) == 0:
-            return ""
-        return ", " + ", ".join(val)
 
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False, init=True):
         buf_type = self.data.ctype
@@ -882,8 +863,6 @@ class JITModule(base.JITModule):
         _layer_arg = ""
         if self._itspace._extruded:
             _layer_arg = ", int start_layer, int end_layer"
-            _off_args = ''.join([arg.c_offset_init() for arg in self._args
-                                 if arg._uses_itspace or arg._is_vec_map])
             _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
             _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
@@ -896,8 +875,6 @@ class JITModule(base.JITModule):
                                          for arg in self._args if arg._is_vec_map])
             _extr_loop = '\n' + extrusion_loop()
             _extr_loop_close = '}\n'
-        else:
-            _off_args = ""
 
         # Build kernel invocation. Let X be a parameter of the kernel representing a
         # tensor accessed in an iteration space. Let BUFFER be an array of the same
@@ -1004,7 +981,6 @@ class JITModule(base.JITModule):
                 'const_args': _const_args,
                 'const_inits': indent(_const_inits, 1),
                 'vec_inits': indent(_vec_inits, 2),
-                'off_args': _off_args,
                 'layer_arg': _layer_arg,
                 'map_decl': indent(_map_decl, 2),
                 'vec_decs': indent(_vec_decs, 2),
