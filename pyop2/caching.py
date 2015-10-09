@@ -288,8 +288,12 @@ class DiskCached(Cached):
         c = MPI.comm
         # Only rank 0 stores on disk
         if c.rank == 0:
+            # Concurrently writing a file is unsafe,
+            # but moving shall be atomic.
             filepath = os.path.join(cls._cachedir, key)
+            tempfile = os.path.join(cls._cachedir, "%s_p%d.tmp" % (key, os.getpid()))
             # No need for a barrier after this, since non root
             # processes will never race on this file.
-            with gzip.open(filepath, 'wb') as f:
+            with gzip.open(tempfile, 'wb') as f:
                 cPickle.dump(val, f)
+            os.rename(tempfile, filepath)
