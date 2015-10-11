@@ -290,7 +290,6 @@ def build_update_script():
 if args.rebuild_script:
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
 
-    print os.getcwd()
     build_update_script()
 
     stdout.write("Successfully rebuilt firedrake-update.\n\n")
