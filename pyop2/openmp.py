@@ -260,14 +260,18 @@ class ParLoop(device.ParLoop, host.ParLoop):
             if region is ON_BOTTOM:
                 arglist.append(0)
                 arglist.append(1)
+                arglist.append(iterset.layers - 1)
             elif region is ON_TOP:
                 arglist.append(iterset.layers - 2)
+                arglist.append(iterset.layers - 1)
                 arglist.append(iterset.layers - 1)
             elif region is ON_INTERIOR_FACETS:
                 arglist.append(0)
                 arglist.append(iterset.layers - 2)
+                arglist.append(iterset.layers - 2)
             else:
                 arglist.append(0)
+                arglist.append(iterset.layers - 1)
                 arglist.append(iterset.layers - 1)
 
         return arglist
