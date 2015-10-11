@@ -520,7 +520,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                         'off': ' + ' + str(m.offset[idx])})
         return '\n'.join(val)+'\n'
 
-    def c_map_bcs(self, sign):
+    def c_map_bcs(self, sign, is_facet):
         maps = as_tuple(self.map, Map)
         val = []
         # To throw away boundary condition values, we subtract a large
@@ -570,15 +570,16 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                             top_masks += m.top_mask[name]
                         need_top = True
                 if top_masks is not None:
+                    facet_offset = m.arity if is_facet else 0
                     for idx in range(m.arity):
                         if top_masks[idx] < 0:
                             val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
                                        {'name': self.c_map_name(i, j),
                                         'val': max_int,
-                                        'ind': idx,
+                                        'ind': idx + facet_offset,
                                         'sign': sign})
         if need_top:
-            val.insert(pos, "if (j_0 == end_layer - 1) {")
+            val.insert(pos, "if (j_0 == top_layer - 1) {")
             val.append("}")
         return '\n'.join(val)+'\n'
 
@@ -877,13 +878,13 @@ class JITModule(base.JITModule):
         _map_bcs_p = ""
         _layer_arg = ""
         if self._itspace._extruded:
-            _layer_arg = ", int start_layer, int end_layer"
+            _layer_arg = ", int start_layer, int end_layer, int top_layer"
             _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
             _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
                                      for arg in self._args if arg._uses_itspace])
-            _map_bcs_m += ';\n'.join([arg.c_map_bcs("-") for arg in self._args if arg._is_mat])
-            _map_bcs_p += ';\n'.join([arg.c_map_bcs("+") for arg in self._args if arg._is_mat])
+            _map_bcs_m += ';\n'.join([arg.c_map_bcs("-", is_facet) for arg in self._args if arg._is_mat])
+            _map_bcs_p += ';\n'.join([arg.c_map_bcs("+", is_facet) for arg in self._args if arg._is_mat])
             _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
                                          for arg in self._args if arg._uses_itspace])
             _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)
