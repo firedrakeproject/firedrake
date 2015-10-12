@@ -164,6 +164,10 @@ def PeriodicIntervalMesh(ncells, length):
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
 
+    if ncells < 3:
+        raise ValueError("1D periodic meshes with fewer than 3 \
+cells are not currently supported")
+
     m = CircleManifoldMesh(ncells)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
     old_coordinates = Function(m.coordinates)
@@ -316,6 +320,10 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     """
+
+    if nx < 3 or ny < 3:
+        raise ValueError("2D periodic meshes with fewer than 3 \
+cells in each direction are not currently supported")
 
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
