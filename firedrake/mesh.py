@@ -592,15 +592,49 @@ class Mesh(object):
                                      self.cell_closure,
                                      fiat_element)
 
+    def _reorder_cell_data(self, cell_list, cell_data):
+        return cell_data[cell_list]
+
     @utils.cached_property
     def spatial_index(self):
+        from firedrake import function, functionspace
+        from firedrake.parloops import par_loop, READ, RW
+
+        gdim = self.ufl_cell().geometric_dimension()
+        if gdim <= 1:
+            raise NotImplementedError("libspatialindex does not support 1D.")
+
+        V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
+        coords_min = function.Function(V)
+        coords_max = function.Function(V)
+
+        coords_min.dat.data.fill(np.inf)
+        coords_max.dat.data.fill(-np.inf)
+
+        kernel = """
+    for (int d = 0; d < gdim; d++) {
+        for (int i = 0; i < nodes_per_cell; i++) {
+            f_min[0][d] = fmin(f_min[0][d], f[i][d]);
+            f_max[0][d] = fmax(f_max[0][d], f[i][d]);
+        }
+    }
+"""
+
         cell_node_list = self.coordinates.function_space().cell_node_list
-        cell_coords = self.coordinates.dat.data[cell_node_list]
+        nodes_per_cell = len(cell_node_list[0])
 
-        cell_coords_min = cell_coords.min(axis=1)
-        cell_coords_max = cell_coords.max(axis=1)
+        kernel = kernel.replace("gdim", str(gdim))
+        kernel = kernel.replace("nodes_per_cell", str(nodes_per_cell))
 
-        return spatialindex.from_regions(cell_coords_min, cell_coords_max)
+        par_loop(kernel, self._dx, {'f': (self.coordinates, READ),
+                                    'f_min': (coords_min, RW),
+                                    'f_max': (coords_max, RW)})
+
+        cell_list = V.cell_node_list.reshape(-1)
+        coords_min = self._reorder_cell_data(cell_list, coords_min.dat.data)
+        coords_max = self._reorder_cell_data(cell_list, coords_max.dat.data)
+
+        return spatialindex.from_regions(coords_min, coords_max)
 
     @property
     def coordinates(self):
@@ -960,9 +994,11 @@ class ExtrudedMesh(Mesh):
                                      self.cell_closure,
                                      fiat_utils.FlattenedElement(fiat_element))
 
-    @utils.cached_property
-    def spatial_index(self):
-        raise NotImplementedError("Spatial index not available for extruded meshes.")
+    def _reorder_cell_data(self, column_list, cell_data):
+        cell_list = []
+        for col in column_list.reshape(-1):
+            cell_list += range(col, col + (self.layers - 1))
+        return cell_data[cell_list]
 
     @property
     def layers(self):
