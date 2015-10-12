@@ -38,6 +38,7 @@ from collections import OrderedDict
 from copy import deepcopy as dcopy, copy as scopy
 from itertools import groupby
 import os
+import sys
 
 from base import *
 import base, compilation, sequential, host
@@ -56,8 +57,9 @@ from coffee.visitors import FindInstances, SymbolReferences
 
 try:
     """Is SLOPE accessible ?"""
+    sys.path.append(os.path.join(os.environ['SLOPE_DIR'], 'python'))
     import slope_python as slope
-    os.environ['SLOPE_DIR']
+    os.environ['SLOPE_METIS']
 
     # Set the SLOPE backend
     backend = os.environ.get('SLOPE_BACKEND')
@@ -71,7 +73,7 @@ try:
     slope.set_exec_mode(backend)
     log_info("SLOPE backend set to %s" % backend)
 except:
-    warning("Couldn't locate SLOPE. Check PYTHONPATH and SLOPE_DIR env variables")
+    warning("Couldn't locate SLOPE, no tiling possible. Check SLOPE_{DIR,METIS} env vars")
     slope = None
 
 
@@ -1328,7 +1330,9 @@ class Inspector(Cached):
         cppargs = slope.get_compile_opts(compiler)
         cppargs += ['-I%s/%s' % (slope_dir, slope.get_include_dir())]
         ldargs = ['-L%s/%s' % (slope_dir, slope.get_lib_dir()),
-                  '-l%s' % slope.get_lib_name()]
+                  '-l%s' % slope.get_lib_name(),
+                  '-L%s/lib' % os.environ['SLOPE_METIS'],
+                  '-lmetis']
 
         # Compile and run inspector
         fun = compilation.load(src, "cpp", "inspector", cppargs, ldargs,
