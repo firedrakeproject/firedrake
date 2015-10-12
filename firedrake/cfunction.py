@@ -36,7 +36,9 @@ def cFunction(function):
 
 
 def make_c_evaluate(function, c_name="evaluate", ldargs=None):
-    from pyop2 import compilation
+    from pyop2 import compilation, op2
+    from pyop2.base import build_itspace
+    from pyop2.sequential import generate_cell_wrapper
     from ffc import compile_element
 
     function_space = function.function_space()
@@ -45,6 +47,26 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     coordinates_ufl_element = coordinates.function_space().ufl_element()
 
     src = compile_element(ufl_element, coordinates_ufl_element)
+
+    mesh = function_space.mesh()
+    coordinates = mesh.coordinates
+    arg = coordinates.dat(op2.READ, coordinates.cell_node_map())
+    arg.position = 0
+
+    args = (arg,)
+    src += generate_cell_wrapper(build_itspace(args, coordinates.cell_set), args,
+                                 forward_args=["void*", "double*", "int*"],
+                                 kernel_name="to_reference_coords_kernel",
+                                 wrapper_name="wrap_to_reference_coords")
+
+    arg = function.dat(op2.READ, function.cell_node_map())
+    arg.position = 0
+
+    args = (arg,)
+    src += generate_cell_wrapper(build_itspace(args, function.cell_set), args,
+                                 forward_args=["double*", "double*"],
+                                 kernel_name="evaluate_kernel",
+                                 wrapper_name="wrap_evaluate")
 
     if ldargs is None:
         ldargs = []
