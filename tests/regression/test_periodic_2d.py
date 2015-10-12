@@ -15,6 +15,7 @@ from math import pi
 
 from firedrake import *
 
+
 def test_tri():
     mesh = PeriodicRectangleMesh(100, 60, 5, 3)
 
@@ -61,3 +62,8 @@ def test_quad():
     l2err = sqrt(assemble((out-u_exact)*(out-u_exact)*dx))
     l2norm = sqrt(assemble(u_exact*u_exact*dx))
     assert l2err/l2norm < 0.0011
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
