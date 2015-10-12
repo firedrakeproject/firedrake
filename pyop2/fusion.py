@@ -1306,14 +1306,14 @@ class Inspector(Cached):
         arguments.extend([inspector.add_maps(insp_maps.values())])
         inspector.add_loops(insp_loops)
 
-        # Get type and value of additional arguments that SLOPE can exploit
-        arguments.extend([inspector.set_external_dats()])
-
         # Set a specific tile size
         arguments.extend([inspector.set_tile_size(self._tile_size)])
 
         # Tell SLOPE the rank of the MPI process
         arguments.extend([inspector.set_mpi_rank(MPI.comm.rank)])
+
+        # Get type and value of additional arguments that SLOPE can exploit
+        arguments.extend(inspector.add_extra_info())
 
         # Arguments types and values
         argtypes, argvalues = zip(*arguments)
