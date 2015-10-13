@@ -85,6 +85,7 @@ class Configuration(dict):
         "cache_dir": ("PYOP2_CACHE_DIR", str,
                       os.path.join(gettempdir(),
                                    "pyop2-cache-uid%s" % os.getuid())),
+        "no_fork_available": ("PYOP2_NO_FORK_AVAILABLE", bool, False),
         "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
         "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),
         "profiling": ("PYOP2_PROFILING", bool, False),
