@@ -338,6 +338,7 @@ if osname == "Darwin":
         brew_install("cmake")
         check_call(["brew", "tap", "homebrew/science"])
         brew_install("hdf5")
+        brew_install("spatialindex")
 
     else:
         stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
@@ -351,7 +352,8 @@ elif osname == "Linux":
 
         apt_packages = ["build-essential", "python-dev", "git-core",
                         "mercurial", "python-pip", "libopenmpi-dev", "openmpi-bin",
-                        "libblas-dev", "liblapack-dev", "gfortran", "cmake"]
+                        "libblas-dev", "liblapack-dev", "libspatialindex-dev",
+                        "gfortran", "cmake"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
@@ -369,6 +371,7 @@ elif osname == "Linux":
         stdout.write("pip and the Python headers.\n")
         stdout.write("cmake.\n")
         stdout.write("swig.\n")
+        stdout.write("libspatialindex.\n")
 
 else:
     stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")

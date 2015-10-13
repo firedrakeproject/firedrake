@@ -23,6 +23,7 @@ addons:
         - liblapack-dev
         - gfortran
         - libhdf5-mpi-dev
+        - libspatialindex-dev
         - swig
 env:
   global:
