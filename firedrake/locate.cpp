@@ -57,15 +57,24 @@ extern "C" int locate_cell(struct Function *f,
 			   inside_predicate try_candidate,
 			   void *data_)
 {
-	SpatialIndex::ISpatialIndex *spatial_index = reinterpret_cast<SpatialIndex::ISpatialIndex *>(f->sidx);
+	if (f->sidx) {
+		SpatialIndex::ISpatialIndex *spatial_index = reinterpret_cast<SpatialIndex::ISpatialIndex *>(f->sidx);
 
-	Visitor visitor(f, x, try_candidate, data_);
-	Point point(x, dim);
+		Visitor visitor(f, x, try_candidate, data_);
+		Point point(x, dim);
 
-	try {
-		spatial_index->pointLocationQuery(point, visitor);
-	} catch (const SearchResult& ex) {
-		return ex.cell;
+		try {
+			spatial_index->pointLocationQuery(point, visitor);
+		} catch (const SearchResult& ex) {
+			return ex.cell;
+		}
+	} else {
+		int c;
+		for (c = 0; c < f->n_cells; c++) {
+			if ((*try_candidate)(data_, f, c, x)) {
+				return c;
+			}
+		}
 	}
 	return -1;
 }

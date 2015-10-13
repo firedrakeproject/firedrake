@@ -31,7 +31,7 @@ def cFunction(function):
     c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
     c_function.f = function.dat.data.ctypes.data_as(POINTER(c_double))
     c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
-    c_function.sidx = mesh.spatial_index.ctypes
+    c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
 
     # Return pointer
     return ctypes.pointer(c_function)
