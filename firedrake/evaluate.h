@@ -5,6 +5,7 @@
 struct Function {
 	/* Number of cells in mesh */
 	int n_cells;
+	int n_layers;
 
 	/* Coordinate values and node mapping */
 	double *coords;

@@ -8,6 +8,7 @@ __all__ = ['cFunction', 'make_c_evaluate']
 
 class _CFunction(ctypes.Structure):
     _fields_ = [("n_cells", c_int),
+                ("n_layers", c_int),
                 ("coords", POINTER(c_double)),
                 ("coords_map", POINTER(c_int)),
                 ("f", POINTER(c_double)),
@@ -25,6 +26,7 @@ def cFunction(function):
     # Store data into ``C struct''
     c_function = _CFunction()
     c_function.n_cells = mesh.num_cells()
+    c_function.n_layers = mesh.layers - 1 if hasattr(mesh, '_layers') else 1
     c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
     c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
     c_function.f = function.dat.data.ctypes.data_as(POINTER(c_double))
