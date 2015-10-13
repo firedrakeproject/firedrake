@@ -35,16 +35,6 @@
 
 import atexit
 
-import prefork
-import mpi4py.rc
-mpi4py.rc.initialize = False
-mpi4py.rc.finalize = True
-from mpi4py import MPI
-if MPI.Is_initialized():
-    raise RuntimeError("MPI initialized before fork server")
-prefork.enable_prefork()
-MPI.Init()
-
 import backends
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, i

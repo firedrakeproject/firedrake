@@ -33,7 +33,7 @@
 
 import os
 from mpi import MPI, collective
-import prefork
+import subprocess
 import sys
 import ctypes
 from hashlib import md5
@@ -129,19 +129,21 @@ class Compiler(object):
                                 log.write(" ".join(cc))
                                 log.write("\n\n")
                                 try:
-                                    retval, stdout, stderr = prefork.call_capture_output(cc, error_on_nonzero=False)
-                                    log.write(stdout)
-                                    err.write(stderr)
-                                    if retval != 0:
-                                        raise prefork.ExecError("status %d invoking '%s'" %
-                                                                (retval, " ".join(cc)))
-                                except prefork.ExecError as e:
+                                    if configuration['no_fork_available']:
+                                        cc += ["2>", errfile, ">", logfile]
+                                        cmd = " ".join(cc)
+                                        status = os.system(cmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, cmd)
+                                    else:
+                                        subprocess.check_call(cc, stderr=err,
+                                                              stdout=log)
+                                except subprocess.CalledProcessError as e:
                                     raise CompilationError(
-                                        """Command "%s" returned with error.
+                                        """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
-Compile errors in %s
-Original error: %s""" % (cc, logfile, errfile, e))
+Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     else:
                         cc = [self._cc] + self._cppargs + \
                              ['-c', '-o', oname, cname]
@@ -155,35 +157,28 @@ Original error: %s""" % (cc, logfile, errfile, e))
                                 log.write(" ".join(ld))
                                 log.write("\n\n")
                                 try:
-                                    retval, stdout, stderr = prefork.call_capture_output(cc, error_on_nonzero=False)
-                                    log.write(stdout)
-                                    err.write(stderr)
-                                    if retval != 0:
-                                        raise prefork.ExecError("status %d invoking '%s'" %
-                                                                (retval, " ".join(cc)))
-                                except prefork.ExecError as e:
+                                    if configuration['no_fork_available']:
+                                        cc += ["2>", errfile, ">", logfile]
+                                        ld += ["2>", errfile, ">", logfile]
+                                        cccmd = " ".join(cc)
+                                        ldcmd = " ".join(ld)
+                                        status = os.system(cccmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, cccmd)
+                                        status = os.system(ldcmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, ldcmd)
+                                    else:
+                                        subprocess.check_call(cc, stderr=err,
+                                                              stdout=log)
+                                        subprocess.check_call(ld, stderr=err,
+                                                              stdout=log)
+                                except subprocess.CalledProcessError as e:
                                     raise CompilationError(
                                         """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
-Compile errors in %s
-Original error: %s""" % (cc, retval, logfile, errfile, e))
-
-                                try:
-                                    retval, stdout, stderr = prefork.call_capture_output(ld, error_on_nonzero=False)
-                                    log.write(stdout)
-                                    err.write(stderr)
-                                    if retval != 0:
-                                        raise prefork.ExecError("status %d invoking '%s'" %
-                                                                (retval, " ".join(ld)))
-                                except prefork.ExecError as e:
-                                    raise CompilationError(
-                                        """Command "%s" return error status %d.
-Unable to compile code
-Compile log in %s
-Compile errors in %s
-Original error: %s""" % (ld, retval, logfile, errfile, e))
-
+Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
