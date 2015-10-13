@@ -709,27 +709,26 @@ class JITModule(base.JITModule):
             if blas['name'] == 'eigen':
                 externc_open = 'extern "C" {'
                 externc_close = '}'
+        if self._kernel._cpp:
+            externc_open = 'extern "C" {'
+            externc_close = '}'
         headers = "\n".join([compiler.get('vect_header', ""), blas_header])
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
             %(header)s
             %(namespace)s
-            %(externc_open)s
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code(),
-                   'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
         else:
             kernel_code = """
             %(header)s
             %(namespace)s
-            %(externc_open)s
             %(code)s
             """ % {'code': self._kernel.code(),
-                   'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
@@ -746,10 +745,12 @@ class JITModule(base.JITModule):
 
         %(kernel)s
 
+        %(externc_open)s
         %(wrapper)s
         %(externc_close)s
         """ % {'consts': _const_decs, 'kernel': kernel_code,
                'wrapper': code_to_compile,
+               'externc_open': externc_open,
                'externc_close': externc_close,
                'sys_headers': '\n'.join(self._kernel._headers + self._system_headers)}
 
@@ -775,6 +776,8 @@ class JITModule(base.JITModule):
             ldargs += blas['link']
             if blas['name'] == 'eigen':
                 extension = "cpp"
+        if self._kernel._cpp:
+            extension = "cpp"
         self._fun = compilation.load(code_to_compile,
                                      extension,
                                      self._wrapper_name,

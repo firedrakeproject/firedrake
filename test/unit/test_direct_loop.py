@@ -260,6 +260,25 @@ class TestDirectLoop:
         y.zero()
         assert (y.data == 0).all()
 
+    def test_kernel_cplusplus(self, backend, delems):
+        """Test that passing cpp=True to a Kernel works."""
+
+        y = op2.Dat(delems, dtype=np.float64)
+        y.data[:] = -10.5
+
+        k = op2.Kernel("""
+        #include <cmath>
+
+        void kernel(double *y)
+        {
+            *y = std::abs(*y);
+        }
+        """, "kernel", cpp=True)
+        op2.par_loop(k, y.dataset.set, y(op2.RW))
+
+        assert (y.data == 10.5).all()
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

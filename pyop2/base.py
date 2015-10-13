@@ -3735,7 +3735,11 @@ class Kernel(Cached):
     :param headers: list of system headers to include when compiling the kernel
         in the form ``#include <header.h>`` (optional, defaults to empty)
     :param user_code: code snippet to be executed once at the very start of
-        the generated kernel wrapper code (optional, defaults to empty)
+        the generated kernel wrapper code (optional, defaults to
+        empty)
+    :param cpp: Is the kernel actually C++ rather than C?  If yes,
+        then compile with the C++ compiler (kernel is wrapped in
+        extern C for linkage reasons).
 
     Consider the case of initialising a :class:`~pyop2.Dat` with seeded random
     values in the interval 0 to 1. The corresponding :class:`~pyop2.Kernel` is
@@ -3756,7 +3760,7 @@ class Kernel(Cached):
     @classmethod
     @validate_type(('name', str, NameTypeError))
     def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[],
-                   user_code=""):
+                   user_code="", cpp=False):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -3765,7 +3769,8 @@ class Kernel(Cached):
         if isinstance(code, Node):
             code = code.gencode()
         return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                   str(headers) + version + str(configuration['loop_fusion'])).hexdigest()
+                   str(headers) + version + str(configuration['loop_fusion']) +
+                   str(cpp)).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
@@ -3773,11 +3778,12 @@ class Kernel(Cached):
         return ast.gencode()
 
     def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
-                 user_code=""):
+                 user_code="", cpp=False):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
         self._name = name or "kernel_%d" % Kernel._globalcount
+        self._cpp = cpp
         Kernel._globalcount += 1
         # Record used optimisations
         self._opts = opts
