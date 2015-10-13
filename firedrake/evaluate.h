@@ -1,6 +1,9 @@
 #ifndef _EVALUATE_H
 #define _EVALUATE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct Function {
 	/* Number of cells in mesh */
@@ -40,5 +43,8 @@ extern int evaluate(struct Function *f,
 		    double *x,
 		    double *result);
 
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _EVALUATE_H */
