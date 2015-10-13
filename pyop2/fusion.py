@@ -751,8 +751,10 @@ class Inspector(Cached):
     _modes = ['soft', 'hard', 'tile', 'only_tile', 'only_omp']
 
     @classmethod
-    def _cache_key(cls, name, loop_chain, tile_size):
-        key = (name, tile_size)
+    def _cache_key(cls, name, loop_chain, **tiling_params):
+        tile_size = tiling_params.get('tile_size', 1)
+        partitioning = tiling_params.get('partitioning', 'chunk')
+        key = (name, tile_size, partitioning)
         for loop in loop_chain:
             if isinstance(loop, Mat._Assembly):
                 continue
@@ -774,7 +776,15 @@ class Inspector(Cached):
                     key += (arg.data.dims, arg.data.dtype, idxs, map_arities, arg.access)
         return key
 
-    def __init__(self, name, loop_chain, tile_size):
+    def __init__(self, name, loop_chain, **tiling_params):
+        """Initialize an Inspector object.
+
+        :arg name: a name for the Inspector
+        :arg loop_chain: an iterator for the loops that will be fused/tiled
+        :arg tiling_params: a set of parameters to drive tiling
+            * tile_size: starting average tile size
+            * partitioning: strategy for tile partitioning
+        """
         if self._initialized:
             return
         if not hasattr(self, '_inspected'):
@@ -782,25 +792,24 @@ class Inspector(Cached):
             # actually performed), but only the first time this attribute is set
             self._inspected = 0
         self._name = name
-        self._tile_size = tile_size
         self._loop_chain = loop_chain
+        self._tiling_params = tiling_params
 
     def inspect(self, mode):
         """Inspect this Inspector's loop chain and produce a :class:`Schedule`.
 
         :arg mode: can take any of the values in ``Inspector._modes``, namely
-            ``soft``, ``hard``, ``tile``, ``only_tile``.
-
-            * ``soft``: consecutive loops over the same iteration set that do
+            soft, hard, tile, only_tile, only_omp:
+            * soft: consecutive loops over the same iteration set that do
                 not present RAW or WAR dependencies through indirections
                 are fused.
-            * ``hard``: ``soft`` fusion; then, loops over different iteration sets
+            * hard: ``soft`` fusion; then, loops over different iteration sets
                 are also fused, provided that there are no RAW or WAR
                 dependencies.
-            * ``tile``: ``soft`` and ``hard`` fusion; then, tiling through the
+            * tile: ``soft`` and ``hard`` fusion; then, tiling through the
                 SLOPE library takes place.
-            * ``only_tile``: only tiling through the SLOPE library (i.e., no fusion)
-            * ``only_omp``: ompize individual parloops through the SLOPE library
+            * only_tile: only tiling through the SLOPE library (i.e., no fusion)
+            * only_omp: ompize individual parloops through the SLOPE library
         """
         self._inspected += 1
         if self._heuristic_skip_inspection(mode):
@@ -810,7 +819,7 @@ class Inspector(Cached):
             # Blow away everything we don't need any more
             del self._name
             del self._loop_chain
-            del self._tile_size
+            del self._tiling_params
             return PlainSchedule()
         elif hasattr(self, '_schedule'):
             # An inspection plan is in cache.
@@ -850,7 +859,7 @@ class Inspector(Cached):
         # Blow away everything we don't need any more
         del self._name
         del self._loop_chain
-        del self._tile_size
+        del self._tiling_params
         return self._schedule
 
     def _heuristic_skip_inspection(self, mode):
@@ -1255,6 +1264,9 @@ class Inspector(Cached):
                 nonexec_size = levelN[3] - levelN[2]
                 return s_name, core_size, exec_size, nonexec_size, superset
 
+        tile_size = self._tiling_params.get('tile_size', 1)
+        partitioning = self._tiling_params.get('partitioning', 'chunk')
+
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
         inspector = slope.Inspector()
@@ -1307,7 +1319,7 @@ class Inspector(Cached):
         inspector.add_loops(insp_loops)
 
         # Set a specific tile size
-        arguments.extend([inspector.set_tile_size(self._tile_size)])
+        arguments.extend([inspector.set_tile_size(tile_size)])
 
         # Tell SLOPE the rank of the MPI process
         arguments.extend([inspector.set_mpi_rank(MPI.comm.rank)])
@@ -1317,6 +1329,9 @@ class Inspector(Cached):
 
         # Arguments types and values
         argtypes, argvalues = zip(*arguments)
+
+        # Set a tile partitioning strategy
+        inspector.set_partitioning(partitioning)
 
         # Generate the C code
         src = inspector.generate_code()
@@ -1371,9 +1386,8 @@ def fuse(name, loop_chain, **kwargs):
 
         * a global reduction/write occurs in ``loop_chain``
     """
-    tile_size = kwargs.get('tile_size', 0)
-    force_glb = kwargs.get('force_glb', False)
     mode = kwargs.get('mode', 'hard')
+    force_glb = kwargs.get('force_glb', False)
 
     # If there is nothing to fuse, just return
     if len(loop_chain) in [0, 1]:
@@ -1424,15 +1438,19 @@ def fuse(name, loop_chain, **kwargs):
     if mode in ['tile', 'only_tile'] and not slope:
         return loop_chain + remainder
 
-    # Get an inspector for fusing this loop_chain, possibly retrieving it from
-    # the cache, and obtain the fused ParLoops through the schedule it produces
-    inspector = Inspector(name, loop_chain, tile_size)
+    # Get an inspector for fusing this /loop_chain/, possibly retrieving it from
+    # cache, and fuse the parloops through the scheduler produced by inspection
+    tiling_params = {
+        'tile_size': kwargs.get('tile_size', 1),
+        'partitioning': kwargs.get('partitioning', 'chunk')
+    }
+    inspector = Inspector(name, loop_chain, **tiling_params)
     schedule = inspector.inspect(mode)
     return schedule(loop_chain) + remainder
 
 
 @contextmanager
-def loop_chain(name, tile_size=1, **kwargs):
+def loop_chain(name, **kwargs):
     """Analyze the sub-trace of loops lazily evaluated in this contextmanager ::
 
         [loop_0, loop_1, ..., loop_n-1]
@@ -1448,8 +1466,10 @@ def loop_chain(name, tile_size=1, **kwargs):
     original trace slice.
 
     :arg name: identifier of the loop chain
-    :arg tile_size: suggest a starting average tile size
     :arg kwargs:
+        * mode (default='tile'): the fusion/tiling mode (accepted: soft, hard,
+            tile, only_tile)
+        * tile_size: (default=1) suggest a starting average tile size
         * num_unroll (default=1): in a time stepping loop, the length of the loop
             chain is given by ``num_loops * num_unroll``, where ``num_loops`` is the
             number of loops per time loop iteration. Therefore, setting this value
@@ -1457,12 +1477,12 @@ def loop_chain(name, tile_size=1, **kwargs):
         * force_glb (default=False): force tiling even in presence of global
             reductions. In this case, the user becomes responsible of semantic
             correctness.
-        * mode (default='tile'): the fusion/tiling mode (accepted: soft, hard,
-            tile, only_tile)
+        * partitioning (default='chunk'): select a partitioning mode for crafting
+            tiles. The partitioning modes available are those accepted by SLOPE;
+            refer to the SLOPE documentation for more info.
     """
-    num_unroll = kwargs.get('num_unroll', 1)
-    force_glb = kwargs.get('force_glb', False)
-    mode = kwargs.get('mode', 'tile')
+    num_unroll = kwargs.setdefault('num_unroll', 1)
+    tile_size = kwargs.setdefault('tile_size', 1)
 
     # Get a snapshot of the trace before new par loops are added within this
     # context manager
@@ -1488,8 +1508,9 @@ def loop_chain(name, tile_size=1, **kwargs):
     if num_unroll < 1:
         # No fusion, but openmp parallelization could still occur through SLOPE
         if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
-            blk_size = tile_size  # There is actually no tiling, just need a block size
-            new_trace = [Inspector(name, [loop], blk_size).inspect('only_omp')([loop])
+            block_size = tile_size    # This is rather a 'block' size (no tiling)
+            options = {'tile_size': block_size}
+            new_trace = [Inspector(name, [loop], **options).inspect('only_omp')([loop])
                          for loop in extracted_trace]
             trace[bottom:] = list(flatten(new_trace))
         return
@@ -1498,8 +1519,7 @@ def loop_chain(name, tile_size=1, **kwargs):
     total_loop_chain = loop_chain.unrolled_loop_chain + extracted_trace
     if len(total_loop_chain) / len(extracted_trace) == num_unroll:
         bottom = trace.index(total_loop_chain[0])
-        trace[bottom:] = fuse(name, total_loop_chain,
-                              tile_size=tile_size, force_glb=force_glb, mode=mode)
+        trace[bottom:] = fuse(name, total_loop_chain, **kwargs)
         loop_chain.unrolled_loop_chain = []
     else:
         loop_chain.unrolled_loop_chain.extend(extracted_trace)
