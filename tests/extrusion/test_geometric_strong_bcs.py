@@ -4,9 +4,10 @@ from firedrake import *
 
 @pytest.mark.parametrize(('degree'), range(4))
 @pytest.mark.parametrize('direction', ['left', 'right', 'up', 'down'])
-def test_dg_advection(degree, direction):
+@pytest.mark.parametrize('layers', [1, 10])
+def test_dg_advection(degree, direction, layers):
     m = UnitIntervalMesh(10)
-    m = ExtrudedMesh(m, layers=10)
+    m = ExtrudedMesh(m, layers=layers)
     V = FunctionSpace(m, "DG", degree)
     t = Function(V)
     v = TestFunction(V)
