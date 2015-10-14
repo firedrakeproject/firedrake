@@ -53,7 +53,6 @@ class Kernel(base.Kernel):
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
-        self._original_ast = dcopy(ast)
         ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(self._opts)
         self._applied_blas = ast_handler.blas

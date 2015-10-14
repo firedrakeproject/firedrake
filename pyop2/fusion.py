@@ -192,6 +192,7 @@ class Kernel(sequential.Kernel, tuple):
         if not isinstance(asts, (ast.FunDecl, ast.Root)):
             asts = ast.Root(asts)
         self._ast = asts
+        self._original_ast = dcopy(self._ast)
         return super(Kernel, self)._ast_to_c(self._ast, opts)
 
     def _multiple_ast_to_c(self, kernels):

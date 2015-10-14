@@ -43,6 +43,7 @@ import ctypes
 import operator
 import types
 from hashlib import md5
+from copy import deepcopy as dcopy
 
 from configuration import configuration
 from caching import Cached, ObjectCached
@@ -3803,6 +3804,7 @@ class Kernel(Cached):
             # Got an AST, need to go through COFFEE for optimization and
             # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
             self._ast = code
+            self._original_ast = dcopy(ast)
             self._code = self._ast_to_c(self._ast, self._opts)
             self._attached_info = False
         self._initialized = True
@@ -3816,6 +3818,7 @@ class Kernel(Cached):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
         if not self._code:
+            self._original_ast = dcopy(self._ast)
             self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
 
