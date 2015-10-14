@@ -16,7 +16,7 @@ from math import pi
 from firedrake import *
 
 
-def test_tri():
+def run_tri():
     mesh = PeriodicRectangleMesh(100, 60, 5, 3)
 
     V = FunctionSpace(mesh, "CG", 1)
@@ -40,7 +40,7 @@ def test_tri():
     assert l2err/l2norm < 0.004
 
 
-def test_quad():
+def run_quad():
     mesh = PeriodicRectangleMesh(100, 60, 5, 3, quadrilateral=True)
 
     V = FunctionSpace(mesh, "CG", 1)
@@ -62,6 +62,24 @@ def test_quad():
     l2err = sqrt(assemble((out-u_exact)*(out-u_exact)*dx))
     l2norm = sqrt(assemble(u_exact*u_exact*dx))
     assert l2err/l2norm < 0.0011
+
+
+def test_tri():
+    run_tri()
+
+
+@pytest.mark.parallel
+def test_tri_parallel():
+    run_tri()
+
+
+def test_quad():
+    run_quad()
+
+
+@pytest.mark.parallel
+def test_quad_parallel():
+    run_quad()
 
 
 if __name__ == '__main__':
