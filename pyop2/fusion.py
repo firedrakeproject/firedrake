@@ -162,6 +162,11 @@ class Arg(sequential.Arg):
     def c_map_name(self, i, j):
         return self._c_local_maps[i][j]
 
+    def c_global_reduction_name(self, count=None):
+        return "%(name)s_l%(count)d[0]" % {
+            'name': self.c_arg_name(),
+            'count': count}
+
     @property
     def name(self):
         """The generated argument name."""
