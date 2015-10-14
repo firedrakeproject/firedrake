@@ -71,7 +71,8 @@ honoured.""",
 
     args = parser.parse_args()
 
-    branches = {package: branch for package, branch in args.package_branch}
+    if args.package_branch:
+        branches = {package: branch for package, branch in args.package_branch}
 
     args.prefix = False  # Disabled as untested
 else:
