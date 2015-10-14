@@ -287,9 +287,6 @@ class Kernel(sequential.Kernel, tuple):
     def __str__(self):
         return "OP2 FusionKernel: %s" % self._name
 
-    def function_name(self, kernel_id):
-        return self._function_names[kernel_id]
-
 
 # Parallel loop API
 
@@ -466,7 +463,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
             # ... use the proper function name (the function name of the kernel
             # within *this* specific loop chain)
-            loop_code_dict['kernel_name'] = kernel.function_name(self._kernel.cache_key)
+            loop_code_dict['kernel_name'] = kernel._function_names[self._kernel.cache_key]
 
             # ... finish building up the /code_dict/
             loop_code_dict['args_binding'] = binding
