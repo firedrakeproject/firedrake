@@ -538,7 +538,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 for location, name in m.implicit_bcs:
                     if location == "bottom":
                         if bottom_masks is None:
-                            bottom_masks = m.bottom_mask[name]
+                            bottom_masks = m.bottom_mask[name].copy()
                         else:
                             bottom_masks += m.bottom_mask[name]
                         need_bottom = True
@@ -565,7 +565,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 for location, name in m.implicit_bcs:
                     if location == "top":
                         if top_masks is None:
-                            top_masks = m.top_mask[name]
+                            top_masks = m.top_mask[name].copy()
                         else:
                             top_masks += m.top_mask[name]
                         need_top = True
