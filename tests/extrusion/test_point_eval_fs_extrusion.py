@@ -9,8 +9,6 @@ cwd = abspath(dirname(__file__))
 
 def extrude(m):
     mesh = ExtrudedMesh(m, 1)
-    for row in mesh.coordinates.dat.data:
-        row[:-1] *= 1.0 + 0.15*row[-1]
     return mesh
 
 
@@ -33,7 +31,6 @@ def mesh_hex():
     for row in m.coordinates.dat.data:
         row[:] = [1.1*row[0] - 0.1*row[1],
                   0.1*row[0] + 1.0*row[1]]
-        row[0] *= abs(row[0])
     return extrude(m)
 
 

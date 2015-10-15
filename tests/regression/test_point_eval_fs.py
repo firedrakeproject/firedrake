@@ -25,7 +25,6 @@ def mesh_quadrilateral():
     for row in m.coordinates.dat.data:
         row[:] = [1.1*row[0] - 0.1*row[1],
                   0.1*row[0] + 1.0*row[1]]
-        row[0] *= abs(row[0])
     return m
 
 
