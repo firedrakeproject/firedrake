@@ -14,6 +14,7 @@ params = {'snes_type': 'ksponly', 'ksp_type': 'preonly', 'pc_type': 'lu'}
 
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
                          [(f, d, vf, vd) for (vf, vd) in CG + DG for (f, d) in CG + DG])
+@longtest
 def test_identity_scalar(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
     fspace = FunctionSpace(mesh, hfamily, hdegree, vfamily=vfamily, vdegree=vdegree)
@@ -30,6 +31,7 @@ def test_identity_scalar(hfamily, hdegree, vfamily, vdegree):
 
 @pytest.mark.parametrize(('hfamily', 'hdegree', 'vfamily', 'vdegree'),
                          [(f, d, vf, vd) for (vf, vd) in CG + DG for (f, d) in CG + DG])
+@longtest
 def test_identity_vector(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
     fspace = VectorFunctionSpace(mesh, hfamily, hdegree, vfamily=vfamily, vdegree=vdegree)
@@ -49,6 +51,7 @@ def test_identity_vector(hfamily, hdegree, vfamily, vdegree):
                          [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hdiv]
                          + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in hcurl]
                          + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in DG])
+@longtest
 def test_identity_hdiv(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
 
@@ -72,6 +75,7 @@ def test_identity_hdiv(hfamily, hdegree, vfamily, vdegree):
                          [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hcurl]
                          + [(f, d, vf, vd) for (vf, vd) in CG for (f, d) in hdiv]
                          + [(f, d, vf, vd) for (vf, vd) in DG for (f, d) in CG])
+@longtest
 def test_identity_hcurl(hfamily, hdegree, vfamily, vdegree):
     mesh = extmesh(4, 4, 2)
 
