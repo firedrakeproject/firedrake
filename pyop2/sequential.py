@@ -157,6 +157,21 @@ class ParLoop(host.ParLoop):
 
 
 def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrapper_name=None):
+    """Generates wrapper for a single cell. No iteration loop, but cellwise data is extracted.
+    Cell is expected as an argument to the wrapper. For extruded, the numbering of the cells
+    is columnwise continuous, bottom to top.
+
+    :param itspace: :class:`IterationSpace` object. Can be built from
+                    iteration :class:`Set` using pyop2.base.build_itspace
+    :param args: :class:`Arg`s
+    :param forward_args: To forward unprocessed arguments to the kernel via the wrapper,
+                         give an iterable of strings describing their C types.
+    :param kernel_name: Kernel function name
+    :param wrapper_name: Wrapper function name
+
+    :return: string containing the C code for the single-cell wrapper
+    """
+
     direct = all(a.map is None for a in args)
     snippets = host.wrapper_snippets(itspace, args, kernel_name=kernel_name, wrapper_name=wrapper_name)
 

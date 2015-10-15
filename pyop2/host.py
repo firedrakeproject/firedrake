@@ -819,6 +819,21 @@ class JITModule(base.JITModule):
 def wrapper_snippets(itspace, args,
                      kernel_name=None, wrapper_name=None, user_code=None,
                      iteration_region=ALL, applied_blas=False):
+    """Generates code snippets for the wrapper,
+    ready to be into a template.
+
+    :param itspace: :class:`IterationSpace` object of the :class:`ParLoop`,
+                    This is built from the iteration :class:`Set`.
+    :param args: :class:`Arg`s of the :class:`ParLoop`
+    :param kernel_name: Kernel function name (forwarded)
+    :param user_code: Code to insert into the wrapper (forwarded)
+    :param wrapper_name: Wrapper function name (forwarded)
+    :param iteration_region: Iteration region, this is specified when
+                             creating a :class:`ParLoop`.
+    :param applied_blas: COFFEE sometimes sets this true.
+
+    :return: dict containing the code snippets
+    """
 
     assert kernel_name is not None
     if wrapper_name is None:
@@ -827,9 +842,6 @@ def wrapper_snippets(itspace, args,
         user_code = ""
 
     direct = all(a.map is None for a in args)
-    # args, iteration_region: directly specified
-    # itspace: built from iterset
-    # applied_blas: False, except when COFFEE turns it on
 
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i_%d) {" % (i, i, d, i)
