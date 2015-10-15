@@ -48,7 +48,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     coordinates = function_space.mesh().coordinates
     coordinates_ufl_element = coordinates.function_space().ufl_element()
 
-    src = compile_element(ufl_element, coordinates_ufl_element)
+    src = compile_element(ufl_element, coordinates_ufl_element, function_space.dim)
 
     mesh = function_space.mesh()
     coordinates = mesh.coordinates
