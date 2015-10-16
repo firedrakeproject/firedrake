@@ -70,7 +70,7 @@ extern "C" int locate_cell(struct Function *f,
 		}
 	} else {
 		int c;
-		for (c = 0; c < f->n_cells; c++) {
+		for (c = 0; c < f->n_cols * f->n_layers; c++) {
 			if ((*try_candidate)(data_, f, c, x)) {
 				return c;
 			}

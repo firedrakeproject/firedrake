@@ -6,8 +6,10 @@ extern "C" {
 #endif
 
 struct Function {
-	/* Number of cells in mesh */
-	int n_cells;
+	/* Number of cells in the base mesh */
+	int n_cols;
+
+	/* Number of layers for extruded, otherwise 1 */
 	int n_layers;
 
 	/* Coordinate values and node mapping */
