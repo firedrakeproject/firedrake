@@ -6,9 +6,9 @@ import ufl
 import weakref
 
 from pyop2 import op2
+from pyop2.logger import info_red
 from pyop2.profiling import timed_function, timed_region, profile
 from pyop2.utils import as_tuple
-from pyop2.logger import info_red
 
 import coffee.base as ast
 
@@ -593,11 +593,13 @@ class Mesh(object):
                                      self.cell_closure,
                                      fiat_element)
 
-    def _reorder_cell_data(self, cell_list, cell_data):
-        return cell_data[cell_list]
+    def _order_data_by_cell_index(self, column_list, cell_data):
+        return cell_data[column_list]
 
     @utils.cached_property
     def spatial_index(self):
+        """Spatial index to quickly find which cell contains a given point."""
+
         from firedrake import function, functionspace
         from firedrake.parloops import par_loop, READ, RW
 
@@ -606,6 +608,7 @@ class Mesh(object):
             info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
             return None
 
+        # Calculate the bounding boxes for all cells by running a kernel
         V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
         coords_min = function.Function(V)
         coords_max = function.Function(V)
@@ -632,10 +635,12 @@ class Mesh(object):
                                     'f_min': (coords_min, RW),
                                     'f_max': (coords_max, RW)})
 
-        cell_list = V.cell_node_list.reshape(-1)
-        coords_min = self._reorder_cell_data(cell_list, coords_min.dat.data)
-        coords_max = self._reorder_cell_data(cell_list, coords_max.dat.data)
+        # Reorder bounding boxes according to the cell indices we use
+        column_list = V.cell_node_list.reshape(-1)
+        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data)
+        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data)
 
+        # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
     @property
@@ -996,9 +1001,9 @@ class ExtrudedMesh(Mesh):
                                      self.cell_closure,
                                      fiat_utils.FlattenedElement(fiat_element))
 
-    def _reorder_cell_data(self, column_list, cell_data):
+    def _order_data_by_cell_index(self, column_list, cell_data):
         cell_list = []
-        for col in column_list.reshape(-1):
+        for col in column_list:
             cell_list += range(col, col + (self.layers - 1))
         return cell_data[cell_list]
 
