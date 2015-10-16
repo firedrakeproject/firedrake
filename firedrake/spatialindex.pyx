@@ -5,10 +5,16 @@ from libc.stdint cimport uintptr_t
 include "spatialindex.pxi"
 
 cdef class SpatialIndex(object):
+    """Python class for holding a native spatial index object."""
+
     cdef IStorageManager *storage_manager
     cdef ISpatialIndex *spatial_index
 
     def __cinit__(self, uint32_t dim):
+        """Initialize a native spatial index.
+
+        :arg dim: spatial (geometric) dimension
+        """
         cdef:
             PropertySet ps
             Variant var
@@ -29,11 +35,18 @@ cdef class SpatialIndex(object):
 
     @property
     def ctypes(self):
+        """Returns a ctypes pointer to the native spatial index."""
         return ctypes.c_void_p(<uintptr_t> self.spatial_index)
 
 
 def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
                  np.ndarray[np.float64_t, ndim=2, mode="c"] regions_hi):
+    """Builds a spatial index from a set of maximum bounding regions (MBRs).
+
+    regions_lo and regions_hi must have the same size.
+    regions_lo[i] and regions_hi[i] contain the coordinates of the diagonally
+    opposite lower and higher corners of the i-th MBR, respectively.
+    """
     cdef:
         SpatialIndex spatial_index
         Region region
