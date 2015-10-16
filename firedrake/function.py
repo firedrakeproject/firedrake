@@ -2,6 +2,8 @@ from __future__ import absolute_import
 import numpy as np
 import FIAT
 import ufl
+import ctypes
+from ctypes import POINTER, c_int, c_double, c_void_p
 
 import coffee.base as ast
 
@@ -36,18 +38,15 @@ def interpolate(expr, V):
     return Function(V).interpolate(expr)
 
 
-class PointOutOfDomainError(Exception):
-    """Raised when attempting to evaluate a function outside its domain,
-    and no fill value was given.
-
-    Attributes: domain, point
-    """
-    def __init__(self, domain, point):
-        self.domain = domain
-        self.point = point
-
-    def __str__(self):
-        return "domain %s does not contain point %s" % (self.domain, self.point)
+class _CFunction(ctypes.Structure):
+    """C struct collecting data from a :class:`Function`"""
+    _fields_ = [("n_cols", c_int),
+                ("n_layers", c_int),
+                ("coords", POINTER(c_double)),
+                ("coords_map", POINTER(c_int)),
+                ("f", POINTER(c_double)),
+                ("f_map", POINTER(c_int)),
+                ("sidx", c_void_p)]
 
 
 class Function(ufl.Coefficient):
@@ -504,12 +503,30 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
     @utils.cached_property
     def ctypes(self):
-        from firedrake.cfunction import cFunction
-        return cFunction(self)
+        # Retrieve data from Python object
+        function_space = self.function_space()
+        mesh = function_space.mesh()
+        coordinates = mesh.coordinates
+        coordinates_space = coordinates.function_space()
+
+        # Store data into ``C struct''
+        c_function = _CFunction()
+        c_function.n_cols = mesh.num_cells()
+        if hasattr(mesh, '_layers'):
+            c_function.n_layers = mesh.layers - 1
+        else:
+            c_function.n_layers = 1
+        c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
+
+        # Return pointer
+        return ctypes.pointer(c_function)
 
     @utils.cached_property
-    def c_evaluate(self):
-        from firedrake.cfunction import make_c_evaluate
+    def _c_evaluate(self):
         result = make_c_evaluate(self)
         result.restype = int
         return result
@@ -542,7 +559,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         def single_eval(x, buf):
             """Helper function to evaluate at a single point."""
-            err = self.c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
+            err = self._c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
             if err == -1:
                 if fill_value is not None:
                     buf[:] = fill_value
@@ -564,3 +581,65 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             raise ValueError("Function expects point or array of points.")
 
         return result
+
+
+class PointOutOfDomainError(Exception):
+    """Raised when attempting to evaluate a function outside its domain,
+    and no fill value was given.
+
+    Attributes: domain, point
+    """
+    def __init__(self, domain, point):
+        self.domain = domain
+        self.point = point
+
+    def __str__(self):
+        return "domain %s does not contain point %s" % (self.domain, self.point)
+
+
+def make_c_evaluate(function, c_name="evaluate", ldargs=None):
+    """Generates, compiles and loads a C function to evaluate the
+    given Firedrake :class:`Function`."""
+
+    from os import path
+    from ffc import compile_element
+    from pyop2 import compilation
+
+    def make_args(function):
+        from pyop2 import op2
+
+        arg = function.dat(op2.READ, function.cell_node_map())
+        arg.position = 0
+        return (arg,)
+
+    def make_wrapper(function, **kwargs):
+        from pyop2.base import build_itspace
+        from pyop2.sequential import generate_cell_wrapper
+
+        args = make_args(function)
+        return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
+
+    function_space = function.function_space()
+    ufl_element = function_space.ufl_element()
+    coordinates = function_space.mesh().coordinates
+    coordinates_ufl_element = coordinates.function_space().ufl_element()
+
+    src = compile_element(ufl_element, coordinates_ufl_element, function_space.dim)
+
+    src += make_wrapper(coordinates,
+                        forward_args=["void*", "double*", "int*"],
+                        kernel_name="to_reference_coords_kernel",
+                        wrapper_name="wrap_to_reference_coords")
+
+    src += make_wrapper(function,
+                        forward_args=["double*", "double*"],
+                        kernel_name="evaluate_kernel",
+                        wrapper_name="wrap_evaluate")
+
+    with open(path.join(path.dirname(__file__), "locate.cpp")) as f:
+        src += f.read()
+
+    if ldargs is None:
+        ldargs = []
+    ldargs += ["-lspatialindex"]
+    return compilation.load(src, "cpp", c_name, cppargs=["-I%s" % path.dirname(__file__)], ldargs=ldargs)
