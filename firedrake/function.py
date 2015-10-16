@@ -19,7 +19,7 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'interpolate']
+__all__ = ['Function', 'interpolate', 'PointOutOfDomainError']
 
 
 valuetype = np.float64
@@ -34,6 +34,20 @@ def interpolate(expr, V):
     Returns a new :class:`.Function` in the space :data:`V`.
     """
     return Function(V).interpolate(expr)
+
+
+class PointOutOfDomainError(Exception):
+    """Raised when attempting to evaluate a function outside its domain,
+    and no fill value was given.
+
+    Attributes: domain, point
+    """
+    def __init__(self, domain, point):
+        self.domain = domain
+        self.point = point
+
+    def __str__(self):
+        return "domain %s does not contain point %s" % (self.domain, self.point)
 
 
 class Function(ufl.Coefficient):
@@ -501,22 +515,29 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         return result
 
     def evaluate(self, coord, mapping, component, index_values):
-        return self._evaluate(coord)
+        # Called by UFL when evaluating expressions at coordinates
+        return self.at(coord)
 
-    def _evaluate(self, arg, *args, **kwargs):
+    def at(self, arg, *args, **kwargs):
+        """Evaluate function at points."""
+
         if args:
             arg = (arg,) + args
         arg = np.array(arg, dtype=float)
 
         fill_value = kwargs.get('fill_value')
 
-        # Handle f(0.3)
+        # Handle f.at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
 
         # Validate geometric dimension
         gdim = self.function_space().mesh().ufl_cell().geometric_dimension()
-        if arg.shape[-1] != gdim:
+        if arg.shape[-1] == gdim:
+            pass
+        elif len(arg.shape) == 1 and gdim == 1:
+            arg = arg.reshape(-1, 1)
+        else:
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         def single_eval(x, buf):
@@ -524,9 +545,9 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             err = self.c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
             if err == -1:
                 if fill_value is not None:
-                    buf.fill(fill_value)
+                    buf[:] = fill_value
                 else:
-                    raise RuntimeError("Point %s is outside domain." % x.reshape(-1))
+                    raise PointOutOfDomainError(self.function_space().mesh(), x.reshape(-1))
 
         value_shape = self.function_space().ufl_element().value_shape()
         if len(arg.shape) == 1:
