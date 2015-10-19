@@ -1240,7 +1240,7 @@ class Inspector(Cached):
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
 
-        def inspect_set(s):
+        def inspect_set(s, extra_halo):
             """Inspect the iteration set of a loop and return information suitable
             for SLOPE. As part of this process, check that such iteration set has
             a sufficiently depth halo region for correct execution in the case a
@@ -1260,8 +1260,8 @@ class Inspector(Cached):
                 warning("tiling skipped")
                 return ()
             else:
-                # Assume [0, 1, ..., N] levels of halo depth
-                levelN = s._deep_size[-1]
+                # Assume [1, ..., N] levels of halo depth
+                levelN = s._deep_size[-1] if not extra_halo else s._deep_size[-2]
                 core_size = levelN[0]
                 exec_size = levelN[2] - core_size
                 nonexec_size = levelN[3] - levelN[2]
@@ -1269,6 +1269,7 @@ class Inspector(Cached):
 
         tile_size = self._tiling_params.get('tile_size', 1)
         partitioning = self._tiling_params.get('partitioning', 'chunk')
+        extra_halo = self._tiling_params.get('extra_halo', False)
 
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
@@ -1282,7 +1283,7 @@ class Inspector(Cached):
             # 1) Add sets
             iterset = loop.it_space.iterset
             iterset = iterset.subset if hasattr(iterset, 'subset') else iterset
-            infoset = inspect_set(iterset)
+            infoset = inspect_set(iterset, extra_halo)
             if not infoset:
                 return
             insp_sets.add(infoset)
@@ -1291,7 +1292,7 @@ class Inspector(Cached):
             # (iteration) subset to the superset. This allows the propagation of
             # tiling across the hierarchy of sets (see SLOPE for further info)
             if is_superset:
-                insp_sets.add(inspect_set(iterset.superset))
+                insp_sets.add(inspect_set(iterset.superset, extra_halo))
                 map_name = "%s_tosuperset" % iterset_name
                 insp_maps[iterset_name] = (map_name, iterset_name,
                                            iterset.superset.name, iterset.indices)
@@ -1312,8 +1313,8 @@ class Inspector(Cached):
                             insp_maps[m.name] = (map_name, m.iterset.name,
                                                  m.toset.name, m.values_with_halo)
                             slope_desc.add((map_name, a.access._mode))
-                            insp_sets.add(inspect_set(m.iterset))
-                            insp_sets.add(inspect_set(m.toset))
+                            insp_sets.add(inspect_set(m.iterset, extra_halo))
+                            insp_sets.add(inspect_set(m.toset, extra_halo))
             # 3) Add loop
             insp_loops.append((loop.kernel.name, iterset_name, list(slope_desc)))
         # Provide structure of loop chain to SLOPE
@@ -1445,7 +1446,8 @@ def fuse(name, loop_chain, **kwargs):
     # cache, and fuse the parloops through the scheduler produced by inspection
     tiling_params = {
         'tile_size': kwargs.get('tile_size', 1),
-        'partitioning': kwargs.get('partitioning', 'chunk')
+        'partitioning': kwargs.get('partitioning', 'chunk'),
+        'extra_halo': kwargs.get('extra_halo', False)
     }
     inspector = Inspector(name, loop_chain, **tiling_params)
     schedule = inspector.inspect(mode)
