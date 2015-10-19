@@ -45,7 +45,7 @@ This time we created the mesh with `Gmsh <http://geuz.org/gmsh/>`_:
 
 .. code-block:: bash
 
-   gmsh -2 wave_tank.msh
+   gmsh -2 wave_tank.geo
 
 We can then start our Python script and load this mesh::
 
@@ -53,7 +53,9 @@ We can then start our Python script and load this mesh::
   mesh = Mesh("wave_tank.msh")
 
 We choose a degree 1 continuous function space, and set up the
-function space and functions::
+function space and functions. Setting the `name` parameter when
+constructing :class:`.Function` objects will set the name used in the
+output file::
 
   V = FunctionSpace(mesh, 'Lagrange', 1)
   p = Function(V, name="p")
@@ -67,7 +69,7 @@ Output the initial conditions::
   outfile = File("out.pvd")
   outfile << phi
 
-We establish a boundary condition object, since we have time-dependent
+We next establish a boundary condition object. Since we have time-dependent
 boundary conditions, we first create a :class:`.Constant` to hold the
 value and use that::
 
