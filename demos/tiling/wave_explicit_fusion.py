@@ -7,6 +7,7 @@ from pyop2.configuration import configuration
 from pyop2.fusion import loop_chain
 
 from utils.benchmarking import parser, output_time
+from utils.tiling import calculate_sdepth
 
 
 # Get the input
@@ -17,12 +18,14 @@ mesh_size = int(args.mesh_size)
 verbose = args.verbose
 output = args.output
 mode = args.fusion_mode
+extra_halo = args.extra_halo
 
 # Constants
 loop_chain_length = 3
+num_solves = 1
 
 mesh = UnitSquareMesh(mesh_size, mesh_size)
-mesh.init(s_depth=1+num_unroll)
+mesh.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
 # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
@@ -55,7 +58,7 @@ if output:
     phifile = File("phi.pvd")
 
 while t <= T:
-    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode):
+    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode, extra_halo=extra_halo):
         phi -= dt / 2 * p
 
         asm = assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
