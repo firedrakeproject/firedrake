@@ -48,6 +48,25 @@ compiled modules. To do this run::
 If you installed to a virtualenv, you will need to activate the
 virtualenv first.
 
+Recovering from a broken installation script
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you find yourself in the unfortunate position that
+`firedrake-update` won't run because of a bug, and the bug has been
+fixed in Firedrake master, then the following procedure will rebuild
+`firedrake-update` using the latest version.
+
+From the top directory of your Firedrake install,
+type::
+
+  cd src/firedrake
+  git pull
+  ./scripts/firedrake-install --rebuild_script
+
+You should also pass any of the other options to `firedrake-install`
+which you wish the rebuilt script to apply (for example `--user` or
+`--disable_ssh`). You should now be able to run `firedrake-update`. 
+
 
 Installing from individual components
 =====================================
