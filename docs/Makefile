@@ -69,7 +69,7 @@ source/demos: copy_demos
 
 copy_demos:
 	install -d source/demos
-	cp ../demos/*/*.rst ../demos/*/*.bib source/demos
+	cp ../demos/*/*.rst ../demos/*/*.bib ../demos/*/*.geo source/demos
 	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
 
 source/teamgrid.rst: source/team.py
@@ -91,7 +91,7 @@ buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
 html: apidoc buildhtml
-	cp source/demos/*.py $(BUILDDIR)/html/demos
+	cp source/demos/*.py source/demos/*.geo $(BUILDDIR)/html/demos
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 

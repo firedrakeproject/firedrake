@@ -41,7 +41,13 @@ this equation equivalent to the strong form so we will solve it pointwise.
 In time we use a simple symplectic method in which we offset :math:`p`
 and :math:`\phi` by a half timestep.
 
-This time we created the mesh with `Gmsh <http://geuz.org/gmsh/>`_::
+This time we created the mesh with `Gmsh <http://geuz.org/gmsh/>`_:
+
+.. code-block:: bash
+
+   gmsh -2 wave_tank.msh
+
+We can then start our Python script and load this mesh::
 
   from firedrake import *
   mesh = Mesh("wave_tank.msh")
@@ -139,4 +145,4 @@ Advance time and output as appropriate::
    An animation, produced in Paraview, illustrating the output of this simulation can be found `on youtube <https://www.youtube.com/watch?v=xhxvM1N8mDQ>`_.
   
 
-A python script version of this demo can be found `here <linear_wave_equation.py>`__.
+A python script version of this demo can be found `here <linear_wave_equation.py>`__. The gmsh input file is `here <wave_tank.geo>`__.
