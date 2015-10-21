@@ -103,11 +103,11 @@ same effect:
 The base mesh and extruded mesh are shown below.
 
 .. figure:: images/UnitSquare44.png
-  :scale: 63 %
+  :scale: 60 %
   :align: left
 
 .. figure:: images/UnifExt.png
-  :scale: 57 %
+  :scale: 54 %
   :align: right
 
 Radial Extrusion
@@ -125,11 +125,11 @@ which a circle is extruded into an annulus, is:
 The base mesh and extruded mesh are shown below.
 
 .. figure:: images/CircleMM20.png
-  :scale: 67 %
+  :scale: 64 %
   :align: left
 
 .. figure:: images/RadExt2D.png
-  :scale: 68 %
+  :scale: 65 %
   :align: right
 
 An example in 3 dimensions, in which a sphere is extruded into a spherical
@@ -143,11 +143,11 @@ annulus, is:
 The base mesh and part of the extruded mesh are shown below.
 
 .. figure:: images/Icos3.png
-  :scale: 68 %
+  :scale: 65 %
   :align: left
 
 .. figure:: images/RadExt3D.png
-  :scale: 72 %
+  :scale: 69 %
   :align: right
 
 Hedgehog Extrusion
@@ -173,11 +173,11 @@ annulus, is:
 The 2D and 3D hedgehog-extruded meshes are shown below.
 
 .. figure:: images/HedgeExt2D.png
-  :scale: 65 %
+  :scale: 62 %
   :align: left
 
 .. figure:: images/HedgeExt3D.png
-  :scale: 70 %
+  :scale: 67 %
   :align: right
 
 Custom Extrusion
