@@ -89,6 +89,17 @@ def test_triangle_vector(mesh_triangle, family, degree):
 
 
 @pytest.mark.parametrize(('family', 'degree'),
+                         [('CG', 1),
+                          ('DG', 1)])
+def test_triangle_tensor(mesh_triangle, family, degree):
+    V = TensorFunctionSpace(mesh_triangle, family, degree)
+    f = Function(V).interpolate(Expression((("x[1]", "0.2 + x[0]"), ("0.8*x[0]", "0.2*x[1]"))))
+
+    assert np.allclose([[0.4, 0.8], [0.48, 0.08]], f([0.6, 0.4]))
+    assert np.allclose([[0.9, 0.2], [0.00, 0.18]], f([0.0, 0.9]))
+
+
+@pytest.mark.parametrize(('family', 'degree'),
                          [('CG', 2),
                           ('DG', 2)])
 def test_quadrilateral(mesh_quadrilateral, family, degree):
