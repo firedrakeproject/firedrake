@@ -442,8 +442,10 @@ which are listed below.
    and *vertical* interior facets may require different numerical treatment.
    To facilitate this, the following notation is used:
 
-   * ``dS_v`` is used to denote an integral over *horizontal* interior facets.
-   * ``dS_h`` is used to denote an integral over *vertical* interior facets.
+   * ``dS_h`` is used to denote an integral over *horizontal* interior facets
+     (between cells that are vertically-adjacent).
+   * ``dS_v`` is used to denote an integral over *vertical* interior facets
+     (between cells that are horizontally-adjacent).
 
 3. When setting strong boundary conditions, the boundary markers from the base
    mesh can be used to set boundary conditions on the relevant side of the
