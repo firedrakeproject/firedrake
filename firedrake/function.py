@@ -542,7 +542,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             arg = (arg,) + args
         arg = np.array(arg, dtype=float)
 
-        fill_value = kwargs.get('fill_value', PointNotInDomainError)
+        fill_value = kwargs.get('fill_value')
 
         # Handle f.at(0.3)
         if not arg.shape:
@@ -566,11 +566,11 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             """Helper function to evaluate at a single point."""
             err = self._c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
             if err == -1:
-                if fill_value is not PointNotInDomainError:
-                    if isinstance(fill_value, (int, float)):
-                        buf.fill(fill_value)
-                    else:
+                if fill_value is not None:
+                    if np.asarray(fill_value).shape:
                         buf[:] = fill_value
+                    else:
+                        buf.fill(fill_value)
                 else:
                     raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
