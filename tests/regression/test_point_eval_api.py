@@ -82,7 +82,7 @@ def test_fill_value():
     f = Function(V).interpolate(Expression(("x[0]", "2.0 * x[0]")))
 
     # raise exception without fill_value
-    with pytest.raises(PointOutOfDomainError):
+    with pytest.raises(PointNotInDomainError):
         f.at(-1)
 
     # set fill_value

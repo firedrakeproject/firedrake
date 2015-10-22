@@ -21,7 +21,7 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'interpolate', 'PointOutOfDomainError']
+__all__ = ['Function', 'interpolate', 'PointNotInDomainError']
 
 
 valuetype = np.float64
@@ -564,7 +564,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
                 if fill_value is not None:
                     buf[:] = fill_value
                 else:
-                    raise PointOutOfDomainError(self.function_space().mesh(), x.reshape(-1))
+                    raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
         value_shape = self.function_space().ufl_element().value_shape()
         if len(arg.shape) == 1:
@@ -583,7 +583,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         return result
 
 
-class PointOutOfDomainError(Exception):
+class PointNotInDomainError(Exception):
     """Raised when attempting to evaluate a function outside its domain,
     and no fill value was given.
 
