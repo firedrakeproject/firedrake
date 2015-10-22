@@ -548,8 +548,13 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         if not arg.shape:
             arg = arg.reshape(-1)
 
-        # Validate geometric dimension
+        # Immersed not supported
+        tdim = self.function_space().mesh().ufl_cell().topological_dimension()
         gdim = self.function_space().mesh().ufl_cell().geometric_dimension()
+        if tdim < gdim:
+            raise NotImplementedError("Point is almost certainly not on the manifold.")
+
+        # Validate geometric dimension
         if arg.shape[-1] == gdim:
             pass
         elif len(arg.shape) == 1 and gdim == 1:
