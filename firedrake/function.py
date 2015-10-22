@@ -542,7 +542,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             arg = (arg,) + args
         arg = np.array(arg, dtype=float)
 
-        fill_value = kwargs.get('fill_value')
+        fill_value = kwargs.get('fill_value', PointNotInDomainError)
 
         # Handle f.at(0.3)
         if not arg.shape:
@@ -566,22 +566,44 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             """Helper function to evaluate at a single point."""
             err = self._c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
             if err == -1:
-                if fill_value is not None:
-                    buf[:] = fill_value
+                if fill_value is not PointNotInDomainError:
+                    if isinstance(fill_value, (int, float)):
+                        buf.fill(fill_value)
+                    else:
+                        buf[:] = fill_value
                 else:
                     raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
+        split = self.split()
+        mixed = len(split) != 1
+        if isinstance(fill_value, tuple):
+            if len(fill_value) != len(split):
+                raise ValueError("%d fill values given for %d functions." % (len(fill_value), len(split)))
+        else:
+            if mixed:
+                fill_value = (fill_value,) * len(split)
+
         value_shape = self.function_space().ufl_element().value_shape()
         if len(arg.shape) == 1:
-            result = np.empty(value_shape, dtype=float)
-            single_eval(arg, result)
-            # Flatten if single value
-            # if not result.shape:
-            #     result = float(result)
+            if mixed:
+                result = tuple(f.at(arg, fill_value=fill_value[j])
+                               for j, f in enumerate(split))
+            else:
+                result = np.empty(value_shape, dtype=float)
+                single_eval(arg, result)
+                # Flatten if single value
+                if not result.shape:
+                    result = float(result)
         elif len(arg.shape) == 2:
-            result = np.empty((len(arg),) + value_shape, dtype=float)
-            for i in xrange(len(arg)):
-                single_eval(arg[i:i+1], result[i:i+1])
+            if mixed:
+                result = np.empty((len(arg), len(split)), dtype=object)
+                for i, p in enumerate(arg):
+                    for j, f in enumerate(split):
+                        result[i, j] = f.at(p, fill_value=fill_value[j])
+            else:
+                result = np.empty((len(arg),) + value_shape, dtype=float)
+                for i in xrange(len(arg)):
+                    single_eval(arg[i:i+1], result[i:i+1])
         else:
             raise ValueError("Function expects point or array of points.")
 

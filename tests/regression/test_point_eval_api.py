@@ -86,7 +86,7 @@ def test_fill_value():
         f.at(-1)
 
     # set fill_value
-    assert np.allclose([3.0, 4.0], f.at(-1, fill_value=(3, 4)))
+    assert np.allclose([3.0, 4.0], f.at(-1, fill_value=[3, 4]))
 
     # broadcast fill_value
     assert np.allclose([2.0, 2.0], f.at(-1, fill_value=2))
