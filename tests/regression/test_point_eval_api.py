@@ -76,39 +76,35 @@ def test_2d_args():
                                                                 [0.3, 0.5]])))
 
 
-def test_fill_value():
+def test_fill_nan():
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "CG", 1)
     f = Function(V).interpolate(Expression("2.0 * x[0]"))
 
-    # raise exception without fill_value
+    # raise exception without fill_nan
     with pytest.raises(PointNotInDomainError):
         f.at(-1)
 
-    # set fill_value
-    assert np.allclose(2.0, f.at(-1, fill_value=2))
-    assert np.allclose([2.0, 0.0, 1.0], f.at([-1, 0, 0.5], fill_value=2))
+    # fill_nan=True
+    assert 'nan' == str(f.at(-1, fill_nan=True))
+    assert '[ nan   0.   1.]' == str(f.at([-1, 0, 0.5], fill_nan=True))
 
 
-def test_fill_value_vector():
+def test_fill_nan_vector():
     mesh = UnitIntervalMesh(1)
     V = VectorFunctionSpace(mesh, "CG", 1, dim=2)
     f = Function(V).interpolate(Expression(("x[0]", "2.0 * x[0]")))
 
-    # raise exception without fill_value
+    # raise exception without fill_nan
     with pytest.raises(PointNotInDomainError):
         f.at(-1)
 
-    # set fill_value
-    assert np.allclose([3.0, 4.0], f.at(-1, fill_value=[3, 4]))
-    assert np.allclose([[3.0, 4.0], [1.0, 2.0]], f.at([-1, 1], fill_value=[3, 4]))
-
-    # broadcast fill_value
-    assert np.allclose([2.0, 2.0], f.at(-1, fill_value=2))
-    assert np.allclose([[2.0, 2.0], [1.0, 2.0]], f.at([-1, 1], fill_value=2))
+    # fill_nan=True
+    assert '[ nan  nan]' == str(f.at(-1, fill_nan=True))
+    assert '[[ nan  nan]\n [  1.   2.]]' == str(f.at([-1, 1], fill_nan=True))
 
 
-def test_fill_value_mixed():
+def test_fill_nan_mixed():
     mesh = UnitSquareMesh(1, 1)
     V1 = FunctionSpace(mesh, "DG", 1)
     V2 = FunctionSpace(mesh, "RT", 2)
@@ -118,13 +114,12 @@ def test_fill_value_mixed():
     f1.interpolate(Expression("x[0] + 1.2*x[1]"))
     f2.project(Expression(("x[1]", "0.8 + x[0]")))
 
-    # raise exception without fill_value
+    # raise exception without fill_nan
     with pytest.raises(PointNotInDomainError):
         f.at([1.2, 0.5])
 
-    assert '(nan, array([ nan,  nan]))' == str(f.at([1.2, 0.5], fill_value=np.nan))
-    assert '(1.0, array([ 2.,  2.]))' == str(f.at([1.2, 0.5], fill_value=(1, 2)))
-    assert '(1.0, array([ 2.1,  2.2]))' == str(f.at([1.2, 0.5], fill_value=(1, [2.1, 2.2])))
+    # fill_nan=True
+    assert '(nan, array([ nan,  nan]))' == str(f.at([1.2, 0.5], fill_nan=True))
 
 
 if __name__ == '__main__':

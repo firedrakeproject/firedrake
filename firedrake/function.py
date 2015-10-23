@@ -542,7 +542,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             arg = (arg,) + args
         arg = np.array(arg, dtype=float)
 
-        fill_value = kwargs.get('fill_value')
+        fill_nan = kwargs.get('fill_nan', False)
 
         # Handle f.at(0.3)
         if not arg.shape:
@@ -566,27 +566,18 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             """Helper function to evaluate at a single point."""
             err = self._c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
             if err == -1:
-                if fill_value is not None:
-                    if np.asarray(fill_value).shape:
-                        buf[:] = fill_value
-                    else:
-                        buf.fill(fill_value)
+                if fill_nan:
+                    buf.fill(np.nan)
                 else:
                     raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
         split = self.split()
         mixed = len(split) != 1
-        if isinstance(fill_value, tuple):
-            if len(fill_value) != len(split):
-                raise ValueError("%d fill values given for %d functions." % (len(fill_value), len(split)))
-        else:
-            if mixed:
-                fill_value = (fill_value,) * len(split)
 
         value_shape = self.function_space().ufl_element().value_shape()
         if len(arg.shape) == 1:
             if mixed:
-                result = tuple(f.at(arg, fill_value=fill_value[j])
+                result = tuple(f.at(arg, fill_nan=fill_nan)
                                for j, f in enumerate(split))
             else:
                 result = np.empty(value_shape, dtype=float)
@@ -599,7 +590,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
                 result = np.empty((len(arg), len(split)), dtype=object)
                 for i, p in enumerate(arg):
                     for j, f in enumerate(split):
-                        result[i, j] = f.at(p, fill_value=fill_value[j])
+                        result[i, j] = f.at(p, fill_nan=fill_nan)
             else:
                 result = np.empty((len(arg),) + value_shape, dtype=float)
                 for i in xrange(len(arg)):
