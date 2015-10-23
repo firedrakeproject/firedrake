@@ -27,7 +27,7 @@ The installation script is tested on Ubuntu and MacOS X. Installation
 is likely to work well on other Linux platforms, although the script
 may stop to ask you to install some dependency packages. Installation
 on other Unix platforms may work but is untested. Installation on
-Windows is very unlikely work.
+Windows is very unlikely to work.
 
 Upgrade
 -------
