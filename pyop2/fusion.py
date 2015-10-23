@@ -1255,11 +1255,10 @@ class Inspector(Cached):
             if slope.get_exec_mode() not in ['OMP_MPI', 'ONLY_MPI']:
                 return s_name, s.core_size, s.exec_size - s.core_size, \
                     s.total_size - s.exec_size, superset
-            if not hasattr(s, '_deep_size') and len(s._deep_size) < len(self._loop_chain):
-                warning("Invalid SLOPE backend (%s) with available halo", slope.get_exec_mode())
-                warning("tiling skipped")
-                return ()
             else:
+                if not hasattr(s, '_deep_size'):
+                    raise RuntimeError("SLOPE backend (%s) requires deep halos",
+                                       slope.get_exec_mode())
                 # Assume [1, ..., N] levels of halo depth
                 levelN = s._deep_size[-1] if not extra_halo else s._deep_size[-2]
                 core_size = levelN[0]
