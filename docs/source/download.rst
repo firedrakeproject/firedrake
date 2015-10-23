@@ -243,7 +243,8 @@ Building the documention requires Sphinx_
 (including the Youtube and Bibtex plugins) and wget_. For example on Ubuntu-like
 Linux systems::
 
-  sudo apt-get install python-sphinx wget
+  sudo apt-get install wget
+  sudo pip install sphinx
 
 and on Mac OS::
 
