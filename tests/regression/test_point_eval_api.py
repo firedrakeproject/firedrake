@@ -122,6 +122,17 @@ def test_dont_raise_mixed():
     assert 'None' == str(f.at([1.2, 0.5], dont_raise=True))
 
 
+@pytest.mark.parallel(nprocs=3)
+def test_nascent_parallel_support():
+    mesh = UnitSquareMesh(8, 8)
+    V = FunctionSpace(mesh, "CG", 2)
+    f = Function(V).interpolate(Expression("(x[0] + 0.2)*x[1]"))
+
+    assert np.allclose(0.0576, f.at([0.12, 0.18]))
+    assert np.allclose(1.0266, f.at([0.98, 0.87]))
+    assert np.allclose([0.2176, 0.2822], f.at([0.12, 0.68], [0.63, 0.34]))
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
