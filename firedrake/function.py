@@ -537,6 +537,8 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
     def at(self, arg, *args, **kwargs):
         """Evaluate function at points."""
+        from mpi4py import MPI
+        comm = MPI.COMM_WORLD
 
         if args:
             arg = (arg,) + args
@@ -561,6 +563,13 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             arg = arg.reshape(-1, 1)
         else:
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
+
+        # Check if we have got the same points on each process
+        root_arg = comm.bcast(arg, root=0)
+        same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
+        diff_arg = comm.allreduce(int(not same_arg), op=MPI.SUM)
+        if diff_arg:
+            raise ValueError("Points to evaluate are inconsistent among processes.")
 
         def single_eval(x, buf):
             """Helper function to evaluate at a single point."""
