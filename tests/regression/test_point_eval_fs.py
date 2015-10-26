@@ -117,13 +117,13 @@ def test_triangle_mixed(mesh_triangle):
 
     # Multiple points
     actual = f.at([0.6, 0.4], [0.0, 0.9], [0.3, 0.5])
-    assert actual.shape == (3, 2)
-    assert np.allclose(1.08, actual[0, 0])
-    assert np.allclose([0.4, 1.4], actual[0, 1])
-    assert np.allclose(1.08, actual[1, 0])
-    assert np.allclose([0.9, 0.8], actual[1, 1])
-    assert np.allclose(0.90, actual[2, 0])
-    assert np.allclose([0.5, 1.1], actual[2, 1])
+    assert len(actual) == 3
+    assert np.allclose(1.08, actual[0][0])
+    assert np.allclose([0.4, 1.4], actual[0][1])
+    assert np.allclose(1.08, actual[1][0])
+    assert np.allclose([0.9, 0.8], actual[1][1])
+    assert np.allclose(0.90, actual[2][0])
+    assert np.allclose([0.5, 1.1], actual[2][1])
 
 
 @pytest.mark.parametrize(('family', 'degree'),

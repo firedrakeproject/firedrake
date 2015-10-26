@@ -544,7 +544,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             arg = (arg,) + args
         arg = np.array(arg, dtype=float)
 
-        fill_nan = kwargs.get('fill_nan', False)
+        dont_raise = kwargs.get('dont_raise', False)
 
         # Handle f.at(0.3)
         if not arg.shape:
@@ -575,38 +575,62 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             """Helper function to evaluate at a single point."""
             err = self._c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
             if err == -1:
-                if fill_nan:
-                    buf.fill(np.nan)
-                else:
-                    raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+                raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+
+        if not len(arg.shape) <= 2:
+            raise ValueError("Function.at expects point or array of points.")
+        points = arg.reshape(-1, arg.shape[-1])
+        value_shape = self.function_space().ufl_element().value_shape()
 
         split = self.split()
         mixed = len(split) != 1
 
-        value_shape = self.function_space().ufl_element().value_shape()
-        if len(arg.shape) == 1:
-            if mixed:
-                result = tuple(f.at(arg, fill_nan=fill_nan)
-                               for j, f in enumerate(split))
-            else:
-                result = np.empty(value_shape, dtype=float)
-                single_eval(arg, result)
-                # Flatten if single value
-                if not result.shape:
-                    result = float(result)
-        elif len(arg.shape) == 2:
-            if mixed:
-                result = np.empty((len(arg), len(split)), dtype=object)
-                for i, p in enumerate(arg):
-                    for j, f in enumerate(split):
-                        result[i, j] = f.at(p, fill_nan=fill_nan)
-            else:
-                result = np.empty((len(arg),) + value_shape, dtype=float)
-                for i in xrange(len(arg)):
-                    single_eval(arg[i:i+1], result[i:i+1])
-        else:
-            raise ValueError("Function expects point or array of points.")
+        # Local evaluation
+        l_result = []
+        for i, p in enumerate(points):
+            try:
+                if mixed:
+                    l_result.append((i, tuple(f.at(p) for f in split)))
+                else:
+                    p_result = np.empty(value_shape, dtype=float)
+                    single_eval(points[i:i+1], p_result)
+                    l_result.append((i, p_result))
+            except PointNotInDomainError:
+                # Skip point
+                pass
 
+        # Collecting the results
+        def same_result(a, b):
+            if mixed:
+                for a_, b_ in zip(a, b):
+                    if not np.allclose(a_, b_):
+                        return False
+                return True
+            else:
+                return np.allclose(a, b)
+
+        all_results = comm.gather(l_result, root=0)
+        if comm.rank == 0:
+            g_result = [None] * len(points)
+            for results in all_results:
+                for i, result in results:
+                    if g_result[i] is None:
+                        g_result[i] = result
+                    elif same_result(result, g_result[i]):
+                        pass
+                    else:
+                        raise RuntimeError("Point evaluation gave different results across processes.")
+            result = comm.bcast(g_result, root=0)
+        else:
+            result = comm.bcast(None, root=0)
+
+        if not dont_raise:
+            for i in xrange(len(result)):
+                if result[i] is None:
+                    raise PointNotInDomainError(self.function_space().mesh(), points[i].reshape(-1))
+
+        if len(arg.shape) == 1:
+            result = result[0]
         return result
 
 
