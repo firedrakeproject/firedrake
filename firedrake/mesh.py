@@ -637,8 +637,8 @@ class Mesh(object):
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
-        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data)
-        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data)
+        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
 
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
