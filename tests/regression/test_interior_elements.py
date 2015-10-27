@@ -5,7 +5,7 @@ from tests.common import *
 
 def test_vanish_on_bdy(mesh):
     V_elt = FiniteElement("RT", triangle, 2)
-    W2_elt = InteriorElement(V_elt)
+    W2_elt = RestrictedElement(V_elt, "interior")
     W2 = FunctionSpace(mesh, W2_elt)
     g = Function(W2).assign(1)
     n = FacetNormal(mesh)
