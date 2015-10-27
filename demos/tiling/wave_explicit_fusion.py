@@ -18,6 +18,7 @@ mesh_size = int(args.mesh_size)
 verbose = args.verbose
 output = args.output
 mode = args.fusion_mode
+part_mode = args.part_mode
 extra_halo = args.extra_halo
 
 # Constants
@@ -58,7 +59,8 @@ if output:
     phifile = File("phi.pvd")
 
 while t <= T:
-    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode, extra_halo=extra_halo):
+    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode,
+                    partitioning=part_mode, extra_halo=extra_halo):
         phi -= dt / 2 * p
 
         asm = assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
