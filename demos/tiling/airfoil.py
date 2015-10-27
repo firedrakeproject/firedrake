@@ -19,6 +19,7 @@ def main(args):
 
     num_unroll = args.num_unroll
     tile_size = args.tile_size
+    part_mode = args.part_mode
     mesh = args.mesh
 
     save_soln, adt_calc, res_calc, bres_calc, update = kernels()
@@ -74,7 +75,8 @@ def main(args):
 
     for i in range(1, niter + 1):
 
-        with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, force_glb=True, mode='only_tile'):
+        with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, force_glb=True,
+                        mode='only_tile', partitioning=part_mode):
 
             # Save old flow solution
             op2.par_loop(save_soln, cells,

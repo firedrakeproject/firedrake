@@ -18,6 +18,7 @@ mesh_size = int(args.mesh_size)
 verbose = args.verbose
 output = args.output
 mode = args.fusion_mode
+part_mode = args.part_mode
 extra_halo = args.extra_halo
 
 # Constants
@@ -73,7 +74,8 @@ dp = dtc * Ml * b
 
 # 2) Solve -- Timestepping
 while t < N*dt:
-    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode, extra_halo=extra_halo):
+    with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode,
+                    partitioning=part_mode, extra_halo=extra_halo):
         print "Executing timestep ", t
         bcval.assign(sin(2*pi*5*t))
 
