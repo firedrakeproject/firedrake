@@ -41,7 +41,10 @@ import os
 import sys
 
 from base import *
-import base, compilation, sequential, host
+import base
+import compilation
+import sequential
+import host
 from backends import _make_object
 from caching import Cached
 from profiling import timed_region
@@ -75,6 +78,11 @@ try:
 except:
     warning("Couldn't locate SLOPE, no tiling possible. Check SLOPE_{DIR,METIS} env vars")
     slope = None
+
+
+lazy_trace_name = 'lazy_trace'
+"""The default name for sequences of par loops extracted from the trace produced
+by lazy evaluation."""
 
 
 class Arg(sequential.Arg):
@@ -754,10 +762,13 @@ class Inspector(Cached):
     _modes = ['soft', 'hard', 'tile', 'only_tile', 'only_omp']
 
     @classmethod
-    def _cache_key(cls, name, loop_chain, **tiling_params):
-        tile_size = tiling_params.get('tile_size', 1)
-        partitioning = tiling_params.get('partitioning', 'chunk')
-        key = (name, tile_size, partitioning)
+    def _cache_key(cls, name, loop_chain, **options):
+        key = (name,)
+        if name != lazy_trace_name:
+            # Special case: the Inspector comes from a user-defined /loop_chain/
+            key += (options['mode'], options['tile_size'], options['partitioning'])
+            return key
+        # Inspector extracted from lazy evaluation trace
         for loop in loop_chain:
             if isinstance(loop, Mat._Assembly):
                 continue
@@ -779,101 +790,81 @@ class Inspector(Cached):
                     key += (arg.data.dims, arg.data.dtype, idxs, map_arities, arg.access)
         return key
 
-    def __init__(self, name, loop_chain, **tiling_params):
+    def __init__(self, name, loop_chain, **options):
         """Initialize an Inspector object.
 
         :arg name: a name for the Inspector
         :arg loop_chain: an iterator for the loops that will be fused/tiled
-        :arg tiling_params: a set of parameters to drive tiling
+        :arg options: a set of parameters to drive fusion/tiling
+            * mode: can take any of the values in ``Inspector._modes``, namely
+                soft, hard, tile, only_tile, only_omp:
+                * soft: consecutive loops over the same iteration set that do
+                    not present RAW or WAR dependencies through indirections
+                    are fused.
+                * hard: ``soft`` fusion; then, loops over different iteration sets
+                    are also fused, provided that there are no RAW or WAR
+                    dependencies.
+                * tile: ``soft`` and ``hard`` fusion; then, tiling through the
+                    SLOPE library takes place.
+                * only_tile: only tiling through the SLOPE library (i.e., no fusion)
+                * only_omp: ompize individual parloops through the SLOPE library
             * tile_size: starting average tile size
             * partitioning: strategy for tile partitioning
+            * extra_halo: are we providing SLOPE with extra halo to be efficient
+                and allow it to minimize redundant computation ?
         """
         if self._initialized:
             return
-        if not hasattr(self, '_inspected'):
-            # Initialization can occur more than once (until the inspection is
-            # actually performed), but only the first time this attribute is set
-            self._inspected = 0
         self._name = name
         self._loop_chain = loop_chain
-        self._tiling_params = tiling_params
+        self._mode = options.pop('mode')
+        self._options = options
 
-    def inspect(self, mode):
-        """Inspect this Inspector's loop chain and produce a :class:`Schedule`.
-
-        :arg mode: can take any of the values in ``Inspector._modes``, namely
-            soft, hard, tile, only_tile, only_omp:
-            * soft: consecutive loops over the same iteration set that do
-                not present RAW or WAR dependencies through indirections
-                are fused.
-            * hard: ``soft`` fusion; then, loops over different iteration sets
-                are also fused, provided that there are no RAW or WAR
-                dependencies.
-            * tile: ``soft`` and ``hard`` fusion; then, tiling through the
-                SLOPE library takes place.
-            * only_tile: only tiling through the SLOPE library (i.e., no fusion)
-            * only_omp: ompize individual parloops through the SLOPE library
-        """
-        self._inspected += 1
-        if self._heuristic_skip_inspection(mode):
-            # Heuristically skip this inspection if there is a suspicion the
-            # overhead is going to be too much; for example, when the loop
-            # chain could potentially be executed only once or a few times.
-            # Blow away everything we don't need any more
+    def inspect(self):
+        """Inspect the loop chain and produce a :class:`Schedule`."""
+        if self._initialized:
+            # An inspection plan is in cache.
+            return self._schedule
+        elif self._heuristic_skip_inspection():
+            # Not in cache, and too premature for running a potentially costly inspection
             del self._name
             del self._loop_chain
-            del self._tiling_params
+            del self._mode
+            del self._options
             return PlainSchedule()
-        elif hasattr(self, '_schedule'):
-            # An inspection plan is in cache.
-            # It should not be possible to pull a jit module out of the cache
-            # /with/ the loop chain
-            if hasattr(self, '_loop_chain'):
-                raise RuntimeError("Inspector is holding onto loop_chain, memory leaks!")
-            # The fusion mode was recorded, and must match the one provided for
-            # this inspection
-            if self.mode != mode:
-                raise RuntimeError("Cached Inspector mode doesn't match")
-            return self._schedule
-        elif not hasattr(self, '_loop_chain'):
-            # The inspection should be executed /now/. We weren't in the cache,
-            # so we /must/ have a loop chain
-            raise RuntimeError("Inspector must have a loop chain associated with it")
-        # Finally, we check the legality of `mode`
-        if mode not in Inspector._modes:
-            raise TypeError("Inspection accepts only %s fusion modes",
-                            str(Inspector._modes))
-        self._mode = mode
+
+        # Is `mode` legal ?
+        if self.mode not in Inspector._modes:
+            raise RuntimeError("Inspection accepts only %s fusion modes", Inspector._modes)
 
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
             self._schedule = PlainSchedule([loop.kernel for loop in self._loop_chain])
-            if mode in ['soft', 'hard', 'tile']:
+            if self.mode in ['soft', 'hard', 'tile']:
                 self._soft_fuse()
-            if mode in ['hard', 'tile']:
+            if self.mode in ['hard', 'tile']:
                 self._hard_fuse()
-            if mode in ['tile', 'only_tile', 'only_omp']:
+            if self.mode in ['tile', 'only_tile', 'only_omp']:
                 self._tile()
 
-        # A schedule has been computed by any of /_soft_fuse/, /_hard_fuse/ or
-        # or /_tile/; therefore, consider this Inspector initialized, and
-        # retrievable from cache in subsequent calls to inspect().
+        # A schedule has been computed. The Inspector is initialized and therefore
+        # retrievable from cache. We then blow away everything we don't need any more.
         self._initialized = True
-
-        # Blow away everything we don't need any more
         del self._name
         del self._loop_chain
-        del self._tiling_params
+        del self._mode
+        del self._options
         return self._schedule
 
-    def _heuristic_skip_inspection(self, mode):
+    def _heuristic_skip_inspection(self):
         """Decide, heuristically, whether to run an inspection or not.
-        If tiling is not requested, then inspection is always performed.
+        If tiling is not requested, then inspection is performed.
         If tiling is requested, then inspection is performed on the third
         invocation. The fact that an inspection for the same loop chain
         is requested multiple times suggests the parloops originate in a
         time stepping loop. The cost of building tiles in SLOPE-land would
         then be amortized over several iterations."""
-        if mode in ['tile', 'only_tile'] and self._inspected < 3:
+        self._ninsps = self._ninsps + 1 if hasattr(self, '_ninsps') else 1
+        if self.mode in ['tile', 'only_tile'] and self._ninsps < 3:
             return True
         return False
 
@@ -1266,9 +1257,9 @@ class Inspector(Cached):
                 nonexec_size = levelN[3] - levelN[2]
                 return s_name, core_size, exec_size, nonexec_size, superset
 
-        tile_size = self._tiling_params.get('tile_size', 1)
-        partitioning = self._tiling_params.get('partitioning', 'chunk')
-        extra_halo = self._tiling_params.get('extra_halo', False)
+        tile_size = self._options.get('tile_size', 1)
+        partitioning = self._options.get('partitioning', 'chunk')
+        extra_halo = self._options.get('extra_halo', False)
 
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
@@ -1443,13 +1434,14 @@ def fuse(name, loop_chain, **kwargs):
 
     # Get an inspector for fusing this /loop_chain/, possibly retrieving it from
     # cache, and fuse the parloops through the scheduler produced by inspection
-    tiling_params = {
+    options = {
+        'mode': mode,
         'tile_size': kwargs.get('tile_size', 1),
         'partitioning': kwargs.get('partitioning', 'chunk'),
         'extra_halo': kwargs.get('extra_halo', False)
     }
-    inspector = Inspector(name, loop_chain, **tiling_params)
-    schedule = inspector.inspect(mode)
+    inspector = Inspector(name, loop_chain, **options)
+    schedule = inspector.inspect()
     return schedule(loop_chain) + remainder
 
 
@@ -1485,6 +1477,8 @@ def loop_chain(name, **kwargs):
             tiles. The partitioning modes available are those accepted by SLOPE;
             refer to the SLOPE documentation for more info.
     """
+    assert name != lazy_trace_name, "Loop chain name must differ from %s" % lazy_trace_name
+
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
 

@@ -164,8 +164,8 @@ class ExecutionTrace(object):
         self._trace = new_trace
 
         if configuration['loop_fusion']:
-            from fusion import fuse
-            to_run = fuse('from_trace', to_run)
+            from fusion import fuse, lazy_trace_name
+            to_run = fuse(lazy_trace_name, to_run)
         for comp in to_run:
             comp._run()
 
