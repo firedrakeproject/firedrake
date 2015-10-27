@@ -414,8 +414,10 @@ class Mesh(object):
             with timed_region("Mesh: renumbering"):
                 dmplex.mark_entity_classes(self._plex, self.s_depth)
                 self._entity_classes = dmplex.get_entity_classes(self._plex, self.s_depth)
+                entity_class_hierarchy = np.array([dmplex.get_entity_classes(self._plex, s+1)
+                                                   for s in range(self.s_depth)])
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
-                                                                 self._entity_classes,
+                                                                 entity_class_hierarchy,
                                                                  reordering, self.s_depth)
 
             with timed_region("Mesh: cell numbering"):

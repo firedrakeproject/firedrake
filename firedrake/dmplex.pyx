@@ -873,7 +873,7 @@ def get_facets_by_class(PETSc.DM plex, label, s_depth=1):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def plex_renumbering(PETSc.DM plex,
-                     np.ndarray[np.int_t, ndim=2, mode="c"] entity_classes,
+                     np.ndarray[np.int_t, ndim=3, mode="c"] entity_classes,
                      np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None,
                      s_depth=1):
     """
@@ -894,8 +894,9 @@ def plex_renumbering(PETSc.DM plex,
     is the Plex -> OP2 permutation.
     """
     cdef:
-        PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f, s
-        np.ndarray[np.int32_t, ndim=1, mode="c"] lidx, ncells
+        PetscInt dim, cell, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f, s
+        PetscInt ncells, lmax, smax
+        np.ndarray[np.int32_t, ndim=2, mode="c"] lidx
         PetscInt *facets = NULL
         PetscInt *closure = NULL
         PetscInt *perm = NULL
@@ -911,22 +912,23 @@ def plex_renumbering(PETSc.DM plex,
     cStart, cEnd = plex.getHeightStratum(0)
     CHKERR(PetscMalloc1(pEnd - pStart, &perm))
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
-    ncells = np.zeros(4, dtype=np.int32)
-    s = s_depth
+    ncells = 0
 
     # Get label pointers and label-specific array indices
     CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
     CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &labels[1]))
     CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
     CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
-    lidx = np.zeros(4, dtype=np.int32)
-    lidx[1] = sum(entity_classes[:, 0])
-    lidx[2] = sum(entity_classes[:, 1])
-    lidx[3] = sum(entity_classes[:, 2])
+    lidx = np.zeros((4, s_depth), dtype=np.int32)
+    for s in range(s_depth):
+        lidx[1, s] = sum(entity_classes[s, :, 0])
+        lidx[2, s] = sum(entity_classes[s, :, 1])
+        lidx[3, s] = sum(entity_classes[s, :, 2])
+    s = s_depth-1
 
     for c in range(pStart, pEnd):
         # Have we hit all the cells yet, if so break out early
-        if ncells[0] + ncells[1] + ncells[2] > cEnd - cStart:
+        if ncells > cEnd - cStart:
             break
 
         if reorder:
@@ -939,11 +941,17 @@ def plex_renumbering(PETSc.DM plex,
         if cStart <= cell < cEnd:
 
             # Identify current cell label
-            for l in range(3):
-                CHKERR(DMLabelStratumHasPoint(labels[l], s, cell, &has_point))
-                if has_point:
-                    break
-            ncells[l] += 1
+            smax = 0
+            lmax = 0
+            for s in range(s_depth):
+                for l in range(4):
+                    CHKERR(DMLabelStratumHasPoint(labels[l], s+1, cell, &has_point))
+                    if has_point:
+                        if lidx[l, s] >= lidx[lmax, smax]:
+                            lmax = l
+                            smax = s
+                        break
+            ncells += 1
 
             # Get  cell closure
             CHKERR(DMPlexGetTransitiveClosure(plex.dm, cell,
@@ -955,11 +963,11 @@ def plex_renumbering(PETSc.DM plex,
                 if not PetscBTLookup(seen, p):
                     # Add closure points in the current label at
                     # the label-specific offsets in the permutation
-                    CHKERR(DMLabelStratumHasPoint(labels[l], s, p, &has_point))
+                    CHKERR(DMLabelStratumHasPoint(labels[l], smax+1, p, &has_point))
                     if has_point:
                         CHKERR(PetscBTSet(seen, p))
-                        perm[lidx[l]] = p
-                        lidx[l] += 1
+                        perm[lidx[lmax, smax]] = p
+                        lidx[lmax, smax] += 1
 
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
@@ -969,16 +977,16 @@ def plex_renumbering(PETSc.DM plex,
     # cells, so they will not get picked up by the cell closure loops
     # and we need to add them explicitly.
     op2class = "op2_non_exec_halo"
-    nfacets = plex.getStratumSize(op2class, s)
+    nfacets = plex.getStratumSize(op2class, s+1)
     if nfacets > 0:
-        facet_is = plex.getStratumIS(op2class, s)
+        facet_is = plex.getStratumIS(op2class, s+1)
         CHKERR(ISGetIndices(facet_is.iset, &facets))
         for f in range(nfacets):
             p = facets[f]
             if not PetscBTLookup(seen, p):
                 CHKERR(PetscBTSet(seen, p))
-                perm[lidx[3]] = p
-                lidx[3] += 1
+                perm[lidx[3, s]] = p
+                lidx[3, s] += 1
         CHKERR(ISRestoreIndices(facet_is.iset, &facets))
 
     CHKERR(PetscBTDestroy(&seen))
