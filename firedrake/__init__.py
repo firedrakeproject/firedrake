@@ -1,9 +1,4 @@
-# Must happen first, to ensure prefork server is up and running.
 from __future__ import absolute_import
-from pyop2_utils import enable_mpi_prefork
-enable_mpi_prefork()
-del enable_mpi_prefork
-
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc

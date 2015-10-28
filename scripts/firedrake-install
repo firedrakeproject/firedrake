@@ -19,6 +19,8 @@ elif os.path.basename(__file__) == "firedrake-update":
 else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
+branches = {}
+
 if mode == "install":
     # Handle command line arguments.
     parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
@@ -64,14 +66,26 @@ honoured.""",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
     parser.add_argument("--minimal_petsc", action="store_true",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
+    parser.add_argument("--honour_petsc_dir", action="store_true",
+                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--rebuild_script", action="store_true",
+                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
+    parser.add_argument("--package_branch", type=str, nargs=2, action="append",
+                        help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
 
     args = parser.parse_args()
+
+    if args.package_branch:
+        branches = {package: branch for package, branch in args.package_branch}
+
     args.prefix = False  # Disabled as untested
 else:
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
     parser.add_argument("--rebuild", action="store_true",
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
+    parser.add_argument("--honour_petsc_dir", action="store_true",
+                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
 
@@ -83,6 +97,7 @@ else:
     args.sudo = False
     args.package_manager = False
     args.minimal_petsc = False
+    args.rebuild_script = False
 
 
 # Where are packages installed relative to --root?
@@ -110,7 +125,7 @@ os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 if args.minimal_petsc:
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco"""
 else:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre=1 --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -135,9 +150,6 @@ class Log(object):
 log = file("firedrake-%s.log" % mode, "w") if args.log else None
 stdout = Log(sys.stdout, log)
 stderr = Log(sys.stderr, log)
-
-if "PETSC_DIR" in os.environ:
-    stdout.write("WARNING: The PETSC_DIR environment variable is set. This is probably an error.\n")
 
 
 def check_call(arguments):
@@ -194,19 +206,21 @@ def git_clone(url):
     except ValueError:
         plainurl = spliturl[0]
         branch = "master"
+    if name in branches:
+        branch = branches[name]
     try:
         if args.disable_ssh:
             raise Exception
         check_call(["git", "clone", "-q", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
-        stdout.write("Successfully cloned %s.\n" % name)
+        stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
     except:
         if not args.disable_ssh:
             stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
         try:
             check_call(["git", "clone", "-b", branch, "https://%s" % plainurl])
-            stdout.write("Successfully cloned %s.\n" % name)
+            stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
         except subprocess.CalledProcessError:
-            stderr.write("Failed to clone %s.\n" % name)
+            stderr.write("Failed to clone %s branch %s.\n" % (name, branch))
             raise
     return name
 
@@ -262,8 +276,43 @@ def clean(package):
 
 
 def quit(message):
-    log.write(message)
-    sys.exit(message)
+    stderr.write(message)
+    sys.exit(1)
+
+
+def build_update_script():
+    stdout.write("Creating firedrake-update script.\n")
+    with open("firedrake/scripts/firedrake-install", "r") as f:
+        update_script = f.read()
+
+    for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc"]:
+        update_script = update_script.replace("args.%s = False" % switch,
+                                              "args.%s = %s" % (switch, args.__getattribute__(switch)))
+    try:
+        os.mkdir("../bin")
+    except:
+        pass
+    with open("../bin/firedrake-update", "w") as f:
+        f.write(update_script)
+    check_call(["chmod", "a+x", "../bin/firedrake-update"])
+
+
+if args.rebuild_script:
+    os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
+
+    build_update_script()
+
+    stdout.write("Successfully rebuilt firedrake-update.\n\n")
+
+    stdout.write("To upgrade firedrake, run firedrake-update\n")
+    sys.exit(0)
+
+
+if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
+    quit("""The PETSC_DIR environment variable is set. This is probably an error.
+If you really want to use your own PETSc build, please run again with the
+--honour_petsc_dir option.
+""")
 
 
 # Check operating system.
@@ -289,6 +338,7 @@ if osname == "Darwin":
         brew_install("cmake")
         check_call(["brew", "tap", "homebrew/science"])
         brew_install("hdf5")
+        brew_install("spatialindex")
 
     else:
         stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
@@ -302,7 +352,8 @@ elif osname == "Linux":
 
         apt_packages = ["build-essential", "python-dev", "git-core",
                         "mercurial", "python-pip", "libopenmpi-dev", "openmpi-bin",
-                        "libblas-dev", "liblapack-dev", "gfortran", "cmake"]
+                        "libblas-dev", "liblapack-dev", "libspatialindex-dev",
+                        "gfortran", "cmake"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
@@ -320,6 +371,7 @@ elif osname == "Linux":
         stdout.write("pip and the Python headers.\n")
         stdout.write("cmake.\n")
         stdout.write("swig.\n")
+        stdout.write("libspatialindex.\n")
 
 else:
     stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
@@ -361,6 +413,9 @@ if mode == "install":
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]
 
+    if args.honour_petsc_dir:
+        packages.remove("petsc")
+
     # Force Cython to install first to work around pip dependency issues.
     run_pip(["Cython>=0.22"])
 
@@ -383,6 +438,10 @@ if mode == "install":
 
     # Work around easy-install.pth bug.
     if args.developer:
+        try:
+            packages.remove("petsc")
+        except ValueError:
+            pass
         packages.remove("petsc4py")
         packages.remove("firedrake")
         v = sys.version_info
@@ -396,7 +455,10 @@ else:
     os.chdir("src")
     packages = os.listdir(".")
     # update packages.
-    petsc_changed = git_update("petsc")
+    if not args.honour_petsc_dir:
+        petsc_changed = git_update("petsc")
+    else:
+        petsc_changed = False
     petsc4py_changed = git_update("petsc4py")
 
     packages.remove("petsc")
@@ -422,22 +484,9 @@ else:
     packages += ("PyOP2", "firedrake")
     for p in packages:
         clean(p)
-        install(p)
+        install(p+"/")
 
-stdout.write("Creating firedrake-update script.\n")
-with open("firedrake/scripts/firedrake-install", "r") as f:
-    update_script = f.read()
-
-for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc"]:
-    update_script = update_script.replace("args.%s = False" % switch,
-                                          "args.%s = %s" % (switch, args.__getattribute__(switch)))
-try:
-    os.mkdir("../bin")
-except:
-    pass
-with open("../bin/firedrake-update", "w") as f:
-    f.write(update_script)
-check_call(["chmod", "a+x", "../bin/firedrake-update"])
+build_update_script()
 
 os.chdir("../..")
 

@@ -10,6 +10,7 @@
 *.vtu
 /evtk/cevtk.c
 /firedrake/dmplex.c
+/firedrake/spatialindex.cpp
 /docs/build/
 /docs/source/firedrake.mg.rst
 /docs/source/firedrake.rst

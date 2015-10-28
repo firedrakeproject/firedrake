@@ -39,10 +39,6 @@ class DirichletBC(object):
         which indicates that nodes associated with basis functions which do not
         vanish on the boundary will be included. This can be used to impose
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
-
-    .. warning::
-
-        Geometric boundary conditions are not yet supported on extruded meshes
     '''
 
     def __init__(self, V, g, sub_domain, method="topological"):
@@ -63,8 +59,6 @@ class DirichletBC(object):
             raise ValueError("Unknown boundary condition method %s" % method)
         self.method = method
 
-        if V.extruded and method == "geometric":
-            raise ValueError("Geometric boundary conditions are not yet supported on extruded meshes")
         if V.extruded and isinstance(V, functionspace.IndexedVFS):
             raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
 
@@ -141,9 +135,9 @@ class DirichletBC(object):
 
         fs = self._function_space
         if self.sub_domain == "bottom":
-            return fs.bottom_nodes()
+            return fs.bottom_nodes(method=self.method)
         elif self.sub_domain == "top":
-            return fs.top_nodes()
+            return fs.top_nodes(method=self.method)
         else:
             if fs.extruded:
                 base_maps = fs.exterior_facet_boundary_node_map(

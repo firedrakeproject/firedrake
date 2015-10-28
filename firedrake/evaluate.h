@@ -1,10 +1,16 @@
 #ifndef _EVALUATE_H
 #define _EVALUATE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct Function {
-	/* Number of cells in mesh */
-	int n_cells;
+	/* Number of cells in the base mesh */
+	int n_cols;
+
+	/* Number of layers for extruded, otherwise 1 */
+	int n_layers;
 
 	/* Coordinate values and node mapping */
 	double *coords;
@@ -14,10 +20,12 @@ struct Function {
 	double *f;
 	int *f_map;
 
+	/* Spatial index */
+	void *sidx;
+
 	/*
 	 * TODO:
 	 * - cell orientation
-	 * - spatial index
 	 */
 };
 
@@ -37,9 +45,8 @@ extern int evaluate(struct Function *f,
 		    double *x,
 		    double *result);
 
-
-/* Is point inside the domain? */
-#define inside(f, x) (!evaluate((f), (x), NULL))
-
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* _EVALUATE_H */

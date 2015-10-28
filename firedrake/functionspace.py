@@ -79,7 +79,11 @@ class FunctionSpaceBase(ObjectCached):
             closure_dofs = self.fiat_element.entity_closure_dofs()
             b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
             t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
-            self.bt_masks = (b_mask, t_mask)  # conversion to tuple
+            self.bt_masks = {}
+            self.bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
+            # Geometric facet dofs
+            facet_dofs = self.fiat_element.horiz_facet_support_dofs()
+            self.bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
 
             self.extruded = True
 
@@ -284,17 +288,25 @@ class FunctionSpaceBase(ObjectCached):
                                parent=parent,
                                offset=offset)
 
-    def bottom_nodes(self):
+    def bottom_nodes(self, method='topological'):
         """Return a list of the bottom boundary nodes of the extruded mesh.
         The bottom mask is applied to every bottom layer cell to get the
         dof ids."""
-        return np.unique(self.cell_node_list[:, self.bt_masks[0]])
+        try:
+            mask = self.bt_masks[method][0]
+        except KeyError:
+            raise ValueError("Unknown boundary condition method %s" % method)
+        return np.unique(self.cell_node_list[:, mask])
 
-    def top_nodes(self):
+    def top_nodes(self, method='topological'):
         """Return a list of the top boundary nodes of the extruded mesh.
         The top mask is applied to every top layer cell to get the dof ids."""
-        voffs = self.offset.take(self.bt_masks[1])*(self._mesh.layers-2)
-        return np.unique(self.cell_node_list[:, self.bt_masks[1]] + voffs)
+        try:
+            mask = self.bt_masks[method][1]
+        except KeyError:
+            raise ValueError("Unknown boundary condition method %s" % method)
+        voffs = self.offset.take(mask)*(self._mesh.layers-2)
+        return np.unique(self.cell_node_list[:, mask] + voffs)
 
     def _map_cache(self, cache, entity_set, entity_node_list, map_arity, bcs, name,
                    offset=None, parent=None):
@@ -303,7 +315,7 @@ class FunctionSpaceBase(ObjectCached):
             # the appropriate map values) from implicit ones (extruded
             # top and bottom) that require PyOP2 code gen.
             explicit_bcs = [bc for bc in bcs if bc.sub_domain not in ['top', 'bottom']]
-            implicit_bcs = [bc.sub_domain for bc in bcs if bc.sub_domain in ['top', 'bottom']]
+            implicit_bcs = [(bc.sub_domain, bc.method) for bc in bcs if bc.sub_domain in ['top', 'bottom']]
             if len(explicit_bcs) == 0:
                 # Implicit bcs are not part of the cache key for the
                 # map (they only change the generated PyOP2 code),
@@ -410,7 +422,14 @@ class FunctionSpaceBase(ObjectCached):
         if method == "topological":
             boundary_dofs = el.entity_closure_dofs()[dim]
         elif method == "geometric":
-            boundary_dofs = el.facet_support_dofs()
+            if self.extruded:
+                # This function is only called on extruded meshes when
+                # asking for the nodes that live on the "vertical"
+                # exterior facets.  Hence we don't need to worry about
+                # horiz_facet_support_dofs as well.
+                boundary_dofs = el.vert_facet_support_dofs()
+            else:
+                boundary_dofs = el.facet_support_dofs()
 
         nodes_per_facet = \
             len(boundary_dofs[0])
