@@ -403,6 +403,7 @@ class Mesh(object):
             else:
                 # No reordering
                 reordering = None
+            self._did_reordering = bool(reorder)
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: renumbering"):
