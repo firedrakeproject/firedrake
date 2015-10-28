@@ -77,6 +77,21 @@ def test_serial_checkpoint_parallel_load_fails(serial_checkpoint):
             pass
 
 
+@pytest.mark.parametrize("obj",
+                         [lambda: Constant(1),
+                          lambda: np.arange(10)])
+def test_checkpoint_fails_for_non_function(obj, dumpfile):
+    with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
+        with pytest.raises(ValueError):
+            chk.store(obj)
+
+
+def test_checkpoint_read_not_exist_ioerror(dumpfile):
+    with pytest.raises(IOError):
+        with DumbCheckpoint(dumpfile, mode=FILE_READ):
+            pass
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))
