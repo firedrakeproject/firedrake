@@ -871,6 +871,71 @@ def get_facets_by_class(PETSc.DM plex, label, s_depth=1):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def cell_renumbering(PETSc.DM plex, s_depth=1,
+                     np.ndarray[PetscInt, mode="c"] reordering=None):
+    """Derive the cell traversal order from which to derive the plex
+    renumbering."""
+    cdef:
+        PetscInt c, cStart, cEnd, cell, pStart, pEnd, idx
+        PetscInt *cells = NULL
+        PETSc.IS cell_is = None
+        PetscBT seen = NULL
+        DMLabel labels[4]
+        PetscBool has_point
+        bint reorder = reordering is not None
+
+    pStart, pEnd = plex.getChart()
+    cStart, cEnd = plex.getHeightStratum(0)
+    CHKERR(PetscMalloc1(cEnd - cStart, &cells))
+    CHKERR(PetscBTCreate(cEnd - cStart, &seen))
+
+    # Get label pointers and label-specific array indices
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &labels[1]))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
+    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
+
+    # We need to enforces the order in which the sub-regions are
+    # looped over when we determine the plex reordering in order to
+    # avoid double counting shared vertices and faces between
+    # different s-levels within the same OP2 class. The key is to
+    # traverse non_core and exec_halo from s-level 1 upwards.
+
+    # Admittedly, this fix is quite horrible and the need for it
+    # exposes a severe design flaw. Hopefully, we can find a better
+    # way to do this at some point.
+    subsets = [(0, s_depth-1)]
+    subsets += [(1, s) for s in range(s_depth)]
+    subsets += [(2, s) for s in range(s_depth)]
+
+    idx = 0
+    for l, s in subsets:
+        for c in range(cStart, cEnd):
+            # Apply point reordering from DMPlex, if given
+            if reorder:
+                cell = reordering[c]
+            else:
+                cell = c
+
+            if cStart <= cell < cEnd:
+                if not PetscBTLookup(seen, cell):
+                    CHKERR(DMLabelStratumHasPoint(labels[l], s+1,
+                                                  cell, &has_point))
+                    if has_point:
+                        CHKERR(PetscBTSet(seen, cell))
+                        cells[idx] = cell
+                        idx += 1
+
+    CHKERR(PetscBTDestroy(&seen))
+    cell_is = PETSc.IS().create()
+    cell_is.setType("general")
+    CHKERR(ISGeneralSetIndices(cell_is.iset, cEnd - cStart,
+                               cells, PETSC_OWN_POINTER))
+    return cell_is
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def plex_renumbering(PETSc.DM plex,
                      np.ndarray[np.int_t, ndim=3, mode="c"] entity_classes,
                      np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None,
@@ -893,14 +958,14 @@ def plex_renumbering(PETSc.DM plex,
     is the Plex -> OP2 permutation.
     """
     cdef:
-        PetscInt dim, cell, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f, s
-        PetscInt ncells, lmax, smax
+        PetscInt dim, cell, cStart, cEnd, nfacets, nclosure, ci, l, p, f, s, lmax, smax
         np.ndarray[np.int32_t, ndim=2, mode="c"] lidx
         PetscInt *facets = NULL
         PetscInt *closure = NULL
         PetscInt *perm = NULL
         PETSc.IS facet_is = None
         PETSc.IS perm_is = None
+        PETSc.IS cell_is = None
         PetscBT seen = NULL
         PetscBool has_point
         DMLabel labels[4]
@@ -911,7 +976,6 @@ def plex_renumbering(PETSc.DM plex,
     cStart, cEnd = plex.getHeightStratum(0)
     CHKERR(PetscMalloc1(pEnd - pStart, &perm))
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
-    ncells = 0
 
     # Get label pointers and label-specific array indices
     CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
@@ -925,18 +989,8 @@ def plex_renumbering(PETSc.DM plex,
         lidx[3, s] = sum(entity_classes[s, :, 2])
     s = s_depth-1
 
-    for c in range(pStart, pEnd):
-        # Have we hit all the cells yet, if so break out early
-        if ncells > cEnd - cStart:
-            break
-
-        if reorder:
-            cell = reordering[c]
-        else:
-            cell = c
-
-        # We always re-order cell-wise so that we inherit any cache
-        # coherency from the reordering provided by the Plex
+    cell_is = cell_renumbering(plex, s_depth, reordering)
+    for cell in cell_is.indices:
         if cStart <= cell < cEnd:
 
             # Identify current cell label
@@ -944,13 +998,13 @@ def plex_renumbering(PETSc.DM plex,
             lmax = 0
             for s in range(s_depth):
                 for l in range(4):
-                    CHKERR(DMLabelStratumHasPoint(labels[l], s+1, cell, &has_point))
+                    CHKERR(DMLabelStratumHasPoint(labels[l], s+1,
+                                                  cell, &has_point))
                     if has_point:
                         if lidx[l, s] >= lidx[lmax, smax]:
                             lmax = l
                             smax = s
                         break
-            ncells += 1
 
             # Get  cell closure
             CHKERR(DMPlexGetTransitiveClosure(plex.dm, cell,
@@ -962,7 +1016,7 @@ def plex_renumbering(PETSc.DM plex,
                 if not PetscBTLookup(seen, p):
                     # Add closure points in the current label at
                     # the label-specific offsets in the permutation
-                    CHKERR(DMLabelStratumHasPoint(labels[l], smax+1, p, &has_point))
+                    CHKERR(DMLabelStratumHasPoint(labels[lmax], smax+1, p, &has_point))
                     if has_point:
                         CHKERR(PetscBTSet(seen, p))
                         perm[lidx[lmax, smax]] = p
