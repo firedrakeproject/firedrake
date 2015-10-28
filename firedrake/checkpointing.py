@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from firedrake.petsc import PETSc
 from firedrake import op2
+import firedrake
 import h5py
 
 
@@ -85,6 +86,8 @@ class DumbCheckpoint(object):
         :arg name: an (optional) name to store the function under.  If
              not provided, uses :data:`function.name()`.
         """
+        if not isinstance(function, firedrake.Function):
+            raise ValueError("Can only store functions")
         with function.dat.vec_ro as v:
             self.vwr.pushGroup("/fields")
             oname = v.getName()
@@ -100,6 +103,8 @@ class DumbCheckpoint(object):
         :arg name: an (optional) name used to find the function values.  If
              not provided, uses :data:`function.name()`.
         """
+        if not isinstance(function, firedrake.Function):
+            raise ValueError("Can only load functions")
         with function.dat.vec as v:
             self.vwr.pushGroup("/fields")
             oname = v.getName()
