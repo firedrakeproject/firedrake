@@ -502,7 +502,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         return self
 
     @utils.cached_property
-    def ctypes(self):
+    def _ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
         mesh = function_space.mesh()
@@ -533,12 +533,18 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
     def evaluate(self, coord, mapping, component, index_values):
         # Called by UFL when evaluating expressions at coordinates
+        if component or index_values:
+            raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
         return self.at(coord)
 
     def at(self, arg, *args, **kwargs):
         """Evaluate function at points."""
         from mpi4py import MPI
-        comm = MPI.COMM_WORLD
+        halo = self.dof_dset.halo
+        if isinstance(halo, tuple):
+            # mixed function space
+            halo = halo[0]
+        comm = halo.comm.tompi4py()
 
         if args:
             arg = (arg,) + args
@@ -573,14 +579,14 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         def single_eval(x, buf):
             """Helper function to evaluate at a single point."""
-            err = self._c_evaluate(self.ctypes, x.ctypes.data, buf.ctypes.data)
+            err = self._c_evaluate(self._ctypes, x.ctypes.data, buf.ctypes.data)
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
         if not len(arg.shape) <= 2:
             raise ValueError("Function.at expects point or array of points.")
         points = arg.reshape(-1, arg.shape[-1])
-        value_shape = self.function_space().ufl_element().value_shape()
+        value_shape = self.ufl_shape
 
         split = self.split()
         mixed = len(split) != 1
@@ -609,29 +615,25 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             else:
                 return np.allclose(a, b)
 
-        all_results = comm.gather(l_result, root=0)
-        if comm.rank == 0:
-            g_result = [None] * len(points)
-            for results in all_results:
-                for i, result in results:
-                    if g_result[i] is None:
-                        g_result[i] = result
-                    elif same_result(result, g_result[i]):
-                        pass
-                    else:
-                        raise RuntimeError("Point evaluation gave different results across processes.")
-            result = comm.bcast(g_result, root=0)
-        else:
-            result = comm.bcast(None, root=0)
+        all_results = comm.allgather(l_result)
+        g_result = [None] * len(points)
+        for results in all_results:
+            for i, result in results:
+                if g_result[i] is None:
+                    g_result[i] = result
+                elif same_result(result, g_result[i]):
+                    pass
+                else:
+                    raise RuntimeError("Point evaluation gave different results across processes.")
 
         if not dont_raise:
-            for i in xrange(len(result)):
-                if result[i] is None:
+            for i in xrange(len(g_result)):
+                if g_result[i] is None:
                     raise PointNotInDomainError(self.function_space().mesh(), points[i].reshape(-1))
 
         if len(arg.shape) == 1:
-            result = result[0]
-        return result
+            g_result = g_result[0]
+        return g_result
 
 
 class PointNotInDomainError(Exception):

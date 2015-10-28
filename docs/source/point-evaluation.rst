@@ -46,9 +46,15 @@ are equivalent:
    f.at([0.2, 0.4])
    f.at(numpy.array([0.2, 0.4]))
 
-For a single point, the result is ``numpy`` array, or a tuple of
-``numpy`` arrays in case *mixed* functions.  When evaluating multiple
-points, the result is a list of values for each point.
+For a single point, the result is a ``numpy`` array, or a tuple of
+``numpy`` arrays in case of *mixed* functions.  When evaluating
+multiple points, the result is a list of values for each point.
+To summarise:
+
+* Single point, non-mixed: ``numpy`` array
+* Single point, mixed: tuple of ``numpy`` arrays
+* Multiple points, non-mixed: list of ``numpy`` arrays
+* Multiple points, mixed: list of tuples of ``numpy`` arrays
 
 
 Points outside the domain
@@ -57,7 +63,7 @@ Points outside the domain
 When any point is outside the domain of the function,
 :py:class:`.PointNotInDomainError` exception is raised. If
 ``dont_raise=True`` is passed to :func:`~.Function.at`, the result is
-``None``.
+``None`` for those points which fall outside the domain.
 
 .. code-block:: python
 
@@ -73,7 +79,7 @@ When any point is outside the domain of the function,
 
 .. warning::
 
-   Point evaluation on *immersed manifolds* in not supported yet, due
+   Point evaluation on *immersed manifolds* is not supported yet, due
    to the difficulty of specifying a physical point on the manifold.
 
 
