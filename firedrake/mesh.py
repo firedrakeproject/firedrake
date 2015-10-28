@@ -6,6 +6,7 @@ import ufl
 import weakref
 
 from pyop2 import op2
+from pyop2.logger import info_red
 from pyop2.profiling import timed_function, timed_region, profile
 from pyop2.utils import as_tuple
 
@@ -14,6 +15,7 @@ import coffee.base as ast
 import firedrake.dmplex as dmplex
 import firedrake.extrusion_utils as eutils
 import firedrake.fiat_utils as fiat_utils
+import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
@@ -591,6 +593,56 @@ class Mesh(object):
                                      self.cell_closure,
                                      fiat_element)
 
+    def _order_data_by_cell_index(self, column_list, cell_data):
+        return cell_data[column_list]
+
+    @utils.cached_property
+    def spatial_index(self):
+        """Spatial index to quickly find which cell contains a given point."""
+
+        from firedrake import function, functionspace
+        from firedrake.parloops import par_loop, READ, RW
+
+        gdim = self.ufl_cell().geometric_dimension()
+        if gdim <= 1:
+            info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
+            return None
+
+        # Calculate the bounding boxes for all cells by running a kernel
+        V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
+        coords_min = function.Function(V)
+        coords_max = function.Function(V)
+
+        coords_min.dat.data.fill(np.inf)
+        coords_max.dat.data.fill(-np.inf)
+
+        kernel = """
+    for (int d = 0; d < gdim; d++) {
+        for (int i = 0; i < nodes_per_cell; i++) {
+            f_min[0][d] = fmin(f_min[0][d], f[i][d]);
+            f_max[0][d] = fmax(f_max[0][d], f[i][d]);
+        }
+    }
+"""
+
+        cell_node_list = self.coordinates.function_space().cell_node_list
+        nodes_per_cell = len(cell_node_list[0])
+
+        kernel = kernel.replace("gdim", str(gdim))
+        kernel = kernel.replace("nodes_per_cell", str(nodes_per_cell))
+
+        par_loop(kernel, self._dx, {'f': (self.coordinates, READ),
+                                    'f_min': (coords_min, RW),
+                                    'f_max': (coords_max, RW)})
+
+        # Reorder bounding boxes according to the cell indices we use
+        column_list = V.cell_node_list.reshape(-1)
+        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+
+        # Build spatial index
+        return spatialindex.from_regions(coords_min, coords_max)
+
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
@@ -948,6 +1000,12 @@ class ExtrudedMesh(Mesh):
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
                                      fiat_utils.FlattenedElement(fiat_element))
+
+    def _order_data_by_cell_index(self, column_list, cell_data):
+        cell_list = []
+        for col in column_list:
+            cell_list += range(col, col + (self.layers - 1))
+        return cell_data[cell_list]
 
     @property
     def layers(self):
