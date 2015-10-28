@@ -86,8 +86,11 @@ def test_dont_raise():
         f.at(-1)
 
     # dont_raise=True
-    assert 'None' == str(f.at(-1, dont_raise=True))
-    assert '[None, array(0.0), array(1.0)]' == str(f.at([-1, 0, 0.5], dont_raise=True))
+    assert f.at(-1, dont_raise=True) is None
+
+    actual = f.at([-1, 0, 0.5], dont_raise=True)
+    assert actual[0] is None
+    assert np.allclose([0.0, 1.0], actual[1:])
 
 
 def test_dont_raise_vector():
@@ -100,8 +103,11 @@ def test_dont_raise_vector():
         f.at(-1)
 
     # dont_raise=True
-    assert 'None' == str(f.at(-1, dont_raise=True))
-    assert '[None, array([ 1.,  2.])]' == str(f.at([-1, 1], dont_raise=True))
+    assert f.at(-1, dont_raise=True) is None
+
+    actual = f.at([-1, 1], dont_raise=True)
+    assert actual[0] is None
+    assert np.allclose([1.0, 2.0], actual[1])
 
 
 def test_dont_raise_mixed():
@@ -119,7 +125,7 @@ def test_dont_raise_mixed():
         f.at([1.2, 0.5])
 
     # dont_raise=True
-    assert 'None' == str(f.at([1.2, 0.5], dont_raise=True))
+    assert f.at([1.2, 0.5], dont_raise=True) is None
 
 
 @pytest.mark.parallel(nprocs=3)
