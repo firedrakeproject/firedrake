@@ -328,7 +328,9 @@ class Mesh(object):
         utils._init()
 
         geometric_dim = kwargs.get("dim", None)
-        reorder = kwargs.get("reorder", parameters["reorder_meshes"])
+        reorder = kwargs.get("reorder", None)
+        if reorder is None:
+            reorder = parameters["reorder_meshes"]
         periodic_coords = kwargs.get("periodic_coords", None)
         distribute = kwargs.get("distribute", True)
 
@@ -405,6 +407,7 @@ class Mesh(object):
             else:
                 # No reordering
                 reordering = None
+            self._did_reordering = bool(reorder)
 
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: renumbering"):
