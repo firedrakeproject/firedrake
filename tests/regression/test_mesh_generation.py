@@ -178,7 +178,6 @@ test_bendy_cube_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_cube)
 test_bendy_cube_unit_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_cube_unit)
 
 
-@pytest.mark.xfail
 def test_mesh_reordering_defaults_on():
     assert parameters["reorder_meshes"]
     m = UnitSquareMesh(1, 1)
@@ -197,7 +196,7 @@ def test_force_reordering_works(reorder):
 
 
 @pytest.mark.parametrize("reorder",
-                         [False, pytest.mark.xfail(True)])
+                         [False, True])
 def test_changing_default_reorder_works(reorder):
     old_reorder = parameters["reorder_meshes"]
     try:
