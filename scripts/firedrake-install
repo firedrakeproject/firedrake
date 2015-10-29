@@ -324,6 +324,13 @@ if osname == "Darwin":
         except:
             quit("Xcode not found. Please install xcode from the App Store and try again.")
 
+        stdout.write("Installing command line tools...\n")
+        try:
+            check_call(["xcode-select", "--install"])
+        except subprocess.CalledProcessError:
+            # expected failure if already installed
+            pass
+
         try:
             check_call(["brew", "--version"])
         except:
