@@ -40,6 +40,8 @@ from copy import deepcopy as dcopy
 import base
 import compilation
 from base import *
+# Override base ParLoop with flop-logging version in petsc_base
+from petsc_base import ParLoop  # noqa: pass-through
 from mpi import collective
 from configuration import configuration
 from utils import as_tuple, strip
@@ -120,7 +122,7 @@ class Arg(base.Arg):
                                                      'iname': self.c_arg_name(0, 0)}
         return val
 
-    def c_ind_data(self, idx, i, j=0, is_top=False, layers=1, offset=None):
+    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None):
         return "%(name)s + (%(map_name)s[i * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
@@ -132,15 +134,13 @@ class Arg(base.Arg):
              'off_mul': ' * %d' % offset if is_top and offset is not None else '',
              'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
 
-    def c_ind_data_xtr(self, idx, i, j=0, is_top=False, layers=1):
-        return "%(name)s + (xtr_%(map_name)s[%(idx)s]%(top)s%(offset)s)*%(dim)s%(off)s" % \
+    def c_ind_data_xtr(self, idx, i, j=0):
+        return "%(name)s + (xtr_%(map_name)s[%(idx)s])*%(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
              'idx': idx,
-             'top': ' + start_layer' if is_top else '',
              'dim': 1 if self._flatten else str(self.data[i].cdim),
-             'off': ' + %d' % j if j else '',
-             'offset': ' * _'+self.c_offset_name(i, 0)+'['+idx+']' if is_top else ''}
+             'off': ' + %d' % j if j else ''}
 
     def c_kernel_arg_name(self, i, j):
         return "p_%s" % self.c_arg_name(i, j)
@@ -151,7 +151,7 @@ class Arg(base.Arg):
     def c_local_tensor_name(self, i, j):
         return self.c_kernel_arg_name(i, j)
 
-    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), is_top=False, layers=1):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
         if self._is_dat_view and not self._is_direct:
             raise NotImplementedError("Indirect DatView not implemented")
         if self._uses_itspace:
@@ -167,7 +167,7 @@ class Arg(base.Arg):
                     raise RuntimeError("Don't know how to pass kernel arg %s" % self)
             else:
                 if self.data is not None and self.data.dataset._extruded:
-                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i, is_top=is_top, layers=layers)
+                    return self.c_ind_data_xtr("i_%d" % self.idx.index, i)
                 elif self._flatten:
                     return "%(name)s + %(map_name)s[i * %(arity)s + i_0 %% %(arity)d] * %(dim)s + (i_0 / %(arity)d)" % \
                         {'name': self.c_arg_name(),
@@ -193,7 +193,7 @@ class Arg(base.Arg):
             return "%(name)s + %(idx)s" % {'name': self.c_arg_name(i),
                                            'idx': idx}
 
-    def c_vec_init(self, is_top, layers, is_facet=False):
+    def c_vec_init(self, is_top, is_facet=False):
         is_top_init = is_top
         val = []
         vec_idx = 0
@@ -205,7 +205,7 @@ class Arg(base.Arg):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
                                     'idx': vec_idx,
-                                    'data': self.c_ind_data(idx, i, k, is_top=is_top, layers=layers,
+                                    'data': self.c_ind_data(idx, i, k, is_top=is_top,
                                                             offset=m.offset[idx] if is_top else None)})
                         vec_idx += 1
                     # In the case of interior horizontal facets the map for the
@@ -219,7 +219,7 @@ class Arg(base.Arg):
                             val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                        {'vec_name': self.c_vec_name(),
                                         'idx': vec_idx,
-                                        'data': self.c_ind_data(idx, i, k, is_top=is_top, layers=layers,
+                                        'data': self.c_ind_data(idx, i, k, is_top=is_top,
                                                                 offset=m.offset[idx])})
                             vec_idx += 1
             else:
@@ -227,7 +227,7 @@ class Arg(base.Arg):
                     val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                {'vec_name': self.c_vec_name(),
                                 'idx': vec_idx,
-                                'data': self.c_ind_data(idx, i, is_top=is_top, layers=layers,
+                                'data': self.c_ind_data(idx, i, is_top=is_top,
                                                         offset=m.offset[idx] if is_top else None)})
                     vec_idx += 1
                 if is_facet:
@@ -235,7 +235,7 @@ class Arg(base.Arg):
                         val.append("%(vec_name)s[%(idx)s] = %(data)s" %
                                    {'vec_name': self.c_vec_name(),
                                     'idx': vec_idx,
-                                    'data': self.c_ind_data(idx, i, is_top=is_top, layers=layers,
+                                    'data': self.c_ind_data(idx, i, is_top=is_top,
                                                             offset=m.offset[idx])})
                         vec_idx += 1
         return ";\n".join(val)
@@ -405,20 +405,18 @@ class Arg(base.Arg):
         for i, (m, d) in enumerate(zip(self.map, self.data)):
             for k in range(d.cdim if self._flatten else 1):
                 for idx in range(m.arity):
-                    val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
+                    val.append("%(name)s[%(j)d] += %(offset)d * %(dim)s;" %
                                {'name': self.c_vec_name(),
-                                'i': idx,
                                 'j': vec_idx,
-                                'offset': self.c_offset_name(i, 0),
+                                'offset': m.offset[idx],
                                 'dim': d.cdim})
                     vec_idx += 1
                 if is_facet:
                     for idx in range(m.arity):
-                        val.append("%(name)s[%(j)d] += %(offset)s[%(i)d] * %(dim)s;" %
+                        val.append("%(name)s[%(j)d] += %(offset)d * %(dim)s;" %
                                    {'name': self.c_vec_name(),
-                                    'i': idx,
                                     'j': vec_idx,
-                                    'offset': self.c_offset_name(i, 0),
+                                    'offset': m.offset[idx],
                                     'dim': d.cdim})
                         vec_idx += 1
         return '\n'.join(val)+'\n'
@@ -474,7 +472,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                            {'name': self.c_map_name(i, j), 'dim': dim})
         return '\n'.join(val)+'\n'
 
-    def c_map_init(self, is_top=False, layers=1, is_facet=False):
+    def c_map_init(self, is_top=False, is_facet=False):
         if self._is_mat:
             dsets = self.data.sparsity.dsets
         else:
@@ -521,7 +519,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                         'off': ' + ' + str(m.offset[idx])})
         return '\n'.join(val)+'\n'
 
-    def c_map_bcs(self, sign):
+    def c_map_bcs(self, sign, is_facet):
         maps = as_tuple(self.map, Map)
         val = []
         # To throw away boundary condition values, we subtract a large
@@ -535,16 +533,22 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             if not map.iterset._extruded:
                 continue
             for j, m in enumerate(map):
-                if 'bottom' not in m.implicit_bcs:
-                    continue
-                need_bottom = True
-                for idx in range(m.arity):
-                    if m.bottom_mask[idx] < 0:
-                        val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
-                                   {'name': self.c_map_name(i, j),
-                                    'val': max_int,
-                                    'ind': idx,
-                                    'sign': sign})
+                bottom_masks = None
+                for location, name in m.implicit_bcs:
+                    if location == "bottom":
+                        if bottom_masks is None:
+                            bottom_masks = m.bottom_mask[name].copy()
+                        else:
+                            bottom_masks += m.bottom_mask[name]
+                        need_bottom = True
+                if bottom_masks is not None:
+                    for idx in range(m.arity):
+                        if bottom_masks[idx] < 0:
+                            val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
+                                       {'name': self.c_map_name(i, j),
+                                        'val': max_int,
+                                        'ind': idx,
+                                        'sign': sign})
         if need_bottom:
             val.insert(0, "if (j_0 == 0) {")
             val.append("}")
@@ -556,18 +560,25 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             if not map.iterset._extruded:
                 continue
             for j, m in enumerate(map):
-                if 'top' not in m.implicit_bcs:
-                    continue
-                need_top = True
-                for idx in range(m.arity):
-                    if m.top_mask[idx] < 0:
-                        val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
-                                   {'name': self.c_map_name(i, j),
-                                    'val': max_int,
-                                    'ind': idx,
-                                    'sign': sign})
+                top_masks = None
+                for location, name in m.implicit_bcs:
+                    if location == "top":
+                        if top_masks is None:
+                            top_masks = m.top_mask[name].copy()
+                        else:
+                            top_masks += m.top_mask[name]
+                        need_top = True
+                if top_masks is not None:
+                    facet_offset = m.arity if is_facet else 0
+                    for idx in range(m.arity):
+                        if top_masks[idx] < 0:
+                            val.append("xtr_%(name)s[%(ind)s] %(sign)s= %(val)s;" %
+                                       {'name': self.c_map_name(i, j),
+                                        'val': max_int,
+                                        'ind': idx + facet_offset,
+                                        'sign': sign})
         if need_top:
-            val.insert(pos, "if (j_0 == end_layer - 1) {")
+            val.insert(pos, "if (j_0 == top_layer - 1) {")
             val.append("}")
         return '\n'.join(val)+'\n'
 
@@ -584,46 +595,31 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 for idx in range(m.arity):
                     if self._is_dat and self._flatten and d.cdim > 1:
                         for k in range(d.cdim):
-                            val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
+                            val.append("xtr_%(name)s[%(ind_flat)s] += %(off)d * %(dim)s;" %
                                        {'name': self.c_map_name(i, j),
-                                        'off': self.c_offset_name(i, j),
-                                        'ind': idx,
+                                        'off': m.offset[idx],
                                         'ind_flat': m.arity * k + idx,
                                         'dim': d.cdim})
                     else:
-                        val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind)s];" %
+                        val.append("xtr_%(name)s[%(ind)s] += %(off)d;" %
                                    {'name': self.c_map_name(i, j),
-                                    'off': self.c_offset_name(i, j),
+                                    'off': m.offset[idx],
                                     'ind': idx})
                 if is_facet:
                     for idx in range(m.arity):
                         if self._is_dat and self._flatten and d.cdim > 1:
                             for k in range(d.cdim):
-                                val.append("xtr_%(name)s[%(ind_flat)s] += %(off)s[%(ind)s] * %(dim)s;" %
+                                val.append("xtr_%(name)s[%(ind_flat)s] += %(off)d * %(dim)s;" %
                                            {'name': self.c_map_name(i, j),
-                                            'off': self.c_offset_name(i, j),
-                                            'ind': idx,
+                                            'off': m.offset[idx],
                                             'ind_flat': m.arity * (k + d.cdim) + idx,
                                             'dim': d.cdim})
                         else:
-                            val.append("xtr_%(name)s[%(ind)s] += %(off)s[%(ind_zero)s];" %
+                            val.append("xtr_%(name)s[%(ind)s] += %(off)d;" %
                                        {'name': self.c_map_name(i, j),
-                                        'off': self.c_offset_name(i, j),
-                                        'ind': m.arity + idx,
-                                        'ind_zero': idx})
+                                        'off': m.offset[idx],
+                                        'ind': m.arity + idx})
         return '\n'.join(val)+'\n'
-
-    def c_offset_init(self):
-        maps = as_tuple(self.map, Map)
-        val = []
-        for i, map in enumerate(maps):
-            if not map.iterset._extruded:
-                continue
-            for j, m in enumerate(map):
-                val.append("int *%s" % self.c_offset_name(i, j))
-        if len(val) == 0:
-            return ""
-        return ", " + ", ".join(val)
 
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False, init=True):
         buf_type = self.data.ctype
@@ -727,27 +723,26 @@ class JITModule(base.JITModule):
             if blas['name'] == 'eigen':
                 externc_open = 'extern "C" {'
                 externc_close = '}'
+        if self._kernel._cpp:
+            externc_open = 'extern "C" {'
+            externc_close = '}'
         headers = "\n".join([compiler.get('vect_header', ""), blas_header])
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
             %(header)s
             %(namespace)s
-            %(externc_open)s
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code(),
-                   'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
         else:
             kernel_code = """
             %(header)s
             %(namespace)s
-            %(externc_open)s
             %(code)s
             """ % {'code': self._kernel.code(),
-                   'externc_open': externc_open,
                    'namespace': blas_namespace,
                    'header': headers}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
@@ -764,10 +759,12 @@ class JITModule(base.JITModule):
 
         %(kernel)s
 
+        %(externc_open)s
         %(wrapper)s
         %(externc_close)s
         """ % {'consts': _const_decs, 'kernel': kernel_code,
                'wrapper': code_to_compile,
+               'externc_open': externc_open,
                'externc_close': externc_close,
                'sys_headers': '\n'.join(self._kernel._headers + self._system_headers)}
 
@@ -793,6 +790,8 @@ class JITModule(base.JITModule):
             ldargs += blas['link']
             if blas['name'] == 'eigen':
                 extension = "cpp"
+        if self._kernel._cpp:
+            extension = "cpp"
         self._fun = compilation.load(code_to_compile,
                                      extension,
                                      self._wrapper_name,
@@ -809,175 +808,204 @@ class JITModule(base.JITModule):
         return self._fun
 
     def generate_code(self):
+        if not self._code_dict:
+            self._code_dict = wrapper_snippets(self._itspace, self._args,
+                                               kernel_name=self._kernel._name,
+                                               user_code=self._kernel._user_code,
+                                               wrapper_name=self._wrapper_name,
+                                               iteration_region=self._iteration_region,
+                                               applied_blas=self._kernel._applied_blas)
+        return self._code_dict
 
-        def itspace_loop(i, d):
-            return "for (int i_%d=0; i_%d<%d; ++i_%d) {" % (i, i, d, i)
 
-        def c_const_arg(c):
-            return '%s *%s_' % (c.ctype, c.name)
+def wrapper_snippets(itspace, args,
+                     kernel_name=None, wrapper_name=None, user_code=None,
+                     iteration_region=ALL, applied_blas=False):
+    """Generates code snippets for the wrapper,
+    ready to be into a template.
 
-        def c_const_init(c):
-            d = {'name': c.name,
-                 'type': c.ctype}
-            if c.cdim == 1:
-                return '%(name)s = *%(name)s_' % d
-            tmp = '%(name)s[%%(i)s] = %(name)s_[%%(i)s]' % d
-            return ';\n'.join([tmp % {'i': i} for i in range(c.cdim)])
+    :param itspace: :class:`IterationSpace` object of the :class:`ParLoop`,
+                    This is built from the iteration :class:`Set`.
+    :param args: :class:`Arg`s of the :class:`ParLoop`
+    :param kernel_name: Kernel function name (forwarded)
+    :param user_code: Code to insert into the wrapper (forwarded)
+    :param wrapper_name: Wrapper function name (forwarded)
+    :param iteration_region: Iteration region, this is specified when
+                             creating a :class:`ParLoop`.
+    :param applied_blas: COFFEE sometimes sets this true.
 
-        def extrusion_loop():
-            if self._direct:
-                return "{"
-            return "for (int j_0 = start_layer; j_0 < end_layer; ++j_0){"
+    :return: dict containing the code snippets
+    """
 
-        if self._code_dict:
-            return self._code_dict
+    assert kernel_name is not None
+    if wrapper_name is None:
+        wrapper_name = "wrap_" + kernel_name
+    if user_code is None:
+        user_code = ""
 
-        _ssinds_arg = ""
-        _index_expr = "n"
-        is_top = (self._iteration_region == ON_TOP)
-        is_facet = (self._iteration_region == ON_INTERIOR_FACETS)
+    direct = all(a.map is None for a in args)
 
-        if isinstance(self._itspace._iterset, Subset):
-            _ssinds_arg = "int* ssinds,"
-            _index_expr = "ssinds[n]"
+    def itspace_loop(i, d):
+        return "for (int i_%d=0; i_%d<%d; ++i_%d) {" % (i, i, d, i)
 
-        _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
+    def c_const_arg(c):
+        return '%s *%s_' % (c.ctype, c.name)
 
-        # Pass in the is_facet flag to mark the case when it's an interior horizontal facet in
-        # an extruded mesh.
-        _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
+    def c_const_init(c):
+        d = {'name': c.name,
+             'type': c.ctype}
+        if c.cdim == 1:
+            return '%(name)s = *%(name)s_' % d
+        tmp = '%(name)s[%%(i)s] = %(name)s_[%%(i)s]' % d
+        return ';\n'.join([tmp % {'i': i} for i in range(c.cdim)])
 
-        _vec_decs = ';\n'.join([arg.c_vec_dec(is_facet=is_facet) for arg in self._args if arg._is_vec_map])
+    def extrusion_loop():
+        if direct:
+            return "{"
+        return "for (int j_0 = start_layer; j_0 < end_layer; ++j_0){"
 
-        if len(Const._defs) > 0:
-            _const_args = ', '
-            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
+    _ssinds_arg = ""
+    _index_expr = "n"
+    is_top = (iteration_region == ON_TOP)
+    is_facet = (iteration_region == ON_INTERIOR_FACETS)
+
+    if isinstance(itspace._iterset, Subset):
+        _ssinds_arg = "int* ssinds,"
+        _index_expr = "ssinds[n]"
+
+    _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in args])
+
+    # Pass in the is_facet flag to mark the case when it's an interior horizontal facet in
+    # an extruded mesh.
+    _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in args])
+
+    _vec_decs = ';\n'.join([arg.c_vec_dec(is_facet=is_facet) for arg in args if arg._is_vec_map])
+
+    if len(Const._defs) > 0:
+        _const_args = ', '
+        _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
+    else:
+        _const_args = ''
+    _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
+
+    _intermediate_globals_decl = ';\n'.join(
+        [arg.c_intermediate_globals_decl(count)
+         for count, arg in enumerate(args)
+         if arg._is_global_reduction])
+    _intermediate_globals_init = ';\n'.join(
+        [arg.c_intermediate_globals_init(count)
+         for count, arg in enumerate(args)
+         if arg._is_global_reduction])
+    _intermediate_globals_writeback = ';\n'.join(
+        [arg.c_intermediate_globals_writeback(count)
+         for count, arg in enumerate(args)
+         if arg._is_global_reduction])
+
+    _vec_inits = ';\n'.join([arg.c_vec_init(is_top, is_facet=is_facet) for arg in args
+                             if not arg._is_mat and arg._is_vec_map])
+
+    indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
+
+    _map_decl = ""
+    _apply_offset = ""
+    _map_init = ""
+    _extr_loop = ""
+    _extr_loop_close = ""
+    _map_bcs_m = ""
+    _map_bcs_p = ""
+    _layer_arg = ""
+    if itspace._extruded:
+        _layer_arg = ", int start_layer, int end_layer, int top_layer"
+        _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
+                                 for arg in args if arg._uses_itspace])
+        _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, is_facet=is_facet)
+                                 for arg in args if arg._uses_itspace])
+        _map_bcs_m += ';\n'.join([arg.c_map_bcs("-", is_facet) for arg in args if arg._is_mat])
+        _map_bcs_p += ';\n'.join([arg.c_map_bcs("+", is_facet) for arg in args if arg._is_mat])
+        _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
+                                     for arg in args if arg._uses_itspace])
+        _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)
+                                     for arg in args if arg._is_vec_map])
+        _extr_loop = '\n' + extrusion_loop()
+        _extr_loop_close = '}\n'
+
+    # Build kernel invocation. Let X be a parameter of the kernel representing a
+    # tensor accessed in an iteration space. Let BUFFER be an array of the same
+    # size as X.  BUFFER is declared and intialized in the wrapper function.
+    # In particular, if:
+    # - X is written or incremented, then BUFFER is initialized to 0
+    # - X is read, then BUFFER gathers data expected by X
+    _buf_name, _buf_decl, _buf_gather, _tmp_decl, _tmp_name = {}, {}, {}, {}, {}
+    for count, arg in enumerate(args):
+        if not arg._uses_itspace:
+            continue
+        _buf_name[arg] = "buffer_%s" % arg.c_arg_name(count)
+        _tmp_name[arg] = "tmp_%s" % _buf_name[arg]
+        _buf_size = list(itspace._extents)
+        if not arg._is_mat:
+            # Readjust size to take into account the size of a vector space
+            _dat_size = (arg.data.cdim, )
+            # Only adjust size if not flattening (in which case the buffer is extents*dat.dim)
+            if not arg._flatten:
+                _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
+                _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
+            else:
+                _buf_size = [sum(_buf_size)]
+                _loop_size = _buf_size
         else:
-            _const_args = ''
-        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
+            if applied_blas:
+                _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
+        _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name[arg], is_facet=is_facet)
+        _tmp_decl[arg] = arg.c_buffer_decl(_buf_size, count, _tmp_name[arg], is_facet=is_facet,
+                                           init=False)
+        if arg.access not in [WRITE, INC]:
+            _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(_loop_size)])
+            _buf_gather[arg] = arg.c_buffer_gather(_buf_size, count, _buf_name[arg])
+            _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(len(_loop_size) - 1, -1, -1))
+            _buf_gather[arg] = "\n".join([_itspace_loops, _buf_gather[arg], _itspace_loop_close])
+    _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_name[arg]
+                              for count, arg in enumerate(args)])
+    _buf_gather = ";\n".join(_buf_gather.values())
+    _buf_decl = ";\n".join(_buf_decl.values())
 
-        _intermediate_globals_decl = ';\n'.join(
-            [arg.c_intermediate_globals_decl(count)
-             for count, arg in enumerate(self._args)
-             if arg._is_global_reduction])
-        _intermediate_globals_init = ';\n'.join(
-            [arg.c_intermediate_globals_init(count)
-             for count, arg in enumerate(self._args)
-             if arg._is_global_reduction])
-        _intermediate_globals_writeback = ';\n'.join(
-            [arg.c_intermediate_globals_writeback(count)
-             for count, arg in enumerate(self._args)
-             if arg._is_global_reduction])
-
-        _vec_inits = ';\n'.join([arg.c_vec_init(is_top, self._itspace.layers, is_facet=is_facet) for arg in self._args
-                                 if not arg._is_mat and arg._is_vec_map])
-
-        indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
-
-        _map_decl = ""
-        _apply_offset = ""
-        _map_init = ""
-        _extr_loop = ""
-        _extr_loop_close = ""
-        _map_bcs_m = ""
-        _map_bcs_p = ""
-        _layer_arg = ""
-        if self._itspace._extruded:
-            _layer_arg = ", int start_layer, int end_layer"
-            _off_args = ''.join([arg.c_offset_init() for arg in self._args
-                                 if arg._uses_itspace or arg._is_vec_map])
-            _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
-                                     for arg in self._args if arg._uses_itspace])
-            _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, layers=self._itspace.layers, is_facet=is_facet)
-                                     for arg in self._args if arg._uses_itspace])
-            _map_bcs_m += ';\n'.join([arg.c_map_bcs("-") for arg in self._args if arg._is_mat])
-            _map_bcs_p += ';\n'.join([arg.c_map_bcs("+") for arg in self._args if arg._is_mat])
-            _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
-                                         for arg in self._args if arg._uses_itspace])
-            _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)
-                                         for arg in self._args if arg._is_vec_map])
-            _extr_loop = '\n' + extrusion_loop()
-            _extr_loop_close = '}\n'
-        else:
-            _off_args = ""
-
-        # Build kernel invocation. Let X be a parameter of the kernel representing a
-        # tensor accessed in an iteration space. Let BUFFER be an array of the same
-        # size as X.  BUFFER is declared and intialized in the wrapper function.
-        # In particular, if:
-        # - X is written or incremented, then BUFFER is initialized to 0
-        # - X is read, then BUFFER gathers data expected by X
-        _buf_name, _buf_decl, _buf_gather, _tmp_decl, _tmp_name = {}, {}, {}, {}, {}
-        for count, arg in enumerate(self._args):
-            if not arg._uses_itspace:
+    def itset_loop_body(i, j, shape, offsets, is_facet=False):
+        nloops = len(shape)
+        mult = 1
+        if is_facet:
+            mult = 2
+        _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e*mult) for n, e in enumerate(shape)])
+        _buf_decl_scatter, _buf_scatter = {}, {}
+        for count, arg in enumerate(args):
+            if not (arg._uses_itspace and arg.access in [WRITE, INC]):
                 continue
-            _buf_name[arg] = "buffer_%s" % arg.c_arg_name(count)
-            _tmp_name[arg] = "tmp_%s" % _buf_name[arg]
-            _buf_size = list(self._itspace._extents)
-            if not arg._is_mat:
-                # Readjust size to take into account the size of a vector space
-                _dat_size = (arg.data.cdim, )
-                # Only adjust size if not flattening (in which case the buffer is extents*dat.dim)
-                if not arg._flatten:
-                    _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
-                    _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
-                else:
-                    _buf_size = [sum(_buf_size)]
-                    _loop_size = _buf_size
-            else:
-                if self._kernel._applied_blas:
-                    _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
-            _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name[arg], is_facet=is_facet)
-            _tmp_decl[arg] = arg.c_buffer_decl(_buf_size, count, _tmp_name[arg], is_facet=is_facet,
-                                               init=False)
-            if arg.access not in [WRITE, INC]:
-                _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e) for n, e in enumerate(_loop_size)])
-                _buf_gather[arg] = arg.c_buffer_gather(_buf_size, count, _buf_name[arg])
-                _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(len(_loop_size) - 1, -1, -1))
-                _buf_gather[arg] = "\n".join([_itspace_loops, _buf_gather[arg], _itspace_loop_close])
-        _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_name[arg]
-                                  for count, arg in enumerate(self._args)])
-        _buf_gather = ";\n".join(_buf_gather.values())
-        _buf_decl = ";\n".join(_buf_decl.values())
+            if arg._is_mat and arg._is_mixed:
+                raise NotImplementedError
+            elif not arg._is_mat:
+                _buf_scatter[arg] = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
+        _buf_decl_scatter = ";\n".join(_buf_decl_scatter.values())
+        _buf_scatter = ";\n".join(_buf_scatter.values())
+        _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
+        if itspace._extruded:
+            _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
+                                                       _tmp_name[arg],
+                                                       _tmp_decl[arg],
+                                                       "xtr_", is_facet=is_facet,
+                                                       applied_blas=applied_blas)
+                                           for arg in args if arg._is_mat])
+            _addtos = ""
+        else:
+            _addtos_extruded = ""
+            _addtos = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
+                                              _tmp_name[arg],
+                                              _tmp_decl[arg],
+                                              applied_blas=applied_blas)
+                                  for count, arg in enumerate(args) if arg._is_mat])
 
-        def itset_loop_body(i, j, shape, offsets, is_facet=False):
-            nloops = len(shape)
-            mult = 1
-            if is_facet:
-                mult = 2
-            _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e*mult) for n, e in enumerate(shape)])
-            _buf_decl_scatter, _buf_scatter = {}, {}
-            for count, arg in enumerate(self._args):
-                if not (arg._uses_itspace and arg.access in [WRITE, INC]):
-                    continue
-                if arg._is_mat and arg._is_mixed:
-                    raise NotImplementedError
-                elif not arg._is_mat:
-                    _buf_scatter[arg] = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
-            _buf_decl_scatter = ";\n".join(_buf_decl_scatter.values())
-            _buf_scatter = ";\n".join(_buf_scatter.values())
-            _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
-            if self._itspace._extruded:
-                _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
-                                                           _tmp_name[arg],
-                                                           _tmp_decl[arg],
-                                                           "xtr_", is_facet=is_facet,
-                                                           applied_blas=self._kernel._applied_blas)
-                                               for arg in self._args if arg._is_mat])
-                _addtos = ""
-            else:
-                _addtos_extruded = ""
-                _addtos = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
-                                                  _tmp_name[arg],
-                                                  _tmp_decl[arg],
-                                                  applied_blas=self._kernel._applied_blas)
-                                      for count, arg in enumerate(self._args) if arg._is_mat])
+        if not _buf_scatter:
+            _itspace_loops = ''
+            _itspace_loop_close = ''
 
-            if not _buf_scatter:
-                _itspace_loops = ''
-                _itspace_loop_close = ''
-
-            template = """
+        template = """
     %(itspace_loops)s
     %(ind)s%(buffer_scatter)s;
     %(itspace_loop_close)s
@@ -985,29 +1013,27 @@ class JITModule(base.JITModule):
     %(addtos)s;
 """
 
-            return template % {
-                'ind': '  ' * nloops,
-                'itspace_loops': indent(_itspace_loops, 2),
-                'buffer_scatter': _buf_scatter,
-                'itspace_loop_close': indent(_itspace_loop_close, 2),
-                'addtos_extruded': indent(_addtos_extruded, 2 + nloops),
-                'apply_offset': indent(_apply_offset, 3),
-                'extr_loop_close': indent(_extr_loop_close, 2),
-                'addtos': indent(_addtos, 2),
-            }
+        return template % {
+            'ind': '  ' * nloops,
+            'itspace_loops': indent(_itspace_loops, 2),
+            'buffer_scatter': _buf_scatter,
+            'itspace_loop_close': indent(_itspace_loop_close, 2),
+            'addtos_extruded': indent(_addtos_extruded, 2 + nloops),
+            'apply_offset': indent(_apply_offset, 3),
+            'extr_loop_close': indent(_extr_loop_close, 2),
+            'addtos': indent(_addtos, 2),
+        }
 
-        self._code_dict = {
-            'kernel_name': self._kernel.name,
-            'wrapper_name': self._wrapper_name,
+    return {'kernel_name': kernel_name,
+            'wrapper_name': wrapper_name,
             'ssinds_arg': _ssinds_arg,
             'index_expr': _index_expr,
             'wrapper_args': _wrapper_args,
-            'user_code': self._kernel._user_code,
+            'user_code': user_code,
             'wrapper_decs': indent(_wrapper_decs, 1),
             'const_args': _const_args,
             'const_inits': indent(_const_inits, 1),
             'vec_inits': indent(_vec_inits, 2),
-            'off_args': _off_args,
             'layer_arg': _layer_arg,
             'map_decl': indent(_map_decl, 2),
             'vec_decs': indent(_vec_decs, 2),
@@ -1023,8 +1049,5 @@ class JITModule(base.JITModule):
             'buffer_decl': _buf_decl,
             'buffer_gather': _buf_gather,
             'kernel_args': _kernel_args,
-            'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(self._iteration_region == ON_INTERIOR_FACETS))
-                                          for i, j, shape, offsets in self._itspace])
-        }
-
-        return self._code_dict
+            'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(iteration_region == ON_INTERIOR_FACETS))
+                                          for i, j, shape, offsets in itspace])}

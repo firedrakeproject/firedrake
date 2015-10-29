@@ -68,7 +68,7 @@ class cached_property(object):
 def as_tuple(item, type=None, length=None):
     # Empty list if we get passed None
     if item is None:
-        t = []
+        t = ()
     else:
         # Convert iterable to list...
         try:
@@ -97,6 +97,14 @@ def as_type(obj, typ):
             return np.float64(obj).astype(typ)
         else:
             raise TypeError("Invalid type %s" % type(obj))
+
+
+def tuplify(xs):
+    """Turn a data structure into a tuple tree."""
+    try:
+        return tuple(tuplify(x) for x in xs)
+    except TypeError:
+        return xs
 
 
 class validate_base:

@@ -144,7 +144,6 @@ void %(wrapper_name)s(int boffset,
                       %(ssinds_arg)s
                       %(wrapper_args)s
                       %(const_args)s
-                      %(off_args)s
                       %(layer_arg)s) {
   %(user_code)s
   %(wrapper_decs)s;
@@ -192,7 +191,6 @@ void %(wrapper_name)s(int boffset,
         """
         argtypes = [ctypes.c_int, ctypes.c_int,                      # start end
                     ctypes.c_voidp, ctypes.c_voidp, ctypes.c_voidp]  # plan args
-        offset_args = []
         if isinstance(iterset, Subset):
             argtypes.append(iterset._argtype)
         for arg in args:
@@ -206,13 +204,9 @@ void %(wrapper_name)s(int boffset,
                 for map in maps:
                     for m in map:
                         argtypes.append(m._argtype)
-                        if m.iterset._extruded:
-                            offset_args.append(ctypes.c_voidp)
 
         for c in Const._definitions():
             argtypes.append(c._argtype)
-
-        argtypes.extend(offset_args)
 
         if iterset._extruded:
             argtypes.append(ctypes.c_int)
@@ -243,7 +237,6 @@ class ParLoop(device.ParLoop, host.ParLoop):
 
     def prepare_arglist(self, iterset, *args):
         arglist = []
-        offset_args = []
 
         if isinstance(iterset, Subset):
             arglist.append(iterset._indices.ctypes.data)
@@ -258,12 +251,8 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 for map in maps:
                     for m in map:
                         arglist.append(m._values.ctypes.data)
-                        if m.iterset._extruded:
-                            offset_args.append(m.offset.ctypes.data)
         for c in Const._definitions():
             arglist.append(c._data.ctypes.data)
-
-        arglist.extend(offset_args)
 
         if iterset._extruded:
             region = self.iteration_region
@@ -271,14 +260,18 @@ class ParLoop(device.ParLoop, host.ParLoop):
             if region is ON_BOTTOM:
                 arglist.append(0)
                 arglist.append(1)
+                arglist.append(iterset.layers - 1)
             elif region is ON_TOP:
                 arglist.append(iterset.layers - 2)
+                arglist.append(iterset.layers - 1)
                 arglist.append(iterset.layers - 1)
             elif region is ON_INTERIOR_FACETS:
                 arglist.append(0)
                 arglist.append(iterset.layers - 2)
+                arglist.append(iterset.layers - 2)
             else:
                 arglist.append(0)
+                arglist.append(iterset.layers - 1)
                 arglist.append(iterset.layers - 1)
 
         return arglist

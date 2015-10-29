@@ -33,7 +33,7 @@
 
 import os
 from mpi import MPI, collective
-from pyop2_utils import prefork
+import subprocess
 import sys
 import ctypes
 from hashlib import md5
@@ -51,9 +51,14 @@ class Compiler(object):
         can build object files and link in a single invocation, can be
         overridden by exporting the environment variable ``LDSHARED``).
     :arg cppargs: A list of arguments to the C compiler (optional).
-    :arg ldargs: A list of arguments to the linker (optional)."""
-    def __init__(self, cc, ld=None, cppargs=[], ldargs=[]):
-        self._cc = os.environ.get('CC', cc)
+    :arg ldargs: A list of arguments to the linker (optional).
+    :arg cpp: Should we try and use the C++ compiler instead of the C
+        compiler?.
+    """
+    def __init__(self, cc, ld=None, cppargs=[], ldargs=[],
+                 cpp=False):
+        ccenv = 'CXX' if cpp else 'CC'
+        self._cc = os.environ.get(ccenv, cc)
         self._ld = os.environ.get('LDSHARED', ld)
         self._cppargs = cppargs
         self._ldargs = ldargs
@@ -79,12 +84,13 @@ class Compiler(object):
         basename = hsh.hexdigest()
 
         cachedir = configuration['cache_dir']
-        cname = os.path.join(cachedir, "%s.%s" % (basename, extension))
-        oname = os.path.join(cachedir, "%s.o" % basename)
+        pid = os.getpid()
+        cname = os.path.join(cachedir, "%s_p%d.%s" % (basename, pid, extension))
+        oname = os.path.join(cachedir, "%s_p%d.o" % (basename, pid))
         soname = os.path.join(cachedir, "%s.so" % basename)
         # Link into temporary file, then rename to shared library
         # atomically (avoiding races).
-        tmpname = os.path.join(cachedir, "%s.so.tmp" % basename)
+        tmpname = os.path.join(cachedir, "%s_p%d.so.tmp" % (basename, pid))
 
         if configuration['check_src_hashes'] or configuration['debug']:
             basenames = MPI.comm.allgather(basename)
@@ -108,8 +114,8 @@ class Compiler(object):
                 # No need to do this on all ranks
                 if not os.path.exists(cachedir):
                     os.makedirs(cachedir)
-                logfile = os.path.join(cachedir, "%s.log" % basename)
-                errfile = os.path.join(cachedir, "%s.err" % basename)
+                logfile = os.path.join(cachedir, "%s_p%d.log" % (basename, pid))
+                errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
                     with file(cname, "w") as f:
                         f.write(src)
@@ -123,19 +129,21 @@ class Compiler(object):
                                 log.write(" ".join(cc))
                                 log.write("\n\n")
                                 try:
-                                    retval, stdout, stderr = prefork.call_capture_output(cc, error_on_nonzero=False)
-                                    log.write(stdout)
-                                    err.write(stderr)
-                                    if retval != 0:
-                                        raise prefork.ExecError("status %d invoking '%s'" %
-                                                                (retval, " ".join(cc)))
-                                except prefork.ExecError as e:
+                                    if configuration['no_fork_available']:
+                                        cc += ["2>", errfile, ">", logfile]
+                                        cmd = " ".join(cc)
+                                        status = os.system(cmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, cmd)
+                                    else:
+                                        subprocess.check_call(cc, stderr=err,
+                                                              stdout=log)
+                                except subprocess.CalledProcessError as e:
                                     raise CompilationError(
-                                        """Command "%s" returned with error.
+                                        """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
-Compile errors in %s
-Original error: %s""" % (cc, logfile, errfile, e))
+Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     else:
                         cc = [self._cc] + self._cppargs + \
                              ['-c', '-o', oname, cname]
@@ -149,35 +157,28 @@ Original error: %s""" % (cc, logfile, errfile, e))
                                 log.write(" ".join(ld))
                                 log.write("\n\n")
                                 try:
-                                    retval, stdout, stderr = prefork.call_capture_output(cc, error_on_nonzero=False)
-                                    log.write(stdout)
-                                    err.write(stderr)
-                                    if retval != 0:
-                                        raise prefork.ExecError("status %d invoking '%s'" %
-                                                                (retval, " ".join(cc)))
-                                except prefork.ExecError as e:
+                                    if configuration['no_fork_available']:
+                                        cc += ["2>", errfile, ">", logfile]
+                                        ld += ["2>", errfile, ">", logfile]
+                                        cccmd = " ".join(cc)
+                                        ldcmd = " ".join(ld)
+                                        status = os.system(cccmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, cccmd)
+                                        status = os.system(ldcmd)
+                                        if status != 0:
+                                            raise subprocess.CalledProcessError(status, ldcmd)
+                                    else:
+                                        subprocess.check_call(cc, stderr=err,
+                                                              stdout=log)
+                                        subprocess.check_call(ld, stderr=err,
+                                                              stdout=log)
+                                except subprocess.CalledProcessError as e:
                                     raise CompilationError(
                                         """Command "%s" return error status %d.
 Unable to compile code
 Compile log in %s
-Compile errors in %s
-Original error: %s""" % (cc, retval, logfile, errfile, e))
-
-                                try:
-                                    retval, stdout, stderr = prefork.call_capture_output(ld, error_on_nonzero=False)
-                                    log.write(stdout)
-                                    err.write(stderr)
-                                    if retval != 0:
-                                        raise prefork.ExecError("status %d invoking '%s'" %
-                                                                (retval, " ".join(ld)))
-                                except prefork.ExecError as e:
-                                    raise CompilationError(
-                                        """Command "%s" return error status %d.
-Unable to compile code
-Compile log in %s
-Compile errors in %s
-Original error: %s""" % (ld, retval, logfile, errfile, e))
-
+Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
@@ -191,16 +192,26 @@ class MacCompiler(Compiler):
 
     :arg cppargs: A list of arguments to pass to the C compiler
          (optional).
-    :arg ldargs: A list of arguments to pass to the linker (optional)."""
+    :arg ldargs: A list of arguments to pass to the linker (optional).
 
-    def __init__(self, cppargs=[], ldargs=[]):
-        opt_flags = ['-O3']
+    :arg cpp: Are we actually using the C++ compiler?"""
+
+    def __init__(self, cppargs=[], ldargs=[], cpp=False):
+        opt_flags = ['-march=native', '-O3']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
-
-        cppargs = ['-std=c99', '-fPIC', '-Wall', '-framework', 'Accelerate'] + opt_flags + cppargs
+        cc = "mpicc"
+        stdargs = ["-std=c99"]
+        if cpp:
+            cc = "mpicxx"
+            stdargs = []
+        cppargs = stdargs + ['-fPIC', '-Wall', '-framework', 'Accelerate'] + \
+            opt_flags + cppargs
         ldargs = ['-dynamiclib'] + ldargs
-        super(MacCompiler, self).__init__("mpicc", cppargs=cppargs, ldargs=ldargs)
+        super(MacCompiler, self).__init__(cc,
+                                          cppargs=cppargs,
+                                          ldargs=ldargs,
+                                          cpp=cpp)
 
 
 class LinuxCompiler(Compiler):
@@ -208,20 +219,25 @@ class LinuxCompiler(Compiler):
 
     :arg cppargs: A list of arguments to pass to the C compiler
          (optional).
-    :arg ldargs: A list of arguments to pass to the linker (optional)."""
-    def __init__(self, cppargs=[], ldargs=[]):
+    :arg ldargs: A list of arguments to pass to the linker (optional).
+    :arg cpp: Are we actually using the C++ compiler?"""
+    def __init__(self, cppargs=[], ldargs=[], cpp=False):
         # GCC 4.8.2 produces bad code with -fivopts (which O3 does by default).
         # gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
         # This is the default in Ubuntu 14.04 so work around this
         # problem by turning ivopts off.
-        # For 4.6 we need to turn off more, so go to no-tree-vectorize
-        opt_flags = ['-g', '-O3', '-fno-tree-vectorize']
+        opt_flags = ['-march=native', '-O3', '-fno-ivopts']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
-
-        cppargs = ['-std=c99', '-fPIC', '-Wall'] + opt_flags + cppargs
+        cc = "mpicc"
+        stdargs = ["-std=c99"]
+        if cpp:
+            cc = "mpicxx"
+            stdargs = []
+        cppargs = stdargs + ['-fPIC', '-Wall'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
-        super(LinuxCompiler, self).__init__("mpicc", cppargs=cppargs, ldargs=ldargs)
+        super(LinuxCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
+                                            cpp=cpp)
 
 
 class LinuxIntelCompiler(Compiler):
@@ -229,15 +245,21 @@ class LinuxIntelCompiler(Compiler):
 
     :arg cppargs: A list of arguments to pass to the C compiler
          (optional).
-    :arg ldargs: A list of arguments to pass to the linker (optional)."""
-    def __init__(self, cppargs=[], ldargs=[]):
+    :arg ldargs: A list of arguments to pass to the linker (optional).
+    :arg cpp: Are we actually using the C++ compiler?"""
+    def __init__(self, cppargs=[], ldargs=[], cpp=False):
         opt_flags = ['-O3', '-xHost']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
-
-        cppargs = ['-std=c99', '-fPIC', '-no-multibyte-chars'] + opt_flags + cppargs
+        cc = "mpicc"
+        stdargs = ["-std=c99"]
+        if cpp:
+            cc = "mpicxx"
+            stdargs = []
+        cppargs = stdargs + ['-fPIC', '-no-multibyte-chars'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
-        super(LinuxIntelCompiler, self).__init__("mpicc", cppargs=cppargs, ldargs=ldargs)
+        super(LinuxIntelCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
+                                                 cpp=cpp)
 
 
 @collective
@@ -256,13 +278,14 @@ def load(src, extension, fn_name, cppargs=[], ldargs=[], argtypes=None, restype=
          ``None`` for ``void``).
     :arg compiler: The name of the C compiler (intel, ``None`` for default)."""
     platform = sys.platform
+    cpp = extension == "cpp"
     if platform.find('linux') == 0:
         if compiler == 'intel':
-            compiler = LinuxIntelCompiler(cppargs, ldargs)
+            compiler = LinuxIntelCompiler(cppargs, ldargs, cpp=cpp)
         else:
-            compiler = LinuxCompiler(cppargs, ldargs)
+            compiler = LinuxCompiler(cppargs, ldargs, cpp=cpp)
     elif platform.find('darwin') == 0:
-        compiler = MacCompiler(cppargs, ldargs)
+        compiler = MacCompiler(cppargs, ldargs, cpp=cpp)
     else:
         raise CompilationError("Don't know what compiler to use for platform '%s'" %
                                platform)
