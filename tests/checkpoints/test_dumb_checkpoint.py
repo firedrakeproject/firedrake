@@ -56,40 +56,52 @@ def test_store_load_parallel(mesh, fs, degree, dumpfile):
     run_store_load(mesh, fs, degree, dumpfile)
 
 
-@pytest.fixture
-def serial_checkpoint(dumpfile):
-    # Make the checkpoint file on rank zero, writing the COMM_SELF (size 1)
-    if op2.MPI.comm.rank == 0:
-        from mpi4py import MPI
-        chk = DumbCheckpoint(dumpfile, mode=FILE_CREATE, comm=MPI.COMM_SELF)
-        chk.close()
-    # Make sure it's written
-    return op2.MPI.comm.bcast(dumpfile, root=0)
-
-
 @pytest.mark.parallel(nprocs=2)
-def test_serial_checkpoint_parallel_load_fails(serial_checkpoint):
-    # serial_checkpoint fixture makes the checkpoint file (on one
-    # process), which we now try and read on two, and therefore expect
-    # an error.
+def test_serial_checkpoint_parallel_load_fails(dumpfile):
+    from firedrake.petsc import PETSc
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, 'CG', 1)
+    f = Function(V, name="f")
+    # Write on COMM_SELF (size == 1)
+    chk = DumbCheckpoint("%s.%d" % (dumpfile, op2.MPI.comm.rank),
+                         mode=FILE_CREATE, comm=PETSc.COMM_SELF)
+    chk.store(f)
+    chk.close()
+    # Make sure it's written, and broadcast rank-0 name to all processes
+    fname = op2.MPI.comm.bcast("%s.0" % dumpfile, root=0)
     with pytest.raises(ValueError):
-        with DumbCheckpoint(serial_checkpoint, mode=FILE_READ):
-            pass
+        with DumbCheckpoint(fname, mode=FILE_READ) as chk:
+            # Written on 1 process, loading on 2 should raise ValueError
+            chk.load(f)
 
 
-@pytest.mark.parametrize("obj",
-                         [lambda: Constant(1),
-                          lambda: np.arange(10)])
-def test_checkpoint_fails_for_non_function(obj, dumpfile):
+def test_checkpoint_fails_for_non_function(dumpfile):
     with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
         with pytest.raises(ValueError):
-            chk.store(obj)
+            chk.store(np.arange(10))
 
 
 def test_checkpoint_read_not_exist_ioerror(dumpfile):
     with pytest.raises(IOError):
         with DumbCheckpoint(dumpfile, mode=FILE_READ):
             pass
+
+
+def test_attributes(dumpfile):
+    m = UnitSquareMesh(1, 1)
+    with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
+        with pytest.raises(AttributeError):
+            chk.write_attribute("/foo", "nprocs", 1)
+        with pytest.raises(AttributeError):
+            chk.read_attribute("/bar", "nprocs")
+
+        chk.store(m.coordinates, name="coords")
+
+        assert chk.read_attribute("/", "nprocs") == 1
+
+        chk.write_attribute("/fields/coords", "dimension", m.coordinates.dat.cdim)
+
+        assert chk.read_attribute("/fields/coords", "dimension") == m.coordinates.dat.cdim
 
 
 if __name__ == "__main__":
