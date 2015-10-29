@@ -273,6 +273,7 @@ class Kernel(sequential.Kernel, tuple):
         self._name = "_".join([k.name for k in kernels])
         self._function_names = {self.cache_key: self._name}
 
+        self._cpp = any(k._cpp for k in kernels)
         self._opts = dict(flatten([k._opts.items() for k in kernels]))
         self._applied_blas = any(k._applied_blas for k in kernels)
         self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
