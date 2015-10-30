@@ -526,6 +526,8 @@ class Mesh(object):
 
     @property
     def interior_facets(self):
+        s = self.interior_facets_hierarchy[-1].set
+        s._deep_size = np.array([list(i.set.sizes) for i in self.interior_facets_hierarchy])
         return self.interior_facets_hierarchy[-1]
 
     @utils.cached_property
