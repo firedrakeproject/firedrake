@@ -142,7 +142,7 @@ class FunctionSpaceBase(ObjectCached):
         # conditions.
         self._cell_node_map_cache = {}
         self._exterior_facet_map_cache = {}
-        self._interior_facet_map_cache = {}
+        self._interior_facet_map_cache = [{} for _ in range(mesh.s_depth)]
 
         self._initialized = True
         return self
@@ -251,7 +251,7 @@ class FunctionSpaceBase(ObjectCached):
                                self.offset,
                                parent)
 
-    def interior_facet_node_map(self, bcs=None):
+    def interior_facet_node_map(self, bcs=None, s_depth=1):
         """Return the :class:`pyop2.Map` from interior facets to
         function space nodes. If present, bcs must be a tuple of
         :class:`.DirichletBC`\s. In this case, the facet_node_map will return
@@ -260,20 +260,21 @@ class FunctionSpaceBase(ObjectCached):
         corresponding values to be discarded during matrix assembly."""
 
         if bcs:
-            parent = self.interior_facet_node_map()
+            parent = self.interior_facet_node_map(s_depth=s_depth)
         else:
             parent = None
 
         offset = self.cell_node_map().offset
-        map = self._map_cache(self._interior_facet_map_cache,
-                              self._mesh.interior_facets.set,
+        mesh_facets = self._mesh.interior_facets_hierarchy[s_depth-1]
+        map = self._map_cache(self._interior_facet_map_cache[s_depth-1],
+                              mesh_facets.set,
                               self.interior_facet_node_list,
                               2*self.fiat_element.space_dimension(),
                               bcs,
                               "interior_facet_node",
                               offset=np.append(offset, offset),
                               parent=parent)
-        map.factors = (self._mesh.interior_facets.facet_cell_map,
+        map.factors = (mesh_facets.facet_cell_map,
                        self.cell_node_map())
         return map
 
