@@ -20,12 +20,12 @@ def main(args):
     num_unroll = args.num_unroll
     tile_size = args.tile_size
     part_mode = args.part_mode
-    mesh = args.mesh
+    mesh_file = args.mesh_file
 
     save_soln, adt_calc, res_calc, bres_calc, update = kernels()
 
     try:
-        with h5py.File(mesh, 'r') as f:
+        with h5py.File(mesh_file, 'r') as f:
 
             # Declare sets, maps, datasets and global constants
 
@@ -66,7 +66,7 @@ def main(args):
 
     except IOError:
         import sys
-        print "Failed reading mesh: Could not read from %s\n" % mesh
+        print "Failed reading mesh: Could not read from %s\n" % mesh_file
         sys.exit(1)
 
     # Main time-marching loop
@@ -260,5 +260,4 @@ def kernels():
 
 if __name__ == '__main__':
     op2.init()
-    args = parser(mesh='meshes/new_grid.h5')
-    main(args)
+    main(parser())
