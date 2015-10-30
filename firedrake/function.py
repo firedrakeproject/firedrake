@@ -168,8 +168,8 @@ class Function(ufl.Coefficient):
         return self._function_space.cell_node_map(bcs)
     cell_node_map.__doc__ = functionspace.FunctionSpace.cell_node_map.__doc__
 
-    def interior_facet_node_map(self, bcs=None):
-        return self._function_space.interior_facet_node_map(bcs)
+    def interior_facet_node_map(self, bcs=None, s_depth=1):
+        return self._function_space.interior_facet_node_map(bcs, s_depth=s_depth)
     interior_facet_node_map.__doc__ = functionspace.FunctionSpace.interior_facet_node_map.__doc__
 
     def exterior_facet_node_map(self, bcs=None):

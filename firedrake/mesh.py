@@ -524,25 +524,32 @@ class Mesh(object):
             return _Facets(self, 0, "exterior", None, None,
                            unique_markers=unique_ids)
 
-    @utils.cached_property
+    @property
     def interior_facets(self):
-        if self._plex.getStratumSize("interior_facets", 1) > 0:
-            # Compute the facet_numbering
+        return self.interior_facets_hierarchy[-1]
 
-            # Order interior facets by OP2 entity class
-            interior_facets, interior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "interior_facets", self.s_depth)
+    @utils.cached_property
+    def interior_facets_hierarchy(self):
+        facets = []
+        for s in range(self.s_depth):
+            if self._plex.getStratumSize("interior_facets", 1) > 0:
+                # Compute the facet_numbering
 
-            interior_local_facet_number, interior_facet_cell = \
-                dmplex.facet_numbering(self._plex, "interior",
-                                       interior_facets,
-                                       self._cell_numbering,
-                                       self.cell_closure)
+                # Order interior facets by OP2 entity class
+                interior_facets, interior_facet_classes = \
+                    dmplex.get_facets_by_class(self._plex, "interior_facets", s+1)
 
-            return _Facets(self, interior_facet_classes, "interior",
-                           interior_facet_cell, interior_local_facet_number)
-        else:
-            return _Facets(self, 0, "interior", None, None)
+                interior_local_facet_number, interior_facet_cell = \
+                    dmplex.facet_numbering(self._plex, "interior",
+                                           interior_facets,
+                                           self._cell_numbering,
+                                           self.cell_closure)
+
+                facets.append(_Facets(self, interior_facet_classes, "interior",
+                                      interior_facet_cell, interior_local_facet_number))
+            else:
+                facets.append(_Facets(self, 0, "interior", None, None))
+        return facets
 
     @utils.cached_property
     def cell_closure(self):
