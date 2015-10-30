@@ -51,6 +51,7 @@ class DumbCheckpoint(object):
             import os
             if not os.path.exists(name):
                 raise IOError("File '%s' does not exist, cannot be opened for reading" % name)
+        self.mode = mode
         self.vwr = PETSc.ViewerHDF5().create(name, mode=mode, comm=self.comm)
         self.h5file = h5i.get_h5py_file(self.vwr)
 
@@ -68,8 +69,10 @@ class DumbCheckpoint(object):
 
         :arg function: The function to store.
         :arg name: an (optional) name to store the function under.  If
-             not provided, uses :data:`function.name()`.
+             not provided, uses ``function.name()``.
         """
+        if self.mode is FILE_READ:
+            raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only store functions")
         name = name or function.name()

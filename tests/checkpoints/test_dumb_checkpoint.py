@@ -25,6 +25,13 @@ def dumpfile(tmpdir):
     return str(tmpdir.join("dump.h5"))
 
 
+@pytest.fixture(scope="module")
+def f():
+    m = UnitSquareMesh(2, 2)
+    V = FunctionSpace(m, 'CG', 1)
+    return Function(V, name="f")
+
+
 def run_store_load(mesh, fs, degree, dumpfile):
 
     V = FunctionSpace(mesh, fs, degree)
@@ -57,11 +64,8 @@ def test_store_load_parallel(mesh, fs, degree, dumpfile):
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_serial_checkpoint_parallel_load_fails(dumpfile):
+def test_serial_checkpoint_parallel_load_fails(f, dumpfile):
     from firedrake.petsc import PETSc
-    m = UnitSquareMesh(2, 2)
-    V = FunctionSpace(m, 'CG', 1)
-    f = Function(V, name="f")
     # Write on COMM_SELF (size == 1)
     chk = DumbCheckpoint("%s.%d" % (dumpfile, op2.MPI.comm.rank),
                          mode=FILE_CREATE, comm=PETSc.COMM_SELF)
@@ -87,21 +91,32 @@ def test_checkpoint_read_not_exist_ioerror(dumpfile):
             pass
 
 
-def test_attributes(dumpfile):
-    m = UnitSquareMesh(1, 1)
+def test_attributes(f, dumpfile):
+    mesh = f.function_space().mesh()
     with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
         with pytest.raises(AttributeError):
             chk.write_attribute("/foo", "nprocs", 1)
         with pytest.raises(AttributeError):
             chk.read_attribute("/bar", "nprocs")
 
-        chk.store(m.coordinates, name="coords")
+        chk.store(mesh.coordinates, name="coords")
 
         assert chk.read_attribute("/", "nprocs") == 1
 
-        chk.write_attribute("/fields/coords", "dimension", m.coordinates.dat.cdim)
+        chk.write_attribute("/fields/coords", "dimension",
+                            mesh.coordinates.dat.cdim)
 
-        assert chk.read_attribute("/fields/coords", "dimension") == m.coordinates.dat.cdim
+        assert chk.read_attribute("/fields/coords", "dimension") == \
+            mesh.coordinates.dat.cdim
+
+
+def test_store_read_only_ioerror(f, dumpfile):
+    # Make file
+    with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
+        pass
+    with DumbCheckpoint(dumpfile, mode=FILE_READ) as chk:
+        with pytest.raises(IOError):
+            chk.store(f)
 
 
 if __name__ == "__main__":
