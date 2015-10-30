@@ -14,6 +14,7 @@ from utils.tiling import calculate_sdepth
 args = parser()
 num_unroll = args.num_unroll
 tile_size = args.tile_size
+mesh_file = args.mesh_file
 mesh_size = int(args.mesh_size)
 verbose = args.verbose
 output = args.output
@@ -25,7 +26,7 @@ extra_halo = args.extra_halo
 loop_chain_length = 4
 num_solves = 1
 
-mesh = UnitSquareMesh(mesh_size, mesh_size)
+mesh = Mesh(mesh_file) if mesh_file else UnitSquareMesh(mesh_size, mesh_size)
 mesh.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
 # Plumb the space filling curve into UnitSquareMesh after the call to
 # gmsh. Doru knows how to do this.
