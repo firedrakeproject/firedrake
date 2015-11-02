@@ -17,9 +17,9 @@ def slope(mesh, debug=False):
 
     # Add coordinates
     if debug:
-        slope_python.set_debug_mode('VERY_LOW', (coords.dataset.set.name,
-                                                 coords.data_ro,
-                                                 coords.shape[1]))
+        slope_python.set_debug_mode('MINIMAL', (coords.dataset.set.name,
+                                                coords.data_ro,
+                                                coords.shape[1]))
 
     # Add available maps describing the mesh topology
     # 1) cells to nodes map
