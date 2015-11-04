@@ -142,7 +142,7 @@ class DirichletBC(object):
             if fs.extruded:
                 base_maps = fs.exterior_facet_boundary_node_map(
                     self.method).values_with_halo.take(
-                    fs._mesh._old_mesh.exterior_facets.subset(self.sub_domain).indices,
+                    fs._mesh._base_mesh.exterior_facets.subset(self.sub_domain).indices,
                     axis=0)
                 facet_offset = fs.exterior_facet_boundary_node_map(self.method).offset
                 return np.unique(np.concatenate([base_maps + i * facet_offset

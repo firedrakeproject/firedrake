@@ -230,7 +230,7 @@ class _VTUFile(object):
             output = function
             Vo = output.function_space()
         if project_coords:
-            Vc = fs.VectorFunctionSpace(mesh, family, 1, dim=mesh._coordinate_fs.dim)
+            Vc = fs.VectorFunctionSpace(mesh, family, 1, dim=mesh.coordinates.function_space().dim)
             if not self._warnings[1]:
                 warning(RED % "*** Projecting coordinates to %s1", family)
                 self._warnings[1] = True
@@ -241,7 +241,7 @@ class _VTUFile(object):
 
         num_points = Vo.node_count
 
-        layers = mesh.layers - 1 if isinstance(e.cell(), OuterProductCell) else 1
+        layers = mesh.layers - 1 if mesh.layers else 1
         num_cells = mesh.num_cells() * layers
 
         if not isinstance(e.cell(), OuterProductCell) and e.cell().cellname() != "quadrilateral":

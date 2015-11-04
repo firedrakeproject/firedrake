@@ -170,7 +170,7 @@ cells are not currently supported")
 
     m = CircleManifoldMesh(ncells)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
-    old_coordinates = Function(m.coordinates)
+    old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
     periodic_kernel = """double Y,pi;
@@ -190,8 +190,7 @@ cells are not currently supported")
               "old_coords": (old_coordinates, READ),
               "L": (cL, READ)})
 
-    m.coordinates = new_coordinates
-    return m
+    return new_coordinates.as_coordinates()
 
 
 def PeriodicUnitIntervalMesh(ncells):
@@ -327,7 +326,7 @@ cells in each direction are not currently supported")
 
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
-    old_coordinates = Function(m.coordinates)
+    old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
     periodic_kernel = """
@@ -380,8 +379,7 @@ for(int i=0; i<new_coords.dofs; i++) {
               "Lx": (cLx, READ),
               "Ly": (cLy, READ)})
 
-    m.coordinates = new_coordinates
-    return m
+    return new_coordinates.as_coordinates()
 
 
 def PeriodicSquareMesh(nx, ny, L, quadrilateral=False, reorder=None):
@@ -636,13 +634,13 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
-    m._icosahedral_sphere = radius
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m.coordinates = new_coords
+        m = new_coords.as_coordinates()
+    m._icosahedral_sphere = radius
     return m
 
 
@@ -848,7 +846,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m.coordinates = new_coords
+        m = new_coords.as_coordinates()
 
     return m
 

@@ -163,12 +163,10 @@ class FFCKernel(DiskCached):
                    + str(parameters)).hexdigest()
 
     def _needs_orientations(self, elements):
-        if len(elements) == 0:
-            return False
-        cell = elements[0].cell()
-        if cell.topological_dimension() == cell.geometric_dimension():
-            return False
         for e in elements:
+            cell = e.cell()
+            if cell.topological_dimension() == cell.geometric_dimension():
+                continue
             if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
                 if any("contravariant piola" in fiat_utils.fiat_from_ufl_element(s).mapping()
                        for s in e.sub_elements()):
@@ -272,7 +270,7 @@ def compile_form(form, name, parameters=None, inverse=False):
     if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
-                    it.domain().data().coordinates,
+                    it.domain().coordinates(),
                     fd.preprocessed_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name,
@@ -295,7 +293,7 @@ def compile_form(form, name, parameters=None, inverse=False):
             kernels.append(((i, j),
                             it.integral_type(),
                             it.subdomain_id(),
-                            it.domain().data().coordinates,
+                            it.domain().coordinates(),
                             fd.preprocessed_form.coefficients(),
                             needs_orientations, kernel))
     form._cache["firedrake_kernels"] = (kernels, parameters)

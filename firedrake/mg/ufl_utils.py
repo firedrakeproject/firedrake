@@ -34,7 +34,7 @@ class CoarsenIntegrand(MultiFunction):
     def coefficient(self, o):
         if isinstance(o, firedrake.Constant):
             try:
-                mesh = o.domain().data()
+                mesh = o.domain().coordinates().as_coordinates()
                 hierarchy, level = utils.get_level(mesh)
                 new_mesh = hierarchy[level-1]
             except:
@@ -61,13 +61,13 @@ class CoarsenIntegrand(MultiFunction):
             raise RuntimeError("Don't know how to handle %r", o)
 
     def circumradius(self, o):
-        mesh = o.domain().data()
+        mesh = o.domain().coordinates().as_coordinates()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
         return firedrake.Circumradius(new_mesh.ufl_domain())
 
     def facet_normal(self, o):
-        mesh = o.domain().data()
+        mesh = o.domain().coordinates().as_coordinates()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
         return firedrake.FacetNormal(new_mesh.ufl_domain())
@@ -93,7 +93,7 @@ def coarsen_form(form):
     # reconstruct the integral by building the measure by hand.
     for it in integrals:
         integrand = map_integrand_dags(mapper, it.integrand())
-        mesh = it.domain().data()
+        mesh = it.domain().coordinates().as_coordinates()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
 

@@ -19,7 +19,7 @@ def mesh1d(request):
 @pytest.fixture(params=[('cg', False),
                         ('cg', True),
                         pytest.mark.xfail(('dg', False)),
-                        pytest.mark.xfail(('dg', True)),
+                        ('dg', True),
                         # TODO: generate mesh from .geo file
                         ('file', '../t11_tria.msh'),
                         ('file', '../t11_quad.msh')])

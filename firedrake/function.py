@@ -49,6 +49,145 @@ class _CFunction(ctypes.Structure):
                 ("sidx", c_void_p)]
 
 
+class CoordinatelessFunction(ufl.Coefficient):
+    """A function on a mesh topology."""
+
+    def __init__(self, function_space, val=None, name=None, dtype=valuetype):
+        """
+        :param function_space: the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
+            or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
+            Alternatively, another :class:`Function` may be passed here and its function space
+            will be used to build this :class:`Function`.
+        :param val: NumPy array-like (or :class:`op2.Dat`) providing initial values (optional).
+        :param name: user-defined name for this :class:`Function` (optional).
+        :param dtype: optional data type for this :class:`Function`
+               (defaults to :data:`valuetype`).
+        """
+        assert isinstance(function_space, functionspace.FunctionSpaceBase), \
+            "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
+
+        ufl.Coefficient.__init__(self, function_space.ufl_element())
+
+        self._function_space = function_space
+        self.uid = utils._new_uid()
+        self._name = name or 'function_%d' % self.uid
+        self._label = "a function"
+        self._split = None
+
+        if isinstance(val, (op2.Dat, op2.DatView)):
+            self.dat = val
+        else:
+            self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
+
+    @property
+    def topological(self):
+        """The underlying coordinateless function."""
+        return self
+
+    def split(self):
+        """Extract any sub :class:`Function`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`FunctionSpace`."""
+        if self._split is None:
+            self._split = tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
+                                for i, (fs, dat) in
+                                enumerate(zip(self._function_space, self.dat)))
+        return self._split
+
+    def sub(self, i):
+        """Extract the ith sub :class:`Function` of this :class:`Function`.
+
+        :arg i: the index to extract
+
+        See also :meth:`split`.
+
+        If the :class:`Function` is defined on a
+        :class:`.~VectorFunctionSpace`, this returns a proxy object
+        indexing the ith component of the space, suitable for use in
+        boundary condition application."""
+        if isinstance(self.function_space(), functionspace.VectorFunctionSpace):
+            fs = self.function_space().sub(i)
+            return CoordinatelessFunction(fs, val=op2.DatView(self.dat, i),
+                                          name="view[%d](%s)" % (i, self.name()))
+        return self.split()[i]
+
+    @property
+    def cell_set(self):
+        """The :class:`pyop2.Set` of cells for the mesh on which this
+        :class:`Function` is defined."""
+        return self._function_space._mesh.cell_set
+
+    @property
+    def node_set(self):
+        """A :class:`pyop2.Set` containing the nodes of this
+        :class:`Function`. One or (for
+        :class:`.VectorFunctionSpace`\s) more degrees of freedom are
+        stored at each node.
+        """
+        return self._function_space.node_set
+
+    @property
+    def dof_dset(self):
+        """A :class:`pyop2.DataSet` containing the degrees of freedom of
+        this :class:`Function`."""
+        return self._function_space.dof_dset
+
+    def cell_node_map(self, bcs=None):
+        return self._function_space.cell_node_map(bcs)
+    cell_node_map.__doc__ = functionspace.FunctionSpace.cell_node_map.__doc__
+
+    def interior_facet_node_map(self, bcs=None):
+        return self._function_space.interior_facet_node_map(bcs)
+    interior_facet_node_map.__doc__ = functionspace.FunctionSpace.interior_facet_node_map.__doc__
+
+    def exterior_facet_node_map(self, bcs=None):
+        return self._function_space.exterior_facet_node_map(bcs)
+    exterior_facet_node_map.__doc__ = functionspace.FunctionSpace.exterior_facet_node_map.__doc__
+
+    def vector(self):
+        """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
+        return vector.Vector(self.dat)
+
+    def function_space(self):
+        """Return the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
+            or :class:`.MixedFunctionSpace` on which this :class:`Function` is defined."""
+        return self._function_space
+
+    def name(self):
+        """Return the name of this :class:`Function`"""
+        return self._name
+
+    def label(self):
+        """Return the label (a description) of this :class:`Function`"""
+        return self._label
+
+    def rename(self, name=None, label=None):
+        """Set the name and or label of this :class:`Function`
+
+        :arg name: The new name of the `Function` (if not `None`)
+        :arg label: The new label for the `Function` (if not `None`)
+        """
+        if name is not None:
+            self._name = name
+        if label is not None:
+            self._label = label
+
+    def __str__(self):
+        if self._name is not None:
+            return self._name
+        else:
+            return super(Function, self).__str__()
+
+    def as_coordinates(self):
+        """Create a mesh object using this function as coordinates."""
+        if hasattr(self, '_as_coordinates'):
+            mesh = self._as_coordinates()
+            if mesh is not None:
+                return mesh
+
+        from firedrake.mesh import MeshGeometry
+        return MeshGeometry(self)
+
+
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
     domain defined by the underlying :class:`.Mesh`. Functions are
@@ -87,19 +226,15 @@ class Function(ufl.Coefficient):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
-        ufl.Coefficient.__init__(self, self._function_space.ufl_element())
-
-        self._label = "a function"
-        self.uid = utils._new_uid()
-        self._name = name or 'function_%d' % self.uid
-
-        if isinstance(val, (op2.Dat, op2.DatView)):
-            self.dat = val
+        if isinstance(val, CoordinatelessFunction):
+            if val.function_space() != self._function_space.topological:
+                raise ValueError("Function values have wrong function space.")
+            self._data = val
         else:
-            self.dat = self._function_space.make_dat(val, dtype,
-                                                     self._name, uid=self.uid)
+            self._data = CoordinatelessFunction(self._function_space.topological,
+                                                val=val, name=name, dtype=dtype)
 
-        self._repr = None
+        ufl.Coefficient.__init__(self, self.function_space().ufl_element())
         self._split = None
 
         if cachetools:
@@ -107,8 +242,17 @@ class Function(ufl.Coefficient):
             self._expression_cache = cachetools.LRUCache(maxsize=50)
         else:
             self._expression_cache = None
+
         if isinstance(function_space, Function):
             self.assign(function_space)
+
+    @property
+    def topological(self):
+        """The underlying coordinateless function."""
+        return self._data
+
+    def __getattr__(self, name):
+        return getattr(self._data, name)
 
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
@@ -136,39 +280,6 @@ class Function(ufl.Coefficient):
                             name="view[%d](%s)" % (i, self.name()))
         return self.split()[i]
 
-    @property
-    def cell_set(self):
-        """The :class:`pyop2.Set` of cells for the mesh on which this
-        :class:`Function` is defined."""
-        return self._function_space._mesh.cell_set
-
-    @property
-    def node_set(self):
-        """A :class:`pyop2.Set` containing the nodes of this
-        :class:`Function`. One or (for
-        :class:`.VectorFunctionSpace`\s) more degrees of freedom are
-        stored at each node.
-        """
-        return self._function_space.node_set
-
-    @property
-    def dof_dset(self):
-        """A :class:`pyop2.DataSet` containing the degrees of freedom of
-        this :class:`Function`."""
-        return self._function_space.dof_dset
-
-    def cell_node_map(self, bcs=None):
-        return self._function_space.cell_node_map(bcs)
-    cell_node_map.__doc__ = functionspace.FunctionSpace.cell_node_map.__doc__
-
-    def interior_facet_node_map(self, bcs=None):
-        return self._function_space.interior_facet_node_map(bcs)
-    interior_facet_node_map.__doc__ = functionspace.FunctionSpace.interior_facet_node_map.__doc__
-
-    def exterior_facet_node_map(self, bcs=None):
-        return self._function_space.exterior_facet_node_map(bcs)
-    exterior_facet_node_map.__doc__ = functionspace.FunctionSpace.exterior_facet_node_map.__doc__
-
     def project(self, b, *args, **kwargs):
         """Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
         :class:`Expression`.
@@ -180,39 +291,10 @@ class Function(ufl.Coefficient):
         from firedrake import projection
         return projection.project(b, self, *args, **kwargs)
 
-    def vector(self):
-        """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self.dat)
-
     def function_space(self):
         """Return the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
             or :class:`.MixedFunctionSpace` on which this :class:`Function` is defined."""
         return self._function_space
-
-    def name(self):
-        """Return the name of this :class:`Function`"""
-        return self._name
-
-    def label(self):
-        """Return the label (a description) of this :class:`Function`"""
-        return self._label
-
-    def rename(self, name=None, label=None):
-        """Set the name and or label of this :class:`Function`
-
-        :arg name: The new name of the `Function` (if not `None`)
-        :arg label: The new label for the `Function` (if not `None`)
-        """
-        if name is not None:
-            self._name = name
-        if label is not None:
-            self._label = label
-
-    def __str__(self):
-        if self._name is not None:
-            return self._name
-        else:
-            return super(Function, self).__str__()
 
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
@@ -677,7 +759,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     coordinates = function_space.mesh().coordinates
     coordinates_ufl_element = coordinates.function_space().ufl_element()
 
-    src = compile_element(ufl_element, coordinates_ufl_element, function_space.cdim)
+    src = compile_element(ufl_element, coordinates_ufl_element, function_space.dim)
 
     src += make_wrapper(coordinates,
                         forward_args=["void*", "double*", "int*"],
