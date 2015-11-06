@@ -199,6 +199,9 @@ def apt_install(names):
 
 def git_clone(url):
     name = url.split(".git")[0].split("#")[0].split("/")[-1]
+    if name == "petsc" and args.honour_petsc_dir:
+        stdout.write("Using existing petsc installation\n")
+        return name
     stdout.write("Cloning %s\n" % name)
     spliturl = url.split("://")[1].split("#")[0].split("@")
     try:
@@ -436,10 +439,11 @@ if mode == "install":
     run_pip(["Cython>=0.22"])
 
     # Need to install petsc first in order to resolve hdf5 dependency.
-    sudopip.append("--no-deps")
-    packages.remove("petsc")
-    install("petsc/")
-    sudopip.pop()
+    if not args.honour_petsc_dir:
+        sudopip.append("--no-deps")
+        packages.remove("petsc")
+        install("petsc/")
+        sudopip.pop()
 
     for p in packages:
         pip_requirements(p)
@@ -477,7 +481,8 @@ else:
         petsc_changed = False
     petsc4py_changed = git_update("petsc4py")
 
-    packages.remove("petsc")
+    if args.honour_petsc_dir:
+        packages.remove("petsc")
     packages.remove("petsc4py")
 
     for p in packages:
