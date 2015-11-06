@@ -3814,7 +3814,7 @@ class Kernel(Cached):
             # Got an AST, need to go through COFFEE for optimization and
             # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
             self._ast = code
-            self._original_ast = dcopy(ast)
+            self._original_ast = dcopy(code)
             self._code = self._ast_to_c(self._ast, self._opts)
             self._attached_info = False
         self._initialized = True
