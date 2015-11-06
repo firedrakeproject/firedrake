@@ -155,18 +155,42 @@ the object goes out of scope.  To use this approach, we use the python
    # Checkpoint file closed, continue with normal code
 
 
+Writing attributes
+------------------
+
+In addition to storing :class:`~.Function` data, it is also possible
+to store metadata in :class:`~.DumbCheckpoint` files using HDF5
+attributes.  This is carried out using h5py_ to manipulate the file.
+The interface allows setting attribute values, reading them, and
+checking if a file has a particular attribute:
+
+:meth:`~.DumbCheckpoint.write_attribute`
+
+      Write an attribute, specifying the object path the attribute
+      should be set on, the name of the attribute and its value.
+
+:meth:`~.DumbCheckpoint.read_attribute`
+
+      Read an attribute with specified name from at a given object
+      path.
+
+:meth:`~.DumbCheckpoint.has_attribute`
+
+      Check if a particular attribute exists.  Does not raise an error
+      if the object also does not exist.
+
+
 Implementation details
 ======================
 
 The on-disk representation of checkpoints is as HDF5_ files.
 Firedrake uses the PETSc_ HDF5 Viewer_ object to write and read state.
-As such, writing data is collective across processes.  Checkpoint
-files can be inspected using the Python h5py_ package.  If h5py_ is
-installed and was linked against the same version of the HDF5 library
-that PETSc was built with, it is possible to obtain a h5py
-:py:class:`h5py:File` object corresponding to an open checkpoint file
-by using :meth:`~.DumbCheckpoint.as_h5py`.  An error is raised if this
-conversion fails.
+As such, writing data is collective across processes.  h5py_ is used
+for attribute manipulation.  To this end, h5py_ *must* be linked
+against the same version of the HDF5 library that PETSc was built
+with.  The ``firedrake-install`` script automates this, however, if
+you build PETSc manually, you will need to ensure that h5py_ is linked
+correctly following the instructions for custom installation here_.
 
 .. warning::
 
@@ -185,3 +209,5 @@ conversion fails.
 
 .. _Viewer: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Viewer/index.html
 .. _h5py: http://www.h5py.org
+
+.. _here: http://docs.h5py.org/en/latest/build.html#custom-installation
