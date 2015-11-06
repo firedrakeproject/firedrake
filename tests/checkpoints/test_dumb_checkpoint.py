@@ -22,14 +22,16 @@ def fs(request):
 
 @pytest.fixture
 def dumpfile(tmpdir):
-    return str(tmpdir.join("dump.h5"))
+    return str(tmpdir.join("dump"))
 
 
 @pytest.fixture(scope="module")
 def f():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
-    return Function(V, name="f")
+    f = Function(V, name="f")
+    f.interpolate(Expression("x[0]*x[1]"))
+    return f
 
 
 def run_store_load(mesh, fs, degree, dumpfile):
@@ -117,6 +119,45 @@ def test_store_read_only_ioerror(f, dumpfile):
     with DumbCheckpoint(dumpfile, mode=FILE_READ) as chk:
         with pytest.raises(IOError):
             chk.store(f)
+
+
+def test_multiple_timesteps(f, dumpfile):
+    with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
+        chk.set_timestep(0.1)
+        chk.store(f)
+        chk.set_timestep(0.2)
+        chk.store(f)
+
+        steps, indices = chk.get_timesteps()
+
+        assert np.allclose(steps, [0.1, 0.2])
+        assert np.allclose(indices, [0, 1])
+
+
+def test_new_file(f, dumpfile):
+    with DumbCheckpoint(dumpfile, single_file=False, mode=FILE_CREATE) as chk:
+        chk.store(f)
+        chk.new_file()
+        chk.store(f)
+        chk.new_file(name="custom")
+        chk.store(f)
+
+    with DumbCheckpoint("%s_1" % dumpfile, mode=FILE_READ) as chk:
+        g = Function(f.function_space(), name=f.name())
+        chk.load(g)
+        assert np.allclose(g.dat.data_ro, f.dat.data_ro)
+
+    with DumbCheckpoint("custom", mode=FILE_READ) as chk:
+        g = Function(f.function_space(), name=f.name())
+        chk.load(g)
+        assert np.allclose(g.dat.data_ro, f.dat.data_ro)
+
+
+def test_new_file_valueerror(f, dumpfile):
+    with DumbCheckpoint(dumpfile, single_file=True, mode=FILE_CREATE) as chk:
+        chk.store(f)
+        with pytest.raises(ValueError):
+            chk.new_file()
 
 
 if __name__ == "__main__":
