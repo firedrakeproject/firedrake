@@ -2,6 +2,8 @@ from __future__ import absolute_import
 import numpy as np
 import ufl
 import weakref
+from FIAT.finite_element import facet_support_dofs
+from FIAT.tensor_finite_element import horiz_facet_support_dofs, vert_facet_support_dofs
 
 import coffee.base as ast
 
@@ -82,7 +84,7 @@ class FunctionSpaceBase(ObjectCached):
             self.bt_masks = {}
             self.bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
             # Geometric facet dofs
-            facet_dofs = self.fiat_element.horiz_facet_support_dofs()
+            facet_dofs = horiz_facet_support_dofs(self.fiat_element)
             self.bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
 
             self.extruded = True
@@ -427,9 +429,9 @@ class FunctionSpaceBase(ObjectCached):
                 # asking for the nodes that live on the "vertical"
                 # exterior facets.  Hence we don't need to worry about
                 # horiz_facet_support_dofs as well.
-                boundary_dofs = el.vert_facet_support_dofs()
+                boundary_dofs = vert_facet_support_dofs(el)
             else:
-                boundary_dofs = el.facet_support_dofs()
+                boundary_dofs = facet_support_dofs(el)
 
         nodes_per_facet = \
             len(boundary_dofs[0])
