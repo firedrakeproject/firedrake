@@ -233,6 +233,11 @@ library and requires:
 * an MPI implementation built with *shared libraries* 
 * A suitable very recent PETSc_ master branch built with *shared libraries*
 
+The version of PETSc_ you install *must* be configured with HDF5
+support.  This either requires appropriate operating system packages,
+or else asking PETSc_ to download and build a compatible HDF5
+(instructions below).
+
 If you have a suitable PETSc_ installed on your system, ``PETSC_DIR``
 and ``PETSC_ARCH`` need to be set for the petsc4py_ installer to find
 it. 
@@ -250,10 +255,11 @@ it.
 
 Then install PETSc_ via ``pip`` ::
 
-  sudo PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco" \
+  sudo PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco --download-hdf5" \
     pip install https://bitbucket.org/mapdes/petsc/get/firedrake.tar.bz2
   unset PETSC_DIR
   unset PETSC_ARCH
+
 
 .. note::
 
@@ -411,13 +417,8 @@ HDF5
 
 PyOP2 allows initializing data structures using data stored in HDF5
 files. To use this feature you need the optional dependency
-`h5py <http://h5py.org>`__.
-
-On a Debian-based system, run::
-
-  sudo apt-get install libhdf5-mpi-dev python-h5py
-
-Alternatively, if the HDF5 library is available, ``sudo pip install h5py``.
+`h5py <http://h5py.org>`__.  This installation should be linked
+against the *same* version of the HDF5 library used to build PETSc_.
 
 .. _pyop2-install:
 
