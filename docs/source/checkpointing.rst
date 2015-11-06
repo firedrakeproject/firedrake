@@ -61,8 +61,10 @@ truncating any existing contents we use:
 
 .. code-block:: python
 
-   chk = DumbCheckpoint("dump.h5", mode=FILE_WRITE)
+   chk = DumbCheckpoint("dump", mode=FILE_WRITE)
 
+note how we only provide the base name of the on-disk file, ``".h5"`` is
+appended automatically.
 
 Storing data
 ------------
@@ -178,6 +180,84 @@ checking if a file has a particular attribute:
 
       Check if a particular attribute exists.  Does not raise an error
       if the object also does not exist.
+
+
+Support for multiple timesteps
+------------------------------
+
+The checkpoint object supports multiple timesteps in the same on-disk
+file.  The primary interface to this is via
+:meth:`~.DumbCheckpoint.set_timestep`.  If never called on a
+checkpoint file, no timestep support is enabled, and storing a
+:class:`~.Function` with the same name as an existing object
+overwrites it (data is stored in the HDF5 group ``"/fields"``).  If
+one wishes to store multiple timesteps, one should call
+:meth:`~.DumbCheckpoint.set_timestep`, providing the timestep value
+(and optionally a timestep "index").  Storing a :class:`~.Function`
+will now write to the group ``"/fields/IDX"``.  To store the same
+function at a different time level, we just call
+:meth:`~.DumbCheckpoint.set_timestep` again with a new timestep
+value.
+
+Inspecting available time levels
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The stored time levels in the checkpoint object are available as
+attributes in the file.  They may be inspected by calling
+:meth:`~.DumbCheckpoint.get_timesteps`.  This returns a list of the
+timesteps stored in the file, along with the indices they map to.  In
+addition, the timestep value is available as an attribute on the
+appropriate field group: reading the attribute
+``"/fields/IDX/timestep"`` returns the timestep value corresponding to
+``IDX``.
+
+Support for multiple on-disk files
+----------------------------------
+
+For large simulations, it may not be expedient to store all timesteps
+in the same on-disk file.  To this end, the :class:`~.DumbCheckpoint`
+object offers the facility to retain the same checkpoint object, but
+change the on-disk file used to store the data.  To switch to a new
+on-disk file one uses :class:`~.DumbCheckpoint.new_file`.  There are
+two method of choosing the new file name.  If the
+:class:`~.DumbCheckpoint` object was created passing
+``single_file=False`` then calling :class:`~.DumbCheckpoint.new_file`
+without any additional arguments will use an internal counter to
+create file names by appending this counter to the provided base
+name.  This selection can be overridden by explicitly passing the
+optional ``name`` argument.
+
+As an example, consider the following sequence:
+
+.. code-block:: python
+
+   with DumbCheckpoint("dump", single_file=False, mode=FILE_CREATE) as chk:
+       chk.store(a)
+       chk.store(b)
+       chk.new_file()
+       chk.store(c)
+       chk.new_file(name="special")
+       chk.store(d)
+       chk.new_file()
+       chk.store(e)
+
+Will create four on-disk files:
+
+``dump_0.h5``
+
+   Containing ``a`` and ``b``;
+
+``dump_1.h5``
+
+   Containing ``c``;
+
+``special.h5``
+
+   Containing ``d``;
+
+``dump_2.h5``
+
+   Containing ``e``.
 
 
 Implementation details
