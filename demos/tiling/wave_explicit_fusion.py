@@ -34,8 +34,6 @@ mesh.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
 
 slope(mesh, debug=True)
 
-# Remove trace bound to avoid running inspections over and over
-configuration['lazy_max_trace_length'] = 0
 # Switch on PyOP2 profiling
 configuration['profiling'] = True
 
@@ -59,6 +57,7 @@ if output:
     outfile = File("out.pvd")
     phifile = File("phi.pvd")
 
+start = time()
 while t <= T:
     with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode,
                     partitioning=part_mode, extra_halo=extra_halo):
@@ -71,12 +70,8 @@ while t <= T:
         phi -= dt / 2 * p
 
         t += dt
-
-# Force evaluation of the PyOP2 trace
-start = time()
-with timed_region("Time stepping"):
-    phi.dat._force_evaluation()
 end = time()
+
 print phi.dat.data
 
 # Print runtime summary

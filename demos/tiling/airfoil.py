@@ -11,7 +11,6 @@ from utils.benchmarking import parser
 import slope_python
 
 
-configuration['lazy_max_trace_length'] = 0
 configuration['profiling'] = True
 
 
