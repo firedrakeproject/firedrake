@@ -820,6 +820,7 @@ class Inspector(Cached):
         self._loop_chain = loop_chain
         self._mode = options.pop('mode')
         self._options = options
+        self._schedule = PlainSchedule([loop.kernel for loop in self._loop_chain])
 
     def inspect(self):
         """Inspect the loop chain and produce a :class:`Schedule`."""
@@ -832,14 +833,13 @@ class Inspector(Cached):
             del self._loop_chain
             del self._mode
             del self._options
-            return PlainSchedule()
+            return self._schedule
 
         # Is `mode` legal ?
         if self.mode not in Inspector._modes:
             raise RuntimeError("Inspection accepts only %s fusion modes", Inspector._modes)
 
         with timed_region("ParLoopChain `%s`: inspector" % self._name):
-            self._schedule = PlainSchedule([loop.kernel for loop in self._loop_chain])
             if self.mode in ['soft', 'hard', 'tile']:
                 self._soft_fuse()
             if self.mode in ['hard', 'tile']:
@@ -1362,6 +1362,10 @@ class Inspector(Cached):
     def mode(self):
         return self._mode
 
+    @property
+    def schedule(self):
+        return self._schedule
+
 
 # Loop fusion interface
 
@@ -1383,23 +1387,35 @@ def fuse(name, loop_chain, **kwargs):
 
         * a global reduction/write occurs in ``loop_chain``
     """
-    mode = kwargs.get('mode', 'hard')
-    force_glb = kwargs.get('force_glb', False)
-
     # If there is nothing to fuse, just return
     if len(loop_chain) in [0, 1]:
         return loop_chain
 
-    # Search for _Assembly objects since they introduce a synchronization point;
-    # that is, loops cannot be fused across an _Assembly object. In that case, try
-    # to fuse only the segment of loop chain right before the synchronization point
+    # Are there _Assembly objects (i.e., synch points) preventing fusion?
     remainder = []
     synch_points = [l for l in loop_chain if isinstance(l, Mat._Assembly)]
     if synch_points:
         if len(synch_points) > 1:
             warning("Fusing loops and found more than one synchronization point")
+        # Fuse only the sub-sequence before the first synch point
         synch_point = loop_chain.index(synch_points[0])
         remainder, loop_chain = loop_chain[synch_point:], loop_chain[:synch_point]
+
+    # Get an inspector for fusing this /loop_chain/. If there's a cache hit,
+    # return the fused par loops straight away. Otherwise, try to run an inspection.
+    options = {
+        'mode': kwargs.get('mode', 'hard'),
+        'tile_size': kwargs.get('tile_size', 1),
+        'partitioning': kwargs.get('partitioning', 'chunk'),
+        'extra_halo': kwargs.get('extra_halo', False)
+    }
+    inspector = Inspector(name, loop_chain, **options)
+    if inspector._initialized:
+        return inspector.schedule(loop_chain) + remainder
+
+    # Otherwise, is the inspection legal ?
+    mode = kwargs.get('mode', 'hard')
+    force_glb = kwargs.get('force_glb', False)
 
     # If there is nothing left to fuse (e.g. only _Assembly objects were present), return
     if len(loop_chain) in [0, 1]:
@@ -1435,15 +1451,6 @@ def fuse(name, loop_chain, **kwargs):
     if mode in ['tile', 'only_tile'] and not slope:
         return loop_chain + remainder
 
-    # Get an inspector for fusing this /loop_chain/, possibly retrieving it from
-    # cache, and fuse the parloops through the scheduler produced by inspection
-    options = {
-        'mode': mode,
-        'tile_size': kwargs.get('tile_size', 1),
-        'partitioning': kwargs.get('partitioning', 'chunk'),
-        'extra_halo': kwargs.get('extra_halo', False)
-    }
-    inspector = Inspector(name, loop_chain, **options)
     schedule = inspector.inspect()
     return schedule(loop_chain) + remainder
 
@@ -1522,6 +1529,8 @@ def loop_chain(name, **kwargs):
         bottom = trace.index(total_loop_chain[0])
         trace[bottom:] = fuse(name, total_loop_chain, **kwargs)
         loop_chain.unrolled_loop_chain = []
+        # We can now force the evaluation of the trace. This frees resources.
+        _trace.evaluate_all()
     else:
         loop_chain.unrolled_loop_chain.extend(extracted_trace)
 loop_chain.unrolled_loop_chain = []
