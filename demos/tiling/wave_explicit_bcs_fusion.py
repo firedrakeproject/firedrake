@@ -22,6 +22,9 @@ mode = args.fusion_mode
 part_mode = args.part_mode
 extra_halo = args.extra_halo
 
+# Sanity check of the input
+assert num_unroll in [0, 1], "Cannot run with unroll factor > 1 (bcs not in trace)"
+
 # Constants
 loop_chain_length = 4
 num_solves = 1
@@ -34,8 +37,6 @@ mesh.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
 
 slope(mesh, debug=True)
 
-# Remove trace bound to avoid running inspections over and over
-configuration['lazy_max_trace_length'] = 0
 # Switch on PyOP2 profiling
 configuration['profiling'] = True
 
@@ -74,6 +75,7 @@ dphi = 0.5 * dtc * p
 dp = dtc * Ml * b
 
 # 2) Solve -- Timestepping
+start = time()
 while t < N*dt:
     with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode,
                     partitioning=part_mode, extra_halo=extra_halo):
@@ -90,11 +92,6 @@ while t < N*dt:
         phi -= dphi
 
         t += dt
-
-# Force evaluation of the PyOP2 trace
-start = time()
-with timed_region("Time stepping"):
-    phi.dat._force_evaluation()
 end = time()
 
 # Print runtime summary
