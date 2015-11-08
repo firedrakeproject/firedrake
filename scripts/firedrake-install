@@ -357,10 +357,19 @@ elif osname == "Linux":
             raise InstallError
         check_call(["apt-get", "--version"])
 
-        apt_packages = ["build-essential", "python-dev", "git-core",
-                        "mercurial", "python-pip", "libopenmpi-dev", "openmpi-bin",
-                        "libblas-dev", "liblapack-dev", "libspatialindex-dev",
-                        "gfortran", "cmake", "swig"]
+        apt_packages = ["build-essential",
+                        "cmake",
+                        "gfortran",
+                        "git-core",
+                        "libblas-dev",
+                        "liblapack-dev",
+                        "libopenmpi-dev",
+                        "libspatialindex-dev",
+                        "mercurial",
+                        "openmpi-bin",
+                        "python-dev",
+                        "python-pip",
+                        "swig"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
