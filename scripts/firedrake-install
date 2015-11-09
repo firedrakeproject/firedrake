@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+import logging
 import platform
 import subprocess
 import sys
@@ -167,28 +168,32 @@ else:
             os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
 
 
-class Log(object):
-    """Class to enable logging to screen and logfile at once."""
-    def __init__(self, screen, log):
-        self.files = [screen]
-        if log:
-            self.files.append(log)
-
-    def write(self, string):
-        for f in self.files:
-            f.write(string)
-
-log = file("firedrake-%s.log" % mode, "w") if args.log else None
-stdout = Log(sys.stdout, log)
-stderr = Log(sys.stderr, log)
+# Set up logging
+if args.log:
+    # Log to file at DEBUG level
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(levelname)-6s %(message)s',
+                        filename='firedrake-%s.log' % mode,
+                        filemode='w')
+    # Log to console at INFO level
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger().addHandler(console)
+else:
+    # Log to console at INFO level
+    logging.basicConfig(level=logging.INFO,
+                        format='%(message)s')
+log = logging.getLogger()
 
 
 def check_call(arguments):
     if args.log:
         try:
-            stdout.write(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
+            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
         except subprocess.CalledProcessError as e:
-            stdout.write(e.output)
+            log.debug(e.output)
             raise
     else:
         subprocess.check_call(arguments)
@@ -198,7 +203,7 @@ def check_output(args):
     try:
         return subprocess.check_output(args, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as e:
-        stdout.write(e.output)
+        log.debug(e.output)
         raise
 
 
@@ -217,19 +222,19 @@ def brew_install(name, options=None):
 
 
 def apt_check(name):
-    stdout.write("Checking for presence of package %s..." % name)
+    log.info("Checking for presence of package %s..." % name)
     # Note that subprocess return codes have the opposite logical
     # meanings to those of Python variables.
     if not subprocess.call(["dpkg-query", "-s", name]):
-        stdout.write("installed.\n")
+        log.info("  installed.\n")
         return True
     else:
-        stdout.write("missing.\n")
+        log.info("  missing.\n")
         return False
 
 
 def apt_install(names):
-    stdout.write("Installing missing packages: %s.\n" % ", ".join(names))
+    log.info("Installing missing packages: %s.\n" % ", ".join(names))
     subprocess.check_call(["sudo", "apt-get", "install"] + names)
 
 
@@ -242,9 +247,9 @@ def split_requirements_url(url):
 def git_clone(url):
     name, spliturl = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
-        stdout.write("Using existing petsc installation\n")
+        log.info("Using existing petsc installation\n")
         return name
-    stdout.write("Cloning %s\n" % name)
+    log.info("Cloning %s\n" % name)
     try:
         plainurl, branch = spliturl
     except ValueError:
@@ -256,21 +261,21 @@ def git_clone(url):
         if args.disable_ssh:
             raise Exception
         check_call(["git", "clone", "-q", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
-        stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
+        log.info("Successfully cloned %s branch %s.\n" % (name, branch))
     except:
         if not args.disable_ssh:
-            stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
+            log.warn("Failed to clone %s using ssh, falling back to https.\n" % name)
         try:
             check_call(["git", "clone", "-q", "-b", branch, "https://%s" % plainurl])
-            stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
+            log.info("Successfully cloned %s branch %s.\n" % (name, branch))
         except subprocess.CalledProcessError:
-            stderr.write("Failed to clone %s branch %s.\n" % (name, branch))
+            log.error("Failed to clone %s branch %s.\n" % (name, branch))
             raise
     return name
 
 
 def list_cloned_dependencies(name):
-    stdout.write("Finding dependencies of %s\n" % name)
+    log.info("Finding dependencies of %s\n" % name)
     deps = OrderedDict()
     for dep in open(name + "/requirements-git.txt", "r"):
         name, _ = split_requirements_url(dep.strip())
@@ -279,7 +284,7 @@ def list_cloned_dependencies(name):
 
 
 def clone_dependencies(name):
-    stdout.write("Cloning the dependencies of %s\n" % name)
+    log.info("Cloning the dependencies of %s\n" % name)
     deps = []
     for dep in open(name + "/requirements-git.txt", "r"):
         deps.append(git_clone(dep.strip()))
@@ -288,7 +293,7 @@ def clone_dependencies(name):
 
 def git_update(name):
     # Update the named git repo and return true if the current branch actually changed.
-    stdout.write("Updating the git repository for %s\n" % name)
+    log.info("Updating the git repository for %s\n" % name)
     os.chdir(name)
     git_sha = check_output(["git", "rev-parse", "HEAD"])
     # Disgusting hack, on travis we've checked out a detached head.
@@ -308,7 +313,7 @@ def git_update(name):
 
 
 def run_pip(args):
-    stdout.write(" ".join(sudopip + args) + "\n")
+    log.info(" ".join(sudopip + args) + "\n")
     check_call(sudopip + args)
 
 
@@ -318,23 +323,23 @@ def run_pip_install(pipargs):
         # subprocesses wrote out.
         # Particularly important for debugging petsc fails.
         pipargs = ["-vvv"] + pipargs
-    stdout.write(" ".join(pipinstall + pipargs) + "\n")
+    log.info(" ".join(pipinstall + pipargs) + "\n")
     check_call(pipinstall + pipargs)
 
 
 def run_cmd(args):
-    stdout.write(" ".join(args) + "\n")
+    log.info(" ".join(args) + "\n")
     check_call(args)
 
 
 def pip_requirements(package):
-    stdout.write("Installing pip dependencies for %s\n" % package)
+    log.info("Installing pip dependencies for %s\n" % package)
     if os.path.isfile("%s/requirements-ext.txt" % package):
         run_pip_install(["-r", "%s/requirements-ext.txt" % package])
     elif os.path.isfile("%s/requirements.txt" % package):
         run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
-        stdout.write("No dependencies found. Skipping.\n")
+        log.info("No dependencies found. Skipping.\n")
 
 
 if travis:
@@ -390,12 +395,12 @@ if travis:
         installed_dep = find_installed_dep(dep)
 
         if installed_dep is None:
-            stdout.write("Did not find installation of %s, not writing cache\n" % dep)
+            log.info("Did not find installation of %s, not writing cache\n" % dep)
             return
 
         src_hash = get_src_hash(src_dep)
         if src_hash is None:
-            stdout.write("Didn't find hash of source tree %s, not writing cache\n" % src_dep)
+            log.info("Didn't find hash of source tree %s, not writing cache\n" % src_dep)
             return
 
         cache_hash = get_cache_hash(cached_dep)
@@ -403,13 +408,13 @@ if travis:
         # If we're here, cache_hash might be None, but src_hash will not be
         if cache_hash == src_hash:
             # No need to update cache
-            stdout.write("Cache %s is already up to date\n" % cached_dep)
+            log.info("Cache %s is already up to date\n" % cached_dep)
             return
 
         shutil.rmtree(cached_dep, ignore_errors=True)
         shutil.copytree(installed_dep, cached_dep)
         write_cache_hash(cached_dep, src_hash)
-        stdout.write("Successfully wrote cache %s\n" % cached_dep)
+        log.info("Successfully wrote cache %s\n" % cached_dep)
 
     def restore_cache(dep, src_dir, cache_dir, dest_dir):
         cached_dep = os.path.join(cache_dir, dep)
@@ -417,14 +422,14 @@ if travis:
 
         cache_hash = get_cache_hash(cached_dep)
         if cache_hash is None:
-            stdout.write("No cache for %s found at %s\n" % (dep, cached_dep))
+            log.info("No cache for %s found at %s\n" % (dep, cached_dep))
             return False
 
         if os.path.exists(cached_dep):
-            stdout.write("Found cache for %s at %s with hash %s\n" % (dep, cached_dep, cache_hash))
+            log.info("Found cache for %s at %s with hash %s\n" % (dep, cached_dep, cache_hash))
 
         if not os.path.exists(src_dir):
-            stdout.write("No source directory for %s found, can't check cache validity\n" % src_dir)
+            log.info("No source directory for %s found, can't check cache validity\n" % src_dir)
             # Outer install loop should handle this case
             return False
 
@@ -432,25 +437,25 @@ if travis:
 
         # At this point, src_hash may be None, but cache_hash will not be
         if src_hash == cache_hash:
-            stdout.write("Cache is up to date for %s, using it\n" % dep)
+            log.info("Cache is up to date for %s, using it\n" % dep)
             # Ensure this directory doesn't exist
             shutil.rmtree(installed_dep, ignore_errors=True)
             shutil.copytree(cached_dep, installed_dep)
             return True
-        stdout.write("Cache was not up to date for %s (had key %s, needed %s)\n" %
-                     (dep, cache_hash, src_hash))
+        log.info("Cache was not up to date for %s (had key %s, needed %s)\n" %
+                 (dep, cache_hash, src_hash))
         return False
 
 
 def install(package):
-    stdout.write("Installing %s\n" % package)
+    log.info("Installing %s\n" % package)
     if travis and travis_cache_dir and package in ["petsc/", "petsc4py/"]:
         # Try installing from travis cache
         src_dir = os.path.abspath(package)
         dest_dir = sitepackages
         installed = restore_cache(package, src_dir, travis_cache_dir, dest_dir)
         if installed:
-            stdout.write("Installed %s from travis cache %s\n" % (package, travis_cache_dir))
+            log.info("Installed %s from travis cache %s\n" % (package, travis_cache_dir))
             return
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
     if args.developer and package not in ["petsc/", "petsc4py/"]:
@@ -460,14 +465,14 @@ def install(package):
 
 
 def clean(package):
-    stdout.write("Cleaning %s\n" % package)
+    log.info("Cleaning %s\n" % package)
     os.chdir(package)
     check_call(["python", "setup.py", "clean"])
     os.chdir("..")
 
 
 def get_h5py():
-    stdout.write("Downloading h5py\n")
+    log.info("Downloading h5py\n")
     import urllib
     urllib.urlretrieve("https://github.com/h5py/h5py/archive/2.5.0.tar.gz",
                        "h5py.tar.gz")
@@ -475,7 +480,7 @@ def get_h5py():
 
 
 def pip_uninstall(package):
-    stdout.write("Removing existing %s installations\n" % package)
+    log.info("Removing existing %s installations\n" % package)
     # Uninstalling something with pip is an absolute disaster.  We
     # have to use pip freeze to list all available packages "locally"
     # and keep on removing the one we want until it is gone from this
@@ -506,7 +511,7 @@ def pip_uninstall(package):
 def build_and_install_h5py():
     pip_uninstall("h5py")
 
-    stdout.write("Installing h5py\n")
+    log.info("Installing h5py\n")
     if os.path.exists("h5py-2.5.0"):
         clean("h5py-2.5.0")
     else:
@@ -527,7 +532,7 @@ def build_and_install_h5py():
             raise InstallError("Unable to find installed PETSc when building h5py")
 
     hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
-    stdout.write("Linking h5py against PETSc found in %s\n" % hdf5_dir)
+    log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
     oldcc = os.environ.get("CC", None)
     os.environ["CC"] = args.mpicc
     run_cmd(python + ["setup.py", "configure", "--hdf5=%s" % hdf5_dir])
@@ -549,12 +554,12 @@ def clean_obsolete_packages():
 
 
 def quit(message):
-    stderr.write(message)
+    log.error(message)
     sys.exit(1)
 
 
 def build_update_script():
-    stdout.write("Creating firedrake-update script.\n")
+    log.info("Creating firedrake-update script.\n")
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
@@ -576,23 +581,23 @@ if travis and travis_cache_dir and mode == "install" and args.write_cache:
     src_dir = os.path.abspath("src")
     write_cache("petsc", src_dir, travis_cache_dir)
     write_cache("petsc4py", src_dir, travis_cache_dir)
-    stdout.write("Wrote caches, exiting\n")
+    log.info("Wrote caches, exiting\n")
     sys.exit(0)
 
 if args.show_petsc_configure_options:
-    stdout.write("******************************************\n")
-    stdout.write("Building PETSc with the following options:\n")
-    stdout.write("******************************************\n")
-    stdout.write("%s\n\n" % os.environ["PETSC_CONFIGURE_OPTIONS"])
+    log.info("******************************************\n")
+    log.info("Building PETSc with the following options:\n")
+    log.info("******************************************\n")
+    log.info("%s\n\n" % os.environ["PETSC_CONFIGURE_OPTIONS"])
 
 if args.rebuild_script:
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
 
     build_update_script()
 
-    stdout.write("Successfully rebuilt firedrake-update.\n\n")
+    log.info("Successfully rebuilt firedrake-update.\n\n")
 
-    stdout.write("To upgrade firedrake, run firedrake-update\n")
+    log.info("To upgrade firedrake, run firedrake-update\n")
     sys.exit(0)
 
 
@@ -626,7 +631,7 @@ if osname == "Darwin":
         except:
             quit("Xcode not found. Please install xcode from the App Store and try again.")
 
-        stdout.write("Installing command line tools...\n")
+        log.info("Installing command line tools...\n")
         try:
             check_call(["xcode-select", "--install"])
         except subprocess.CalledProcessError:
@@ -638,7 +643,7 @@ if osname == "Darwin":
         except:
             quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
-        stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
+        log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
         # Ensure a fortran compiler is available
         brew_install("gcc")
         brew_install("openmpi")
@@ -647,7 +652,7 @@ if osname == "Darwin":
         brew_install("spatialindex")
 
     else:
-        stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
+        log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
 
 elif osname == "Linux":
     # Check for apt.
@@ -674,28 +679,28 @@ elif osname == "Linux":
             apt_install(missing_packages)
 
     except (subprocess.CalledProcessError, InstallError):
-        stdout.write("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
-        stdout.write("If this is not the case, please install the following and try again:\n")
-        stdout.write("* A C and C++ compiler (for example gcc/g++ or clang), GNU make\n")
-        stdout.write("* A Fortran compiler (for PETSc)\n")
-        stdout.write("* MPI\n")
-        stdout.write("* Blas and Lapack\n")
-        stdout.write("* Git, Mercurial\n")
-        stdout.write("* Python version 2.7\n")
-        stdout.write("* pip and the Python headers\n")
-        stdout.write("* CMake\n")
-        stdout.write("* libspatialindex and headers\n")
+        log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
+        log.info("If this is not the case, please install the following and try again:\n")
+        log.info("* A C and C++ compiler (for example gcc/g++ or clang), GNU make\n")
+        log.info("* A Fortran compiler (for PETSc)\n")
+        log.info("* MPI\n")
+        log.info("* Blas and Lapack\n")
+        log.info("* Git, Mercurial\n")
+        log.info("* Python version 2.7\n")
+        log.info("* pip and the Python headers\n")
+        log.info("* CMake\n")
+        log.info("* libspatialindex and headers\n")
 
 else:
-    stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
+    log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
 
 
 if args.system and mode == "install":
-    stdout.write("Creating firedrake directory structure.\n")
+    log.info("Creating firedrake directory structure.\n")
     try:
         os.mkdir("firedrake")
     except OSError:
-        stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
+        log.error("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
         raise
 
 elif not args.system:
@@ -703,14 +708,14 @@ elif not args.system:
         try:
             import virtualenv
         except:
-            stdout.write("Installing virtualenv.\n")
+            log.info("Installing virtualenv.\n")
             # sys.real_prefix exists if we are already in the virtualenv
             if hasattr(sys, "real_prefix"):
                 check_call(["pip", "install", "virtualenv"])
             else:
                 check_call(["pip", "install", "--user", "virtualenv"])
             quit("Virtual env installed. Please run firedrake-%s again.\n" % mode)
-        stdout.write("Creating firedrake virtualenv.\n")
+        log.info("Creating firedrake virtualenv.\n")
         virtualenv.create_environment("firedrake", site_packages=False)
         # For some reason virtualenv does not always install the latest pip.
         run_pip_install(["-U", "pip"])
@@ -817,7 +822,7 @@ else:
             git_update(p)
         except OSError as e:
             if e.errno == 2:
-                stderr.write("%s missing, cloning anew.\n" % p)
+                log.warn("%s missing, cloning anew.\n" % p)
                 git_clone(deps[p])
             else:
                 raise
@@ -850,15 +855,15 @@ else:
 
 os.chdir("../..")
 
-stdout.write("Successfully installed Firedrake.\n\n")
+log.info("Successfully installed Firedrake.\n\n")
 
-stdout.write("To upgrade firedrake, run firedrake/bin/firedrake-update\n")
+log.info("To upgrade firedrake, run firedrake/bin/firedrake-update\n")
 
 if not args.system:
-    stdout.write("\nFiredrake has been installed in a python virtualenv. You activate it with:\n\n")
-    stdout.write("  . firedrake/bin/activate\n\n")
-    stdout.write("The virtualenv can be deactivated by running:\n\n")
-    stdout.write("  deactivate\n")
+    log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n\n")
+    log.info("  . firedrake/bin/activate\n\n")
+    log.info("The virtualenv can be deactivated by running:\n\n")
+    log.info("  deactivate\n")
 
 
 if travis:
