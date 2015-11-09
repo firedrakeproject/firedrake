@@ -149,9 +149,17 @@ is to download a binary from the `paraview website <Paraview_>`_.
 Firedrake
 ---------
 
-In addition to PyOP2, you will need to install Firedrake. There are two
-routes, depending on whether you intend to contribute to Firedrake
-development.
+In addition to PyOP2, Firedrake also depends on libspatialindex_.  On
+Ubuntu and relatives type::
+
+  sudo apt-get install libspatialindex-dev
+
+while on Mac OS it's::
+
+  brew install spatialindex
+
+Now you need to install Firedrake.  There are two routes, depending on
+whether you intend to contribute to Firedrake development.
 
 For performance reasons, there are various levels of caching with
 eviction policies.  To support these, you will need to install
@@ -281,3 +289,4 @@ Finally install the Bibtex plugin::
 .. _wget: http://www.gnu.org/software/wget/
 .. _Swig: http://www.swig.org/
 .. _virtualenv: https://virtualenv.pypa.io/
+.. _libspatialindex: https://libspatialindex.github.io/
