@@ -60,17 +60,17 @@ honoured.""",
 
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
-    parser.add_argument("--disable_ssh", action="store_true",
+    parser.add_argument("--disable-ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
-    parser.add_argument("--no_package_manager", action='store_false', dest="package_manager",
+    parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
-    parser.add_argument("--minimal_petsc", action="store_true",
+    parser.add_argument("--minimal-petsc", action="store_true",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
-    parser.add_argument("--honour_petsc_dir", action="store_true",
+    parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    parser.add_argument("--rebuild_script", action="store_true",
+    parser.add_argument("--rebuild-script", action="store_true",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
-    parser.add_argument("--package_branch", type=str, nargs=2, action="append",
+    parser.add_argument("--package-branch", type=str, nargs=2, action="append",
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
 
     args = parser.parse_args()
@@ -84,7 +84,7 @@ else:
                             formatter_class=RawDescriptionHelpFormatter)
     parser.add_argument("--rebuild", action="store_true",
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
-    parser.add_argument("--honour_petsc_dir", action="store_true",
+    parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
@@ -311,7 +311,7 @@ if args.rebuild_script:
 if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
---honour_petsc_dir option.
+--honour-petsc-dir option.
 """)
 
 
@@ -378,7 +378,7 @@ elif osname == "Linux":
     except (subprocess.CalledProcessError, InstallError):
         stdout.write("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.\n")
         stdout.write("If this is not the case, please install the following and try again:\n")
-        stdout.write("* A C and C++ compiler (for example gcc/g++ or clang/clang++), GNU make\n")
+        stdout.write("* A C and C++ compiler (for example gcc/g++ or clang), GNU make\n")
         stdout.write("* A Fortran compiler (for PETSc)\n")
         stdout.write("* MPI\n")
         stdout.write("* Blas and Lapack\n")
