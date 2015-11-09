@@ -57,4 +57,4 @@ install:
 # command to run tests
 script:
   - make lint
-  - for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t}; done
+  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
