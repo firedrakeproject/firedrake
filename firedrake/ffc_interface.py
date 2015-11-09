@@ -56,14 +56,9 @@ def sum_integrands(form):
     for integral in form.integrals():
         md = integral.metadata()
         mdkey = tuple((k, md[k]) for k in sorted(md.keys()))
-        sd = integral.subdomain_data()
-        # subdomain data is a weakref
-        sd = sd()
-        assert sd is not None, "Lost reference to subdomain data, argh!"
         integrals[(integral.integral_type(),
                    integral.domain(),
                    integral.subdomain_id(),
-                   sd,
                    mdkey)].append(integral)
     return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
                  for it in integrals.values()])

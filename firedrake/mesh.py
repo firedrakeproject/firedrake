@@ -678,29 +678,6 @@ class MeshGeometry(object):
         self._coordinates = coordinates
         self._ufl_domain = ufl.Domain(coordinates)
 
-        # Add subdomain_data to the measure objects we store with
-        # the mesh.  These are weakrefs for consistency with the
-        # "global" measure objects
-        self._dx = ufl.Measure('cell', subdomain_data=weakref.ref(coordinates))
-        self._ds = ufl.Measure('exterior_facet', subdomain_data=weakref.ref(coordinates))
-        self._dS = ufl.Measure('interior_facet', subdomain_data=weakref.ref(coordinates))
-        if self.layers:
-            self._ds_t = ufl.Measure('exterior_facet_top', subdomain_data=weakref.ref(coordinates))
-            self._ds_b = ufl.Measure('exterior_facet_bottom', subdomain_data=weakref.ref(coordinates))
-            self._ds_v = ufl.Measure('exterior_facet_vert', subdomain_data=weakref.ref(coordinates))
-            self._dS_h = ufl.Measure('interior_facet_horiz', subdomain_data=weakref.ref(coordinates))
-            self._dS_v = ufl.Measure('interior_facet_vert', subdomain_data=weakref.ref(coordinates))
-        # Set the subdomain_data on all the default measures to this
-        # coordinate field.
-        # We don't set the domain on the measure since this causes
-        # an uncollectable reference in the global space (dx is
-        # global).  Furthermore, it's never used anyway.
-        for measure in [ufl.dx, ufl.ds, ufl.dS]:
-            measure._subdomain_data = weakref.ref(coordinates)
-        if self.layers:
-            for measure in [ufl.ds_t, ufl.ds_b, ufl.ds_v, ufl.dS_h, ufl.dS_v]:
-                measure._subdomain_data = weakref.ref(coordinates)
-
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
         this is carried out automatically, however, in some cases (for
@@ -785,9 +762,9 @@ class MeshGeometry(object):
         kernel = kernel.replace("gdim", str(gdim))
         kernel = kernel.replace("nodes_per_cell", str(nodes_per_cell))
 
-        par_loop(kernel, self._dx, {'f': (self.coordinates, READ),
-                                    'f_min': (coords_min, RW),
-                                    'f_max': (coords_max, RW)})
+        par_loop(kernel, ufl.dx, {'f': (self.coordinates, READ),
+                                  'f_min': (coords_min, RW),
+                                  'f_max': (coords_max, RW)})
 
         # Reorder bounding boxes according to the cell indices we use
         column_list = V.cell_node_list.reshape(-1)
