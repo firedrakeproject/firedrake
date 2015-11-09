@@ -225,11 +225,12 @@ def apt_check(name):
     log.info("Checking for presence of package %s..." % name)
     # Note that subprocess return codes have the opposite logical
     # meanings to those of Python variables.
-    if not subprocess.call(["dpkg-query", "-s", name]):
-        log.info("  installed.\n")
+    try:
+        check_call(["dpkg-query", "-s", name])
+        log.info("  installed.")
         return True
-    else:
-        log.info("  missing.\n")
+    except:
+        log.info("  missing.")
         return False
 
 
