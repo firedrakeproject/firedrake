@@ -673,7 +673,7 @@ class MeshGeometry(object):
         self._topology = coordinates.function_space().mesh()
 
         # Cache mesh object on the coordinateless coordinates function
-        coordinates._as_coordinates = weakref.ref(self)
+        coordinates._as_mesh_geometry = weakref.ref(self)
 
         self._coordinates = coordinates
         self._ufl_domain = ufl.Domain(coordinates)
@@ -887,6 +887,28 @@ def Mesh(meshfile, **kwargs):
         knows its geometric and topological dimensions).
 
     """
+    import firedrake.functionspace as functionspace
+    import firedrake.function as function
+
+    if isinstance(meshfile, function.Function):
+        coordinates = meshfile.topological
+    elif isinstance(meshfile, function.CoordinatelessFunction):
+        coordinates = meshfile
+    else:
+        coordinates = None
+
+    if coordinates is not None:
+        if hasattr(coordinates, '_as_mesh_geometry'):
+            mesh = coordinates._as_mesh_geometry()
+            if mesh is not None:
+                return mesh
+
+        coordinates_fs = coordinates.function_space()
+        if not isinstance(coordinates_fs, functionspace.VectorFunctionSpace):
+            raise ValueError("Coordinates must have a VectorFunctionSpace.")
+        assert coordinates_fs.mesh().ufl_cell().topological_dimension() <= coordinates_fs.dim
+        return MeshGeometry(coordinates)
+
     utils._init()
 
     geometric_dim = kwargs.get("dim", None)
@@ -926,9 +948,6 @@ def Mesh(meshfile, **kwargs):
 
     def callback(self):
         """Finish initialisation."""
-        import firedrake.functionspace as functionspace
-        import firedrake.function as function
-
         del self._callback
         # Finish the initialisation of mesh topology
         self.topology.init()

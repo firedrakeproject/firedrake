@@ -1,6 +1,5 @@
 from firedrake import *
 import pytest
-import ufl
 
 
 def test_extruded_interval_area():
@@ -8,9 +7,8 @@ def test_extruded_interval_area():
 
     DG = VectorFunctionSpace(m, 'DG', 1)
     new_coords = project(m.coordinates, DG)
-    m = new_coords.as_coordinates()
+    m = Mesh(new_coords)
 
-    ufl.dx._subdomain_data = m.coordinates
     V = FunctionSpace(m, 'CG', 1)
     u = Function(V)
     u.assign(1)

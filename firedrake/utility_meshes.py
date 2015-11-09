@@ -190,7 +190,7 @@ cells are not currently supported")
               "old_coords": (old_coordinates, READ),
               "L": (cL, READ)})
 
-    return new_coordinates.as_coordinates()
+    return mesh.Mesh(new_coordinates)
 
 
 def PeriodicUnitIntervalMesh(ncells):
@@ -379,7 +379,7 @@ for(int i=0; i<new_coords.dofs; i++) {
               "Lx": (cLx, READ),
               "Ly": (cLy, READ)})
 
-    return new_coordinates.as_coordinates()
+    return mesh.Mesh(new_coordinates)
 
 
 def PeriodicSquareMesh(nx, ny, L, quadrilateral=False, reorder=None):
@@ -639,7 +639,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
         new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = new_coords.as_coordinates()
+        m = mesh.Mesh(new_coords)
     m._icosahedral_sphere = radius
     return m
 
@@ -846,7 +846,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
-        m = new_coords.as_coordinates()
+        m = mesh.Mesh(new_coords)
 
     return m
 

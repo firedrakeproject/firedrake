@@ -177,16 +177,6 @@ class CoordinatelessFunction(ufl.Coefficient):
         else:
             return super(Function, self).__str__()
 
-    def as_coordinates(self):
-        """Create a mesh object using this function as coordinates."""
-        if hasattr(self, '_as_coordinates'):
-            mesh = self._as_coordinates()
-            if mesh is not None:
-                return mesh
-
-        from firedrake.mesh import MeshGeometry
-        return MeshGeometry(self)
-
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the

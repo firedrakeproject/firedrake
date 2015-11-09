@@ -11,7 +11,7 @@ def test_immerse_1d(dim):
     cfs = VectorFunctionSpace(m, "Lagrange", 1, dim)
     new_coords = Function(cfs)
 
-    m = new_coords.as_coordinates()
+    m = Mesh(new_coords)
 
     assert m.ufl_cell().geometric_dimension() == dim
 
@@ -21,7 +21,7 @@ def test_immerse_2d():
     cfs = VectorFunctionSpace(m, "Lagrange", 1, 3)
     new_coords = Function(cfs)
 
-    m = new_coords.as_coordinates()
+    m = Mesh(new_coords)
 
     assert m.ufl_cell().geometric_dimension() == 3
 
@@ -31,7 +31,7 @@ def test_project_2d():
     cfs = VectorFunctionSpace(m, "Lagrange", 1, 1)
     new_coords = Function(cfs)
 
-    m = new_coords.as_coordinates()
+    m = Mesh(new_coords)
 
     assert m.ufl_cell().geometric_dimension() == 1
 
@@ -42,7 +42,7 @@ def test_immerse_extruded():
     cfs = VectorFunctionSpace(m, "Lagrange", 1, 3)
     new_coords = Function(cfs)
 
-    m = new_coords.as_coordinates()
+    m = Mesh(new_coords)
 
     assert m.ufl_cell().geometric_dimension() == 3
 
