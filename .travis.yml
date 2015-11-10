@@ -22,13 +22,11 @@ addons:
         - libblas-dev
         - liblapack-dev
         - gfortran
-        - libhdf5-mpi-dev
         - libspatialindex-dev
         - swig
 env:
   global:
-    - C_INCLUDE_PATH=/usr/lib/openmpi/include
-    - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
+    - CC=mpicc
   matrix:
     - PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
