@@ -24,17 +24,13 @@ _cells[Cell("interval", 2)] = hl.VtkLine
 _cells[Cell("interval", 3)] = hl.VtkLine
 _cells[Cell("triangle")] = hl.VtkTriangle
 _cells[Cell("triangle", 3)] = hl.VtkTriangle
-_cells[Cell("tetrahedron")] = hl.VtkTetra
-_cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
-_cells[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = hl.VtkWedge
 _cells[Cell("quadrilateral")] = hl.VtkQuad
 _cells[Cell("quadrilateral", 3)] = hl.VtkQuad
+_cells[Cell("tetrahedron")] = hl.VtkTetra
 _cells[OuterProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
-_cells[OuterProductCell(Cell("interval", 2), Cell("interval"))] = hl.VtkQuad
-_cells[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = hl.VtkQuad
-_cells[OuterProductCell(Cell("interval", 3), Cell("interval"))] = hl.VtkQuad
+_cells[OuterProductCell(Cell("interval"), Cell("interval"), gdim=3)] = hl.VtkQuad
+_cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
 _cells[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = hl.VtkHexahedron
-_cells[OuterProductCell(Cell("quadrilateral", 3), Cell("interval"))] = hl.VtkHexahedron
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -45,14 +41,10 @@ _points_per_cell[Cell("triangle", 3)] = 3
 _points_per_cell[Cell("quadrilateral")] = 4
 _points_per_cell[Cell("quadrilateral", 3)] = 4
 _points_per_cell[Cell("tetrahedron")] = 4
-_points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
-_points_per_cell[OuterProductCell(Cell("triangle", 3), Cell("interval"))] = 6
 _points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"))] = 4
-_points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"))] = 4
-_points_per_cell[OuterProductCell(Cell("interval", 2), Cell("interval"), gdim=3)] = 4
-_points_per_cell[OuterProductCell(Cell("interval", 3), Cell("interval"))] = 4
+_points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"), gdim=3)] = 4
+_points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
 _points_per_cell[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = 8
-_points_per_cell[OuterProductCell(Cell("quadrilateral", 3), Cell("interval"))] = 8
 
 
 class File(object):
