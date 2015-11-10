@@ -677,6 +677,7 @@ class MeshGeometry(object):
 
         self._coordinates = coordinates
         self._ufl_domain = ufl.Domain(coordinates)
+        self._ufl_cell = self._ufl_domain.cell()
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
@@ -704,7 +705,7 @@ class MeshGeometry(object):
 
     def ufl_cell(self):
         """The UFL :class:`~ufl.cell.Cell` associated with the mesh."""
-        return self.ufl_domain().cell()
+        return self._ufl_cell
 
     @utils.cached_property
     def _coordinates_function(self):
@@ -945,6 +946,7 @@ def Mesh(meshfile, **kwargs):
     ufl_cell = mesh.topology.ufl_cell()
     if geometric_dim is None:
         geometric_dim = ufl_cell.topological_dimension()
+    mesh._ufl_cell = ufl_cell.reconstruct(geometric_dimension=geometric_dim)
 
     def callback(self):
         """Finish initialisation."""

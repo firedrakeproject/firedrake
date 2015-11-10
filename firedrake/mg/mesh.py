@@ -21,7 +21,7 @@ class MeshHierarchy(object):
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
         """
-        if m.topology.ufl_cell().cellname() not in ["triangle", "interval"]:
+        if m.ufl_cell().cellname() not in ["triangle", "interval"]:
             raise NotImplementedError("Only supported on intervals and triangles")
         m._plex.setRefinementUniform(True)
         dm_hierarchy = []
@@ -60,7 +60,7 @@ class MeshHierarchy(object):
                 scale = m._icosahedral_sphere / np.linalg.norm(coords, axis=1).reshape(-1, 1)
                 coords *= scale
 
-        hierarchy = [m] + [mesh.Mesh(dm, dim=m.topology.ufl_cell().geometric_dimension(),
+        hierarchy = [m] + [mesh.Mesh(dm, dim=m.ufl_cell().geometric_dimension(),
                                      distribute=False, reorder=reorder)
                            for i, dm in enumerate(dm_hierarchy)]
         self._hierarchy = tuple([set_level(o, self, lvl)
