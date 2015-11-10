@@ -60,17 +60,17 @@ honoured.""",
 
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
-    parser.add_argument("--disable-ssh", action="store_true",
+    parser.add_argument("--disable-ssh", "--disable_ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
-    parser.add_argument("--no-package-manager", action='store_false', dest="package_manager",
+    parser.add_argument("--no-package-manager", "--no_package_manager", action='store_false', dest="package_manager",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
-    parser.add_argument("--minimal-petsc", action="store_true",
+    parser.add_argument("--minimal-petsc", "--minimal_petsc", action="store_true",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
-    parser.add_argument("--honour-petsc-dir", action="store_true",
+    parser.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    parser.add_argument("--rebuild-script", action="store_true",
+    parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
-    parser.add_argument("--package-branch", type=str, nargs=2, action="append",
+    parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append",
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
 
     args = parser.parse_args()
