@@ -726,7 +726,14 @@ class MeshGeometry(object):
 
     @coordinates.setter
     def coordinates(self, value):
-        raise AttributeError("You can no longer change the coordinates.")
+        message = """Cannot re-assign the coordinates.
+
+You are free to change the coordinate values, but if you need a
+different coordinate function space, use Mesh(f) to create a new mesh
+object whose coordinates are f's values.  (This will not copy the
+values from f.)"""
+
+        raise AttributeError(message)
 
     @utils.cached_property
     def spatial_index(self):
