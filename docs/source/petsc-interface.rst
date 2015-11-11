@@ -25,6 +25,9 @@ perturbation:
 
    B := A + \vec{u} \vec{v}^T.
 
+Such operators appear, for example, in limited memory quasi-Newton
+methods such as L-BFGS or Broyden.
+
 The matrix :math:`B` is dense, however its action on a vector may be
 computed in only marginally more work than computing the action of
 :math:`A` since
@@ -249,7 +252,7 @@ them from the operators in a ``setUp`` method:
 
 
 Now we extract the ``PC`` object from the ``KSP`` linear solver and
-indicate that it should use our matrix free preconditioner:
+indicate that it should use our matrix free preconditioner
 
 .. code-block:: python
 
@@ -260,6 +263,18 @@ indicate that it should use our matrix free preconditioner:
     pc.setType(pc.Type.PYTHON)
     pc.setPythonContext(MFPC())
     ksp.setFromOptions()
+
+before going on to solve the system as before:
+
+.. code-block:: python
+
+   solution = Function(V)
+
+   rhs = assemble(rhs_form)
+
+   with rhs.dat.vec_ro as b:
+       with solution.dat.vec as x:
+           ksp.solve(b, x)
 
 
 .. _Sherman-Morrison formula: https://en.wikipedia.org/wiki/Sherman%E2%80%93Morrison_formula
