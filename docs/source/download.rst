@@ -61,11 +61,11 @@ type::
 
   cd src/firedrake
   git pull
-  ./scripts/firedrake-install --rebuild_script
+  ./scripts/firedrake-install --rebuild-script
 
 You should also pass any of the other options to `firedrake-install`
 which you wish the rebuilt script to apply (for example `--user` or
-`--disable_ssh`). You should now be able to run `firedrake-update`. 
+`--disable-ssh`). You should now be able to run `firedrake-update`.
 
 
 Installing from individual components
