@@ -6,7 +6,6 @@ from collections import defaultdict
 import platform
 import math
 
-# (fancy) plotting stuff
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
@@ -191,6 +190,10 @@ def output_time(start, end, **kwargs):
 
 
 def plot():
+    # (fancy) plotting stuff
+    import matplotlib.pyplot as plt
+    import brewer2mpl
+    import matplotlib.ticker as ticker
 
     def version_as_str(num_procs, num_threads):
         if num_procs == 1 and num_threads == 1:

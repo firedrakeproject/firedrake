@@ -1,4 +1,9 @@
 from __future__ import absolute_import
+
+import sys
+# CX1 hack
+sys.path.remove('/apps/python/2.7.3/lib/python2.7/site-packages/petsc4py-3.5-py2.7-linux-x86_64.egg')
+
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc
