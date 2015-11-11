@@ -207,13 +207,18 @@ def apt_install(names):
     subprocess.check_call(["sudo", "apt-get", "install"] + names)
 
 
-def git_clone(url):
+def split_requirements_url(url):
     name = url.split(".git")[0].split("#")[0].split("/")[-1]
+    spliturl = url.split("://")[1].split("#")[0].split("@")
+    return name, spliturl
+
+
+def git_clone(url):
+    name, spliturl = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
         stdout.write("Using existing petsc installation\n")
         return name
     stdout.write("Cloning %s\n" % name)
-    spliturl = url.split("://")[1].split("#")[0].split("@")
     try:
         plainurl, branch = spliturl
     except ValueError:
@@ -236,6 +241,15 @@ def git_clone(url):
             stderr.write("Failed to clone %s branch %s.\n" % (name, branch))
             raise
     return name
+
+
+def list_cloned_dependencies(name):
+    stdout.write("Finding dependencies of %s\n" % name)
+    deps = []
+    for dep in open(name + "/requirements-git.txt", "r"):
+        name, _ = split_requirements_url(dep.strip())
+        deps.append(name)
+    return deps
 
 
 def clone_dependencies(name):
@@ -532,7 +546,9 @@ if mode == "install":
 else:
     # Update mode
     os.chdir("src")
-    packages = os.listdir(".")
+
+    packages = list_cloned_dependencies("PyOP2") + list_cloned_dependencies("firedrake")
+
     # update packages.
     if not args.honour_petsc_dir:
         petsc_changed = git_update("petsc")
@@ -540,20 +556,9 @@ else:
         petsc_changed = False
     petsc4py_changed = git_update("petsc4py")
 
-    if args.honour_petsc_dir:
-        packages.remove("petsc")
+    packages.remove("petsc")
     packages.remove("petsc4py")
 
-    try:
-        # Not actually a git package
-        packages.remove("h5py-2.5.0")
-    except ValueError:
-        pass
-    try:
-        # This is where it came from
-        packages.remove("h5py.tar.gz")
-    except ValueError:
-        pass
     for p in packages:
         git_update(p)
 
@@ -563,7 +568,7 @@ else:
     sudopip.append("--no-deps")
 
     # Only rebuild petsc if it has changed.
-    if args.rebuild or petsc_changed:
+    if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
         clean("petsc/")
         install("petsc/")
     if args.rebuild or petsc_changed or petsc4py_changed:
@@ -572,8 +577,12 @@ else:
 
     # Always rebuild h5py.
     build_and_install_h5py()
-    packages.remove("PyOP2")
-    packages.remove("firedrake")
+
+    try:
+        packages.remove("PyOP2")
+        packages.remove("firedrake")
+    except ValueError:
+        pass
     packages += ("PyOP2", "firedrake")
     for p in packages:
         clean(p)
