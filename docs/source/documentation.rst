@@ -63,6 +63,7 @@ finite element problems in Firedrake.
    extruded-meshes
    point-evaluation
    checkpointing
+   petsc-interface
 
 .. only:: html
 
