@@ -287,7 +287,7 @@ def build_update_script():
 
     for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc"]:
         update_script = update_script.replace("args.%s = False" % switch,
-                                              "args.%s = %s" % (switch, args.__getattribute__(switch)))
+                                              "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
         os.mkdir("../bin")
     except:
