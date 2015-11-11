@@ -73,6 +73,9 @@ honoured.""",
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
 
+    parser.add_argument("--mpicc", type=str,
+                        action="store", default="mpicc",
+                        help="C compiler to use when building with MPI (default is 'mpicc')")
     args = parser.parse_args()
 
     if args.package_branch:
@@ -98,6 +101,7 @@ else:
     args.package_manager = False
     args.minimal_petsc = False
     args.rebuild_script = False
+    args.mpicc = False
 
 
 # Where are packages installed relative to --root?
@@ -106,24 +110,33 @@ v = sys.version_info
 sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 path_extension = ""
 
+python = ["python"]
 if args.sudo and (args.system or args.prefix):
-    sudopip = ["sudo", "pip", "install"]
+    sudopip = ["sudo", "pip"]
+    pyinstall = ["sudo", "python", "setup.py", "install"]
 else:
-    sudopip = ["pip", "install"]
+    sudopip = ["pip"]
+    pyinstall = ["python", "setup.py", "install"]
+
+pipinstall = sudopip + ["install"]
 if args.user:
-    sudopip += ["--user"]
+    pipinstall += ["--user"]
+    pyinstall += ["--user"]
 elif args.prefix:
     path_extension = args.prefix + sitepackages + os.pathsep
-    sudopip += ["--root", args.prefix]
+    pipinstall += ["--root", args.prefix]
+    pyinstall += ["--root", args.prefix]
 elif args.system:
     pass
 else:
     # Use the pip from the virtualenv
-    sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
-
+    sudopip = [os.getcwd() + "/firedrake/bin/pip"]
+    pipinstall = sudopip + ["install"]
+    python = [os.getcwd() + "/firedrake/bin/python"]
+    pyinstall = python + ["setup.py", "install"]
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 if args.minimal_petsc:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco"""
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5"""
 else:
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
 
@@ -197,10 +210,18 @@ def apt_install(names):
     subprocess.check_call(["sudo", "apt-get", "install"] + names)
 
 
-def git_clone(url):
+def split_requirements_url(url):
     name = url.split(".git")[0].split("#")[0].split("/")[-1]
-    stdout.write("Cloning %s\n" % name)
     spliturl = url.split("://")[1].split("#")[0].split("@")
+    return name, spliturl
+
+
+def git_clone(url):
+    name, spliturl = split_requirements_url(url)
+    if name == "petsc" and args.honour_petsc_dir:
+        stdout.write("Using existing petsc installation\n")
+        return name
+    stdout.write("Cloning %s\n" % name)
     try:
         plainurl, branch = spliturl
     except ValueError:
@@ -223,6 +244,15 @@ def git_clone(url):
             stderr.write("Failed to clone %s branch %s.\n" % (name, branch))
             raise
     return name
+
+
+def list_cloned_dependencies(name):
+    stdout.write("Finding dependencies of %s\n" % name)
+    deps = []
+    for dep in open(name + "/requirements-git.txt", "r"):
+        name, _ = split_requirements_url(dep.strip())
+        deps.append(name)
+    return deps
 
 
 def clone_dependencies(name):
@@ -249,12 +279,22 @@ def run_pip(args):
     check_call(sudopip + args)
 
 
+def run_pip_install(args):
+    stdout.write(" ".join(pipinstall + args) + "\n")
+    check_call(pipinstall + args)
+
+
+def run_cmd(args):
+    stdout.write(" ".join(args) + "\n")
+    check_call(args)
+
+
 def pip_requirements(package):
     stdout.write("Installing pip dependencies for %s\n" % package)
     if os.path.isfile("%s/requirements-ext.txt" % package):
-        run_pip(["-r", "%s/requirements-ext.txt" % package])
+        run_pip_install(["-r", "%s/requirements-ext.txt" % package])
     elif os.path.isfile("%s/requirements.txt" % package):
-        run_pip(["-r", "%s/requirements.txt" % package])
+        run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
         stdout.write("No dependencies found. Skipping.\n")
 
@@ -263,15 +303,85 @@ def install(package):
     stdout.write("Installing %s\n" % package)
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
     if args.developer and package not in ["petsc/", "petsc4py/"]:
-        run_pip(["-e", package])
+        run_pip_install(["-e", package])
     else:
-        run_pip(["--ignore-installed", package])
+        run_pip_install(["--ignore-installed", package])
 
 
 def clean(package):
     stdout.write("Cleaning %s\n" % package)
     os.chdir(package)
     check_call(["python", "setup.py", "clean"])
+    os.chdir("..")
+
+
+def get_h5py():
+    stdout.write("Downloading h5py\n")
+    import urllib
+    urllib.urlretrieve("https://github.com/h5py/h5py/archive/2.5.0.tar.gz",
+                       "h5py.tar.gz")
+    run_cmd(["tar", "-zxvf", "h5py.tar.gz"])
+
+
+def build_and_install_h5py():
+    stdout.write("Removing existing h5py installations\n")
+    # Uninstalling something with pip is an absolute disaster.  We
+    # have to use pip freeze to list all available packages "locally"
+    # and keep on removing the one we want until it is gone from this
+    # list!  Yes, pip will happily have two different versions of the
+    # same package co-existing.  Moreover, depending on the phase of
+    # the moon, the order in which they are uninstalled is not the
+    # same as the order in which they appear on sys.path!
+    again = True
+    i = 0
+    while again:
+        # List installed packages, "locally".  In a virtualenv,
+        # this just tells me packages in the virtualenv, otherwise it
+        # gives me everything.
+        lines = check_output(sudopip + ["freeze", "-l"])
+        again = False
+        for line in lines.split("\n"):
+            # Do we have a locally installed h5py?
+            if line.startswith("h5py"):
+                # Uninstall it.
+                run_pip(["uninstall", "-y", line.strip()])
+                # Go round again, because THERE MIGHT BE ANOTHER ONE!
+                again = True
+        i += 1
+        if i > 10:
+            raise InstallError("pip claims it uninstalled h5py more than 10 times.  Something is probably broken.")
+
+    stdout.write("Installing h5py\n")
+    if os.path.exists("h5py-2.5.0"):
+        clean("h5py-2.5.0")
+    else:
+        get_h5py()
+
+    os.chdir("h5py-2.5.0")
+
+    if args.honour_petsc_dir:
+        petsc_dir = os.environ["PETSC_DIR"]
+        petsc_arch = os.environ.get("PETSC_ARCH", "")
+    else:
+        try:
+            petsc_dir = check_output(python +
+                                     ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+
+            petsc_arch = ""
+        except subprocess.CalledProcessError:
+            raise InstallError("Unable to find installed PETSc when building h5py")
+
+    hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
+    stdout.write("Linking h5py against PETSc found in %s\n" % hdf5_dir)
+    oldcc = os.environ.get("CC", None)
+    os.environ["CC"] = args.mpicc
+    run_cmd(python + ["setup.py", "configure", "--hdf5=%s" % hdf5_dir])
+    run_cmd(python + ["setup.py", "build"])
+    run_cmd(pyinstall)
+    if oldcc is None:
+        del os.environ["CC"]
+    else:
+        os.environ["CC"] = oldcc
     os.chdir("..")
 
 
@@ -285,9 +395,10 @@ def build_update_script():
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
-    for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc"]:
+    for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc",
+                   "mpicc"]:
         update_script = update_script.replace("args.%s = False" % switch,
-                                              "args.%s = %s" % (switch, args.__getattribute__(switch)))
+                                              "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
         os.mkdir("../bin")
     except:
@@ -344,7 +455,6 @@ if osname == "Darwin":
         brew_install("swig")
         brew_install("cmake")
         check_call(["brew", "tap", "homebrew/science"])
-        brew_install("hdf5")
         brew_install("spatialindex")
 
     else:
@@ -416,7 +526,7 @@ elif not (args.system or args.user or args.prefix):
         stdout.write("Creating firedrake virtualenv.\n")
         virtualenv.create_environment("firedrake", site_packages=True)
         # For some reason virtualenv does not always install the latest pip.
-        run_pip(["-U", "pip"])
+        run_pip_install(["-U", "pip"])
     execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
 
 os.chdir("firedrake")
@@ -433,18 +543,20 @@ if mode == "install":
         packages.remove("petsc")
 
     # Force Cython to install first to work around pip dependency issues.
-    run_pip(["Cython>=0.22"])
+    run_pip_install(["Cython>=0.22"])
 
     # Need to install petsc first in order to resolve hdf5 dependency.
-    sudopip.append("--no-deps")
-    packages.remove("petsc")
-    install("petsc/")
-    sudopip.pop()
+    if not args.honour_petsc_dir:
+        pipinstall.append("--no-deps")
+        packages.remove("petsc")
+        install("petsc/")
+        pipinstall.pop()
 
     for p in packages:
         pip_requirements(p)
 
-    sudopip.append("--no-deps")
+    build_and_install_h5py()
+    pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
         if args.developer:
@@ -469,7 +581,9 @@ if mode == "install":
 else:
     # Update mode
     os.chdir("src")
-    packages = os.listdir(".")
+
+    packages = list_cloned_dependencies("PyOP2") + list_cloned_dependencies("firedrake")
+
     # update packages.
     if not args.honour_petsc_dir:
         petsc_changed = git_update("petsc")
@@ -486,17 +600,24 @@ else:
     # update dependencies.
     pip_requirements("PyOP2")
     pip_requirements("firedrake")
-    sudopip.append("--no-deps")
+    pipinstall.append("--no-deps")
 
     # Only rebuild petsc if it has changed.
-    if args.rebuild or petsc_changed:
+    if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
         clean("petsc/")
         install("petsc/")
     if args.rebuild or petsc_changed or petsc4py_changed:
         clean("petsc4py/")
         install("petsc4py/")
-    packages.remove("PyOP2")
-    packages.remove("firedrake")
+
+    # Always rebuild h5py.
+    build_and_install_h5py()
+
+    try:
+        packages.remove("PyOP2")
+        packages.remove("firedrake")
+    except ValueError:
+        pass
     packages += ("PyOP2", "firedrake")
     for p in packages:
         clean(p)

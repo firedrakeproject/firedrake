@@ -71,7 +71,7 @@ which you wish the rebuilt script to apply (for example `--user` or
 Installing from individual components
 =====================================
 
-Firedrake depends on PyOP2_, FFC_, FIAT_, and UFL_. It is easiest to obtain
+Firedrake depends on PyOP2_, FFC_, FIAT_, UFL_ and h5py_. It is easiest to obtain
 all of these components on Ubuntu Linux and related distributions such as Mint
 or Debian. Installation on other Unix-like operating systems is likely to be
 possible, although harder. Installation on a Mac is straightforward using the
@@ -118,6 +118,29 @@ To install for your user only, which does not require sudo permissions,
 modify the pip invocation for either case above as follows::
 
   pip install --user ...
+
+h5py
+----
+
+It is critical that h5py_ is linked against the same version of the
+HDF5 library that PETSc was built with.  This is unfortunately not
+possible to specify when using ``pip``.  Instead, please follow the
+instructions for a `custom installation`_.  If PETSc was linked
+against a system HDF5 library, use that library when building h5py.
+If the PETSc installation was used to build HDF5 (via
+``--download-hdf5``) then the appropriate HDF5 library is in the PETSc
+install directory.  If installed with ``pip``, this can be obtained
+using::
+
+  python -c "import petsc; print petsc.get_petsc_dir()"
+
+Otherwise, use the appropriate values of ``PETSC_DIR`` and ``PETSC_ARCH``.
+
+.. note::
+
+   It is not necessary that h5py be built with MPI support, although
+   Firedrake supports both options.
+
 
 Potential installation errors on Mac OS
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -290,3 +313,5 @@ Finally install the Bibtex plugin::
 .. _Swig: http://www.swig.org/
 .. _virtualenv: https://virtualenv.pypa.io/
 .. _libspatialindex: https://libspatialindex.github.io/
+.. _h5py: http://www.h5py.org/
+.. _custom installation: http://docs.h5py.org/en/latest/build.html#custom-installation
