@@ -13,7 +13,6 @@ from pyop2.utils import flatten
 
 from firedrake.petsc import PETSc
 from firedrake import dmplex
-import firedrake.extrusion_utils as eutils
 from firedrake import fiat_utils
 import firedrake.mesh as mesh_t
 from firedrake import halo
@@ -77,22 +76,14 @@ class FunctionSpaceBase(ObjectCached):
         # Compute the FIAT version of the UFL element above
         self.fiat_element = fiat_utils.fiat_from_ufl_element(element)
 
+        entity_dofs = self.fiat_element.entity_dofs()
+        dofs_per_entity = mesh.make_dofs_per_plex_entity(entity_dofs)
+
+        self.extruded = bool(mesh.layers)
+        self.offset = mesh.make_offset(entity_dofs,
+                                       self.fiat_element.space_dimension())
+
         if mesh.layers:
-            # Set up some extrusion-specific things
-
-            # Get the flattened version of the FIAT element
-            flattened_element = fiat_utils.FlattenedElement(self.fiat_element)
-
-            # Compute the dofs per column
-            dofs_per_entity = eutils.compute_extruded_dofs(self.fiat_element,
-                                                           flattened_element.entity_dofs(),
-                                                           mesh.layers)
-
-            # Compute the offset for the extrusion process
-            self.offset = eutils.compute_offset(self.fiat_element.entity_dofs(),
-                                                flattened_element.entity_dofs(),
-                                                self.fiat_element.space_dimension())
-
             # Compute the top and bottom masks to identify boundary dofs
             #
             # Sorting the keys of the closure entity dofs, the whole cell
@@ -106,16 +97,8 @@ class FunctionSpaceBase(ObjectCached):
             # Geometric facet dofs
             facet_dofs = horiz_facet_support_dofs(self.fiat_element)
             self.bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
-
-            self.extruded = True
         else:
-            # If not extruded specific, set things to None/False, etc.
-            self.offset = None
             self.bt_masks = None
-            self.extruded = False
-
-            entity_dofs = self.fiat_element.entity_dofs()
-            dofs_per_entity = [len(entity[0]) for d, entity in entity_dofs.iteritems()]
 
         dm = PETSc.DMShell().create()
         dm.setAttr('__fs__', weakref.ref(self))
@@ -143,7 +126,7 @@ class FunctionSpaceBase(ObjectCached):
         self._node_count = self._global_numbering.getStorageSize()
 
         self.cell_node_list = mesh.make_cell_node_list(self._global_numbering,
-                                                       self.fiat_element)
+                                                       entity_dofs)
 
         if mesh._plex.getStratumSize("interior_facets", 1) > 0:
             self.interior_facet_node_list = \

@@ -13,7 +13,6 @@ import coffee.base as ast
 
 import firedrake.dmplex as dmplex
 import firedrake.extrusion_utils as eutils
-import firedrake.fiat_utils as fiat_utils
 import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.parameters import parameters
@@ -21,6 +20,13 @@ from firedrake.petsc import PETSc
 
 
 __all__ = ['Mesh', 'ExtrudedMesh']
+
+
+_cells = {
+    1: {2: "interval"},
+    2: {3: "triangle", 4: "quadrilateral"},
+    3: {4: "tetrahedron"}
+}
 
 
 class _Facets(object):
@@ -319,7 +325,7 @@ class MeshTopology(object):
         cell_nfacets = plex.getConeSize(cStart)
 
         self._grown_halos = False
-        self._ufl_cell = ufl.Cell(fiat_utils._cells[dim][cell_nfacets])
+        self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
         def callback(self):
             """Finish initialisation."""
@@ -491,7 +497,7 @@ class MeshTopology(object):
         else:
             return _Facets(self, 0, "interior", None, None)
 
-    def make_cell_node_list(self, global_numbering, fiat_element):
+    def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
@@ -499,7 +505,19 @@ class MeshTopology(object):
         """
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
-                                     fiat_element)
+                                     entity_dofs)
+
+    def make_dofs_per_plex_entity(self, entity_dofs):
+        """Returns the number of DoFs per plex entity for each stratum,
+        i.e. [#dofs / plex vertices, #dofs / plex edges, ...].
+
+        :arg entity_dofs: FIAT element entity DoFs
+        """
+        return [len(entity_dofs[d][0]) for d in sorted(entity_dofs)]
+
+    def make_offset(self, entity_dofs, ndofs):
+        """Returns None (only for extruded use)."""
+        return None
 
     def _order_data_by_cell_index(self, column_list, cell_data):
         return cell_data[column_list]
@@ -612,15 +630,59 @@ class ExtrudedMeshTopology(MeshTopology):
                        interior_facets.facet_cell,
                        interior_facets.local_facet_number)
 
-    def make_cell_node_list(self, global_numbering, fiat_element):
+    def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg fiat_element: The FIAT element for the cell
         """
+        flat_entity_dofs = {}
+        for b, v in entity_dofs:
+            # v in [0, 1].  Only look at the ones, then grab the data from zeros.
+            if v == 0:
+                continue
+            flat_entity_dofs[b] = {}
+            for i in entity_dofs[(b, v)]:
+                # This line is fairly magic.
+                # It works because an interval has two points.
+                # We pick up the DoFs from the bottom point,
+                # then the DoFs from the interior of the interval,
+                # then finally the DoFs from the top point.
+                flat_entity_dofs[b][i] = \
+                    entity_dofs[(b, 0)][2*i] + entity_dofs[(b, 1)][i] + entity_dofs[(b, 0)][2*i+1]
+
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
-                                     fiat_utils.FlattenedElement(fiat_element))
+                                     flat_entity_dofs)
+
+    def make_dofs_per_plex_entity(self, entity_dofs):
+        """Returns the number of DoFs per plex entity for each stratum,
+        i.e. [#dofs / plex vertices, #dofs / plex edges, ...].
+
+        :arg entity_dofs: FIAT element entity DoFs
+        """
+        dofs_per_entity = [0] * (1 + self._base_mesh.cell_dimension())
+        for (b, v), entities in entity_dofs.iteritems():
+            dofs_per_entity[b] += (self.layers - v) * len(entities[0])
+        return dofs_per_entity
+
+    def make_offset(self, entity_dofs, ndofs):
+        """Returns the offset between the neighbouring cells of a
+        column for each DoF.
+
+        :arg entity_dofs: FIAT element entity DoFs
+        :arg ndofs: number of DoFs in the FIAT element
+        """
+        entity_offset = [0] * (1 + self._base_mesh.cell_dimension())
+        for (b, v), entities in entity_dofs.iteritems():
+            entity_offset[b] += len(entities[0])
+
+        dof_offset = np.zeros(ndofs, dtype=np.int32)
+        for (b, v), entities in entity_dofs.iteritems():
+            for dof_indices in entities.itervalues():
+                for i in dof_indices:
+                    dof_offset[i] = entity_offset[b]
+        return dof_offset
 
     @property
     def layers(self):
