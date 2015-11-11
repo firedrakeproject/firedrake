@@ -18,7 +18,7 @@
      Firedrake and PyOP2 are developed on `GitHub <http://github.com>`__ while we also maintain Firedrake-ready versions of the `FEniCS <http://fenicsproject.org>`__ tools on `Bitbucket <http://bitbucket.org>`__. 
 
      * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
-     * `PyOp2 on GitHub <https://github.com/OP2/PyOP2>`__
+     * `PyOP2 on GitHub <https://github.com/OP2/PyOP2>`__
      * `Firedrake version of FFC on Bitbucket <https://bitbucket.org/mapdes/ffc>`__
      * `Firedrake version of UFL on Bitbucket <https://bitbucket.org/mapdes/ufl>`__
      * `Firedrake version of FIAT on Bitbucket <https://bitbucket.org/mapdes/fiat>`__
@@ -45,6 +45,7 @@ PDEs. Below are a few tutorial examples to get you started.
    A mixed formulation of the Poisson equation.<demos/poisson_mixed.py>
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
+   A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
 
 Manual
 ======
@@ -60,6 +61,7 @@ finite element problems in Firedrake.
    solving-interface
    boundary_conditions
    extruded-meshes
+   point-evaluation
 
 .. only:: html
 

@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import weakref
 
 import ufl
@@ -12,9 +13,9 @@ from ufl import classes
 import coffee.base as ast
 from pyop2 import op2
 
-import constant
-import function
-import functionspace
+from firedrake import constant
+from firedrake import function
+from firedrake import functionspace
 
 
 def ufl_type(*args, **kwargs):

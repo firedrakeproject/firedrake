@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import os
 import FIAT
@@ -5,20 +6,19 @@ import ufl
 import weakref
 
 from pyop2 import op2
+from pyop2.logger import info_red
 from pyop2.profiling import timed_function, timed_region, profile
 from pyop2.utils import as_tuple
 
 import coffee.base as ast
 
-import dmplex
-import extrusion_utils as eutils
-import fiat_utils
-import function
-import functionspace
-import utility_meshes
-import utils
-from parameters import parameters
-from petsc import PETSc
+import firedrake.dmplex as dmplex
+import firedrake.extrusion_utils as eutils
+import firedrake.fiat_utils as fiat_utils
+import firedrake.spatialindex as spatialindex
+import firedrake.utils as utils
+from firedrake.parameters import parameters
+from firedrake.petsc import PETSc
 
 
 __all__ = ['Mesh', 'ExtrudedMesh']
@@ -223,7 +223,7 @@ def _from_triangle(filename, dim):
         tdim = op2.MPI.comm.bcast(None, root=0)
         cells = None
         coordinates = None
-    plex = utility_meshes._from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
+    plex = _from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
 
     # Apply boundary IDs
     if op2.MPI.comm.rank == 0:
@@ -245,6 +245,39 @@ def _from_triangle(filename, dim):
                 plex.setLabelValue("boundary_ids", join[0], bid)
 
     return plex
+
+
+def _from_cell_list(dim, cells, coords, comm=None):
+    """
+    Create a DMPlex from a list of cells and coords.
+
+    :arg dim: The topological dimension of the mesh
+    :arg cells: The vertices of each cell
+    :arg coords: The coordinates of each vertex
+    :arg comm: An optional MPI communicator to build the plex on
+         (defaults to ``COMM_WORLD``)
+    """
+
+    if comm is None:
+        comm = op2.MPI.comm
+    if comm.rank == 0:
+        cells = np.asarray(cells, dtype=PETSc.IntType)
+        coords = np.asarray(coords, dtype=float)
+        comm.bcast(cells.shape, root=0)
+        comm.bcast(coords.shape, root=0)
+        # Provide the actual data on rank 0.
+        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
+
+    cell_shape = list(comm.bcast(None, root=0))
+    coord_shape = list(comm.bcast(None, root=0))
+    cell_shape[0] = 0
+    coord_shape[0] = 0
+    # Provide empty plex on other ranks
+    # A subsequent call to plex.distribute() takes care of parallel partitioning
+    return PETSc.DMPlex().createFromCellList(dim,
+                                             np.zeros(cell_shape, dtype=PETSc.IntType),
+                                             np.zeros(coord_shape, dtype=float),
+                                             comm=comm)
 
 
 class Mesh(object):
@@ -356,6 +389,9 @@ class Mesh(object):
         self._grown_halos = False
 
         def callback(self):
+            import firedrake.function as function
+            import firedrake.functionspace as functionspace
+
             del self._callback
             if op2.MPI.comm.size > 1:
                 self._plex.distributeOverlap(1)
@@ -557,6 +593,56 @@ class Mesh(object):
                                      self.cell_closure,
                                      fiat_element)
 
+    def _order_data_by_cell_index(self, column_list, cell_data):
+        return cell_data[column_list]
+
+    @utils.cached_property
+    def spatial_index(self):
+        """Spatial index to quickly find which cell contains a given point."""
+
+        from firedrake import function, functionspace
+        from firedrake.parloops import par_loop, READ, RW
+
+        gdim = self.ufl_cell().geometric_dimension()
+        if gdim <= 1:
+            info_red("libspatialindex does not support 1-dimension, falling back on brute force.")
+            return None
+
+        # Calculate the bounding boxes for all cells by running a kernel
+        V = functionspace.VectorFunctionSpace(self, "DG", 0, dim=gdim)
+        coords_min = function.Function(V)
+        coords_max = function.Function(V)
+
+        coords_min.dat.data.fill(np.inf)
+        coords_max.dat.data.fill(-np.inf)
+
+        kernel = """
+    for (int d = 0; d < gdim; d++) {
+        for (int i = 0; i < nodes_per_cell; i++) {
+            f_min[0][d] = fmin(f_min[0][d], f[i][d]);
+            f_max[0][d] = fmax(f_max[0][d], f[i][d]);
+        }
+    }
+"""
+
+        cell_node_list = self.coordinates.function_space().cell_node_list
+        nodes_per_cell = len(cell_node_list[0])
+
+        kernel = kernel.replace("gdim", str(gdim))
+        kernel = kernel.replace("nodes_per_cell", str(nodes_per_cell))
+
+        par_loop(kernel, self._dx, {'f': (self.coordinates, READ),
+                                    'f_min': (coords_min, RW),
+                                    'f_max': (coords_max, RW)})
+
+        # Reorder bounding boxes according to the cell indices we use
+        column_list = V.cell_node_list.reshape(-1)
+        coords_min = self._order_data_by_cell_index(column_list, coords_min.dat.data_ro_with_halos)
+        coords_max = self._order_data_by_cell_index(column_list, coords_max.dat.data_ro_with_halos)
+
+        # Build spatial index
+        return spatialindex.from_regions(coords_min, coords_max)
+
     @property
     def coordinates(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
@@ -600,6 +686,9 @@ class Mesh(object):
              reference normal direction.
 
         """
+        import firedrake.function as function
+        import firedrake.functionspace as functionspace
+
         if expr.value_shape()[0] != 3:
             raise NotImplementedError('Only implemented for 3-vectors')
         if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.Cell("quadrilateral", 3), ufl.OuterProductCell(ufl.Cell('interval', 3), ufl.Cell('interval')), ufl.OuterProductCell(ufl.Cell('interval', 2), ufl.Cell('interval'), gdim=3)):
@@ -770,6 +859,9 @@ class ExtrudedMesh(Mesh):
     @profile
     def __init__(self, mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
         # A cache of function spaces that have been built on this mesh
+        import firedrake.function as function
+        import firedrake.functionspace as functionspace
+
         self._cache = {}
         mesh.init()
         self._old_mesh = mesh
@@ -908,6 +1000,12 @@ class ExtrudedMesh(Mesh):
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
                                      fiat_utils.FlattenedElement(fiat_element))
+
+    def _order_data_by_cell_index(self, column_list, cell_data):
+        cell_list = []
+        for col in column_list:
+            cell_list += range(col, col + (self.layers - 1))
+        return cell_data[cell_list]
 
     @property
     def layers(self):

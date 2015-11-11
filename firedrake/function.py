@@ -1,18 +1,19 @@
+from __future__ import absolute_import
 import numpy as np
 import FIAT
 import ufl
+import ctypes
+from ctypes import POINTER, c_int, c_double, c_void_p
 
 import coffee.base as ast
 
 from pyop2 import op2
 from pyop2.logger import warning
 
-import assemble_expressions
-import expression as expression_t
-import functionspace
-import projection
-import utils
-import vector
+from firedrake import expression as expression_t
+from firedrake import functionspace
+from firedrake import utils
+from firedrake import vector
 try:
     import cachetools
 except ImportError:
@@ -20,7 +21,7 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'interpolate']
+__all__ = ['Function', 'interpolate', 'PointNotInDomainError']
 
 
 valuetype = np.float64
@@ -35,6 +36,17 @@ def interpolate(expr, V):
     Returns a new :class:`.Function` in the space :data:`V`.
     """
     return Function(V).interpolate(expr)
+
+
+class _CFunction(ctypes.Structure):
+    """C struct collecting data from a :class:`Function`"""
+    _fields_ = [("n_cols", c_int),
+                ("n_layers", c_int),
+                ("coords", POINTER(c_double)),
+                ("coords_map", POINTER(c_int)),
+                ("f", POINTER(c_double)),
+                ("f_map", POINTER(c_int)),
+                ("sidx", c_void_p)]
 
 
 class Function(ufl.Coefficient):
@@ -165,6 +177,7 @@ class Function(ufl.Coefficient):
         Any of the additional arguments to :func:`~firedrake.projection.project`
         may also be passed, and they will have their usual effect.
         """
+        from firedrake import projection
         return projection.project(b, self, *args, **kwargs)
 
     def vector(self):
@@ -418,6 +431,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             expr.dat.copy(self.dat, subset=subset)
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.Assign(self, expr), subset)
 
@@ -433,6 +447,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat += expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.IAdd(self, expr))
 
@@ -448,6 +463,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat -= expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.ISub(self, expr))
 
@@ -463,6 +479,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat *= expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.IMul(self, expr))
 
@@ -478,7 +495,204 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat /= expr.dat
             return self
 
+        from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.IDiv(self, expr))
 
         return self
+
+    @utils.cached_property
+    def _ctypes(self):
+        # Retrieve data from Python object
+        function_space = self.function_space()
+        mesh = function_space.mesh()
+        coordinates = mesh.coordinates
+        coordinates_space = coordinates.function_space()
+
+        # Store data into ``C struct''
+        c_function = _CFunction()
+        c_function.n_cols = mesh.num_cells()
+        if hasattr(mesh, '_layers'):
+            c_function.n_layers = mesh.layers - 1
+        else:
+            c_function.n_layers = 1
+        c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
+
+        # Return pointer
+        return ctypes.pointer(c_function)
+
+    @utils.cached_property
+    def _c_evaluate(self):
+        result = make_c_evaluate(self)
+        result.restype = int
+        return result
+
+    def evaluate(self, coord, mapping, component, index_values):
+        # Called by UFL when evaluating expressions at coordinates
+        if component or index_values:
+            raise NotImplementedError("Unsupported arguments when attempting to evaluate Function.")
+        return self.at(coord)
+
+    def at(self, arg, *args, **kwargs):
+        """Evaluate function at points."""
+        from mpi4py import MPI
+        halo = self.dof_dset.halo
+        if isinstance(halo, tuple):
+            # mixed function space
+            halo = halo[0]
+        comm = halo.comm.tompi4py()
+
+        if args:
+            arg = (arg,) + args
+        arg = np.array(arg, dtype=float)
+
+        dont_raise = kwargs.get('dont_raise', False)
+
+        # Handle f.at(0.3)
+        if not arg.shape:
+            arg = arg.reshape(-1)
+
+        # Immersed not supported
+        tdim = self.function_space().mesh().ufl_cell().topological_dimension()
+        gdim = self.function_space().mesh().ufl_cell().geometric_dimension()
+        if tdim < gdim:
+            raise NotImplementedError("Point is almost certainly not on the manifold.")
+
+        # Validate geometric dimension
+        if arg.shape[-1] == gdim:
+            pass
+        elif len(arg.shape) == 1 and gdim == 1:
+            arg = arg.reshape(-1, 1)
+        else:
+            raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
+
+        # Check if we have got the same points on each process
+        root_arg = comm.bcast(arg, root=0)
+        same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
+        diff_arg = comm.allreduce(int(not same_arg), op=MPI.SUM)
+        if diff_arg:
+            raise ValueError("Points to evaluate are inconsistent among processes.")
+
+        def single_eval(x, buf):
+            """Helper function to evaluate at a single point."""
+            err = self._c_evaluate(self._ctypes, x.ctypes.data, buf.ctypes.data)
+            if err == -1:
+                raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
+
+        if not len(arg.shape) <= 2:
+            raise ValueError("Function.at expects point or array of points.")
+        points = arg.reshape(-1, arg.shape[-1])
+        value_shape = self.ufl_shape
+
+        split = self.split()
+        mixed = len(split) != 1
+
+        # Local evaluation
+        l_result = []
+        for i, p in enumerate(points):
+            try:
+                if mixed:
+                    l_result.append((i, tuple(f.at(p) for f in split)))
+                else:
+                    p_result = np.empty(value_shape, dtype=float)
+                    single_eval(points[i:i+1], p_result)
+                    l_result.append((i, p_result))
+            except PointNotInDomainError:
+                # Skip point
+                pass
+
+        # Collecting the results
+        def same_result(a, b):
+            if mixed:
+                for a_, b_ in zip(a, b):
+                    if not np.allclose(a_, b_):
+                        return False
+                return True
+            else:
+                return np.allclose(a, b)
+
+        all_results = comm.allgather(l_result)
+        g_result = [None] * len(points)
+        for results in all_results:
+            for i, result in results:
+                if g_result[i] is None:
+                    g_result[i] = result
+                elif same_result(result, g_result[i]):
+                    pass
+                else:
+                    raise RuntimeError("Point evaluation gave different results across processes.")
+
+        if not dont_raise:
+            for i in xrange(len(g_result)):
+                if g_result[i] is None:
+                    raise PointNotInDomainError(self.function_space().mesh(), points[i].reshape(-1))
+
+        if len(arg.shape) == 1:
+            g_result = g_result[0]
+        return g_result
+
+
+class PointNotInDomainError(Exception):
+    """Raised when attempting to evaluate a function outside its domain,
+    and no fill value was given.
+
+    Attributes: domain, point
+    """
+    def __init__(self, domain, point):
+        self.domain = domain
+        self.point = point
+
+    def __str__(self):
+        return "domain %s does not contain point %s" % (self.domain, self.point)
+
+
+def make_c_evaluate(function, c_name="evaluate", ldargs=None):
+    """Generates, compiles and loads a C function to evaluate the
+    given Firedrake :class:`Function`."""
+
+    from os import path
+    from ffc import compile_element
+    from pyop2 import compilation
+
+    def make_args(function):
+        from pyop2 import op2
+
+        arg = function.dat(op2.READ, function.cell_node_map())
+        arg.position = 0
+        return (arg,)
+
+    def make_wrapper(function, **kwargs):
+        from pyop2.base import build_itspace
+        from pyop2.sequential import generate_cell_wrapper
+
+        args = make_args(function)
+        return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
+
+    function_space = function.function_space()
+    ufl_element = function_space.ufl_element()
+    coordinates = function_space.mesh().coordinates
+    coordinates_ufl_element = coordinates.function_space().ufl_element()
+
+    src = compile_element(ufl_element, coordinates_ufl_element, function_space.cdim)
+
+    src += make_wrapper(coordinates,
+                        forward_args=["void*", "double*", "int*"],
+                        kernel_name="to_reference_coords_kernel",
+                        wrapper_name="wrap_to_reference_coords")
+
+    src += make_wrapper(function,
+                        forward_args=["double*", "double*"],
+                        kernel_name="evaluate_kernel",
+                        wrapper_name="wrap_evaluate")
+
+    with open(path.join(path.dirname(__file__), "locate.cpp")) as f:
+        src += f.read()
+
+    if ldargs is None:
+        ldargs = []
+    ldargs += ["-lspatialindex"]
+    return compilation.load(src, "cpp", c_name, cppargs=["-I%s" % path.dirname(__file__)], ldargs=ldargs)

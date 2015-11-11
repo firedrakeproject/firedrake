@@ -27,7 +27,7 @@ The installation script is tested on Ubuntu and MacOS X. Installation
 is likely to work well on other Linux platforms, although the script
 may stop to ask you to install some dependency packages. Installation
 on other Unix platforms may work but is untested. Installation on
-Windows is very unlikely work.
+Windows is very unlikely to work.
 
 Upgrade
 -------
@@ -47,6 +47,25 @@ compiled modules. To do this run::
 
 If you installed to a virtualenv, you will need to activate the
 virtualenv first.
+
+Recovering from a broken installation script
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you find yourself in the unfortunate position that
+`firedrake-update` won't run because of a bug, and the bug has been
+fixed in Firedrake master, then the following procedure will rebuild
+`firedrake-update` using the latest version.
+
+From the top directory of your Firedrake install,
+type::
+
+  cd src/firedrake
+  git pull
+  ./scripts/firedrake-install --rebuild_script
+
+You should also pass any of the other options to `firedrake-install`
+which you wish the rebuilt script to apply (for example `--user` or
+`--disable_ssh`). You should now be able to run `firedrake-update`. 
 
 
 Installing from individual components
@@ -224,7 +243,8 @@ Building the documention requires Sphinx_
 (including the Youtube and Bibtex plugins) and wget_. For example on Ubuntu-like
 Linux systems::
 
-  sudo apt-get install python-sphinx wget
+  sudo apt-get install wget
+  sudo pip install sphinx
 
 and on Mac OS::
 

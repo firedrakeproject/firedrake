@@ -51,6 +51,16 @@ def test_different_fs_misses_cache():
     assert V1 is not V2
 
 
+def test_alias_fs_hits_cache():
+    m = UnitSquareMesh(1, 1)
+
+    V1 = FunctionSpace(m, 'CG', 2)
+
+    V2 = FunctionSpace(m, 'Lagrange', 2)
+
+    assert V1 is V2
+
+
 def test_extruded_fs_hits_cache():
     m = UnitSquareMesh(1, 1)
 
@@ -120,6 +130,34 @@ def test_extruded_ope_misses_cache():
     W2 = FunctionSpace(e, HCurl(W0))
 
     assert W1 is not W2
+
+
+def test_extruded_ope_vfamily_hits_cache():
+    m = UnitSquareMesh(1, 1)
+
+    e = ExtrudedMesh(m, 2, layer_height=1)
+
+    U0 = FiniteElement('DG', 'triangle', 0)
+    U1 = FiniteElement('CG', 'interval', 2)
+    W1 = FunctionSpace(e, OuterProductElement(U0, U1))
+
+    W2 = FunctionSpace(e, 'DG', 0, vfamily='CG', vdegree=2)
+
+    assert W1 is W2
+
+
+def test_extruded_opve_hits_cache():
+    m = UnitSquareMesh(1, 1)
+
+    e = ExtrudedMesh(m, 2, layer_height=1)
+
+    U0 = FiniteElement('DG', 'triangle', 0)
+    U1 = FiniteElement('CG', 'interval', 2)
+    W1 = VectorFunctionSpace(e, OuterProductElement(U0, U1))
+
+    W2 = VectorFunctionSpace(e, 'DG', 0, vfamily='CG', vdegree=2)
+
+    assert W1 is W2
 
 
 def test_mixed_fs_hits_cache():

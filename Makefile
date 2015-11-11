@@ -9,7 +9,8 @@ lint:
 	@flake8 firedrake
 	@echo "    Linting firedrake test suite"
 	@flake8 tests
-
+	@echo "    Linting firedrake install script"
+	@flake8 scripts/firedrake-install
 
 clean:
 	@echo "    Cleaning extension modules"
@@ -18,6 +19,10 @@ clean:
 	-@rm -f firedrake/dmplex.so > /dev/null 2>&1
 	@echo "    RM firedrake/dmplex.c"
 	-@rm -f firedrake/dmplex.c > /dev/null 2>&1
+	@echo "    RM firedrake/spatialindex.so"
+	-@rm -f firedrake/spatialindex.so > /dev/null 2>&1
+	@echo "    RM firedrake/spatialindex.cpp"
+	-@rm -f firedrake/spatialindex.cpp > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.so"
 	-@rm -f firedrake/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.c"

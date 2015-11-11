@@ -1,6 +1,7 @@
 """This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
+from __future__ import absolute_import
 
 from ufl.indexed import Indexed
 
@@ -9,7 +10,7 @@ import pyop2
 
 import coffee.base as ast
 
-import constant
+from firedrake import constant
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']

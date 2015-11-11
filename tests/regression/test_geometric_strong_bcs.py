@@ -3,16 +3,21 @@ from firedrake import *
 
 
 @pytest.mark.parametrize(('quadrilateral'), [False, True])
-@pytest.mark.parametrize(('degree'), range(5))
-def test_dg_advection(degree, quadrilateral):
+@pytest.mark.parametrize(('degree'), range(4))
+@pytest.mark.parametrize('direction', ['left', 'right', 'up', 'down'])
+def test_dg_advection(degree, quadrilateral, direction):
     m = UnitSquareMesh(10, 10, quadrilateral=quadrilateral)
     V = FunctionSpace(m, "DG", degree)
-    V_u = VectorFunctionSpace(m, "CG", 1)
     t = Function(V)
     v = TestFunction(V)
-    u = Function(V_u)
 
-    u.assign(Constant((1, 0)))
+    d = {'left': ((1, 0), 1),
+         'right': ((-1, 0), 2),
+         'up': ((0, 1), 3),
+         'down': ((0, -1), 4)}
+
+    vec, bc_domain = d[direction]
+    u = Constant(vec)
 
     def upw(t, un):
         return t('+')*un('+') - t('-')*un('-')
@@ -23,8 +28,13 @@ def test_dg_advection(degree, quadrilateral):
 
     F = -dot(grad(v), u) * t * dx + dot(jump(v), upw(t, un)) * dS + dot(v, un*t) * ds
 
-    bc = DirichletBC(V, 1., 1, method="geometric")
+    bc = DirichletBC(V, 1., bc_domain, method="geometric")
 
     solve(F == 0, t, bcs=bc)
 
     assert errornorm(Constant(1.0), t) < 1.e-12
+
+
+if __name__ == "__main__":
+    import os
+    pytest.main(os.path.abspath(__file__))
