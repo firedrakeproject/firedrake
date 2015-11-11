@@ -324,6 +324,33 @@ def get_h5py():
 
 
 def build_and_install_h5py():
+    stdout.write("Removing existing h5py installations\n")
+    # Uninstalling something with pip is an absolute disaster.  We
+    # have to use pip freeze to list all available packages "locally"
+    # and keep on removing the one we want until it is gone from this
+    # list!  Yes, pip will happily have two different versions of the
+    # same package co-existing.  Moreover, depending on the phase of
+    # the moon, the order in which they are uninstalled is not the
+    # same as the order in which they appear on sys.path!
+    again = True
+    i = 0
+    while again:
+        # List installed packages, "locally".  In a virtualenv,
+        # this just tells me packages in the virtualenv, otherwise it
+        # gives me everything.
+        lines = check_output(sudopip + ["freeze", "-l"])
+        again = False
+        for line in lines.split("\n"):
+            # Do we have a locally installed h5py?
+            if line.startswith("h5py"):
+                # Uninstall it.
+                run_pip(["uninstall", "-y", line.strip()])
+                # Go round again, because THERE MIGHT BE ANOTHER ONE!
+                again = True
+        i += 1
+        if i > 10:
+            raise InstallError("pip claims it uninstalled h5py more than 10 times.  Something is probably broken.")
+
     stdout.write("Installing h5py\n")
     if os.path.exists("h5py-2.5.0"):
         clean("h5py-2.5.0")
