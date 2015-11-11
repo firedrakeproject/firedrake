@@ -112,23 +112,26 @@ path_extension = ""
 
 python = ["python"]
 if args.sudo and (args.system or args.prefix):
-    sudopip = ["sudo", "pip", "install"]
+    sudopip = ["sudo", "pip"]
     pyinstall = ["sudo", "python", "setup.py", "install"]
 else:
-    sudopip = ["pip", "install"]
+    sudopip = ["pip"]
     pyinstall = ["python", "setup.py", "install"]
+
+pipinstall = sudopip + ["install"]
 if args.user:
-    sudopip += ["--user"]
+    pipinstall += ["--user"]
     pyinstall += ["--user"]
 elif args.prefix:
     path_extension = args.prefix + sitepackages + os.pathsep
-    sudopip += ["--root", args.prefix]
+    pipinstall += ["--root", args.prefix]
     pyinstall += ["--root", args.prefix]
 elif args.system:
     pass
 else:
     # Use the pip from the virtualenv
-    sudopip = [os.getcwd() + "/firedrake/bin/pip", "install"]
+    sudopip = [os.getcwd() + "/firedrake/bin/pip"]
+    pipinstall = sudopip + ["install"]
     python = [os.getcwd() + "/firedrake/bin/python"]
     pyinstall = python + ["setup.py", "install"]
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
@@ -276,6 +279,11 @@ def run_pip(args):
     check_call(sudopip + args)
 
 
+def run_pip_install(args):
+    stdout.write(" ".join(pipinstall + args) + "\n")
+    check_call(pipinstall + args)
+
+
 def run_cmd(args):
     stdout.write(" ".join(args) + "\n")
     check_call(args)
@@ -284,9 +292,9 @@ def run_cmd(args):
 def pip_requirements(package):
     stdout.write("Installing pip dependencies for %s\n" % package)
     if os.path.isfile("%s/requirements-ext.txt" % package):
-        run_pip(["-r", "%s/requirements-ext.txt" % package])
+        run_pip_install(["-r", "%s/requirements-ext.txt" % package])
     elif os.path.isfile("%s/requirements.txt" % package):
-        run_pip(["-r", "%s/requirements.txt" % package])
+        run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
         stdout.write("No dependencies found. Skipping.\n")
 
@@ -295,9 +303,9 @@ def install(package):
     stdout.write("Installing %s\n" % package)
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
     if args.developer and package not in ["petsc/", "petsc4py/"]:
-        run_pip(["-e", package])
+        run_pip_install(["-e", package])
     else:
-        run_pip(["--ignore-installed", package])
+        run_pip_install(["--ignore-installed", package])
 
 
 def clean(package):
@@ -491,7 +499,7 @@ elif not (args.system or args.user or args.prefix):
         stdout.write("Creating firedrake virtualenv.\n")
         virtualenv.create_environment("firedrake", site_packages=True)
         # For some reason virtualenv does not always install the latest pip.
-        run_pip(["-U", "pip"])
+        run_pip_install(["-U", "pip"])
     execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
 
 os.chdir("firedrake")
@@ -508,20 +516,20 @@ if mode == "install":
         packages.remove("petsc")
 
     # Force Cython to install first to work around pip dependency issues.
-    run_pip(["Cython>=0.22"])
+    run_pip_install(["Cython>=0.22"])
 
     # Need to install petsc first in order to resolve hdf5 dependency.
     if not args.honour_petsc_dir:
-        sudopip.append("--no-deps")
+        pipinstall.append("--no-deps")
         packages.remove("petsc")
         install("petsc/")
-        sudopip.pop()
+        pipinstall.pop()
 
     for p in packages:
         pip_requirements(p)
 
     build_and_install_h5py()
-    sudopip.append("--no-deps")
+    pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
         if args.developer:
@@ -565,7 +573,7 @@ else:
     # update dependencies.
     pip_requirements("PyOP2")
     pip_requirements("firedrake")
-    sudopip.append("--no-deps")
+    pipinstall.append("--no-deps")
 
     # Only rebuild petsc if it has changed.
     if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
