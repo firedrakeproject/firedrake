@@ -795,13 +795,6 @@ class TestMatrices:
         """Check that the matrix uses the amount of memory we expect."""
         assert mat.nbytes == 14 * 8
 
-    @pytest.mark.xfail('config.getvalue("backend") and config.getvalue("backend")[0] == "cuda"')
-    def test_set_diagonal(self, backend, x, mat):
-        mat.zero()
-        mat.set_diagonal(x)
-        for i, v in enumerate(x.data_ro):
-            assert mat.handle[i, i] == v
-
 
 class TestMixedMatrices:
     """
@@ -895,22 +888,6 @@ class TestMixedMatrices:
         eps = 1.e-12
         assert_allclose(dat[0].data_ro, b[0].data_ro, eps)
         assert_allclose(dat[1].data_ro, b[1].data_ro, eps)
-
-    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
-    def test_set_diagonal(self, backend, mat, dat):
-        mat.zero()
-        mat.set_diagonal(dat)
-        rows, cols = mat.sparsity.shape
-        for i in range(rows):
-            if i < cols:
-                for j, v in enumerate(dat[i].data_ro):
-                    assert mat[i, i].handle[j, j] == v
-
-    @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
-    def test_set_diagonal_invalid_dat(self, backend, mat, mset):
-        dat = op2.MixedDat(mset ** 4)
-        with pytest.raises(TypeError):
-            mat.set_diagonal(dat)
 
 
 if __name__ == '__main__':

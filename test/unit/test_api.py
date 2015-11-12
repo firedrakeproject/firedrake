@@ -1415,25 +1415,6 @@ class TestMatAPI:
         with pytest.raises(exceptions.ModeValueError):
             mat(mode, (m_iterset_toset[op2.i[0]], m_iterset_toset[op2.i[1]]))
 
-    def test_mat_set_diagonal(self, backend, diag_mat, dat, skip_cuda):
-        """Setting the diagonal of a zero matrix."""
-        diag_mat.zero()
-        diag_mat.set_diagonal(dat)
-        assert np.allclose(diag_mat.handle.getDiagonal().array, dat.data_ro)
-
-    def test_mat_dat_mult(self, backend, diag_mat, dat, skip_cuda):
-        """Mat multiplied with Dat should perform matrix-vector multiplication
-        and yield a Dat."""
-        diag_mat.set_diagonal(dat)
-        assert np.allclose((diag_mat * dat).data_ro, np.multiply(dat.data_ro, dat.data_ro))
-
-    def test_mat_vec_mult(self, backend, diag_mat, dat, skip_cuda):
-        """Mat multiplied with PETSc Vec should perform matrix-vector
-        multiplication and yield a Dat."""
-        with dat.vec_ro as vec:
-            diag_mat.set_diagonal(vec)
-            assert np.allclose((diag_mat * vec).data_ro, np.multiply(dat.data_ro, dat.data_ro))
-
     def test_mat_iter(self, backend, mat):
         "Mat should be iterable and yield self."
         for m in mat:

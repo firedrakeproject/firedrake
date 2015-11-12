@@ -45,7 +45,6 @@ import numpy as np
 
 import base
 from base import *
-from backends import _make_object
 from logger import debug, warning
 from versioning import CopyOnWrite, modifies, zeroes
 from profiling import timed_region
@@ -627,33 +626,6 @@ class Mat(base.Mat, CopyOnWrite):
         rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
 
-    @modifies
-    @collective
-    def set_diagonal(self, vec):
-        """Add a vector to the diagonal of the matrix.
-
-        :params vec: vector to add (:class:`Dat` or :class:`PETsc.Vec`)"""
-        if self.sparsity.shape != (1, 1):
-            if not isinstance(vec, base.MixedDat):
-                raise TypeError('Can only set diagonal of blocked Mat from MixedDat')
-            if vec.dataset != self.sparsity.dsets[1]:
-                raise TypeError('Mismatching datasets for MixedDat and Mat')
-            rows, cols = self.sparsity.shape
-            for i in range(rows):
-                if i < cols:
-                    self[i, i].set_diagonal(vec[i])
-            return
-        r, c = self.handle.getSize()
-        if r != c:
-            raise MatTypeError('Cannot set diagonal of non-square matrix')
-        if not isinstance(vec, (base.Dat, PETSc.Vec)):
-            raise TypeError("Can only set diagonal from a Dat or PETSc Vec.")
-        if isinstance(vec, PETSc.Vec):
-            self.handle.setDiagonal(vec)
-        else:
-            with vec.vec_ro as v:
-                self.handle.setDiagonal(v)
-
     def _cow_actual_copy(self, src):
         base._trace.evaluate(set([src]), set())
         self.handle = src.handle.duplicate(copy=True)
@@ -724,28 +696,6 @@ class Mat(base.Mat, CopyOnWrite):
             raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
                              "Are you sure you wanted to do this?")
         return self.handle[:, :]
-
-    def __mul__(self, v):
-        """Multiply this :class:`Mat` with the vector ``v``."""
-        if not isinstance(v, (base.Dat, PETSc.Vec)):
-            raise TypeError("Can only multiply Mat and Dat or PETSc Vec.")
-        if isinstance(v, base.Dat):
-            with v.vec_ro as vec:
-                y = self.handle * vec
-        else:
-            y = self.handle * v
-        if isinstance(v, base.MixedDat):
-            dat = _make_object('MixedDat', self.sparsity.dsets[0])
-            offset = 0
-            for d in dat:
-                sz = d.dataset.set.size
-                d.data[:] = y.getSubVector(PETSc.IS().createStride(sz, offset, 1)).array[:]
-                offset += sz
-        else:
-            dat = _make_object('Dat', self.sparsity.dsets[0])
-            dat.data[:] = y.array[:]
-        dat.needs_halo_update = True
-        return dat
 
 
 class ParLoop(base.ParLoop):
