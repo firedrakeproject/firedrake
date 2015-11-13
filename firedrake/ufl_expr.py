@@ -128,6 +128,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
          respect to.
     :arg du: an optional :class:`Argument` to use as the replacement
          in the new form (constructed automatically if not provided).
+    :arg coefficient_derivatives: an optional :class:`Tuple` to
+         provide the derivative of a coefficient function.
 
     See also :func:`ufl.derivative`.
     """
