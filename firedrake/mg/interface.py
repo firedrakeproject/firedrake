@@ -16,6 +16,12 @@ def prolong(coarse, fine):
     hierarchy, lvl = utils.get_level(cfs)
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
+    fhierarchy, flvl = utils.get_level(fine.function_space())
+    if flvl != lvl + 1:
+        raise ValueError("Can only prolong from level %d to level %d, not %d" %
+                         (lvl, lvl + 1, flvl))
+    if hierarchy is not fhierarchy:
+        raise ValueError("Can't prolong between functions from different hierarchies")
     if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
         for c, f in zip(coarse.split(), fine.split()):
             prolong(c, f)
@@ -31,6 +37,12 @@ def restrict(fine, coarse):
     hierarchy, lvl = utils.get_level(cfs)
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
+    fhierarchy, flvl = utils.get_level(fine.function_space())
+    if flvl != lvl + 1:
+        raise ValueError("Can only restrict from level %d to level %d, not %d" %
+                         (flvl, flvl - 1, lvl))
+    if hierarchy is not fhierarchy:
+        raise ValueError("Can't restrict between functions from different hierarchies")
     if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
         for f, c in zip(fine.split(), coarse.split()):
             restrict(f, c)
@@ -76,6 +88,12 @@ def inject(fine, coarse):
     hierarchy, lvl = utils.get_level(cfs)
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
+    fhierarchy, flvl = utils.get_level(fine.function_space())
+    if flvl != lvl + 1:
+        raise ValueError("Can only inject from level %d to level %d, not %d" %
+                         (flvl, flvl - 1, lvl))
+    if hierarchy is not fhierarchy:
+        raise ValueError("Can't prolong between functions from different hierarchies")
     if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
         for f, c in zip(fine.split(), coarse.split()):
             inject(f, c)
