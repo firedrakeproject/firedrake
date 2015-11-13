@@ -76,3 +76,5 @@ parameters.add(Parameters("form_compiler", **ffc_parameters))
 parameters["reorder_meshes"] = True
 
 parameters["matnest"] = True
+
+parameters["type_check_safe_par_loops"] = False
