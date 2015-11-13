@@ -61,7 +61,7 @@ pyop2_opts = Parameters("pyop2_options",
 pyop2_opts.set_update_function(lambda k, v: configuration.reconfigure(**{k: v}))
 
 # Override values
-pyop2_opts["type_check"] = False
+pyop2_opts["type_check"] = True
 pyop2_opts["log_level"] = "INFO"
 
 parameters.add(pyop2_opts)
