@@ -4,6 +4,7 @@ import ufl
 
 from pyop2 import op2
 from pyop2.utils import as_tuple, flatten
+from firedrake import utils
 
 
 class Matrix(object):
@@ -38,6 +39,7 @@ class Matrix(object):
         self._bcs = [bc for bc in bcs] if bcs is not None else []
         self._bcs_at_point_of_assembly = []
 
+    @utils.known_pyop2_safe
     def assemble(self):
         """Actually assemble this :class:`Matrix`.
 

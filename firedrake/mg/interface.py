@@ -5,12 +5,14 @@ import ufl
 from pyop2 import op2
 
 import firedrake
+import firedrake.utils
 from . import utils
 
 
 __all__ = ["prolong", "restrict", "inject"]
 
 
+@firedrake.utils.known_pyop2_safe
 def prolong(coarse, fine):
     cfs = coarse.function_space()
     hierarchy, lvl = utils.get_level(cfs)
@@ -32,6 +34,7 @@ def prolong(coarse, fine):
                  coarse.dat(op2.READ, coarse.cell_node_map()))
 
 
+@firedrake.utils.known_pyop2_safe
 def restrict(fine, coarse):
     cfs = coarse.function_space()
     hierarchy, lvl = utils.get_level(cfs)
@@ -83,6 +86,7 @@ def restrict(fine, coarse):
                  *args)
 
 
+@firedrake.utils.known_pyop2_safe
 def inject(fine, coarse):
     cfs = coarse.function_space()
     hierarchy, lvl = utils.get_level(cfs)
