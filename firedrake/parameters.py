@@ -58,7 +58,7 @@ parameters.add(Parameters("coffee",
 pyop2_opts = Parameters("pyop2_options",
                         **configuration)
 
-pyop2_opts.set_update_function(lambda k, v: configuration.reconfigure(**{k: v}))
+pyop2_opts.set_update_function(lambda k, v: configuration.unsafe_reconfigure(**{k: v}))
 
 # Override values
 pyop2_opts["type_check"] = True
