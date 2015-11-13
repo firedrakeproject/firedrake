@@ -115,7 +115,7 @@ def TrialFunctions(function_space):
     return split(TrialFunction(function_space))
 
 
-def derivative(form, u, du=None,coefficient_derivatives=None):
+def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
     Given a form, this computes its linearization with respect to the
