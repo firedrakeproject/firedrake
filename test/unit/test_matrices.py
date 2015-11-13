@@ -526,6 +526,11 @@ def msparsity(mset, mmap):
 
 
 @pytest.fixture
+def non_nest_mixed_sparsity(mset, mmap):
+    return op2.Sparsity(mset, mmap, nest=False)
+
+
+@pytest.fixture
 def mvsparsity(mset, mmap):
     return op2.Sparsity(mset ** 2, mmap)
 
@@ -670,6 +675,7 @@ class TestMatrices:
     def test_assemble_mat(self, backend, mass, mat, coords, elements,
                           elem_node, expected_matrix):
         """Assemble a simple finite-element matrix and check the result."""
+        mat.zero()
         op2.par_loop(mass, elements,
                      mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      coords(op2.READ, elem_node))
@@ -709,6 +715,7 @@ class TestMatrices:
         """Test accessing a scalar matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
+        mat.zero()
         op2.par_loop(kernel_inc, elements,
                      mat(op2.INC, (elem_node[op2.i[0]], elem_node[op2.i[1]])),
                      g(op2.READ))
@@ -794,6 +801,90 @@ class TestMatrices:
     def test_mat_nbytes(self, backend, mat):
         """Check that the matrix uses the amount of memory we expect."""
         assert mat.nbytes == 14 * 8
+
+
+class TestMatrixStateChanges:
+
+    """
+    Test that matrix state changes are correctly tracked.  Only used
+    on CPU backends (since it matches up with PETSc).
+    """
+
+    backends = ['sequential', 'openmp']
+
+    @pytest.fixture(params=[False, True],
+                    ids=["Non-nested", "Nested"])
+    def mat(self, request, msparsity, non_nest_mixed_sparsity):
+        if request.param:
+            mat = op2.Mat(msparsity)
+        else:
+            mat = op2.Mat(non_nest_mixed_sparsity)
+
+        opt = mat.handle.Option.NEW_NONZERO_ALLOCATION_ERR
+        opt2 = mat.handle.Option.UNUSED_NONZERO_LOCATION_ERR
+        mat.handle.setOption(opt, False)
+        mat.handle.setOption(opt2, False)
+        for m in mat:
+            m.handle.setOption(opt, False)
+            m.handle.setOption(opt2, False)
+        return mat
+
+    def test_mat_starts_assembled(self, backend, mat):
+        assert mat.assembly_state is op2.Mat.ASSEMBLED
+        for m in mat:
+            assert mat.assembly_state is op2.Mat.ASSEMBLED
+
+    def test_after_set_local_state_is_insert(self, backend, mat):
+        mat[0, 0].set_local_diagonal_entries([0])
+        mat._force_evaluation()
+        assert mat[0, 0].assembly_state is op2.Mat.INSERT_VALUES
+        if not mat.sparsity.nested:
+            assert mat.assembly_state is op2.Mat.INSERT_VALUES
+        assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
+
+    def test_after_addto_state_is_add(self, backend, mat):
+        mat[0, 0].addto_values(0, 0, [1])
+        mat._force_evaluation()
+        assert mat[0, 0].assembly_state is op2.Mat.ADD_VALUES
+        if not mat.sparsity.nested:
+            assert mat.assembly_state is op2.Mat.ADD_VALUES
+        assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
+
+    def test_matblock_assemble_runtimeerror(self, backend, mat):
+        if mat.sparsity.nested:
+            return
+        with pytest.raises(RuntimeError):
+            mat[0, 0].assemble()
+
+        with pytest.raises(RuntimeError):
+            mat[0, 0]._assemble()
+
+    def test_assembly_flushed_between_insert_and_add(self, backend, mat):
+        import types
+        flush_counter = [0]
+
+        def make_flush(old_flush):
+            def flush(self):
+                old_flush()
+                flush_counter[0] += 1
+            return flush
+
+        oflush = mat._flush_assembly
+        mat._flush_assembly = types.MethodType(make_flush(oflush), mat, type(mat))
+        if mat.sparsity.nested:
+            for m in mat:
+                oflush = m._flush_assembly
+                m._flush_assembly = types.MethodType(make_flush(oflush), m, type(m))
+
+        mat[0, 0].addto_values(0, 0, [1])
+        mat._force_evaluation()
+        assert flush_counter[0] == 0
+        mat[0, 0].set_values(1, 0, [2])
+        mat._force_evaluation()
+        assert flush_counter[0] == 1
+        mat.assemble()
+        mat._force_evaluation()
+        assert flush_counter[0] == 1
 
 
 class TestMixedMatrices:
