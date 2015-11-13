@@ -123,6 +123,10 @@ class Configuration(dict):
         for k, v in kwargs.items():
             self[k] = v
 
+    def unsafe_reconfigure(self, **kwargs):
+        """"Unsafely reconfigure (just replacing the values)"""
+        self.update(kwargs)
+
     def __setitem__(self, key, value):
         """Set the value of a configuration parameter.
 
