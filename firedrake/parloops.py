@@ -231,7 +231,7 @@ def par_loop(kernel, measure, args, **kwargs):
         domains = join_domains(domains)
         # Assume only one domain
         domain, = domains
-        mesh = domain.coordinates().function_space().mesh()
+        mesh = domain.ufl_cargo().function_space().mesh()
 
     op2args = [_form_kernel(kernel, measure, args, **kwargs)]
 
