@@ -739,7 +739,7 @@ class MeshGeometry(object):
 
         self._coordinates = coordinates
         self._ufl_domain = ufl.Mesh(coordinates.ufl_element(), ufl_id=self._coordinates.ufl_id(), cargo=self._coordinates)
-        self._ufl_cell = self._ufl_domain.cell()
+        self._ufl_cell = self._topology.ufl_cell().reconstruct(geometric_dimension=coordinates.function_space().dim)
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
