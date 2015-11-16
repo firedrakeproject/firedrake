@@ -189,10 +189,10 @@ def reconstruct_element(element, cell=None):
     """Rebuild element with a new cell."""
     if cell is None:
         return element
-    if isinstance(element, (ufl.FiniteElement, ufl.VectorElement, ufl.TensorElement)):
+    if isinstance(element, ufl.FiniteElement):
         family = element.family()
         degree = element.degree()
-        return type(element)(family, cell, degree)
+        return ufl.FiniteElement(family, cell, degree)
     if isinstance(element, ufl.VectorElement):
         family = element.family()
         degree = element.degree()
@@ -202,7 +202,7 @@ def reconstruct_element(element, cell=None):
         family = element.family()
         degree = element.degree()
         shape = element.value_shape()
-        sym = element.symmetry()
+        symmetry = element.symmetry()
         return ufl.TensorElement(family, cell, degree, shape, symmetry)
     if isinstance(element, ufl.EnrichedElement):
         eles = [reconstruct_element(sub, cell=cell) for sub in element._elements]

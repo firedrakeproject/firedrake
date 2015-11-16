@@ -559,7 +559,12 @@ class WithGeometry(object):
         return self._mesh
 
     def ufl_function_space(self):
-        return ufl.FunctionSpace(self._mesh.ufl_domain(), self._topological.ufl_element())
+        from firedrake.ufl_expr import reconstruct_element
+        return ufl.FunctionSpace(self._mesh.ufl_domain(),
+                                 reconstruct_element(self._topological.ufl_element(), cell=self._mesh.ufl_cell()))
+
+    def ufl_element(self):
+        return self.ufl_function_space().ufl_element()
 
     def __eq__(self, other):
         return self._topological == other._topological and self._mesh is other._mesh
