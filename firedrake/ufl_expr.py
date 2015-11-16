@@ -11,7 +11,8 @@ from firedrake import function
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'CellSize', 'FacetNormal']
+           'CellSize', 'FacetNormal',
+           'reconstruct_element']
 
 
 class Argument(ufl.argument.Argument):
@@ -182,3 +183,48 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh.ufl_domain())
+
+
+def reconstruct_element(element, cell=None):
+    """Rebuild element with a new cell."""
+    if cell is None:
+        return element
+    if isinstance(element, (ufl.FiniteElement, ufl.VectorElement, ufl.TensorElement)):
+        family = element.family()
+        degree = element.degree()
+        return type(element)(family, cell, degree)
+    if isinstance(element, ufl.VectorElement):
+        family = element.family()
+        degree = element.degree()
+        dim = len(element.sub_elements())
+        return ufl.VectorElement(family, cell, degree, dim)
+    if isinstance(element, ufl.TensorElement):
+        family = element.family()
+        degree = element.degree()
+        shape = element.value_shape()
+        sym = element.symmetry()
+        return ufl.TensorElement(family, cell, degree, shape, symmetry)
+    if isinstance(element, ufl.EnrichedElement):
+        eles = [reconstruct_element(sub, cell=cell) for sub in element._elements]
+        return ufl.EnrichedElement(*eles)
+    if isinstance(element, ufl.MixedElement):
+        eles = [reconstruct_element(sub, cell=cell) for sub in element.sub_elements()]
+        return ufl.MixedElement(*eles)
+    if isinstance(element, ufl.RestrictedElement):
+        return ufl.RestrictedElement(reconstruct_element(element.sub_element(), cell=cell),
+                                     element.restriction_domain())
+    if isinstance(element, (ufl.TraceElement,
+                            ufl.InteriorElement,
+                            ufl.HDivElement,
+                            ufl.HCurlElement,
+                            ufl.BrokenElement,
+                            ufl.FacetElement)):
+        return type(element)(reconstruct_element(element._element, cell=cell))
+    if isinstance(element, ufl.OuterProductElement):
+        return ufl.OuterProductElement(element._A, element._B, cell=cell)
+    if isinstance(element, ufl.OuterProductVectorElement):
+        dim = len(element.sub_elements())
+        return ufl.OuterProductVectorElement(element._A, element._B, cell=cell, dim=dim)
+    if isinstance(element, ufl.OuterProductTensorElement):
+        return element.reconstruct(cell=cell)
+    raise NotImplementedError("Don't know how to reconstruct element of type %s" % type(element))
