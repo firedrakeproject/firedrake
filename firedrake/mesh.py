@@ -404,8 +404,8 @@ class MeshTopology(object):
         cell_numbering = self._cell_numbering
         vertex_numbering = self._vertex_numbering.createGlobalSection(plex.getPointSF())
 
-        cellname = self.ufl_cell().cellname()
-        if cellname in ufl.cell.affine_cells:
+        cell = self.ufl_cell()
+        if cell.is_simplex():
             # Simplex mesh
             cStart, cEnd = plex.getHeightStratum(0)
             a_closure = plex.getTransitiveClosure(cStart)[0]
@@ -419,7 +419,7 @@ class MeshTopology(object):
             return dmplex.closure_ordering(plex, vertex_numbering,
                                            cell_numbering, entity_per_cell)
 
-        elif cellname == "quadrilateral":
+        elif cell.cellname() == "quadrilateral":
             # Quadrilateral mesh
             cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
@@ -438,7 +438,7 @@ class MeshTopology(object):
                 plex, vertex_numbering, cell_numbering, cell_orientations)
 
         else:
-            raise NotImplementedError("Cell type '%s' not supported." % cellname)
+            raise NotImplementedError("Cell type '%s' not supported." % cell)
 
     @utils.cached_property
     def exterior_facets(self):
