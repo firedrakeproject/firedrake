@@ -549,7 +549,8 @@ class WithGeometry(object):
         self._topological = function_space
         self._mesh = mesh
 
-        self._ufl_element = function_space.ufl_element().reconstruct(domain=mesh)
+        # self._ufl_element = function_space.ufl_element().reconstruct(domain=mesh)
+        self._ufl_element = function_space.ufl_element()
 
         if hasattr(function_space, '_parent'):
             self._parent = WithGeometry(function_space._parent, mesh)
@@ -644,18 +645,18 @@ class FunctionSpace(FunctionSpaceBase):
             if isinstance(mesh_t.ufl_cell(), ufl.OuterProductCell) and vfamily is not None and vdegree is not None:
                 # If OuterProductCell, make the OuterProductElement
                 la = ufl.FiniteElement(family,
-                                       domain=mesh_t._base_mesh.ufl_cell(),
+                                       cell=mesh_t._base_mesh.ufl_cell(),
                                        degree=degree)
                 # If second element was passed in, use it
                 lb = ufl.FiniteElement(vfamily,
-                                       domain=ufl.interval,
+                                       cell=ufl.interval,
                                        degree=vdegree)
                 # Now make the OuterProductElement
                 element = ufl.OuterProductElement(la, lb)
             else:
                 # Otherwise, just make the element
                 element = ufl.FiniteElement(family,
-                                            domain=mesh_t.ufl_cell(),
+                                            cell=mesh_t.ufl_cell(),
                                             degree=degree)
         self = super(FunctionSpace, cls).__new__(cls, mesh_t, element, name=name)
         if mesh is not mesh_t:
@@ -677,15 +678,15 @@ class VectorFunctionSpace(FunctionSpaceBase):
             element = ufl.OuterProductVectorElement(family, dim=dim)
         elif isinstance(mesh_t.ufl_cell(), ufl.OuterProductCell) and vfamily is not None and vdegree is not None:
             la = ufl.FiniteElement(family,
-                                   domain=mesh_t._base_mesh.ufl_cell(),
+                                   cell=mesh_t._base_mesh.ufl_cell(),
                                    degree=degree)
             lb = ufl.FiniteElement(vfamily,
-                                   domain=ufl.interval,
+                                   cell=ufl.interval,
                                    degree=vdegree)
             element = ufl.OuterProductVectorElement(la, lb, dim=dim)
         else:
             element = ufl.VectorElement(family,
-                                        domain=mesh_t.ufl_cell(),
+                                        cell=mesh_t.ufl_cell(),
                                         degree=degree, dim=dim)
 
         self = super(VectorFunctionSpace, cls).__new__(cls, mesh_t, element, name=name, shape=(dim,))
@@ -713,7 +714,7 @@ class TensorFunctionSpace(FunctionSpaceBase):
         if isinstance(mesh_t.ufl_cell(), ufl.OuterProductCell):
             raise NotImplementedError("TensorFunctionSpace on extruded meshes not implemented")
         else:
-            element = ufl.TensorElement(family, domain=mesh_t.ufl_cell(),
+            element = ufl.TensorElement(family, cell=mesh_t.ufl_cell(),
                                         degree=degree, shape=shape,
                                         symmetry=symmetry)
 
