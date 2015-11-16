@@ -560,8 +560,9 @@ class WithGeometry(object):
 
     def ufl_function_space(self):
         from firedrake.ufl_expr import reconstruct_element
-        return ufl.FunctionSpace(self._mesh.ufl_domain(),
-                                 reconstruct_element(self._topological.ufl_element(), cell=self._mesh.ufl_cell()))
+        return ufl.FunctionSpace(self._mesh,
+                                 reconstruct_element(self._topological.ufl_element(),
+                                                     cell=self._mesh.ufl_cell()))
 
     def ufl_element(self):
         return self.ufl_function_space().ufl_element()

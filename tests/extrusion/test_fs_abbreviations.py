@@ -70,7 +70,7 @@ def test_cg_dg_expansion(base_cell, fs, degree):
 
     expected = OuterProductElement(FiniteElement(fs, base_cell, degree),
                                    FiniteElement(fs, interval, degree),
-                                   domain=cell)
+                                   cell=cell)
     assert expected == actual
 
 
@@ -83,7 +83,7 @@ def test_cg_dg_vector_expansion(base_cell, fs, degree):
 
     expected = OuterProductVectorElement(FiniteElement(fs, base_cell, degree),
                                          FiniteElement(fs, interval, degree),
-                                         domain=cell, dim=3)
+                                         cell=cell, dim=3)
     assert expected == actual
 
 
@@ -104,7 +104,7 @@ def test_ufl_element_assembly(base_mesh_thunk, fs, degree):
     mesh = ExtrudedMesh(base_mesh_thunk(), 10)
     V = FunctionSpace(mesh, fs, degree)
 
-    assert V.ufl_element() == FiniteElement(fs, mesh.ufl_domain(), degree)
+    assert V.ufl_element() == FiniteElement(fs, mesh.ufl_cell(), degree)
 
 
 @pytest.mark.parametrize(('base_mesh_thunk', 'fs', 'degree'),
@@ -120,7 +120,7 @@ def test_ufl_vector_element_assembly(base_mesh_thunk, fs, degree):
     mesh = ExtrudedMesh(base_mesh_thunk(), 10)
     V = VectorFunctionSpace(mesh, fs, degree, dim=3)
 
-    assert V.ufl_element() == VectorElement(fs, mesh.ufl_domain(), degree, dim=3)
+    assert V.ufl_element() == VectorElement(fs, mesh.ufl_cell(), degree, dim=3)
 
 if __name__ == '__main__':
     import os

@@ -716,14 +716,16 @@ class ExtrudedMeshTopology(MeshTopology):
         return cell_data[cell_list]
 
 
-class MeshGeometry(object):
+class MeshGeometry(ufl.Mesh):
     """A representation of mesh topology and geometry."""
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, element):
         """Create mesh geometry object."""
         utils._init()
         mesh = super(MeshGeometry, cls).__new__(cls)
         mesh.uid = utils._new_uid()
+        assert isinstance(element, ufl.FiniteElementBase)
+        ufl.Mesh.__init__(mesh, element, ufl_id=mesh.uid)
         return mesh
 
     def __init__(self, coordinates):
@@ -738,8 +740,6 @@ class MeshGeometry(object):
         coordinates._as_mesh_geometry = weakref.ref(self)
 
         self._coordinates = coordinates
-        self._ufl_domain = ufl.Mesh(coordinates.ufl_element(), ufl_id=self._coordinates.ufl_id(), cargo=self._coordinates)
-        self._ufl_cell = self._topology.ufl_cell().reconstruct(geometric_dimension=coordinates.function_space().dim)
 
     def init(self):
         """Finish the initialisation of the mesh.  Most of the time
@@ -760,17 +760,6 @@ class MeshGeometry(object):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self._topology
-
-    def ufl_id(self):
-        return id(self)
-
-    def ufl_domain(self):
-        self.init()
-        return self._ufl_domain
-
-    def ufl_cell(self):
-        """The UFL :class:`~ufl.cell.Cell` associated with the mesh."""
-        return self._ufl_cell
 
     @utils.cached_property
     def _coordinates_function(self):
@@ -924,6 +913,33 @@ values from f.)"""
         return getattr(self._topology, name)
 
 
+def make_mesh_from_coordinates(coordinates):
+    """Given a coordinate field build a new mesh, using said coordinate field.
+
+    :arg coordinates: A :class:`~.Function`.
+    """
+    import firedrake.functionspace as functionspace
+    from firedrake.ufl_expr import reconstruct_element
+
+    if hasattr(coordinates, '_as_mesh_geometry'):
+        mesh = coordinates._as_mesh_geometry()
+        if mesh is not None:
+            return mesh
+
+    coordinates_fs = coordinates.function_space()
+    if not isinstance(coordinates_fs, functionspace.VectorFunctionSpace):
+        raise ValueError("Coordinates must have a VectorFunctionSpace.")
+    assert coordinates_fs.mesh().ufl_cell().topological_dimension() <= coordinates_fs.dim
+    # Build coordinate element
+    element = coordinates.element()
+    cell = element.cell().reconstruct(geometric_dimension=coordinates_fs.dim)
+    element = reconstruct_element(element, cell=cell)
+
+    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh.__init__(coordinates)
+    return mesh
+
+
 @timed_function("Build mesh")
 @profile
 def Mesh(meshfile, **kwargs):
@@ -971,16 +987,7 @@ def Mesh(meshfile, **kwargs):
         coordinates = None
 
     if coordinates is not None:
-        if hasattr(coordinates, '_as_mesh_geometry'):
-            mesh = coordinates._as_mesh_geometry()
-            if mesh is not None:
-                return mesh
-
-        coordinates_fs = coordinates.function_space()
-        if not isinstance(coordinates_fs, functionspace.VectorFunctionSpace):
-            raise ValueError("Coordinates must have a VectorFunctionSpace.")
-        assert coordinates_fs.mesh().ufl_cell().topological_dimension() <= coordinates_fs.dim
-        return MeshGeometry(coordinates)
+        return make_mesh_from_coordinates(coordinates)
 
     utils._init()
 
@@ -1009,16 +1016,18 @@ def Mesh(meshfile, **kwargs):
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))
 
-    # Create mesh object
-    mesh = MeshGeometry.__new__(MeshGeometry)
-
     # Create mesh topology
-    mesh._topology = MeshTopology(plex, name=name, reorder=reorder, distribute=distribute)
+    topology = MeshTopology(plex, name=name, reorder=reorder, distribute=distribute)
 
-    ufl_cell = mesh.topology.ufl_cell()
+    tcell = topology.ufl_cell()
     if geometric_dim is None:
-        geometric_dim = ufl_cell.topological_dimension()
-    mesh._ufl_cell = ufl_cell.reconstruct(geometric_dimension=geometric_dim)
+        geometric_dim = tcell.topological_dimension()
+    cell = tcell.reconstruct(geometric_dimension=geometric_dim)
+
+    element = ufl.VectorElement("Lagrange", cell, 1)
+    # Create mesh object
+    mesh = MeshGeometry.__new__(MeshGeometry, element)
+    mesh._topology = topology
 
     def callback(self):
         """Finish initialisation."""
@@ -1131,7 +1140,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     eutils.make_extruded_coords(topology, mesh._coordinates, coordinates,
                                 layer_height, extrusion_type=extrusion_type, kernel=kernel)
 
-    self = MeshGeometry(coordinates)
+    self = make_mesh_from_coordinates(coordinates)
     self._base_mesh = mesh
 
     if extrusion_type == "radial_hedgehog":

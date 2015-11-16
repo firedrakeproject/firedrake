@@ -66,7 +66,7 @@ class Argument(ufl.argument.Argument):
         ufl_assert(isinstance(number, int),
                    "Expecting an int, not %s" % number)
         ufl_assert(function_space.ufl_element().value_shape() ==
-                   self._element.value_shape(),
+                   self.element().value_shape(),
                    "Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 
@@ -173,7 +173,7 @@ def CellSize(mesh):
     :arg mesh: the mesh for which to calculate the cell size.
     """
     mesh.init()
-    return 2.0 * ufl.Circumradius(mesh.ufl_domain())
+    return 2.0 * ufl.Circumradius(mesh)
 
 
 def FacetNormal(mesh):
@@ -182,7 +182,7 @@ def FacetNormal(mesh):
     :arg mesh: the mesh over which the normal should be represented.
     """
     mesh.init()
-    return ufl.FacetNormal(mesh.ufl_domain())
+    return ufl.FacetNormal(mesh)
 
 
 def reconstruct_element(element, cell=None):
@@ -207,9 +207,6 @@ def reconstruct_element(element, cell=None):
     if isinstance(element, ufl.EnrichedElement):
         eles = [reconstruct_element(sub, cell=cell) for sub in element._elements]
         return ufl.EnrichedElement(*eles)
-    if isinstance(element, ufl.MixedElement):
-        eles = [reconstruct_element(sub, cell=cell) for sub in element.sub_elements()]
-        return ufl.MixedElement(*eles)
     if isinstance(element, ufl.RestrictedElement):
         return ufl.RestrictedElement(reconstruct_element(element.sub_element(), cell=cell),
                                      element.restriction_domain())
@@ -227,4 +224,7 @@ def reconstruct_element(element, cell=None):
         return ufl.OuterProductVectorElement(element._A, element._B, cell=cell, dim=dim)
     if isinstance(element, ufl.OuterProductTensorElement):
         return element.reconstruct(cell=cell)
+    if isinstance(element, ufl.MixedElement):
+        eles = [reconstruct_element(sub, cell=cell) for sub in element.sub_elements()]
+        return ufl.MixedElement(*eles)
     raise NotImplementedError("Don't know how to reconstruct element of type %s" % type(element))
