@@ -191,7 +191,7 @@ class FFCKernel(DiskCached):
             kernels = []
             # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
-            elements = fd.elements
+            elements = fd.unique_elements
             needs_orientations = self._needs_orientations(elements)
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
                 # Set optimization options
@@ -265,7 +265,7 @@ def compile_form(form, name, parameters=None, inverse=False):
     if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
-                    it.domain().coordinates(),
+                    it.domain().ufl_cargo(),
                     fd.preprocessed_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name,
@@ -288,7 +288,7 @@ def compile_form(form, name, parameters=None, inverse=False):
             kernels.append(((i, j),
                             it.integral_type(),
                             it.subdomain_id(),
-                            it.domain().coordinates(),
+                            it.domain().ufl_cargo(),
                             fd.preprocessed_form.coefficients(),
                             needs_orientations, kernel))
     form._cache["firedrake_kernels"] = (kernels, parameters)

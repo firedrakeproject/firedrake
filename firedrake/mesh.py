@@ -738,7 +738,7 @@ class MeshGeometry(object):
         coordinates._as_mesh_geometry = weakref.ref(self)
 
         self._coordinates = coordinates
-        self._ufl_domain = ufl.Domain(coordinates)
+        self._ufl_domain = ufl.Mesh(coordinates.ufl_element(), ufl_id=self._coordinates.ufl_id(), cargo=self._coordinates)
         self._ufl_cell = self._ufl_domain.cell()
 
     def init(self):
@@ -760,6 +760,9 @@ class MeshGeometry(object):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self._topology
+
+    def ufl_id(self):
+        return id(self)
 
     def ufl_domain(self):
         self.init()

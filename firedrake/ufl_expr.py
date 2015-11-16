@@ -30,8 +30,7 @@ class Argument(ufl.argument.Argument):
            a :class:`TrialFunction`.
 
         """
-        element = function_space.ufl_element()
-        super(Argument, self).__init__(element, number, part=part)
+        super(Argument, self).__init__(function_space.ufl_function_space(), number, part=part)
         self._function_space = function_space
 
     @property

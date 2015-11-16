@@ -549,9 +549,6 @@ class WithGeometry(object):
         self._topological = function_space
         self._mesh = mesh
 
-        # self._ufl_element = function_space.ufl_element().reconstruct(domain=mesh)
-        self._ufl_element = function_space.ufl_element()
-
         if hasattr(function_space, '_parent'):
             self._parent = WithGeometry(function_space._parent, mesh)
 
@@ -561,8 +558,8 @@ class WithGeometry(object):
     def mesh(self):
         return self._mesh
 
-    def ufl_element(self):
-        return self._ufl_element
+    def ufl_function_space(self):
+        return ufl.FunctionSpace(self._mesh.ufl_domain(), self._topological.ufl_element())
 
     def __eq__(self, other):
         return self._topological == other._topological and self._mesh is other._mesh

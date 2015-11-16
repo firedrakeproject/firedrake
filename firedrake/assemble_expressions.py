@@ -58,7 +58,7 @@ class DummyFunction(ufl.Coefficient):
     """
 
     def __init__(self, function, argnum, intent=op2.READ):
-        ufl.Coefficient.__init__(self, function._element)
+        ufl.Coefficient.__init__(self, function.ufl_function_space())
 
         self.argnum = argnum
         self.function = function

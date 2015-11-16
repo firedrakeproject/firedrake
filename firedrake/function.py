@@ -84,6 +84,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         """The underlying coordinateless function."""
         return self
 
+    def ufl_id(self):
+        return self.uid
+
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
         of this this :class:`Function`'s :class:`FunctionSpace`."""
@@ -224,7 +227,7 @@ class Function(ufl.Coefficient):
             self._data = CoordinatelessFunction(self._function_space.topological,
                                                 val=val, name=name, dtype=dtype)
 
-        ufl.Coefficient.__init__(self, self.function_space().ufl_element())
+        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
         self._split = None
 
         if cachetools:

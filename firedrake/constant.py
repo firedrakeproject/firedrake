@@ -54,21 +54,22 @@ class Constant(ufl.Coefficient):
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
-        try:
-            domain.init()
-        except AttributeError:
-            pass
         self.dat, rank, shape = _globalify(value)
 
+        cell = None
+        if domain is not None:
+            domain = ufl.as_domain(domain)
+            cell = domain.ufl_cell()
         if rank == 0:
-            e = ufl.FiniteElement("Real", domain, 0)
+            e = ufl.FiniteElement("Real", cell, 0)
         elif rank == 1:
-            e = ufl.VectorElement("Real", domain, 0, shape[0])
+            e = ufl.VectorElement("Real", cell, 0, shape[0])
         elif rank == 2:
-            e = ufl.TensorElement("Real", domain, 0, shape=shape)
-        super(Constant, self).__init__(e)
-        self._ufl_element = self.element()
-        self._repr = 'Constant(%r, %r)' % (self._ufl_element, self.count())
+            e = ufl.TensorElement("Real", cell, 0, shape=shape)
+
+        fs = ufl.FunctionSpace(domain, e)
+        super(Constant, self).__init__(fs)
+        self._repr = 'Constant(%r, %r)' % (self.ufl_element(), self.count())
 
     def evaluate(self, x, mapping, component, index_values):
         """Return the evaluation of this :class:`Constant`.
@@ -84,10 +85,6 @@ class Constant(ufl.Coefficient):
                 return self.dat.data_ro[0]
             return self.dat.data_ro
         return self.dat.data_ro[component]
-
-    def ufl_element(self):
-        """Return the UFL element on which this Constant is built."""
-        return self._ufl_element
 
     def function_space(self):
         """Return a null function space."""
