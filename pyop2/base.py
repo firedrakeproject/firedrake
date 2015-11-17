@@ -3539,6 +3539,35 @@ class Sparsity(ObjectCached):
         return False
 
 
+class _LazyMatOp(LazyComputation):
+    """A lazily evaluated operation on a :class:`Mat`
+
+    :arg mat: The :class:`Mat` this operation touches
+    :arg closure: a callable piece of code to run
+    :arg new_state: What is the assembly state of the matrix after running
+         the closure?
+    :kwarg read:  Does this operation have read semantics?
+    :kwarg write:  Does this operation have write semantics?
+    :kwarg state: The state of the matrix after calling ``closure``.
+    """
+
+    def __init__(self, mat, closure, new_state, read=False, write=False):
+        read = [mat] if read else []
+        write = [mat] if write else []
+        super(_LazyMatOp, self).__init__(reads=read, writes=write, incs=[])
+        self._closure = closure
+        self._mat = mat
+        self._new_state = new_state
+
+    def _run(self):
+        if self._mat.assembly_state is not Mat.ASSEMBLED and \
+           self._new_state is not Mat.ASSEMBLED and \
+           self._new_state is not self._mat.assembly_state:
+            self._mat._flush_assembly()
+        self._closure()
+        self._mat.assembly_state = self._new_state
+
+
 class Mat(SetAssociated):
     """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
@@ -3562,6 +3591,10 @@ class Mat(SetAssociated):
        :meth:`assemble` to finalise the writes.
     """
 
+    ASSEMBLED = "ASSEMBLED"
+    INSERT_VALUES = "INSERT_VALUES"
+    ADD_VALUES = "ADD_VALUES"
+
     _globalcount = 0
     _modes = [WRITE, INC]
 
@@ -3571,6 +3604,7 @@ class Mat(SetAssociated):
         self._sparsity = sparsity
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
+        self.assembly_state = Mat.ASSEMBLED
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
@@ -3583,24 +3617,14 @@ class Mat(SetAssociated):
         return _make_object('Arg', data=self, map=path_maps, access=access,
                             idx=path_idxs, flatten=flatten)
 
-    class _Assembly(LazyComputation):
-        """Finalise assembly of this matrix.
-
-        Called lazily after user calls :meth:`assemble`"""
-        def __init__(self, mat):
-            super(Mat._Assembly, self).__init__(reads=mat, writes=mat, incs=mat)
-            self._mat = mat
-
-        def _run(self):
-            self._mat._assemble()
-
     def assemble(self):
         """Finalise this :class:`Mat` ready for use.
 
         Call this /after/ executing all the par_loops that write to
         the matrix before you want to look at it.
         """
-        Mat._Assembly(self).enqueue()
+        _LazyMatOp(self, self._assemble, new_state=Mat.ASSEMBLED,
+                   read=True, write=True).enqueue()
 
     def _assemble(self):
         raise NotImplementedError(
@@ -3673,6 +3697,11 @@ class Mat(SetAssociated):
     @cached_property
     def _is_vector_field(self):
         return not self._is_scalar_field
+
+    def _flush_assembly(self):
+        """Flush the in flight assembly operations (used when
+        switching between inserting and adding values."""
+        pass
 
     @property
     def values(self):
@@ -4180,8 +4209,10 @@ class ParLoop(LazyComputation):
                 if arg.data._is_allocated:
                     for d in arg.data:
                         d._data.setflags(write=False)
-            if arg._is_mat:
-                arg.data._needs_assembly = True
+            if arg._is_mat and arg.access is not READ:
+                state = {WRITE: Mat.INSERT_VALUES,
+                         INC: Mat.ADD_VALUES}[arg.access]
+                arg.data.assembly_state = state
 
     @cached_property
     def dat_args(self):

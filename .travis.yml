@@ -11,7 +11,7 @@ python:
 env:
   global:
     - C_INCLUDE_PATH=/usr/lib/openmpi/include
-    - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
+    - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco --with-debugging=1"
 # command to install dependencies
 before_install:
   - sudo apt-get update -qq
