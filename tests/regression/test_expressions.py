@@ -260,7 +260,7 @@ def test_assign_vector_const_to_mfs_scalar_vector(cg1, vcg1):
 
     w = Function(W)
 
-    c = Constant(range(1, w.element().value_shape()[0]+1))
+    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
 
     w.assign(c)
 
@@ -275,7 +275,7 @@ def test_assign_vector_const_to_mfs_scalar_vector_vector(cg1, vcg1):
 
     w = Function(W)
 
-    c = Constant(range(1, w.element().value_shape()[0]+1))
+    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
 
     w.assign(c)
 
@@ -289,7 +289,7 @@ def test_assign_vector_const_to_mfs_scalar_vector_vector(cg1, vcg1):
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
-    c = Constant(range(1, f.element().value_shape()[0]+1))
+    c = Constant(range(1, f.ufl_element().value_shape()[0]+1))
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
@@ -309,7 +309,7 @@ def test_assign_vector_const_to_mfs_scalars(cg1):
 
     w = Function(W)
 
-    c = Constant(range(1, w.element().value_shape()[0]+1))
+    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
 
     w.assign(c)
 

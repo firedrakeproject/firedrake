@@ -460,13 +460,13 @@ class PVTUWriter(object):
         if not self._initialised:
 
             self.xml.openElement("PPointData")
-            if len(function.shape()) == 1:
+            if len(function.ufl_shape) == 1:
                 self.addData("Float64", function.name(), num_of_components=3)
-            elif len(function.shape()) == 0:
+            elif len(function.ufl_shape) == 0:
                 self.addData("Float64", function.name(), num_of_components=1)
             else:
                 raise RuntimeError("Don't know how to write data with shape %s\n",
-                                   function.shape())
+                                   function.ufl_shape)
             self.xml.closeElement("PPointData")
             self.xml.openElement("PCellData")
             self.addData("Int32", "connectivity")

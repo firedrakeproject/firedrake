@@ -931,7 +931,7 @@ def make_mesh_from_coordinates(coordinates):
         raise ValueError("Coordinates must have a VectorFunctionSpace.")
     assert coordinates_fs.mesh().ufl_cell().topological_dimension() <= coordinates_fs.dim
     # Build coordinate element
-    element = coordinates.element()
+    element = coordinates.ufl_element()
     cell = element.cell().reconstruct(geometric_dimension=coordinates_fs.dim)
     element = reconstruct_element(element, cell=cell)
 
@@ -1127,8 +1127,8 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     if extrusion_type == 'radial_hedgehog':
         hfamily = "DG"
     else:
-        hfamily = mesh._coordinates.element().family()
-    hdegree = mesh._coordinates.element().degree()
+        hfamily = mesh._coordinates.ufl_element().family()
+    hdegree = mesh._coordinates.ufl_element().degree()
 
     if gdim is None:
         gdim = mesh.ufl_cell().geometric_dimension() + (extrusion_type == "uniform")

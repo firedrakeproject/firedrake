@@ -42,7 +42,7 @@ class Constant(ufl.Coefficient):
          of iterables (or numpy array with 2-dimensional shape) for a
          tensor-valued constant.
 
-    :arg domain: an optional UFL :class:`~ufl.domain.Domain` on which the constant is defined.
+    :arg domain: an optional :class:`~.Mesh` on which the constant is defined.
 
     .. note::
 
@@ -81,7 +81,7 @@ class Constant(ufl.Coefficient):
         :arg index_values: ignored.
         """
         if component in ((), None):
-            if self.shape() is ():
+            if self.ufl_shape is ():
                 return self.dat.data_ro[0]
             return self.dat.data_ro
         return self.dat.data_ro[component]

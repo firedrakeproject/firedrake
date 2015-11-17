@@ -227,7 +227,7 @@ def par_loop(kernel, measure, args, **kwargs):
     else:
         domains = []
         for func, _ in args.itervalues():
-            domains.extend(func.domains())
+            domains.extend(func.ufl_domains())
         domains = join_domains(domains)
         # Assume only one domain
         domain, = domains

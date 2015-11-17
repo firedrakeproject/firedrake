@@ -77,8 +77,9 @@ def project(v, V, bcs=None, mesh=None,
     elif not isinstance(v, ufl.core.expr.Expr):
         raise RuntimeError("Can't only project from expressions and functions, not %r" % type(v))
 
-    if v.shape() != ret.shape():
-        raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' % (v.shape(), ret.shape()))
+    if v.ufl_shape != ret.ufl_shape:
+        raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %
+                           (v.ufl_shape, ret.ufl_shape))
 
     p = ufl_expr.TestFunction(V)
     q = ufl_expr.TrialFunction(V)
