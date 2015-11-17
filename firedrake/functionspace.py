@@ -279,7 +279,7 @@ class FunctionSpaceBase(ObjectCached):
             parent = None
 
         facet_set = self._mesh.exterior_facets.set
-        if isinstance(self._mesh, mesh_t.ExtrudedMeshTopology):
+        if isinstance(self._mesh.topology, mesh_t.ExtrudedMeshTopology):
             name = "extruded_exterior_facet_node"
             offset = self.offset
         else:
@@ -387,7 +387,7 @@ class FunctionSpaceBase(ObjectCached):
                         decorate = True
                 node_list_bc = np.arange(self.node_count, dtype=np.int32)
                 # Fix up for extruded, doesn't commute with indexedvfs for now
-                if isinstance(self.mesh(), mesh_t.ExtrudedMeshTopology):
+                if isinstance(self.mesh().topology, mesh_t.ExtrudedMeshTopology):
                     node_list_bc[bcids] = -10000000
                 else:
                     node_list_bc[bcids] = -(negids + 1)
@@ -488,7 +488,7 @@ class FunctionSpaceBase(ObjectCached):
                      facet_dat(op2.WRITE),
                      local_facet_dat(op2.READ))
 
-        if isinstance(self._mesh, mesh_t.ExtrudedMeshTopology):
+        if isinstance(self._mesh.topology, mesh_t.ExtrudedMeshTopology):
             offset = self.offset[boundary_dofs[0]]
         else:
             offset = None
