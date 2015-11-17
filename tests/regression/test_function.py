@@ -58,7 +58,7 @@ def test_firedrake_tensor_function(W):
 
 def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
     f = Function(W_nonstandard_shape)
-    vals = np.arange(1, W_nonstandard_shape.cdim+1).reshape(f.ufl_shape)
+    vals = np.arange(1, W_nonstandard_shape.dim+1).reshape(f.ufl_shape)
     f.interpolate(Expression(vals.astype("string")))
     assert np.allclose(f.dat.data_ro, vals)
 

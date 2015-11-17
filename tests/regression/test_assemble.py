@@ -32,7 +32,7 @@ def fs(request, cg1, vcg1, tcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
 def f(fs):
     f = Function(fs, name="f")
     if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace, TensorFunctionSpace)):
-        f.interpolate(Expression(("x[0]",) * fs.cdim))
+        f.interpolate(Expression(("x[0]",) * fs.dim))
     else:
         f.interpolate(Expression("x[0]"))
     return f
@@ -42,7 +42,7 @@ def f(fs):
 def one(fs):
     one = Function(fs, name="one")
     if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace, TensorFunctionSpace)):
-        one.interpolate(Expression(("1",) * fs.cdim))
+        one.interpolate(Expression(("1",) * fs.dim))
     else:
         one.interpolate(Expression("1"))
     return one
@@ -60,7 +60,7 @@ def test_one_form(M, f):
     assert isinstance(one_form, Function)
     for f in one_form.split():
         if(isinstance(f.function_space(), TensorFunctionSpace)):
-            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().dim)) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
             assert abs(f.dat.data.sum() - 0.5*f.function_space().dim) < 1.0e-12
 

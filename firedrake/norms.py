@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 from pyop2.logger import warning
-from ufl import inner, div, grad, curl, sqrt
+from ufl import inner, div, grad, curl, sqrt, dx
 
 from firedrake.assemble import assemble
 from firedrake import function
@@ -100,8 +100,6 @@ def norm(v, norm_type="L2", mesh=None):
     assert isinstance(v, function.Function)
 
     typ = norm_type.lower()
-    mesh = v.function_space().mesh()
-    dx = mesh._dx
     if typ == 'l2':
         form = inner(v, v)*dx
     elif typ == 'h1':

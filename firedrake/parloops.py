@@ -4,6 +4,7 @@ non-finite element operations such as slope limiters."""
 from __future__ import absolute_import
 
 from ufl.indexed import Indexed
+from ufl.domain import join_domains
 
 from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused import.
 import pyop2
@@ -224,11 +225,13 @@ def par_loop(kernel, measure, args, **kwargs):
         if not mesh:
             raise TypeError("No Functions passed to direct par_loop")
     else:
-        sd = measure.subdomain_data()
-        # subdomain data is a weakref
-        sd = sd()
-        assert sd is not None, "Lost reference to subdomain data, argh!"
-        mesh = sd.function_space().mesh()
+        domains = []
+        for func, _ in args.itervalues():
+            domains.extend(func.domains())
+        domains = join_domains(domains)
+        # Assume only one domain
+        domain, = domains
+        mesh = domain.coordinates().function_space().mesh()
 
     op2args = [_form_kernel(kernel, measure, args, **kwargs)]
 
