@@ -18,28 +18,29 @@ def fs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
 
 def test_function_space_cached(mesh):
     "FunctionSpaces defined on the same mesh and element are cached."
-    assert FunctionSpace(mesh, "CG", 1) is FunctionSpace(mesh, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1) == FunctionSpace(mesh, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1).topological is FunctionSpace(mesh, "CG", 1).topological
 
 
 def test_function_space_different_mesh_differ(mesh, mesh2):
     "FunctionSpaces defined on different meshes differ."
-    assert FunctionSpace(mesh, "CG", 1) is not FunctionSpace(mesh2, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh2, "CG", 1)
 
 
 def test_function_space_different_degree_differ(mesh):
     "FunctionSpaces defined with different degrees differ."
-    assert FunctionSpace(mesh, "CG", 1) is not FunctionSpace(mesh, "CG", 2)
+    assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh, "CG", 2)
 
 
 def test_function_space_different_family_differ(mesh):
     "FunctionSpaces defined with different element families differ."
-    assert FunctionSpace(mesh, "CG", 1) is not FunctionSpace(mesh, "DG", 1)
+    assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh, "DG", 1)
 
 
 def test_function_space_vector_function_space_differ(mesh):
     """A FunctionSpace and a VectorFunctionSpace defined with the same
     family and degree differ."""
-    assert FunctionSpace(mesh, "CG", 1) is not VectorFunctionSpace(mesh, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1) != VectorFunctionSpace(mesh, "CG", 1)
 
 
 def test_indexed_function_space_index(fs):

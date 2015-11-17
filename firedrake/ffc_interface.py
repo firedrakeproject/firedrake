@@ -56,14 +56,9 @@ def sum_integrands(form):
     for integral in form.integrals():
         md = integral.metadata()
         mdkey = tuple((k, md[k]) for k in sorted(md.keys()))
-        sd = integral.subdomain_data()
-        # subdomain data is a weakref
-        sd = sd()
-        assert sd is not None, "Lost reference to subdomain data, argh!"
         integrals[(integral.integral_type(),
-                   integral.domain(),
+                   integral.ufl_domain(),
                    integral.subdomain_id(),
-                   sd,
                    mdkey)].append(integral)
     return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
                  for it in integrals.values()])
@@ -86,7 +81,7 @@ class FormSplitter(ReuseTransformer):
                 integrand = self.visit(it.integrand())
                 if not isinstance(integrand, Zero):
                     forms.append([(idx, integrand * Measure(it.integral_type(),
-                                                            domain=it.domain(),
+                                                            domain=it.ufl_domain(),
                                                             subdomain_id=it.subdomain_id(),
                                                             subdomain_data=it.subdomain_data(),
                                                             metadata=it.metadata()))])
@@ -119,11 +114,11 @@ class FormSplitter(ReuseTransformer):
             for i, fs in enumerate(arg.function_space().split()):
                 # Look up the split argument in cache since we want it unique
                 a = Argument(fs, arg.number(), part=arg.part())
-                if a.shape():
+                if a.ufl_shape:
                     if self._idx[arg.number()] == i:
-                        args += [a[j] for j in range(a.shape()[0])]
+                        args += [a[j] for j in range(a.ufl_shape[0])]
                     else:
-                        args += [Zero() for j in range(a.shape()[0])]
+                        args += [Zero() for j in range(a.ufl_shape[0])]
                 else:
                     if self._idx[arg.number()] == i:
                         args.append(a)
@@ -163,12 +158,10 @@ class FFCKernel(DiskCached):
                    + str(parameters)).hexdigest()
 
     def _needs_orientations(self, elements):
-        if len(elements) == 0:
-            return False
-        cell = elements[0].cell()
-        if cell.topological_dimension() == cell.geometric_dimension():
-            return False
         for e in elements:
+            cell = e.cell()
+            if cell.topological_dimension() == cell.geometric_dimension():
+                continue
             if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
                 if any("contravariant piola" in fiat_utils.fiat_from_ufl_element(s).mapping()
                        for s in e.sub_elements()):
@@ -198,7 +191,7 @@ class FFCKernel(DiskCached):
             kernels = []
             # need compute_form_data here to get preproc form integrals
             fd = compute_form_data(form)
-            elements = fd.elements
+            elements = fd.unique_elements
             needs_orientations = self._needs_orientations(elements)
             for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
                 # Set optimization options
@@ -235,8 +228,8 @@ def compile_form(form, name, parameters=None, inverse=False):
     orientation information (for correctly pulling back to reference
     elements on embedded manifolds).
 
-    The coordinates are extracted from the UFL
-    :class:`~ufl.domain.Domain` of the integral.
+    The coordinates are extracted from the domain of the integral (a
+    :class:`~.Mesh`)
 
     """
 
@@ -272,7 +265,7 @@ def compile_form(form, name, parameters=None, inverse=False):
     if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
         kernels = [((0, 0),
                     it.integral_type(), it.subdomain_id(),
-                    it.domain().data().coordinates,
+                    it.ufl_domain().coordinates,
                     fd.preprocessed_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name,
@@ -295,7 +288,7 @@ def compile_form(form, name, parameters=None, inverse=False):
             kernels.append(((i, j),
                             it.integral_type(),
                             it.subdomain_id(),
-                            it.domain().data().coordinates,
+                            it.ufl_domain().coordinates,
                             fd.preprocessed_form.coefficients(),
                             needs_orientations, kernel))
     form._cache["firedrake_kernels"] = (kernels, parameters)
