@@ -771,6 +771,7 @@ class Inspector(Cached):
         if name != lazy_trace_name:
             # Special case: the Inspector comes from a user-defined /loop_chain/
             key += (options['mode'], options['tile_size'], options['partitioning'])
+            key += (loop_chain[0].kernel.cache_key,)
             return key
         # Inspector extracted from lazy evaluation trace
         for loop in loop_chain:
@@ -1524,10 +1525,11 @@ def loop_chain(name, **kwargs):
         # No fusion, but openmp parallelization could still occur through SLOPE
         if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
             block_size = tile_size    # This is rather a 'block' size (no tiling)
-            options = {'tile_size': block_size}
-            new_trace = [Inspector(name, [loop], **options).inspect('only_omp')([loop])
+            options = {'mode': 'only_omp', 'tile_size': block_size, 'partitioning': 'chunk'}
+            new_trace = [Inspector(name, [loop], **options).inspect()([loop])
                          for loop in extracted_trace]
             trace[bottom:] = list(flatten(new_trace))
+            _trace.evaluate_all()
         return
 
     # Unroll the loop chain /num_unroll/ times before fusion/tiling
