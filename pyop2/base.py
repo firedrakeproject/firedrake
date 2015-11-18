@@ -3548,7 +3548,6 @@ class _LazyMatOp(LazyComputation):
          the closure?
     :kwarg read:  Does this operation have read semantics?
     :kwarg write:  Does this operation have write semantics?
-    :kwarg state: The state of the matrix after calling ``closure``.
     """
 
     def __init__(self, mat, closure, new_state, read=False, write=False):
