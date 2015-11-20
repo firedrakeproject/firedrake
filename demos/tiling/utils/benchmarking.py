@@ -32,13 +32,18 @@ def parser(**kwargs):
 
 
 def output_time(start, end, **kwargs):
-
     verbose = kwargs.get('verbose', False)
     tofile = kwargs.get('tofile', False)
     fs = kwargs.get('fs', None)
     nloops = kwargs.get('nloops', 0)
     tile_size = kwargs.get('tile_size', 0)
     backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
+
+    # Where do I store the output ?
+    # defaults to /firedrake/demos/tiling/...
+    output_dir = ""
+    if "FIREDRAKE_DIR" in os.environ:
+        output_dir = os.path.join(os.environ["FIREDRAKE_DIR"], "demos", "tiling")
 
     # Find number of processes, and number of threads per process
     num_procs = MPI.comm.size
@@ -80,10 +85,10 @@ def output_time(start, end, **kwargs):
         except ValueError:
             return float(s)
     if MPI.comm.rank == 0 and tofile:
-        name = sys.argv[0][:-3]  # Cut away the extension
+        name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
         for mode in modes:
-            filename = "times/%s/mesh%d/%s/np%d_nt%d.txt" % \
-                (name, mesh_size, mode, num_procs, num_threads)
+            filename = os.path.join(output_dir, "times", name, "mesh%d" % mesh_size,
+                                    mode, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
             if not os.path.exists(os.path.dirname(filename)):
                 os.makedirs(os.path.dirname(filename))
