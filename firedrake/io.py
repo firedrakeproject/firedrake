@@ -154,7 +154,7 @@ class _VTUFile(object):
 
         def is_family1(e, family):
             import ufl.finiteelement.hdivcurl as hc
-            if isinstance(e, (hc.HDiv, hc.HCurl)):
+            if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
                 return False
             if e.family() == 'OuterProductElement':
                 if e.degree() == (1, 1):
@@ -167,7 +167,7 @@ class _VTUFile(object):
 
         def is_cgN(e):
             import ufl.finiteelement.hdivcurl as hc
-            if isinstance(e, (hc.HDiv, hc.HCurl)):
+            if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
                 return False
             if e.family() == 'OuterProductElement':
                 if e._A.family() in ('Lagrange', 'Q') \
