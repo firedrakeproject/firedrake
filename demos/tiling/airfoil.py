@@ -127,6 +127,16 @@ def main(args):
             rms = sqrt(rms.data / cells.size)
             print " %d  %10.5e " % (i, rms)
 
+    # Print runtime summary
+    class FakeFunctionSpace():
+        def __init__(self, dof_dset):
+            self.dof_dset
+    output_time(start, end,
+                tofile=True,
+                fs=FakeFunctionSpace(nodes),
+                nloops=loop_chain_length * num_unroll,
+                partitioning=part_mode,
+                tile_size=tile_size)
 
 def kernels():
 

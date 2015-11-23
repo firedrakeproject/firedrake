@@ -37,6 +37,7 @@ def output_time(start, end, **kwargs):
     fs = kwargs.get('fs', None)
     nloops = kwargs.get('nloops', 0)
     tile_size = kwargs.get('tile_size', 0)
+    partitioning = kwargs.get('partitioning', 'chunk')
     backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
 
     # Where do I store the output ?
@@ -99,11 +100,11 @@ def output_time(start, end, **kwargs):
             # back to the file (overwriting existing content)
             with open(filename, "r+") as f:
                 lines = [line.split(':') for line in f if line.strip()][1:]
-                lines = [(num(i[0]), num(i[1]), num(i[2])) for i in lines]
-                lines += [(tot, nloops, tile_size)]
+                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3]) for i in lines]
+                lines += [(tot, nloops, tile_size, partitioning)]
                 lines.sort(key=lambda x: (x[0], -x[1]))
-                prepend = "time : nloops : tilesize\n"
-                lines = prepend + "\n".join(["%s : %s : %s" % i for i in lines]) + "\n"
+                prepend = "time : nloops : tilesize : partitioning\n"
+                lines = prepend + "\n".join(["%s : %s : %s : %s" % i for i in lines]) + "\n"
                 f.seek(0)
                 f.write(lines)
                 f.truncate()

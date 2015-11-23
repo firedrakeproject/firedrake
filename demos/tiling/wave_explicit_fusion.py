@@ -75,7 +75,12 @@ end = time()
 print phi.dat.data
 
 # Print runtime summary
-output_time(start, end, verbose=verbose, tofile=True, fs=fs, nloops=loop_chain_length,
+output_time(start, end,
+            verbose=verbose,
+            tofile=True,
+            fs=fs,
+            nloops=loop_chain_length * num_unroll,
+            partitioning=part_mode,
             tile_size=tile_size)
 
 if output:

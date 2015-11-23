@@ -95,7 +95,12 @@ while t < N*dt:
 end = time()
 
 # Print runtime summary
-output_time(start, end, verbose=verbose, tofile=True, fs=V, nloops=loop_chain_length,
+output_time(start, end,
+            verbose=verbose,
+            tofile=True,
+            fs=V,
+            nloops=loop_chain_length * num_unroll,
+            partitioning=part_mode,
             tile_size=tile_size)
 
 if output:
