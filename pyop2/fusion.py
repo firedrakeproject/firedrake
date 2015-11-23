@@ -662,9 +662,12 @@ class FusionSchedule(Schedule):
             iterset = loop_chain[loop_indices[0]].it_space.iterset
             loops = [loop_chain[i] for i in loop_indices]
             args = Arg.filter_args([loop.args for loop in loops]).values()
-            # Create any ParLoop's additional arguments
+            # Create any ParLoop additional arguments
             extra_args = [Dat(*d)(*a) for d, a in extra_args] if extra_args else []
             args += extra_args
+            # Remove now incorrect cached properties:
+            for a in args:
+                a.__dict__.pop('name', None)
             # Create the actual ParLoop, resulting from the fusion of some kernels
             fused_par_loops.append(_make_object('ParLoop', kernel, iterset, *args,
                                                 **{'iterate': iterregion}))
