@@ -12,6 +12,11 @@ import numpy
 import math
 
 
+def outer_jump(v, n):
+    """Jump function that represent the grad of a vector field."""
+    return outer(v('+'), n('+'))+outer(v('-'), n('-'))
+
+
 def run_test(family, degree, n):
     mesh = UnitSquareMesh(8*2**n, 8*2**n)
     x = mesh.coordinates
@@ -60,9 +65,6 @@ def run_test(family, degree, n):
     h = CellSize(mesh)
     ds_Dir = ds((1, 2))  # Dirichlet boundary
     ds_Neu = ds((3, 4))  # Neumann boundary (enforces stress)
-
-    def outer_jump(v, n):
-        return outer(v('+'), n('+'))+outer(v('-'), n('-'))
 
     # the IP viscosity term:
     F = (
@@ -128,6 +130,39 @@ def test_indexed_interior_facet_gradients():
     assert(err < 1e-12)
     err = numpy.abs(M-M0).max()
     print err
+    assert(err < 1e-12)
+
+
+@pytest.mark.parametrize(('space'),
+                         [("RT", 1), ("RT", 2), ("DG", 1), ("BDM", 1), ("BDM", 2)])
+def test_stress_form_ip_penalty_term(space):
+    """This is a regression test for a coffee issue with the alpha penalty in
+    the IP viscosity term when using the full div(nu*sym(grad(u))) form of
+    viscosity.  This term occurs in the mms test above as well, but the
+    nonlinear solves seem to converge despite the wrong jacobian (on branches
+    where this test fails)."""
+    mesh2d = UnitSquareMesh(1, 1)
+    family, degree = space
+    if family == "RT" or family == "BDM":
+        U = FunctionSpace(mesh2d, family, degree)
+    else:
+        U = VectorFunctionSpace(mesh2d, family, degree)
+    v = TestFunction(U)
+    u = Function(U)
+    n = FacetNormal(mesh2d)
+
+    F1 = inner(outer_jump(v, n), outer_jump(u, n))*dS
+    F2 = inner(outer_jump(v, n), outer_jump(n, u))*dS
+    F = inner(outer_jump(v, n), outer_jump(u, n)+outer_jump(n, u))*dS
+
+    M1 = assemble(derivative(F1, u)).M.values
+    M2 = assemble(derivative(F2, u)).M.values
+    Ms = assemble(derivative(F1+F2, u)).M.values
+    M = assemble(derivative(F, u)).M.values
+
+    err = numpy.abs(M-(M1+M2)).max()
+    assert(err < 1e-12)
+    err = numpy.abs(M-Ms).max()
     assert(err < 1e-12)
 
 if __name__ == '__main__':
