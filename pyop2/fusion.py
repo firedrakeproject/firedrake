@@ -776,7 +776,8 @@ class Inspector(Cached):
         for loop in loop_chain:
             if isinstance(loop, Mat._Assembly):
                 continue
-            key += (loop.kernel.cache_key, loop.it_space.cache_key)
+            key += (loop.kernel.cache_key,)
+            key += (loop.it_space.cache_key, loop.it_space.iterset.sizes)
             for arg in loop.args:
                 if arg._is_global:
                     key += (arg.data.dim, arg.data.dtype, arg.access)
