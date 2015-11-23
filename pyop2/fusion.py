@@ -1208,6 +1208,9 @@ class Inspector(Cached):
                     else:
                         staging = [op(ast.Symbol(lvalue, (j,)), ast.Symbol(rvalue, (k,)))
                                    for j, k in enumerate(ofs_idx_syms)]
+                else:
+                    # Nothing special to do for direct arguments
+                    continue
                 # Update the If body to use the temporary
                 extend_if_body(if_exec.children[0], staging)
                 if_exec.children[0].children.insert(0, buffer_decl)
