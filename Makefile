@@ -19,6 +19,10 @@ clean:
 	-@rm -f firedrake/dmplex.so > /dev/null 2>&1
 	@echo "    RM firedrake/dmplex.c"
 	-@rm -f firedrake/dmplex.c > /dev/null 2>&1
+	@echo "    RM firedrake/hdf5interface.so"
+	-@rm -f firedrake/hdf5interface.so > /dev/null 2>&1
+	@echo "    RM firedrake/hdf5interface.c"
+	-@rm -f firedrake/hdf5interface.c > /dev/null 2>&1
 	@echo "    RM firedrake/spatialindex.so"
 	-@rm -f firedrake/spatialindex.so > /dev/null 2>&1
 	@echo "    RM firedrake/spatialindex.cpp"

@@ -6,15 +6,15 @@ import pytest
 def test_scalar_constant():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
         c = Constant(1, domain=m)
-        assert abs(assemble(c*m._dx) - 1.0) < 1e-10
+        assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
 
 
 def test_scalar_constant_assign():
     for m in [UnitIntervalMesh(5), UnitSquareMesh(2, 2), UnitCubeMesh(2, 2, 2)]:
         c = Constant(1, domain=m)
-        assert abs(assemble(c*m._dx) - 1.0) < 1e-10
+        assert abs(assemble(c*dx(domain=m)) - 1.0) < 1e-10
         c.assign(4)
-        assert abs(assemble(c*m._dx) - 4.0) < 1e-10
+        assert abs(assemble(c*dx(domain=m)) - 4.0) < 1e-10
 
 
 @pytest.mark.parametrize(('init', 'new_vals'),

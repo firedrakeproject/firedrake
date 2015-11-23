@@ -9,7 +9,7 @@ Benney-Luke equations: a reduced water wave model
 
     The work is based on the article "Variational water wave
     modelling: from continuum to experiment" by Onno Bokhove and Anna
-    Kalogirou, submitted :cite:`2015:lmscup`. The authors gratefully
+    Kalogirou :cite:`2015:lmscup`. The authors gratefully
     acknowledge funding from EPSRC grant no. `EP/L025388/1
     <http://gow.epsrc.ac.uk/NGBOViewGrant.aspx?GrantRef=EP/L025388/1>`__
     with a link to the Dutch Technology Foundation STW for the project
@@ -82,15 +82,12 @@ The implementation of this problem in Firedrake requires solving two nonlinear v
 
   from firedrake import *
 
-.. note::
+We turn off some of firedrake's chattier output, by setting the
+logging level for PyOP2 to ``"WARNING"``::
 
-   A bug (https://github.com/coneoproject/COFFEE/issues/26) in
-   Firedrake's kernel optimiser currently means that this demo fails
-   with optimisations enabled, so for current purposes we turn it off.
+  parameters["pyop2_options"]["log_level"] = "WARNING"
 
-::
-
-  parameters["coffee"]["O2"] = False
+Now we move on to defining parameters::
 
   T = 2.0
   dt = 0.005

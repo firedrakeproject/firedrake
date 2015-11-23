@@ -1,4 +1,5 @@
 from firedrake import *
+from FIAT.tensor_finite_element import horiz_facet_support_dofs, vert_facet_support_dofs
 import pytest
 
 
@@ -41,8 +42,8 @@ def hex_mesh():
                            {0: [0, 2, 3], 1: [1, 2, 3]})])
 def test_quad(quad_mesh, args, kwargs, horiz_expected, vert_expected):
     V = FunctionSpace(quad_mesh, *args, **kwargs)
-    assert horiz_expected == V.fiat_element.horiz_facet_support_dofs()
-    assert vert_expected == V.fiat_element.vert_facet_support_dofs()
+    assert horiz_expected == horiz_facet_support_dofs(V.fiat_element)
+    assert vert_expected == vert_facet_support_dofs(V.fiat_element)
 
 
 @pytest.mark.parametrize(('args', 'kwargs', 'horiz_expected', 'vert_expected'),
@@ -63,8 +64,8 @@ def test_quad(quad_mesh, args, kwargs, horiz_expected, vert_expected):
                            {0: [1, 2], 1: [0, 2], 2: [0, 1]})])
 def test_prism(prism_mesh, args, kwargs, horiz_expected, vert_expected):
     V = FunctionSpace(prism_mesh, *args, **kwargs)
-    assert horiz_expected == V.fiat_element.horiz_facet_support_dofs()
-    assert vert_expected == V.fiat_element.vert_facet_support_dofs()
+    assert horiz_expected == horiz_facet_support_dofs(V.fiat_element)
+    assert vert_expected == vert_facet_support_dofs(V.fiat_element)
 
 
 @pytest.mark.parametrize(('space', 'degree', 'horiz_expected', 'vert_expected'),
@@ -85,8 +86,8 @@ def test_prism_hdiv(prism_mesh, space, degree, horiz_expected, vert_expected):
     W1 = HDiv(OuterProductElement(W1_h, W1_v))
 
     V = FunctionSpace(prism_mesh, W0+W1)
-    assert horiz_expected == V.fiat_element.horiz_facet_support_dofs()
-    assert vert_expected == V.fiat_element.vert_facet_support_dofs()
+    assert horiz_expected == horiz_facet_support_dofs(V.fiat_element)
+    assert vert_expected == vert_facet_support_dofs(V.fiat_element)
 
 
 @pytest.mark.parametrize(('space', 'degree', 'horiz_expected', 'vert_expected'),
@@ -111,8 +112,8 @@ def test_prism_hcurl(prism_mesh, space, degree, horiz_expected, vert_expected):
     W1 = HCurl(OuterProductElement(W1_h, W1_v))
 
     V = FunctionSpace(prism_mesh, W0+W1)
-    assert horiz_expected == V.fiat_element.horiz_facet_support_dofs()
-    assert vert_expected == V.fiat_element.vert_facet_support_dofs()
+    assert horiz_expected == horiz_facet_support_dofs(V.fiat_element)
+    assert vert_expected == vert_facet_support_dofs(V.fiat_element)
 
 
 @pytest.mark.parametrize(('args', 'kwargs', 'horiz_expected', 'vert_expected'),
@@ -145,8 +146,8 @@ def test_prism_hcurl(prism_mesh, space, degree, horiz_expected, vert_expected):
                             3: [1, 3, 4, 5, 6, 7, 10, 11]})])
 def test_hex(hex_mesh, args, kwargs, horiz_expected, vert_expected):
     V = FunctionSpace(hex_mesh, *args, **kwargs)
-    assert horiz_expected == V.fiat_element.horiz_facet_support_dofs()
-    assert vert_expected == V.fiat_element.vert_facet_support_dofs()
+    assert horiz_expected == horiz_facet_support_dofs(V.fiat_element)
+    assert vert_expected == vert_facet_support_dofs(V.fiat_element)
 
 
 if __name__ == '__main__':

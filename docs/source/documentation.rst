@@ -61,7 +61,9 @@ finite element problems in Firedrake.
    solving-interface
    boundary_conditions
    extruded-meshes
+   mesh-coordinates
    point-evaluation
+   checkpointing
 
 .. only:: html
 

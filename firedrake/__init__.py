@@ -30,6 +30,7 @@ from pyop2 import op2                                           # noqa
 
 from firedrake.assemble import *
 from firedrake.bcs import *
+from firedrake.checkpointing import *
 from firedrake.constant import *
 from firedrake.expression import *
 from firedrake.function import *

@@ -22,20 +22,18 @@ addons:
         - libblas-dev
         - liblapack-dev
         - gfortran
-        - libhdf5-mpi-dev
         - libspatialindex-dev
         - swig
 env:
   global:
-    - C_INCLUDE_PATH=/usr/lib/openmpi/include
-    - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco"
+    - CC=mpicc
   matrix:
     - PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
     - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
-    - PYOP2_BACKEND=sequential PYOP2_TESTS="multigrid benchmarks"
-    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS="benchmarks multigrid"
-    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="benchmarks multigrid"
+    - PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
+    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
+    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
     - PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
     - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
     - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
@@ -50,11 +48,11 @@ before_install:
 install:
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable_ssh --global --minimal_petsc
+  - ../scripts/firedrake-install --disable-ssh --global --minimal-petsc
   - cd firedrake/src/firedrake
   - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace
 # command to run tests
 script:
   - make lint
-  - for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t}; done
+  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)

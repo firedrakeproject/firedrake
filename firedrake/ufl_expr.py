@@ -11,7 +11,8 @@ from firedrake import function
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'CellSize', 'FacetNormal']
+           'CellSize', 'FacetNormal',
+           'reconstruct_element']
 
 
 class Argument(ufl.argument.Argument):
@@ -30,8 +31,7 @@ class Argument(ufl.argument.Argument):
            a :class:`TrialFunction`.
 
         """
-        element = function_space.ufl_element()
-        super(Argument, self).__init__(element, number, part=part)
+        super(Argument, self).__init__(function_space.ufl_function_space(), number, part=part)
         self._function_space = function_space
 
     @property
@@ -66,7 +66,7 @@ class Argument(ufl.argument.Argument):
         ufl_assert(isinstance(number, int),
                    "Expecting an int, not %s" % number)
         ufl_assert(function_space.ufl_element().value_shape() ==
-                   self._element.value_shape(),
+                   self.ufl_element().value_shape(),
                    "Cannot reconstruct an Argument with a different value shape.")
         return Argument(function_space, number, part=part)
 
@@ -173,7 +173,7 @@ def CellSize(mesh):
     :arg mesh: the mesh for which to calculate the cell size.
     """
     mesh.init()
-    return 2.0 * ufl.Circumradius(mesh.ufl_domain())
+    return 2.0 * ufl.Circumradius(mesh)
 
 
 def FacetNormal(mesh):
@@ -182,4 +182,49 @@ def FacetNormal(mesh):
     :arg mesh: the mesh over which the normal should be represented.
     """
     mesh.init()
-    return ufl.FacetNormal(mesh.ufl_domain())
+    return ufl.FacetNormal(mesh)
+
+
+def reconstruct_element(element, cell=None):
+    """Rebuild element with a new cell."""
+    if cell is None:
+        return element
+    if isinstance(element, ufl.FiniteElement):
+        family = element.family()
+        degree = element.degree()
+        return ufl.FiniteElement(family, cell, degree)
+    if isinstance(element, ufl.VectorElement):
+        family = element.family()
+        degree = element.degree()
+        dim = len(element.sub_elements())
+        return ufl.VectorElement(family, cell, degree, dim)
+    if isinstance(element, ufl.TensorElement):
+        family = element.family()
+        degree = element.degree()
+        shape = element.value_shape()
+        symmetry = element.symmetry()
+        return ufl.TensorElement(family, cell, degree, shape, symmetry)
+    if isinstance(element, ufl.EnrichedElement):
+        eles = [reconstruct_element(sub, cell=cell) for sub in element._elements]
+        return ufl.EnrichedElement(*eles)
+    if isinstance(element, ufl.RestrictedElement):
+        return ufl.RestrictedElement(reconstruct_element(element.sub_element(), cell=cell),
+                                     element.restriction_domain())
+    if isinstance(element, (ufl.TraceElement,
+                            ufl.InteriorElement,
+                            ufl.HDivElement,
+                            ufl.HCurlElement,
+                            ufl.BrokenElement,
+                            ufl.FacetElement)):
+        return type(element)(reconstruct_element(element._element, cell=cell))
+    if isinstance(element, ufl.OuterProductElement):
+        return ufl.OuterProductElement(element._A, element._B, cell=cell)
+    if isinstance(element, ufl.OuterProductVectorElement):
+        dim = len(element.sub_elements())
+        return ufl.OuterProductVectorElement(element._A, element._B, cell=cell, dim=dim)
+    if isinstance(element, ufl.OuterProductTensorElement):
+        return element.reconstruct(cell=cell)
+    if isinstance(element, ufl.MixedElement):
+        eles = [reconstruct_element(sub, cell=cell) for sub in element.sub_elements()]
+        return ufl.MixedElement(*eles)
+    raise NotImplementedError("Don't know how to reconstruct element of type %s" % type(element))

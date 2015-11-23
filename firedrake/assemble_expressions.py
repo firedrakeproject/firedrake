@@ -58,7 +58,7 @@ class DummyFunction(ufl.Coefficient):
     """
 
     def __init__(self, function, argnum, intent=op2.READ):
-        ufl.Coefficient.__init__(self, function._element)
+        ufl.Coefficient.__init__(self, function.ufl_function_space())
 
         self.argnum = argnum
         self.function = function
@@ -287,7 +287,7 @@ class ExpressionSplitter(ReuseTransformer):
                 lhs.function_space() != rhs.function_space():
             raise ValueError("Operands of %r must have the same FunctionSpace" % expr)
         self._fs = lhs.function_space()
-        return [expr.reconstruct(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
+        return [expr._ufl_expr_reconstruct_(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
 
     def indexed(self, o, *operands):
         """Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
@@ -301,7 +301,7 @@ class ExpressionSplitter(ReuseTransformer):
                 if idx._indices[0]._value != i:
                     return self._identity
                 elif isinstance(coeff.function_space(), functionspace.VectorFunctionSpace):
-                    return o.reconstruct(coeff, idx)
+                    return o._ufl_expr_reconstruct_(coeff, idx)
             return coeff
         return [reconstruct_if_vec(*ops, i=i)
                 for i, ops in enumerate(zip(*operands))]
@@ -363,18 +363,18 @@ class ExpressionSplitter(ReuseTransformer):
             # mixed space.
             if isinstance(self._fs, functionspace.MixedFunctionSpace) and \
                isinstance(o, constant.Constant) and \
-               o.element().value_shape() == self._fs.ufl_element().value_shape():
+               o.ufl_element().value_shape() == self._fs.ufl_element().value_shape():
                 offset = 0
                 consts = []
                 val = o.dat.data_ro
                 for fs in self._fs:
                     shp = fs.ufl_element().value_shape()
                     if len(shp) == 0:
-                        c = constant.Constant(val[offset], domain=o.domain())
+                        c = constant.Constant(val[offset], domain=o.ufl_domain())
                         offset += 1
                     elif len(shp) == 1:
                         c = constant.Constant(val[offset:offset+shp[0]],
-                                              domain=o.domain())
+                                              domain=o.ufl_domain())
                         offset += shp[0]
                     else:
                         raise NotImplementedError("Broadcasting Constant to TFS not implemented")
@@ -397,7 +397,7 @@ class ExpressionSplitter(ReuseTransformer):
             if len(ops) == 1 and type(ops[0]) is type(self._identity):
                 ret.append(ops[0])
             else:
-                ret.append(o.reconstruct(*ops))
+                ret.append(o._ufl_expr_reconstruct_(*ops))
         return ret
 
 
@@ -507,7 +507,7 @@ class ExpressionWalker(ReuseTransformer):
             # For all other operators, just visit the children.
             operands = map(self.visit, o.ufl_operands)
 
-        return o.reconstruct(*operands)
+        return o._ufl_expr_reconstruct_(*operands)
 
 
 def expression_kernel(expr, args):
