@@ -21,6 +21,7 @@ output = args.output
 mode = args.fusion_mode
 part_mode = args.part_mode
 extra_halo = args.extra_halo
+debug_mode = args.debug
 
 # Constants
 loop_chain_length = 3
@@ -32,7 +33,7 @@ mesh.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
 # gmsh. Doru knows how to do this.
 # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
 
-slope(mesh, debug=True)
+slope(mesh, debug=debug_mode)
 
 # Switch on PyOP2 profiling
 configuration['profiling'] = True

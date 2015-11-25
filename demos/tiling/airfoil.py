@@ -20,6 +20,7 @@ def main(args):
     tile_size = args.tile_size
     part_mode = args.part_mode
     mesh_file = args.mesh_file
+    debug_mode = args.debug
 
     save_soln, adt_calc, res_calc, bres_calc, update = kernels()
 
@@ -60,8 +61,10 @@ def main(args):
             op2.Const.fromhdf5(f, "qinf")
 
             # Tell SLOPE stuff about the mesh so that it can print it out
-            slope_python.set_debug_mode('VERY_LOW',
-                                        (p_x.dataset.set.name, p_x.data_ro, p_x.shape[1]))
+            coordinates = None
+            if debug_mode:
+                coordinates = (p_x.dataset.set.name, p_x.data_ro, p_x.shape[1])
+            slope_python.set_debug_mode('VERY_LOW', coordinates)
 
     except IOError:
         import sys

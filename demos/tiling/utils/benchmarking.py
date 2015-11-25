@@ -26,6 +26,7 @@ def parser(**kwargs):
     p.add_argument('-x', '--extra-halo', type=int, help='add extra halo (avoid extra computation)', default=0)
     p.add_argument('-v', '--verbose', help='print additional information', default=False)
     p.add_argument('-o', '--output', help='write to file the simulation output', default=False)
+    p.add_argument('-d', '--debug', help='debug mode (defaults to False)', default=False)
     for opt, default in kwargs.iteritems():
         p.add_argument("--%s" % opt, default=default)
     return p.parse_args()

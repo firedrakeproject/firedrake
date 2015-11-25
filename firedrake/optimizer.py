@@ -13,13 +13,14 @@ def slope(mesh, debug=False):
     except ImportError:
         return
 
-    coords = mesh.coordinates.dat
-
-    # Add coordinates
+    # Should SLOPE print out the tiled, colored meshes ?
+    coordinates = None
     if debug:
-        slope_python.set_debug_mode('MINIMAL', (coords.dataset.set.name,
-                                                coords.data_ro,
-                                                coords.shape[1]))
+        coordinates = mesh.coordinates.dat
+        coordinates = (coordinates.dataset.set.name,
+                       coordinates.data_ro,
+                       coordinates.shape[1])
+    slope_python.set_debug_mode('MINIMAL', coordinates)
 
     # Add available maps describing the mesh topology
     # 1) cells to nodes map
