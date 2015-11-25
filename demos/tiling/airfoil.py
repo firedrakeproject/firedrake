@@ -6,7 +6,7 @@ from pyop2 import op2
 from pyop2.configuration import configuration
 from pyop2.fusion import loop_chain
 
-from utils.benchmarking import parser
+from utils.benchmarking import parser, output_time
 
 import slope_python
 
