@@ -54,6 +54,9 @@ Ml.dat._force_evaluation()
 
 p.interpolate(Expression("exp(-40*((x[0]-.5)*(x[0]-.5)+(x[1]-.5)*(x[1]-.5)))"))
 
+# The main form in the timestepping loop
+form = dt * inner(nabla_grad(v), nabla_grad(phi)) * dx
+
 if output:
     outfile = File("out.pvd")
     phifile = File("phi.pvd")
@@ -64,7 +67,7 @@ while t <= T:
                     partitioning=part_mode, extra_halo=extra_halo):
         phi -= dt / 2 * p
 
-        asm = assemble(dt * inner(nabla_grad(v), nabla_grad(phi)) * dx)
+        asm = assemble(form)
 
         p += asm / Ml
 
