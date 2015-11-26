@@ -594,11 +594,6 @@ class WithGeometry(object):
     def sub(self, i):
         return WithGeometry(self._topological.sub(i), self._mesh)
 
-    def __mul__(self, other):
-        """Create a :class:`.MixedFunctionSpace` composed of this
-        :class:`.FunctionSpace` and other"""
-        return MixedFunctionSpace((self, other))
-
     @property
     def topological(self):
         """Function space on a mesh topology."""
@@ -729,7 +724,7 @@ class TensorFunctionSpace(FunctionSpaceBase):
         return self
 
 
-class MixedFunctionSpace(ObjectCached):
+class MixedFunctionSpace(FunctionSpaceBase):
     """A mixed finite element :class:`FunctionSpace`."""
 
     def __new__(cls, spaces, name=None):
@@ -750,12 +745,12 @@ class MixedFunctionSpace(ObjectCached):
         # Get topological spaces
         spaces = tuple(flatten(spaces))
         for fs in spaces:
-            if not isinstance(fs, (WithGeometry, IndexedFunctionSpace)):
+            if fs.mesh().topology is fs.mesh():
                 raise ValueError("MixedFunctionSpace can only have geometric function spaces.")
 
         # Ask object from cache
-        mesh = spaces[0].mesh()
-        self = super(MixedFunctionSpace, cls).__new__(cls, mesh, spaces, name)
+        cache_obj = spaces[0].mesh().topology
+        self = ObjectCached.__new__(cls, cache_obj, spaces, name)
         if not self._initialized:
             self._spaces = [IndexedFunctionSpace(s, i, self)
                             for i, s in enumerate(spaces)]
@@ -771,31 +766,16 @@ class MixedFunctionSpace(ObjectCached):
             self._dm = dm
             self._ises = self.dof_dset.field_ises
             self._subspaces = []
-
         return self
-
-    def mesh(self):
-        # In Firedrake, the UFL domain is a MeshGeometry.
-        return self._ufl_function_space.ufl_domain()
-
-    @property
-    def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
-        :class:`.MixedFunctionSpace` it was extracted from."""
-        return None
-
-    @property
-    def topological(self):
-        return self
-
-    @classmethod
-    def _process_args(cls, *args, **kwargs):
-        # Already processed
-        return args, kwargs
 
     @classmethod
     def _cache_key(cls, spaces, name):
         return spaces, name
+
+    def mesh(self):
+        # In Firedrake, the UFL domain is a MeshGeometry.
+        # This fails if the subspaces are defined on different meshes.
+        return self._ufl_function_space.ufl_domain()
 
     def ufl_function_space(self):
         return self._ufl_function_space
@@ -962,11 +942,6 @@ class MixedFunctionSpace(ObjectCached):
         return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
-    def __mul__(self, other):
-        """Create a :class:`.MixedFunctionSpace` composed of this
-        :class:`.FunctionSpace` and other"""
-        return MixedFunctionSpace((self, other))
-
 
 class IndexedVFS(FunctionSpaceBase):
     """A helper class used to keep track of indexing of a
@@ -1064,7 +1039,11 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         of a :class:`VectorFunctionSpace`."""
         return IndexedVFS(self, i)
 
-    def __mul__(self, other):
-        """Create a :class:`.MixedFunctionSpace` composed of this
-        :class:`.FunctionSpace` and other"""
-        return MixedFunctionSpace((self, other))
+
+def _FunctionSpace_mul(l, r):
+    """Create a :class:`.MixedFunctionSpace` composed of two
+    :class:`.FunctionSpace`\s."""
+    return MixedFunctionSpace((l, r))
+
+for klass in [WithGeometry, MixedFunctionSpace, IndexedFunctionSpace]:
+    klass.__mul__ = _FunctionSpace_mul
