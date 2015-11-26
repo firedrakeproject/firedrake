@@ -41,7 +41,7 @@ def project(v, V, bcs=None, mesh=None,
     currently ignored."""
     from firedrake import function
 
-    if isinstance(V, functionspace.FunctionSpaceBase):
+    if isinstance(V, (functionspace.FunctionSpaceBase, functionspace.MixedFunctionSpace)):
         ret = function.Function(V, name=name)
     elif isinstance(V, function.Function):
         ret = V

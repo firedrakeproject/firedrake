@@ -63,7 +63,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``valuetype``).
         """
-        assert isinstance(function_space, functionspace.FunctionSpaceBase), \
+        assert isinstance(function_space, (functionspace.FunctionSpaceBase, functionspace.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
         ufl.Coefficient.__init__(self, function_space.ufl_element())
@@ -117,7 +117,9 @@ class CoordinatelessFunction(ufl.Coefficient):
     def cell_set(self):
         """The :class:`pyop2.Set` of cells for the mesh on which this
         :class:`Function` is defined."""
-        return self._function_space._mesh.cell_set
+        # Function space may be mixed, which does not always have a
+        # single mesh.  We extract the single mesh if there is one.
+        return self._function_space.mesh().cell_set
 
     @property
     def node_set(self):
@@ -213,19 +215,23 @@ class Function(ufl.Coefficient):
 
         if isinstance(function_space, Function):
             self._function_space = function_space._function_space
-        elif isinstance(function_space, functionspace.FunctionSpaceBase):
+        else:
             self._function_space = function_space
+
+        if isinstance(self._function_space, functionspace.FunctionSpaceBase):
+            make_dat_fs = self._function_space.topological
+        elif isinstance(self._function_space, functionspace.MixedFunctionSpace):
+            make_dat_fs = self._function_space
         else:
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
         if isinstance(val, CoordinatelessFunction):
-            if val.function_space() != self._function_space.topological:
+            if val.function_space() != make_dat_fs:
                 raise ValueError("Function values have wrong function space.")
             self._data = val
         else:
-            self._data = CoordinatelessFunction(self._function_space.topological,
-                                                val=val, name=name, dtype=dtype)
+            self._data = CoordinatelessFunction(make_dat_fs, val=val, name=name, dtype=dtype)
 
         ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
         self._split = None

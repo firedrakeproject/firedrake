@@ -37,6 +37,8 @@ class FunctionSpaceMeta(type):
     makes sure they also work via the geometry decorator.
     """
     def __instancecheck__(self, other):
+        if type(other) == IndexedFunctionSpace:
+            other = other._fs
         if isinstance(other, WithGeometry):
             other = other.topological
         return super(FunctionSpaceMeta, self).__instancecheck__(other)
@@ -534,11 +536,6 @@ class FunctionSpaceBase(ObjectCached):
             raise IndexError("Only index 0 supported on a FunctionSpace")
         return self
 
-    def __mul__(self, other):
-        """Create a :class:`.MixedFunctionSpace` composed of this
-        :class:`.FunctionSpace` and other"""
-        return MixedFunctionSpace((self, other))
-
 
 class WithGeometry(object):
     def __init__(self, function_space, mesh):
@@ -549,6 +546,11 @@ class WithGeometry(object):
         self._topological = function_space
         self._mesh = mesh
 
+        from firedrake.ufl_expr import reconstruct_element
+        self._ufl_element = reconstruct_element(function_space.ufl_element(),
+                                                cell=mesh.ufl_cell())
+        self._ufl_function_space = ufl.FunctionSpace(mesh, self._ufl_element)
+
         if hasattr(function_space, '_parent'):
             self._parent = WithGeometry(function_space._parent, mesh)
 
@@ -558,17 +560,17 @@ class WithGeometry(object):
     def mesh(self):
         return self._mesh
 
-    def ufl_function_space(self):
-        from firedrake.ufl_expr import reconstruct_element
-        return ufl.FunctionSpace(self._mesh,
-                                 reconstruct_element(self._topological.ufl_element(),
-                                                     cell=self._mesh.ufl_cell()))
-
     def ufl_element(self):
-        return self.ufl_function_space().ufl_element()
+        return self._ufl_element
+
+    def ufl_function_space(self):
+        return self._ufl_function_space
+
+    def __hash__(self):
+        return hash((self._topological, self._mesh))
 
     def __eq__(self, other):
-        return self._topological == other._topological and self._mesh is other._mesh
+        return type(self) == type(other) and self._topological == other._topological and self._mesh is other._mesh
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -727,7 +729,7 @@ class TensorFunctionSpace(FunctionSpaceBase):
         return self
 
 
-class MixedFunctionSpace(FunctionSpaceBase):
+class MixedFunctionSpace(ObjectCached):
     """A mixed finite element :class:`FunctionSpace`."""
 
     def __new__(cls, spaces, name=None):
@@ -745,30 +747,19 @@ class MixedFunctionSpace(FunctionSpaceBase):
 
             ME  = MixedFunctionSpace([P2v, P1, P1, P1])
         """
-
-        # Check that function spaces are on the same mesh
-        meshes = [space.mesh() for space in spaces]
-        for i in xrange(1, len(meshes)):
-            if meshes[i] is not meshes[0]:
-                raise ValueError("All function spaces must be defined on the same mesh!")
-
-        # Select mesh
-        mesh = meshes[0]
-
         # Get topological spaces
-        spaces = flatten(spaces)
-        if mesh is mesh.topology:
-            spaces = tuple(spaces)
-        else:
-            spaces = tuple(space.topological for space in spaces)
+        spaces = tuple(flatten(spaces))
+        for fs in spaces:
+            if not isinstance(fs, (WithGeometry, IndexedFunctionSpace)):
+                raise ValueError("MixedFunctionSpace can only have geometric function spaces.")
 
         # Ask object from cache
-        self = ObjectCached.__new__(cls, mesh, spaces, name)
+        mesh = spaces[0].mesh()
+        self = super(MixedFunctionSpace, cls).__new__(cls, mesh, spaces, name)
         if not self._initialized:
             self._spaces = [IndexedFunctionSpace(s, i, self)
                             for i, s in enumerate(spaces)]
-            self._mesh = mesh.topology
-            self._ufl_element = ufl.MixedElement(*[fs.ufl_element() for fs in spaces])
+            self._ufl_function_space = ufl.MixedFunctionSpace(*[fs.ufl_function_space() for fs in spaces])
             self.name = name or '_'.join(str(s.name) for s in spaces)
             self._initialized = True
             dm = PETSc.DMShell().create()
@@ -781,13 +772,36 @@ class MixedFunctionSpace(FunctionSpaceBase):
             self._ises = self.dof_dset.field_ises
             self._subspaces = []
 
-        if mesh is not mesh.topology:
-            self = WithGeometry(self, mesh)
         return self
+
+    def mesh(self):
+        # In Firedrake, the UFL domain is a MeshGeometry.
+        return self._ufl_function_space.ufl_domain()
+
+    @property
+    def index(self):
+        """Position of this :class:`FunctionSpaceBase` in the
+        :class:`.MixedFunctionSpace` it was extracted from."""
+        return None
+
+    @property
+    def topological(self):
+        return self
+
+    @classmethod
+    def _process_args(cls, *args, **kwargs):
+        # Already processed
+        return args, kwargs
 
     @classmethod
     def _cache_key(cls, spaces, name):
         return spaces, name
+
+    def ufl_function_space(self):
+        return self._ufl_function_space
+
+    def ufl_element(self):
+        return self.ufl_function_space().ufl_element()
 
     @classmethod
     def create_subdm(cls, dm, fields, *args, **kwargs):
@@ -948,6 +962,11 @@ class MixedFunctionSpace(FunctionSpaceBase):
         return op2.MixedDat(s.make_dat(v, valuetype, "%s[cmpt-%d]" % (name, i), utils._new_uid())
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
+    def __mul__(self, other):
+        """Create a :class:`.MixedFunctionSpace` composed of this
+        :class:`.FunctionSpace` and other"""
+        return MixedFunctionSpace((self, other))
+
 
 class IndexedVFS(FunctionSpaceBase):
     """A helper class used to keep track of indexing of a
@@ -995,15 +1014,11 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :param index: the position in the parent :class:`MixedFunctionSpace`
         :param parent: the parent :class:`MixedFunctionSpace`
         """
-        self = object.__new__(cls)
         # If the function space was extracted from a mixed function space,
         # extract the underlying component space
         if isinstance(fs, IndexedFunctionSpace):
             fs = fs._fs
-        # Override the __class__ to make instance checks on the type of the
-        # wrapped function space work as expected
-        self.__class__ = type(fs.__class__.__name__,
-                              (self.__class__, fs.__class__), {})
+        self = object.__new__(cls)
         self._fs = fs
         self._index = index
         self._parent = parent
@@ -1041,3 +1056,15 @@ class IndexedFunctionSpace(FunctionSpaceBase):
         :meth:`exterior_facet_node_map` in that only surface nodes
         are referenced, not all nodes in cells touching the surface.'''
         return self._fs.exterior_facet_boundary_node_map
+
+    def sub(self, i):
+        """Return an :class:`IndexedVFS` for the requested component.
+
+        This can be used to apply :class:`~.DirichletBC`\s to components
+        of a :class:`VectorFunctionSpace`."""
+        return IndexedVFS(self, i)
+
+    def __mul__(self, other):
+        """Create a :class:`.MixedFunctionSpace` composed of this
+        :class:`.FunctionSpace` and other"""
+        return MixedFunctionSpace((self, other))
