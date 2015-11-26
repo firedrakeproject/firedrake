@@ -483,6 +483,69 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
                                             open_scope=False))
         return op2.Kernel(kernel_code, "expression_kernel")
 
+    def extract_subfunction(self, sub_domain):
+        """Extract a :class:`Function` equal to the current :class:`Function`
+        restricted to :arg:`sub_domain`. This currently only works for
+        the very limited case of extracting top and bottom functions
+        from CG fields on extruded domains. Future expansion to other
+        function spaces and subdomains will occur once function spaces
+        on subdomains have been implemented.
+
+        :param sub_domain: Either "top" or "bottom".
+        """
+
+        fs = self.function_space()
+
+        if not isinstance(fs.ufl_element(), ufl.OuterProductElement):
+            raise NotImplementedError(
+                "Can only extract subfunctions from extruded domains.")
+        if fs.ufl_element()._A.family() != "Lagrange" or \
+           fs.ufl_element()._B.family() != "Lagrange":
+            raise NotImplementedError(
+                "Can only extract subfunctions for CG elements.")
+        if sub_domain not in ("bottom", "top"):
+            raise ValueError('subdomain must be "bottom" or "top"')
+
+        out_fs = functionspace.FunctionSpace(fs.mesh()._old_mesh,
+                                             fs.ufl_element()._A)
+        out_f = Function(out_fs)
+
+        if sub_domain == "top":
+            nodes = fs.bt_masks[1]
+            iterate = op2.ON_TOP
+        elif sub_domain == "bottom":
+            nodes = fs.bt_masks[0]
+            iterate = op2.ON_BOTTOM
+
+        in_nodes = fs.fiat_element.space_dimension()
+        out_nodes = out_fs.fiat_element.space_dimension()
+
+        assert (len(nodes) == out_nodes)
+
+        nodestr = "{%s}" % ", ".join(map(str, nodes))
+        body = [ast.Decl("int", ast.Symbol("idx", (out_nodes,)), nodestr, ("const",))]
+
+        i = ast.Symbol("i")
+        body.append(ast.For(ast.Decl("int", i, 0),
+                            ast.Less(i, ast.Symbol(out_nodes)),
+                            ast.Incr(i, ast.Symbol(1)),
+                            ast.Assign(ast.Symbol("out", (i, 0)),
+                                       ast.Symbol("in", (ast.Symbol("idx", (i,)), 0)))
+                            )
+                    )
+
+        args = (ast.Decl("double *", ast.Symbol("in", (in_nodes,))),
+                ast.Decl("double *", ast.Symbol("out", (out_nodes,))))
+
+        kernel = op2.Kernel(ast.FunDecl("void", "expression", args, ast.Block(body)),
+                            "expression")
+
+        op2.par_loop(kernel, fs.mesh().cell_set,
+                     self.dat(op2.READ, fs.cell_node_map()),
+                     out_f.dat(op2.WRITE, out_fs.cell_node_map()), iterate=iterate)
+
+        return out_f
+
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
