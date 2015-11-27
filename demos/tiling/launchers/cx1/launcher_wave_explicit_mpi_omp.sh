@@ -44,30 +44,40 @@ echo ------------------------------------------------------
 
 # Clean the remote cache, then dry runs on tiny mesh to generate kernels
 $FIREDRAKE/scripts/firedrake-clean
-for m in 10
+for nu in 0 1 2
 do
-    for ts in 4
+    for p in "chunk" "metis"
     do
-        mpiexec.1pps python $EXECUTABLE --mesh-size $m --tile-size $ts --num-unroll 0
-        mpiexec.1pps python $EXECUTABLE --mesh-size $m --tile-size $ts --num-unroll 1
-        mpiexec.1pps python $EXECUTABLE --mesh-size $m --tile-size $ts --num-unroll 2
+        for m in 10
+        do
+            for ts in 4
+            do
+                # Hybrid mpi-openmp mode
+                mpiexec.1pps python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu
+
+                # Openmp mode
+                python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll $nu
+            done
+        done
     done
 done
 
 
 # Run the tests
-for m in $MESHES"/wave_tank_0.125.msh"
+for nu in 0 1 2
 do
-    for ts in 1500 2000 2500 3000
+    for p in "chunk" "metis"
     do
-        # Hybrid mpi-openmp mode
-        mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll 0
-        mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll 1
-        mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll 2
+        for m in $MESHES"/wave_tank_0.125.msh"
+        do
+            for ts in 1500 2000 2500 3000
+            do
+                # Hybrid mpi-openmp mode
+                mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
 
-        # Openmp mode
-        python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll 0
-        python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll 1
-        python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll 2
+                # Openmp mode
+                python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll $nu
+            done
+        done
     done
 done
