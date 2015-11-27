@@ -1499,6 +1499,7 @@ def loop_chain(name, **kwargs):
 
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
+    partitioning = kwargs.setdefault('partitioning', 'chunk')
 
     # Get a snapshot of the trace before new par loops are added within this
     # context manager
@@ -1525,7 +1526,9 @@ def loop_chain(name, **kwargs):
         # No fusion, but openmp parallelization could still occur through SLOPE
         if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
             block_size = tile_size    # This is rather a 'block' size (no tiling)
-            options = {'mode': 'only_omp', 'tile_size': block_size, 'partitioning': 'chunk'}
+            options = {'mode': 'only_omp',
+                       'tile_size': block_size,
+                       'partitioning': partitioning}
             new_trace = [Inspector(name, [loop], **options).inspect()([loop])
                          for loop in extracted_trace]
             trace[bottom:] = list(flatten(new_trace))
