@@ -17,9 +17,6 @@ TILING=$FIREDRAKE/demos/tiling
 EXECUTABLE=$TILING/wave_explicit_fusion.py
 MESHES=$TILING/meshes/wave_explicit
 
-# Set SLOPE to OMP backend mode
-export SLOPE_BACKEND=OMP
-
 
 echo ------------------------------------------------------
 echo -n 'Job is running on node '; cat $PBS_NODEFILE
@@ -52,11 +49,16 @@ do
         do
             for ts in 4
             do
-                # Hybrid mpi-openmp mode
-                mpiexec.1pps python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu
-
-                # Openmp mode
+                # OMP backends:
+                export SLOPE_BACKEND=OMP
+                # ... pure openmp
                 python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll $nu
+                # ... hybrid mpi-openmp
+                mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
+
+                # MPI backend:
+                export SLOPE_BACKEND=SEQUENTIAL
+                mpiexec python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
             done
         done
     done
@@ -70,13 +72,18 @@ do
     do
         for m in $MESHES"/wave_tank_0.125.msh"
         do
-            for ts in 1500 2000 2500 3000
+            for ts in 500 2000 3000 5000
             do
-                # Hybrid mpi-openmp mode
+                # OMP backends:
+                export SLOPE_BACKEND=OMP
+                # ... pure openmp
+                python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll $nu
+                # ... hybrid mpi-openmp
                 mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
 
-                # Openmp mode
-                python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll $nu
+                # MPI backend:
+                export SLOPE_BACKEND=SEQUENTIAL
+                mpiexec python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
             done
         done
     done
