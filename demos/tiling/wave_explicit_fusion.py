@@ -96,6 +96,9 @@ def run(args):
 
 
 if __name__ == '__main__':
+    from ffc.log import set_level
+    set_level('ERROR')
+
     args = parser(profile=False)
     if args.profile:
         try:
