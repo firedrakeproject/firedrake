@@ -27,5 +27,5 @@ def slope(mesh, debug=False):
     slope_maps = []
     maps = [mesh.coordinates.cell_node_map(),
             mesh.coordinates.interior_facet_node_map()]
-    slope_maps = [(m.name, m.iterset.name, m.toset.name, m.values) for m in maps]
+    slope_maps = [(m.name, m.iterset.name, m.toset.name, m.values_with_halo) for m in maps]
     slope_python.set_mesh_maps(slope_maps)
