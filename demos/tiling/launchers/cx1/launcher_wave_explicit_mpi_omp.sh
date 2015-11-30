@@ -52,13 +52,13 @@ do
                 # OMP backends:
                 export SLOPE_BACKEND=OMP
                 # ... pure openmp
-                python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll $nu
+                python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu
                 # ... hybrid mpi-openmp
-                mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
+                mpiexec.1pps python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu
 
                 # MPI backend:
                 export SLOPE_BACKEND=SEQUENTIAL
-                mpiexec python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
+                mpiexec python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu
             done
         done
     done
@@ -77,7 +77,7 @@ do
                 # OMP backends:
                 export SLOPE_BACKEND=OMP
                 # ... pure openmp
-                python $EXECUTABLE --mesh-file $m --tile-size $ts --num-unroll $nu
+                python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
                 # ... hybrid mpi-openmp
                 mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu
 
