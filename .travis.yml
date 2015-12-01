@@ -31,10 +31,13 @@ os:
 env:
   global:
     - CC=mpicc
+    - PYOP2_BACKEND=none
 matrix:
+  exclude:
+    - env: PYOP2_BACKEND=none
   include:
     - os: osx
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS=""
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--ignore-installed"
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
 #    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
