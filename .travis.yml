@@ -31,8 +31,12 @@ os:
 env:
   global:
     - CC=mpicc
-  matrix:
-    - PYOP2_BACKEND=sequential PYOP2_TESTS=regression
+matrix:
+  include:
+    - os: osx
+      PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS=""
+    - os: linux
+      PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
 #    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
 #    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
 #    - PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
@@ -46,15 +50,15 @@ env:
 # command to install dependencies
 before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew install python; brew link --overwrite python ; fi
-  - pip install -U --user pip
-  - pip install -U --user virtualenv
-  - pip install -U --user pytest
-  - pip install -U --user Cython
-  - pip install --user pytest-benchmark
+  - pip install -U $PIPOPTS pip
+  - pip install -U $PIPOPTS virtualenv
+  - pip install -U $PIPOPTS pytest
+  - pip install -U $PIPOPTS Cython
+  - pip install $PIPOPTS pytest-benchmark
 install:
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable-ssh --global --minimal-petsc
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc
   - cd firedrake/src/firedrake
   - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace
