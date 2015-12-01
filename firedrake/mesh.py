@@ -19,7 +19,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh']
+__all__ = ['Mesh', 'ExtrudedMesh', 'make_subdomain_data']
 
 
 _cells = {
@@ -1151,3 +1151,19 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                                     layer_height, extrusion_type="radial", kernel=kernel)
 
     return self
+
+
+def make_subdomain_data(geometric_expr):
+    import firedrake.functionspace as functionspace
+    import firedrake.projection as projection
+
+    # Find domain from expression
+    m = geometric_expr.ufl_domain()
+
+    # Find selected cells
+    fs = functionspace.FunctionSpace(m, 'DG', 0)
+    f = projection.project(ufl.conditional(geometric_expr, 1, 0), fs)
+
+    # Create cell subset
+    indices, = np.nonzero(f.dat.data > 0.5)
+    return op2.Subset(m.cell_set, indices)
