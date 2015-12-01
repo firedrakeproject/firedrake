@@ -50,7 +50,10 @@ f.dat.data[reordering] = tos[0].data.flat
 
 markers = np.empty(tos[0].mask.size, dtype=bool)
 markers[reordering] = 1 - tos[0].mask.flatten()
+amo_mask = Function(V).interpolate(Expression("(-60 <= x[0] && x[0] <= 0) && (0 <= x[1] && x[1] <= 60)"))
+markers *= amo_mask.dat.data
 sd = mesh.SubDomainData(m.cell_set, markers, np.unique(markers))
+d_amo = dx(subdomain_data=sd, subdomain_id=1)
 
 print 'time: 0'
 
@@ -72,7 +75,7 @@ out = File("f.pvd")
 for i in xrange(len(time)):
     # print 'Time:', time[i],
     f_.dat.data[reordering] = tos[i].data.flat
-    print assemble(f*dx(subdomain_data=sd, subdomain_id=1))
+    print assemble(f_*d_amo) / assemble(Constant(1, domain=m_)*d_amo)
     # out << f_
     # print '.'
 del out
