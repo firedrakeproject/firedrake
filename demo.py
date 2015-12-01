@@ -26,17 +26,12 @@ lat_bnds_flat = np.hstack([lat_bnds[:, 0], lat_bnds[-1, 1]])
 
 lon_grid, lat_grid = np.meshgrid(lon_bnds_flat, lat_bnds_flat)
 latlon_grid = np.dstack([lat_grid, lon_grid])
+coords = latlon_grid.reshape(-1, 2)
 
-tos = rootgrp.variables['tos']
-assert set(np.sum(tos[:].mask, axis=0).flat) == set([0, len(rootgrp.variables['time'])])
-select_mask = np.logical_not(tos[0].mask)
-
-lat_idx, lon_idx = np.where(select_mask)
-
-coords = latlon_grid[np.dstack([lat_idx, lat_idx, lat_idx + 1, lat_idx + 1]).flatten(),
-                     np.dstack([lon_idx, lon_idx + 1, lon_idx, lon_idx + 1]).flatten()]
-cells = np.arange(np.sum(select_mask)*4).reshape(-1, 4)
-cells = cells[:, [0, 1, 3, 2]]
+I, J = np.meshgrid(np.arange(len(lon)), np.arange(len(lat)))
+size = len(lon_bnds_flat)
+cells = np.dstack([I + J*size, I + (J+1)*size, I+1 + (J+1)*size, I+1 + J*size])
+cells = cells.reshape(-1, 4)
 
 from firedrake import *
 from firedrake import mesh
@@ -48,8 +43,15 @@ print 'lat-lon mesh: OK'
 V = FunctionSpace(m, 'DG', 0)
 sec = V.topological._global_numbering
 reordering = np.array([sec.getOffset(i) for i in xrange(V.node_count)])
+
+tos = rootgrp.variables['tos']
 f = Function(V)
-f.dat.data[:] = tos[0].data[select_mask][reordering]
+f.dat.data[reordering] = tos[0].data.flat
+
+markers = np.empty(tos[0].mask.size, dtype=bool)
+markers[reordering] = 1 - tos[0].mask.flatten()
+sd = mesh.SubDomainData(m.cell_set, markers, np.unique(markers))
+
 print 'time: 0'
 
 lat_ = m.coordinates.dat.data[:, 0] * np.pi / 180
@@ -69,8 +71,8 @@ time = rootgrp.variables['time']
 out = File("f.pvd")
 for i in xrange(len(time)):
     # print 'Time:', time[i],
-    f_.dat.data[:] = tos[i].data[select_mask][reordering]
-    print assemble(f*dx)
+    f_.dat.data[reordering] = tos[i].data.flat
+    print assemble(f*dx(subdomain_data=sd, subdomain_id=1))
     # out << f_
     # print '.'
 del out
