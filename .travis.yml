@@ -31,6 +31,7 @@ os:
 env:
   global:
     - CC=mpicc
+  matrix:
     - PYOP2_BACKEND=none
 matrix:
   exclude:
