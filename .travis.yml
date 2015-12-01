@@ -45,12 +45,12 @@ env:
 #  system_site_packages: true
 # command to install dependencies
 before_install:
-  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew install python ; fi
-  - pip install -U pip
-  - pip install -U virtualenv
-  - pip install -U pytest
-  - pip install -U Cython
-  - pip install pytest-benchmark
+  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew install python; brew link --overwrite python ; fi
+  - pip install -U --user pip
+  - pip install -U --user virtualenv
+  - pip install -U --user pytest
+  - pip install -U --user Cython
+  - pip install --user pytest-benchmark
 install:
   - mkdir tmp
   - cd tmp
