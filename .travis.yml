@@ -38,9 +38,9 @@ matrix:
     - env: PYOP2_BACKEND=none
   include:
     - os: osx
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--ignore-installed" CC=mpicc
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--ignore-installed"
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user" CC=mpicc
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
 #    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
 #    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
 #    - PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
@@ -60,6 +60,7 @@ before_install:
   - pip install -U $PIPOPTS Cython
   - pip install $PIPOPTS pytest-benchmark
 install:
+  - export CC=mpicc
   - mkdir tmp
   - cd tmp
   - ../scripts/firedrake-install --disable-ssh --minimal-petsc
