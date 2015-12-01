@@ -34,9 +34,9 @@ env:
 matrix:
   include:
     - os: osx
-      PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS=""
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS=""
     - os: linux
-      PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
 #    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
 #    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
 #    - PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
