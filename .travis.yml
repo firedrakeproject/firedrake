@@ -23,7 +23,6 @@ addons:
         - libblas-dev
         - liblapack-dev
         - gfortran
-        - libspatialindex-dev
         - gmsh
 os:
     - linux

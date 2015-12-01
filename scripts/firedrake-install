@@ -618,7 +618,6 @@ if osname == "Darwin":
         brew_install("openmpi")
         brew_install("python")
         brew_install("cmake")
-        brew_install("spatialindex")
 
     else:
         stdout.write("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.\n")
@@ -637,7 +636,6 @@ elif osname == "Linux":
                         "libblas-dev",
                         "liblapack-dev",
                         "libopenmpi-dev",
-                        "libspatialindex-dev",
                         "mercurial",
                         "openmpi-bin",
                         "python-dev",
@@ -658,7 +656,6 @@ elif osname == "Linux":
         stdout.write("* Python version 2.7\n")
         stdout.write("* pip and the Python headers\n")
         stdout.write("* CMake\n")
-        stdout.write("* libspatialindex and headers\n")
 
 else:
     stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")

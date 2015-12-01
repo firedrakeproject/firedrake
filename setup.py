@@ -40,23 +40,18 @@ try:
     from Cython.Distutils import build_ext
     cmdclass['build_ext'] = build_ext
     dmplex_sources = ["firedrake/dmplex.pyx"]
-    spatialindex_sources = ["firedrake/spatialindex.pyx"]
     h5iface_sources = ["firedrake/hdf5interface.pyx"]
     mg_sources = ["firedrake/mg/impl.pyx"]
     evtk_sources = ['evtk/cevtk.pyx']
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
-    spatialindex_sources = ["firedrake/spatialindex.cpp"]
     h5iface_sources = ["firedrake/hdf5interface.c"]
     mg_sources = ["firedrake/mg/impl.c"]
     evtk_sources = ['evtk/cevtk.c']
 
 if 'CC' not in env:
     env['CC'] = "mpicc"
-
-if 'CXX' not in env:
-    env['CXX'] = "mpic++"
 
 petsc_dirs = get_petsc_dir()
 include_dirs = [np.get_include(), petsc4py.get_include()]
@@ -88,11 +83,6 @@ setup(name='firedrake',
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % sys.prefix]),
-                   Extension('firedrake.spatialindex',
-                             sources=spatialindex_sources,
-                             include_dirs=[np.get_include()],
-                             libraries=["spatialindex"],
-                             language="c++"),
                    Extension('firedrake.mg.impl',
                              sources=mg_sources,
                              include_dirs=include_dirs,
