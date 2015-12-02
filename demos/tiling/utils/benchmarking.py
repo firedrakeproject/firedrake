@@ -101,7 +101,7 @@ def output_time(start, end, **kwargs):
             # back to the file (overwriting existing content)
             with open(filename, "r+") as f:
                 lines = [line.split(':') for line in f if line.strip()][1:]
-                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3]) for i in lines]
+                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0]) for i in lines]
                 lines += [(tot, nloops, tile_size, partitioning)]
                 lines.sort(key=lambda x: (x[0], -x[1]))
                 prepend = "time : nloops : tilesize : partitioning\n"
