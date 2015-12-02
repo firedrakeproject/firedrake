@@ -77,13 +77,14 @@ def project(v, V, bcs=None, mesh=None,
     elif not isinstance(v, ufl.core.expr.Expr):
         raise RuntimeError("Can't only project from expressions and functions, not %r" % type(v))
 
-    if v.shape() != ret.shape():
-        raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' % (v.shape(), ret.shape()))
+    if v.ufl_shape != ret.ufl_shape:
+        raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %
+                           (v.ufl_shape, ret.ufl_shape))
 
     p = ufl_expr.TestFunction(V)
     q = ufl_expr.TrialFunction(V)
-    a = ufl.inner(p, q) * V.mesh()._dx
-    L = ufl.inner(p, v) * V.mesh()._dx
+    a = ufl.inner(p, q) * ufl.dx(domain=V.mesh())
+    L = ufl.inner(p, v) * ufl.dx(domain=V.mesh())
 
     # Default to 1e-8 relative tolerance
     if solver_parameters is None:

@@ -407,7 +407,7 @@ def get_count_kernel(arity):
 
 def set_level(obj, hierarchy, level):
     """Attach hierarchy and level info to an object."""
-    setattr(obj, "__level_info__", (hierarchy, level))
+    setattr(obj.topological, "__level_info__", (hierarchy, level))
     return obj
 
 
@@ -418,11 +418,11 @@ def get_level(obj):
     try:
         if isinstance(obj, PETSc.DM):
             return get_level(obj.getAttr("__fs__")())
-        return getattr(obj, "__level_info__")
+        return getattr(obj.topological, "__level_info__")
     except AttributeError:
         return None, -1
 
 
 def has_level(obj):
     """Does the provided object have level info?"""
-    return hasattr(obj, "__level_info__")
+    return hasattr(obj.topological, "__level_info__")

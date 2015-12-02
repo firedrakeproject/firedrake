@@ -414,13 +414,13 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 @cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,
                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
-                   fiat_element):
+                   entity_dofs):
     """
     Builds the DoF mapping.
 
     :arg global_numbering: Section describing the global DoF numbering
     :arg cell_closures: 2D array of ordered cell closures
-    :arg fiat_element: The FIAT element for the cell
+    :arg entity_dofs: FIAT element entity dofs for the cell
 
     Preconditions: This function assumes that cell_closures contains mesh
     entities ordered by dimension, i.e. vertices first, then edges, faces, and
@@ -443,7 +443,6 @@ def get_cell_nodes(PETSc.Section global_numbering,
     ndofs_list = []
     flat_index_list = []
 
-    entity_dofs = fiat_element.entity_dofs()
     for dim in sorted(entity_dofs.keys()):
         for entity_num in xrange(len(entity_dofs[dim])):
             dofs = entity_dofs[dim][entity_num]

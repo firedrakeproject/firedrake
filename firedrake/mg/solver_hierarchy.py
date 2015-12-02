@@ -11,6 +11,11 @@ from . import ufl_utils
 __all__ = ["NLVSHierarchy"]
 
 
+def _fs_from_dm(x):
+    hierarchy, level = utils.get_level(x)
+    return hierarchy[level]
+
+
 def coarsen_problem(problem):
     u = problem.u
     h, lvl = utils.get_level(u)
@@ -41,8 +46,8 @@ def create_interpolation(dmc, dmf):
     cctx = dmc.getAppCtx()
     fctx = dmf.getAppCtx()
 
-    V_c = dmc.getAttr("__fs__")()
-    V_f = dmf.getAttr("__fs__")()
+    V_c = _fs_from_dm(dmc)
+    V_f = _fs_from_dm(dmf)
 
     nrow = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_f)
     ncol = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_c)
@@ -112,8 +117,8 @@ def create_injection(dmc, dmf):
 
     cctx = dmc.getAppCtx()
 
-    V_c = dmc.getAttr("__fs__")()
-    V_f = dmf.getAttr("__fs__")()
+    V_c = _fs_from_dm(dmc)
+    V_f = _fs_from_dm(dmf)
 
     nrow = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_f)
     ncol = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_c)
