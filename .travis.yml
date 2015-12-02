@@ -64,6 +64,7 @@ install:
   - mkdir tmp
   - cd tmp
   - ../scripts/firedrake-install --disable-ssh --minimal-petsc
+  - . ./firedrake/bin/activate
   - cd firedrake/src/firedrake
   - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace
