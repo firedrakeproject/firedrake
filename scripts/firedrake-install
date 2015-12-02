@@ -184,13 +184,16 @@ def check_output(args):
         raise
 
 
-def brew_install(name):
+def brew_install(name, options=None):
     try:
         # Check if it's already installed
         check_call(["brew", "list", name])
     except subprocess.CalledProcessError:
         # If not found, go ahead and install
-        check_call(["brew", "install", name])
+        args = [name]
+        if options:
+            args = options + args
+        check_call(["brew", "install"] + args)
 
 
 def apt_check(name):
@@ -448,7 +451,10 @@ if osname == "Darwin":
             quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
         stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
-        brew_install("openmpi")
+        # Ensure a fortran compiler is available
+        brew_install("gcc")
+        # Temporary workaround for homebrew bug #46461
+        brew_install("openmpi", options=["--with-fortran", "--build-from-source"])
         brew_install("python")
         check_call(["brew", "tap", "homebrew/python"])
         brew_install("numpy")
