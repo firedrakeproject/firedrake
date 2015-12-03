@@ -38,7 +38,7 @@ matrix:
     - env: PYOP2_BACKEND=none
   include:
     - os: osx
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--ignore-installed"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
     - os: linux
