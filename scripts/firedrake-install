@@ -19,6 +19,9 @@ elif os.path.basename(__file__) == "firedrake-update":
 else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
+# Outragious hack to enable travis-specific fixes.
+travis = "TRAVIS" in os.environ
+
 branches = {}
 
 if mode == "install":
@@ -165,6 +168,9 @@ log = file("firedrake-%s.log" % mode, "w") if args.log else None
 stdout = Log(sys.stdout, log)
 stderr = Log(sys.stderr, log)
 
+if travis:
+    stdout.write("Running in Travis mode")
+
 
 def check_call(arguments):
     if args.log:
@@ -194,7 +200,7 @@ def brew_install(name, options=None):
         arguments = [name]
         if options:
             arguments = options + arguments
-        if args.verbose:
+        if args.verbose or (name == "open-mpi" and travis):
             arguments = ["--verbose"] + arguments
         check_call(["brew", "install"] + arguments)
 
@@ -460,7 +466,6 @@ if osname == "Darwin":
         brew_install("openmpi", options=["--with-fortran", "--build-from-source"])
         brew_install("python")
         check_call(["brew", "tap", "homebrew/python"])
-        #brew_install("numpy")
         brew_install("swig")
         brew_install("cmake")
         check_call(["brew", "tap", "homebrew/science"])
