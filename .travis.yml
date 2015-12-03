@@ -42,21 +42,21 @@ matrix:
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression PIPOPTS="--user"
     - os: linux
-      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
+      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression PIPOPTS="--user"
     - os: linux
-      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression PIPOPTS="--user"
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks" PIPOPTS="--user"
     - os: linux
-      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
+      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid" PIPOPTS="--user"
     - os: linux
-      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid" PIPOPTS="--user"
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion PIPOPTS="--user"
     - os: linux
-      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
+      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion PIPOPTS="--user"
     - os: linux
-      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion PIPOPTS="--user"
 before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
   - pip install -U $PIPOPTS pip
