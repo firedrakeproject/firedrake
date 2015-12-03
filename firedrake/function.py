@@ -603,6 +603,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
     @utils.cached_property
     def _c_evaluate(self):
         result = make_c_evaluate(self)
+        result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
         result.restype = int
         return result
 
@@ -654,7 +655,9 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         def single_eval(x, buf):
             """Helper function to evaluate at a single point."""
-            err = self._c_evaluate(self._ctypes, x.ctypes.data, buf.ctypes.data)
+            err = self._c_evaluate(self._ctypes,
+                                   x.ctypes.data_as(POINTER(c_double)),
+                                   buf.ctypes.data_as(POINTER(c_double)))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
