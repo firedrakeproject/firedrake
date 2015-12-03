@@ -38,7 +38,7 @@ matrix:
     - env: PYOP2_BACKEND=none
   include:
     - os: osx
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - os: linux
