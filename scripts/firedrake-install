@@ -465,10 +465,8 @@ if osname == "Darwin":
         # Temporary workaround for homebrew bug #46461
         brew_install("openmpi", options=["--with-fortran", "--build-from-source"])
         brew_install("python")
-        check_call(["brew", "tap", "homebrew/python"])
         brew_install("swig")
         brew_install("cmake")
-        check_call(["brew", "tap", "homebrew/science"])
         brew_install("spatialindex")
 
     else:
