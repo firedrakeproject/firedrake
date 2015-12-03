@@ -457,7 +457,7 @@ if osname == "Darwin":
         brew_install("openmpi", options=["--with-fortran", "--build-from-source"])
         brew_install("python")
         check_call(["brew", "tap", "homebrew/python"])
-        brew_install("numpy")
+        #brew_install("numpy")
         brew_install("swig")
         brew_install("cmake")
         check_call(["brew", "tap", "homebrew/science"])
@@ -530,7 +530,7 @@ elif not (args.system or args.user or args.prefix):
         quit("Virtual env installed. Please run firedrake-install again.\n")
     if mode == "install":
         stdout.write("Creating firedrake virtualenv.\n")
-        virtualenv.create_environment("firedrake", site_packages=True)
+        virtualenv.create_environment("firedrake", site_packages=False)
         # For some reason virtualenv does not always install the latest pip.
         run_pip_install(["-U", "pip"])
     execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
