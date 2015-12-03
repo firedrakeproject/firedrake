@@ -200,7 +200,7 @@ def brew_install(name, options=None):
         arguments = [name]
         if options:
             arguments = options + arguments
-        if args.verbose or (name == "open-mpi" and travis):
+        if args.verbose or (name == "openmpi" and travis):
             arguments = ["--verbose"] + arguments
         check_call(["brew", "install"] + arguments)
 
