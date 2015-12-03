@@ -72,7 +72,7 @@ honoured.""",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
-
+    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--mpicc", type=str,
                         action="store", default="mpicc",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
@@ -91,6 +91,7 @@ else:
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
 
     args = parser.parse_args()
     args.system = False
@@ -190,10 +191,12 @@ def brew_install(name, options=None):
         check_call(["brew", "list", name])
     except subprocess.CalledProcessError:
         # If not found, go ahead and install
-        args = [name]
+        arguments = [name]
         if options:
-            args = options + args
-        check_call(["brew", "install"] + args)
+            arguments = options + arguments
+        if args.verbose:
+            arguments = ["--verbose"] + arguments
+        check_call(["brew", "install"] + arguments)
 
 
 def apt_check(name):

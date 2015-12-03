@@ -63,7 +63,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable-ssh --minimal-petsc
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc --verbose
   - . ./firedrake/bin/activate
   - echo $PYTHONPATH
   - python -c "import mpi4py; print 'success'"
