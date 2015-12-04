@@ -39,6 +39,10 @@ echo PBS: SLOPE_BACKEND = $SLOPE_BACKEND
 echo ------------------------------------------------------
 
 
+# The pure OMP version needs affinity explicitly set
+export KMP_AFFINITY=granularity=fine,compact,1,0
+
+
 # Clean the remote cache, then dry runs on tiny mesh to generate kernels
 $FIREDRAKE/scripts/firedrake-clean
 for nu in 0 1 2 3
@@ -75,7 +79,7 @@ do
     do
         for m in $MESHES"/wave_tank_0.125.msh"
         do
-            for ts in 500 2000 3000 5000 10000 15000
+            for ts in 500 2000 3000 5000 10000 15000 20000
             do
                 # OMP backends:
                 export SLOPE_BACKEND=OMP
