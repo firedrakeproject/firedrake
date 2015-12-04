@@ -19,6 +19,17 @@ shell from which you use Firedrake::
 
   source firedrake/bin/activate
 
+It is recommended to run the test suite after installation to check
+that the Firedrake installation is fully functional. Enter the
+virtualenv_ as above, install pytest_ with::
+
+  pip install pytest
+
+and then run::
+
+  cd firedrake/src/firedrake
+  make alltest
+
 
 System requirements
 -------------------
@@ -210,6 +221,8 @@ the python package ``sphinxcontrib-bibtex``.
 .. _Sphinx: http://www.sphinx-doc.org
 .. _wget: http://www.gnu.org/software/wget/
 .. _virtualenv: https://virtualenv.pypa.io/
+.. _pytest: http://pytest.org/latest/
+.. _libspatialindex: https://libspatialindex.github.io/
 .. _h5py: http://www.h5py.org/
 .. _custom installation: http://docs.h5py.org/en/latest/build.html#via-setup-py
 .. _homebrew: http://brew.sh
