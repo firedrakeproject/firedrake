@@ -111,7 +111,6 @@ We list here the required homebrew_ packages:
 
 - openmpi (or mpich)
 - python
-- swig
 - cmake
 - spatialindex
 
@@ -132,7 +131,6 @@ On Ubuntu, the following apt packages are required:
 - openmpi-bin
 - python-dev
 - python-pip
-- swig
 
 Common dependencies
 -------------------
