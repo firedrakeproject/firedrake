@@ -6,9 +6,10 @@ notifications:
     on_success: change
     on_failure: always
     template: "%{repository}#%{build_number} (%{branch} - %{commit} : %{author}): %{message} | %{build_url}"
-language: python
+# language: python
+language: c
 # We're not Python 2.6 compatible at the moment
-python: "2.7"
+# python: "2.7"
 addons:
   apt:
     packages:
@@ -24,31 +25,51 @@ addons:
         - gfortran
         - libspatialindex-dev
         - swig
+os:
+    - linux
+    - osx
 env:
   global:
     - CC=mpicc
   matrix:
-    - PYOP2_BACKEND=sequential PYOP2_TESTS=regression
-    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
-    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
-    - PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
-    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
-    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
-    - PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
-    - OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
-    - OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
-virtualenv:
-  system_site_packages: true
-# command to install dependencies
+    - PYOP2_BACKEND=none
+matrix:
+  exclude:
+    - env: PYOP2_BACKEND=none
+  include:
+    - os: osx
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
+    - os: linux
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
+    - os: linux
+      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
+    - os: linux
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
+    - os: linux
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
+    - os: linux
+      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
+    - os: linux
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
+    - os: linux
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
+    - os: linux
+      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
+    - os: linux
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
 before_install:
-  - pip install -U pip
-  - pip install -U pytest
-  - pip install -U Cython
-  - pip install pytest-benchmark
+  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
+  - pip install -U --user pip
+  - pip install -U --user virtualenv
+  - pip install -U --user pytest
+  - pip install -U --user Cython
+  - pip install --user pytest-benchmark
 install:
+  - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable-ssh --global --minimal-petsc
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc
+  - . ./firedrake/bin/activate
   - cd firedrake/src/firedrake
   - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace

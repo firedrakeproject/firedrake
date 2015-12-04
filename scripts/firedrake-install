@@ -72,7 +72,7 @@ honoured.""",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
-
+    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--mpicc", type=str,
                         action="store", default="mpicc",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
@@ -91,6 +91,7 @@ else:
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
 
     args = parser.parse_args()
     args.system = False
@@ -184,13 +185,18 @@ def check_output(args):
         raise
 
 
-def brew_install(name):
+def brew_install(name, options=None):
     try:
         # Check if it's already installed
         check_call(["brew", "list", name])
     except subprocess.CalledProcessError:
         # If not found, go ahead and install
-        check_call(["brew", "install", name])
+        arguments = [name]
+        if options:
+            arguments = options + arguments
+        if args.verbose:
+            arguments = ["--verbose"] + arguments
+        check_call(["brew", "install"] + arguments)
 
 
 def apt_check(name):
@@ -448,13 +454,13 @@ if osname == "Darwin":
             quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
 
         stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
-        brew_install("openmpi")
+        # Ensure a fortran compiler is available
+        brew_install("gcc")
+        # Temporary workaround for homebrew bug #46461
+        brew_install("openmpi", options=["--with-fortran", "--build-from-source"])
         brew_install("python")
-        check_call(["brew", "tap", "homebrew/python"])
-        brew_install("numpy")
         brew_install("swig")
         brew_install("cmake")
-        check_call(["brew", "tap", "homebrew/science"])
         brew_install("spatialindex")
 
     else:
@@ -524,7 +530,7 @@ elif not (args.system or args.user or args.prefix):
         quit("Virtual env installed. Please run firedrake-install again.\n")
     if mode == "install":
         stdout.write("Creating firedrake virtualenv.\n")
-        virtualenv.create_environment("firedrake", site_packages=True)
+        virtualenv.create_environment("firedrake", site_packages=False)
         # For some reason virtualenv does not always install the latest pip.
         run_pip_install(["-U", "pip"])
     execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
