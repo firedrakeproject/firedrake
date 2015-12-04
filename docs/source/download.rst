@@ -19,6 +19,9 @@ shell from which you use Firedrake::
 
   source firedrake/bin/activate
 
+Testing the installation
+------------------------
+
 It is recommended to run the test suite after installation to check
 that the Firedrake installation is fully functional. Enter the
 virtualenv_ as above, install pytest_ with::
