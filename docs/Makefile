@@ -43,7 +43,7 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/teamgrid.rst source/obtaining_pyop2.rst source/demos
+GENERATED_FILES = source/teamgrid.rst source/demos
 
 publish: html
 # Note that godaddy don't currently do rsync, unfortunately.
@@ -74,11 +74,6 @@ copy_demos:
 
 source/teamgrid.rst: source/team.py
 	cd source; python team.py
-
-.PHONY: source/obtaining_pyop2.rst
-
-source/obtaining_pyop2.rst:
-	wget https://raw.github.com/OP2/PyOP2/master/README.rst -O $@
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc ../firedrake -o source/ -f -T
