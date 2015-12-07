@@ -459,7 +459,6 @@ if osname == "Darwin":
         # Temporary workaround for homebrew bug #46461
         brew_install("openmpi", options=["--with-fortran", "--build-from-source"])
         brew_install("python")
-        brew_install("swig")
         brew_install("cmake")
         brew_install("spatialindex")
 
@@ -484,8 +483,7 @@ elif osname == "Linux":
                         "mercurial",
                         "openmpi-bin",
                         "python-dev",
-                        "python-pip",
-                        "swig"]
+                        "python-pip"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
@@ -502,7 +500,6 @@ elif osname == "Linux":
         stdout.write("* Python version 2.7\n")
         stdout.write("* pip and the Python headers\n")
         stdout.write("* CMake\n")
-        stdout.write("* SWIG\n")
         stdout.write("* libspatialindex and headers\n")
 
 else:
