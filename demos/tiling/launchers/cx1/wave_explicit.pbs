@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #PBS -l walltime=10:00:00
-#PBS -l select=1:ncpus=20:mem=16gb:icib=true
+#PBS -l select=$(NNODES):ncpus=20:mem=16gb:icib=true
 #PBS -q pqcdt
 
 # Note: mpiexec.1pps runs hybrid mpi+openmp jobs
@@ -12,7 +12,7 @@
 # I_MPI_PIN_ORDER=compact
 # KMP_AFFINITY=granularity=fine,compact,1,0
 
-FIREDRAKE=$HOME/Projects/Firedrake/firedrake
+FIREDRAKE=$FIREDRAKE_DIR
 TILING=$FIREDRAKE/demos/tiling
 EXECUTABLE=$TILING/wave_explicit_fusion.py
 MESHES=$TILING/meshes/wave_explicit
