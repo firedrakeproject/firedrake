@@ -4,7 +4,7 @@ import pytest
 from firedrake import *
 
 
-def test_base_box_3d():
+def run_base_box_3d():
     m = UnitSquareMesh(10, 10, quadrilateral=True)
     mesh = ExtrudedMesh(m, layers=8)
     f = Function(FunctionSpace(mesh, 'CG', 1))
@@ -22,6 +22,15 @@ def test_base_box_3d():
     # Retarget base subdomain into columns of the extruded mesh.
     sd = op2.Subset(mesh.cell_set, sd.indices)
     assert np.allclose(0.402, assemble(f*dx(subdomain_data=sd)))
+
+
+def test_base_box_3d():
+    run_base_box_3d()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_base_box_3d_parallel():
+    run_base_box_3d()
 
 
 if __name__ == '__main__':

@@ -1165,5 +1165,5 @@ def SubDomainData(geometric_expr):
     f = projection.project(ufl.conditional(geometric_expr, 1, 0), fs)
 
     # Create cell subset
-    indices, = np.nonzero(f.dat.data > 0.5)
+    indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
     return op2.Subset(m.cell_set, indices)
