@@ -1,7 +1,6 @@
 import ctypes
 from os import path
 
-#from function import *
 from firedrake.function import make_c_evaluate
 #__all__ = ['simple_d2s']
 
@@ -36,33 +35,30 @@ from firedrake.function import make_c_evaluate
 # calls        - callDiderot2_lerp()
 # field#k(2)[] - 2d scalar field
 def tmp(f):
-    p_cf =  f._ctypes
+    p_cf = f._ctypes
     init_file = path.join(path.dirname(__file__), '/Users/chariseechiw/fire/firedrake/diderot/store/tmp_init.o')
     diderot_file = path.join(path.dirname(__file__), '/Users/chariseechiw/fire/firedrake/diderot/store/tmp.o')
     call = make_c_evaluate(f, "cat", ldargs=[init_file, diderot_file, "-lteem"])
     return 1
 
-def basic_d2s_lerp(name,f, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn,type):
-    
-    p_cf =  f._ctypes
+
+def basic_d2s_lerp(name, f, resU, resV, physicalx0, physicalxn, physicaly0, physicalyn, type):
+
+    p_cf = f._ctypes
     init_file = path.join(path.dirname(__file__), '../diderot/store/basic_d2s_lerp_init.o')
     diderot_file = path.join(path.dirname(__file__), '../diderot/store/basic_d2s_lerp.o')
     call = make_c_evaluate(f, "callDiderot", ldargs=[init_file, diderot_file, "-lteem"])
-    
-    return call(ctypes.c_char_p(name),type,p_cf, resU, resV, physicalx0,physicalxn,physicaly0,physicalyn)
+
+    return call(ctypes.c_char_p(name), type, p_cf, resU, resV, physicalx0, physicalxn, physicaly0, physicalyn)
 
 
 # file          - fem/examples/d2s/simple_sample
 # calls         - callDiderot2_step()
 # field#k(2)[]  - 2d scalar field
-#def basic_d2s_sample(name,f, resU, resV, stepSize,type):
-#    p_cf = cFunction(f)
-#    init_file = path.join(path.dirname(__file__), '../diderot/store/basic_d2s_sample_init.o')
-#    diderot_file = path.join(path.dirname(__file__),'../diderot/store/basic_d2s_sample.o')
-#    call = make_c_evaluate(f, "callDiderot", ldargs=[init_file, diderot_file, "-lteem"])
-    
-#   return call(ctypes.c_char_p(name),type,p_cf, resU, resV, ctypes.c_float(stepSize))
-
-
-
-
+# def basic_d2s_sample(name,f, resU, resV, stepSize, type):
+#     p_cf = cFunction(f)
+#     init_file = path.join(path.dirname(__file__), '../diderot/store/basic_d2s_sample_init.o')
+#     diderot_file = path.join(path.dirname(__file__),'../diderot/store/basic_d2s_sample.o')
+#     call = make_c_evaluate(f, "callDiderot", ldargs=[init_file, diderot_file, "-lteem"])
+#
+#     return call(ctypes.c_char_p(name),type,p_cf, resU, resV, ctypes.c_float(stepSize))
