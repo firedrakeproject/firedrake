@@ -35,6 +35,7 @@ cells = cells.reshape(-1, 4)
 
 from firedrake import *
 from firedrake import mesh
+from ufl.operators import EQ
 
 plex = mesh._from_cell_list(2, cells, coords)
 m = Mesh(plex, dim=2)
@@ -48,12 +49,11 @@ tos = rootgrp.variables['tos']
 f = Function(V)
 f.dat.data[reordering] = tos[0].data.flat
 
-markers = np.empty(tos[0].mask.size, dtype=bool)
-markers[reordering] = 1 - tos[0].mask.flatten()
-amo_mask = Function(V).interpolate(Expression("(-60 <= x[0] && x[0] <= 0) && (0 <= x[1] && x[1] <= 60)"))
-markers *= amo_mask.dat.data
-sd = mesh.SubDomainData(m.cell_set, markers, np.unique(markers))
-d_amo = dx(subdomain_data=sd, subdomain_id=1)
+sea_mask = Function(V)
+sea_mask.dat.data[reordering] = tos[0].mask.flatten()
+x = m.coordinates
+sd = SubDomainData(And(EQ(sea_mask, 0), And(And(-60 <= x[0], x[0] <= 0), And(0 <= x[1], x[1] <= 60))))
+d_amo = dx(subdomain_data=sd)
 
 print 'time: 0'
 
