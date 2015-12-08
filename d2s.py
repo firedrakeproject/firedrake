@@ -20,6 +20,17 @@ def quantize(namenrrd,namepng):
 # ex0|ex1 use lerp and ex2|ex3 use sample
 # ex0|ex2 calls quantize
 # ex1|ex3 diderot creates png file
+
+
+def test_tmp0():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "P", 4)
+    f = Function(V).interpolate(Expression(exp1))
+    vis_diderot.tmp(f)
+
+
+
+
 def test_ex0():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "P", 4)
@@ -34,7 +45,7 @@ def test_ex0():
     quantize(namenrrd,namepng)
 
 # c program calls quantize
-def test_ex1():
+def atest_ex1():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "P", 4)
     f = Function(V).interpolate(Expression(exp2))
@@ -47,7 +58,7 @@ def test_ex1():
     os.system('open ' + namepng)
 
 
-def test_ex2():
+def atest_ex2():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "P", 4)
     f = Function(V).interpolate(Expression(exp3))
@@ -59,7 +70,7 @@ def test_ex2():
     vis_diderot.basic_d2s_sample(namenrrd,f, res,res, stepSize,type) is None
     quantize(namenrrd,namepng)
 
-def test_ex3():
+def atest_ex3():
     mesh = UnitSquareMesh(2, 2)
     V = FunctionSpace(mesh, "P", 6)
     f = Function(V).interpolate(Expression(exp4))

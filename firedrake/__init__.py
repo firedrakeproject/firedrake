@@ -56,8 +56,8 @@ from firedrake.variational_solver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa
 import firedrake.visualise  # noqa
-#import firedrake.vis_diderot
-import vis_diderot
+import firedrake.vis_diderot
+#import vis_diderot
 # Set default log level
 set_log_level(INFO)
 
