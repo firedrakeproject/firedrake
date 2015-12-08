@@ -23,7 +23,7 @@ def parser(**kwargs):
     p.add_argument('-p', '--part-mode', help='(chunk, metis)', default='chunk')
     p.add_argument('-f', '--mesh-file', help='use a specific mesh file')
     p.add_argument('-m', '--mesh-size', help='drive hypercube mesh size', default=1)
-    p.add_argument('-x', '--extra-halo', type=int, help='add extra halo (avoid extra computation)', default=0)
+    p.add_argument('-x', '--extra-halo', type=int, help='add extra halo layer', default=0)
     p.add_argument('-v', '--verbose', help='print additional information', default=False)
     p.add_argument('-o', '--output', help='write to file the simulation output', default=False)
     p.add_argument('-d', '--debug', help='debug mode (defaults to False)', default=False)
@@ -39,6 +39,7 @@ def output_time(start, end, **kwargs):
     nloops = kwargs.get('nloops', 0)
     tile_size = kwargs.get('tile_size', 0)
     partitioning = kwargs.get('partitioning', 'chunk')
+    extra_halo = 'yes' if kwargs.get('extra_halo', False) else 'no'
     backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
 
     # Where do I store the output ?
@@ -101,11 +102,12 @@ def output_time(start, end, **kwargs):
             # back to the file (overwriting existing content)
             with open(filename, "r+") as f:
                 lines = [line.split(':') for line in f if line.strip()][1:]
-                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0]) for i in lines]
-                lines += [(tot, nloops, tile_size, partitioning)]
+                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0])
+                         for i in lines]
+                lines += [(tot, nloops, tile_size, partitioning, extra_halo)]
                 lines.sort(key=lambda x: (x[0], -x[1]))
-                prepend = "time : nloops : tilesize : partitioning\n"
-                lines = prepend + "\n".join(["%s : %s : %s : %s" % i for i in lines]) + "\n"
+                prepend = "time   : nloops : tilesize : partitioning : extrahalo\n"
+                lines = prepend + "\n".join(["%s :   %s    :   %s   :    %s     :    %s" % i for i in lines]) + "\n"
                 f.seek(0)
                 f.write(lines)
                 f.truncate()
