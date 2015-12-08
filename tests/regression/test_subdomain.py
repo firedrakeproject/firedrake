@@ -14,10 +14,10 @@ def test_box_1d_0form():
     # assembly.  We keep this line to have that case tested.
     assert np.allclose(0.5, assemble(f*dx))
 
-    sd = make_subdomain_data(x[0] < 0.5)
+    sd = SubDomainData(x[0] < 0.5)
     assert np.allclose(0.125, assemble(f*dx(subdomain_data=sd)))
 
-    sd = make_subdomain_data(x[0] > 0.5)
+    sd = SubDomainData(x[0] > 0.5)
     assert np.allclose(0.375, assemble(f*dx(subdomain_data=sd)))
 
 
@@ -28,10 +28,10 @@ def test_box_1d_1form():
 
     whole = assemble(v*dx).dat.data
 
-    sd = make_subdomain_data(x[0] < 0.5)
+    sd = SubDomainData(x[0] < 0.5)
     half_1 = assemble(v*dx(subdomain_data=sd)).dat.data
 
-    sd = make_subdomain_data(x[0] > 0.5)
+    sd = SubDomainData(x[0] > 0.5)
     half_2 = assemble(v*dx(subdomain_data=sd)).dat.data
 
     assert np.allclose(whole, half_1 + half_2)
@@ -46,10 +46,10 @@ def test_box_1d_2form():
 
     whole = assemble(u*v*dx).M.values
 
-    sd = make_subdomain_data(x[0] < 0.5)
+    sd = SubDomainData(x[0] < 0.5)
     half_1 = assemble(u*v*dx(subdomain_data=sd)).M.values
 
-    sd = make_subdomain_data(x[0] > 0.5)
+    sd = SubDomainData(x[0] > 0.5)
     half_2 = assemble(u*v*dx(subdomain_data=sd)).M.values
 
     assert np.allclose(whole, half_1 + half_2)

@@ -19,7 +19,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'make_subdomain_data']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData']
 
 
 _cells = {
@@ -1153,7 +1153,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     return self
 
 
-def make_subdomain_data(geometric_expr):
+def SubDomainData(geometric_expr):
     import firedrake.functionspace as functionspace
     import firedrake.projection as projection
 
