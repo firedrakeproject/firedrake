@@ -64,6 +64,7 @@ finite element problems in Firedrake.
    mesh-coordinates
    point-evaluation
    checkpointing
+   petsc-interface
 
 .. only:: html
 
