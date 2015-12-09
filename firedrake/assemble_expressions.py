@@ -16,6 +16,7 @@ from pyop2 import op2
 from firedrake import constant
 from firedrake import function
 from firedrake import functionspace
+from firedrake import utils
 
 
 def ufl_type(*args, **kwargs):
@@ -547,6 +548,7 @@ def evaluate_preprocessed_expression(kernel, args, subset=None):
         op2.par_loop(kernel, itset, *parloop_args)
 
 
+@utils.known_pyop2_safe
 def evaluate_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s."""
 

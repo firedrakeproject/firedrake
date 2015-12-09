@@ -4,7 +4,7 @@ from __future__ import absolute_import
 from ffc import default_parameters
 from pyop2.configuration import configuration
 
-__all__ = ['Parameters', 'parameters']
+__all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
 class Parameters(dict):
@@ -58,10 +58,10 @@ parameters.add(Parameters("coffee",
 pyop2_opts = Parameters("pyop2_options",
                         **configuration)
 
-pyop2_opts.set_update_function(lambda k, v: configuration.reconfigure(**{k: v}))
+pyop2_opts.set_update_function(lambda k, v: configuration.unsafe_reconfigure(**{k: v}))
 
 # Override values
-pyop2_opts["type_check"] = False
+pyop2_opts["type_check"] = True
 pyop2_opts["log_level"] = "INFO"
 
 parameters.add(pyop2_opts)
@@ -76,3 +76,43 @@ parameters.add(Parameters("form_compiler", **ffc_parameters))
 parameters["reorder_meshes"] = True
 
 parameters["matnest"] = True
+
+parameters["type_check_safe_par_loops"] = False
+
+
+def disable_performance_optimisations():
+    """Switches off performance optimisations in Firedrake.
+
+    This is mostly useful for debugging purposes.
+
+    This switches off all of COFFEE's kernel compilation optimisations
+    and enables PyOP2's runtime checking of par_loop arguments in all
+    cases (even those where they are claimed safe).  Additionally, it
+    switches to compiling generated code in debug mode.
+
+    Returns a function that can be called with no arguments, to
+    restore the state of the parameters dict."""
+
+    check = parameters["pyop2_options"]["type_check"]
+    debug = parameters["pyop2_options"]["debug"]
+    lazy = parameters["pyop2_options"]["lazy_evaluation"]
+    safe_check = parameters["type_check_safe_par_loops"]
+    coffee = parameters["coffee"]
+    cache = parameters["assembly_cache"]["enabled"]
+
+    def restore():
+        parameters["pyop2_options"]["type_check"] = check
+        parameters["pyop2_options"]["debug"] = debug
+        parameters["pyop2_options"]["lazy_evaluation"] = lazy
+        parameters["type_check_safe_par_loops"] = safe_check
+        parameters["coffee"] = coffee
+        parameters["assembly_cache"]["enabled"] = cache
+
+    parameters["pyop2_options"]["type_check"] = True
+    parameters["pyop2_options"]["debug"] = True
+    parameters["pyop2_options"]["lazy_evaluation"] = False
+    parameters["type_check_safe_par_loops"] = True
+    parameters["coffee"] = {}
+    parameters["assembly_cache"]["enabled"] = False
+
+    return restore

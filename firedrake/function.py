@@ -327,6 +327,7 @@ class Function(ufl.Coefficient):
                 d += dim
         return self
 
+    @utils.known_pyop2_safe
     def _interpolate(self, fs, dat, expression, subset):
         """Interpolate expression onto a :class:`FunctionSpace`.
 
@@ -377,6 +378,7 @@ class Function(ufl.Coefficient):
 
         for _, arg in expression._user_args:
             args.append(arg(op2.READ))
+
         op2.par_loop(*args)
 
     def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
@@ -483,6 +485,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
                                             open_scope=False))
         return op2.Kernel(kernel_code, "expression_kernel")
 
+    @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
@@ -502,16 +505,16 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         """
 
         if isinstance(expr, Function) and \
-                expr._function_space == self._function_space:
+           expr._function_space == self._function_space:
             expr.dat.copy(self.dat, subset=subset)
             return self
 
         from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.Assign(self, expr), subset)
-
         return self
 
+    @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
         if np.isscalar(expr):
@@ -528,6 +531,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         return self
 
+    @utils.known_pyop2_safe
     def __isub__(self, expr):
 
         if np.isscalar(expr):
@@ -544,6 +548,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         return self
 
+    @utils.known_pyop2_safe
     def __imul__(self, expr):
 
         if np.isscalar(expr):
@@ -560,6 +565,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         return self
 
+    @utils.known_pyop2_safe
     def __idiv__(self, expr):
 
         if np.isscalar(expr):

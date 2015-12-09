@@ -14,6 +14,7 @@ from firedrake import functionspace
 from firedrake import matrix
 from firedrake import parameters
 from firedrake import solving
+from firedrake import utils
 
 
 __all__ = ["assemble"]
@@ -72,6 +73,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         raise TypeError("Unable to assemble: %r" % f)
 
 
+@utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               inverse=False, nest=None):
     """Assemble the form f and return a Firedrake object representing the
