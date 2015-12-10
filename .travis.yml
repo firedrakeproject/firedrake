@@ -28,9 +28,15 @@ addons:
 os:
     - linux
     - osx
+# Separate cache directories for OSX and Linux
+cache:
+  directories:
+    - $HOME/cached_dependencies_$TRAVIS_OS_NAME
 env:
   global:
     - CC=mpicc
+    # The install script expects to see this environment variable
+    - CACHE_DIRECTORY=$HOME/cached_dependencies_$TRAVIS_OS_NAME
   matrix:
     - PYOP2_BACKEND=none
 matrix:
@@ -61,15 +67,18 @@ before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
   - pip install -U --user pip
   - pip install -U --user virtualenv
-  - pip install -U --user pytest
-  - pip install -U --user Cython
-  - pip install --user pytest-benchmark
 install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
   - ../scripts/firedrake-install --disable-ssh --minimal-petsc
   - . ./firedrake/bin/activate
+  # Install pytest inside the virtualenv
+  - pip install pytest
+  - pip install pytest-benchmark
+  # Having activated the virtualenv, attempt to save cached dependencies
+  # This saves PETSc and petsc4py to speed up building
+  - (cd firedrake; ../../scripts/firedrake-install --write-cache)
   - cd firedrake/src/firedrake
   - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace
