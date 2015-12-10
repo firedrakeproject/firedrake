@@ -1,6 +1,7 @@
 import h5py
 from math import sqrt
 import numpy as np
+from time import time
 
 from pyop2 import op2
 from pyop2.configuration import configuration
@@ -75,6 +76,7 @@ def main(args):
 
     niter = 1000
 
+    start = time()
     for i in range(1, niter + 1):
 
         with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, force_glb=True,
@@ -129,11 +131,12 @@ def main(args):
         if i % 100 == 0:
             rms = sqrt(rms.data / cells.size)
             print " %d  %10.5e " % (i, rms)
+    end = time()
 
     # Print runtime summary
     class FakeFunctionSpace():
         def __init__(self, dof_dset):
-            self.dof_dset
+            self.dof_dset = dof_dset
     output_time(start, end,
                 tofile=True,
                 fs=FakeFunctionSpace(nodes),
