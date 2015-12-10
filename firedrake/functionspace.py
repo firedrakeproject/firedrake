@@ -77,7 +77,7 @@ class FunctionSpaceBase(ObjectCached):
         self.fiat_element = fiat_utils.fiat_from_ufl_element(element)
 
         entity_dofs = self.fiat_element.entity_dofs()
-        dofs_per_entity = mesh.make_dofs_per_plex_entity(entity_dofs)
+        self.dofs_per_entity = mesh.make_dofs_per_plex_entity(entity_dofs)
 
         self.extruded = bool(mesh.layers)
         self.offset = mesh.make_offset(entity_dofs,
@@ -104,7 +104,7 @@ class FunctionSpaceBase(ObjectCached):
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setPointSF(mesh._plex.getPointSF())
         # Create the PetscSection mapping topological entities to DoFs
-        sec = mesh._plex.createSection([1], dofs_per_entity,
+        sec = mesh._plex.createSection([1], self.dofs_per_entity,
                                        perm=mesh._plex_renumbering)
         dm.setDefaultSection(sec)
         self._global_numbering = sec
@@ -184,7 +184,7 @@ class FunctionSpaceBase(ObjectCached):
         """Compute entity class offsets for DoFs of this FunctionSpace."""
         dof_classes = [0, 0, 0, 0]
         for d in range(self._mesh._plex.getDimension()+1):
-            ndofs = self._dofs_per_entity[d]
+            ndofs = self.dofs_per_entity[d]
             for i in range(4):
                 dof_classes[i] += ndofs * entity_classes[d, i]
         return dof_classes
