@@ -3769,6 +3769,8 @@ class Kernel(Cached):
     :param user_code: code snippet to be executed once at the very start of
         the generated kernel wrapper code (optional, defaults to
         empty)
+    :param ldargs: A list of arguments to pass to the linker when
+        compiling this Kernel.
     :param cpp: Is the kernel actually C++ rather than C?  If yes,
         then compile with the C++ compiler (kernel is wrapped in
         extern C for linkage reasons).
@@ -3792,7 +3794,7 @@ class Kernel(Cached):
     @classmethod
     @validate_type(('name', str, NameTypeError))
     def _cache_key(cls, code, name, opts={}, include_dirs=[], headers=[],
-                   user_code="", cpp=False):
+                   user_code="", ldargs=None, cpp=False):
         # Both code and name are relevant since there might be multiple kernels
         # extracting different functions from the same code
         # Also include the PyOP2 version, since the Kernel class might change
@@ -3802,7 +3804,7 @@ class Kernel(Cached):
             code = code.gencode()
         return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
                    str(headers) + version + str(configuration['loop_fusion']) +
-                   str(cpp)).hexdigest()
+                   str(ldargs) + str(cpp)).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
@@ -3810,7 +3812,7 @@ class Kernel(Cached):
         return ast.gencode()
 
     def __init__(self, code, name, opts={}, include_dirs=[], headers=[],
-                 user_code="", cpp=False):
+                 user_code="", ldargs=None, cpp=False):
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
@@ -3821,6 +3823,7 @@ class Kernel(Cached):
         self._opts = opts
         self._applied_blas = False
         self._include_dirs = include_dirs
+        self._ldargs = ldargs if ldargs is not None else []
         self._headers = headers
         self._user_code = user_code
         if not isinstance(code, Node):
