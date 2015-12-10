@@ -11,7 +11,7 @@
 FIREDRAKE=$FIREDRAKE_DIR
 TILING=$FIREDRAKE/demos/tiling
 EXECUTABLE=$TILING/wave_explicit_fusion.py
-MESHES=$TILING/meshes/wave_explicit
+MESHES=$WORK/meshes/wave_explicit
 
 
 echo ------------------------------------------------------
@@ -45,23 +45,23 @@ for nu in 0 1 2 3 4
 do
     for p in "chunk" "metis"
     do
-        for m in 10
+        for m in $MESHES"/wave_tank_1.0.msh"
         do
-            for ts in 4
+            for ts in 100
             do
                 # OMP backends:
                 export SLOPE_BACKEND=OMP
                 # ... pure openmp
                 export OMP_NUM_THREADS=20
-                python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
+                python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
                 # ... hybrid mpi-openmp
                 export OMP_NUM_THREADS=10
-                mpiexec.1pps python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
+                mpiexec.1pps python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
 
                 # MPI backend:
                 export SLOPE_BACKEND=SEQUENTIAL
                 export OMP_NUM_THREADS=1
-                mpiexec python $EXECUTABLE --mesh-size $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
+                mpiexec python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
             done
         done
     done
@@ -69,13 +69,13 @@ done
 
 
 # Run the tests
-for nu in 0 1 2 3 4
+for nu in 0 1 2 3
 do
     for p in "chunk" "metis"
     do
-        for m in $MESHES"/wave_tank_0.125.msh"
+        for m in $MESHES"/wave_tank_0.070.msh"
         do
-            for ts in 1000 2000 3000 5000 10000 15000 20000 30000
+            for ts in 2000 3000 5000 10000 15000 20000 30000 50000 100000
             do
                 # OMP backends:
                 export SLOPE_BACKEND=OMP
