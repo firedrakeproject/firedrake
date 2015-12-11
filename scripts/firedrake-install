@@ -736,6 +736,7 @@ else:
     os.chdir("src")
 
     packages = list_cloned_dependencies("PyOP2") + list_cloned_dependencies("firedrake")
+    packages += ["firedrake"]
 
     # update packages.
     if not args.honour_petsc_dir:
