@@ -3,6 +3,7 @@ import platform
 import subprocess
 import sys
 import os
+import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 
@@ -20,6 +21,9 @@ else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
 branches = {}
+
+# Disgusting hack, are we running on travis?
+travis = "TRAVIS" in os.environ
 
 if mode == "install":
     # Handle command line arguments.
@@ -76,6 +80,10 @@ honoured.""",
     parser.add_argument("--mpicc", type=str,
                         action="store", default="mpicc",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
+
+    if travis:
+        parser.add_argument("--write-cache", action="store_true",
+                            help="Write the travis cache and exit")
     args = parser.parse_args()
 
     if args.package_branch:
@@ -135,8 +143,14 @@ else:
     pipinstall = sudopip + ["install"]
     python = [os.getcwd() + "/firedrake/bin/python"]
     pyinstall = python + ["setup.py", "install"]
+    sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
+
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 if args.minimal_petsc:
+    # WARNING WARNING
+    # If you change these minimal PETSc options, you will have to
+    # manually invalidate the Travis cache of PETSc and petsc4py.  See
+    # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5"""
 else:
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
@@ -244,7 +258,7 @@ def git_clone(url):
         if not args.disable_ssh:
             stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
         try:
-            check_call(["git", "clone", "-b", branch, "https://%s" % plainurl])
+            check_call(["git", "clone", "-q", "-b", branch, "https://%s" % plainurl])
             stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
         except subprocess.CalledProcessError:
             stderr.write("Failed to clone %s branch %s.\n" % (name, branch))
@@ -305,8 +319,122 @@ def pip_requirements(package):
         stdout.write("No dependencies found. Skipping.\n")
 
 
+if travis:
+    # Only enabled in travis mode
+    # Utilise travis directory caching for petsc/petsc4py dependencies
+    class directory(object):
+        """Context manager that executes body in a given directory"""
+        def __init__(self, dir):
+            self.dir = dir
+
+        def __enter__(self):
+            self.olddir = os.path.abspath(os.getcwd())
+            os.chdir(self.dir)
+
+        def __exit__(self, *args):
+            os.chdir(self.olddir)
+
+    def get_src_hash(dir):
+        with directory(dir):
+            try:
+                return check_output(["git", "rev-parse", "HEAD"])
+            except subprocess.CalledProcessError:
+                return None
+
+    def get_cache_hash(dir):
+        try:
+            # Catch IOError both from missing directory and missing
+            # file.
+            with directory(dir):
+                with open("cache-key", "r") as f:
+                    return f.read()
+        except (IOError, OSError):
+            return None
+
+    def write_cache_hash(dir, sha):
+        with directory(dir):
+            with open("cache-key", "w") as f:
+                f.write(sha)
+
+    def find_installed_dep(dep):
+        try:
+            if dep == "petsc":
+                import petsc as p
+            elif dep == "petsc4py":
+                import petsc4py as p
+            return os.path.dirname(p.__file__)
+        except ImportError:
+            return None
+
+    def write_cache(dep, src_dir, cache_dir):
+        cached_dep = os.path.join(cache_dir, dep)
+        src_dep = os.path.join(src_dir, dep)
+        installed_dep = find_installed_dep(dep)
+
+        if installed_dep is None:
+            stdout.write("Did not find installation of %s, not writing cache\n" % dep)
+            return
+
+        src_hash = get_src_hash(src_dep)
+        if src_hash is None:
+            stdout.write("Didn't find hash of source tree %s, not writing cache\n" % src_dep)
+            return
+
+        cache_hash = get_cache_hash(cached_dep)
+
+        # If we're here, cache_hash might be None, but src_hash will not be
+        if cache_hash == src_hash:
+            # No need to update cache
+            stdout.write("Cache %s is already up to date\n" % cached_dep)
+            return
+
+        shutil.rmtree(cached_dep, ignore_errors=True)
+        shutil.copytree(installed_dep, cached_dep)
+        write_cache_hash(cached_dep, src_hash)
+        stdout.write("Successfully wrote cache %s\n" % cached_dep)
+
+    def restore_cache(dep, src_dir, cache_dir, dest_dir):
+        cached_dep = os.path.join(cache_dir, dep)
+        installed_dep = os.path.join(dest_dir, dep)
+
+        cache_hash = get_cache_hash(cached_dep)
+        if cache_hash is None:
+            stdout.write("No cache for %s found at %s\n" % (dep, cached_dep))
+            return False
+
+        if os.path.exists(cached_dep):
+            stdout.write("Found cache for %s at %s with hash %s\n" % (dep, cached_dep, cache_hash))
+
+        if not os.path.exists(src_dir):
+            stdout.write("No source directory for %s found, can't check cache validity\n" % src_dir)
+            # Outer install loop should handle this case
+            return False
+
+        src_hash = get_src_hash(src_dir)
+
+        # At this point, src_hash may be None, but cache_hash will not be
+        if src_hash == cache_hash:
+            stdout.write("Cache is up to date for %s, using it\n" % dep)
+            # Ensure this directory doesn't exist
+            shutil.rmtree(installed_dep, ignore_errors=True)
+            shutil.copytree(cached_dep, installed_dep)
+            return True
+        stdout.write("Cache was not up to date for %s (had key %s, needed %s)\n" %
+                     (dep, cache_hash, src_hash))
+        return False
+
+
 def install(package):
     stdout.write("Installing %s\n" % package)
+    if travis and package in ["petsc/", "petsc4py/"]:
+        # Try installing from travis cache
+        src_dir = os.path.abspath(package)
+        cache_dir = os.path.abspath(os.environ["CACHE_DIRECTORY"])
+        dest_dir = sitepackages
+        installed = restore_cache(package, src_dir, cache_dir, dest_dir)
+        if installed:
+            stdout.write("Installed %s from travis cache %s\n" % (package, cache_dir))
+            return
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
     if args.developer and package not in ["petsc/", "petsc4py/"]:
         run_pip_install(["-e", package])
@@ -414,6 +542,15 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
+if travis and args.write_cache:
+    # Cache update mode
+    src_dir = os.path.abspath("src")
+    cache_dir = os.environ["CACHE_DIRECTORY"]
+    write_cache("petsc", src_dir, cache_dir)
+    write_cache("petsc4py", src_dir, cache_dir)
+    stdout.write("Wrote caches, exiting\n")
+    sys.exit(0)
+
 if args.rebuild_script:
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
 
@@ -431,6 +568,19 @@ If you really want to use your own PETSc build, please run again with the
 --honour-petsc-dir option.
 """)
 
+if travis:
+    # Produce once a minute output so that travis doesn't think
+    # we're stalled
+    from multiprocessing import Process
+
+    def stdout_writer():
+        import time
+        while True:
+            time.sleep(60)
+            print "."
+
+    travis_writer = Process(target=stdout_writer)
+    travis_writer.start()
 
 # Check operating system.
 osname = platform.uname()[0]
@@ -639,3 +789,7 @@ if not (args.system or args.user or args.prefix):
     stdout.write("  . firedrake/bin/activate\n\n")
     stdout.write("The virtualenv can be deactivated by running:\n\n")
     stdout.write("  deactivate\n")
+
+
+if travis:
+    travis_writer.terminate()

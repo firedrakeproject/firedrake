@@ -28,9 +28,15 @@ addons:
 os:
     - linux
     - osx
+# Separate cache directories for OSX and Linux
+cache:
+  directories:
+    - $HOME/cached_dependencies_$TRAVIS_OS_NAME
 env:
   global:
     - CC=mpicc
+    # The install script expects to see this environment variable
+    - CACHE_DIRECTORY=$HOME/cached_dependencies_$TRAVIS_OS_NAME
   matrix:
     - PYOP2_BACKEND=none
 matrix:
@@ -38,7 +44,9 @@ matrix:
     - env: PYOP2_BACKEND=none
   include:
     - os: osx
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
+      # Only test a few things on OSX until we can cache some of the
+      # build dependencies, otherwise we often get timeouts.
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion/test_2d_cohomology.py extrusion/test_point_eval_cells_extrusion.py extrusion/test_steady_advection_2D_extr.py regression/test_change_coordinates.py regression/test_2dcohomology.py regression/test_upwind_flux.py regression/test_point_eval_fs.py"
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - os: linux
@@ -61,15 +69,18 @@ before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
   - pip install -U --user pip
   - pip install -U --user virtualenv
-  - pip install -U --user pytest
-  - pip install -U --user Cython
-  - pip install --user pytest-benchmark
 install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
   - ../scripts/firedrake-install --disable-ssh --minimal-petsc
   - . ./firedrake/bin/activate
+  # Install pytest inside the virtualenv
+  - pip install pytest
+  - pip install pytest-benchmark
+  # Having activated the virtualenv, attempt to save cached dependencies
+  # This saves PETSc and petsc4py to speed up building
+  - (cd firedrake; ../../scripts/firedrake-install --write-cache)
   - cd firedrake/src/firedrake
   - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
   - python setup.py build_ext --inplace
