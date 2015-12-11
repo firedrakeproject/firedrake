@@ -118,13 +118,16 @@ class _BCSnapshot(object):
 
 
 class _CacheEntry(object):
-    """This is the basic caching unit. The form signature forms the key for
-    each CacheEntry, while a reference to the main data object is kept.
-    Additionally a list of Snapshot objects are kept in self.dependencies that
-    together form a snapshot of all the data objects used during assembly.
+    """This is the basic caching unit. The form signature, plus the id of
+    any subdomain_data forms the key for each CacheEntry, while a
+    reference to the main data object is kept.  Additionally a list of
+    Snapshot objects are kept in self.dependencies that together form
+    a snapshot of all the data objects used during assembly.
 
     The validity of each CacheEntry object depends on the validity of its
-    dependencies (i.e., that none of the referred objects have changed)."""
+    dependencies (i.e., that none of the referred objects have changed).
+
+    """
 
     def __init__(self, obj, form, bcs):
         self.form = form
@@ -176,18 +179,23 @@ class AssemblyCache(object):
             cls._instance.evictwarned = False
         return cls._instance
 
-    def _lookup(self, form, bcs, ffc_parameters):
+    def _cache_key(self, form):
         form_sig = form.signature()
-        parms, cache_entry = self.cache.get(form_sig, (None, None))
+        sd_sig = tuple(id(it.subdomain_data()) for it in form.integrals())
+        return (form_sig, sd_sig)
+
+    def _lookup(self, form, bcs, ffc_parameters):
+        key = self._cache_key(form)
+        parms, cache_entry = self.cache.get(key, (None, None))
 
         retval = None
         if cache_entry is not None:
             if parms != str(ffc_parameters) or not cache_entry.is_valid(form, bcs):
-                self.invalid_count[form_sig] += 1
-                del self.cache[form_sig]
+                self.invalid_count[key] += 1
+                del self.cache[key]
                 return None
             else:
-                self.invalid_count[form_sig] = 0
+                self.invalid_count[key] = 0
 
             retval = cache_entry.get_object()
             self._hits += 1
@@ -196,16 +204,16 @@ class AssemblyCache(object):
         return retval
 
     def _store(self, obj, form, bcs, ffc_parameters):
-        form_sig = form.signature()
+        key = self._cache_key(form)
 
-        if self.invalid_count[form_sig] > parameters["assembly_cache"]["max_misses"]:
-            if self.invalid_count[form_sig] == \
+        if self.invalid_count[key] > parameters["assembly_cache"]["max_misses"]:
+            if self.invalid_count[key] == \
                parameters["assembly_cache"]["max_misses"] + 1:
                 debug("form %s missed too many times, excluding from cache." % form)
 
         else:
             cache_entry = _CacheEntry(obj, form, bcs)
-            self.cache[form_sig] = str(ffc_parameters), cache_entry
+            self.cache[key] = str(ffc_parameters), cache_entry
             self.evict()
 
     def evict(self):
