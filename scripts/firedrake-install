@@ -40,9 +40,11 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The install location may be specified using the --global, --prefix, or --user
-options. If none of these options are provided, a local installation into
-./firedrake will be performed.
+The default install creates a virtualenv in ./firedrake and installs
+inside that virtualenv.  Optionally, a global installation using the
+default Python package location may be specified by passing the
+--global option.  We recommend using the default virtualenv
+installation mode.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -53,10 +55,6 @@ honoured.""",
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--global", action='store_true', dest="system",
                        help="Install to the default global location on the current platform.")
-    # group.add_argument("--prefix", type=str, nargs=1,
-    #                   help="Install to subdirectories of the specified directory.")
-    group.add_argument("--user", action='store_true',
-                       help="Install using the current user's home directory as the prefix.")
     group.add_argument("--developer", action='store_true',
                        help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
     parser.add_argument("--sudo", action='store_true',
@@ -103,8 +101,6 @@ else:
 
     args = parser.parse_args()
     args.system = False
-    args.prefix = False
-    args.user = False
     args.developer = False
     args.sudo = False
     args.package_manager = False
@@ -120,7 +116,7 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 path_extension = ""
 
 python = ["python"]
-if args.sudo and (args.system or args.prefix):
+if args.sudo and args.system:
     sudopip = ["sudo", "pip"]
     pyinstall = ["sudo", "python", "setup.py", "install"]
 else:
@@ -128,16 +124,8 @@ else:
     pyinstall = ["python", "setup.py", "install"]
 
 pipinstall = sudopip + ["install"]
-if args.user:
-    pipinstall += ["--user"]
-    pyinstall += ["--user"]
-elif args.prefix:
-    path_extension = args.prefix + sitepackages + os.pathsep
-    pipinstall += ["--root", args.prefix]
-    pyinstall += ["--root", args.prefix]
-elif args.system:
-    pass
-else:
+if not args.system:
+    # virtualenv install
     # Use the pip from the virtualenv
     sudopip = [os.getcwd() + "/firedrake/bin/pip"]
     pipinstall = sudopip + ["install"]
@@ -146,6 +134,7 @@ else:
     sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+
 if args.minimal_petsc:
     # WARNING WARNING
     # If you change these minimal PETSc options, you will have to
@@ -529,7 +518,7 @@ def build_update_script():
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
-    for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc",
+    for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
                    "mpicc"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
@@ -656,7 +645,7 @@ else:
     stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
 
 
-if (args.system or args.user or args.prefix) and mode == "install":
+if args.system and mode == "install":
     stdout.write("Creating firedrake directory structure.\n")
     try:
         os.mkdir("firedrake")
@@ -664,7 +653,7 @@ if (args.system or args.user or args.prefix) and mode == "install":
         stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
         raise
 
-elif not (args.system or args.user or args.prefix):
+elif not args.system:
     try:
         import virtualenv
     except:
@@ -784,7 +773,7 @@ stdout.write("Successfully installed Firedrake.\n\n")
 
 stdout.write("To upgrade firedrake, run firedrake/bin/firedrake-update\n")
 
-if not (args.system or args.user or args.prefix):
+if not args.system:
     stdout.write("\nFiredrake has been installed in a python virtualenv. You activate it with:\n\n")
     stdout.write("  . firedrake/bin/activate\n\n")
     stdout.write("The virtualenv can be deactivated by running:\n\n")
