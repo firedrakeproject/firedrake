@@ -23,6 +23,9 @@ def main(args):
     glb_maps = args.glb_maps
     mesh_file = args.mesh_file
     debug_mode = args.debug
+    extra_halo = False  # MPI not allowed since we are using a special mesh
+
+    loop_chain_length = 9
 
     save_soln, adt_calc, res_calc, bres_calc, update = kernels()
 
