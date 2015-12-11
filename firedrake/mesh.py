@@ -1154,6 +1154,16 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
 
 def SubDomainData(geometric_expr):
+    """Creates a subdomain data object from a boolean-valued UFL expression.
+
+    The result can be attached as the subdomain_data field of a
+    :class:`ufl.Measure`. For example:
+
+        x = mesh.coordinates
+        sd = SubDomainData(x[0] < 0.5)
+        assemble(f*dx(subdomain_data=sd))
+
+    """
     import firedrake.functionspace as functionspace
     import firedrake.projection as projection
 
