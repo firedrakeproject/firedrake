@@ -72,19 +72,19 @@ needing to regenerate code.
 We use a periodic mesh of width 40,::
 
   n = 100
-  mesh = PeriodicIntervalMesh(n,40.)
+  mesh = PeriodicIntervalMesh(n, 40.0)
 
 and build a mixed function space for the two variables.::
 
-  V = FunctionSpace(mesh,"CG",1)
-  W = MixedFunctionSpace((V,V))
+  V = FunctionSpace(mesh, "CG", 1)
+  W = MixedFunctionSpace((V, V))
 
 We construct a function to store the two variables at time level n,
 and split it so that we can interpolate the initial condition into the
 two components.::
   
   w0 = Function(W)
-  m0,u0 = w0.split()
+  m0, u0 = w0.split()
 
 Then we interpolate the following initial condition,
 
@@ -105,9 +105,9 @@ solver since the problem is one dimensional).::
   am = p*m*dx
   Lm = (p*u0 + alphasq*p.dx(0)*u0.dx(0))*dx
 
-  solve(am==Lm, m0, solver_parameters={
-        'ksp_type':'preonly',
-        'pc_type':'lu'
+  solve(am == Lm, m0, solver_parameters={
+        'ksp_type': 'preonly',
+        'pc_type': 'lu'
         }
      )
 
@@ -115,12 +115,12 @@ Next we build the weak form of the timestepping algorithm. This is expressed
 as a mixed nonlinear problem, which must be written as a bilinear form
 that is a function of the output Function w1.::
 
-  p,q = TestFunctions(W)
+  p, q = TestFunctions(W)
 
   w1 = Function(W)
   w1.assign(w0)
-  m1,u1 = split(w1)
-  m0,u0 = split(w0)
+  m1, u1 = split(w1)
+  m0, u0 = split(w0)
 
 Note the use of split(w1) here, which splits up a Function so that it may be inserted into a UFL expression.::
   
@@ -136,23 +136,23 @@ Since we are in one dimension, we use a direct solver for the linear
 system within the Newton algorithm. The function space is mixed, so
 we must specify `nest=False` when defining the variational problem.::
   
-  uprob = NonlinearVariationalProblem(L,w1,nest=False)
-  usolver = NonlinearVariationalSolver(uprob,solver_parameters=
-     {'ksp_type':'preonly',
-     'pc_type':'lu'})
+  uprob = NonlinearVariationalProblem(L, w1, nest=False)
+  usolver = NonlinearVariationalSolver(uprob, solver_parameters=
+     {'ksp_type': 'preonly',
+      'pc_type': 'lu'})
 
 Next we use the other form of split, `w0.split()`, which is the way
 to split up a Function in order to access its data e.g. for output.::
      
-  m0,u0 = w0.split()
-  m1,u1 = w1.split()
+  m0, u0 = w0.split()
+  m1, u1 = w1.split()
 
 We choose a final time, and initialise a File object for storing u.::
 
-  T = 100.
+  T = 100.0
   ufile = File('m.pvd')
   ufile << u1
-  t = 0.
+  t = 0.0
 
 We also initialise a dump counter so we only dump every 10 timesteps.::
   
@@ -161,13 +161,13 @@ We also initialise a dump counter so we only dump every 10 timesteps.::
 
 Now we enter the timeloop.::
   
-  while (t < T-0.5*dt):
+  while (t < T - 0.5*dt):
      t += dt
 
 The energy can be computed and checked.::
      
      E = assemble((u0*u0 + alphasq*u0.dx(0)*u0.dx(0))*dx)
-     print "t = ",t,"E = ",E
+     print "t = ", t, "E = ", E
 
 To implement the timestepping algorithm, we just call the solver, and assign
 w1 to w0.::
@@ -178,7 +178,7 @@ w1 to w0.::
 Finally, we check if it is time to dump the data.::
   
      dumpn += 1
-     if(dumpn==ndump):
+     if dumpn == ndump:
         dumpn -= ndump
         ufile << u1
 
