@@ -836,6 +836,71 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
+    def locate_cell(self, point):
+        """Locate cell containg given point.
+
+        :arg x: point coordinates
+        :returns: cell number (int), or None (if the point is not in the domain)
+        """
+        from ctypes import POINTER, c_double
+
+        x = np.asarray(point, dtype=float)
+        cell = self._c_locate_cell(self.coordinates._ctypes,
+                                   x.ctypes.data_as(POINTER(c_double)))
+        if cell == -1:
+            return None
+        else:
+            return cell
+
+    @utils.cached_property
+    def _c_locate_cell(self):
+        from os import path
+        from ffc import compile_coordinate_element
+        from pyop2 import compilation
+
+        def make_args(function):
+            from pyop2 import op2
+
+            arg = function.dat(op2.READ, function.cell_node_map())
+            arg.position = 0
+            return (arg,)
+
+        def make_wrapper(function, **kwargs):
+            from pyop2.base import build_itspace
+            from pyop2.sequential import generate_cell_wrapper
+
+            args = make_args(function)
+            return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
+
+        src = "#include <evaluate.h>\n"
+        src += compile_coordinate_element(self.ufl_coordinate_element())
+
+        src += """
+extern "C" int c_locate_cell(struct Function *f, double *x)
+{
+    struct ReferenceCoords reference_coords;
+    return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+}
+""" % dict(geometric_dimension=self.geometric_dimension())
+
+        src += make_wrapper(self.coordinates,
+                            forward_args=["void*", "double*", "int*"],
+                            kernel_name="to_reference_coords_kernel",
+                            wrapper_name="wrap_to_reference_coords")
+
+        with open(path.join(path.dirname(__file__), "locate.cpp")) as f:
+            src += f.read()
+
+        result = compilation.load(src, "cpp", "c_locate_cell",
+                                  cppargs=["-I%s" % path.dirname(__file__)],
+                                  ldargs=["-lspatialindex"])
+
+        from ctypes import POINTER, c_double
+        import firedrake.function as function
+        result.argtypes = [POINTER(function._CFunction), POINTER(c_double)]
+        result.restype = int
+        return result
+
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
