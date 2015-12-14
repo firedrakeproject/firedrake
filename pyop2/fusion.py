@@ -277,6 +277,7 @@ class Kernel(sequential.Kernel, tuple):
         self._opts = dict(flatten([k._opts.items() for k in kernels]))
         self._applied_blas = any(k._applied_blas for k in kernels)
         self._include_dirs = list(set(flatten([k._include_dirs for k in kernels])))
+        self._ldargs = list(set(flatten([k._ldargs for k in kernels])))
         self._headers = list(set(flatten([k._headers for k in kernels])))
         self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
         self._attached_info = False
@@ -775,7 +776,7 @@ class Inspector(Cached):
             return key
         # Inspector extracted from lazy evaluation trace
         for loop in loop_chain:
-            if isinstance(loop, Mat._Assembly):
+            if isinstance(loop, base._LazyMatOp):
                 continue
             key += (loop.kernel.cache_key,)
             key += (loop.it_space.cache_key, loop.it_space.iterset.sizes)
@@ -1399,9 +1400,9 @@ def fuse(name, loop_chain, **kwargs):
     if len(loop_chain) in [0, 1]:
         return loop_chain
 
-    # Are there _Assembly objects (i.e., synch points) preventing fusion?
+    # Are there _LazyMatOp objects (i.e., synch points) preventing fusion?
     remainder = []
-    synch_points = [l for l in loop_chain if isinstance(l, Mat._Assembly)]
+    synch_points = [l for l in loop_chain if isinstance(l, base._LazyMatOp)]
     if synch_points:
         if len(synch_points) > 1:
             warning("Fusing loops and found more than one synchronization point")
@@ -1425,7 +1426,7 @@ def fuse(name, loop_chain, **kwargs):
     mode = kwargs.get('mode', 'hard')
     force_glb = kwargs.get('force_glb', False)
 
-    # If there is nothing left to fuse (e.g. only _Assembly objects were present), return
+    # Return if there is nothing to fuse (e.g. only _LazyMatOp objects were present)
     if len(loop_chain) in [0, 1]:
         return loop_chain + remainder
 
