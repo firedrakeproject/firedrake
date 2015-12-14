@@ -209,6 +209,14 @@ This solution leads to emergent peakons (peaked solitons); the left
 peakon is travelling faster than the right peakon, so they collide and
 momentum is transferred to the right peakon.
 
+Images of the solution at times 0, 2.5 and 5.3 are given below.
+
+.. image:: ch0.png
+
+.. image:: ch25.png
+
+.. image:: ch53.png
+
 A python script version of this demo can be found `here <camassaholm.py>`__.
 
 .. rubric:: References
