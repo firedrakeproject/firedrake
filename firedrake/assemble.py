@@ -235,6 +235,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         zero_tensor()
         for (i, j), integral_type, m, subdomain_data, subdomain_id, coefficients, needs_orientations, kernel in kernels:
             coords = m.coordinates
+            if integral_type != 'cell' and subdomain_data is not None:
+                raise NotImplementedError("subdomain_data only supported with cell integrals.")
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
             # Extract block from tensor and test/trial spaces
