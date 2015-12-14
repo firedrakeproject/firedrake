@@ -95,7 +95,6 @@ def test_ip_viscosity(space):
     family, degree = space
     errs = numpy.array([run_test(family, degree, n) for n in range(4)])
     orders = numpy.log(errs[:-1]/errs[1:])/numpy.log(2)
-    print orders
     if family == "RT":
         expected_order = degree
     else:
@@ -126,10 +125,8 @@ def test_indexed_interior_facet_gradients():
     M2 = assemble(derivative(F2, uv)).M.values
     M0 = assemble(derivative(F0, uv)).M.values
     err = numpy.abs(M-(M1+M2)).max()
-    print err
     assert(err < 1e-12)
     err = numpy.abs(M-M0).max()
-    print err
     assert(err < 1e-12)
 
 
@@ -164,6 +161,7 @@ def test_stress_form_ip_penalty_term(space):
     assert(err < 1e-12)
     err = numpy.abs(M-Ms).max()
     assert(err < 1e-12)
+
 
 if __name__ == '__main__':
     import os
