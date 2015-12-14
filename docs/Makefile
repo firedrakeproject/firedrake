@@ -69,7 +69,7 @@ source/demos: copy_demos
 
 copy_demos:
 	install -d source/demos
-	cp ../demos/*/*.rst ../demos/*/*.bib ../demos/*/*.geo source/demos
+	cp ../demos/*/*.rst ../demos/*/*.bib ../demos/*/*.geo ../demos/*/*.png source/demos
 	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
 
 source/teamgrid.rst: source/team.py
