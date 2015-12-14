@@ -739,7 +739,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     given Firedrake :class:`Function`."""
 
     from os import path
-    from ffc import compile_element
+    from ffc import compile_element, compile_coordinate_element
     from pyop2 import compilation
 
     def make_args(function):
@@ -757,11 +757,13 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
         return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
 
     function_space = function.function_space()
-    ufl_element = function_space.ufl_element()
     coordinates = function_space.mesh().coordinates
-    coordinates_ufl_element = coordinates.function_space().ufl_element()
+    ufl_element = function_space.ufl_element()
+    ufl_coordinate_element = function_space.mesh().ufl_coordinate_element()
 
-    src = compile_element(ufl_element, coordinates_ufl_element, function_space.dim)
+    src = "#include <evaluate.h>\n"
+    src += compile_coordinate_element(ufl_coordinate_element)
+    src += compile_element(ufl_element, function_space.dim)
 
     src += make_wrapper(coordinates,
                         forward_args=["void*", "double*", "int*"],
