@@ -568,6 +568,7 @@ if travis:
             print "."
 
     travis_writer = Process(target=stdout_writer)
+    travis_writer.daemon = True
     travis_writer.start()
 
 # Check operating system.
