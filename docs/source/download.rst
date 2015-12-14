@@ -12,12 +12,18 @@ current directory. Run::
 
   python firedrake-install --help
 
-for a full list of install options including user- or system-wide
+for a full list of install options, including system-wide
 installs and installation in developer mode. If you install in
 virtualenv_ mode, you will need to activate the virtualenv in each
 shell from which you use Firedrake::
 
   source firedrake/bin/activate
+
+.. note::
+
+   Should you use ``csh``, you will need::
+
+     source firedrake/bin/activate.csh
 
 Testing the installation
 ------------------------
