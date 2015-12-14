@@ -59,12 +59,12 @@ is a useful property since the energy is the square of the :math:`H^1`
 norm, which guarantees regularity of the numerical solution.
 
 As usual, to implement this problem, we start by importing the
-Firedrake namespace.::
+Firedrake namespace. ::
 
   from firedrake import *
 
 The following code is currently required to ensure
-reevaluation of the energy for output.::
+reevaluation of the energy for output. ::
 
   disable_performance_optimisations()
 
@@ -74,7 +74,7 @@ reevaluation of the energy for output.::
    which currently exhibits a `bug in this case
    <https://github.com/firedrakeproject/firedrake/issues/660>`_
 
-We then set the parameters for the scheme.::
+We then set the parameters for the scheme. ::
 
   alpha = 1.0
   alphasq = Constant(alpha**2)
@@ -84,19 +84,21 @@ We then set the parameters for the scheme.::
 These are set with type :class:`~.Constant` so that the values can be
 changed without needing to regenerate code.
 
-We use a periodic mesh of width 40 with 100 cells,::
+We use a :func:`periodic mesh <.PeriodicIntervalMesh>` of width 40
+with 100 cells, ::
 
   n = 100
   mesh = PeriodicIntervalMesh(n, 40.0)
 
-and build a mixed function space for the two variables.::
+and build a :func:`mixed function space <.MixedFunctionSpace>` for the
+two variables. ::
 
   V = FunctionSpace(mesh, "CG", 1)
   W = MixedFunctionSpace((V, V))
 
 We construct a :class:`~.Function` to store the two variables at time
 level ``n``, and :meth:`~.Function.split` it so that we can
-interpolate the initial condition into the two components.::
+interpolate the initial condition into the two components. ::
 
   w0 = Function(W)
   m0, u0 = w0.split()
@@ -107,14 +109,14 @@ Then we interpolate the initial condition,
 
    u^0 = 0.2\text{sech}(x-403/15) + 0.5\text{sech}(x-203/15),
 
-into u,::
+into u, ::
 
   u0.interpolate(Expression("""0.2*2/(exp(x[0]-403./15.) + exp(-x[0]+403./15.))
                              + 0.5*2/(exp(x[0]-203./15.)+exp(-x[0]+203./15.))"""))
 
 before solving for the initial condition for ``m``. This is done by
 setting up the linear problem and solving it (here we use a direct
-solver since the problem is one dimensional).::
+solver since the problem is one dimensional). ::
 
   p = TestFunction(V)
   m = TrialFunction(V)
@@ -130,7 +132,7 @@ solver since the problem is one dimensional).::
 
 Next we build the weak form of the timestepping algorithm. This is expressed
 as a mixed nonlinear problem, which must be written as a bilinear form
-that is a function of the output :class:`~.Function` ``w1``.::
+that is a function of the output :class:`~.Function` ``w1``. ::
 
   p, q = TestFunctions(W)
 
@@ -139,9 +141,9 @@ that is a function of the output :class:`~.Function` ``w1``.::
   m1, u1 = split(w1)
   m0, u0 = split(w0)
 
-Note the use of ``split(w1)`` here, which splits up a
+Note the use of :func:`split(w1) <ufl.split_functions.split>` here, which splits up a
 :class:`~.Function` so that it may be inserted into a UFL
-expression.::
+expression. ::
 
   mh = 0.5*(m1 + m0)
   uh = 0.5*(u1 + u0)
@@ -153,7 +155,7 @@ expression.::
 
 Since we are in one dimension, we use a direct solver for the linear
 system within the Newton algorithm. The function space is mixed, so
-we must specify ``nest=False`` when defining the variational problem.::
+we must specify ``nest=False`` when defining the variational problem. ::
 
   uprob = NonlinearVariationalProblem(L, w1, nest=False)
   usolver = NonlinearVariationalSolver(uprob, solver_parameters=
@@ -162,42 +164,43 @@ we must specify ``nest=False`` when defining the variational problem.::
 
 Next we use the other form of :meth:`~.Function.split`, ``w0.split()``,
 which is the way to split up a Function in order to access its data
-e.g. for output.::
+e.g. for output. ::
 
   m0, u0 = w0.split()
   m1, u1 = w1.split()
 
-We choose a final time, and initialise a :class:`~.File` object for storing ``u``.::
+We choose a final time, and initialise a :class:`~.File` object for
+storing ``u``. ::
 
   T = 100.0
   ufile = File('u.pvd')
   ufile << u1
   t = 0.0
 
-We also initialise a dump counter so we only dump every 10 timesteps.::
+We also initialise a dump counter so we only dump every 10 timesteps. ::
 
   ndump = 10
   dumpn = 0
 
-Now we enter the timeloop.::
+Now we enter the timeloop. ::
 
   while (t < T - 0.5*dt):
      t += dt
 
-The energy can be computed and checked.::
+The energy can be computed and checked. ::
 
   #
      E = assemble((u0*u0 + alphasq*u0.dx(0)*u0.dx(0))*dx)
      print "t = ", t, "E = ", E
 
 To implement the timestepping algorithm, we just call the solver, and assign
-``w1`` to ``w0``.::
+``w1`` to ``w0``. ::
 
   #
      usolver.solve()
      w0.assign(w1)
 
-Finally, we check if it is time to dump the data.::
+Finally, we check if it is time to dump the data. ::
 
   #
      dumpn += 1
