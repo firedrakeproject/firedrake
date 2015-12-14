@@ -170,7 +170,7 @@ e.g. for output.::
 We choose a final time, and initialise a :class:`~.File` object for storing ``u``.::
 
   T = 100.0
-  ufile = File('m.pvd')
+  ufile = File('u.pvd')
   ufile << u1
   t = 0.0
 
