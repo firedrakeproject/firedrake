@@ -790,6 +790,8 @@ class JITModule(base.JITModule):
             ldargs += blas['link']
             if blas['name'] == 'eigen':
                 extension = "cpp"
+        ldargs += self._kernel._ldargs
+
         if self._kernel._cpp:
             extension = "cpp"
         self._fun = compilation.load(code_to_compile,

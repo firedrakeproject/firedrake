@@ -182,3 +182,16 @@ class ParLoop(base.ParLoop):
             # out of date.
             if arg._is_dat and isinstance(arg.data, device.Dat):
                 arg.data.state = device.DeviceDataMixin.HOST
+            if arg._is_mat and arg.access is not base.READ:
+                # Queue up assembly of matrix
+                arg.data.assemble()
+                # Now force the evaluation of everything.  Python
+                # parloops are not performance critical, so this is
+                # fine.
+                # We need to do this because the
+                # set_values/addto_values calls are lazily evaluated,
+                # and the parloop is already lazily evaluated so this
+                # lazily spawns lazy computation and getting
+                # everything to execute in the right order is
+                # otherwise madness.
+                arg.data._force_evaluation(read=True, write=False)
