@@ -24,6 +24,7 @@ branches = {}
 
 # Disgusting hack, are we running on travis?
 travis = "TRAVIS" in os.environ
+travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
 
 if mode == "install":
     # Handle command line arguments.
@@ -415,14 +416,13 @@ if travis:
 
 def install(package):
     stdout.write("Installing %s\n" % package)
-    if travis and package in ["petsc/", "petsc4py/"]:
+    if travis and travis_cache_dir and package in ["petsc/", "petsc4py/"]:
         # Try installing from travis cache
         src_dir = os.path.abspath(package)
-        cache_dir = os.path.abspath(os.environ["CACHE_DIRECTORY"])
         dest_dir = sitepackages
-        installed = restore_cache(package, src_dir, cache_dir, dest_dir)
+        installed = restore_cache(package, src_dir, travis_cache_dir, dest_dir)
         if installed:
-            stdout.write("Installed %s from travis cache %s\n" % (package, cache_dir))
+            stdout.write("Installed %s from travis cache %s\n" % (package, travis_cache_dir))
             return
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
     if args.developer and package not in ["petsc/", "petsc4py/"]:
@@ -531,12 +531,11 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
-if travis and args.write_cache:
+if travis and travis_cache_dir and args.write_cache:
     # Cache update mode
     src_dir = os.path.abspath("src")
-    cache_dir = os.environ["CACHE_DIRECTORY"]
-    write_cache("petsc", src_dir, cache_dir)
-    write_cache("petsc4py", src_dir, cache_dir)
+    write_cache("petsc", src_dir, travis_cache_dir)
+    write_cache("petsc4py", src_dir, travis_cache_dir)
     stdout.write("Wrote caches, exiting\n")
     sys.exit(0)
 
@@ -569,6 +568,7 @@ if travis:
             print "."
 
     travis_writer = Process(target=stdout_writer)
+    travis_writer.daemon = True
     travis_writer.start()
 
 # Check operating system.
