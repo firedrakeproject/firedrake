@@ -46,6 +46,7 @@ PDEs. Below are a few tutorial examples to get you started.
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
+   The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
 
 Manual
 ======

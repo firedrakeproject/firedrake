@@ -115,7 +115,7 @@ def TrialFunctions(function_space):
     return split(TrialFunction(function_space))
 
 
-def derivative(form, u, du=None):
+def derivative(form, u, du=None, coefficient_derivatives=None):
     """Compute the derivative of a form.
 
     Given a form, this computes its linearization with respect to the
@@ -128,6 +128,8 @@ def derivative(form, u, du=None):
          respect to.
     :arg du: an optional :class:`Argument` to use as the replacement
          in the new form (constructed automatically if not provided).
+    :arg coefficient_derivatives: an optional :class:`dict` to
+         provide the derivative of a coefficient function.
 
     See also :func:`ufl.derivative`.
     """
@@ -139,7 +141,7 @@ def derivative(form, u, du=None):
             du = Argument(V, number + 1)
         else:
             raise RuntimeError("Can't compute derivative for form")
-    return ufl.derivative(form, u, du)
+    return ufl.derivative(form, u, du, coefficient_derivatives)
 
 
 def adjoint(form, reordered_arguments=None):

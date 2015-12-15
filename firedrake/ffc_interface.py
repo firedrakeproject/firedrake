@@ -58,6 +58,7 @@ def sum_integrands(form):
         mdkey = tuple((k, md[k]) for k in sorted(md.keys()))
         integrals[(integral.integral_type(),
                    integral.ufl_domain(),
+                   integral.subdomain_data(),
                    integral.subdomain_id(),
                    mdkey)].append(integral)
     return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
@@ -264,8 +265,8 @@ def compile_form(form, name, parameters=None, inverse=False):
     # TensorElement and OPVectorElement all inherit from MixedElement
     if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
         kernels = [((0, 0),
-                    it.integral_type(), it.subdomain_id(),
-                    it.ufl_domain().coordinates,
+                    it.integral_type(), it.ufl_domain(),
+                    form.subdomain_data()[it.ufl_domain()][it.integral_type()], it.subdomain_id(),
                     fd.preprocessed_form.coefficients(), needs_orientations, kernel)
                    for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
                                                                FFCKernel(form, name,
@@ -287,8 +288,9 @@ def compile_form(form, name, parameters=None, inverse=False):
             it = fd.preprocessed_form.integrals()[0]
             kernels.append(((i, j),
                             it.integral_type(),
+                            it.ufl_domain(),
+                            it.subdomain_data(),
                             it.subdomain_id(),
-                            it.ufl_domain().coordinates,
                             fd.preprocessed_form.coefficients(),
                             needs_orientations, kernel))
     form._cache["firedrake_kernels"] = (kernels, parameters)

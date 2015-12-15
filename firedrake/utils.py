@@ -63,3 +63,25 @@ def unique_name(name, nameset):
         else:
             nameset.add(name)
             return newname
+
+
+def known_pyop2_safe(f):
+    """Decorator to mark a function as being PyOP2 type-safe.
+
+    This switches the current PyOP2 type checking mode to the value
+    given by the parameter "type_check_safe_par_loops", and restores
+    it after the function completes."""
+    from firedrake.parameters import parameters
+
+    def wrapper(f, *args, **kwargs):
+        opts = parameters["pyop2_options"]
+        check = opts["type_check"]
+        safe = parameters["type_check_safe_par_loops"]
+        if check == safe:
+            return f(*args, **kwargs)
+        opts["type_check"] = safe
+        try:
+            return f(*args, **kwargs)
+        finally:
+            opts["type_check"] = check
+    return decorator(wrapper, f)

@@ -3,6 +3,7 @@ import platform
 import subprocess
 import sys
 import os
+import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 
 
@@ -21,6 +22,9 @@ else:
 
 branches = {}
 
+# Disgusting hack, are we running on travis?
+travis = "TRAVIS" in os.environ
+
 if mode == "install":
     # Handle command line arguments.
     parser = ArgumentParser(description="""Install firedrake and its dependencies.""",
@@ -36,9 +40,11 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The install location may be specified using the --global, --prefix, or --user
-options. If none of these options are provided, a local installation into
-./firedrake will be performed.
+The default install creates a virtualenv in ./firedrake and installs
+inside that virtualenv.  Optionally, a global installation using the
+default Python package location may be specified by passing the
+--global option.  We recommend using the default virtualenv
+installation mode.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -49,10 +55,6 @@ honoured.""",
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--global", action='store_true', dest="system",
                        help="Install to the default global location on the current platform.")
-    # group.add_argument("--prefix", type=str, nargs=1,
-    #                   help="Install to subdirectories of the specified directory.")
-    group.add_argument("--user", action='store_true',
-                       help="Install using the current user's home directory as the prefix.")
     group.add_argument("--developer", action='store_true',
                        help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
     parser.add_argument("--sudo", action='store_true',
@@ -76,6 +78,10 @@ honoured.""",
     parser.add_argument("--mpicc", type=str,
                         action="store", default="mpicc",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
+
+    if travis:
+        parser.add_argument("--write-cache", action="store_true",
+                            help="Write the travis cache and exit")
     args = parser.parse_args()
 
     if args.package_branch:
@@ -95,8 +101,6 @@ else:
 
     args = parser.parse_args()
     args.system = False
-    args.prefix = False
-    args.user = False
     args.developer = False
     args.sudo = False
     args.package_manager = False
@@ -112,7 +116,7 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 path_extension = ""
 
 python = ["python"]
-if args.sudo and (args.system or args.prefix):
+if args.sudo and args.system:
     sudopip = ["sudo", "pip"]
     pyinstall = ["sudo", "python", "setup.py", "install"]
 else:
@@ -120,23 +124,22 @@ else:
     pyinstall = ["python", "setup.py", "install"]
 
 pipinstall = sudopip + ["install"]
-if args.user:
-    pipinstall += ["--user"]
-    pyinstall += ["--user"]
-elif args.prefix:
-    path_extension = args.prefix + sitepackages + os.pathsep
-    pipinstall += ["--root", args.prefix]
-    pyinstall += ["--root", args.prefix]
-elif args.system:
-    pass
-else:
+if not args.system:
+    # virtualenv install
     # Use the pip from the virtualenv
     sudopip = [os.getcwd() + "/firedrake/bin/pip"]
     pipinstall = sudopip + ["install"]
     python = [os.getcwd() + "/firedrake/bin/python"]
     pyinstall = python + ["setup.py", "install"]
+    sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
+
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+
 if args.minimal_petsc:
+    # WARNING WARNING
+    # If you change these minimal PETSc options, you will have to
+    # manually invalidate the Travis cache of PETSc and petsc4py.  See
+    # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5"""
 else:
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
@@ -244,7 +247,7 @@ def git_clone(url):
         if not args.disable_ssh:
             stderr.write("Failed to clone %s using ssh, falling back to https.\n" % name)
         try:
-            check_call(["git", "clone", "-b", branch, "https://%s" % plainurl])
+            check_call(["git", "clone", "-q", "-b", branch, "https://%s" % plainurl])
             stdout.write("Successfully cloned %s branch %s.\n" % (name, branch))
         except subprocess.CalledProcessError:
             stderr.write("Failed to clone %s branch %s.\n" % (name, branch))
@@ -305,8 +308,122 @@ def pip_requirements(package):
         stdout.write("No dependencies found. Skipping.\n")
 
 
+if travis:
+    # Only enabled in travis mode
+    # Utilise travis directory caching for petsc/petsc4py dependencies
+    class directory(object):
+        """Context manager that executes body in a given directory"""
+        def __init__(self, dir):
+            self.dir = dir
+
+        def __enter__(self):
+            self.olddir = os.path.abspath(os.getcwd())
+            os.chdir(self.dir)
+
+        def __exit__(self, *args):
+            os.chdir(self.olddir)
+
+    def get_src_hash(dir):
+        with directory(dir):
+            try:
+                return check_output(["git", "rev-parse", "HEAD"])
+            except subprocess.CalledProcessError:
+                return None
+
+    def get_cache_hash(dir):
+        try:
+            # Catch IOError both from missing directory and missing
+            # file.
+            with directory(dir):
+                with open("cache-key", "r") as f:
+                    return f.read()
+        except (IOError, OSError):
+            return None
+
+    def write_cache_hash(dir, sha):
+        with directory(dir):
+            with open("cache-key", "w") as f:
+                f.write(sha)
+
+    def find_installed_dep(dep):
+        try:
+            if dep == "petsc":
+                import petsc as p
+            elif dep == "petsc4py":
+                import petsc4py as p
+            return os.path.dirname(p.__file__)
+        except ImportError:
+            return None
+
+    def write_cache(dep, src_dir, cache_dir):
+        cached_dep = os.path.join(cache_dir, dep)
+        src_dep = os.path.join(src_dir, dep)
+        installed_dep = find_installed_dep(dep)
+
+        if installed_dep is None:
+            stdout.write("Did not find installation of %s, not writing cache\n" % dep)
+            return
+
+        src_hash = get_src_hash(src_dep)
+        if src_hash is None:
+            stdout.write("Didn't find hash of source tree %s, not writing cache\n" % src_dep)
+            return
+
+        cache_hash = get_cache_hash(cached_dep)
+
+        # If we're here, cache_hash might be None, but src_hash will not be
+        if cache_hash == src_hash:
+            # No need to update cache
+            stdout.write("Cache %s is already up to date\n" % cached_dep)
+            return
+
+        shutil.rmtree(cached_dep, ignore_errors=True)
+        shutil.copytree(installed_dep, cached_dep)
+        write_cache_hash(cached_dep, src_hash)
+        stdout.write("Successfully wrote cache %s\n" % cached_dep)
+
+    def restore_cache(dep, src_dir, cache_dir, dest_dir):
+        cached_dep = os.path.join(cache_dir, dep)
+        installed_dep = os.path.join(dest_dir, dep)
+
+        cache_hash = get_cache_hash(cached_dep)
+        if cache_hash is None:
+            stdout.write("No cache for %s found at %s\n" % (dep, cached_dep))
+            return False
+
+        if os.path.exists(cached_dep):
+            stdout.write("Found cache for %s at %s with hash %s\n" % (dep, cached_dep, cache_hash))
+
+        if not os.path.exists(src_dir):
+            stdout.write("No source directory for %s found, can't check cache validity\n" % src_dir)
+            # Outer install loop should handle this case
+            return False
+
+        src_hash = get_src_hash(src_dir)
+
+        # At this point, src_hash may be None, but cache_hash will not be
+        if src_hash == cache_hash:
+            stdout.write("Cache is up to date for %s, using it\n" % dep)
+            # Ensure this directory doesn't exist
+            shutil.rmtree(installed_dep, ignore_errors=True)
+            shutil.copytree(cached_dep, installed_dep)
+            return True
+        stdout.write("Cache was not up to date for %s (had key %s, needed %s)\n" %
+                     (dep, cache_hash, src_hash))
+        return False
+
+
 def install(package):
     stdout.write("Installing %s\n" % package)
+    if travis and package in ["petsc/", "petsc4py/"]:
+        # Try installing from travis cache
+        src_dir = os.path.abspath(package)
+        cache_dir = os.path.abspath(os.environ["CACHE_DIRECTORY"])
+        dest_dir = sitepackages
+        installed = restore_cache(package, src_dir, cache_dir, dest_dir)
+        if installed:
+            stdout.write("Installed %s from travis cache %s\n" % (package, cache_dir))
+            return
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
     if args.developer and package not in ["petsc/", "petsc4py/"]:
         run_pip_install(["-e", package])
@@ -401,7 +518,7 @@ def build_update_script():
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
-    for switch in ["developer", "user", "system", "sudo", "prefix", "package_manager", "minimal_petsc",
+    for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
                    "mpicc"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
@@ -413,6 +530,15 @@ def build_update_script():
         f.write(update_script)
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
+
+if travis and args.write_cache:
+    # Cache update mode
+    src_dir = os.path.abspath("src")
+    cache_dir = os.environ["CACHE_DIRECTORY"]
+    write_cache("petsc", src_dir, cache_dir)
+    write_cache("petsc4py", src_dir, cache_dir)
+    stdout.write("Wrote caches, exiting\n")
+    sys.exit(0)
 
 if args.rebuild_script:
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + ("/../.."))
@@ -431,6 +557,19 @@ If you really want to use your own PETSc build, please run again with the
 --honour-petsc-dir option.
 """)
 
+if travis:
+    # Produce once a minute output so that travis doesn't think
+    # we're stalled
+    from multiprocessing import Process
+
+    def stdout_writer():
+        import time
+        while True:
+            time.sleep(60)
+            print "."
+
+    travis_writer = Process(target=stdout_writer)
+    travis_writer.start()
 
 # Check operating system.
 osname = platform.uname()[0]
@@ -506,7 +645,7 @@ else:
     stdout.write("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.\n")
 
 
-if (args.system or args.user or args.prefix) and mode == "install":
+if args.system and mode == "install":
     stdout.write("Creating firedrake directory structure.\n")
     try:
         os.mkdir("firedrake")
@@ -514,7 +653,7 @@ if (args.system or args.user or args.prefix) and mode == "install":
         stderr.write("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.\n")
         raise
 
-elif not (args.system or args.user or args.prefix):
+elif not args.system:
     try:
         import virtualenv
     except:
@@ -586,6 +725,7 @@ else:
     os.chdir("src")
 
     packages = list_cloned_dependencies("PyOP2") + list_cloned_dependencies("firedrake")
+    packages += ["firedrake"]
 
     # update packages.
     if not args.honour_petsc_dir:
@@ -634,8 +774,12 @@ stdout.write("Successfully installed Firedrake.\n\n")
 
 stdout.write("To upgrade firedrake, run firedrake/bin/firedrake-update\n")
 
-if not (args.system or args.user or args.prefix):
+if not args.system:
     stdout.write("\nFiredrake has been installed in a python virtualenv. You activate it with:\n\n")
     stdout.write("  . firedrake/bin/activate\n\n")
     stdout.write("The virtualenv can be deactivated by running:\n\n")
     stdout.write("  deactivate\n")
+
+
+if travis:
+    travis_writer.terminate()

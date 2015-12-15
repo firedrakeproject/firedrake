@@ -327,6 +327,7 @@ class Function(ufl.Coefficient):
                 d += dim
         return self
 
+    @utils.known_pyop2_safe
     def _interpolate(self, fs, dat, expression, subset):
         """Interpolate expression onto a :class:`FunctionSpace`.
 
@@ -377,6 +378,7 @@ class Function(ufl.Coefficient):
 
         for _, arg in expression._user_args:
             args.append(arg(op2.READ))
+
         op2.par_loop(*args)
 
     def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
@@ -483,6 +485,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
                                             open_scope=False))
         return op2.Kernel(kernel_code, "expression_kernel")
 
+    @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
         """Set the :class:`Function` value to the pointwise value of
         expr. expr may only contain :class:`Function`\s on the same
@@ -502,16 +505,16 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         """
 
         if isinstance(expr, Function) and \
-                expr._function_space == self._function_space:
+           expr._function_space == self._function_space:
             expr.dat.copy(self.dat, subset=subset)
             return self
 
         from firedrake import assemble_expressions
         assemble_expressions.evaluate_expression(
             assemble_expressions.Assign(self, expr), subset)
-
         return self
 
+    @utils.known_pyop2_safe
     def __iadd__(self, expr):
 
         if np.isscalar(expr):
@@ -528,6 +531,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         return self
 
+    @utils.known_pyop2_safe
     def __isub__(self, expr):
 
         if np.isscalar(expr):
@@ -544,6 +548,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         return self
 
+    @utils.known_pyop2_safe
     def __imul__(self, expr):
 
         if np.isscalar(expr):
@@ -560,6 +565,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         return self
 
+    @utils.known_pyop2_safe
     def __idiv__(self, expr):
 
         if np.isscalar(expr):
@@ -604,7 +610,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
     def _c_evaluate(self):
         result = make_c_evaluate(self)
         result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
-        result.restype = int
+        result.restype = c_int
         return result
 
     def evaluate(self, coord, mapping, component, index_values):
@@ -735,40 +741,16 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     from os import path
     from ffc import compile_element
     from pyop2 import compilation
-
-    def make_args(function):
-        from pyop2 import op2
-
-        arg = function.dat(op2.READ, function.cell_node_map())
-        arg.position = 0
-        return (arg,)
-
-    def make_wrapper(function, **kwargs):
-        from pyop2.base import build_itspace
-        from pyop2.sequential import generate_cell_wrapper
-
-        args = make_args(function)
-        return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
+    import firedrake.pointquery_utils as pq_utils
 
     function_space = function.function_space()
-    ufl_element = function_space.ufl_element()
-    coordinates = function_space.mesh().coordinates
-    coordinates_ufl_element = coordinates.function_space().ufl_element()
 
-    src = compile_element(ufl_element, coordinates_ufl_element, function_space.dim)
-
-    src += make_wrapper(coordinates,
-                        forward_args=["void*", "double*", "int*"],
-                        kernel_name="to_reference_coords_kernel",
-                        wrapper_name="wrap_to_reference_coords")
-
-    src += make_wrapper(function,
-                        forward_args=["double*", "double*"],
-                        kernel_name="evaluate_kernel",
-                        wrapper_name="wrap_evaluate")
-
-    with open(path.join(path.dirname(__file__), "locate.cpp")) as f:
-        src += f.read()
+    src = pq_utils.src_locate_cell(function_space.mesh())
+    src += compile_element(function_space.ufl_element(), function_space.dim)
+    src += pq_utils.make_wrapper(function,
+                                 forward_args=["double*", "double*"],
+                                 kernel_name="evaluate_kernel",
+                                 wrapper_name="wrap_evaluate")
 
     if ldargs is None:
         ldargs = []

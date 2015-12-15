@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import numpy as np
+import ctypes
 import os
 import ufl
 import weakref
@@ -19,7 +20,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData']
 
 
 _cells = {
@@ -836,6 +837,44 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
+    def locate_cell(self, x):
+        """Locate cell containg given point.
+
+        :arg x: point coordinates
+        :returns: cell number (int), or None (if the point is not in the domain)
+        """
+        x = np.asarray(x, dtype=np.float)
+        cell = self._c_locator(self.coordinates._ctypes,
+                               x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+        if cell == -1:
+            return None
+        else:
+            return cell
+
+    @utils.cached_property
+    def _c_locator(self):
+        from pyop2 import compilation
+        import firedrake.function as function
+        import firedrake.pointquery_utils as pq_utils
+
+        src = pq_utils.src_locate_cell(self)
+        src += """
+extern "C" int locator(struct Function *f, double *x)
+{
+    struct ReferenceCoords reference_coords;
+    return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+}
+""" % dict(geometric_dimension=self.geometric_dimension())
+
+        locator = compilation.load(src, "cpp", "locator",
+                                   cppargs=["-I%s" % os.path.dirname(__file__)],
+                                   ldargs=["-lspatialindex"])
+
+        locator.argtypes = [ctypes.POINTER(function._CFunction),
+                            ctypes.POINTER(ctypes.c_double)]
+        locator.restype = ctypes.c_int
+        return locator
+
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.
 
@@ -1151,3 +1190,29 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
                                     layer_height, extrusion_type="radial", kernel=kernel)
 
     return self
+
+
+def SubDomainData(geometric_expr):
+    """Creates a subdomain data object from a boolean-valued UFL expression.
+
+    The result can be attached as the subdomain_data field of a
+    :class:`ufl.Measure`. For example:
+
+        x = mesh.coordinates
+        sd = SubDomainData(x[0] < 0.5)
+        assemble(f*dx(subdomain_data=sd))
+
+    """
+    import firedrake.functionspace as functionspace
+    import firedrake.projection as projection
+
+    # Find domain from expression
+    m = geometric_expr.ufl_domain()
+
+    # Find selected cells
+    fs = functionspace.FunctionSpace(m, 'DG', 0)
+    f = projection.project(ufl.conditional(geometric_expr, 1, 0), fs)
+
+    # Create cell subset
+    indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
+    return op2.Subset(m.cell_set, indices)
