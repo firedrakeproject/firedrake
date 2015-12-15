@@ -610,7 +610,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
     def _c_evaluate(self):
         result = make_c_evaluate(self)
         result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
-        result.restype = int
+        result.restype = c_int
         return result
 
     def evaluate(self, coord, mapping, component, index_values):
@@ -741,40 +741,16 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     from os import path
     from ffc import compile_element
     from pyop2 import compilation
-
-    def make_args(function):
-        from pyop2 import op2
-
-        arg = function.dat(op2.READ, function.cell_node_map())
-        arg.position = 0
-        return (arg,)
-
-    def make_wrapper(function, **kwargs):
-        from pyop2.base import build_itspace
-        from pyop2.sequential import generate_cell_wrapper
-
-        args = make_args(function)
-        return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
+    import firedrake.pointquery_utils as pq_utils
 
     function_space = function.function_space()
-    ufl_element = function_space.ufl_element()
-    coordinates = function_space.mesh().coordinates
-    coordinates_ufl_element = coordinates.function_space().ufl_element()
 
-    src = compile_element(ufl_element, coordinates_ufl_element, function_space.dim)
-
-    src += make_wrapper(coordinates,
-                        forward_args=["void*", "double*", "int*"],
-                        kernel_name="to_reference_coords_kernel",
-                        wrapper_name="wrap_to_reference_coords")
-
-    src += make_wrapper(function,
-                        forward_args=["double*", "double*"],
-                        kernel_name="evaluate_kernel",
-                        wrapper_name="wrap_evaluate")
-
-    with open(path.join(path.dirname(__file__), "locate.cpp")) as f:
-        src += f.read()
+    src = pq_utils.src_locate_cell(function_space.mesh())
+    src += compile_element(function_space.ufl_element(), function_space.dim)
+    src += pq_utils.make_wrapper(function,
+                                 forward_args=["double*", "double*"],
+                                 kernel_name="evaluate_kernel",
+                                 wrapper_name="wrap_evaluate")
 
     if ldargs is None:
         ldargs = []
