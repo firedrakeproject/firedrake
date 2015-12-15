@@ -50,21 +50,11 @@ matrix:
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - os: linux
-      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
-    - os: linux
       env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="checkpoints multigrid benchmarks"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion checkpoints multigrid benchmarks"
     - os: linux
-      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
-    - os: linux
-      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="checkpoints benchmarks multigrid"
-    - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=extrusion
-    - os: linux
-      env: OMP_NUM_THREADS=1 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
-    - os: linux
-      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=extrusion
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="extrusion checkpoints multigrid benchmarks"
 before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
   - pip install -U --user pip
