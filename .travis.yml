@@ -1,3 +1,4 @@
+sudo: false
 notifications:
   irc:
     channels: "chat.freenode.net#firedrake"
@@ -8,17 +9,24 @@ notifications:
 language: python
 python:
   - "2.7_with_system_site_packages"
+addons:
+  apt:
+    packages:
+      - build-essential
+      - python-dev
+      - git
+      - python-pip
+      - libopenmpi-dev
+      - openmpi-bin
+      - libblas-dev
+      - liblapack-dev
+      - gfortran
 env:
   global:
-    - C_INCLUDE_PATH=/usr/lib/openmpi/include
-    - PETSC_CONFIGURE_OPTIONS="--download-ctetgen --download-triangle --download-chaco --with-debugging=1"
+    - CC=mpicc
+    - PETSC_CONFIGURE_OPTIONS="--with-debugging=1"
 # command to install dependencies
 before_install:
-  - sudo apt-get update -qq
-  - "sudo apt-get install -qq build-essential python-dev git-core mercurial \
-    cmake cmake-curses-gui libmed1 gmsh python-pip libhdf5-openmpi-dev \
-    libopenmpi-dev openmpi-bin libblas-dev liblapack-dev gfortran \
-    triangle-bin"
   - pip install --upgrade pip
 # Force installation of requirements IN THE ORDER WE SPECIFIED!  AAAARGH.
   - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
