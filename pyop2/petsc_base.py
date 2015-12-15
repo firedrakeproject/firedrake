@@ -397,17 +397,15 @@ class MatBlock(base.Mat):
         colis = cset.local_ises[j]
         self.handle = parent.handle.getLocalSubMatrix(isrow=rowis,
                                                       iscol=colis)
-        self._assembly_state = self._parent.assembly_state
 
     @property
     def assembly_state(self):
         # Track our assembly state only
-        return self._assembly_state
+        return self._parent.assembly_state
 
     @assembly_state.setter
     def assembly_state(self, state):
         # Need to update our state and our parent's
-        self._assembly_state = state
         self._parent.assembly_state = state
 
     def __getitem__(self, idx):
@@ -480,6 +478,9 @@ class MatBlock(base.Mat):
 
     def __repr__(self):
         return "MatBlock(%r, %r, %r)" % (self._parent, self._i, self._j)
+
+    def __str__(self):
+        return "Block[%s, %s] of %s" % (self._i, self._j, self._parent)
 
 
 class Mat(base.Mat, CopyOnWrite):
