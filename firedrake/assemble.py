@@ -233,8 +233,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # assemble it.
     def thunk(bcs):
         zero_tensor()
-        for (i, j), integral_type, subdomain_id, coords, coefficients, needs_orientations, kernel in kernels:
-            m = coords.function_space().mesh()
+        for (i, j), integral_type, m, subdomain_data, subdomain_id, coefficients, needs_orientations, kernel in kernels:
+            coords = m.coordinates
+            if integral_type != 'cell' and subdomain_data is not None:
+                raise NotImplementedError("subdomain_data only supported with cell integrals.")
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
             # Extract block from tensor and test/trial spaces
@@ -265,7 +267,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     else:
                         tensor_arg = tensor(op2.INC)
 
-                    itspace = m.cell_set
+                    itspace = subdomain_data or m.cell_set
                     args = [kernel, itspace, tensor_arg,
                             coords.dat(op2.READ, coords.cell_node_map(),
                                        flatten=True)]
