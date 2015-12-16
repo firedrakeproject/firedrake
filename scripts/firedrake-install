@@ -595,8 +595,7 @@ if osname == "Darwin":
         stdout.write("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed\n")
         # Ensure a fortran compiler is available
         brew_install("gcc")
-        # Temporary workaround for homebrew bug #46461
-        brew_install("openmpi", options=["--with-fortran", "--build-from-source"])
+        brew_install("openmpi")
         brew_install("python")
         brew_install("cmake")
         brew_install("spatialindex")
