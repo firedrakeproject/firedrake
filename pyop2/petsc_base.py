@@ -415,7 +415,9 @@ class MatBlock(base.Mat):
         yield self
 
     def _flush_assembly(self):
-        self.handle.assemble(assembly=PETSc.Mat.AssemblyType.FLUSH)
+        # Need to flush for all blocks
+        for b in self._parent:
+            b.handle.assemble(assembly=PETSc.Mat.AssemblyType.FLUSH)
         self._parent._flush_assembly()
 
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):

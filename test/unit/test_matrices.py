@@ -861,6 +861,20 @@ class TestMatrixStateChanges:
         with pytest.raises(RuntimeError):
             mat[0, 0]._assemble()
 
+    def test_mixing_insert_and_add_works(self, backend, mat):
+        mat[0, 0].addto_values(0, 0, [1])
+        mat[1, 1].addto_values(1, 1, [3])
+        mat[1, 1].set_values(0, 0, [2])
+        mat[0, 0].set_values(1, 1, [4])
+        mat[1, 1].addto_values(0, 0, [3])
+        mat.assemble()
+
+        assert np.allclose(mat[0, 0].values, np.diag([1, 4, 0]))
+        assert np.allclose(mat[1, 1].values, np.diag([5, 3, 0, 0]))
+
+        assert np.allclose(mat[0, 1].values, 0)
+        assert np.allclose(mat[1, 0].values, 0)
+
     def test_assembly_flushed_between_insert_and_add(self, backend, mat):
         import types
         flush_counter = [0]
