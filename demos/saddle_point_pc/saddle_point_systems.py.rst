@@ -284,9 +284,11 @@ this time we want a ``fieldsplit`` preconditioner. ::
         "pc_fieldsplit_type": "schur",
         "pc_fieldsplit_schur_fact_type": "full",
 
-To check that this approach actually works, we start out by exactly
-inverting :math:`A` and :math:`S` to check that we converge in only a
-few outer GMRES iterations. ::
+If we use this preconditioner and invert all the blocks exactly, then
+the preconditioned operator will have at most three distinct
+eigenvalues :cite:`Murphy:2000` and hence GMRES should converge in at
+most three iterations.  To try this, we start out by exactly
+inverting :math:`A` and :math:`S` to check the convergence. ::
        
         "fieldsplit_0_ksp_type": "cg",
         "fieldsplit_0_pc_type": "ilu",
@@ -328,9 +330,9 @@ any preconditioning, and so the inner solver struggles (this can be
 observed by additionally running with the parameter
 ``"fieldsplit_1_ksp_converged_reason": True``.
 
-As we increase the number of mesh elements, the solver that is
-inverting :math:`S` takes more and more iterations, which means that
-we take longer and longer to solve the problem as the mesh is refined.
+As we increase the number of mesh elements, the solver inverting
+:math:`S` takes more and more iterations, which means that we take
+longer and longer to solve the problem as the mesh is refined.
 
 ============== ==================
  Mesh elements CG iterations on S
