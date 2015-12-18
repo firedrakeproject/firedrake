@@ -39,6 +39,7 @@ Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
 
 .. toctree::
+   :maxdepth: 1
 
    A basic Helmholtz equation.<demos/helmholtz.py>
    The Burgers equation, a non-linear, unsteady example.<demos/burgers.py>
@@ -46,6 +47,7 @@ PDEs. Below are a few tutorial examples to get you started.
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
+   Preconditioning saddle-point systems, using the mixed Poisson problem as an example.<demos/saddle_point_systems.py>
    The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
 
