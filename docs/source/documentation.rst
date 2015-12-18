@@ -47,6 +47,7 @@ PDEs. Below are a few tutorial examples to get you started.
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
    The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
+   The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
 
 Manual
 ======
