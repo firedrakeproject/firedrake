@@ -40,26 +40,28 @@ to use the mixed formulation
 
 where :math:`\sigma` is a :math:`2\times 2` tensor.
 
-Written in weak form, this becomes
+Written in weak form, our problem is to find :math:`(u, \sigma) \in
+V\times \Sigma = W` such that
 
 .. math::
-   \int_\Omega \Phi:(\sigma + D^2u)\mathrm{d}x
-   - \int_{\partial_\Omega} \Phi_{12}n_2u_x + \Phi_{21}n_1u_y\mathrm{d}s
-     &=0,
+   \int_\Omega \tau:(\sigma + D^2u)\,\mathrm{d}x
+   - \int_{\partial\Omega} \tau_{12}n_2u_x + \tau_{21}n_1u_y\,\mathrm{d}s
+     &=0, \quad \forall \tau \in \Sigma
 
-   \int_\Omega v\det(I + \sigma)\mathrm{d}x = \int_\Omega fv\mathrm{d}x.
+   \int_\Omega v\det(I + \sigma)\,\mathrm{d}x = \int_\Omega
+   fv\,\mathrm{d}x \quad \forall v \in V.
 
 This is called a nonvariational discretisation since the PDE is not in
 a divergence form. Note that we have dropped the boundary terms that
 vanish due to the boundary condition. To proceed in the
-discretisation, we simply take :math:`u,v` to be from a continuous
-degree-k finite element space, and :math:`\sigma,\tau` to be from the 2x2
+discretisation, we simply choose :math:`V` to be a continuous
+degree-k finite element space, and :math:`\Sigma` to be the :math:`2 \times 2`
 tensor continuous finite element space of the same degree. Since we have
 Neumann boundary conditions, this variational problem has a null space
-consisting of the constant functions in :math:`u`.
+consisting of the constant functions in :math:`V`.
 
 For Dirichlet boundary conditions, :cite:`awanou2014quadratic` proved
-that this algorithm converges in the case of :math:`k>1`. Note that
+that this algorithm converges when :math:`k>1`. Note that
 the Jacobian system arising from Newton is only elliptic when
 :math:`I + \sigma` is positive-definite; it is observed that
 positive-definiteness is preserved by Newton iteration and hence we
@@ -74,56 +76,59 @@ mesh of quadrilaterals. ::
 
   from firedrake import *
   n = 100
-  mesh = UnitSquareMesh(n, n, quadrilateral = True)
+  mesh = UnitSquareMesh(n, n, quadrilateral=True)
 
 We construct the quadratic function space for :math:`u`, ::
 
-  V1 = FunctionSpace(mesh, "CG", 2)
+  V = FunctionSpace(mesh, "CG", 2)
 
-and the function space for :math:`\sigma`. This should be stored
-as a tensor finite element space but this currently causes a bug so
-we instead store it as a 4-dimensional vector function space. ::
+and the function space for :math:`\sigma`. This should be stored as a
+tensor finite element space but this currently `causes a bug
+<https://github.com/firedrakeproject/firedrake/issues/670>`__ so we
+instead store it as a 4-dimensional vector function space. ::
 
-  V2 = VectorFunctionSpace(mesh, "CG", 2, dim=4)
+  Sigma = VectorFunctionSpace(mesh, "CG", 2, dim=4)
   
 We then combine them together in a mixed function space. ::
 
-  V = V1*V2
+  W = V*Sigma
 
 Next, we set up the source function, which must integrate to the area
-of the domain. ::
+of the domain.  Note how in the integration of the :class:`~.Constant`
+one, we must explicitly specify the domain we wish to integrate over. ::
 
   fexpr = Expression("exp(-(cos(x[0])*cos(x[0])+cos(x[1])*cos(x[1])))")
-  f = Function(V1).interpolate(fexpr)
-  One = Function(V1).assign(1.0)
-  scaling = assemble(One*dx)/assemble(f*dx)
+  f = Function(V).interpolate(fexpr)
+  scaling = assemble(Constant(1, domain=mesh)*dx)/assemble(f*dx)
   f *= scaling
-  assert(abs(assemble(f*dx)-assemble(One*dx))<1.0e-8)
+  assert abs(assemble(f*dx)-assemble(Constant(1, domain=mesh)*dx)) < 1.0e-8
 
 Now we build the UFL expression for the variational form. We will use
 the nonlinear solve, so the form needs to be a 1-form that depends on
 a Function, w. ::
 
-  v, tau = TestFunctions(V)
-  w = Function(V)
+  v, tau = TestFunctions(W)
+  w = Function(W)
   u, sigma = split(w)
 
   n = FacetNormal(mesh)
+
+  I = Identity(mesh.geometric_dimension())
 
   L = dot(sigma, tau)*dx
   L += (  ((tau[0].dx(0) + tau[1].dx(1))*u.dx(0)
          + (tau[2].dx(0) + tau[3].dx(1))*u.dx(1))*dx
          - (tau[1]*n[1]*u.dx(0) + tau[2]*n[0]*u.dx(1))*ds )
-  L -= ((Lx + sigma[0])*(Ly + sigma[3]) -  sigma[1]*sigma[2] - f)*v*dx
+  L -= ((I[0, 0] + sigma[0])*(I[1, 1] + sigma[3]) -  sigma[1]*sigma[2] - f)*v*dx
 
 We must specify the nullspace for the operator. First we define a constant
 nullspace, ::
   
-  V1_basis = VectorSpaceBasis(constant=True)
+  V_basis = VectorSpaceBasis(constant=True)
 
-then we use it to build a nullspace of the mixed function space V. ::
+then we use it to build a nullspace of the mixed function space :math:`W`. ::
 
-  nullspace = MixedVectorSpaceBasis(V, [V1_basis, V.sub(1)])
+  nullspace = MixedVectorSpaceBasis(W, [V_basis, W.sub(1)])
 
 Then we set up the variational problem. ::
   
@@ -132,7 +137,7 @@ Then we set up the variational problem. ::
 We need to set quite a few solver options, so we'll put them into a
 dictionary. ::
   
-  sp_it={
+  sp_it = {
 
 We'll only use stationary preconditioners in the Schur complement, so
 we can get away with GMRES applied to the whole mixed system ::
@@ -171,25 +176,30 @@ Finally, we'd like to see some output to check things are working, and
 to limit the KSP solver to 20 iterations. ::
 
   #
-     "ksp_monitor":True,
-     "ksp_maxits":20
+     "ksp_monitor": True,
+     "ksp_max_it": 20,
+     "snes_monitor": True
      }
 
 We then put all of these options into the iterative solver, ::
 
-  u_solv = NonlinearVariationalSolver(u_prob,nullspace=nullspace,
-                                    solver_parameters=sp_it)
+  u_solv = NonlinearVariationalSolver(u_prob, nullspace=nullspace,
+                                      solver_parameters=sp_it)
 
 and output the solution to a file. ::
 
   u, sigma = w.split()
   u_solv.solve()
-  File('u.pvd') << u
+  File("u.pvd") << u
 
 An image of the solution is shown below.
   
 .. figure:: ma.png
-  
+   :align: center
+
+A python script version of this demo can be found `here
+<ma-demo.py>`__.
+
 .. rubric:: References
 
 .. bibliography:: ma_refs.bib
