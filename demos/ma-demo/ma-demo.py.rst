@@ -1,5 +1,7 @@
-Monge-Amperé equation
-=====================
+.. # -*- coding=utf-8 -*-
+
+The Monge-Ampère equation
+=========================
 
 .. rst-class:: emphasis
 
@@ -8,7 +10,7 @@ Monge-Amperé equation
    McRae <mailto:A.T.T.McRae@bath.ac.uk>`__ and `Lawrence Mitchell
    <mailto:lawrence.mitchell@imperial.ac.uk>`__.
 
-The Monge-Amperé equation provides the solution to the optimal
+The Monge-Ampère equation provides the solution to the optimal
 transportation problem between two measures. Here, we consider the
 case where the target measure is the usual Lesbesgue measure, and the
 template measure is :math:`f(x)d^nx`, both defined on the same
@@ -18,7 +20,7 @@ given by
 .. math::
    (x,y) \mapsto (x,y) + \nabla u,
 
-where :math:`u` satisfies the the Monge-Amperé equation
+where :math:`u` satisfies the the Monge-Ampère equation
 
 .. math::
 
