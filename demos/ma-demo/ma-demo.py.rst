@@ -12,7 +12,7 @@ The Monge-Ampère equation
 
 The Monge-Ampère equation provides the solution to the optimal
 transportation problem between two measures. Here, we consider the
-case where the target measure is the usual Lesbesgue measure, and the
+case where the target measure is the usual Lebesgue measure, and the
 template measure is :math:`f(x)d^nx`, both defined on the same
 domain. Then, in two dimensions, the optimal transportation plan is
 given by 
