@@ -266,8 +266,8 @@ class FunctionSpaceBase(ObjectCached):
             parent = None
 
         offset = self.cell_node_map().offset
-        mesh_facets = self._mesh.interior_facets_hierarchy[s_depth-1]
-        map = self._map_cache(self._interior_facet_map_cache[s_depth-1],
+        mesh_facets = self._mesh.interior_facets_hierarchy[-1]
+        map = self._map_cache(self._interior_facet_map_cache[-1],
                               mesh_facets.set,
                               self.interior_facet_node_list,
                               2*self.fiat_element.space_dimension(),
