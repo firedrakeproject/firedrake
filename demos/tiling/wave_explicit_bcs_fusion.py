@@ -35,7 +35,7 @@ def run(args):
     num_solves = 1
 
     mesh = Mesh(mesh_file) if mesh_file else UnitSquareMesh(mesh_size, mesh_size)
-    mesh.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
+    mesh.topology.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
     # Plumb the space filling curve into UnitSquareMesh after the call to
     # gmsh. Doru knows how to do this.
     # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
