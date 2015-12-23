@@ -1,36 +1,56 @@
 #!/bin/bash
 
-# Mesh loop
-for m in 1100.0
+FIREDRAKE=$FIREDRAKE_DIR
+TILING=$FIREDRAKE/demos/tiling
+EXECUTABLE=$TILING/wave_explicit_fusion.py
+MESHES=/tmp/meshes_tiling
+
+# Clean the remote cache, then dry runs on tiny mesh to generate kernels
+$FIREDRAKE/scripts/firedrake-clean
+echo "Running small problems to populate the cache..."
+for nu in 0 1 2 3 4
 do
-    # SEQUENTIAL + MPI
-    export SLOPE_BACKEND=SEQUENTIAL
-    for np in 1, 2, 4
+    for p in "chunk" "metis"
     do
-        # Non-tiled tests
-        mpirun --bind-to-core -np $np python wave_explicit_fusion.py --mesh-size $m --num-unroll 0
-        # Tiled tests
-        for ts in 100 200 300 400 500 600 700 800 1000 1500
+        for m in $MESHES"/wave_tank_1.0.msh"
         do
-            mpirun --bind-to-core -np $np python wave_explicit_fusion.py --mesh-size $m --tile-size $ts
+            for ts in 100
+            do
+                # OMP backend:
+                export SLOPE_BACKEND=OMP
+                export OMP_NUM_THREADS=4
+                python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
+
+                # MPI backend:
+                export SLOPE_BACKEND=SEQUENTIAL
+                export OMP_NUM_THREADS=1
+                mpiexec python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu > /dev/null
+            done
         done
-        
     done
+done
+echo "DONE!"
 
-    #######
 
-    # OMP
-    export KMP_AFFINITY=scatter
-    export SLOPE_BACKEND=OMP
-    for nt in 1, 2, 4
+# Run the tests
+for nu in 0 1 2 3 4
+do
+    for p in "chunk" "metis"
     do
-        export OMP_NUM_THREADS=$nt
-        # Non-tiled tests
-        python wave_explicit_fusion.py --mesh-size $m --num-unroll 0
-        # Tiled tests
-        for ts in 100 200 300 400 500 600 700 800 1000 1500
+        for m in $MESHES"/wave_tank_0.070.msh"
         do
-            python wave_explicit_fusion.py --mesh-size $m --tile-size $ts
+            for ts in 2000 3000 5000 10000 20000 50000
+            do
+                # OMP backend:
+                export SLOPE_BACKEND=OMP
+                export OMP_NUM_THREADS=4
+                python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu >> output.txt
+
+                # MPI backend:
+                export SLOPE_BACKEND=SEQUENTIAL
+                export OMP_NUM_THREADS=1
+                mpirun --bind-to-core -np 4 python $EXECUTABLE --mesh-file $m --tile-size $ts --part-mode $p --num-unroll $nu >> output.txt
+            done
         done
     done
 done
