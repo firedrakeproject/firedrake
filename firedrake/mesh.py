@@ -297,6 +297,8 @@ class MeshTopology(object):
         :arg reorder: whether to reorder the mesh (bool)
         :arg distribute: whether to distribute the mesh to parallel processes
         """
+        # Do some validation of the input mesh
+        dmplex.validate_mesh(plex)
         utils._init()
 
         self._plex = plex
