@@ -972,7 +972,7 @@ def plex_renumbering(PETSc.DM plex,
                     # the label-specific offsets in the permutation
                     CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
                     if has_point:
-                        CHKERR(PetscBTSet(seen, p))
+                        PetscBTSet(seen, p)
                         perm[lidx[l]] = p
                         lidx[l] += 1
 
@@ -991,7 +991,7 @@ def plex_renumbering(PETSc.DM plex,
         for f in range(nfacets):
             p = facets[f]
             if not PetscBTLookup(seen, p):
-                CHKERR(PetscBTSet(seen, p))
+                PetscBTSet(seen, p)
                 perm[lidx[3]] = p
                 lidx[3] += 1
         CHKERR(ISRestoreIndices(facet_is.iset, &facets))
