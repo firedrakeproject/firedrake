@@ -15,7 +15,7 @@ transportation problem between two measures. Here, we consider the
 case where the target measure is the usual Lesbesgue measure, and the
 template measure is :math:`f(x)d^nx`, both defined on the same
 domain. Then, in two dimensions, the optimal transportation plan is
-given by 
+given by
 
 .. math::
    (x,y) \mapsto (x,y) + \nabla u,
@@ -82,13 +82,10 @@ We construct the quadratic function space for :math:`u`, ::
 
   V = FunctionSpace(mesh, "CG", 2)
 
-and the function space for :math:`\sigma`. This should be stored as a
-tensor finite element space but this currently `causes a bug
-<https://github.com/firedrakeproject/firedrake/issues/670>`__ so we
-instead store it as a 4-dimensional vector function space. ::
+and the function space for :math:`\sigma`. ::
 
-  Sigma = VectorFunctionSpace(mesh, "CG", 2, dim=4)
-  
+  Sigma = TensorFunctionSpace(mesh, "CG", 2)
+
 We then combine them together in a mixed function space. ::
 
   W = V*Sigma
@@ -115,15 +112,14 @@ a Function, w. ::
 
   I = Identity(mesh.geometric_dimension())
 
-  L = dot(sigma, tau)*dx
-  L += (  ((tau[0].dx(0) + tau[1].dx(1))*u.dx(0)
-         + (tau[2].dx(0) + tau[3].dx(1))*u.dx(1))*dx
-         - (tau[1]*n[1]*u.dx(0) + tau[2]*n[0]*u.dx(1))*ds )
-  L -= ((I[0, 0] + sigma[0])*(I[1, 1] + sigma[3]) -  sigma[1]*sigma[2] - f)*v*dx
+  L = inner(sigma, tau)*dx
+  L += (inner(div(tau), grad(u))*dx
+        - (tau[0, 1]*n[1]*u.dx(0) + tau[1, 0]*n[0]*u.dx(1))*ds)
+  L -= (det(I + sigma) - f)*v*dx
 
 We must specify the nullspace for the operator. First we define a constant
 nullspace, ::
-  
+
   V_basis = VectorSpaceBasis(constant=True)
 
 then we use it to build a nullspace of the mixed function space :math:`W`. ::
@@ -131,12 +127,12 @@ then we use it to build a nullspace of the mixed function space :math:`W`. ::
   nullspace = MixedVectorSpaceBasis(W, [V_basis, W.sub(1)])
 
 Then we set up the variational problem. ::
-  
+
   u_prob = NonlinearVariationalProblem(L, w)
 
 We need to set quite a few solver options, so we'll put them into a
 dictionary. ::
-  
+
   sp_it = {
 
 We'll only use stationary preconditioners in the Schur complement, so
@@ -156,7 +152,7 @@ which is field "1", to get an equation for :math:`u`, which is field "0". ::
      "pc_fieldsplit_1_fields": "0",
 
 The "selfp" option selects a diagonal approximation of the A00 block. ::
-     
+
   #
      "pc_fieldsplit_schur_precondition": "selfp",
 
@@ -193,7 +189,7 @@ and output the solution to a file. ::
   File("u.pvd") << u
 
 An image of the solution is shown below.
-  
+
 .. figure:: ma.png
    :align: center
 
