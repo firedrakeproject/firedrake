@@ -25,6 +25,7 @@ addons:
         - gfortran
         - libspatialindex-dev
         - swig
+        - gmsh
 os:
     - linux
     - osx
