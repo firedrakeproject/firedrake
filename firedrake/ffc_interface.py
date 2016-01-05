@@ -108,25 +108,34 @@ class FormSplitter(ReuseTransformer):
 
     def argument(self, arg):
         """Split an argument into its constituent spaces."""
+        from itertools import product
         if isinstance(arg.function_space(), functionspace.MixedFunctionSpace):
+            # Look up the split argument in cache since we want it unique
             if arg in self._args:
                 return self._args[arg]
             args = []
             for i, fs in enumerate(arg.function_space().split()):
-                # Look up the split argument in cache since we want it unique
+                # Build the sub-space Argument (not part of the mixed
+                # space).
                 a = Argument(fs, arg.number(), part=arg.part())
-                if a.ufl_shape:
-                    if self._idx[arg.number()] == i:
-                        args += [a[j] for j in range(a.ufl_shape[0])]
-                    else:
-                        args += [Zero() for j in range(a.ufl_shape[0])]
+
+                # Produce indexing iterator.
+                # For scalar-valued spaces this results in the empty
+                # tuple (), which returns the Argument when indexing.
+                # For vector-valued spaces, this is just
+                # range(a.ufl_shape[0])
+                # For tensor-valued spaces, it's the nested loop of
+                # range(x for x in a.ufl_shape).
+                #
+                # Each of the indexed things is then scalar-valued
+                # which we turn into a ufl Vector.
+                indices = product(*map(range, a.ufl_shape))
+                if self._idx[arg.number()] == i:
+                    args += [a[idx] for idx in indices]
                 else:
-                    if self._idx[arg.number()] == i:
-                        args.append(a)
-                    else:
-                        args.append(Zero())
+                    args += [Zero() for _ in indices]
             self._args[arg] = as_vector(args)
-            return as_vector(args)
+            return self._args[arg]
         return arg
 
 
