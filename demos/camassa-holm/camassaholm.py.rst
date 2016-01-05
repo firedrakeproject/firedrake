@@ -90,7 +90,7 @@ with 100 cells, ::
   n = 100
   mesh = PeriodicIntervalMesh(n, 40.0)
 
-and build a :func:`mixed function space <.MixedFunctionSpace>` for the
+and build a :class:`mixed function space <.MixedFunctionSpace>` for the
 two variables. ::
 
   V = FunctionSpace(mesh, "CG", 1)

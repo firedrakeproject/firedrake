@@ -414,7 +414,7 @@ def set_level(obj, hierarchy, level):
 def get_level(obj):
     """Try and obtain hierarchy and level info from an object.
 
-    If no level info is available, return :data:`None, -1`."""
+    If no level info is available, return ``None, -1``."""
     try:
         if isinstance(obj, PETSc.DM):
             return get_level(obj.getAttr("__fs__")())

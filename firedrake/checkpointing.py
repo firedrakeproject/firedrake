@@ -25,7 +25,7 @@ class DumbCheckpoint(object):
 
     This checkpoint object is capable of writing :class:`~.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
-    number of processes and a :class:`~.Mesh` constructed identically.
+    number of processes and a :func:`~.Mesh` constructed identically.
 
     :arg basename: the base name of the checkpoint file.
     :arg single_file: Should the checkpoint object use only a single
@@ -239,7 +239,7 @@ class DumbCheckpoint(object):
         :arg name: The name of the attribute.
         :arg val: The attribute value.
 
-        Raises :exc:`AttributeError` if writing the attribute fails.
+        Raises :exc:`~.exceptions.AttributeError` if writing the attribute fails.
         """
         try:
             self.h5file[obj].attrs[name] = val
@@ -252,7 +252,7 @@ class DumbCheckpoint(object):
         :arg obj: The path to the data object.
         :arg name: The name of the attribute.
         :arg default: Optional default value to return.  If not
-             provided an :exc:`AttributeError` is raised if the
+             provided an :exc:`~.exceptions.AttributeError` is raised if the
              attribute does not exist.
         """
         try:

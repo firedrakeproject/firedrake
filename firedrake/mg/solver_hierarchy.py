@@ -157,29 +157,29 @@ class NLVSHierarchy(object):
 
     def __init__(self, problem, **kwargs):
         """
-        Solve a :class:`NonlinearVariationalProblem` on a hierarchy of meshes.
+        Solve a :class:`.NonlinearVariationalProblem` on a hierarchy of meshes.
 
-        :arg problem: A :class:`NonlinearVariationalProblem` or
+        :arg problem: A :class:`.NonlinearVariationalProblem` or
              iterable thereof (if specifying the problem on each level
              by hand).
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
-             :class:`MixedVectorSpaceBasis`) spanning the null space of the
+             :class:`.MixedVectorSpaceBasis`) spanning the null space of the
              operator.
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
             PETSc flag options should be specified with `bool`
-            values (:data:`True` for on, :data:`False` for off).
+            values (``True`` for on, ``False`` for off).
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
-               through the :data:`solver_parameters` dict.
+               through the ``solver_parameters`` dict.
 
         .. note::
 
            This solver is set up for use with geometric multigrid,
-           that is you can use :data:`"snes_type": "fas"` or
-           :data:`"pc_type": "mg"` transparently.
+           that is you can use ``"snes_type": "fas"`` or
+           ``"pc_type": "mg"`` transparently.
         """
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__

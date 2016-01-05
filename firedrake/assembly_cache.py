@@ -8,25 +8,25 @@ eviction strategy is implemented. This is documented below. In
 addition, the following parameters control the operation of the
 assembly_cache:
 
-:data:`parameters["assembly_cache"]["enabled"]`
+- ``parameters["assembly_cache"]["enabled"]``
   a boolean value used to disable the assembly cache if required.
 
-:data:`parameters["assembly_cache"]["eviction"]`
+- ``parameters["assembly_cache"]["eviction"]``
   a boolean value used to disable the cache eviction
   strategy. Disabling cache eviction can lead to memory leaks so is
   discouraged in almost all circumstances.
 
-:data:`parameters["assembly_cache"]["max_misses"]`
+- ``parameters["assembly_cache"]["max_misses"]``
   attempting to cache objects whose inputs change every time they are
   assembled is a waste of memory. This parameter sets a maximum number
   of consecutive misses beyond which a form will be marked as
   uncachable.
 
-:data:`parameters["assembly_cache"]["max_bytes"]`
+- ``parameters["assembly_cache"]["max_bytes"]``
   absolute limit on the size of the assembly cache in bytes. This
-  defaults to :data:`float("inf")`.
+  defaults to ``float("inf")``.
 
-:data:`parameters["assembly_cache"]["max_factor"]`
+- ``parameters["assembly_cache"]["max_factor"]``
   limit on the size of the assembly cache relative to the amount of
   memory per core on the current system. This defaults to 0.6.
 """
@@ -219,15 +219,15 @@ class AssemblyCache(object):
     def evict(self):
         """Run the cache eviction algorithm. This works out the permitted
 cache size and deletes objects until it is achieved. Cache values are
-assumed to have a :attr:`value` attribute and eviction occurs in
-increasing :attr:`value` order. Currently :attr:`value` is an index of
+assumed to have a ``value`` attribute and eviction occurs in
+increasing ``value`` order. Currently ``value`` is an index of
 the assembly operation, so older operations are evicted first.
 
 The cache will be evicted down to 90% of permitted size.
 
 The permitted size is either the explicit
-:data:`parameters["assembly_cache"]["max_bytes"]` or it is the amount of
-memory per core scaled by :data:`parameters["assembly_cache"]["max_factor"]`
+``parameters["assembly_cache"]["max_bytes"]`` or it is the amount of
+memory per core scaled by ``parameters["assembly_cache"]["max_factor"]``
 (by default the scale factor is 0.6).
 
 In MPI parallel, the nbytes of each cache entry is set to the maximum

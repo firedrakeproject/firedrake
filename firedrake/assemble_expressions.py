@@ -275,7 +275,7 @@ class Indexed(ufl.indexed.Indexed):
 
 class ExpressionSplitter(ReuseTransformer):
     """Split an expression tree into a subtree for each component of the
-    appropriate :class:`.FunctionSpaceBase`."""
+    appropriate :class:`.FunctionSpace`."""
 
     def split(self, expr):
         """Split the given expression."""

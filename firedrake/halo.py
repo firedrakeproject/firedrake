@@ -77,7 +77,7 @@ class Halo(object):
 
         .. note::
 
-           If :data:`reverse` is :data:`True` then the input buffer
+           If ``reverse`` is ``True`` then the input buffer
            may not be touched before calling :meth:`.end`."""
         if self.comm.size == 1:
             return

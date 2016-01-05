@@ -9,7 +9,7 @@ Firedrake uses a high-level language, `UFL`_, to describe variational
 problems.  To do this, we need a number of pieces.  We need a
 representation of the domain we're solving the :abbr:`PDE (partial
 differential equation)` on: Firedrake uses a
-:py:class:`~.Mesh` for this.  On top of this mesh,
+:py:func:`~.Mesh` for this.  On top of this mesh,
 we build :py:class:`~.FunctionSpace`\s which
 define the space in which the solutions to our equation live.  Finally
 we define :py:class:`~.Function`\s in those
@@ -19,7 +19,7 @@ Constructing meshes
 -------------------
 
 Firedrake can read meshes in `Gmsh`_, `triangle`_, `CGNS`_, and
-`Exodus`_ formats.  To build a mesh one uses the :py:class:`~.Mesh`
+`Exodus`_ formats.  To build a mesh one uses the :py:func:`~.Mesh`
 constructor, passing the name of the file as an argument, which see
 for more details.  The mesh type is determined by the file extension,
 for example if the provided filename is ``coastline.msh`` the mesh is
@@ -43,9 +43,9 @@ meshes to improve data locality by performing reverse Cuthill-McKee
 reordering on the adjacency matrix of the input mesh.  If you know
 your mesh has a good numbering (perhaps your mesh generator uses space
 filling curves to number entities) then you can switch off this
-reordering by passing :py:data:`reorder=False` to the appropriate
-:py:class:`~.Mesh` constructor.  You can control Firedrake's default
-behaviour in reordering meshes with the :py:data:`"reorder_meshes"`
+reordering by passing ``reorder=False`` to the appropriate
+:py:func:`~.Mesh` constructor.  You can control Firedrake's default
+behaviour in reordering meshes with the ``"reorder_meshes"``
 parameter.  For example, to turn off mesh reordering globally:
 
 .. code-block:: python
@@ -537,7 +537,7 @@ live on boundary facets, in this case, you should use the
 nodes.  In this case, nodes associated with basis functions that do
 not vanish on the boundary are included.  This method can be used to
 impose strong boundary conditions on discontinuous galerkin spaces, or
-no-slip conditions on HDiv spaces.  To select the method used for
+no-slip conditions on :math:`H(\textrm{div})` spaces.  To select the method used for
 determining boundary condition nodes, use the :py:data:`method`
 argument to the :py:class:`DirichletBC` constructor.  For example, to
 select geometric boundary node determination we would write:

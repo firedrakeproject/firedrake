@@ -1910,8 +1910,8 @@ def halo_begin(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     :arg reverse: should a reverse (local-to-global) exchange be
         performed.
 
-    Forward exchanges are implemented using :data:`PetscSFBcastBegin`,
-    reverse exchanges with :data:`PetscSFReduceBegin`.
+    Forward exchanges are implemented using ``PetscSFBcastBegin``,
+    reverse exchanges with ``PetscSFReduceBegin``.
     """
     cdef:
         MPI.Op op = MPI.SUM
@@ -1945,8 +1945,8 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
     :arg reverse: should a reverse (local-to-global) exchange be
         performed.
 
-    Forward exchanges are implemented using :data:`PetscSFBcastEnd`,
-    reverse exchanges with :data:`PetscSFReduceEnd`.
+    Forward exchanges are implemented using ``PetscSFBcastEnd``,
+    reverse exchanges with ``PetscSFReduceEnd``.
     """
     cdef:
         MPI.Op op = MPI.SUM

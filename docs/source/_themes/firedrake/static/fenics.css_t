@@ -249,6 +249,14 @@ div.note {
 	background: #e1ecfe url(dialog-note.png) no-repeat 10px 8px;
 }
 
+div.note div.last {
+    float: none;
+}
+
+div.warning div.last {
+    float: none;
+}
+
 .emphasis {
    font-style: italic
 }

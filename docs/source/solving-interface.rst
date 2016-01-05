@@ -152,7 +152,7 @@ which to place our solution:
 
    x = Function(V)
 
-We then :py:func:`~firedrake.solving.assemble` the left hand side
+We then :py:func:`~.assemble` the left hand side
 matrix ``A`` and known right hand side ``b`` from the bilinear and
 linear forms respectively:
 
@@ -169,7 +169,7 @@ Finally, we can solve the problem placing the solution in ``x``:
 
 to apply boundary conditions to the problem, we can assemble the
 linear operator ``A`` with boundary conditions using the ``bcs``
-keyword argument to :py:func:`~firedrake.solving.assemble` (and then
+keyword argument to :py:func:`~.assemble` (and then
 not supply them in solve call):
 
 .. code-block:: python
@@ -599,7 +599,7 @@ know something about the structure of our problem, we may be able to
 construct an operator :math:`P` explicitly which is "easy" to invert,
 and whose inverse approximates :math:`A^{-1}` well.  Firedrake allows
 you to provide this operator when solving variational problems by
-passing an explicit :py:data:`Jp` keyword argument to the solve call,
+passing an explicit ``Jp`` keyword argument to the solve call,
 the provided form will then be used to construct an approximate
 inverse when preconditioning the problem, rather than the form we're
 solving with.
