@@ -6,8 +6,8 @@ The simplest way to install Firedrake is to use our install script::
   curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
   python firedrake-install
 
-Running `firedrake-install` with no arguments will install firedrake in
-a python virtualenv_ created in a `firedrake` subdirectory of the
+Running ``firedrake-install`` with no arguments will install firedrake in
+a python virtualenv_ created in a ``firedrake`` subdirectory of the
 current directory. Run::
 
   python firedrake-install --help
