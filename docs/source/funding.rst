@@ -1,3 +1,5 @@
+.. title: Funding
+
 .. only:: html
 
   Firedrake is supported by:
@@ -29,6 +31,7 @@
   +---------------------------+------------+---------+--------+
   | |Imperial College London| | |Grantham| | |EPSRC| | |NERC| |
   +---------------------------+------------+---------+--------+
+
   and in particular by the following grants:
 
 .. only:: latex 

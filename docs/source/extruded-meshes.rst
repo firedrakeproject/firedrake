@@ -231,7 +231,7 @@ the base cell with an element defined on an interval.
 We will now introduce the new operators which act on ``FiniteElement`` objects.
 
 The ``OuterProductElement`` operator
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 To create an element compatible with an extruded mesh, one should use
 the :py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
