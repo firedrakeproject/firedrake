@@ -841,6 +841,52 @@ def get_facets_by_class(PETSc.DM plex, label):
 
     return facets, facet_classes
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def validate_mesh(PETSc.DM plex):
+    """Perform some validation of the input mesh.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology."""
+    cdef:
+        PetscInt  pStart, pEnd, cStart, cEnd, p, c, ci
+        PetscInt  nclosure, nseen
+        PetscInt *closure = NULL
+        PetscBT   seen = NULL
+        PetscBool flag
+
+    from mpi4py import MPI
+
+    pStart, pEnd = plex.getChart()
+    cStart, cEnd = plex.getHeightStratum(0)
+
+    CHKERR(PetscBTCreate(pEnd - pStart, &seen))
+    nseen = 0
+    # Walk the cells, counting the number of points we can traverse in
+    # the closure.
+    for c in range(cStart, cEnd):
+        CHKERR(DMPlexGetTransitiveClosure(plex.dm, c,
+                                          PETSC_TRUE,
+                                          &nclosure,
+                                          &closure))
+        for ci in range(nclosure):
+            p = closure[2*ci]
+            if not PetscBTLookup(seen, p):
+                nseen += 1
+                PetscBTSet(seen, p)
+
+    if closure != NULL:
+        CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
+                                              NULL, &closure))
+    CHKERR(PetscBTDestroy(&seen))
+
+    # Check validity on all processes
+    valid = plex.comm.tompi4py().allreduce(nseen == pEnd - pStart,
+                                           op=MPI.LAND)
+    if not valid:
+        raise ValueError("Provided mesh has some entities not reachable by traversing cells (maybe rogue vertices?)")
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def plex_renumbering(PETSc.DM plex,
@@ -926,7 +972,7 @@ def plex_renumbering(PETSc.DM plex,
                     # the label-specific offsets in the permutation
                     CHKERR(DMLabelHasPoint(labels[l], p, &has_point))
                     if has_point:
-                        CHKERR(PetscBTSet(seen, p))
+                        PetscBTSet(seen, p)
                         perm[lidx[l]] = p
                         lidx[l] += 1
 
@@ -945,7 +991,7 @@ def plex_renumbering(PETSc.DM plex,
         for f in range(nfacets):
             p = facets[f]
             if not PetscBTLookup(seen, p):
-                CHKERR(PetscBTSet(seen, p))
+                PetscBTSet(seen, p)
                 perm[lidx[3]] = p
                 lidx[3] += 1
         CHKERR(ISRestoreIndices(facet_is.iset, &facets))

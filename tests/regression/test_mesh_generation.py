@@ -186,6 +186,18 @@ def test_mesh_reordering_defaults_on():
     assert m._did_reordering
 
 
+def test_mesh_validation():
+    from os.path import abspath, dirname, join
+    meshfile = join(abspath(dirname(__file__)), "broken_rogue_point.msh")
+    with pytest.raises(ValueError):
+        # Reading a mesh with points not reachable from cell closures
+        # should raise ValueError
+        Mesh(meshfile)
+
+
+test_mesh_validation_parallel = pytest.mark.parallel(nprocs=2)(test_mesh_validation)
+
+
 @pytest.mark.parametrize("reorder",
                          [False, True])
 def test_force_reordering_works(reorder):
