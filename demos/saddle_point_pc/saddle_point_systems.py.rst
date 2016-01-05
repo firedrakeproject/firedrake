@@ -591,17 +591,20 @@ inverted exactly using a single application of zero-fill ILU. ::
 
 The :math:`H(\text{div})` inner product is the tricky part.  In fact,
 we currently do not have a good way of inverting this in Firedrake.
-For now, therefore we will invert it with a sparse direct solver,
-MUMPS_.  This is a reasonable option up to a few tens of thousands of
-degrees of freedom. ::
+For now, therefore we will invert it with a direct solver.  This is a
+reasonable option up to a few tens of thousands of degrees of
+freedom. ::
 
     #
         "fieldsplit_0_ksp_type": "preonly",
         "fieldsplit_0_pc_type": "lu",
-        "fieldsplit_0_pc_factor_mat_solver_package": "mumps"
     }
 
 .. note::
+
+   For larger problems, you will probably need to use a sparse direct
+   solver such as MUMPS_, which may be selected by additionally
+   specifying ``"fieldsplit_0_pc_factor_mat_solver_package": "mumps"``.
 
    To use MUMPS_ you will need to have configured PETSc_ appropriately
    (using at the very least ``--download-mumps``).
