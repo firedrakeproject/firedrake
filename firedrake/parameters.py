@@ -43,6 +43,7 @@ class Parameters(dict):
 
 
 parameters = Parameters()
+"""A nested dictionary of parameters used by Firedrake"""
 
 parameters.add(Parameters("assembly_cache",
                           enabled=True,

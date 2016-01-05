@@ -55,15 +55,15 @@ the performance should approach that of a fully structured mesh.
 Generating Extruded Meshes in Firedrake
 ---------------------------------------
 
-Extruded meshes are built using the :py:class:`~.ExtrudedMesh` class. There
+Extruded meshes are built using :py:func:`~.ExtrudedMesh`. There
 are several built-in extrusion types that generate commonly-used extruded
 meshes. To create a more complicated extruded mesh, one can either pass a
-hand-written kernel into the :py:class:`~.ExtrudedMesh` constructor, or one
+hand-written kernel to :py:func:`~.ExtrudedMesh`, or one
 can use a built-in extrusion type and modify the coordinate field afterwards.
 
 The following information may be passed in to the constructor:
 
-- a :py:class:`~.Mesh` object, which will be used as the base mesh.
+- a ``Mesh`` object, which will be used as the base mesh.
 - the desired number of cell layers in the extruded mesh.
 - the ``extrusion_type``, which can be one of the built-in "uniform",
   "radial" or "radial_hedgehog" -- these are described below -- or "custom".
@@ -81,7 +81,7 @@ Uniform extrusion adds another spatial dimension to the mesh. For example, a
 are computed on the assumption that the layers are evenly spaced (hence the
 word 'uniform').
 
-Let ``m`` be a standard :py:class:`~.UnitSquareMesh`. The following code
+Let ``m`` be a standard :py:func:`~.UnitSquareMesh`. The following code
 produces the extruded mesh, whose base mesh is ``m``, with 5 mesh layers and
 a layer thickness of 0.2:
 
@@ -220,7 +220,7 @@ supports a more general syntax:
     V = FunctionSpace(mesh, element)
 
 where ``element`` is a UFL :py:class:`~ufl.finiteelement.finiteelement.FiniteElement` object. This
-requires generation and manipulation of FiniteElement objects.
+requires generation and manipulation of ``FiniteElement`` objects.
 
 Geometrically, an extruded mesh cell is the *product* of a base, "horizontal",
 cell with a "vertical" interval. The construction of function spaces on
@@ -228,12 +228,12 @@ extruded meshes makes use of this. Firedrake supports all function spaces
 whose local element can be expressed as the product of an element defined on
 the base cell with an element defined on an interval.
 
-We will now introduce the new operators which act on FiniteElement objects.
+We will now introduce the new operators which act on ``FiniteElement`` objects.
 
-The OuterProductElement operator
+The ``OuterProductElement`` operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To create an Element compatible with an extruded mesh, one should use
+To create an element compatible with an extruded mesh, one should use
 the :py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
 operator. For example,
 
@@ -303,8 +303,8 @@ or
 
   The product of a Mini triangle element with a CG1 interval element
 
-The HDiv and HCurl operators
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The ``HDivElement`` and ``HCurlElement`` operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements,
 :py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
@@ -332,23 +332,23 @@ However, this is only scalar-valued. There are two natural vector-valued
 elements that can be generated from this: one of them preserves tangential
 continuity between elements, and the other preserves normal continuity
 between elements. To obtain the Raviart-Thomas element, we must use the
-:py:class:`~ufl.finiteelement.hdivcurl.HDiv` operator:
+:py:class:`~ufl.finiteelement.hdivcurl.HDivElement` operator:
 
 .. code-block:: python
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
     P1P0 = OuterProductElement(CG_1, DG_0)
-    RT_horiz = HDiv(P1P0)
+    RT_horiz = HDivElement(P1P0)
     P0P1 = OuterProductElement(DG_0, CG_1)
-    RT_vert = HDiv(P0P1)
+    RT_vert = HDivElement(P0P1)
     elt = RT_horiz + RT_vert
 
 .. figure:: images/rt_quad_post.svg
   :align: center
 
   The RT quadrilateral element, requiring the use
-  of :py:class:`~ufl.finiteelement.hdivcurl.HDiv`
+  of :py:class:`~ufl.finiteelement.hdivcurl.HDivElement`
 
 Another reason to use these operators is when expanding a vector into a
 higher dimensional space. Consider the lowest-order Nedelec element of the
@@ -368,11 +368,11 @@ the product of this with a continuous element on an interval:
 
 This element still only has two components. To expand this into a
 three-dimensional curl-conforming element, we must use the
-:py:class:`~ufl.finiteelement.hdivcurl.HCurl` operator; the syntax is:
+:py:class:`~ufl.finiteelement.hdivcurl.HCurlElement` operator; the syntax is:
 
 .. code-block:: python
 
-    Ned_horiz = HCurl(N2CG)
+    Ned_horiz = HCurlElement(N2CG)
 
 .. figure:: images/ned_prism.svg
   :align: center
@@ -385,11 +385,11 @@ prism. The full element can be built as follows:
     N2_1 = FiniteElement("N2curl", triangle, 1)
     CG_2 = FiniteElement("CG", interval, 2)
     N2CG = OuterProductElement(N2_1, CG_2)
-    Ned_horiz = HCurl(N2CG)
+    Ned_horiz = HCurlElement(N2CG)
     P2tr = FiniteElement("CG", triangle, 2)
     P1dg = FiniteElement("DG", interval, 1)
     P2P1 = OuterProductElement(P2tr, P1dg)
-    Ned_vert = HCurl(P2P1)
+    Ned_vert = HCurlElement(P2P1)
     Ned_wedge = Ned_horiz + Ned_vert
     V = FunctionSpace(mesh, Ned_wedge)
 
@@ -397,7 +397,7 @@ Shortcuts for simple spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Simple scalar-valued spaces can be created using a variation on the existing
-syntax, if the ``HDiv``, ``HCurl`` and enrichment operations
+syntax, if the ``HDivElement``, ``HCurlElement`` and enrichment operations
 are not required. To create a function space of degree 2 in the horizontal
 direction, degree 1 in the vertical direction and possibly discontinuous
 between layers, the short syntax is
@@ -408,7 +408,7 @@ between layers, the short syntax is
 
 If the horizontal and vertical parts have the same ``family`` and ``degree``,
 the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
-:py:class:`~.ExtrudedMesh` object then the following are equivalent:
+``ExtrudedMesh`` then the following are equivalent:
 
 .. code-block:: python
 

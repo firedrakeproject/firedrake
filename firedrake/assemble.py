@@ -25,25 +25,25 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
              inverse=False, nest=None):
     """Evaluate f.
 
-    :arg f: a :class:`ufl.Form` or :class:`ufl.core.expr.Expr`.
+    :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
     :arg form_compiler_parameters: (optional) dict of parameters to pass to
          the form compiler.  Ignored if not assembling a
-         :class:`ufl.Form`.  Any parameters provided here will be
-         overridden by parameters set on the :class;`ufl.Measure` in the
-         form.  For example, if a :data:`quadrature_degree` of 4 is
+         :class:`~ufl.classes.Form`.  Any parameters provided here will be
+         overridden by parameters set on the :class:`~ufl.classes.Measure` in the
+         form.  For example, if a ``quadrature_degree`` of 4 is
          specified in this argument, but a degree of 3 is requested in
          the measure, the latter will be used.
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
     :arg nest: (optional) flag indicating if a 2-form (matrix) on a
          mixed space should be assembled as a block matrix (if
-         :data:`nest` is :data:`True`) or not.  The default value is
-         taken from the parameters dict :data:`parameters["matnest"]`.
+         ``nest`` is ``True``) or not.  The default value is
+         taken from the parameters dict, ``parameters["matnest"]``.
 
-    If f is a :class:`ufl.Form` then this evaluates the corresponding
+    If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
 

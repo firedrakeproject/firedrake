@@ -174,9 +174,9 @@ class FFCKernel(DiskCached):
         return False
 
     def __init__(self, form, name, parameters):
-        """A wrapper object for one or more FFC kernels compiled from a given :class:`~Form`.
+        """A wrapper object for one or more FFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
-        :arg form: the :class:`~Form` from which to compile the kernels.
+        :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
         """
@@ -214,11 +214,11 @@ class FFCKernel(DiskCached):
 def compile_form(form, name, parameters=None, inverse=False):
     """Compile a form using FFC.
 
-    :arg form: the :class:`ufl.Form` to compile.
+    :arg form: the :class:`~ufl.classes.Form` to compile.
     :arg name: a prefix for the generated kernel functions.
     :arg parameters: optional dict of parameters to pass to the form
          compiler. If not provided, parameters are read from the
-         :data:`form_compiler` slot of the Firedrake
+         ``form_compiler`` slot of the Firedrake
          :data:`~.parameters` dictionary (which see).
     :arg inverse: If True then assemble the inverse of the local tensor.
 
@@ -230,7 +230,7 @@ def compile_form(form, name, parameters=None, inverse=False):
     elements on embedded manifolds).
 
     The coordinates are extracted from the domain of the integral (a
-    :class:`~.Mesh`)
+    :func:`~.Mesh`)
 
     """
 

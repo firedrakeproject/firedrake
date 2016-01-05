@@ -205,7 +205,7 @@ Optional dependencies
 
 For performance reasons, there are various levels of caching with
 eviction policies.  To support these, you will need to install the
-python packages::
+python packages:
 
 - cachetools
 - psutil

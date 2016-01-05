@@ -27,8 +27,8 @@ def get_entity_renumbering(PETSc.DM plex, PETSc.Section section, entity_type):
 
     :arg plex: The DMPlex object
     :arg section: The Section defining the renumbering
-    :arg entity_type: The type of entity (either :data:`"cell"` or
-        :data:`"vertex"`)
+    :arg entity_type: The type of entity (either ``"cell"`` or
+        ``"vertex"``)
     """
     cdef:
         PetscInt start, end, p, ndof, entity

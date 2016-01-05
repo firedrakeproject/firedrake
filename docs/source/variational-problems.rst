@@ -537,7 +537,7 @@ live on boundary facets, in this case, you should use the
 nodes.  In this case, nodes associated with basis functions that do
 not vanish on the boundary are included.  This method can be used to
 impose strong boundary conditions on discontinuous galerkin spaces, or
-no-slip conditions on HDiv spaces.  To select the method used for
+no-slip conditions on :math:`H(\textrm{div})` spaces.  To select the method used for
 determining boundary condition nodes, use the :py:data:`method`
 argument to the :py:class:`DirichletBC` constructor.  For example, to
 select geometric boundary node determination we would write:

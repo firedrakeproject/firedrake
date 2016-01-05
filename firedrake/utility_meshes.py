@@ -105,10 +105,10 @@ def IntervalMesh(ncells, length_or_left, right=None):
     Generate a uniform mesh of an interval.
 
     :arg ncells: The number of the cells over the interval.
-    :arg length_or_left: The length of the interval (if :data:`right`
+    :arg length_or_left: The length of the interval (if ``right``
          is not provided) or else the left hand boundary point.
     :arg right: (optional) position of the right
-         boundary point (in which case :data:`length_or_left` should
+         boundary point (in which case ``length_or_left`` should
          be the left boundary point).
 
     The left hand boundary point has boundary marker 1,

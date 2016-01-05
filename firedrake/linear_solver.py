@@ -19,7 +19,7 @@ class LinearSolver(object):
 
         :arg A: a :class:`~.Matrix` (the operator).
         :arg P: an optional :class:`~.Matrix` to construct any
-             preconditioner from; if none is supplied :data:`A` is
+             preconditioner from; if none is supplied ``A`` is
              used to construct the preconditioner.
         :kwarg parameters: (optional) dict of solver parameters.
         :kwarg nullspace: an optional :class:`~.VectorSpaceBasis` (or
@@ -29,7 +29,7 @@ class LinearSolver(object):
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
-               through the :data:`solver_parameters` dict.
+               through the ``solver_parameters`` dict.
 
         .. note::
 

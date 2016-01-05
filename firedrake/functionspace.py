@@ -164,7 +164,7 @@ class FunctionSpaceBase(ObjectCached):
 
     @property
     def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
+        """Position of this :class:`.FunctionSpace` in the
         :class:`.MixedFunctionSpace` it was extracted from."""
         return None
 
@@ -973,7 +973,7 @@ class IndexedVFS(FunctionSpaceBase):
 
     @property
     def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
+        """Position of this :class:`FunctionSpace` in the
         :class:`.MixedFunctionSpace` it was extracted from."""
         return self._index
 
@@ -986,12 +986,12 @@ class IndexedVFS(FunctionSpaceBase):
 
 
 class IndexedFunctionSpace(FunctionSpaceBase):
-    """A :class:`.FunctionSpaceBase` with an index to indicate which position
+    """A :class:`.FunctionSpace` with an index to indicate which position
     it has as part of a :class:`MixedFunctionSpace`."""
 
     def __new__(cls, fs, index, parent):
         """
-        :param fs: the :class:`.FunctionSpaceBase` that was extracted
+        :param fs: the :class:`.FunctionSpace` that was extracted
         :param index: the position in the parent :class:`MixedFunctionSpace`
         :param parent: the parent :class:`MixedFunctionSpace`
         """
@@ -1011,7 +1011,7 @@ class IndexedFunctionSpace(FunctionSpaceBase):
 
     @property
     def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
+        """Position of this :class:`FunctionSpace` in the
         :class:`.MixedFunctionSpace` it was extracted from."""
         return self._index
 

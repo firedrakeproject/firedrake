@@ -31,7 +31,7 @@ _cells = {
 
 
 class _Facets(object):
-    """Wrapper class for facet interation information on a :class:`Mesh`
+    """Wrapper class for facet interation information on a :func:`Mesh`
 
     .. warning::
 
@@ -389,7 +389,7 @@ class MeshTopology(object):
         return None
 
     def ufl_cell(self):
-        """The UFL :class:`~ufl.cell.Cell` associated with the mesh."""
+        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
         return self._ufl_cell
 
     @utils.cached_property
@@ -996,7 +996,7 @@ def Mesh(meshfile, **kwargs):
            the topological dimension of entities in the mesh.
     :param reorder: optional flag indicating whether to reorder
            meshes for better cache locality.  If not supplied the
-           default value in :data:`parameters["reorder_meshes"]`
+           default value in ``parameters["reorder_meshes"]``
            is used.
 
     When the mesh is read from a file the following mesh formats
@@ -1011,7 +1011,7 @@ def Mesh(meshfile, **kwargs):
     .. note::
 
         When the mesh is created directly from a DMPlex object,
-        the :data:`dim` parameter is ignored (the DMPlex already
+        the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """

@@ -76,7 +76,7 @@ class CoarsenIntegrand(MultiFunction):
 def coarsen_form(form):
     """Return a coarse mesh version of a form
 
-    :arg form: The :class:`ufl.Form` to coarsen.
+    :arg form: The :class:`~ufl.classes.Form` to coarsen.
 
     This maps over the form and replaces coefficients and arguments
     with their coarse mesh equivalents."""

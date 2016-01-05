@@ -15,7 +15,7 @@ Firedrake API
 -------------
 
 Firedrake offers a convenient API for evaluating functions at
-arbitrary points via :func:`~.Function.at`:
+arbitrary points via :meth:`~.Function.at`:
 
 .. code-block:: python
 
@@ -62,7 +62,7 @@ Points outside the domain
 
 When any point is outside the domain of the function,
 :py:class:`.PointNotInDomainError` exception is raised. If
-``dont_raise=True`` is passed to :func:`~.Function.at`, the result is
+``dont_raise=True`` is passed to :meth:`~.Function.at`, the result is
 ``None`` for those points which fall outside the domain.
 
 .. code-block:: python
