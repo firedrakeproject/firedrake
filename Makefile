@@ -48,6 +48,10 @@ test_extrusion: modules
 	@echo "    Running extruded regression tests"
 	@py.test tests/extrusion $(PYTEST_ARGS)
 
+test_demos: modules
+	@echo "    Running test of demos"
+	@py.test tests/demos $(PYTEST_ARGS)
+
 test: modules
 	@echo "    Running all regression tests"
 	@py.test tests $(PYTEST_ARGS)
