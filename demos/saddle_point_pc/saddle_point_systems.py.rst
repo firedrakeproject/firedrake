@@ -6,13 +6,13 @@ Introduction
 
 In this demo, we will discuss strategies for solving saddle-point
 systems using the mixed formulation of the Poisson equation introduced
-in :doc:`/demos/poisson_mixed.py` as a concrete example.  Such systems
-are somewhat tricky to precondition effectively, modern approaches
-typically use block-factorisations.  We will encounter a number of
-methods in this tutorial.  For many details and background on solution
-methods for saddle point systems, :cite:`Benzi:2005` is a nice review.
-:cite:`Elman:2014` is an excellent text with a strong focus on
-applications in fluid dynamics.
+:doc:`previously </demos/poisson_mixed.py>` as a concrete example.
+Such systems are somewhat tricky to precondition effectively, modern
+approaches typically use block-factorisations.  We will encounter a
+number of methods in this tutorial.  For many details and background
+on solution methods for saddle point systems, :cite:`Benzi:2005` is a
+nice review.  :cite:`Elman:2014` is an excellent text with a strong
+focus on applications in fluid dynamics.
 
 We start by repeating the formulation of the problem.  Starting from
 the primal form of the Poisson equation, :math:`\nabla^2 u = -f`, we
@@ -41,10 +41,10 @@ for some specified function :math:`f`.  We now seek :math:`(u, \sigma)
 A stable choice of discrete spaces for this problem is to pick
 :math:`\Sigma_h \subset \Sigma` to be the lowest order Raviart-Thomas
 space, and :math:`V_h \subset V` to be the piecewise constants,
-although this is not the only choice as noted in
-:doc:`/demos/poisson_mixed.py`.  For ease of exposition we choose the
-domain to be the unit square, and enforce homogeneous Dirichlet
-conditions on all walls.  The forcing term is chosen to be random.
+although this is :doc:`not the only choice </demos/poisson_mixed.py>`.
+For ease of exposition we choose the domain to be the unit square, and
+enforce homogeneous Dirichlet conditions on all walls.  The forcing
+term is chosen to be random.
 
 Globally coupled elliptic problems, such as the Poisson problem,
 require effective preconditioning to attain *mesh independent*
@@ -591,9 +591,8 @@ inverted exactly using a single application of zero-fill ILU. ::
 
 The :math:`H(\text{div})` inner product is the tricky part.  In fact,
 we currently do not have a good way of inverting this in Firedrake.
-For now, therefore we will invert it with a direct solver.  This is a
-reasonable option up to a few tens of thousands of degrees of
-freedom. ::
+For now we will invert it with a direct solver.  This is a reasonable
+option up to a few tens of thousands of degrees of freedom. ::
 
     #
         "fieldsplit_0_ksp_type": "preonly",
