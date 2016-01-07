@@ -423,6 +423,9 @@ class MeshTopology(object):
                                            cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
+            from firedrake.citations import Citations
+            Citations().register("Homolya2016")
+            Citations().register("McRae2014")
             # Quadrilateral mesh
             cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
@@ -585,6 +588,8 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         """
+        from firedrake.citations import Citations
+        Citations().register("McRae2014")
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
 

@@ -109,6 +109,17 @@ div.related ul {
 	padding-left: 240px;
 }
 
+/* Formatting for sphinx-bibtex generated tables */
+table.citation {
+    border: none;
+}
+
+/* Override some bibbase styles that make things look ugly. */
+td.label {
+    background: inherit;
+    font-weight: normal;
+    text-shadow: none;
+}
 /* -- sidebars -------------------------------------------------------------- */
 
 div.sidebar {

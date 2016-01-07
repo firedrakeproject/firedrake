@@ -3,6 +3,8 @@ from __future__ import absolute_import
 
 from ffc import default_parameters
 from pyop2.configuration import configuration
+from firedrake.citations import Citations
+
 
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
@@ -32,6 +34,12 @@ class Parameters(dict):
     def rename(self, name):
         self._name = name
 
+    def __getstate__(self):
+        # Remove non-picklable update function slot
+        d = self.__dict__.copy()
+        del d["_update_function"]
+        return d
+
     def set_update_function(self, callable):
         """Set a function to be called whenever a dictionary entry is changed.
 
@@ -54,6 +62,9 @@ parameters.add(Parameters("assembly_cache",
 
 parameters.add(Parameters("coffee",
                           O2=True))
+
+# Spew citation for coffee paper if user modifies coffee options.
+parameters["coffee"].set_update_function(lambda k, v: Citations().register("Luporini2015"))
 
 # Default to the values of PyOP2 configuration dictionary
 pyop2_opts = Parameters("pyop2_options",
