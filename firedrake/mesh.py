@@ -514,6 +514,33 @@ class MeshTopology(object):
                 facets.append(_Facets(self, 0, "interior", None, None))
         return facets
 
+    @property
+    def exterior_facets(self):
+        s = self.exterior_facets_hierarchy[-1].set
+        s._deep_size = np.array([list(i.set.sizes) for i in self.exterior_facets_hierarchy])
+        return self.exterior_facets_hierarchy[-1]
+
+    @utils.cached_property
+    def exterior_facets_hierarchy(self):
+        facets = []
+        for s in range(self.s_depth):
+            if self._plex.getStratumSize("exterior_facets", 1) > 0:
+                # Order exterior facets by OP2 entity class
+                exterior_facets, exterior_facet_classes = \
+                    dmplex.get_facets_by_class(self._plex, "exterior_facets", s+1)
+
+                exterior_local_facet_number, exterior_facet_cell = \
+                    dmplex.facet_numbering(self._plex, "exterior",
+                                           exterior_facets,
+                                           self._cell_numbering,
+                                           self.cell_closure)
+
+                facets.append(_Facets(self, exterior_facet_classes, "exterior",
+                                      exterior_facet_cell, exterior_local_facet_number))
+            else:
+                facets.append(_Facets(self, 0, "exterior", None, None))
+        return facets
+
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
 

@@ -141,7 +141,7 @@ class FunctionSpaceBase(ObjectCached):
         # implementation because of the need to support boundary
         # conditions.
         self._cell_node_map_cache = {}
-        self._exterior_facet_map_cache = {}
+        self._exterior_facet_map_cache = [{} for _ in range(mesh.s_depth)]
         self._interior_facet_map_cache = [{} for _ in range(mesh.s_depth)]
 
         self._initialized = True
@@ -279,7 +279,7 @@ class FunctionSpaceBase(ObjectCached):
                        self.cell_node_map())
         return map
 
-    def exterior_facet_node_map(self, bcs=None):
+    def exterior_facet_node_map(self, bcs=None, s_depth=1):
         """Return the :class:`pyop2.Map` from exterior facets to
         function space nodes. If present, bcs must be a tuple of
         :class:`.DirichletBC`\s. In this case, the facet_node_map will return
@@ -288,19 +288,19 @@ class FunctionSpaceBase(ObjectCached):
         corresponding values to be discarded during matrix assembly."""
 
         if bcs:
-            parent = self.exterior_facet_node_map()
+            parent = self.exterior_facet_node_map(s_depth=s_depth)
         else:
             parent = None
 
-        facet_set = self._mesh.exterior_facets.set
+        mesh_facets = self._mesh.exterior_facets_hierarchy[-1]
         if isinstance(self._mesh.topology, mesh_t.ExtrudedMeshTopology):
             name = "extruded_exterior_facet_node"
             offset = self.offset
         else:
             name = "exterior_facet_node"
             offset = None
-        return self._map_cache(self._exterior_facet_map_cache,
-                               facet_set,
+        return self._map_cache(self._exterior_facet_map_cache[-1],
+                               mesh_facets.set,
                                self.exterior_facet_node_list,
                                self.fiat_element.space_dimension(),
                                bcs,
