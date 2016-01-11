@@ -4,7 +4,6 @@ from time import time
 import cProfile
 import os
 
-from pyop2.profiling import timed_region
 from pyop2.configuration import configuration
 from pyop2.fusion import loop_chain
 from pyop2.mpi import MPI
@@ -13,35 +12,37 @@ from utils.benchmarking import parser, output_time
 from utils.tiling import calculate_sdepth
 
 
-def run(args):
-    # Get the input
+# Problem constants
+num_solves = 1
+loop_chain_length = 3
+
+
+def gen_mesh(args):
     num_unroll = args.num_unroll
-    tile_size = args.tile_size
     mesh_file = args.mesh_file
     mesh_size = int(args.mesh_size)
+    extra_halo = args.extra_halo
+    debug_mode = args.debug
+
+    mesh = Mesh(mesh_file) if mesh_file else UnitSquareMesh(mesh_size, mesh_size)
+    mesh.topology.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
+    slope(mesh, debug=debug_mode)
+    return mesh
+
+
+def run(args, mesh, time_scale=1):
+    num_unroll = args.num_unroll
+    tile_size = args.tile_size
     verbose = args.verbose
     output = args.output
     mode = args.fusion_mode
     part_mode = args.part_mode
     extra_halo = args.extra_halo
-    debug_mode = args.debug
-
-    # Constants
-    loop_chain_length = 3
-    num_solves = 1
-
-    mesh = Mesh(mesh_file) if mesh_file else UnitSquareMesh(mesh_size, mesh_size)
-    mesh.topology.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
-    # Plumb the space filling curve into UnitSquareMesh after the call to
-    # gmsh. Doru knows how to do this.
-    # mesh = Mesh('/tmp/newmeshes/spacefilling1.node', reorder=False)
-
-    slope(mesh, debug=debug_mode)
 
     # Switch on PyOP2 profiling
     configuration['profiling'] = True
 
-    T = 1
+    T = 1 / time_scale
     dt = 0.001
     t = 0
     fs = FunctionSpace(mesh, 'Lagrange', 1)
@@ -99,14 +100,17 @@ def run(args):
 if __name__ == '__main__':
     from ffc.log import set_level
     set_level('ERROR')
-
     args = parser(profile=False)
+
+    mesh = gen_mesh(args)
     if args.profile:
         try:
             location = os.path.join(os.environ['FIREDRAKE_DIR'], 'demos', 'tiling')
         except:
             location = '.'
-        location = os.path.join(location, 'wave_explicit_log_rank%d.cprofile' % MPI.comm.rank)
-        cProfile.run("""run(args)""", location)
+        location = os.path.join(location, 'log_wave_explicit_nu%d_rank%d.cprofile'
+                                % (args.num_unroll, MPI.comm.rank))
+        time_scale = 20.0
+        cProfile.run("""run(args, mesh, time_scale=time_scale)""", location)
     else:
-        run(args)
+        run(args, mesh)
