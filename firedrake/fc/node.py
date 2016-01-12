@@ -51,3 +51,17 @@ class Node(object):
 
     def get_hash(self):
         return hash((type(self),) + self.__getinitargs__(self.children))
+
+
+def traversal(expression_dag):
+    """Pre-order traversal of the nodes of an expression DAG."""
+    seen = {expression_dag}
+    lifo = [expression_dag]
+
+    while lifo:
+        node = lifo.pop()
+        yield node
+        for child in node.children:
+            if child not in seen:
+                seen.add(child)
+                lifo.append(child)

@@ -1,0 +1,156 @@
+from __future__ import absolute_import
+
+import time
+
+from ufl.algorithms import compute_form_data, estimate_total_polynomial_degree
+
+from ffc.log import info_green
+from ffc.fiatinterface import create_element
+from ffc.quadrature_schemes import create_quadrature
+
+import coffee.base as coffee
+
+from firedrake.fc import fem, einstein as ein, impero as imp, scheduling as sch
+from firedrake.fc.coffee import SCALAR_TYPE, generate as generate_coffee
+
+
+def compile_form(form, prefix="form", parameters=None):
+    assert not isinstance(form, (list, tuple))
+
+    cpu_time = time.time()
+
+    # We might want to estimate quadrature degree for each integral
+    # separately.  However, we must do it before the pullback.
+    quadrature_degree = estimate_total_polynomial_degree(form, default_degree=NotImplemented)
+
+    fd = compute_form_data(form,
+                           do_apply_function_pullbacks=True,
+                           do_apply_integral_scaling=True,
+                           do_apply_geometry_lowering=True,
+                           do_apply_restrictions=True)
+
+    if len(fd.preprocessed_form.integrals()) != 1:
+        raise NotImplementedError("Cannot handle multiple integrals.")
+
+    integral, = fd.preprocessed_form.integrals()
+    integral_type = integral.integral_type()
+    integrand = integral.integrand()
+
+    arglist = []
+    coefficient_map = {}
+
+    arguments = fd.preprocessed_form.arguments()
+    output_shape = [create_element(arg.ufl_element()).space_dimension() for arg in arguments]
+    # Interior facets, doubled up output size
+    if integral_type.startswith("interior_facet"):
+        output_shape = [s*2 for s in output_shape]
+
+    output_shape = tuple(output_shape)
+    if output_shape == ():
+        output_shape = (1,)
+
+    output_symbol = coffee.Symbol("A", rank=output_shape)
+    output_tensor = coffee.Decl(SCALAR_TYPE, output_symbol)
+
+    arglist.insert(0, output_tensor)
+    argument_indices = tuple(ein.Index() for i in range(len(arguments)))
+    output_arg = ein.Variable("A", output_shape)
+    if arguments:
+        output_arg = ein.Indexed(output_arg, argument_indices)
+    else:
+        output_arg = ein.Indexed(output_arg, (0,))
+
+    mesh = fd.preprocessed_form.ufl_domain()
+    fiat_element = create_element(mesh.ufl_coordinate_element())
+    arglist.append(coffee.Decl("const %s *restrict" % SCALAR_TYPE,
+                               coffee.Symbol("coordinate_dofs",
+                                             rank=(fiat_element.space_dimension(),))))
+    coefficient_map[mesh.coordinates] = make_kernel_argument(mesh.coordinates, "coordinate_dofs")
+
+    coefficients = fd.preprocessed_form.coefficients()
+    for i, coefficient in enumerate(coefficients):
+        if coefficient.ufl_element().family() == "Real":
+            rank = ()
+        else:
+            fiat_element = create_element(coefficient.ufl_element())
+            rank = (fiat_element.space_dimension(),)
+        decl = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
+        arglist.append(decl)
+        coefficient_map[coefficient] = make_kernel_argument(coefficient, "w_%d" % i)
+
+    cell = integrand.ufl_domain().ufl_cell()
+    quad_points, quad_weights = create_quadrature(cell, quadrature_degree)
+
+    quadrature_index, nonfem = fem.process(integrand, quad_points, quad_weights, argument_indices, coefficient_map)
+    nonfem = ein.IndexSum(nonfem, quadrature_index)
+
+    simplified = ein.inline_indices(nonfem)
+
+    index_extents = ein.collect_index_extents(simplified)
+    index_ordering = apply_prefix_ordering(index_extents.keys(),
+                                           (quadrature_index,) + argument_indices)
+    apply_ordering = make_index_orderer(index_ordering)
+
+    shape_map = sch.Memoize(sch.indices)
+    ordered_shape_map = lambda expr: apply_ordering(shape_map(expr))
+
+    indexed_ops = sch.make_ordering(output_arg, simplified, ordered_shape_map)
+    temporaries = make_temporaries(op for indices, op in indexed_ops)
+
+    index_names = zip((quadrature_index,) + argument_indices, ['ip', 'j', 'k'])
+    body = generate_coffee(indexed_ops, temporaries, shape_map,
+                           apply_ordering, index_extents, index_names)
+
+    # TODO:
+    # funname = "form_%s_integral_%s_%s" % (itype, uflacs_ir["subdomain_id"], uflacs_ir["form_id"])
+    funname = "%s_%s_integral_%s_%s" % (prefix, integral_type, "0", "otherwise")
+    kernel = coffee.FunDecl("void", funname, arglist, body, pred=["static", "inline"])
+
+    info_green("firedrake.fc finished in %g seconds." % (time.time() - cpu_time))
+    return [kernel]
+
+
+def make_kernel_argument(coefficient, name):
+    fiat_element = create_element(coefficient.ufl_element())
+    arg = ein.Variable(name, (fiat_element.space_dimension(), 1))
+
+    i = ein.Index()
+    return ein.ComponentTensor(ein.Indexed(arg, (i, 0)), (i,))
+
+
+def make_index_orderer(index_ordering):
+    idx2pos = {idx: pos for pos, idx in enumerate(index_ordering)}
+
+    def apply_ordering(shape):
+        return tuple(sorted(shape, key=lambda i: idx2pos[i]))
+    return apply_ordering
+
+
+def apply_prefix_ordering(indices, prefix_ordering):
+    rest = set(indices) - set(prefix_ordering)
+    return tuple(prefix_ordering) + tuple(rest)
+
+
+def make_temporaries(operations):
+    # For fast look up
+    set_ = set()
+
+    # For ordering
+    list = []
+
+    def make_temporary(o):
+        if o not in set_:
+            set_.add(o)
+            list.append(o)
+
+    for op in operations:
+        if isinstance(op, (imp.Initialise, imp.Return)):
+            pass
+        elif isinstance(op, imp.Accumulate):
+            make_temporary(op.indexsum)
+        elif isinstance(op, imp.Evaluate):
+            make_temporary(op.expression)
+        else:
+            raise AssertionError("unhandled operation: %s" % type(op))
+
+    return list
