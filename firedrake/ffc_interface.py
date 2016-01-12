@@ -15,7 +15,7 @@ from ufl.algorithms import compute_form_data, ReuseTransformer
 from ufl.constantvalue import Zero
 from firedrake.ufl_expr import Argument
 
-from ffc import compile_form as ffc_compile_form
+from firedrake.fc import compile_form as ffc_compile_form
 from ffc import constants
 from ffc import log
 from ffc.quadrature.quadraturetransformerbase import EmptyIntegrandError
