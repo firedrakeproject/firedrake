@@ -105,7 +105,7 @@ Citations().add("McRae2014", """
 
 Citations().add("Homolya2016", """
 @Article{Homolya2016,
-  author =       {Mikl\`os Homolya and David A. Ham},
+  author =       {Mikl\'os Homolya and David A. Ham},
   title =        {A parallel edge orientation algorithm for
                   quadrilateral meshes},
   journal =      {To appear in SIAM Journal on Scientific Computing},
