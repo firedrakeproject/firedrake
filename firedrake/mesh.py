@@ -448,43 +448,6 @@ class MeshTopology(object):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
-    @utils.cached_property
-    def exterior_facets(self):
-        if self._plex.getStratumSize("exterior_facets", 1) > 0:
-            # Compute the facet_numbering
-
-            # Order exterior facets by OP2 entity class
-            exterior_facets, exterior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "exterior_facets", self.s_depth)
-
-            # Derive attached boundary IDs
-            if self._plex.hasLabel("boundary_ids"):
-                boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
-                for i, facet in enumerate(exterior_facets):
-                    boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
-
-                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
-            else:
-                boundary_ids = None
-                unique_ids = None
-
-            exterior_local_facet_number, exterior_facet_cell = \
-                dmplex.facet_numbering(self._plex, "exterior",
-                                       exterior_facets,
-                                       self._cell_numbering,
-                                       self.cell_closure)
-
-            return _Facets(self, exterior_facet_classes, "exterior",
-                           exterior_facet_cell, exterior_local_facet_number,
-                           boundary_ids, unique_markers=unique_ids)
-        else:
-            if self._plex.hasLabel("boundary_ids"):
-                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
-            else:
-                unique_ids = None
-            return _Facets(self, 0, "exterior", None, None,
-                           unique_markers=unique_ids)
-
     @property
     def interior_facets(self):
         s = self.interior_facets_hierarchy[-1].set
@@ -529,6 +492,17 @@ class MeshTopology(object):
                 exterior_facets, exterior_facet_classes = \
                     dmplex.get_facets_by_class(self._plex, "exterior_facets", s+1)
 
+                # Derive attached boundary IDs
+                if self._plex.hasLabel("boundary_ids"):
+                    boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+                    for i, facet in enumerate(exterior_facets):
+                        boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
+
+                    unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
+                else:
+                    boundary_ids = None
+                    unique_ids = None
+
                 exterior_local_facet_number, exterior_facet_cell = \
                     dmplex.facet_numbering(self._plex, "exterior",
                                            exterior_facets,
@@ -536,9 +510,15 @@ class MeshTopology(object):
                                            self.cell_closure)
 
                 facets.append(_Facets(self, exterior_facet_classes, "exterior",
-                                      exterior_facet_cell, exterior_local_facet_number))
+                                      exterior_facet_cell, exterior_local_facet_number,
+                                      boundary_ids, unique_markers=unique_ids))
             else:
-                facets.append(_Facets(self, 0, "exterior", None, None))
+                if self._plex.hasLabel("boundary_ids"):
+                    unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
+                else:
+                    unique_ids = None
+                facets.append(_Facets(self, 0, "exterior", None, None,
+                                      unique_markers=unique_ids))
         return facets
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
