@@ -599,7 +599,7 @@ class ExtrudedMeshTopology(MeshTopology):
             raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)
         # All internal logic works with layers of base mesh (not layers of cells)
         self._layers = layers + 1
-        self._ufl_cell = ufl.OuterProductCell(mesh.ufl_cell(), ufl.interval)
+        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
 
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
@@ -894,7 +894,7 @@ extern "C" int locator(struct Function *f, double *x)
 
         if expr.value_shape()[0] != 3:
             raise NotImplementedError('Only implemented for 3-vectors')
-        if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.Cell("quadrilateral", 3), ufl.OuterProductCell(ufl.Cell('interval'), ufl.Cell('interval'), gdim=3)):
+        if self.ufl_cell() not in (ufl.Cell('triangle', 3), ufl.Cell("quadrilateral", 3), ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'), gdim=3)):
             raise NotImplementedError('Only implemented for triangles and quadrilaterals embedded in 3d')
 
         if hasattr(self.topology, '_cell_orientations'):

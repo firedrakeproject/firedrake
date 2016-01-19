@@ -219,12 +219,12 @@ def reconstruct_element(element, cell=None):
                             ufl.BrokenElement,
                             ufl.FacetElement)):
         return type(element)(reconstruct_element(element._element, cell=cell))
-    if isinstance(element, ufl.OuterProductElement):
-        return ufl.OuterProductElement(element._A, element._B, cell=cell)
-    if isinstance(element, ufl.OuterProductVectorElement):
+    if isinstance(element, ufl.TensorProductElement):
+        return ufl.TensorProductElement(element._A, element._B, cell=cell)
+    if isinstance(element, ufl.TensorProductVectorElement):
         dim = len(element.sub_elements())
-        return ufl.OuterProductVectorElement(element._A, element._B, cell=cell, dim=dim)
-    if isinstance(element, ufl.OuterProductTensorElement):
+        return ufl.TensorProductVectorElement(element._A, element._B, cell=cell, dim=dim)
+    if isinstance(element, ufl.TensorProductTensorElement):
         return element.reconstruct(cell=cell)
     if isinstance(element, ufl.MixedElement):
         eles = [reconstruct_element(sub, cell=cell) for sub in element.sub_elements()]

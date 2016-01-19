@@ -17,7 +17,7 @@ def RT2():
     mesh = extmesh_2D(4, 4)
     U0 = FiniteElement("CG", "interval", 2)
     U1 = FiniteElement("DG", "interval", 1)
-    W1 = HDiv(OuterProductElement(U1, U0)) + HDiv(OuterProductElement(U0, U1))
+    W1 = HDiv(TensorProductElement(U1, U0)) + HDiv(TensorProductElement(U0, U1))
     return FunctionSpace(mesh, W1)
 
 

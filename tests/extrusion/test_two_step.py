@@ -23,7 +23,7 @@ def two_step(quadrilateral):
     else:
         horiz = FiniteElement("BDM", "triangle", 1)
     vert = FiniteElement("DG", "interval", 0)
-    prod = HDiv(OuterProductElement(horiz, vert))
+    prod = HDiv(TensorProductElement(horiz, vert))
     W = FunctionSpace(mesh, prod)
     X = FunctionSpace(mesh, "DG", 0, vfamily="DG", vdegree=0)
 

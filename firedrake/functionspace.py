@@ -3,8 +3,8 @@ import numpy as np
 import ufl
 import weakref
 from FIAT.finite_element import facet_support_dofs
-from FIAT.tensor_finite_element import horiz_facet_support_dofs, vert_facet_support_dofs
 from tsfc.fiatinterface import create_element
+from FIAT.tensor_product import horiz_facet_support_dofs, vert_facet_support_dofs
 
 import coffee.base as ast
 
@@ -612,7 +612,7 @@ class FunctionSpace(FunctionSpaceBase):
 
         :arg mesh: mesh to build the function space on
         :arg family: string describing function space family, or an
-            :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+            :class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
         :arg degree: degree of the function space
         :arg name: (optional) name of the function space
         :arg vfamily: family of function space in vertical dimension
@@ -621,10 +621,10 @@ class FunctionSpace(FunctionSpaceBase):
             (extruded meshes only)
 
         If the mesh is an extruded mesh, and the ``family`` argument is a
-        :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`,
+        :class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`,
         ``degree``, ``vfamily`` and ``vdegree`` are ignored, since the
         ``family`` provides all necessary information, otherwise a
-        :class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+        :class:`~ufl.finiteelement.tensorproductelement.TensorProductElement`
         is built from the (``family``, ``degree``) and (``vfamily``,
         ``vdegree``) pair.  If the ``vfamily`` and ``vdegree`` are not
         provided, the vertical element defaults to the same as the
@@ -639,14 +639,14 @@ class FunctionSpace(FunctionSpaceBase):
         # Two choices:
         # 1) Pass in mesh, family, degree to generate a simple function space.
         # 2) Set up the function space using FiniteElement, EnrichedElement,
-        #    OuterProductElement and so on.
+        #    TensorProductElement and so on.
         if isinstance(family, ufl.FiniteElementBase):
             # Second case...
             element = family
         else:
             # First case...
-            if isinstance(mesh_t.ufl_cell(), ufl.OuterProductCell) and vfamily is not None and vdegree is not None:
-                # If OuterProductCell, make the OuterProductElement
+            if isinstance(mesh_t.ufl_cell(), ufl.TensorProductCell) and vfamily is not None and vdegree is not None:
+                # If TensorProductCell, make the TensorProductElement
                 la = ufl.FiniteElement(family,
                                        cell=mesh_t._base_mesh.ufl_cell(),
                                        degree=degree)
@@ -654,8 +654,8 @@ class FunctionSpace(FunctionSpaceBase):
                 lb = ufl.FiniteElement(vfamily,
                                        cell=ufl.interval,
                                        degree=vdegree)
-                # Now make the OuterProductElement
-                element = ufl.OuterProductElement(la, lb)
+                # Now make the TensorProductElement
+                element = ufl.TensorProductElement(la, lb)
             else:
                 # Otherwise, just make the element
                 element = ufl.FiniteElement(family,
@@ -677,16 +677,16 @@ class VectorFunctionSpace(FunctionSpaceBase):
         # VectorFunctionSpace dimension defaults to the geometric dimension of the mesh.
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
-        if isinstance(mesh_t.ufl_cell(), ufl.OuterProductCell) and isinstance(family, ufl.OuterProductElement):
-            element = ufl.OuterProductVectorElement(family, dim=dim)
-        elif isinstance(mesh_t.ufl_cell(), ufl.OuterProductCell) and vfamily is not None and vdegree is not None:
+        if isinstance(mesh_t.ufl_cell(), ufl.TensorProductCell) and isinstance(family, ufl.TensorProductElement):
+            element = ufl.TensorProductVectorElement(family, dim=dim)
+        elif isinstance(mesh_t.ufl_cell(), ufl.TensorProductCell) and vfamily is not None and vdegree is not None:
             la = ufl.FiniteElement(family,
                                    cell=mesh_t._base_mesh.ufl_cell(),
                                    degree=degree)
             lb = ufl.FiniteElement(vfamily,
                                    cell=ufl.interval,
                                    degree=vdegree)
-            element = ufl.OuterProductVectorElement(la, lb, dim=dim)
+            element = ufl.TensorProductVectorElement(la, lb, dim=dim)
         else:
             element = ufl.VectorElement(family,
                                         cell=mesh_t.ufl_cell(),
@@ -714,7 +714,7 @@ class TensorFunctionSpace(FunctionSpaceBase):
         # TensorFunctionSpace shape defaults to the (gdim, gdim)
         shape = shape or (mesh.ufl_cell().geometric_dimension(),) * 2
 
-        if isinstance(mesh_t.ufl_cell(), ufl.OuterProductCell):
+        if isinstance(mesh_t.ufl_cell(), ufl.TensorProductCell):
             raise NotImplementedError("TensorFunctionSpace on extruded meshes not implemented")
         else:
             element = ufl.TensorElement(family, cell=mesh_t.ufl_cell(),

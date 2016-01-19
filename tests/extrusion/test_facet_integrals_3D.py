@@ -19,7 +19,7 @@ def RT2():
     U2 = FiniteElement("DG", "triangle", 1)
     V0 = FiniteElement("CG", "interval", 2)
     V1 = FiniteElement("DG", "interval", 1)
-    W2 = HDiv(OuterProductElement(U1, V1)) + HDiv(OuterProductElement(U2, V0))
+    W2 = HDiv(TensorProductElement(U1, V1)) + HDiv(TensorProductElement(U2, V0))
     return FunctionSpace(mesh, W2)
 
 

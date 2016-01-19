@@ -33,7 +33,7 @@ def test_hdiv_assembly(hfamily, hdegree, vfamily, vdegree):
 
     horiz_elt = FiniteElement(hfamily, "triangle", hdegree)
     vert_elt = FiniteElement(vfamily, "interval", vdegree)
-    product_elt = HDiv(OuterProductElement(horiz_elt, vert_elt))
+    product_elt = HDiv(TensorProductElement(horiz_elt, vert_elt))
     fspace = FunctionSpace(mesh, product_elt)
 
     u = TrialFunction(fspace)
@@ -53,7 +53,7 @@ def test_hcurl_assembly(hfamily, hdegree, vfamily, vdegree):
 
     horiz_elt = FiniteElement(hfamily, "triangle", hdegree)
     vert_elt = FiniteElement(vfamily, "interval", vdegree)
-    product_elt = HCurl(OuterProductElement(horiz_elt, vert_elt))
+    product_elt = HCurl(TensorProductElement(horiz_elt, vert_elt))
     fspace = FunctionSpace(mesh, product_elt)
 
     u = TrialFunction(fspace)

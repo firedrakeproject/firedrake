@@ -66,17 +66,17 @@ def test_feec_quadrilateral(horiz_complex, vert_complex):
 
 
 def run_feec(mesh, U0, U1, U2, V0, V1):
-    W0_elt = OuterProductElement(U0, V0)
+    W0_elt = TensorProductElement(U0, V0)
 
-    W1_a = HCurl(OuterProductElement(U1, V0))
-    W1_b = HCurl(OuterProductElement(U0, V1))
+    W1_a = HCurl(TensorProductElement(U1, V0))
+    W1_b = HCurl(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
 
-    W2_a = HDiv(OuterProductElement(U2, V0))
-    W2_b = HDiv(OuterProductElement(U1, V1))
+    W2_a = HDiv(TensorProductElement(U2, V0))
+    W2_b = HDiv(TensorProductElement(U1, V1))
     W2_elt = W2_a + W2_b
 
-    W3_elt = OuterProductElement(U2, V1)
+    W3_elt = TensorProductElement(U2, V1)
 
     W0 = FunctionSpace(mesh, W0_elt)
     W1 = FunctionSpace(mesh, W1_elt)

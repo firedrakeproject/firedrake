@@ -29,11 +29,11 @@ def W(mesh):
     # BDM1 element on a quad
     W0_h = FiniteElement("CG", "interval", 1)
     W0_v = FiniteElement("DG", "interval", 1)
-    W0 = HDiv(OuterProductElement(W0_h, W0_v))
+    W0 = HDiv(TensorProductElement(W0_h, W0_v))
 
     W1_h = FiniteElement("DG", "interval", 1)
     W1_v = FiniteElement("CG", "interval", 1)
-    W1 = HDiv(OuterProductElement(W1_h, W1_v))
+    W1 = HDiv(TensorProductElement(W1_h, W1_v))
 
     return FunctionSpace(mesh, W0+W1)
 

@@ -23,7 +23,7 @@ def test_scalar_convergence(testcase, convrate):
 
         horiz_elt = FiniteElement(hfamily, "triangle", hdegree)
         vert_elt = FiniteElement(vfamily, "interval", vdegree)
-        product_elt = HDiv(OuterProductElement(horiz_elt, vert_elt))
+        product_elt = HDiv(TensorProductElement(horiz_elt, vert_elt))
         V1 = FunctionSpace(mesh, product_elt)
 
         if ori == "h":
@@ -35,7 +35,7 @@ def test_scalar_convergence(testcase, convrate):
             # opposite
             horiz_elt = FiniteElement(hfamily, "triangle", hdegree)
             vert_elt = FiniteElement(altfamily, "interval", altdegree)
-        product_elt = OuterProductElement(horiz_elt, vert_elt)
+        product_elt = TensorProductElement(horiz_elt, vert_elt)
         V2 = FunctionSpace(mesh, product_elt)
 
         f = Function(V2)

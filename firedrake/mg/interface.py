@@ -58,7 +58,7 @@ def restrict(fine, coarse):
     # appropriately.
     if not hierarchy._discontinuous and weights is None:
         if isinstance(hierarchy.ufl_element(), (ufl.VectorElement,
-                                                ufl.OuterProductVectorElement)):
+                                                ufl.TensorProductVectorElement)):
             element = hierarchy.ufl_element().sub_elements()[0]
             restriction_fs = firedrake.FunctionSpaceHierarchy(hierarchy._mesh_hierarchy, element)
         else:
