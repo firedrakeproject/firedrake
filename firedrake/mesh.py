@@ -17,6 +17,7 @@ import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
+from firedrake import halo
 
 
 __all__ = ['Mesh', 'ExtrudedMesh']
@@ -366,6 +367,12 @@ class MeshTopology(object):
 
                 self._cell_numbering = self._plex.createSection([1], entity_dofs,
                                                                 perm=self._plex_renumbering)
+                # Create halo for the cell set
+                dm = PETSc.DMShell().create()
+                dm.setPointSF(self._plex.getPointSF())
+                dm.setDefaultSection(self._cell_numbering)
+                self._cell_halo = halo.Halo(dm)
+                # Derive a vertex numbering from the Plex renumbering
                 entity_dofs[:] = 0
                 entity_dofs[0] = 1
                 self._vertex_numbering = self._plex.createSection([1], entity_dofs,
@@ -593,7 +600,7 @@ class MeshTopology(object):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        s = op2.Set(size, "%s_cells" % self.name)
+        s = op2.Set(size, "%s_cells" % self.name, halo=self._cell_halo)
         s._deep_size = self.cell_set_hierarchy
         return s
 
