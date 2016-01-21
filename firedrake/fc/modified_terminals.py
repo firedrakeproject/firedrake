@@ -15,19 +15,15 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with UFLACS. If not, see <http://www.gnu.org/licenses/>.
+#
+# Modified by Miklós Homolya, 2016.
 
 """Definitions of 'modified terminals', a core concept in uflacs."""
 
-from __future__ import print_function # used in some debugging
+from __future__ import print_function  # used in some debugging
 
-from six.moves import zip
-from ufl.permutation import build_component_numbering
-from ufl.classes import (Terminal, FormArgument,
-                         Indexed, FixedIndex,
-                         ReferenceValue,
-                         Grad, ReferenceGrad,
-                         Restricted,
-                         FacetAvg, CellAvg)
+from ufl.classes import (ReferenceValue, ReferenceGrad,
+                         Restricted, FacetAvg, CellAvg)
 
 from ffc.log import error
 from ffc.log import ffc_assert
@@ -42,18 +38,13 @@ class ModifiedTerminal(object):
         expr - The original UFL expression
 
         terminal           - the underlying Terminal object
-        global_derivatives - tuple of ints, each meaning derivative in that global direction
         local_derivatives  - tuple of ints, each meaning derivative in that local direction
         reference_value    - bool, whether this is represented in reference frame
         averaged           - None, 'facet' or 'cell'
         restriction        - None, '+' or '-'
-        component          - tuple of ints, the global component of the Terminal
-        flat_component     - single int, flattened local component of the Terminal, considering symmetry
-
     """
 
-    def __init__(self, expr, terminal, global_derivatives, local_derivatives, averaged,
-                 restriction, component, flat_component, reference_value):
+    def __init__(self, expr, terminal, local_derivatives, averaged, restriction, reference_value):
         # The original expression
         self.expr = expr
 
@@ -62,12 +53,9 @@ class ModifiedTerminal(object):
 
         # Components
         self.reference_value = reference_value
-        self.component = component
-        self.flat_component = flat_component
         self.restriction = restriction
 
         # Derivatives
-        self.global_derivatives = global_derivatives
         self.local_derivatives = local_derivatives
 
         # Evaluation method (alternative: { None, 'facet_midpoint', 'cell_midpoint', 'facet_avg', 'cell_avg' })
@@ -75,13 +63,11 @@ class ModifiedTerminal(object):
 
     def as_tuple(self):
         t = self.terminal
-        c = self.component
         rv = self.reference_value
-        gd = self.global_derivatives
         ld = self.local_derivatives
         a = self.averaged
         r = self.restriction
-        return (t, rv, c, gd, ld, a, r)
+        return (t, rv, ld, a, r)
 
     def __hash__(self):
         return hash(self.as_tuple())
@@ -95,10 +81,8 @@ class ModifiedTerminal(object):
     def __str__(self):
         s = []
         s += ["terminal:           {0}".format(self.terminal)]
-        s += ["global_derivatives: {0}".format(self.global_derivatives)]
         s += ["local_derivatives:  {0}".format(self.local_derivatives)]
         s += ["averaged:           {0}".format(self.averaged)]
-        s += ["component:          {0}".format(self.component)]
         s += ["restriction:        {0}".format(self.restriction)]
         return '\n'.join(s)
 
@@ -111,6 +95,7 @@ def is_modified_terminal(v):
         else:
             return False
     return True
+
 
 def strip_modified_terminal(v):
     "Extract core Terminal from a modified terminal or return None."
@@ -131,9 +116,7 @@ def analyse_modified_terminal(expr):
     and 0-1 ReferenceValue, 0-1 Restricted, 0-1 Indexed, and 0-1 FacetAvg or CellAvg objects.
     """
     # Data to determine
-    component = None
-    global_derivatives = []
-    local_derivatives = []
+    local_derivatives = 0
     reference_value = None
     restriction = None
     averaged = None
@@ -141,27 +124,13 @@ def analyse_modified_terminal(expr):
     # Start with expr and strip away layers of modifiers
     t = expr
     while not t._ufl_is_terminal_:
-        if isinstance(t, Indexed):
-            ffc_assert(component is None, "Got twice indexed terminal.")
-            t, i = t.ufl_operands
-            ffc_assert(all(isinstance(j, FixedIndex) for j in i), "Expected only fixed indices.")
-            component = [int(j) for j in i]
-
-        elif isinstance(t, ReferenceValue):
+        if isinstance(t, ReferenceValue):
             ffc_assert(reference_value is None, "Got twice pulled back terminal!")
             reference_value = True
             t, = t.ufl_operands
 
         elif isinstance(t, ReferenceGrad):
-            ffc_assert(len(component), "Got local gradient of terminal without prior indexing.")
-            local_derivatives.append(component[-1])
-            component = component[:-1]
-            t, = t.ufl_operands
-
-        elif isinstance(t, Grad):
-            ffc_assert(len(component), "Got gradient of terminal without prior indexing.")
-            global_derivatives.append(component[-1])
-            component = component[:-1]
+            local_derivatives += 1
             t, = t.ufl_operands
 
         elif isinstance(t, Restricted):
@@ -185,61 +154,15 @@ def analyse_modified_terminal(expr):
         else:
             error("Unexpected type %s object %s." % (type(t), repr(t)))
 
-    # Make canonical representation of derivatives
-    global_derivatives = tuple(sorted(global_derivatives))
-    local_derivatives = tuple(sorted(local_derivatives))
-
-    # TODO: Temporarily letting local_derivatives imply reference_value,
-    #       but this was not intended to be the case
-    #if local_derivatives:
-    #    reference_value = True
-
     # Make reference_value true or false
     if reference_value is None:
         reference_value = False
 
-    # Make sure component is an integer tuple
-    if component is None:
-        component = ()
-    else:
-        component = tuple(component)
-
-    # Get the (reference or global) shape of the core terminal
-    if reference_value:
-        tshape = t.ufl_element().reference_value_shape()
-    else:
-        tshape = t.ufl_shape
-
-    # Assert that component is within the shape of the terminal
-    ffc_assert(len(component) == len(tshape),
-               "Length of component does not match rank of terminal.")
-    ffc_assert(all(c >= 0 and c < d for c, d in zip(component, tshape)),
-               "Component indices %s are outside value shape %s" % (component, tshape))
-
-    # Flatten component
-    if isinstance(t, FormArgument):
-        symmetry = t.ufl_element().symmetry()
-        if symmetry and reference_value:
-            ffc_assert(t.ufl_element().value_shape() == t.ufl_element().reference_value_shape(),
-                       "The combination of element symmetries and "
-                       "Piola mapped elements is not currently handled.")
-    else:
-        symmetry = {}
-    vi2si, si2vi = build_component_numbering(tshape, symmetry)
-    flat_component = vi2si[component]
-    # num_flat_components = len(si2vi)
-
-    mt = ModifiedTerminal(expr, t, global_derivatives, local_derivatives,
-                          averaged, restriction, component, flat_component, reference_value)
+    mt = ModifiedTerminal(expr, t, local_derivatives, averaged, restriction, reference_value)
 
     if local_derivatives and not reference_value:
         print("Local derivatives of non-local value?")
-        import IPython; IPython.embed()
+        # import IPython; IPython.embed()
         error("Local derivatives of non-local value?")
-
-    if global_derivatives and reference_value:
-        print("Global derivatives of local value?")
-        import IPython; IPython.embed()
-        error("Global derivatives of local value?")
 
     return mt
