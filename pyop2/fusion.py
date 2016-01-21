@@ -1355,7 +1355,7 @@ class Inspector(Cached):
         ldargs = ['-L%s/%s' % (slope_dir, slope.get_lib_dir()),
                   '-l%s' % slope.get_lib_name(),
                   '-L%s/lib' % os.environ['SLOPE_METIS'],
-                  '-lmetis']
+                  '-lmetis', '-lrt']
 
         # Compile and run inspector
         fun = compilation.load(src, "cpp", "inspector", cppargs, ldargs,
