@@ -6,16 +6,17 @@ import itertools
 import numpy
 from singledispatch import singledispatch
 
+import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
                          QuadratureWeight, ReferenceValue,
-                         ScalarValue, Zero)
+                         ScalarValue, Zero, CellFacetJacobian)
 
 from ffc.fiatinterface import create_element
 
 from firedrake.fc.modified_terminals import is_modified_terminal, analyse_modified_terminal
-from firedrake.fc.constants import PRECISION
+from firedrake.fc.constants import NUMPY_TYPE, PRECISION
 from firedrake.fc import einstein as ein
 from firedrake.fc.einstein import FromUFLMixin
 
@@ -205,6 +206,18 @@ def _(terminal, e, mt, params):
         return result.item()
 
 
+@translate.register(CellFacetJacobian)
+def _(terminal, e, mt, params):
+    i = ein.Index()
+    j = ein.Index()
+    f = ein.VariableIndex('facet[0]')
+    return ein.ComponentTensor(
+        ein.Indexed(
+            ein.ListTensor(make_cell_facet_jacobian(terminal)),
+            (f, i, j)),
+        (i, j))
+
+
 def process(integrand, quadrature_points, quadrature_weights, argument_indices, coefficient_map):
     # Replace SpatialCoordinate nodes with Coefficients
     integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
@@ -233,3 +246,62 @@ def process(integrand, quadrature_points, quadrature_weights, argument_indices, 
 
     translator = Translator(quadrature_weights, quadrature_index, argument_indices, tables, coefficient_map)
     return quadrature_index, map_expr_dag(translator, integrand)
+
+
+def make_cell_facet_jacobian(terminal):
+
+    interval = numpy.array([[1.0],
+                            [1.0]], dtype=NUMPY_TYPE)
+
+    triangle = numpy.array([[-1.0, 1.0],
+                            [0.0, 1.0],
+                            [1.0, 0.0]], dtype=NUMPY_TYPE)
+
+    tetrahedron = numpy.array([[-1.0, -1.0, 1.0, 0.0, 0.0, 1.0],
+                               [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+                               [1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+                               [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]], dtype=NUMPY_TYPE)
+
+    quadrilateral = numpy.array([[0.0, 1.0],
+                                 [0.0, 1.0],
+                                 [1.0, 0.0],
+                                 [1.0, 0.0]], dtype=NUMPY_TYPE)
+
+    # Outer product cells
+    # Convention is:
+    # Bottom facet, top facet, then the extruded facets in the order
+    # of the base cell
+    interval_x_interval = numpy.array([[1.0, 0.0],
+                                       [1.0, 0.0],
+                                       [0.0, 1.0],
+                                       [0.0, 1.0]], dtype=NUMPY_TYPE)
+
+    triangle_x_interval = numpy.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                                       [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                                       [-1.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+                                       [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+                                       [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]], dtype=NUMPY_TYPE)
+
+    quadrilateral_x_interval = numpy.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                                            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+                                            [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+                                            [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
+                                            [1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+                                            [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]],
+                                           dtype=NUMPY_TYPE)
+
+    cell = terminal.ufl_domain().ufl_cell()
+    cell = cell.reconstruct(geometric_dimension=cell.topological_dimension())
+
+    cell_to_table = {ufl.Cell("interval"): interval,
+                     ufl.Cell("triangle"): triangle,
+                     ufl.Cell("quadrilateral"): quadrilateral,
+                     ufl.Cell("tetrahedron"): tetrahedron,
+                     ufl.OuterProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
+                     ufl.OuterProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
+                     ufl.OuterProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
+
+    table = cell_to_table[cell]
+
+    shape = table.shape[:1] + terminal.ufl_shape
+    return table.reshape(shape)

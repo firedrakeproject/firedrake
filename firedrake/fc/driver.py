@@ -78,6 +78,10 @@ def compile_form(form, prefix="form", parameters=None):
         arglist.append(decl)
         coefficient_map[coefficient] = make_kernel_argument(coefficient, "w_%d" % i)
 
+    if integral_type.startswith("exterior_facet"):
+        decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(1,)))
+        arglist.append(decl)
+
     cell = integrand.ufl_domain().ufl_cell()
     quad_points, quad_weights = create_quadrature(cell, quadrature_degree)
 

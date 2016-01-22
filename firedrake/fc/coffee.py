@@ -277,6 +277,8 @@ def _(expr, parameters):
     for index in expr.multiindex:
         if isinstance(index, ein.Index):
             rank.append(parameters.names[index])
+        elif isinstance(index, ein.VariableIndex):
+            rank.append(index.name)
         else:
             rank.append(index)
     return coffee.Symbol(expression(expr.children[0], parameters),

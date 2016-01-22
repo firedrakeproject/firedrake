@@ -140,6 +140,11 @@ class Index(object):
     pass
 
 
+class VariableIndex(object):
+    def __init__(self, name):
+        self.name = name
+
+
 class Indexed(Node):
     __slots__ = ('children', 'multiindex')
     __back__ = ('multiindex',)
