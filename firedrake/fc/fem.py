@@ -257,10 +257,20 @@ def _(terminal, e, mt, params):
     def evaluate(table, kernel_argument):
         q = ein.Index()
         r = ein.Index()
+
+        if mt.restriction is None:
+            kar = ein.Indexed(kernel_argument, (r,))
+        elif mt.restriction is '+':
+            kar = ein.Indexed(kernel_argument, (0, r))
+        elif mt.restriction is '-':
+            kar = ein.Indexed(kernel_argument, (1, r))
+        else:
+            assert False
+
         return ein.ComponentTensor(
             ein.IndexSum(
                 ein.Product(ein.Indexed(table, (q, r)),
-                            ein.Indexed(kernel_argument, (r,))),
+                            kar),
                 r),
             (q,))
 

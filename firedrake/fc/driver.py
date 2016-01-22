@@ -6,6 +6,7 @@ from ufl.algorithms import compute_form_data, estimate_total_polynomial_degree
 
 from ffc.log import info_green
 from ffc.fiatinterface import create_element
+from ffc.mixedelement import MixedElement as ffc_MixedElement
 from ffc.representationutils import create_quadrature_points_and_weights
 
 import coffee.base as coffee
@@ -68,7 +69,7 @@ def compile_integral(integral, fd, quadrature_degree, prefix):
     arglist.append(coffee.Decl("const %s *restrict" % SCALAR_TYPE,
                                coffee.Symbol("coordinate_dofs",
                                              rank=(fiat_element.space_dimension(),))))
-    coefficient_map[mesh.coordinates] = make_kernel_argument(mesh.coordinates, "coordinate_dofs")
+    coefficient_map[mesh.coordinates] = make_kernel_argument(fiat_element, "coordinate_dofs", integral_type)
 
     coefficients = fd.preprocessed_form.coefficients()
     for i, coefficient in enumerate(coefficients):
@@ -79,10 +80,13 @@ def compile_integral(integral, fd, quadrature_degree, prefix):
             rank = (fiat_element.space_dimension(),)
         decl = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
         arglist.append(decl)
-        coefficient_map[coefficient] = make_kernel_argument(coefficient, "w_%d" % i)
+        coefficient_map[coefficient] = make_kernel_argument(fiat_element, "w_%d" % i, integral_type)
 
     if integral_type.startswith("exterior_facet"):
         decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(1,)))
+        arglist.append(decl)
+    elif integral_type.startswith("interior_facet"):
+        decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(2,)))
         arglist.append(decl)
 
     cell = integrand.ufl_domain().ufl_cell()
@@ -119,12 +123,33 @@ def compile_integral(integral, fd, quadrature_degree, prefix):
     return kernel
 
 
-def make_kernel_argument(coefficient, name):
-    fiat_element = create_element(coefficient.ufl_element())
-    arg = ein.Variable(name, (fiat_element.space_dimension(), 1))
+def make_kernel_argument(fiat_element, name, integral_type):
+    if integral_type.startswith("interior_facet"):
+        arg = ein.Variable(name, (2 * fiat_element.space_dimension(), 1))
 
-    i = ein.Index()
-    return ein.ComponentTensor(ein.Indexed(arg, (i, 0)), (i,))
+        if isinstance(fiat_element, ffc_MixedElement):
+            elements = fiat_element.elements()
+        else:
+            elements = (fiat_element,)
+
+        facet0 = []
+        facet1 = []
+        offset = 0
+        for element in elements:
+            space_dim = element.space_dimension()
+            facet0.extend(range(offset, offset + space_dim))
+            offset += space_dim
+            facet1.extend(range(offset, offset + space_dim))
+            offset += space_dim
+
+        return ein.ListTensor([[ein.Indexed(arg, (i, 0)) for i in facet0],
+                               [ein.Indexed(arg, (i, 0)) for i in facet1]])
+
+    else:
+        arg = ein.Variable(name, (fiat_element.space_dimension(), 1))
+
+        i = ein.Index()
+        return ein.ComponentTensor(ein.Indexed(arg, (i, 0)), (i,))
 
 
 def make_index_orderer(index_ordering):
