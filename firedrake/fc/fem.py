@@ -11,7 +11,8 @@ from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
                          QuadratureWeight, ReferenceValue,
-                         ScalarValue, Zero, CellFacetJacobian)
+                         ScalarValue, Zero, CellFacetJacobian,
+                         ReferenceNormal)
 
 from ffc.fiatinterface import create_element, reference_cell
 
@@ -288,6 +289,17 @@ def _(terminal, e, mt, params):
         (i, j))
 
 
+@translate.register(ReferenceNormal)
+def _(terminal, e, mt, params):
+    i = ein.Index()
+    f = ein.VariableIndex('facet[0]')
+    return ein.ComponentTensor(
+        ein.Indexed(
+            ein.ListTensor(make_reference_normal(terminal)),
+            (f, i,)),
+        (i,))
+
+
 def process(integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
     # Replace SpatialCoordinate nodes with Coefficients
     integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
@@ -359,6 +371,59 @@ def make_cell_facet_jacobian(terminal):
                                             [1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
                                             [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]],
                                            dtype=NUMPY_TYPE)
+
+    cell = terminal.ufl_domain().ufl_cell()
+    cell = cell.reconstruct(geometric_dimension=cell.topological_dimension())
+
+    cell_to_table = {ufl.Cell("interval"): interval,
+                     ufl.Cell("triangle"): triangle,
+                     ufl.Cell("quadrilateral"): quadrilateral,
+                     ufl.Cell("tetrahedron"): tetrahedron,
+                     ufl.OuterProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
+                     ufl.OuterProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
+                     ufl.OuterProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
+
+    table = cell_to_table[cell]
+
+    shape = table.shape[:1] + terminal.ufl_shape
+    return table.reshape(shape)
+
+
+def make_reference_normal(terminal):
+    interval = numpy.array([[-1.0],
+                            [1.0]], dtype=NUMPY_TYPE)
+
+    triangle = numpy.array([[1.0, 1.0],
+                            [-1.0, 0.0],
+                            [0.0, -1.]], dtype=NUMPY_TYPE)
+
+    tetrahedron = numpy.array([[1.0, 1.0, 1.0],
+                               [-1.0, 0.0, 0.0],
+                               [0.0, -1.0, 0.0],
+                               [0.0, 0.0, -1.0]], dtype=NUMPY_TYPE)
+
+    quadrilateral = numpy.array([[-1.0, 0.0],
+                                 [1.0, 0.0],
+                                 [0.0, -1.0],
+                                 [0.0, 1.0]], dtype=NUMPY_TYPE)
+
+    interval_x_interval = numpy.array([[0.0, -1.0],
+                                       [0.0, 1.0],
+                                       [-1.0, 0.0],
+                                       [1.0, 0.0]], dtype=NUMPY_TYPE)
+
+    triangle_x_interval = numpy.array([[0.0, 0.0, -1.0],
+                                       [0.0, 0.0, 1.0],
+                                       [1.0, 1.0, 0.0],
+                                       [-1.0, 0.0, 0.0],
+                                       [0.0, -1.0, 0.0]], dtype=NUMPY_TYPE)
+
+    quadrilateral_x_interval = numpy.array([[0.0, 0.0, -1.0],
+                                            [0.0, 0.0, 1.0],
+                                            [-1.0, 0.0, 0.0],
+                                            [1.0, 0.0, 0.0],
+                                            [0.0, -1.0, 0.0],
+                                            [0.0, 1.0, 0.0]], dtype=NUMPY_TYPE)
 
     cell = terminal.ufl_domain().ufl_cell()
     cell = cell.reconstruct(geometric_dimension=cell.topological_dimension())

@@ -17,8 +17,6 @@ from firedrake.fc.coffee import SCALAR_TYPE, generate as generate_coffee
 def compile_form(form, prefix="form", parameters=None):
     assert not isinstance(form, (list, tuple))
 
-    cpu_time = time.time()
-
     # We might want to estimate quadrature degree for each integral
     # separately.  However, we must do it before the pullback.
     quadrature_degree = estimate_total_polynomial_degree(form, default_degree=NotImplemented)
@@ -29,10 +27,15 @@ def compile_form(form, prefix="form", parameters=None):
                            do_apply_geometry_lowering=True,
                            do_apply_restrictions=True)
 
-    if len(fd.preprocessed_form.integrals()) != 1:
-        raise NotImplementedError("Cannot handle multiple integrals.")
+    kernels = []
+    for integral in fd.preprocessed_form.integrals():
+        kernels.append(compile_integral(integral, fd, quadrature_degree, prefix))
+    return kernels
 
-    integral, = fd.preprocessed_form.integrals()
+
+def compile_integral(integral, fd, quadrature_degree, prefix):
+    cpu_time = time.time()
+
     integral_type = integral.integral_type()
     integrand = integral.integrand()
 
@@ -109,13 +112,11 @@ def compile_form(form, prefix="form", parameters=None):
     body = generate_coffee(indexed_ops, temporaries, shape_map,
                            apply_ordering, index_extents, index_names)
 
-    # TODO:
-    # funname = "form_%s_integral_%s_%s" % (itype, uflacs_ir["subdomain_id"], uflacs_ir["form_id"])
-    funname = "%s_%s_integral_%s_%s" % (prefix, integral_type, "0", "otherwise")
+    funname = "%s_%s_integral_%s_%s" % (prefix, integral_type, "0", integral.subdomain_id())
     kernel = coffee.FunDecl("void", funname, arglist, body, pred=["static", "inline"])
 
     info_green("firedrake.fc finished in %g seconds." % (time.time() - cpu_time))
-    return [kernel]
+    return kernel
 
 
 def make_kernel_argument(coefficient, name):

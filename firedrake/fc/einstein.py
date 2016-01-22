@@ -355,6 +355,7 @@ def collect_index_extents(expression):
 
     for node in traversal(expression):
         if isinstance(node, Indexed):
+            assert len(node.multiindex) == len(node.children[0].shape)
             for index, extent in zip(node.multiindex, node.children[0].shape):
                 if isinstance(index, Index):
                     if index not in result:
