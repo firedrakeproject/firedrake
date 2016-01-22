@@ -87,7 +87,9 @@ def compile_form(form, prefix="form", parameters=None):
     quad_points, quad_weights = create_quadrature_points_and_weights(integral_type, cell,
                                                                      quadrature_degree, rule="default")
 
-    quadrature_index, nonfem = fem.process(integrand, quad_points, quad_weights, argument_indices, coefficient_map)
+    tabulation_manager = fem.TabulationManager(integral_type, cell, quad_points)
+    quadrature_index, nonfem = fem.process(integrand, tabulation_manager, quad_weights,
+                                           argument_indices, coefficient_map)
     nonfem = ein.IndexSum(nonfem, quadrature_index)
 
     simplified = ein.inline_indices(nonfem)

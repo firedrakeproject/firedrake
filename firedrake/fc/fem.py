@@ -13,7 +13,7 @@ from ufl.classes import (Argument, Coefficient, FormArgument,
                          QuadratureWeight, ReferenceValue,
                          ScalarValue, Zero, CellFacetJacobian)
 
-from ffc.fiatinterface import create_element
+from ffc.fiatinterface import create_element, reference_cell
 
 from firedrake.fc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from firedrake.fc.constants import NUMPY_TYPE, PRECISION
@@ -89,37 +89,107 @@ class CollectModifiedTerminals(MultiFunction, ModifiedTerminalMixin):
         self.return_list.append(o)
 
 
+class NumericTabulator(object):
+
+    def __init__(self, points):
+        self.points = points
+        self.tables = {}
+
+    def tabulate(self, ufl_element, max_deriv):
+        element = create_element(ufl_element)
+        phi = element.space_dimension()
+        C = ufl_element.reference_value_size() - len(ufl_element.symmetry())
+        q = len(self.points)
+        for D, fiat_table in element.tabulate(max_deriv, self.points).iteritems():
+            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, phi, q)
+            for c, table in enumerate(reordered_table):
+                # Copied from FFC (ffc/quadrature/quadratureutils.py)
+                table[abs(table) < epsilon] = 0
+                table[abs(table - 1.0) < epsilon] = 1.0
+                table[abs(table + 1.0) < epsilon] = -1.0
+                table[abs(table - 0.5) < epsilon] = 0.5
+                table[abs(table + 0.5) < epsilon] = -0.5
+                self.tables[(ufl_element, c, D)] = table
+
+    def __getitem__(self, key):
+        return self.tables[key]
+
+
+class TabulationManager(object):
+
+    def __init__(self, integral_type, cell, points):
+        self.integral_type = integral_type
+        self.cell = cell
+        self.points = points
+
+        self.tabulators = []
+        self.einstein_tables = {}
+
+        if integral_type == 'cell':
+            self.tabulators.append(NumericTabulator(points))
+
+        elif integral_type in ['exterior_facet', 'interior_facet']:
+            # TODO: handle and test integration on facets of intervals
+
+            for entity in range(cell.num_facets()):
+                t = reference_cell(cell).get_facet_transform(entity)
+                self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
+
+        elif integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
+            for entity in range(2):  # top and bottom
+                t = reference_cell(cell).get_horiz_facet_transform(entity)
+                self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
+
+        elif integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
+            for entity in range(cell._A.num_facets()):  # "base cell" facets
+                t = reference_cell(cell).get_vert_facet_transform(entity)
+                self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
+
+        else:
+            raise NotImplementedError("integral type %s not supported" % integral_type)
+
+    def tabulate(self, ufl_element, max_deriv):
+        for tabulator in self.tabulators:
+            tabulator.tabulate(ufl_element, max_deriv)
+
+    def __getitem__(self, key):
+        try:
+            return self.einstein_tables[key]
+        except KeyError:
+            tables = [tabulator[key] for tabulator in self.tabulators]
+
+            if self.integral_type == 'cell':
+                table, = tables
+                einstein_table = ein.ListTensor(table)
+            else:
+                table = numpy.array(tables)
+                i = ein.Index()
+                j = ein.Index()
+                f = ein.VariableIndex('facet[0]')  # TODO: interior_facet integrals
+                einstein_table = ein.ComponentTensor(
+                    ein.Indexed(
+                        ein.ListTensor(table),
+                        (f, i, j)),
+                    (i, j))
+
+            self.einstein_tables[key] = einstein_table
+            return einstein_table
+
+
 class Translator(MultiFunction, ModifiedTerminalMixin, FromUFLMixin):
 
-    def __init__(self, weights, quadrature_index, argument_indices, tables, coefficient_map):
+    def __init__(self, weights, quadrature_index, argument_indices, tabulation_manager, coefficient_map):
         MultiFunction.__init__(self)
         FromUFLMixin.__init__(self)
         self.weights = ein.ListTensor(weights)
         self.quadrature_index = quadrature_index
         self.argument_indices = argument_indices
-        self.tables = tables
+        self.tabulation_manager = tabulation_manager
         self.coefficient_map = coefficient_map
 
     def modified_terminal(self, o):
         mt = analyse_modified_terminal(o)
         return translate(mt.terminal, o, mt, self)
-
-
-def tabulate(return_map, ufl_element, max_deriv, points):
-    element = create_element(ufl_element)
-    phi = element.space_dimension()
-    C = ufl_element.value_size() - len(ufl_element.symmetry())
-    q = len(points)
-    for D, fiat_table in element.tabulate(max_deriv, points).iteritems():
-        reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, phi, q)
-        for c, table in enumerate(reordered_table):
-            # Copied from FFC (ffc/quadrature/quadratureutils.py)
-            table[abs(table) < epsilon] = 0
-            table[abs(table - 1.0) < epsilon] = 1.0
-            table[abs(table + 1.0) < epsilon] = -1.0
-            table[abs(table - 0.5) < epsilon] = 0.5
-            table[abs(table + 0.5) < epsilon] = -0.5
-            return_map[(ufl_element, c, D)] = table
 
 
 def table_keys(ufl_element, local_derivatives):
@@ -172,7 +242,7 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        table = ein.ListTensor(params.tables[key])
+        table = params.tabulation_manager[key]
         result[multiindex] = ein.Indexed(table, (params.quadrature_index, argument_index))
 
     if result.shape:
@@ -188,7 +258,7 @@ def _(terminal, e, mt, params):
         r = ein.Index()
         return ein.ComponentTensor(
             ein.IndexSum(
-                ein.Product(ein.Indexed(ein.ListTensor(table), (q, r)),
+                ein.Product(ein.Indexed(table, (q, r)),
                             ein.Indexed(kernel_argument, (r,))),
                 r),
             (q,))
@@ -197,7 +267,7 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        evaluated = evaluate(params.tables[key], params.coefficient_map[terminal])
+        evaluated = evaluate(params.tabulation_manager[key], params.coefficient_map[terminal])
         result[multiindex] = ein.Indexed(evaluated, (params.quadrature_index,))
 
     if result.shape:
@@ -218,7 +288,7 @@ def _(terminal, e, mt, params):
         (i, j))
 
 
-def process(integrand, quadrature_points, quadrature_weights, argument_indices, coefficient_map):
+def process(integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
     # Replace SpatialCoordinate nodes with Coefficients
     integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
 
@@ -234,17 +304,17 @@ def process(integrand, quadrature_points, quadrature_weights, argument_indices, 
             ufl_element = mt.terminal.ufl_element()
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
-    # Collect tabulation matrices for all components and derivatives
-    tables = {}
-
+    # Collect tabulations for all components and derivatives
     for ufl_element, max_deriv in max_derivs.items():
-        tabulate(tables, ufl_element, max_deriv, quadrature_points)
+        tabulation_manager.tabulate(ufl_element, max_deriv)
 
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
     quadrature_index = ein.Index()
 
-    translator = Translator(quadrature_weights, quadrature_index, argument_indices, tables, coefficient_map)
+    translator = Translator(quadrature_weights, quadrature_index,
+                            argument_indices, tabulation_manager,
+                            coefficient_map)
     return quadrature_index, map_expr_dag(translator, integrand)
 
 
