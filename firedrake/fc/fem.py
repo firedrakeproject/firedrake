@@ -124,7 +124,7 @@ class TabulationManager(object):
         self.points = points
 
         self.tabulators = []
-        self.einstein_tables = {}
+        self.tables = {}
 
         if integral_type == 'cell':
             self.tabulators.append(NumericTabulator(points))
@@ -153,28 +153,36 @@ class TabulationManager(object):
         for tabulator in self.tabulators:
             tabulator.tabulate(ufl_element, max_deriv)
 
-    def __getitem__(self, key):
+    def get(self, key, restriction):
         try:
-            return self.einstein_tables[key]
+            table = self.tables[key]
         except KeyError:
             tables = [tabulator[key] for tabulator in self.tabulators]
 
             if self.integral_type == 'cell':
                 table, = tables
-                einstein_table = ein.ListTensor(table)
             else:
                 table = numpy.array(tables)
-                i = ein.Index()
-                j = ein.Index()
-                f = ein.VariableIndex('facet[0]')  # TODO: interior_facet integrals
-                einstein_table = ein.ComponentTensor(
-                    ein.Indexed(
-                        ein.ListTensor(table),
-                        (f, i, j)),
-                    (i, j))
 
-            self.einstein_tables[key] = einstein_table
-            return einstein_table
+            self.tables[key] = table
+
+        if self.integral_type == 'cell':
+            return ein.ListTensor(table)
+        else:
+            if restriction == '+':
+                f = ein.VariableIndex('facet[0]')
+            elif restriction == '-':
+                f = ein.VariableIndex('facet[1]')
+            else:
+                assert False
+
+            i = ein.Index()
+            j = ein.Index()
+            return ein.ComponentTensor(
+                ein.Indexed(
+                    ein.ListTensor(table),
+                    (f, i, j)),
+                (i, j))
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, FromUFLMixin):
@@ -243,7 +251,7 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        table = params.tabulation_manager[key]
+        table = params.tabulation_manager.get(key, mt.restriction)
         result[multiindex] = ein.Indexed(table, (params.quadrature_index, argument_index))
 
     if result.shape:
@@ -278,7 +286,7 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        evaluated = evaluate(params.tabulation_manager[key], params.coefficient_map[terminal])
+        evaluated = evaluate(params.tabulation_manager.get(key, mt.restriction), params.coefficient_map[terminal])
         result[multiindex] = ein.Indexed(evaluated, (params.quadrature_index,))
 
     if result.shape:
