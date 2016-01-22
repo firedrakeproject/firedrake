@@ -6,7 +6,7 @@ from ufl.algorithms import compute_form_data, estimate_total_polynomial_degree
 
 from ffc.log import info_green
 from ffc.fiatinterface import create_element
-from ffc.quadrature_schemes import create_quadrature
+from ffc.representationutils import create_quadrature_points_and_weights
 
 import coffee.base as coffee
 
@@ -83,7 +83,9 @@ def compile_form(form, prefix="form", parameters=None):
         arglist.append(decl)
 
     cell = integrand.ufl_domain().ufl_cell()
-    quad_points, quad_weights = create_quadrature(cell, quadrature_degree)
+    # TODO: Hardcoded "default" quadrature rule!
+    quad_points, quad_weights = create_quadrature_points_and_weights(integral_type, cell,
+                                                                     quadrature_degree, rule="default")
 
     quadrature_index, nonfem = fem.process(integrand, quad_points, quad_weights, argument_indices, coefficient_map)
     nonfem = ein.IndexSum(nonfem, quadrature_index)
