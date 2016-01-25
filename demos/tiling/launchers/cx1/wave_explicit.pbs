@@ -10,7 +10,7 @@
 
 FIREDRAKE=$FIREDRAKE_DIR
 TILING=$FIREDRAKE/demos/tiling
-EXECUTABLE=$TILING/wave_explicit_fusion.py
+EXECUTABLE=$TILING/wave_explicit.py
 MESHES=$WORK/meshes/wave_explicit
 
 
