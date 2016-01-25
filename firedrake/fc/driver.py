@@ -141,7 +141,7 @@ def compile_integral(integral, fd, prefix):
                                            (quadrature_index,) + argument_indices + output_indices)
     apply_ordering = make_index_orderer(index_ordering)
 
-    shape_map = sch.Memoize(sch.indices)
+    shape_map = lambda expr: expr.free_indices
     ordered_shape_map = lambda expr: apply_ordering(shape_map(expr))
 
     indexed_ops = sch.make_ordering(output_arg, simplified, ordered_shape_map)

@@ -8,20 +8,6 @@ from firedrake.fc import einstein as ein, impero as imp
 from firedrake.fc.node import traversal
 
 
-class Memoize(object):
-    def __init__(self, function):
-        self.function = function
-        self.cache = {}
-
-    def __call__(self, arg):
-        try:
-            return self.cache[arg]
-        except KeyError:
-            result = self.function(arg, self)
-            self.cache[arg] = result
-            return result
-
-
 class Queue(object):
     def __init__(self, reference_count, get_indices):
         self.waiting = reference_count.copy()
@@ -66,35 +52,6 @@ def count_references(expression):
         for child in node.children:
             result[child] += 1
     return result
-
-
-@singledispatch
-def indices(node, rec):
-    raise AssertionError("Cannot handle foreign type: %s" % type(node))
-
-
-@indices.register(ein.Node)
-def _(node, rec):
-    result = set()
-    for child in node.children:
-        result.update(rec(child))
-    return result
-
-
-@indices.register(ein.Literal)
-@indices.register(ein.Variable)
-def _(node, rec):
-    return set()
-
-
-@indices.register(ein.Indexed)
-def _(node, rec):
-    return rec(node.children[0]) | set(filter(lambda i: isinstance(i, ein.Index), node.multiindex))
-
-
-@indices.register(ein.IndexSum)
-def _(node, rec):
-    return rec(node.children[0]) - {node.index}
 
 
 @singledispatch

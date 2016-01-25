@@ -11,8 +11,25 @@ from ufl.corealg.multifunction import MultiFunction
 from firedrake.fc.node import Node as node_Node, traversal
 
 
+class NodeMeta(type):
+    def __call__(self, *args, **kwargs):
+        # Create and initialise object
+        obj = super(NodeMeta, self).__call__(*args, **kwargs)
+
+        # Set free_indices if not set already
+        if not hasattr(obj, 'free_indices'):
+            free_indices = set()
+            for child in obj.children:
+                free_indices |= set(child.free_indices)
+            obj.free_indices = tuple(free_indices)
+
+        return obj
+
+
 class Node(node_Node):
-    __slots__ = ()
+    __metaclass__ = NodeMeta
+
+    __slots__ = ('free_indices')
 
 
 def as_node(node):
@@ -153,6 +170,9 @@ class Indexed(Node):
         self.children = (aggregate,)
         self.multiindex = multiindex
 
+        new_indices = set(i for i in multiindex if isinstance(i, Index))
+        self.free_indices = tuple(set(aggregate.free_indices) | new_indices)
+
 
 class ComponentTensor(Node):
     __slots__ = ('children', 'multiindex')
@@ -162,6 +182,9 @@ class ComponentTensor(Node):
         self.children = (expression,)
         self.multiindex = multiindex
 
+        assert set(multiindex).issubset(expression.free_indices)
+        self.free_indices = tuple(set(expression.free_indices) - set(multiindex))
+
 
 class IndexSum(Node):
     __slots__ = ('children', 'index')
@@ -170,6 +193,9 @@ class IndexSum(Node):
     def __init__(self, summand, index):
         self.children = (summand,)
         self.index = index
+
+        assert index in summand.free_indices
+        self.free_indices = tuple(set(summand.free_indices) - {index})
 
 
 class ListTensor(Node):
