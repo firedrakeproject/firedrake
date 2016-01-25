@@ -45,7 +45,7 @@ def run(args, mesh, time_scale=1):
     T = 1 / time_scale
     dt = 0.001
     t = 0
-    fs = FunctionSpace(mesh, 'Lagrange', 1)
+    fs = FunctionSpace(mesh, 'Lagrange', 1, name='fs')
     p = Function(fs)
     phi = Function(fs)
 

@@ -2,7 +2,7 @@
 
 FIREDRAKE=$FIREDRAKE_DIR
 TILING=$FIREDRAKE/demos/tiling
-EXECUTABLE=$TILING/wave_explicit_fusion.py
+EXECUTABLE=$TILING/wave_explicit.py
 MESHES=/tmp/meshes_tiling
 
 # Clean the remote cache, then dry runs on tiny mesh to generate kernels

@@ -50,7 +50,7 @@ def run(args):
     N = 100
 
     # 1) Solve -- Setup
-    V = FunctionSpace(mesh, 'Lagrange', 1)
+    V = FunctionSpace(mesh, 'Lagrange', 1, name='V')
 
     p = Function(V)
     phi = Function(V, name="phi")
