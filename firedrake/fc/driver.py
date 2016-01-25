@@ -1,6 +1,9 @@
 from __future__ import absolute_import
 
+import itertools
 import time
+
+import numpy
 
 from ufl.algorithms import compute_form_data
 
@@ -55,9 +58,10 @@ def compile_integral(integral, fd, prefix):
 
     arglist.insert(0, output_tensor)
     argument_indices = tuple(ein.Index() for i in range(len(arguments)))
+    output_indices = tuple(ein.Index() for i in range(len(arguments)))
     output_arg = ein.Variable("A", output_shape)
     if arguments:
-        output_arg = ein.Indexed(output_arg, argument_indices)
+        output_arg = ein.Indexed(output_arg, output_indices)
     else:
         output_arg = ein.Indexed(output_arg, (0,))
 
@@ -92,15 +96,29 @@ def compile_integral(integral, fd, prefix):
                                                                      quadrature_degree, rule="default")
 
     tabulation_manager = fem.TabulationManager(integral_type, cell, quad_points)
-    quadrature_index, nonfem = fem.process(integrand, tabulation_manager, quad_weights,
-                                           argument_indices, coefficient_map)
-    nonfem = ein.IndexSum(nonfem, quadrature_index)
+    quadrature_index, nonfem = fem.process(integral_type, integrand, tabulation_manager,
+                                           quad_weights, argument_indices, coefficient_map)
+    nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
 
-    simplified = ein.inline_indices(nonfem)
+    assert len(nonfem) == (2**len(arguments) if integral_type.startswith("interior_facet") else 1)
+    if integral_type.startswith("interior_facet") and arguments:
+        offset = [create_element(arg.ufl_element()).space_dimension() for arg in arguments]
+        result = numpy.empty([s*2 for s in offset], dtype=object)
+        for i, rs in enumerate(itertools.product((0, 1), repeat=len(arguments))):
+            component = ein.ComponentTensor(nonfem[i], argument_indices)
+            for mi in numpy.ndindex(tuple(offset)):
+                result[tuple(numpy.asarray(mi) + numpy.asarray(offset) * numpy.asarray(rs))] = ein.Indexed(component, mi)
+        result = ein.ListTensor(result)
+        result = ein.Indexed(result, output_indices)
+    else:
+        result, = nonfem
+        result = ein.Indexed(ein.ComponentTensor(result, argument_indices), output_indices)
+
+    simplified = ein.inline_indices(result)
 
     index_extents = ein.collect_index_extents(simplified)
     index_ordering = apply_prefix_ordering(index_extents.keys(),
-                                           (quadrature_index,) + argument_indices)
+                                           (quadrature_index,) + argument_indices + output_indices)
     apply_ordering = make_index_orderer(index_ordering)
 
     shape_map = sch.Memoize(sch.indices)

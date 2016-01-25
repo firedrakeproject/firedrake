@@ -90,6 +90,36 @@ class CollectModifiedTerminals(MultiFunction, ModifiedTerminalMixin):
         self.return_list.append(o)
 
 
+class PickRestriction(MultiFunction, ModifiedTerminalMixin):
+    """Pick out parts of an expression with specified restrictions on
+    the arguments.
+
+    :arg test: The restriction on the test function.
+    :arg trial:  The restriction on the trial function.
+
+    Returns those parts of the expression that have the requested
+    restrictions, or else :class:`ufl.classes.Zero` if no such part
+    exists.
+    """
+    def __init__(self, test=None, trial=None):
+        self.restrictions = {0: test, 1: trial}
+        MultiFunction.__init__(self)
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def multi_index(self, o):
+        return o
+
+    def modified_terminal(self, o):
+        mt = analyse_modified_terminal(o)
+        t = mt.terminal
+        r = mt.restriction
+        if isinstance(t, Argument) and r != self.restrictions[t.number()]:
+            return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
+        else:
+            return o
+
+
 class NumericTabulator(object):
 
     def __init__(self, points):
@@ -318,7 +348,7 @@ def _(terminal, e, mt, params):
         (i,))
 
 
-def process(integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
+def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
     # Replace SpatialCoordinate nodes with Coefficients
     integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
 
@@ -338,6 +368,13 @@ def process(integrand, tabulation_manager, quadrature_weights, argument_indices,
     for ufl_element, max_deriv in max_derivs.items():
         tabulation_manager.tabulate(ufl_element, max_deriv)
 
+    if integral_type.startswith("interior_facet"):
+        expressions = []
+        for rs in itertools.product(("+", "-"), repeat=len(argument_indices)):
+            expressions.append(map_expr_dag(PickRestriction(*rs), integrand))
+    else:
+        expressions = [integrand]
+
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
     quadrature_index = ein.Index()
@@ -345,7 +382,7 @@ def process(integrand, tabulation_manager, quadrature_weights, argument_indices,
     translator = Translator(quadrature_weights, quadrature_index,
                             argument_indices, tabulation_manager,
                             coefficient_map)
-    return quadrature_index, map_expr_dag(translator, integrand)
+    return quadrature_index, [map_expr_dag(translator, e) for e in expressions]
 
 
 def make_cell_facet_jacobian(terminal):
