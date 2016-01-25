@@ -315,11 +315,7 @@ class FromUFLMixin(object):
     identity = MultiFunction.undefined  # TODO
 
     def zero(self, o):
-        if o.ufl_shape:
-            # TODO: tensor-valued literal? special shaped zero?
-            return ListTensor(numpy.zeros(o.ufl_shape))
-        else:
-            return Literal(0)
+        return Literal(numpy.zeros(o.ufl_shape))
 
     def sum(self, o, *ops):
         if o.ufl_shape:

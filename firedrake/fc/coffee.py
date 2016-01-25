@@ -198,6 +198,7 @@ def _(leaf, parameters):
 def _(leaf, parameters):
     expr = leaf.expression
     if isinstance(expr, ein.ListTensor):
+        # TODO: remove constant float branch.
         if parameters.declare[leaf]:
             values = numpy.array([expression(v, parameters) for v in expr.array.flat], dtype=object)
             if all(isinstance(value, float) for value in values):
@@ -216,6 +217,12 @@ def _(leaf, parameters):
                 coffee_sym = coffee.Symbol(_ref_symbol(expr, parameters), rank=multiindex)
                 ops.append(coffee.Assign(coffee_sym, expression(value, parameters)))
             return coffee.Block(ops, open_scope=False)
+    elif isinstance(expr, ein.Literal):
+        assert parameters.declare[leaf]
+        return coffee.Decl(SCALAR_TYPE,
+                           _decl_symbol(expr, parameters),
+                           coffee.ArrayInit(expr.value, precision=PRECISION),
+                           qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
         if parameters.declare[leaf]:

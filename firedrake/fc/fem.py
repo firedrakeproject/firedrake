@@ -197,7 +197,7 @@ class TabulationManager(object):
             self.tables[key] = table
 
         if self.integral_type == 'cell':
-            return ein.ListTensor(table)
+            return ein.Literal(table)
         else:
             if restriction == '+' or restriction is None:
                 f = ein.VariableIndex('facet[0]')
@@ -210,7 +210,7 @@ class TabulationManager(object):
             j = ein.Index()
             return ein.ComponentTensor(
                 ein.Indexed(
-                    ein.ListTensor(table),
+                    ein.Literal(table),
                     (f, i, j)),
                 (i, j))
 
@@ -220,7 +220,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, FromUFLMixin):
     def __init__(self, weights, quadrature_index, argument_indices, tabulation_manager, coefficient_map):
         MultiFunction.__init__(self)
         FromUFLMixin.__init__(self)
-        self.weights = ein.ListTensor(weights)
+        self.weights = ein.Literal(weights)
         self.quadrature_index = quadrature_index
         self.argument_indices = argument_indices
         self.tabulation_manager = tabulation_manager
@@ -287,7 +287,7 @@ def _(terminal, e, mt, params):
     if result.shape:
         return ein.ListTensor(result)
     else:
-        return result.item()
+        return result[()]
 
 
 @translate.register(Coefficient)
@@ -322,7 +322,7 @@ def _(terminal, e, mt, params):
     if result.shape:
         return ein.ListTensor(result)
     else:
-        return result.item()
+        return result[()]
 
 
 @translate.register(CellFacetJacobian)
@@ -332,7 +332,7 @@ def _(terminal, e, mt, params):
     f = ein.VariableIndex('facet[0]')
     return ein.ComponentTensor(
         ein.Indexed(
-            ein.ListTensor(make_cell_facet_jacobian(terminal)),
+            ein.Literal(make_cell_facet_jacobian(terminal)),
             (f, i, j)),
         (i, j))
 
@@ -343,7 +343,7 @@ def _(terminal, e, mt, params):
     f = ein.VariableIndex('facet[0]')
     return ein.ComponentTensor(
         ein.Indexed(
-            ein.ListTensor(make_reference_normal(terminal)),
+            ein.Literal(make_reference_normal(terminal)),
             (f, i,)),
         (i,))
 

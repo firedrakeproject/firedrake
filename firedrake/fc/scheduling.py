@@ -92,10 +92,15 @@ def _(node, enqueue, emit):
         enqueue(child)
 
 
-@handle.register(ein.Literal)
 @handle.register(ein.Variable)
 def _(node, enqueue, emit):
     pass
+
+
+@handle.register(ein.Literal)
+def _(node, enqueue, emit):
+    if node.shape:
+        emit(imp.Evaluate(node))
 
 
 @handle.register(ein.Indexed)
