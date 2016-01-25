@@ -169,7 +169,7 @@ class TabulationManager(object):
         if self.integral_type == 'cell':
             return ein.ListTensor(table)
         else:
-            if restriction == '+':
+            if restriction == '+' or restriction is None:
                 f = ein.VariableIndex('facet[0]')
             elif restriction == '-':
                 f = ein.VariableIndex('facet[1]')
