@@ -32,6 +32,12 @@ class Node(node_Node):
     __slots__ = ('free_indices')
 
 
+class Scalar(Node):
+    __slots__ = ()
+
+    shape = ()
+
+
 def as_node(node):
     if isinstance(node, Node):
         return node
@@ -41,7 +47,7 @@ def as_node(node):
         raise ValueError("do not know how to make node from " + repr(node))
 
 
-class Literal(Node):
+class Literal(Scalar):
     __slots__ = ('value',)
     __front__ = ('value',)
 
@@ -62,62 +68,86 @@ class Variable(Node):
     children = ()
 
 
-class Sum(Node):
+class Sum(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+
         self.children = a, b
 
 
-class Product(Node):
+class Product(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+
         self.children = a, b
 
 
-class Division(Node):
+class Division(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+
         self.children = a, b
 
 
-class Power(Node):
+class Power(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, base, exponent):
+        assert not base.shape
+        assert not exponent.shape
+
         self.children = base, exponent
 
 
-class MathFunction(Node):
+class MathFunction(Scalar):
     __slots__ = ('name', 'children')
     __front__ = ('name',)
 
     def __init__(self, name, argument):
+        assert isinstance(name, str)
+        assert not argument.shape
+
         self.name = name
         self.children = argument,
 
 
-class MinValue(Node):
+class MinValue(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+
         self.children = a, b
 
 
-class MaxValue(Node):
+class MaxValue(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+
         self.children = a, b
 
 
-class Comparison(Node):
+class Comparison(Scalar):
     __slots__ = ('operator', 'children')
     __front__ = ('operator',)
 
     def __init__(self, a, op, b):
+        assert not a.shape
+        assert not b.shape
+
         if op not in [">", ">=", "==", "!=", "<", "<="]:
             raise ValueError("invalid operator")
 
@@ -125,36 +155,57 @@ class Comparison(Node):
         self.children = a, b
 
 
-class LogicalNot(Node):
+class LogicalNot(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, expression):
+        assert not expression.shape
+
         self.children = expression,
 
 
-class LogicalAnd(Node):
+class LogicalAnd(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+
         self.children = a, b
 
 
-class LogicalOr(Node):
+class LogicalOr(Scalar):
     __slots__ = ('children',)
 
     def __init__(self, a, b):
+        assert not a.shape
+        assert not b.shape
+
         self.children = a, b
 
 
 class Conditional(Node):
-    __slots__ = ('children',)
+    __slots__ = ('children', 'shape')
 
     def __init__(self, condition, then, else_):
+        assert not condition.shape
+        assert then.shape == else_.shape
+
         self.children = condition, then, else_
+        self.shape = then.shape
 
 
 class Index(object):
-    pass
+    __slots__ = ('extent')
+
+    def __init__(self):
+        self.extent = None
+
+    def set_extent(self, value):
+        if self.extent is None:
+            self.extent = value
+        elif self.extent != value:
+            raise ValueError("Inconsistent index extents!")
 
 
 class VariableIndex(object):
@@ -162,11 +213,16 @@ class VariableIndex(object):
         self.name = name
 
 
-class Indexed(Node):
+class Indexed(Scalar):
     __slots__ = ('children', 'multiindex')
     __back__ = ('multiindex',)
 
     def __init__(self, aggregate, multiindex):
+        assert len(aggregate.shape) == len(multiindex)
+        for index, extent in zip(multiindex, aggregate.shape):
+            if isinstance(index, Index):
+                index.set_extent(extent)
+
         self.children = (aggregate,)
         self.multiindex = multiindex
 
@@ -175,26 +231,32 @@ class Indexed(Node):
 
 
 class ComponentTensor(Node):
-    __slots__ = ('children', 'multiindex')
+    __slots__ = ('children', 'multiindex', 'shape')
     __back__ = ('multiindex',)
 
     def __init__(self, expression, multiindex):
+        assert not expression.shape
+        assert set(multiindex) <= set(expression.free_indices)
+        assert all(index.extent for index in multiindex)
+
         self.children = (expression,)
         self.multiindex = multiindex
 
-        assert set(multiindex).issubset(expression.free_indices)
         self.free_indices = tuple(set(expression.free_indices) - set(multiindex))
+        self.shape = tuple(index.extent for index in multiindex)
 
 
-class IndexSum(Node):
+class IndexSum(Scalar):
     __slots__ = ('children', 'index')
     __back__ = ('index',)
 
     def __init__(self, summand, index):
+        assert not summand.shape
+        assert index in summand.free_indices
+
         self.children = (summand,)
         self.index = index
 
-        assert index in summand.free_indices
         self.free_indices = tuple(set(summand.free_indices) - {index})
 
 
