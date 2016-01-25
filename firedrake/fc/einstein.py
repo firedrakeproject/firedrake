@@ -47,14 +47,28 @@ def as_node(node):
         raise ValueError("do not know how to make node from " + repr(node))
 
 
-class Literal(Scalar):
+class Literal(Node):
     __slots__ = ('value',)
     __front__ = ('value',)
 
     def __init__(self, value):
-        self.value = value
+        self.value = numpy.asarray(value, dtype=float)
 
     children = ()
+
+    def is_equal(self, other):
+        if type(self) != type(other):
+            return False
+        if self.shape != other.shape:
+            return False
+        return tuple(self.value.flat) == tuple(other.value.flat)
+
+    def get_hash(self):
+        return hash((type(self), self.shape, tuple(self.value.flat)))
+
+    @property
+    def shape(self):
+        return self.value.shape
 
 
 class Variable(Node):

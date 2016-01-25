@@ -263,7 +263,8 @@ def _(expr, parameters):
 
 @handle.register(ein.Literal)
 def _(expr, parameters):
-    return expr.value
+    assert not expr.shape
+    return expr.value[()]
 
 
 @handle.register(ein.Variable)
