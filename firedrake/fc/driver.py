@@ -108,6 +108,26 @@ def compile_integral(integral, fd, prefix):
             component = ein.ComponentTensor(nonfem[i], argument_indices)
             for mi in numpy.ndindex(tuple(offset)):
                 result[tuple(numpy.asarray(mi) + numpy.asarray(offset) * numpy.asarray(rs))] = ein.Indexed(component, mi)
+
+        reorder = []
+        element = create_element(arguments[0].ufl_element())
+        if isinstance(element, ffc_MixedElement):
+            r = numpy.arange(2 * element.space_dimension()).reshape(2, len(element.elements()), -1).transpose(1, 0, 2).reshape(-1)
+            reorder += list(r + len(reorder))
+        else:
+            reorder += range(len(reorder), len(reorder) + element.space_dimension())
+        result = result[reorder]
+
+        if len(arguments) == 2:
+            reorder = []
+            element = create_element(arguments[1].ufl_element())
+            if isinstance(element, ffc_MixedElement):
+                r = numpy.arange(2 * element.space_dimension()).reshape(2, len(element.elements()), -1).transpose(1, 0, 2).reshape(-1)
+                reorder += list(r + len(reorder))
+            else:
+                reorder += range(len(reorder), len(reorder) + element.space_dimension())
+            result = result[:, reorder]
+
         result = ein.ListTensor(result)
         result = ein.Indexed(result, output_indices)
     else:
