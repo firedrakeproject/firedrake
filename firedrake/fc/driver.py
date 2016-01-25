@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 import time
 
-from ufl.algorithms import compute_form_data, estimate_total_polynomial_degree
+from ufl.algorithms import compute_form_data
 
 from ffc.log import info_green
 from ffc.fiatinterface import create_element
@@ -18,10 +18,6 @@ from firedrake.fc.coffee import SCALAR_TYPE, generate as generate_coffee
 def compile_form(form, prefix="form", parameters=None):
     assert not isinstance(form, (list, tuple))
 
-    # We might want to estimate quadrature degree for each integral
-    # separately.  However, we must do it before the pullback.
-    quadrature_degree = estimate_total_polynomial_degree(form, default_degree=NotImplemented)
-
     fd = compute_form_data(form,
                            do_apply_function_pullbacks=True,
                            do_apply_integral_scaling=True,
@@ -30,13 +26,14 @@ def compile_form(form, prefix="form", parameters=None):
 
     kernels = []
     for integral in fd.preprocessed_form.integrals():
-        kernels.append(compile_integral(integral, fd, quadrature_degree, prefix))
+        kernels.append(compile_integral(integral, fd, prefix))
     return kernels
 
 
-def compile_integral(integral, fd, quadrature_degree, prefix):
+def compile_integral(integral, fd, prefix):
     cpu_time = time.time()
 
+    quadrature_degree = integral.metadata()["quadrature_degree"]
     integral_type = integral.integral_type()
     integrand = integral.integrand()
 
