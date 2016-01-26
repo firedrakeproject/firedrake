@@ -120,6 +120,49 @@ class PickRestriction(MultiFunction, ModifiedTerminalMixin):
             return o
 
 
+class SimplifyExpr(MultiFunction):
+    """Apply some simplification passes to an expression."""
+
+    expr = MultiFunction.reuse_if_untouched
+
+    # def sum(self, o, a, b):
+    #     """Splat sums to scalar (removing shape)
+
+    #     Sum(a, b) -> CT(Sum(a[i], b[i]), i)"""
+    #     if o.ufl_shape == ():
+    #         return self.expr(o, a, b)
+    #     indices = ufl.classes.MultiIndex(ufl.indexing.indices(len(o.ufl_shape)))
+    #     a = ufl.classes.Indexed(a, indices)
+    #     b = ufl.classes.Indexed(b, indices)
+    #     s = ufl.classes.Sum(a, b)
+    #     return ufl.classes.ComponentTensor(s, indices)
+
+    def abs(self, o, op):
+        """Convert Abs(CellOrientation * ...) -> Abs(...)"""
+        if isinstance(op, ufl.classes.CellOrientation):
+            # Cell orientation is +-1
+            return ufl.classes.FloatValue(1)
+        if isinstance(op, ufl.classes.ScalarValue):
+            # Inline abs(constant)
+            return self.expr(op, abs(op._value))
+        if isinstance(op, (ufl.classes.Division, ufl.classes.Product)):
+            # Visit children, distributing Abs
+            ops = tuple(map_expr_dag(self, ufl.classes.Abs(_))
+                        for _ in op.ufl_operands)
+            new_ops = []
+            # Strip Abs off again (we'll put it outside the product now)
+            for _ in ops:
+                if isinstance(_, ufl.classes.Abs):
+                    new_ops.append(_.ufl_operands[0])
+                else:
+                    new_ops.append(_)
+            # Rebuild product
+            new_prod = self.expr(op, *new_ops)
+            # Rebuild Abs
+            return self.expr(o, new_prod)
+        return self.expr(o, op)
+
+
 class NumericTabulator(object):
 
     def __init__(self, points):
@@ -356,6 +399,9 @@ def _(terminal, e, mt, params):
 def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
     # Replace SpatialCoordinate nodes with Coefficients
     integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
+
+    # Abs-simplification
+    integrand = map_expr_dag(SimplifyExpr(), integrand)
 
     # Collect modified terminals
     modified_terminals = []
