@@ -378,7 +378,12 @@ def _(terminal, e, mt, params):
 def _(terminal, e, mt, params):
     i = ein.Index()
     j = ein.Index()
-    f = ein.VariableIndex('facet[0]')
+    if mt.restriction == '+' or mt.restriction is None:
+        f = ein.VariableIndex('facet[0]')
+    elif mt.restriction == '-':
+        f = ein.VariableIndex('facet[1]')
+    else:
+        assert False
     return ein.ComponentTensor(
         ein.Indexed(
             ein.Literal(make_cell_facet_jacobian(terminal)),
@@ -389,7 +394,12 @@ def _(terminal, e, mt, params):
 @translate.register(ReferenceNormal)
 def _(terminal, e, mt, params):
     i = ein.Index()
-    f = ein.VariableIndex('facet[0]')
+    if mt.restriction == '+' or mt.restriction is None:
+        f = ein.VariableIndex('facet[0]')
+    elif mt.restriction == '-':
+        f = ein.VariableIndex('facet[1]')
+    else:
+        assert False
     return ein.ComponentTensor(
         ein.Indexed(
             ein.Literal(make_reference_normal(terminal)),
