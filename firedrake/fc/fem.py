@@ -312,16 +312,17 @@ def _(terminal, e, mt, params):
                 r),
             (q,))
 
+    if terminal.ufl_element().family() == 'Real':
+        assert mt.local_derivatives == 0
+        return params.coefficient_map[terminal]
+
     result = numpy.zeros(e.ufl_shape, dtype=object)
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        if terminal.ufl_element().family() == 'Real':
-            result[multiindex] = params.coefficient_map[terminal]
-        else:
-            evaluated = evaluate(params.tabulation_manager.get(key, mt.restriction),
-                                 params.coefficient_map[terminal])
-            result[multiindex] = ein.Indexed(evaluated, (params.quadrature_index,))
+        evaluated = evaluate(params.tabulation_manager.get(key, mt.restriction),
+                             params.coefficient_map[terminal])
+        result[multiindex] = ein.Indexed(evaluated, (params.quadrature_index,))
 
     if result.shape:
         return ein.ListTensor(result)
@@ -370,7 +371,8 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, ar
 
     # Collect tabulations for all components and derivatives
     for ufl_element, max_deriv in max_derivs.items():
-        tabulation_manager.tabulate(ufl_element, max_deriv)
+        if ufl_element.family() != 'Real':
+            tabulation_manager.tabulate(ufl_element, max_deriv)
 
     if integral_type.startswith("interior_facet"):
         expressions = []
