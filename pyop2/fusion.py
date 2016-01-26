@@ -1551,9 +1551,9 @@ def loop_chain(name, **kwargs):
         * partitioning (default='chunk'): select a partitioning mode for crafting
             tiles. The partitioning modes available are those accepted by SLOPE;
             refer to the SLOPE documentation for more info.
-        * split_mode (default=None): split the loop chain each time the special
-            object ``LoopChainTag`` is found in the trace, thus creating a specific
-            inspector for each slice.
+        * split_mode (default=0): split the loop chain every /split_mode/ occurrences
+            of the special object ``LoopChainTag`` in the trace, thus creating a
+            specific inspector for each slice.
         * log (default=False): output inspector and loop chain info to a file
     """
     assert name != lazy_trace_name, "Loop chain name must differ from %s" % lazy_trace_name
@@ -1561,7 +1561,7 @@ def loop_chain(name, **kwargs):
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
     partitioning = kwargs.setdefault('partitioning', 'chunk')
-    split_mode = kwargs.pop('split_mode', None)
+    split_mode = kwargs.pop('split_mode', 0)
 
     # Get a snapshot of the trace before new par loops are added within this
     # context manager
@@ -1586,13 +1586,14 @@ def loop_chain(name, **kwargs):
 
     # Identify sub traces
     extracted_sub_traces, sub_trace, tags = [], [], []
-    for i in extracted_trace:
-        if not isinstance(i, LoopChainTag):
-            sub_trace.append(i)
+    for loop in extracted_trace:
+        if not isinstance(loop, LoopChainTag):
+            sub_trace.append(loop)
         else:
-            extracted_sub_traces.append(sub_trace)
-            tags.append(i)
-            sub_trace = []
+            tags.append(loop)
+            if split_mode and len(tags) % split_mode == 0:
+                extracted_sub_traces.append(sub_trace)
+                sub_trace = []
     if sub_trace:
         extracted_sub_traces.append(sub_trace)
     extracted_trace = [i for i in extracted_trace if i not in tags]
@@ -1610,7 +1611,7 @@ def loop_chain(name, **kwargs):
                          for loop in extracted_trace]
             trace[bottom:] = list(flatten(new_trace))
             _trace.evaluate_all()
-    elif split_mode:
+    elif split_mode > 0:
         # 2) ... Tile over subsets of loops in the loop chain. The subsets have
         # been identified by the user through /sub_loop_chain/ or /loop_chain_tag/
         new_trace = []
