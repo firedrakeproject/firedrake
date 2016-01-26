@@ -262,6 +262,12 @@ def _(expr, parameters):
                         for c in expr.children])
 
 
+@handle.register(ein.Power)
+def _(expr, parameters):
+    base, exponent = expr.children
+    return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
+
+
 @handle.register(ein.MathFunction)
 def _(expr, parameters):
     name_map = {'abs': 'fabs', 'ln': 'log'}
