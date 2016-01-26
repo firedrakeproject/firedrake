@@ -221,7 +221,7 @@ def _(leaf, parameters):
         assert parameters.declare[leaf]
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
-                           coffee.ArrayInit(expr.value, precision=PRECISION),
+                           coffee.ArrayInit(expr.array, precision=PRECISION),
                            qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
@@ -285,9 +285,10 @@ def _(expr, parameters):
 
 
 @handle.register(ein.Literal)
+@handle.register(ein.Zero)
 def _(expr, parameters):
     assert not expr.shape
-    return expr.value[()]
+    return expr.value
 
 
 @handle.register(ein.Variable)

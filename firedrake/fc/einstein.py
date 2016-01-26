@@ -47,12 +47,34 @@ def as_node(node):
         raise ValueError("do not know how to make node from " + repr(node))
 
 
-class Literal(Node):
-    __slots__ = ('value',)
-    __front__ = ('value',)
+class Zero(Node):
+    __slots__ = ('shape',)
+    __front__ = ('shape',)
 
-    def __init__(self, value):
-        self.value = numpy.asarray(value, dtype=float)
+    def __init__(self, shape=()):
+        self.shape = shape
+
+    children = ()
+
+    @property
+    def value(self):
+        assert not self.shape
+        return 0.0
+
+
+class Literal(Node):
+    __slots__ = ('array',)
+    __front__ = ('array',)
+
+    def __new__(cls, array):
+        array = numpy.asarray(array)
+        if (array == 0).all():
+            return Zero(array.shape)
+        else:
+            return super(Literal, cls).__new__(cls)
+
+    def __init__(self, array):
+        self.array = numpy.asarray(array, dtype=float)
 
     children = ()
 
@@ -61,14 +83,18 @@ class Literal(Node):
             return False
         if self.shape != other.shape:
             return False
-        return tuple(self.value.flat) == tuple(other.value.flat)
+        return tuple(self.array.flat) == tuple(other.array.flat)
 
     def get_hash(self):
-        return hash((type(self), self.shape, tuple(self.value.flat)))
+        return hash((type(self), self.shape, tuple(self.array.flat)))
+
+    @property
+    def value(self):
+        return float(self.array)
 
     @property
     def shape(self):
-        return self.value.shape
+        return self.array.shape
 
 
 class Variable(Node):
@@ -85,21 +111,33 @@ class Variable(Node):
 class Sum(Scalar):
     __slots__ = ('children',)
 
-    def __init__(self, a, b):
+    def __new__(cls, a, b):
         assert not a.shape
         assert not b.shape
 
+        if isinstance(a, Zero):
+            return b
+        elif isinstance(b, Zero):
+            return a
+
+        self = super(Sum, cls).__new__(cls)
         self.children = a, b
+        return self
 
 
 class Product(Scalar):
     __slots__ = ('children',)
 
-    def __init__(self, a, b):
+    def __new__(cls, a, b):
         assert not a.shape
         assert not b.shape
 
+        if isinstance(a, Zero) or isinstance(b, Zero):
+            return Zero()
+
+        self = super(Product, cls).__new__(cls)
         self.children = a, b
+        return self
 
 
 class Division(Scalar):
@@ -231,12 +269,18 @@ class Indexed(Scalar):
     __slots__ = ('children', 'multiindex')
     __back__ = ('multiindex',)
 
-    def __init__(self, aggregate, multiindex):
+    def __new__(cls, aggregate, multiindex):
         assert len(aggregate.shape) == len(multiindex)
         for index, extent in zip(multiindex, aggregate.shape):
             if isinstance(index, Index):
                 index.set_extent(extent)
 
+        if isinstance(aggregate, Zero):
+            return Zero()
+        else:
+            return super(Indexed, cls).__new__(cls)
+
+    def __init__(self, aggregate, multiindex):
         self.children = (aggregate,)
         self.multiindex = multiindex
 
@@ -250,7 +294,7 @@ class ComponentTensor(Node):
 
     def __init__(self, expression, multiindex):
         assert not expression.shape
-        assert set(multiindex) <= set(expression.free_indices)
+        # assert set(multiindex) <= set(expression.free_indices)
         assert all(index.extent for index in multiindex)
 
         self.children = (expression,)
@@ -264,14 +308,19 @@ class IndexSum(Scalar):
     __slots__ = ('children', 'index')
     __back__ = ('index',)
 
-    def __init__(self, summand, index):
+    def __new__(cls, summand, index):
         assert not summand.shape
-        assert index in summand.free_indices
+        if isinstance(summand, Zero):
+            return summand
 
+        self = super(IndexSum, cls).__new__(cls)
         self.children = (summand,)
         self.index = index
 
+        assert index in summand.free_indices
         self.free_indices = tuple(set(summand.free_indices) - {index})
+
+        return self
 
 
 class ListTensor(Node):
@@ -315,7 +364,7 @@ class FromUFLMixin(object):
     identity = MultiFunction.undefined  # TODO
 
     def zero(self, o):
-        return Literal(numpy.zeros(o.ufl_shape))
+        return Zero(o.ufl_shape)
 
     def sum(self, o, *ops):
         if o.ufl_shape:

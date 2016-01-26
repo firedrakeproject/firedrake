@@ -98,6 +98,7 @@ def _(node, enqueue, emit):
 
 
 @handle.register(ein.Literal)
+@handle.register(ein.Zero)
 def _(node, enqueue, emit):
     if node.shape:
         emit(imp.Evaluate(node))
