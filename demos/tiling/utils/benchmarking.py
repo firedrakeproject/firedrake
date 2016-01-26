@@ -18,6 +18,7 @@ from pyop2.utils import flatten
 def parser(**kwargs):
     p = argparse.ArgumentParser(description='Run a Firedrake program using loop tiling')
     p.add_argument('-n', '--num-unroll', type=int, help='time loop unroll factor', default=1)
+    p.add_argument('-s', '--split-mode', type=int, help='split chain on tags', default=0)
     p.add_argument('-t', '--tile-size', type=int, help='initial average tile size', default=5)
     p.add_argument('-e', '--fusion-mode', help='(soft, hard, tile, only_tile)', default='tile')
     p.add_argument('-p', '--part-mode', help='(chunk, metis)', default='chunk')
@@ -26,6 +27,7 @@ def parser(**kwargs):
     p.add_argument('-x', '--extra-halo', type=int, help='add extra halo layer', default=0)
     p.add_argument('-v', '--verbose', help='print additional information', default=False)
     p.add_argument('-o', '--output', help='write to file the simulation output', default=False)
+    p.add_argument('-l', '--log', help='output inspector to a file', default=False)
     p.add_argument('-d', '--debug', help='debug mode (defaults to False)', default=False)
     for opt, default in kwargs.iteritems():
         p.add_argument("--%s" % opt, default=default)
@@ -40,6 +42,7 @@ def output_time(start, end, **kwargs):
     tile_size = kwargs.get('tile_size', 0)
     partitioning = kwargs.get('partitioning', 'chunk')
     extra_halo = 'yes' if kwargs.get('extra_halo', False) else 'no'
+    split_mode = kwargs.get('split_mode', None)
     backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
 
     # Where do I store the output ?
@@ -86,10 +89,15 @@ def output_time(start, end, **kwargs):
         try:
             return int(s)
         except ValueError:
-            return float(s)
+            try:
+                return float(s)
+            except ValueError:
+                return s.replace(' ', '')
     if MPI.comm.rank == 0 and tofile:
         name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
         for mode in modes:
+            if split_mode and nloops > 0:
+                nloops = "split"
             filename = os.path.join(output_dir, "times", name, "mesh%d" % mesh_size,
                                     mode, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
@@ -105,7 +113,7 @@ def output_time(start, end, **kwargs):
                 lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0])
                          for i in lines]
                 lines += [(tot, nloops, tile_size, partitioning, extra_halo)]
-                lines.sort(key=lambda x: (x[0], -x[1]))
+                lines.sort(key=lambda x: x[0])
                 prepend = "time   : nloops : tilesize : partitioning : extrahalo\n"
                 lines = prepend + "\n".join(["%s :   %s    :   %s   :    %s     :    %s" % i for i in lines]) + "\n"
                 f.seek(0)
