@@ -6,7 +6,6 @@ import numpy
 from singledispatch import singledispatch
 
 import ufl
-from ufl.corealg.multifunction import MultiFunction
 
 from firedrake.fc.node import Node as node_Node, traversal
 
@@ -361,7 +360,8 @@ class FromUFLMixin(object):
     def scalar_value(self, o):
         return Literal(o.value())
 
-    identity = MultiFunction.undefined  # TODO
+    def identity(self, o):
+        return Literal(numpy.eye(*o.ufl_shape))
 
     def zero(self, o):
         return Zero(o.ufl_shape)
