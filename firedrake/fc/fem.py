@@ -12,7 +12,7 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
                          QuadratureWeight, ReferenceValue,
                          ScalarValue, Zero, CellFacetJacobian,
-                         ReferenceNormal)
+                         CellOrientation, ReferenceNormal)
 
 from ffc.fiatinterface import create_element, reference_cell
 
@@ -269,6 +269,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, FromUFLMixin):
         self.argument_indices = argument_indices
         self.tabulation_manager = tabulation_manager
         self.coefficient_map = coefficient_map
+        self.cell_orientations = False
 
     def modified_terminal(self, o):
         mt = analyse_modified_terminal(o)
@@ -407,6 +408,23 @@ def _(terminal, e, mt, params):
         (i,))
 
 
+@translate.register(CellOrientation)
+def _(terminal, e, mt, params):
+    if mt.restriction == '+' or mt.restriction is None:
+        f = 0
+    elif mt.restriction == '-':
+        f = 1
+    else:
+        assert False
+    params.cell_orientations = True
+    raw = ein.Indexed(ein.Variable("cell_orientations", (2, 1)), (f, 0))  # TODO: (2, 1) and (1, 1)
+    return ein.Conditional(ein.Comparison("==", raw, ein.Literal(1)),
+                           ein.Literal(-1),
+                           ein.Conditional(ein.Comparison("==", raw, ein.Zero()),
+                                           ein.Literal(1),
+                                           ein.Literal(numpy.nan)))
+
+
 def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
     # Replace SpatialCoordinate nodes with Coefficients
     integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
@@ -445,7 +463,7 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, ar
     translator = Translator(quadrature_weights, quadrature_index,
                             argument_indices, tabulation_manager,
                             coefficient_map)
-    return quadrature_index, [map_expr_dag(translator, e) for e in expressions]
+    return quadrature_index, [map_expr_dag(translator, e) for e in expressions], translator.cell_orientations
 
 
 def make_cell_facet_jacobian(terminal):

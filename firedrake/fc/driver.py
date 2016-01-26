@@ -102,9 +102,13 @@ def compile_integral(integral, fd, prefix):
                                                                      quadrature_degree, rule="default")
 
     tabulation_manager = fem.TabulationManager(integral_type, cell, quad_points)
-    quadrature_index, nonfem = fem.process(integral_type, integrand, tabulation_manager,
-                                           quad_weights, argument_indices, coefficient_map)
+    quadrature_index, nonfem, cell_orientations = \
+        fem.process(integral_type, integrand, tabulation_manager, quad_weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
+
+    if cell_orientations:
+        decl = coffee.Decl("const int *restrict *restrict", coffee.Symbol("cell_orientations"))
+        arglist.insert(2, decl)
 
     assert len(nonfem) == (2**len(arguments) if integral_type.startswith("interior_facet") else 1)
     if integral_type.startswith("interior_facet") and arguments:

@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 import collections
 import itertools
+from math import isnan
 
 import numpy
 from singledispatch import singledispatch
@@ -288,7 +289,11 @@ def _(expr, parameters):
 @handle.register(ein.Zero)
 def _(expr, parameters):
     assert not expr.shape
-    return expr.value
+    if isnan(expr.value):
+        return coffee.Symbol("NAN")
+    else:
+        # Formatting? Symbol?
+        return expr.value
 
 
 @handle.register(ein.Variable)
