@@ -316,8 +316,12 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        evaluated = evaluate(params.tabulation_manager.get(key, mt.restriction), params.coefficient_map[terminal])
-        result[multiindex] = ein.Indexed(evaluated, (params.quadrature_index,))
+        if terminal.ufl_element().family() == 'Real':
+            result[multiindex] = params.coefficient_map[terminal]
+        else:
+            evaluated = evaluate(params.tabulation_manager.get(key, mt.restriction),
+                                 params.coefficient_map[terminal])
+            result[multiindex] = ein.Indexed(evaluated, (params.quadrature_index,))
 
     if result.shape:
         return ein.ListTensor(result)
