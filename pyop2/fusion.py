@@ -34,6 +34,7 @@
 """OP2 backend for fusion and tiling of parloops."""
 
 from contextlib import contextmanager
+from decorator import decorator
 from collections import OrderedDict
 from copy import deepcopy as dcopy, copy as scopy
 from itertools import groupby
@@ -1378,6 +1379,14 @@ class Inspector(Cached):
 
 # Loop fusion interface
 
+class LoopChainTag(object):
+    """A special element in the trace of lazily evaluated parallel loops that
+    delimits two different Inspectors."""
+
+    def _run(self):
+        return
+
+
 def fuse(name, loop_chain, **kwargs):
     """Apply fusion (and possibly tiling) to an iterator of :class:`ParLoop`
     obecjts, which we refer to as ``loop_chain``. Return an iterator of
@@ -1464,6 +1473,20 @@ def fuse(name, loop_chain, **kwargs):
     return schedule(loop_chain) + remainder
 
 
+@decorator
+def loop_chain_tag(method, self, *args, **kwargs):
+    from base import _trace
+    retval = method(self, *args, **kwargs)
+    _trace._trace.append(LoopChainTag())
+    return retval
+
+
+@contextmanager
+def sub_loop_chain():
+    from base import _trace
+    _trace._trace.append(LoopChainTag())
+
+
 @contextmanager
 def loop_chain(name, **kwargs):
     """Analyze the sub-trace of loops lazily evaluated in this contextmanager ::
@@ -1495,12 +1518,16 @@ def loop_chain(name, **kwargs):
         * partitioning (default='chunk'): select a partitioning mode for crafting
             tiles. The partitioning modes available are those accepted by SLOPE;
             refer to the SLOPE documentation for more info.
+        * split_mode (default=None): split the loop chain each time the special
+            object ``LoopChainTag`` is found in the trace, thus creating a specific
+            inspector for each slice.
     """
     assert name != lazy_trace_name, "Loop chain name must differ from %s" % lazy_trace_name
 
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
     partitioning = kwargs.setdefault('partitioning', 'chunk')
+    split_mode = kwargs.pop('split_mode', None)
 
     # Get a snapshot of the trace before new par loops are added within this
     # context manager
@@ -1523,8 +1550,23 @@ def loop_chain(name, **kwargs):
             break
     extracted_trace = trace[bottom:]
 
+    # Identify sub traces
+    extracted_sub_traces, sub_trace, tags = [], [], []
+    for i in extracted_trace:
+        if not isinstance(i, LoopChainTag):
+            sub_trace.append(i)
+        else:
+            extracted_sub_traces.append(sub_trace)
+            tags.append(i)
+            sub_trace = []
+    if sub_trace:
+        extracted_sub_traces.append(sub_trace)
+    extracted_trace = [i for i in extracted_trace if i not in tags]
+
+    # Three possibilities: ...
     if num_unroll < 1:
-        # No fusion, but openmp parallelization could still occur through SLOPE
+        # 1) ... No tiling requested, but the openmp backend was set. So we still
+        # omp-ize the loops going through SLOPE
         if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
             block_size = tile_size    # This is rather a 'block' size (no tiling)
             options = {'mode': 'only_omp',
@@ -1534,16 +1576,25 @@ def loop_chain(name, **kwargs):
                          for loop in extracted_trace]
             trace[bottom:] = list(flatten(new_trace))
             _trace.evaluate_all()
-        return
-
-    # Unroll the loop chain /num_unroll/ times before fusion/tiling
-    total_loop_chain = loop_chain.unrolled_loop_chain + extracted_trace
-    if len(total_loop_chain) / len(extracted_trace) == num_unroll:
-        bottom = trace.index(total_loop_chain[0])
-        trace[bottom:] = fuse(name, total_loop_chain, **kwargs)
-        loop_chain.unrolled_loop_chain = []
-        # We can now force the evaluation of the trace. This frees resources.
+    elif split_mode:
+        # 2) ... Tile over subsets of loops in the loop chain. The subsets have
+        # been identified by the user through /sub_loop_chain/ or /loop_chain_tag/
+        new_trace = []
+        for i, sub_loop_chain in enumerate(extracted_sub_traces):
+            sub_name = "%s_sub%d" % (name, i)
+            new_trace.append(fuse(sub_name, sub_loop_chain, **kwargs))
+        trace[bottom:] = list(flatten(new_trace))
         _trace.evaluate_all()
     else:
-        loop_chain.unrolled_loop_chain.extend(extracted_trace)
+        # 3) ... Tile over the entire loop chain, possibly unrolled as by user
+        # request of a factor = /num_unroll/
+        total_loop_chain = loop_chain.unrolled_loop_chain + extracted_trace
+        if len(total_loop_chain) / len(extracted_trace) == num_unroll:
+            bottom = trace.index(total_loop_chain[0])
+            trace[bottom:] = fuse(name, total_loop_chain, **kwargs)
+            loop_chain.unrolled_loop_chain = []
+            # We force the evaluation of the trace, because this frees resources
+            _trace.evaluate_all()
+        else:
+            loop_chain.unrolled_loop_chain.extend(extracted_trace)
 loop_chain.unrolled_loop_chain = []
