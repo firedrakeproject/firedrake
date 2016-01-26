@@ -61,8 +61,8 @@ def impero_indices(node, indices):
 
 @impero_indices.register(imp.Return)
 def _(node, indices):
-    assert indices(node.variable) == indices(node.expression)
-    return indices(node.expression)
+    assert set(node.variable.free_indices) >= set(node.expression.free_indices)
+    return indices(node.variable)
 
 
 @impero_indices.register(imp.Initialise)

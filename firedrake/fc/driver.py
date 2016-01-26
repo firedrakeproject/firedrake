@@ -121,7 +121,7 @@ def compile_integral(integral, fd, prefix):
             r = numpy.arange(2 * element.space_dimension()).reshape(2, len(element.elements()), -1).transpose(1, 0, 2).reshape(-1)
             reorder += list(r + len(reorder))
         else:
-            reorder += range(len(reorder), len(reorder) + element.space_dimension())
+            reorder += range(len(reorder), len(reorder) + 2 * element.space_dimension())
         result = result[reorder]
 
         if len(arguments) == 2:
@@ -131,7 +131,7 @@ def compile_integral(integral, fd, prefix):
                 r = numpy.arange(2 * element.space_dimension()).reshape(2, len(element.elements()), -1).transpose(1, 0, 2).reshape(-1)
                 reorder += list(r + len(reorder))
             else:
-                reorder += range(len(reorder), len(reorder) + element.space_dimension())
+                reorder += range(len(reorder), len(reorder) + 2 * element.space_dimension())
             result = result[:, reorder]
 
         result = ein.ListTensor(result)
@@ -143,6 +143,9 @@ def compile_integral(integral, fd, prefix):
     simplified = ein.inline_indices(result)
 
     index_extents = ein.collect_index_extents(simplified)
+    for output_index in output_indices:
+        assert output_index.extent
+        index_extents[output_index] = output_index.extent
     index_ordering = apply_prefix_ordering(index_extents.keys(),
                                            (quadrature_index,) + argument_indices + output_indices)
     apply_ordering = make_index_orderer(index_ordering)
