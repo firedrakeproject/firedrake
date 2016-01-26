@@ -9,10 +9,11 @@ from singledispatch import singledispatch
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, CellFacetJacobian, CellOrientation,
-                         Coefficient, FormArgument, QuadratureWeight,
-                         ReferenceCellVolume, ReferenceNormal,
-                         ReferenceValue, ScalarValue, Zero)
+from ufl.classes import (Argument, CellEdgeVectors, CellFacetJacobian,
+                         CellOrientation, Coefficient, FormArgument,
+                         QuadratureWeight, ReferenceCellVolume,
+                         ReferenceNormal, ReferenceValue, ScalarValue,
+                         Zero)
 
 from ffc.fiatinterface import create_element, reference_cell
 
@@ -438,6 +439,11 @@ def _(terminal, e, mt, params):
     return ein.Literal(volume[cell])
 
 
+@translate.register(CellEdgeVectors)
+def _(terminal, e, mt, params):
+    return ein.Literal(make_cell_edge_vectors(terminal))
+
+
 def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
     # Replace SpatialCoordinate nodes with Coefficients
     integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
@@ -589,3 +595,17 @@ def make_reference_normal(terminal):
 
     shape = table.shape[:1] + terminal.ufl_shape
     return table.reshape(shape)
+
+
+def make_cell_edge_vectors(terminal):
+    from ffc.fiatinterface import reference_cell
+    from FIAT.reference_element import two_product_cell
+    shape = terminal.ufl_shape
+    cell = reference_cell(terminal.ufl_domain().ufl_cell())
+    if isinstance(cell, two_product_cell):
+        raise NotImplementedError("CEV not implemented on OPEs yet")
+    nedge = len(cell.get_topology()[1])
+    vecs = numpy.vstack(tuple(cell.compute_edge_tangent(i) for i in range(nedge))).astype(NUMPY_TYPE)
+
+    assert vecs.shape == shape
+    return vecs
