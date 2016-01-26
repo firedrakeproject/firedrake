@@ -76,12 +76,12 @@ def compile_integral(integral, fd, prefix):
     for i, coefficient in enumerate(coefficients):
         if coefficient.ufl_element().family() == "Real":
             rank = coefficient.ufl_shape
-            arg = ein.Variable("w_%d" % i, coefficient.ufl_shape + (1,))
+            argument = ein.Variable("w_%d" % i, coefficient.ufl_shape + (1,))
             multiindex = tuple(ein.Index() for i in xrange(len(coefficient.ufl_shape)))
             if multiindex:
-                coefficient_map[coefficient] = ein.ComponentTensor(ein.Indexed(arg, multiindex + (0,)), multiindex)
+                coefficient_map[coefficient] = ein.ComponentTensor(ein.Indexed(argument, multiindex + (0,)), multiindex)
             else:
-                coefficient_map[coefficient] = ein.Indexed(arg, (0,))
+                coefficient_map[coefficient] = ein.Indexed(argument, (0,))
         else:
             fiat_element = create_element(coefficient.ufl_element())
             rank = (fiat_element.space_dimension(),)
