@@ -9,10 +9,10 @@ from singledispatch import singledispatch
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, Coefficient, FormArgument,
-                         QuadratureWeight, ReferenceValue,
-                         ScalarValue, Zero, CellFacetJacobian,
-                         CellOrientation, ReferenceNormal)
+from ufl.classes import (Argument, CellFacetJacobian, CellOrientation,
+                         Coefficient, FormArgument, QuadratureWeight,
+                         ReferenceCellVolume, ReferenceNormal,
+                         ReferenceValue, ScalarValue, Zero)
 
 from ffc.fiatinterface import create_element, reference_cell
 
@@ -423,6 +423,19 @@ def _(terminal, e, mt, params):
                            ein.Conditional(ein.Comparison("==", raw, ein.Zero()),
                                            ein.Literal(1),
                                            ein.Literal(numpy.nan)))
+
+
+@translate.register(ReferenceCellVolume)
+def _(terminal, e, mt, params):
+    cell = terminal.ufl_domain().ufl_cell()
+    volume = {ufl.Cell("interval"): 1.0,
+              ufl.Cell("triangle"): 1.0/2.0,
+              ufl.Cell("quadrilateral"): 1.0,
+              ufl.Cell("tetrahedron"): 1.0/6.0,
+              ufl.OuterProductCell(ufl.Cell("interval"), ufl.Cell("interval")): 1.0,
+              ufl.OuterProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): 1.0/2.0,
+              ufl.OuterProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): 1.0}
+    return ein.Literal(volume[cell])
 
 
 def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
