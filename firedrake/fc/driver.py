@@ -75,18 +75,18 @@ def compile_integral(integral, fd, prefix):
     coefficients = fd.preprocessed_form.coefficients()
     for i, coefficient in enumerate(coefficients):
         if coefficient.ufl_element().family() == "Real":
-            rank = coefficient.ufl_shape
-            argument = ein.Variable("w_%d" % i, coefficient.ufl_shape + (1,))
-            multiindex = tuple(ein.Index() for i in xrange(len(coefficient.ufl_shape)))
-            if multiindex:
-                coefficient_map[coefficient] = ein.ComponentTensor(ein.Indexed(argument, multiindex + (0,)), multiindex)
+            rank = coefficient.ufl_shape or (1,)
+            argument = ein.Variable("w_%d" % i, rank)
+            if coefficient.ufl_shape:
+                coefficient_map[coefficient] = argument
             else:
                 coefficient_map[coefficient] = ein.Indexed(argument, (0,))
+            decl = coffee.Decl("const %s" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
         else:
             fiat_element = create_element(coefficient.ufl_element())
             rank = (fiat_element.space_dimension(),)
             coefficient_map[coefficient] = make_kernel_argument(fiat_element, "w_%d" % i, integral_type)
-        decl = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
+            decl = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
         arglist.append(decl)
 
     if integral_type.startswith("exterior_facet"):
