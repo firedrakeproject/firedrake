@@ -1274,6 +1274,7 @@ class Inspector(Cached):
         tile_size = self._options.get('tile_size', 1)
         partitioning = self._options.get('partitioning', 'chunk')
         extra_halo = self._options.get('extra_halo', False)
+        log = self._options.get('log', False)
 
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
@@ -1361,6 +1362,37 @@ class Inspector(Cached):
                                argtypes, rettype, compiler)
         inspection = fun(*argvalues)
 
+        # Log the inspector output, if necessary
+        if log:
+            filename = os.path.join("logging",
+                                    "lc_%s_rank%d.txt" % (self._name, MPI.comm.rank))
+            if not os.path.exists(os.path.dirname(filename)):
+                os.makedirs(os.path.dirname(filename))
+            with open(filename, 'w') as f:
+                f.write('iteration set - memory footprint (KB) - number of Megaflops\n')
+                f.write('-------------------------------------------------------\n')
+                tot_mem_footprint, tot_flops = {}, 0
+                for loop in self._loop_chain:
+                    loop_flops = loop.num_flops/(1000*1000)
+                    loop_mem_footprint = 0
+                    for arg in loop.args:
+                        dat_size = arg.data.nbytes
+                        map_size = len(arg.map.values_with_halo)*4 if arg.map else 0
+                        tot_dat_size = (dat_size + map_size)/1000
+                        loop_mem_footprint += tot_dat_size
+                        tot_mem_footprint[arg.data] = tot_dat_size
+                    f.write("%s - %d - %d\n" %
+                            (loop.it_space.name, loop_mem_footprint, loop_flops))
+                    tot_flops += loop_flops
+                tot_mem_footprint = sum(tot_mem_footprint.values())
+                f.write("** Summary: %d KB moved, %d Megaflops performed\n" %
+                        (tot_mem_footprint, tot_flops))
+                probSeed = 0 if MPI.parallel else len(self._loop_chain) / 2
+                probNtiles = self._loop_chain[probSeed].it_space.exec_size / tile_size or 1
+                f.write("** KB/tile: %d" % (tot_mem_footprint/probNtiles))
+                f.write("  (Estimated: %d tiles)\n" % probNtiles)
+                f.write('-------------------------------------------------------\n\n')
+
         # Finally, get the Executor representation, to be used at executor
         # code generation time
         executor = slope.Executor(inspector)
@@ -1422,6 +1454,7 @@ def fuse(name, loop_chain, **kwargs):
     # Get an inspector for fusing this /loop_chain/. If there's a cache hit,
     # return the fused par loops straight away. Otherwise, try to run an inspection.
     options = {
+        'log': kwargs.get('log', False),
         'mode': kwargs.get('mode', 'hard'),
         'tile_size': kwargs.get('tile_size', 1),
         'partitioning': kwargs.get('partitioning', 'chunk'),
@@ -1521,6 +1554,7 @@ def loop_chain(name, **kwargs):
         * split_mode (default=None): split the loop chain each time the special
             object ``LoopChainTag`` is found in the trace, thus creating a specific
             inspector for each slice.
+        * log (default=False): output inspector and loop chain info to a file
     """
     assert name != lazy_trace_name, "Loop chain name must differ from %s" % lazy_trace_name
 
