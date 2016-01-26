@@ -268,6 +268,22 @@ def _(expr, parameters):
     return coffee.FunCall(name, expression(expr.children[0], parameters))
 
 
+@handle.register(ein.Comparison)
+def _(expr, parameters):
+    type_map = {">": coffee.Greater,
+                ">=": coffee.GreaterEq,
+                "==": coffee.Eq,
+                "!=": coffee.NEq,
+                "<": coffee.Less,
+                "<=": coffee.LessEq}
+    return type_map[expr.operator](*[expression(c, parameters) for c in expr.children])
+
+
+@handle.register(ein.Conditional)
+def _(expr, parameters):
+    return coffee.Ternary(*[expression(c, parameters) for c in expr.children])
+
+
 @handle.register(ein.Literal)
 def _(expr, parameters):
     assert not expr.shape

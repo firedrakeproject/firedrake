@@ -158,7 +158,7 @@ class Comparison(Scalar):
     __slots__ = ('operator', 'children')
     __front__ = ('operator',)
 
-    def __init__(self, a, op, b):
+    def __init__(self, op, a, b):
         assert not a.shape
         assert not b.shape
 
@@ -348,7 +348,7 @@ class FromUFLMixin(object):
         return MaxValue(*ops)
 
     def binary_condition(self, o, left, right):
-        return Comparison(left, o._name, right)
+        return Comparison(o._name, left, right)
 
     def not_condition(self, o, expr):
         return LogicalNot(expr)
