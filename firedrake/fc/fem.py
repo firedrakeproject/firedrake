@@ -22,7 +22,8 @@ from firedrake.fc import einstein as ein
 from firedrake.fc.einstein import FromUFLMixin
 
 
-epsilon = eval("1e-%d" % PRECISION)
+# FFC uses one less digits for rounding than for printing
+epsilon = eval("1e-%d" % (PRECISION - 1))
 
 
 class ReplaceSpatialCoordinates(MultiFunction):
