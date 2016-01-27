@@ -1278,7 +1278,7 @@ class Inspector(Cached):
 
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
-        inspector = slope.Inspector()
+        inspector = slope.Inspector(self._name)
 
         # Build inspector and argument types and values
         # Note: we need ordered containers to be sure that SLOPE generates
