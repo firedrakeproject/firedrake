@@ -41,6 +41,7 @@ def compile_integral(integral, fd, prefix):
     integrand = integral.integrand()
 
     arglist = []
+    prepare = []
     coefficient_map = {}
 
     arguments = fd.preprocessed_form.arguments()
@@ -66,28 +67,18 @@ def compile_integral(integral, fd, prefix):
         output_arg = ein.Indexed(output_arg, (0,))
 
     mesh = fd.preprocessed_form.ufl_domain()
-    fiat_element = create_element(mesh.ufl_coordinate_element())
-    arglist.append(coffee.Decl("const %s *restrict" % SCALAR_TYPE,
-                               coffee.Symbol("coordinate_dofs",
-                                             rank=(fiat_element.space_dimension(),))))
-    coefficient_map[mesh.coordinates] = make_kernel_argument(fiat_element, "coordinate_dofs", integral_type)
+    funarg, prepare_, expression = prepare_coefficient(integral_type, mesh.coordinates, "coords")
 
-    coefficients = fd.preprocessed_form.coefficients()
-    for i, coefficient in enumerate(coefficients):
-        if coefficient.ufl_element().family() == "Real":
-            rank = coefficient.ufl_shape or (1,)
-            argument = ein.Variable("w_%d" % i, rank)
-            if coefficient.ufl_shape:
-                coefficient_map[coefficient] = argument
-            else:
-                coefficient_map[coefficient] = ein.Indexed(argument, (0,))
-            decl = coffee.Decl("const %s" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
-        else:
-            fiat_element = create_element(coefficient.ufl_element())
-            rank = (fiat_element.space_dimension(),)
-            coefficient_map[coefficient] = make_kernel_argument(fiat_element, "w_%d" % i, integral_type)
-            decl = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
-        arglist.append(decl)
+    arglist.append(funarg)
+    prepare += prepare_
+    coefficient_map[mesh.coordinates] = expression
+
+    for i, coefficient in enumerate(fd.preprocessed_form.coefficients()):
+        funarg, prepare_, expression = prepare_coefficient(integral_type, coefficient, "w_%d" % i)
+
+        arglist.append(funarg)
+        prepare += prepare_
+        coefficient_map[coefficient] = expression
 
     if integral_type in ["exterior_facet", "exterior_facet_vert"]:
         decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(1,)))
@@ -163,41 +154,92 @@ def compile_integral(integral, fd, prefix):
     index_names = zip((quadrature_index,) + argument_indices, ['ip', 'j', 'k'])
     body = generate_coffee(indexed_ops, temporaries, shape_map,
                            apply_ordering, index_extents, index_names)
+    body.open_scope = False
 
     funname = "%s_%s_integral_%s_%s" % (prefix, integral_type, "0", integral.subdomain_id())
-    kernel = coffee.FunDecl("void", funname, arglist, body, pred=["static", "inline"])
+    kernel = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body]), pred=["static", "inline"])
 
     info_green("firedrake.fc finished in %g seconds." % (time.time() - cpu_time))
     return kernel
 
 
-def make_kernel_argument(fiat_element, name, integral_type):
-    if integral_type.startswith("interior_facet"):
-        arg = ein.Variable(name, (2 * fiat_element.space_dimension(), 1))
+def prepare_coefficient(integral_type, coefficient, name):
 
-        if isinstance(fiat_element, ffc_MixedElement):
-            elements = fiat_element.elements()
-        else:
-            elements = (fiat_element,)
+    if coefficient.ufl_element().family() == 'Real':
+        # Constant
 
-        facet0 = []
-        facet1 = []
-        offset = 0
-        for element in elements:
-            space_dim = element.space_dimension()
-            facet0.extend(range(offset, offset + space_dim))
-            offset += space_dim
-            facet1.extend(range(offset, offset + space_dim))
-            offset += space_dim
+        shape = coefficient.ufl_shape or (1,)
 
-        return ein.ListTensor([[ein.Indexed(arg, (i, 0)) for i in facet0],
-                               [ein.Indexed(arg, (i, 0)) for i in facet1]])
+        funarg = coffee.Decl("const %s" % SCALAR_TYPE, coffee.Symbol(name, rank=shape))
+        expression = ein.Variable(name, shape)
+        if coefficient.ufl_shape == ():
+            expression = ein.Indexed(expression, (0,))
 
-    else:
-        arg = ein.Variable(name, (fiat_element.space_dimension(), 1))
+        return funarg, [], expression
+
+    fiat_element = create_element(coefficient.ufl_element())
+
+    if not integral_type.startswith("interior_facet"):
+        # Simple case
+
+        shape = (fiat_element.space_dimension(),)
+        funarg = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape))
 
         i = ein.Index()
-        return ein.ComponentTensor(ein.Indexed(arg, (i, 0)), (i,))
+        expression = ein.ComponentTensor(
+            ein.Indexed(ein.Variable(name, shape + (1,)),
+                        (i, 0)),
+            (i,))
+
+        return funarg, [], expression
+
+    if not isinstance(fiat_element, ffc_MixedElement):
+        # Interior facet integral
+
+        shape = (2, fiat_element.space_dimension())
+
+        funarg = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape))
+        expression = ein.Variable(name, shape + (1,))
+
+        f, i = ein.Index(), ein.Index()
+        expression = ein.ComponentTensor(
+            ein.Indexed(ein.Variable(name, shape + (1,)),
+                        (f, i, 0)),
+            (f, i,))
+
+        return funarg, [], expression
+
+    # Interior facet integral + mixed / vector element
+    name_ = name + "_"
+    shape = (2, fiat_element.space_dimension())
+
+    funarg = coffee.Decl("const %s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_))
+    prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
+    expression = ein.Variable(name, shape)
+
+    offset = 0
+    i = coffee.Symbol("i")
+    for element in fiat_element.elements():
+        space_dim = element.space_dimension()
+
+        loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, coffee.Sum(offset, i))),
+                                  coffee.Symbol(name_, rank=(coffee.Sum(2 * offset, i), 0)))
+        prepare.append(coffee_for(i, space_dim, loop_body))
+
+        loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, coffee.Sum(offset, i))),
+                                  coffee.Symbol(name_, rank=(coffee.Sum(2 * offset + space_dim, i), 0)))
+        prepare.append(coffee_for(i, space_dim, loop_body))
+
+        offset += space_dim
+
+    return funarg, prepare, expression
+
+
+def coffee_for(index, extent, body):
+    return coffee.For(coffee.Decl("int", index, init=0),
+                      coffee.Less(index, extent),
+                      coffee.Incr(index, 1),
+                      body)
 
 
 def make_index_orderer(index_ordering):
