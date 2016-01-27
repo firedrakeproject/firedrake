@@ -89,10 +89,10 @@ def compile_integral(integral, fd, prefix):
             decl = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol("w_%d" % i, rank=rank))
         arglist.append(decl)
 
-    if integral_type.startswith("exterior_facet"):
+    if integral_type in ["exterior_facet", "exterior_facet_vert"]:
         decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(1,)))
         arglist.append(decl)
-    elif integral_type.startswith("interior_facet"):
+    elif integral_type in ["interior_facet", "interior_facet_vert"]:
         decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(2,)))
         arglist.append(decl)
 

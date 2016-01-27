@@ -224,6 +224,20 @@ class TabulationManager(object):
         else:
             raise NotImplementedError("integral type %s not supported" % integral_type)
 
+        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
+            self.facet = {None: ein.VariableIndex('facet[0]')}
+        elif integral_type in ['interior_facet', 'interior_facet_vert']:
+            self.facet = {'+': ein.VariableIndex('facet[0]'),
+                          '-': ein.VariableIndex('facet[1]')}
+        elif integral_type == 'exterior_facet_bottom':
+            self.facet = {None: 0}
+        elif integral_type == 'exterior_facet_top':
+            self.facet = {None: 1}
+        elif integral_type == 'interior_facet_horiz':
+            self.facet = {'+': 1, '-': 0}
+        else:
+            self.facet = None
+
     def tabulate(self, ufl_element, max_deriv):
         for tabulator in self.tabulators:
             tabulator.tabulate(ufl_element, max_deriv)
@@ -244,12 +258,7 @@ class TabulationManager(object):
         if self.integral_type == 'cell':
             return ein.Literal(table)
         else:
-            if restriction == '+' or restriction is None:
-                f = ein.VariableIndex('facet[0]')
-            elif restriction == '-':
-                f = ein.VariableIndex('facet[1]')
-            else:
-                assert False
+            f = self.facet[restriction]
 
             i = ein.Index()
             j = ein.Index()
@@ -271,6 +280,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, FromUFLMixin):
         self.tabulation_manager = tabulation_manager
         self.coefficient_map = coefficient_map
         self.cell_orientations = False
+        self.facet = tabulation_manager.facet
 
     def modified_terminal(self, o):
         mt = analyse_modified_terminal(o)
@@ -380,15 +390,17 @@ def _(terminal, e, mt, params):
 def _(terminal, e, mt, params):
     i = ein.Index()
     j = ein.Index()
-    if mt.restriction == '+' or mt.restriction is None:
-        f = ein.VariableIndex('facet[0]')
-    elif mt.restriction == '-':
-        f = ein.VariableIndex('facet[1]')
-    else:
-        assert False
+    f = params.facet[mt.restriction]
+    table = make_cell_facet_jacobian(terminal)
+    if params.tabulation_manager.integral_type in ["exterior_facet_bottom",
+                                                   "exterior_facet_top",
+                                                   "interior_facet_horiz"]:
+        table = table[:2]
+    elif params.tabulation_manager.integral_type in ["exterior_facet_vert", "interior_facet_vert"]:
+        table = table[2:]
     return ein.ComponentTensor(
         ein.Indexed(
-            ein.Literal(make_cell_facet_jacobian(terminal)),
+            ein.Literal(table),
             (f, i, j)),
         (i, j))
 
@@ -396,15 +408,17 @@ def _(terminal, e, mt, params):
 @translate.register(ReferenceNormal)
 def _(terminal, e, mt, params):
     i = ein.Index()
-    if mt.restriction == '+' or mt.restriction is None:
-        f = ein.VariableIndex('facet[0]')
-    elif mt.restriction == '-':
-        f = ein.VariableIndex('facet[1]')
-    else:
-        assert False
+    f = params.facet[mt.restriction]
+    table = make_reference_normal(terminal)
+    if params.tabulation_manager.integral_type in ["exterior_facet_bottom",
+                                                   "exterior_facet_top",
+                                                   "interior_facet_horiz"]:
+        table = table[:2]
+    elif params.tabulation_manager.integral_type in ["exterior_facet_vert", "interior_facet_vert"]:
+        table = table[2:]
     return ein.ComponentTensor(
         ein.Indexed(
-            ein.Literal(make_reference_normal(terminal)),
+            ein.Literal(table),
             (f, i,)),
         (i,))
 
