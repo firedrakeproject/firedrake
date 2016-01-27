@@ -7,7 +7,7 @@ import numpy
 from singledispatch import singledispatch
 
 import ufl
-from ufl.corealg.map_dag import map_expr_dag
+from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, CellEdgeVectors, CellFacetJacobian,
                          CellOrientation, Coefficient, FormArgument,
@@ -482,7 +482,7 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, ar
     translator = Translator(quadrature_weights, quadrature_index,
                             argument_indices, tabulation_manager,
                             coefficient_map)
-    return quadrature_index, [map_expr_dag(translator, e) for e in expressions], translator.cell_orientations
+    return quadrature_index, map_expr_dags(translator, expressions), translator.cell_orientations
 
 
 def make_cell_facet_jacobian(terminal):
