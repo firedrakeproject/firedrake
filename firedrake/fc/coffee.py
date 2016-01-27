@@ -286,6 +286,21 @@ def _(expr, parameters):
     return type_map[expr.operator](*[expression(c, parameters) for c in expr.children])
 
 
+@handle.register(ein.LogicalNot)
+def _(expr, parameters):
+    return coffee.Not(*[expression(c, parameters) for c in expr.children])
+
+
+@handle.register(ein.LogicalAnd)
+def _(expr, parameters):
+    return coffee.And(*[expression(c, parameters) for c in expr.children])
+
+
+@handle.register(ein.LogicalOr)
+def _(expr, parameters):
+    return coffee.Or(*[expression(c, parameters) for c in expr.children])
+
+
 @handle.register(ein.Conditional)
 def _(expr, parameters):
     return coffee.Ternary(*[expression(c, parameters) for c in expr.children])
