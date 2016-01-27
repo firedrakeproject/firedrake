@@ -37,15 +37,6 @@ class Scalar(Node):
     shape = ()
 
 
-def as_node(node):
-    if isinstance(node, Node):
-        return node
-    elif isinstance(node, (int, float, numpy.float64)):
-        return Literal(node)
-    else:
-        raise ValueError("do not know how to make node from " + repr(node))
-
-
 class Zero(Node):
     __slots__ = ('shape',)
     __front__ = ('shape',)
@@ -325,10 +316,16 @@ class IndexSum(Scalar):
 class ListTensor(Node):
     __slots__ = ('array',)
 
-    def __init__(self, array):
-        self.array = numpy.asarray(array, dtype=object)
-        for multiindex, val in numpy.ndenumerate(self.array):
-            self.array[multiindex] = as_node(val)
+    def __new__(cls, array):
+        array = numpy.asarray(array)
+
+        if all(isinstance(elem, Zero) for elem in array.flat):
+            assert all(elem.shape == () for elem in array.flat)
+            return Zero(array.shape)
+
+        self = super(ListTensor, cls).__new__(cls)
+        self.array = array
+        return self
 
     @property
     def children(self):
@@ -347,10 +344,12 @@ class ListTensor(Node):
     def is_equal(self, other):
         if type(self) != type(other):
             return False
-        return id(self.array) == id(other.array)
+        if self.shape != other.shape:
+            return False
+        return self.children == other.children
 
     def get_hash(self):
-        return hash((type(self), id(self.array)))
+        return hash((type(self), self.shape, self.children))
 
 
 class FromUFLMixin(object):
