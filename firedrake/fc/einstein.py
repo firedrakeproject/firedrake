@@ -133,21 +133,37 @@ class Product(Scalar):
 class Division(Scalar):
     __slots__ = ('children',)
 
-    def __init__(self, a, b):
+    def __new__(cls, a, b):
         assert not a.shape
         assert not b.shape
 
+        if isinstance(b, Zero):
+            raise ValueError("division by zero")
+        if isinstance(a, Zero):
+            return Zero()
+
+        self = super(Division, cls).__new__(cls)
         self.children = a, b
+        return self
 
 
 class Power(Scalar):
     __slots__ = ('children',)
 
-    def __init__(self, base, exponent):
+    def __new__(cls, base, exponent):
         assert not base.shape
         assert not exponent.shape
 
+        if isinstance(base, Zero):
+            if isinstance(exponent, Zero):
+                raise ValueError("cannot solve 0^0")
+            return Zero()
+        elif isinstance(exponent, Zero):
+            return Literal(1)
+
+        self = super(Power, cls).__new__(cls)
         self.children = base, exponent
+        return self
 
 
 class MathFunction(Scalar):
