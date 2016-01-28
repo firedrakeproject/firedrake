@@ -53,10 +53,10 @@ class Node(object):
         return hash((type(self),) + self.__getinitargs__(self.children))
 
 
-def traversal(expression_dag):
-    """Pre-order traversal of the nodes of an expression DAG."""
-    seen = {expression_dag}
-    lifo = [expression_dag]
+def traversal(expression_dags):
+    """Pre-order traversal of the nodes of expression DAGs."""
+    seen = set(expression_dags)
+    lifo = list(expression_dags)
 
     while lifo:
         node = lifo.pop()

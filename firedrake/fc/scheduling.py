@@ -45,12 +45,10 @@ class Queue(object):
             del self.queue[indices]
 
 
-def count_references(expression):
-    result = collections.Counter()
-    result[expression] += 1
-    for node in traversal(expression):
-        for child in node.children:
-            result[child] += 1
+def count_references(expressions):
+    result = collections.Counter(expressions)
+    for node in traversal(expressions):
+        result.update(node.children)
     return result
 
 
@@ -132,9 +130,12 @@ def _(op, enqueue, emit):
     enqueue(op.expression)
 
 
-def make_ordering(variable, expression, indices_map):
-    queue = Queue(count_references(expression), indices_map)
-    queue.insert(imp.Return(variable, expression), indices_map(expression))
+def make_ordering(assignments, indices_map):
+    expressions = [expression for variable, expression in assignments]
+    queue = Queue(count_references(expressions), indices_map)
+
+    for variable, expression in assignments:
+        queue.insert(imp.Return(variable, expression), indices_map(expression))
 
     result = []
 

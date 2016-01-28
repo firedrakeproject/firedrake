@@ -516,7 +516,7 @@ def inline_indices(expression):
 def collect_index_extents(expression):
     result = {}
 
-    for node in traversal(expression):
+    for node in traversal([expression]):
         if isinstance(node, Indexed):
             assert len(node.multiindex) == len(node.children[0].shape)
             for index, extent in zip(node.multiindex, node.children[0].shape):
