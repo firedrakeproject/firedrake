@@ -499,7 +499,8 @@ def inline_indices(expression):
             new_subst = dict(zip(child.multiindex, multiindex))
             composed_subst = {k: new_subst.get(v, v) for k, v in subst.items()}
             composed_subst.update(new_subst)
-            return cached_handle(child.children[0], composed_subst)
+            filtered_subst = {k: v for k, v in composed_subst.items() if k in child.children[0].free_indices}
+            return cached_handle(child.children[0], filtered_subst)
         elif isinstance(child, ListTensor) and all(isinstance(i, int) for i in multiindex):
             return cached_handle(child.array[multiindex], subst)
         else:
