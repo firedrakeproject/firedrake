@@ -97,3 +97,41 @@ def project(v, V, bcs=None, mesh=None,
            solver_parameters=solver_parameters,
            form_compiler_parameters=form_compiler_parameters)
     return ret
+
+
+class Projector(object):
+    """
+    A projector projects a UFL expression into a function space
+    and places the result in a function from that function space,
+    allowing the solver to be reused.
+
+    :arg v: the :class:`.Expression`, :class:`ufl.Expr` or
+         :class:`.Function` to project
+    :arg v_out: :class:`.Function` to put the result in
+    :arg solver_parameters: parameters to pass to the solver used when
+         projecting.    
+    """
+
+    def __init__(self, v, v_out, solver_parameters = None):
+        
+        V = v_out.function_space
+        
+        p = TestFunction(V)
+        q = TrialFunction(V)
+        
+        a = inner(p, q)*dx
+        L = inner(p, v)*dx
+
+        problem = LinearVariationalProblem(a, L, v_out)
+        
+        if(solver_parameters == None):
+            self.solver = LinearVariationalSolver(problem)
+        else:
+            self.solver = LinearVariationalSolver(problem, solver_parameters)
+        
+    def project(self):
+        """
+        Apply the projection.
+        """
+
+        self.solver.solve()
