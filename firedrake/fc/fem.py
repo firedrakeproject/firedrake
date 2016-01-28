@@ -177,7 +177,7 @@ class NumericTabulator(object):
         C = ufl_element.reference_value_size() - len(ufl_element.symmetry())
         q = len(self.points)
         for D, fiat_table in element.tabulate(max_deriv, self.points).iteritems():
-            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, phi, q)
+            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
             for c, table in enumerate(reordered_table):
                 # Copied from FFC (ffc/quadrature/quadratureutils.py)
                 table[abs(table) < epsilon] = 0

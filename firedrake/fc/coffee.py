@@ -166,7 +166,8 @@ def _(tree, parameters):
 
 @arabica.register(imp.For)
 def _(tree, parameters):
-    extent = parameters.index_extents[tree.index]
+    extent = tree.index.extent
+    assert extent
     i = coffee.Symbol(parameters.names[tree.index])
     # TODO: symbolic constant for "int"
     return coffee.For(coffee.Decl("int", i, init=0),

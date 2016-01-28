@@ -1,9 +1,7 @@
 from __future__ import absolute_import
 
-import itertools
-import time
-
 import numpy
+import time
 
 from ufl.algorithms import compute_form_data
 
@@ -44,27 +42,11 @@ def compile_integral(integral, fd, prefix):
     prepare = []
     coefficient_map = {}
 
-    arguments = fd.preprocessed_form.arguments()
-    output_shape = [create_element(arg.ufl_element()).space_dimension() for arg in arguments]
-    # Interior facets, doubled up output size
-    if integral_type.startswith("interior_facet"):
-        output_shape = [s*2 for s in output_shape]
+    funarg, prepare_, expressions, finalise = prepare_arguments(integral_type, fd.preprocessed_form.arguments())
 
-    output_shape = tuple(output_shape)
-    if output_shape == ():
-        output_shape = (1,)
-
-    output_symbol = coffee.Symbol("A", rank=output_shape)
-    output_tensor = coffee.Decl(SCALAR_TYPE, output_symbol)
-
-    arglist.insert(0, output_tensor)
-    argument_indices = tuple(ein.Index() for i in range(len(arguments)))
-    output_indices = tuple(ein.Index() for i in range(len(arguments)))
-    output_arg = ein.Variable("A", output_shape)
-    if arguments:
-        output_arg = ein.Indexed(output_arg, output_indices)
-    else:
-        output_arg = ein.Indexed(output_arg, (0,))
+    arglist.append(funarg)
+    prepare += prepare_
+    argument_indices = tuple(index for index in expressions[0].multiindex if isinstance(index, ein.Index))
 
     mesh = fd.preprocessed_form.ufl_domain()
     funarg, prepare_, expression = prepare_coefficient(integral_type, mesh.coordinates, "coords")
@@ -96,59 +78,23 @@ def compile_integral(integral, fd, prefix):
     quadrature_index, nonfem, cell_orientations = \
         fem.process(integral_type, integrand, tabulation_manager, quad_weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
+    simplified = [ein.inline_indices(e) for e in nonfem]
 
     if cell_orientations:
         decl = coffee.Decl("const int *restrict *restrict", coffee.Symbol("cell_orientations"))
         arglist.insert(2, decl)
 
-    assert len(nonfem) == (2**len(arguments) if integral_type.startswith("interior_facet") else 1)
-    if integral_type.startswith("interior_facet") and arguments:
-        offset = [create_element(arg.ufl_element()).space_dimension() for arg in arguments]
-        result = numpy.empty([s*2 for s in offset], dtype=object)
-        for i, rs in enumerate(itertools.product((0, 1), repeat=len(arguments))):
-            component = ein.ComponentTensor(nonfem[i], argument_indices)
-            for mi in numpy.ndindex(tuple(offset)):
-                result[tuple(numpy.asarray(mi) + numpy.asarray(offset) * numpy.asarray(rs))] = ein.Indexed(component, mi)
-
-        reorder = []
-        element = create_element(arguments[0].ufl_element())
-        if isinstance(element, ffc_MixedElement):
-            r = numpy.arange(2 * element.space_dimension()).reshape(2, len(element.elements()), -1).transpose(1, 0, 2).reshape(-1)
-            reorder += list(r + len(reorder))
-        else:
-            reorder += range(len(reorder), len(reorder) + 2 * element.space_dimension())
-        result = result[reorder]
-
-        if len(arguments) == 2:
-            reorder = []
-            element = create_element(arguments[1].ufl_element())
-            if isinstance(element, ffc_MixedElement):
-                r = numpy.arange(2 * element.space_dimension()).reshape(2, len(element.elements()), -1).transpose(1, 0, 2).reshape(-1)
-                reorder += list(r + len(reorder))
-            else:
-                reorder += range(len(reorder), len(reorder) + 2 * element.space_dimension())
-            result = result[:, reorder]
-
-        result = ein.ListTensor(result)
-        result = ein.Indexed(result, output_indices)
-    else:
-        result, = nonfem
-        result = ein.Indexed(ein.ComponentTensor(result, argument_indices), output_indices)
-
-    simplified = ein.inline_indices(result)
-
-    index_extents = ein.collect_index_extents(simplified)
-    for output_index in output_indices:
-        assert output_index.extent
-        index_extents[output_index] = output_index.extent
+    index_extents = {}
+    for e in simplified:
+        index_extents.update(ein.collect_index_extents(e))
     index_ordering = apply_prefix_ordering(index_extents.keys(),
-                                           (quadrature_index,) + argument_indices + output_indices)
+                                           (quadrature_index,) + argument_indices)
     apply_ordering = make_index_orderer(index_ordering)
 
     shape_map = lambda expr: expr.free_indices
     ordered_shape_map = lambda expr: apply_ordering(shape_map(expr))
 
-    indexed_ops = sch.make_ordering(output_arg, simplified, ordered_shape_map)
+    indexed_ops = sch.make_ordering(zip(expressions, simplified), ordered_shape_map)
     temporaries = make_temporaries(op for indices, op in indexed_ops)
 
     index_names = zip((quadrature_index,) + argument_indices, ['ip', 'j', 'k'])
@@ -157,7 +103,8 @@ def compile_integral(integral, fd, prefix):
     body.open_scope = False
 
     funname = "%s_%s_integral_%s_%s" % (prefix, integral_type, "0", integral.subdomain_id())
-    kernel = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body]), pred=["static", "inline"])
+    kernel = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body] + finalise),
+                            pred=["static", "inline"])
 
     info_green("firedrake.fc finished in %g seconds." % (time.time() - cpu_time))
     return kernel
@@ -233,6 +180,91 @@ def prepare_coefficient(integral_type, coefficient, name):
         offset += space_dim
 
     return funarg, prepare, expression
+
+
+def prepare_arguments(integral_type, arguments):
+    from itertools import chain, product
+
+    if len(arguments) == 0:
+        # No arguments
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=(1,)))
+        expression = ein.Indexed(ein.Variable("A", (1,)), (0,))
+
+        return funarg, [], [expression], []
+
+    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
+    indices = tuple(ein.Index() for i in xrange(len(arguments)))
+
+    if not integral_type.startswith("interior_facet"):
+        # Not an interior facet integral
+        shape = tuple(element.space_dimension() for element in elements)
+
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
+        expression = ein.Indexed(ein.Variable("A", shape), indices)
+
+        return funarg, [], [expression], []
+
+    if not any(isinstance(element, ffc_MixedElement) for element in elements):
+        # Interior facet integral, but no vector (mixed) arguments
+        shape = []
+        for element in elements:
+            shape += [2, element.space_dimension()]
+        shape = tuple(shape)
+
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
+        varexp = ein.Variable("A", shape)
+
+        expressions = []
+        for restrictions in product((0, 1), repeat=len(arguments)):
+            is_ = tuple(chain(*zip(restrictions, indices)))
+            expressions.append(ein.Indexed(varexp, is_))
+
+        return funarg, [], expressions, []
+
+    # Interior facet integral + vector (mixed) argument(s)
+    shape = tuple(element.space_dimension() for element in elements)
+    funarg_shape = tuple(s * 2 for s in shape)
+    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=funarg_shape))
+
+    prepare = []
+    expressions = []
+
+    references = []
+    for restrictions in product((0, 1), repeat=len(arguments)):
+        name = "A" + "".join(map(str, restrictions))
+
+        prepare.append(coffee.Decl(SCALAR_TYPE,
+                                   coffee.Symbol(name, rank=shape),
+                                   init=coffee.ArrayInit(numpy.zeros(1))))
+        expressions.append(ein.Indexed(ein.Variable(name, shape), indices))
+
+        for multiindex in numpy.ndindex(shape):
+            references.append(coffee.Symbol(name, multiindex))
+
+    restriction_shape = []
+    for e in elements:
+        if isinstance(e, ffc_MixedElement):
+            restriction_shape += [len(e.elements()),
+                                  e.elements()[0].space_dimension()]
+        else:
+            restriction_shape += [1, e.space_dimension()]
+    restriction_shape = tuple(restriction_shape)
+
+    references = numpy.array(references)
+    if len(arguments) == 1:
+        references = references.reshape((2,) + restriction_shape)
+        references = references.transpose(1, 0, 2)
+    elif len(arguments) == 2:
+        references = references.reshape((2, 2) + restriction_shape)
+        references = references.transpose(2, 0, 3, 4, 1, 5)
+    references = references.reshape(funarg_shape)
+
+    finalise = []
+    for multiindex in numpy.ndindex(funarg_shape):
+        finalise.append(coffee.Assign(coffee.Symbol("A", rank=multiindex),
+                                      references[multiindex]))
+
+    return funarg, prepare, expressions, finalise
 
 
 def coffee_for(index, extent, body):
