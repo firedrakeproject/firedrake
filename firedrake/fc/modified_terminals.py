@@ -25,9 +25,6 @@ from __future__ import print_function  # used in some debugging
 from ufl.classes import (ReferenceValue, ReferenceGrad,
                          Restricted, FacetAvg, CellAvg)
 
-from ffc.log import error
-from ffc.log import ffc_assert
-
 
 class ModifiedTerminal(object):
 
@@ -125,7 +122,7 @@ def analyse_modified_terminal(expr):
     t = expr
     while not t._ufl_is_terminal_:
         if isinstance(t, ReferenceValue):
-            ffc_assert(reference_value is None, "Got twice pulled back terminal!")
+            assert reference_value is None, "Got twice pulled back terminal!"
             reference_value = True
             t, = t.ufl_operands
 
@@ -134,25 +131,25 @@ def analyse_modified_terminal(expr):
             t, = t.ufl_operands
 
         elif isinstance(t, Restricted):
-            ffc_assert(restriction is None, "Got twice restricted terminal!")
+            assert restriction is None, "Got twice restricted terminal!"
             restriction = t._side
             t, = t.ufl_operands
 
         elif isinstance(t, CellAvg):
-            ffc_assert(averaged is None, "Got twice averaged terminal!")
+            assert averaged is None, "Got twice averaged terminal!"
             averaged = "cell"
             t, = t.ufl_operands
 
         elif isinstance(t, FacetAvg):
-            ffc_assert(averaged is None, "Got twice averaged terminal!")
+            assert averaged is None, "Got twice averaged terminal!"
             averaged = "facet"
             t, = t.ufl_operands
 
         elif t._ufl_terminal_modifiers_:
-            error("Missing handler for terminal modifier type %s, object is %s." % (type(t), repr(t)))
+            raise ValueError("Missing handler for terminal modifier type %s, object is %s." % (type(t), repr(t)))
 
         else:
-            error("Unexpected type %s object %s." % (type(t), repr(t)))
+            raise ValueError("Unexpected type %s object %s." % (type(t), repr(t)))
 
     # Make reference_value true or false
     if reference_value is None:
@@ -161,8 +158,6 @@ def analyse_modified_terminal(expr):
     mt = ModifiedTerminal(expr, t, local_derivatives, averaged, restriction, reference_value)
 
     if local_derivatives and not reference_value:
-        print("Local derivatives of non-local value?")
-        # import IPython; IPython.embed()
-        error("Local derivatives of non-local value?")
+        raise ValueError("Local derivatives of non-local value?")
 
     return mt

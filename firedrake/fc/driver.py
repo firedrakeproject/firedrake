@@ -9,35 +9,78 @@ from ufl.algorithms import compute_form_data
 from ffc.log import info_green
 from fpfc.fiatinterface import create_element
 from fpfc.mixedelement import MixedElement as ffc_MixedElement
-from fpfc.quadrature import create_quadrature
+from fpfc.quadrature import create_quadrature, QuadratureRule
 
 import coffee.base as coffee
 
 from firedrake.fc import fem, einstein as ein, impero as imp, scheduling as sch
 from firedrake.fc.coffee import SCALAR_TYPE, generate as generate_coffee
+from firedrake.fc.constants import default_parameters
 
 
 def compile_form(form, prefix="form", parameters=None):
     assert not isinstance(form, (list, tuple))
 
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
+
     fd = compute_form_data(form,
                            do_apply_function_pullbacks=True,
                            do_apply_integral_scaling=True,
                            do_apply_geometry_lowering=True,
-                           do_apply_restrictions=True)
+                           do_apply_restrictions=True,
+                           do_estimate_degrees=True)
 
     kernels = []
-    for integral in fd.preprocessed_form.integrals():
-        kernels.append(compile_integral(integral, fd, prefix))
+    for idata in fd.integral_data:
+        if len(idata.integrals) != 1:
+            raise NotImplementedError("Don't support IntegralData with more than one integral")
+        for integral in idata.integrals:
+            kernels.append(compile_integral(integral, idata, fd, prefix,
+                                            parameters))
     return kernels
 
 
-def compile_integral(integral, fd, prefix):
+class Kernel(object):
+    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
+                 "coefficient_numbers", "__weakref__")
+
+    def __init__(self):
+        super(Kernel, self).__init__()
+        self.ast = None
+        self.integral_type = None
+        self.oriented = False
+        self.subdomain_id = None
+        self.coefficient_numbers = ()
+
+
+def compile_integral(integral, idata, fd, prefix, parameters):
     cpu_time = time.time()
 
-    quadrature_degree = integral.metadata()["quadrature_degree"]
+    _ = {}
+    # Record per-integral parameters
+    _.update(integral.metadata())
+    # parameters override per-integral metadata
+    _.update(parameters)
+    parameters = _
+
+    if parameters.get("quadrature_degree") == "auto":
+        del parameters["quadrature_degree"]
+    if parameters.get("quadrature_rule") == "auto":
+        del parameters["quadrature_rule"]
+    # Check if the integral has a quad degree attached, otherwise use
+    # the estimated polynomial degree attached by compute_form_data
+    quadrature_degree = parameters.get("quadrature_degree",
+                                       parameters["estimated_polynomial_degree"])
     integral_type = integral.integral_type()
     integrand = integral.integrand()
+    kernel = Kernel()
+    kernel.integral_type = integral_type
+    kernel.subdomain_id = integral.subdomain_id()
 
     arglist = []
     prepare = []
@@ -49,19 +92,28 @@ def compile_integral(integral, fd, prefix):
     prepare += prepare_
     argument_indices = tuple(index for index in expressions[0].multiindex if isinstance(index, ein.Index))
 
-    mesh = fd.preprocessed_form.ufl_domain()
+    mesh = idata.domain
     funarg, prepare_, expression = prepare_coefficient(integral_type, mesh.coordinates, "coords")
 
     arglist.append(funarg)
     prepare += prepare_
     coefficient_map[mesh.coordinates] = expression
 
-    for i, coefficient in enumerate(fd.preprocessed_form.coefficients()):
+    coefficient_numbering = dict(zip(fd.reduced_coefficients,
+                                     fd.original_coefficient_positions))
+    coefficient_numbers = []
+    for i, on in enumerate(idata.enabled_coefficients):
+        if not on:
+            continue
+        coefficient = fd.reduced_coefficients[i]
+        coefficient_numbers.append(coefficient_numbering[coefficient])
         funarg, prepare_, expression = prepare_coefficient(integral_type, coefficient, "w_%d" % i)
 
         arglist.append(funarg)
         prepare += prepare_
         coefficient_map[coefficient] = expression
+
+    kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     if integral_type in ["exterior_facet", "exterior_facet_vert"]:
         decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(1,)))
@@ -71,8 +123,14 @@ def compile_integral(integral, fd, prefix):
         arglist.append(decl)
 
     cell = integrand.ufl_domain().ufl_cell()
-    # TODO: Hardcoded "default" quadrature rule!
-    quad_rule = create_quadrature(cell, integral_type, quadrature_degree)
+
+    quad_rule = parameters.get("quadrature_rule",
+                               create_quadrature(cell, integral_type,
+                                                 quadrature_degree))
+
+    if not isinstance(quad_rule, QuadratureRule):
+        raise ValueError("Expected to find a QuadratureRule object, not a %s" %
+                         type(quad_rule))
 
     tabulation_manager = fem.TabulationManager(integral_type, cell, quad_rule.points)
     quadrature_index, nonfem, cell_orientations = \
@@ -83,6 +141,7 @@ def compile_integral(integral, fd, prefix):
     if cell_orientations:
         decl = coffee.Decl("const int *restrict *restrict", coffee.Symbol("cell_orientations"))
         arglist.insert(2, decl)
+        kernel.oriented = True
 
     # Need a deterministic ordering for these
     index_extents = collections.OrderedDict()
@@ -103,9 +162,11 @@ def compile_integral(integral, fd, prefix):
                            apply_ordering, index_extents, index_names)
     body.open_scope = False
 
-    funname = "%s_%s_integral_%s_%s" % (prefix, integral_type, "0", integral.subdomain_id())
-    kernel = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body] + finalise),
-                            pred=["static", "inline"])
+    funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
+    ast = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body]
+                                                                + finalise),
+                         pred=["static", "inline"])
+    kernel.ast = ast
 
     info_green("firedrake.fc finished in %g seconds." % (time.time() - cpu_time))
     return kernel

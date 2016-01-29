@@ -220,6 +220,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             tensor = op2.Global(1, [0.0])
         result = lambda: tensor.data[0]
 
+    subdomain_data = f.subdomain_data()
+    coefficients = f.coefficients()
+    domains = f.ufl_domains()
+    if len(domains) != 1:
+        raise NotImplementedError("Assembly of forms with more than one domain not supported")
+    m = domains[0]
+    subdomain_data = subdomain_data[m]
+
     # Since applying boundary conditions to a matrix changes the
     # initial assembly, to support:
     #     A = assemble(a)
@@ -233,9 +241,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # assemble it.
     def thunk(bcs):
         zero_tensor()
-        for (i, j), integral_type, m, subdomain_data, subdomain_id, coefficients, needs_orientations, kernel in kernels:
+        for (i, j), (kernel, integral_type, needs_orientations, subdomain_id, coeff_map) in kernels:
+            sdata = subdomain_data.get(integral_type, None)
             coords = m.coordinates
-            if integral_type != 'cell' and subdomain_data is not None:
+            if integral_type != 'cell' and sdata is not None:
                 raise NotImplementedError("subdomain_data only supported with cell integrals.")
             if needs_orientations:
                 cell_orientations = m.cell_orientations()
@@ -267,7 +276,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     else:
                         tensor_arg = tensor(op2.INC)
 
-                    itspace = subdomain_data or m.cell_set
+                    itspace = sdata or m.cell_set
                     args = [kernel, itspace, tensor_arg,
                             coords.dat(op2.READ, coords.cell_node_map(),
                                        flatten=True)]
@@ -276,7 +285,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.cell_node_map(),
                                                           flatten=True))
-                    for c in coefficients:
+                    for i in coeff_map:
+                        c = coefficients[i]
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
 
@@ -304,7 +314,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.exterior_facet_node_map(),
                                                           flatten=True))
-                    for c in coefficients:
+                    for i in coeff_map:
+                        c = coefficients[i]
                         args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
                                           flatten=True))
                     args.append(m.exterior_facets.local_facet_dat(op2.READ))
@@ -341,7 +352,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                             args.append(cell_orientations.dat(op2.READ,
                                                               cell_orientations.cell_node_map(),
                                                               flatten=True))
-                        for c in coefficients:
+                        for i in coeff_map:
+                            c = coefficients[i]
                             args.append(c.dat(op2.READ, c.cell_node_map(),
                                               flatten=True))
                         try:
@@ -366,7 +378,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.interior_facet_node_map(),
                                                           flatten=True))
-                    for c in coefficients:
+                    for i in coeff_map:
+                        c = coefficients[i]
                         args.append(c.dat(op2.READ, c.interior_facet_node_map(),
                                           flatten=True))
                     args.append(m.interior_facets.local_facet_dat(op2.READ))
@@ -396,7 +409,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.cell_node_map(),
                                                           flatten=True))
-                    for c in coefficients:
+                    for i in coeff_map:
+                        c = coefficients[i]
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
                     try:

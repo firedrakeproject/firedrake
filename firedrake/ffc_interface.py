@@ -8,46 +8,22 @@ from operator import add
 from os import path, environ, getuid, makedirs
 import tempfile
 
-import ufl
-from ufl import Form, MixedElement, as_vector
+from ufl import Form, as_vector
 from ufl.measure import Measure
-from ufl.algorithms import compute_form_data, ReuseTransformer
+from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import Zero
 from firedrake.ufl_expr import Argument
 
 from firedrake.fc import compile_form as ffc_compile_form
-from ffc import constants
-from ffc import log
-from ffc.quadrature.quadraturetransformerbase import EmptyIntegrandError
-from fpfc.fiatinterface import create_element
 
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
 from pyop2.mpi import MPI
 
-from coffee.base import PreprocessNode, Root, Invert
+from coffee.base import Invert
 
 import firedrake.functionspace as functionspace
 from firedrake.parameters import parameters as default_parameters
-
-_form_cache = {}
-
-# Only spew ffc message on rank zero
-if MPI.comm.rank != 0:
-    log.set_level(log.ERROR)
-del log
-
-
-def _check_version():
-    from firedrake.version import __compatible_ffc_version_info__ as compatible_version, \
-        __compatible_ffc_version__ as version
-    try:
-        if constants.FIREDRAKE_VERSION_INFO[:2] == compatible_version[:2]:
-            return
-    except AttributeError:
-        pass
-    raise RuntimeError("Incompatible Firedrake version %s and FFC version %s."
-                       % (version, getattr(constants, 'FIREDRAKE_VERSION', 'unknown')))
 
 
 def sum_integrands(form):
@@ -71,6 +47,10 @@ class FormSplitter(ReuseTransformer):
 
     def split(self, form):
         """Split the given form."""
+        args = form.arguments()
+        if not any(isinstance(a.function_space(), functionspace.MixedFunctionSpace)
+                   for a in args):
+            return [[((0, 0), form)]]
         # Visit each integrand and obtain the tuple of sub forms
         args = tuple((a.number(), len(a.function_space()))
                      for a in form.arguments())
@@ -146,77 +126,45 @@ class FFCKernel(DiskCached):
         _cachedir = environ.get('FIREDRAKE_FFC_KERNEL_CACHE_DIR',
                                 path.join(tempfile.gettempdir(),
                                           'firedrake-ffc-kernel-cache-uid%d' % getuid()))
-        # Include an md5 hash of firedrake_geometry.h in the cache key
-        with open(path.join(path.dirname(__file__), 'firedrake_geometry.h')) as f:
-            _firedrake_geometry_md5 = md5(f.read()).hexdigest()
-        del f
-        MPI.comm.bcast(_firedrake_geometry_md5, root=0)
     else:
-        # No cache on slave processes
         _cachedir = None
-        # MD5 obtained by broadcast from root
-        _firedrake_geometry_md5 = MPI.comm.bcast(None, root=0)
 
     @classmethod
-    def _cache_key(cls, form, name, parameters):
+    def _cache_key(cls, form, name, parameters, number_map):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to FFC when actually only the kernel code
         # needs to be regenerated
-        return md5(form.signature() + name + Kernel._backend.__name__ +
-                   cls._firedrake_geometry_md5 + constants.FFC_VERSION +
-                   constants.FIREDRAKE_VERSION + str(default_parameters["coffee"])
-                   + str(parameters)).hexdigest()
+        return md5(form.signature() + name + Kernel._backend.__name__
+                   + str(default_parameters["coffee"])
+                   + str(parameters)
+                   + str(number_map)).hexdigest()
 
-    def _needs_orientations(self, elements):
-        for e in elements:
-            cell = e.cell()
-            if cell.topological_dimension() == cell.geometric_dimension():
-                continue
-            if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
-                if any("contravariant piola" in create_element(s).mapping()
-                       for s in e.sub_elements()):
-                    return True
-            else:
-                if e.family() != 'Real' and \
-                   "contravariant piola" in create_element(e).mapping():
-                    return True
-        return False
-
-    def __init__(self, form, name, parameters):
+    def __init__(self, form, name, parameters, number_map):
         """A wrapper object for one or more FFC kernels compiled from a given :class:`~ufl.classes.Form`.
 
         :arg form: the :class:`~ufl.classes.Form` from which to compile the kernels.
         :arg name: a prefix to be applied to the compiled kernel names. This is primarily useful for debugging.
         :arg parameters: a dict of parameters to pass to the form compiler.
+        :arg number_map: a map from local coefficient numbers to global ones (useful for split forms).
         """
         if self._initialized:
             return
 
-        incl = [PreprocessNode('#include "firedrake_geometry.h"\n')]
-        inc = [path.dirname(__file__)]
-        try:
-            ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters)
-            if len(ffc_tree) == 0:
-                raise EmptyIntegrandError
-            kernels = []
-            # need compute_form_data here to get preproc form integrals
-            fd = compute_form_data(form)
-            elements = fd.unique_elements
-            needs_orientations = self._needs_orientations(elements)
-            for it, kernel in zip(fd.preprocessed_form.integrals(), ffc_tree):
-                # Set optimization options
-                opts = default_parameters["coffee"]
-                _kernel = kernel if not parameters.get("assemble_inverse", False) else _inverse(kernel)
-                kernels.append((Kernel(Root(incl + [_kernel]), '%s_%s_integral_0_%s' %
-                                       (name, it.integral_type(), it.subdomain_id()), opts, inc),
-                                needs_orientations))
-            self.kernels = tuple(kernels)
-            self._empty = False
-        except EmptyIntegrandError:
-            # FFC noticed that the integrand was zero and simplified
-            # it, catch this here and set a flag telling us to ignore
-            # the kernel when returning it in compile_form
-            self._empty = True
+        ffc_tree = ffc_compile_form(form, prefix=name, parameters=parameters)
+        kernels = []
+        for kernel in ffc_tree:
+            # Set optimization options
+            opts = default_parameters["coffee"]
+            ast = kernel.ast
+            ast = ast if not parameters.get("assemble_inverse", False) else _inverse(ast)
+            # Unwind coefficient numbering
+            numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
+            kernels.append((Kernel(ast, ast.name, opts=opts),
+                            kernel.integral_type,
+                            kernel.oriented,
+                            kernel.subdomain_id,
+                            numbers))
+        self.kernels = tuple(kernels)
         self._initialized = True
 
 
@@ -260,49 +208,30 @@ def compile_form(form, name, parameters=None, inverse=False):
     if "firedrake_kernels" in form._cache:
         # Save both kernels and FFC params so we can tell if this
         # cached version is valid (the FFC parameters might have changed)
-        kernels, params = form._cache["firedrake_kernels"]
-        if kernels[0][-1]._opts == default_parameters["coffee"] and \
-           kernels[0][-1].name.startswith(name) and \
+        kernels, coffee_params, old_name, params = form._cache["firedrake_kernels"]
+        if coffee_params == default_parameters["coffee"] and \
+           name == old_name and \
            params == parameters:
             return kernels
 
-    # need compute_form_data since we use preproc. form integrals later
-    fd = compute_form_data(form)
-
-    # If there is no mixed element involved, return the kernels FFC produces
-    # Note: using type rather than isinstance because UFL's VectorElement,
-    # TensorElement and OPVectorElement all inherit from MixedElement
-    if not any(type(e) is MixedElement for e in fd.unique_sub_elements):
-        kernels = [((0, 0),
-                    it.integral_type(), it.ufl_domain(),
-                    form.subdomain_data()[it.ufl_domain()][it.integral_type()], it.subdomain_id(),
-                    fd.preprocessed_form.coefficients(), needs_orientations, kernel)
-                   for it, (kernel, needs_orientations) in zip(fd.preprocessed_form.integrals(),
-                                                               FFCKernel(form, name,
-                                                                         parameters).kernels)]
-        form._cache["firedrake_kernels"] = (kernels, parameters)
-        return kernels
-    # Otherwise pre-split the form into mixed blocks before calling FFC
     kernels = []
+    # A map from all form coefficients to their number.
+    coefficient_numbers = dict((c, n)
+                               for (n, c) in enumerate(form.coefficients()))
     for forms in FormSplitter().split(form):
         for (i, j), f in forms:
-            ffc_kernel = FFCKernel(f, name + str(i) + str(j), parameters)
-            # FFC noticed the integrand was zero, so don't bother
-            # using this kernel (it's invalid anyway)
-            if ffc_kernel._empty:
-                continue
-            ((kernel, needs_orientations), ) = ffc_kernel.kernels
-            # need compute_form_data here to get preproc integrals
-            fd = compute_form_data(f)
-            it = fd.preprocessed_form.integrals()[0]
-            kernels.append(((i, j),
-                            it.integral_type(),
-                            it.ufl_domain(),
-                            it.subdomain_data(),
-                            it.subdomain_id(),
-                            fd.preprocessed_form.coefficients(),
-                            needs_orientations, kernel))
-    form._cache["firedrake_kernels"] = (kernels, parameters)
+            # Map local coefficient numbers (as seen inside the
+            # compiler) to the global coefficient numbers
+            number_map = dict((n, coefficient_numbers[c])
+                              for (n, c) in enumerate(f.coefficients()))
+            ffc_kernel = FFCKernel(f, name + str(i) + str(j), parameters,
+                                   number_map)
+            for kinfo in ffc_kernel.kernels:
+                kernels.append(((i, j),
+                                kinfo))
+    kernels = tuple(kernels)
+    form._cache["firedrake_kernels"] = (kernels, default_parameters["coffee"].copy(),
+                                        name, parameters)
     return kernels
 
 
@@ -340,5 +269,4 @@ def _inverse(kernel):
     return kernel
 
 
-_check_version()
 _ensure_cachedir()

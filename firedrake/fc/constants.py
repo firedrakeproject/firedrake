@@ -12,3 +12,12 @@ SCALAR_TYPE = {numpy.dtype("double"): "double",
 
 
 RESTRICTION_MAP = {"+": 0, "-": 1}
+
+PARAMETERS = {
+    "quadrature_rule": "auto",
+    "quadrature_degree": "auto"
+}
+
+
+def default_parameters():
+    return PARAMETERS.copy()

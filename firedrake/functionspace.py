@@ -14,7 +14,6 @@ from pyop2.utils import flatten
 
 from firedrake.petsc import PETSc
 from firedrake import dmplex
-from firedrake import fiat_utils
 import firedrake.mesh as mesh_t
 from firedrake import halo
 from firedrake import utils
