@@ -104,7 +104,7 @@ def run_right_to_left(mesh, DG1, W):
     out = Function(DG1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
+    assert max(abs(out.dat.data - inflow.dat.data)) < 2e-14
 
 
 def test_right_to_left(mesh, DG1, W):
