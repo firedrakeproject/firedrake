@@ -6,9 +6,9 @@ import time
 from ufl.algorithms import compute_form_data
 
 from ffc.log import info_green
-from ffc.fiatinterface import create_element
-from ffc.mixedelement import MixedElement as ffc_MixedElement
-from ffc.representationutils import create_quadrature_points_and_weights
+from fpfc.fiatinterface import create_element
+from fpfc.mixedelement import MixedElement as ffc_MixedElement
+from fpfc.quadrature import create_quadrature
 
 import coffee.base as coffee
 
@@ -71,12 +71,11 @@ def compile_integral(integral, fd, prefix):
 
     cell = integrand.ufl_domain().ufl_cell()
     # TODO: Hardcoded "default" quadrature rule!
-    quad_points, quad_weights = create_quadrature_points_and_weights(integral_type, cell,
-                                                                     quadrature_degree, rule="default")
+    quad_rule = create_quadrature(cell, integral_type, quadrature_degree)
 
-    tabulation_manager = fem.TabulationManager(integral_type, cell, quad_points)
+    tabulation_manager = fem.TabulationManager(integral_type, cell, quad_rule.points)
     quadrature_index, nonfem, cell_orientations = \
-        fem.process(integral_type, integrand, tabulation_manager, quad_weights, argument_indices, coefficient_map)
+        fem.process(integral_type, integrand, tabulation_manager, quad_rule.weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
     simplified = [ein.inline_indices(e) for e in nonfem]
 

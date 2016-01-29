@@ -15,7 +15,7 @@ from ufl.classes import (Argument, CellEdgeVectors, CellFacetJacobian,
                          ReferenceNormal, ReferenceValue, ScalarValue,
                          Zero)
 
-from ffc.fiatinterface import create_element, reference_cell
+from fpfc.fiatinterface import create_element, as_fiat_cell
 
 from firedrake.fc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from firedrake.fc.constants import NUMPY_TYPE, PRECISION
@@ -208,17 +208,17 @@ class TabulationManager(object):
             # TODO: handle and test integration on facets of intervals
 
             for entity in range(cell.num_facets()):
-                t = reference_cell(cell).get_facet_transform(entity)
+                t = as_fiat_cell(cell).get_facet_transform(entity)
                 self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
 
         elif integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
             for entity in range(2):  # top and bottom
-                t = reference_cell(cell).get_horiz_facet_transform(entity)
+                t = as_fiat_cell(cell).get_horiz_facet_transform(entity)
                 self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
 
         elif integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
             for entity in range(cell._A.num_facets()):  # "base cell" facets
-                t = reference_cell(cell).get_vert_facet_transform(entity)
+                t = as_fiat_cell(cell).get_vert_facet_transform(entity)
                 self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
 
         else:
@@ -612,10 +612,9 @@ def make_reference_normal(terminal):
 
 
 def make_cell_edge_vectors(terminal):
-    from ffc.fiatinterface import reference_cell
     from FIAT.reference_element import two_product_cell
     shape = terminal.ufl_shape
-    cell = reference_cell(terminal.ufl_domain().ufl_cell())
+    cell = as_fiat_cell(terminal.ufl_domain().ufl_cell())
     if isinstance(cell, two_product_cell):
         raise NotImplementedError("CEV not implemented on OPEs yet")
     nedge = len(cell.get_topology()[1])
