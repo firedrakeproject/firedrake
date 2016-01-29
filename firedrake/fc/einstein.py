@@ -396,8 +396,11 @@ class FromUFLMixin(object):
         return Division(numerator, denominator)
 
     def abs(self, o, expr):
-        assert o.ufl_shape == ()
-        return MathFunction('abs', expr)
+        if o.ufl_shape:
+            indices = tuple(Index() for i in range(len(o.ufl_shape)))
+            return ComponentTensor(MathFunction('abs', Indexed(expr, indices)), indices)
+        else:
+            return MathFunction('abs', expr)
 
     def power(self, o, base, exponent):
         return Power(base, exponent)
