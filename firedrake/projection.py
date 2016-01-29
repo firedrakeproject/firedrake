@@ -9,7 +9,7 @@ from firedrake import function
 import firedrake.variational_solver as vs
 
 
-__all__ = ['project','Projector']
+__all__ = ['project', 'Projector']
 
 # Store the solve function to use in a variable so external packages
 # (dolfin-adjoint) can override it.
@@ -111,32 +111,32 @@ class Projector(object):
          :class:`.Function` to project
     :arg v_out: :class:`.Function` to put the result in
     :arg solver_parameters: parameters to pass to the solver used when
-         projecting.    
+         projecting.
     """
 
     def __init__(self, v, v_out, solver_parameters=None):
-        
+
         if not isinstance(v, (ufl.core.expr.Expr, function.Function)):
             raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
 
         V = v_out.function_space()
-        
+
         p = ufl_expr.TestFunction(V)
         q = ufl_expr.TrialFunction(V)
-        
+
         a = ufl.inner(p, q)*ufl.dx
         L = ufl.inner(p, v)*ufl.dx
 
         problem = vs.LinearVariationalProblem(a, L, v_out)
-        
+
         if solver_parameters is None:
             solver_parameters = {}
 
         solver_parameters.setdefault("ksp_type", "cg")
 
-        self.solver = vs.LinearVariationalSolver(problem, 
-                                              solver_parameters=solver_parameters)
-        
+        self.solver = vs.LinearVariationalSolver(problem,
+                                                 solver_parameters=solver_parameters)
+
     def project(self):
         """
         Apply the projection.
