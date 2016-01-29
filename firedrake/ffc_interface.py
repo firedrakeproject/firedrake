@@ -19,6 +19,7 @@ from firedrake.fc import compile_form as ffc_compile_form
 from ffc import constants
 from ffc import log
 from ffc.quadrature.quadraturetransformerbase import EmptyIntegrandError
+from fpfc.fiatinterface import create_element
 
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel
@@ -26,7 +27,6 @@ from pyop2.mpi import MPI
 
 from coffee.base import PreprocessNode, Root, Invert
 
-import firedrake.fiat_utils as fiat_utils
 import firedrake.functionspace as functionspace
 from firedrake.parameters import parameters as default_parameters
 
@@ -173,12 +173,12 @@ class FFCKernel(DiskCached):
             if cell.topological_dimension() == cell.geometric_dimension():
                 continue
             if isinstance(e, ufl.MixedElement) and e.family() != 'Real':
-                if any("contravariant piola" in fiat_utils.fiat_from_ufl_element(s).mapping()
+                if any("contravariant piola" in create_element(s).mapping()
                        for s in e.sub_elements()):
                     return True
             else:
                 if e.family() != 'Real' and \
-                   "contravariant piola" in fiat_utils.fiat_from_ufl_element(e).mapping():
+                   "contravariant piola" in create_element(e).mapping():
                     return True
         return False
 

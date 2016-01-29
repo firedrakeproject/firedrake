@@ -4,6 +4,7 @@ import ufl
 import weakref
 from FIAT.finite_element import facet_support_dofs
 from FIAT.tensor_finite_element import horiz_facet_support_dofs, vert_facet_support_dofs
+from fpfc.fiatinterface import create_element
 
 import coffee.base as ast
 
@@ -74,7 +75,7 @@ class FunctionSpaceBase(ObjectCached):
         self._shape = shape
 
         # Compute the FIAT version of the UFL element above
-        self.fiat_element = fiat_utils.fiat_from_ufl_element(element)
+        self.fiat_element = create_element(element, vector_is_mixed=False)
 
         entity_dofs = self.fiat_element.entity_dofs()
         dofs_per_entity = mesh.make_dofs_per_plex_entity(entity_dofs)
