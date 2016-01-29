@@ -188,6 +188,22 @@ def test_repeatable():
         assert (fd == ud).all()
 
 
+def test_projector():
+    m = UnitSquareMesh(2, 2)
+    Vc = FunctionSpace(m,"CG",2)
+    v = Function(Vc).interpolate(Expression("x[0]*x[1] + cos(x[0]+x[1])"))
+    mass1 = assemble(v*dx)
+
+    Vd = FunctionSpace(m,"DG",1)
+    vo = Function(Vd)
+
+    P = Projector(v, vo)
+    P.project()
+
+    mass2 = assemble(vo*dx)
+
+    assert(np.abs(mass1-mass2)<1.0e-10)
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
