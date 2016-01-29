@@ -47,10 +47,9 @@ def rhs2(fs):
 
 @pytest.fixture
 def cache_key(mass):
-    return ffc_interface.FFCKernel(mass, 'mass', parameters["form_compiler"]).cache_key
+    return ffc_interface.FFCKernel(mass, 'mass', parameters["form_compiler"], {}).cache_key
 
 
-@pytest.mark.xfail("not hasattr(ffc_interface.constants, 'FIREDRAKE_VERSION')")
 class TestFFCCache:
 
     """FFC code generation cache tests."""
@@ -101,16 +100,16 @@ class TestFFCCache:
 
     def test_ffc_cell_kernel(self, mass):
         k = ffc_interface.compile_form(mass, 'mass')
-        assert 'cell_integral' in k[0][-1].code() and len(k) == 1
+        assert len(k) == 1 and 'cell_integral' in k[0][1][0].code()
 
     def test_ffc_exterior_facet_kernel(self, rhs):
         k = ffc_interface.compile_form(rhs, 'rhs')
-        assert 'exterior_facet_integral' in k[0][-1].code() and len(k) == 1
+        assert len(k) == 1 and 'exterior_facet_integral' in k[0][1][0].code()
 
     def test_ffc_cell_exterior_facet_kernel(self, rhs2):
         k = ffc_interface.compile_form(rhs2, 'rhs2')
-        assert 'cell_integral' in k[0][-1].code() and \
-            'exterior_facet_integral' in k[1][-1].code() and len(k) == 2
+        assert len(k) == 2 and 'cell_integral' in k[1][1][0].code() and \
+            'exterior_facet_integral' in k[0][1][0].code()
 
 if __name__ == '__main__':
     pytest.main(os.path.abspath(__file__))
