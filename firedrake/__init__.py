@@ -36,7 +36,7 @@ from firedrake.constant import *
 from firedrake.expression import *
 from firedrake.function import *
 from firedrake.functionspace import *
-from firedrake.io import *
+from firedrake.output import *
 from firedrake.linear_solver import *
 from firedrake.mesh import *
 from firedrake.mg.mesh import *
