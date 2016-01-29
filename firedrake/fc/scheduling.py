@@ -8,10 +8,28 @@ from firedrake.fc import einstein as ein, impero as imp
 from firedrake.fc.node import traversal
 
 
+class OrderedDefaultDict(collections.OrderedDict):
+    """A dictionary that provides a default value and ordered iteration.
+
+    :arg factory: The callable used to create the default value.
+
+    See :class:`collections.OrderedDict` for description of the
+    remaining arguments.
+    """
+    def __init__(self, factory, *args, **kwargs):
+        self.factory = factory
+        super(OrderedDefaultDict, self).__init__(*args, **kwargs)
+
+    def __missing__(self, key):
+        val = self[key] = self.factory()
+        return val
+
+
 class Queue(object):
     def __init__(self, reference_count, get_indices):
         self.waiting = reference_count.copy()
-        self.queue = collections.defaultdict(list)
+        # Need to have deterministic iteration over the queue.
+        self.queue = OrderedDefaultDict(list)
         self.get_indices = get_indices
 
     def reference(self, o):

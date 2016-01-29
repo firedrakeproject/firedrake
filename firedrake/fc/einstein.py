@@ -514,7 +514,7 @@ def inline_indices(expression):
 
 
 def collect_index_extents(expression):
-    result = {}
+    result = collections.OrderedDict()
 
     for node in traversal([expression]):
         if isinstance(node, Indexed):

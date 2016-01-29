@@ -17,6 +17,11 @@ class Bunch(object):
     pass
 
 
+class OrderedCounter(collections.Counter, collections.OrderedDict):
+    """A Counter object that has deterministic iteration order."""
+    pass
+
+
 def generate(indexed_ops, temporaries, shape_map, apply_ordering, index_extents, index_names):
     temporaries_set = set(temporaries)
     ops = [op for indices, op in indexed_ops]
@@ -97,12 +102,14 @@ def count_references(temporaries, op):
 def place_declarations(tree, reference_count, shape_map, apply_ordering, operations):
     temporaries = set(reference_count)
     indices = {}
-    declare = {}
+    # We later iterate over declare keys, so need this to be ordered
+    declare = collections.OrderedDict()
 
     def recurse(expr, loop_indices):
         if isinstance(expr, imp.Block):
             declare[expr] = []
-            counter = collections.Counter()
+            # Need to iterate over counter in given order
+            counter = OrderedCounter()
             for statement in expr.children:
                 counter.update(recurse(statement, loop_indices))
             for e, count in counter.items():

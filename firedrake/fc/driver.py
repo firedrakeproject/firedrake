@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 import numpy
 import time
+import collections
 
 from ufl.algorithms import compute_form_data
 
@@ -83,7 +84,8 @@ def compile_integral(integral, fd, prefix):
         decl = coffee.Decl("const int *restrict *restrict", coffee.Symbol("cell_orientations"))
         arglist.insert(2, decl)
 
-    index_extents = {}
+    # Need a deterministic ordering for these
+    index_extents = collections.OrderedDict()
     for e in simplified:
         index_extents.update(ein.collect_index_extents(e))
     index_ordering = apply_prefix_ordering(index_extents.keys(),
@@ -283,7 +285,8 @@ def make_index_orderer(index_ordering):
 
 def apply_prefix_ordering(indices, prefix_ordering):
     rest = set(indices) - set(prefix_ordering)
-    return tuple(prefix_ordering) + tuple(rest)
+    # Need to return deterministically ordered indices
+    return tuple(prefix_ordering) + tuple(k for k in indices if k in rest)
 
 
 def make_temporaries(operations):
