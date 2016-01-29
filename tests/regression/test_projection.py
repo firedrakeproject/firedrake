@@ -201,7 +201,13 @@ def test_projector():
     P.project()
 
     mass2 = assemble(vo*dx)
+    assert(np.abs(mass1-mass2)<1.0e-10)
 
+    v.interpolate(Expression("x[1] + exp(x[0]+x[1])"))
+    mass1 = assemble(v*dx)
+
+    P.project()
+    mass2 = assemble(vo*dx)
     assert(np.abs(mass1-mass2)<1.0e-10)
 
 if __name__ == '__main__':

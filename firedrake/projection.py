@@ -5,6 +5,7 @@ from firedrake import expression
 from firedrake import functionspace
 from firedrake import solving
 from firedrake import ufl_expr
+from firedrake import function
 import firedrake.variational_solver as vs
 
 
@@ -115,6 +116,9 @@ class Projector(object):
 
     def __init__(self, v, v_out, solver_parameters=None):
         
+        if not isinstance(v, (ufl.core.expr.Expr, function.Function)):
+            raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
+
         V = v_out.function_space()
         
         p = ufl_expr.TestFunction(V)
@@ -125,8 +129,10 @@ class Projector(object):
 
         problem = vs.LinearVariationalProblem(a, L, v_out)
         
-        if(solver_parameters==None):
-            solver_parameters = {'ksp_type':'cg'}
+        if solver_parameters is None:
+            solver_parameters = {}
+
+        solver_parameters.setdefault("ksp_type", "cg")
 
         self.solver = vs.LinearVariationalSolver(problem, 
                                               solver_parameters=solver_parameters)
