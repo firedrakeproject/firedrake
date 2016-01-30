@@ -9,6 +9,7 @@ from os import path, environ, getuid, makedirs
 import tempfile
 
 from ufl import Form, as_vector
+from ufl.classes import ListTensor, FixedIndex
 from ufl.measure import Measure
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import Zero
@@ -85,6 +86,20 @@ class FormSplitter(ReuseTransformer):
                         visit((i, j))
             forms_list += forms
         return forms_list
+
+    def indexed(self, o, op, idx):
+        # Simplify ListTensor()[fixed_index]
+        if isinstance(op, ListTensor):
+            indices = idx.indices()
+            if not all(type(i) is FixedIndex for i in indices):
+                return self.reuse_if_untouched(o, op, idx)
+            top = indices[0]._value
+            rest = indices[1:]
+            ret = op.ufl_operands[top]
+            if len(rest) == 0:
+                return ret
+            return self.visit(ret[rest])
+        return self.reuse_if_untouched(o, op, idx)
 
     def argument(self, arg):
         """Split an argument into its constituent spaces."""
