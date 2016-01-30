@@ -149,6 +149,7 @@ def _(op, enqueue, emit):
 
 
 def make_ordering(assignments, indices_map):
+    assignments = filter(lambda x: not isinstance(x[1], ein.Zero), assignments)
     expressions = [expression for variable, expression in assignments]
     queue = Queue(count_references(expressions), indices_map)
 
