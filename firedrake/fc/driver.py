@@ -48,14 +48,24 @@ def compile_form(form, prefix="form", parameters=None):
 class Kernel(object):
     __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
                  "coefficient_numbers", "__weakref__")
+    """A compiled Kernel object.
 
-    def __init__(self):
+    :kwarg ast: The COFFEE ast for the kernel.
+    :kwarg integral_type: The type of integral.
+    :kwarg oriented: Does the kernel require cell_orientations.
+    :kwarg subdomain_id: What is the subdomain id for this kernel.
+    :kwarg coefficient_numbers: A list of which coefficients from the
+        form the kernel needs.
+    """
+    def __init__(self, ast=None, integral_type=None, oriented=False,
+                 subdomain_id=None, coefficient_numbers=()):
+        # Defaults
+        self.ast = ast
+        self.integral_type = integral_type
+        self.oriented = oriented
+        self.subdomain_id = subdomain_id
+        self.coefficient_numbers = coefficient_numbers
         super(Kernel, self).__init__()
-        self.ast = None
-        self.integral_type = None
-        self.oriented = False
-        self.subdomain_id = None
-        self.coefficient_numbers = ()
 
 
 def compile_integral(integral, idata, fd, prefix, parameters):
@@ -78,9 +88,7 @@ def compile_integral(integral, idata, fd, prefix, parameters):
                                        parameters["estimated_polynomial_degree"])
     integral_type = integral.integral_type()
     integrand = integral.integrand()
-    kernel = Kernel()
-    kernel.integral_type = integral_type
-    kernel.subdomain_id = integral.subdomain_id()
+    kernel = Kernel(integral_type=integral_type, subdomain_id=integral.subdomain_id())
 
     arglist = []
     prepare = []
@@ -99,14 +107,18 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     prepare += prepare_
     coefficient_map[mesh.coordinates] = expression
 
-    coefficient_numbering = dict(zip(fd.reduced_coefficients,
-                                     fd.original_coefficient_positions))
     coefficient_numbers = []
+    # enabled_coefficients is a boolean array that indicates which of
+    # reduced_coefficients the integral requires.
     for i, on in enumerate(idata.enabled_coefficients):
         if not on:
             continue
         coefficient = fd.reduced_coefficients[i]
-        coefficient_numbers.append(coefficient_numbering[coefficient])
+        # This is which coefficient in the original form the current
+        # coefficient is.
+        # Consider f*v*dx + g*v*ds, the full form contains two
+        # coefficients, but each integral only requires one.
+        coefficient_numbers.append(fd.original_coefficient_positions[i])
         funarg, prepare_, expression = prepare_coefficient(integral_type, coefficient, "w_%d" % i)
 
         arglist.append(funarg)
