@@ -2,9 +2,7 @@
 generated code in order to make it suitable for passing to the backends."""
 from __future__ import absolute_import
 
-from collections import defaultdict
 from hashlib import md5
-from operator import add
 from os import path, environ, getuid, makedirs
 import tempfile
 import numpy
@@ -26,21 +24,6 @@ from coffee.base import Invert
 
 import firedrake.functionspace as functionspace
 from firedrake.parameters import parameters as default_parameters
-
-
-def sum_integrands(form):
-    """Produce a form with the integrands on the same measure summed."""
-    integrals = defaultdict(list)
-    for integral in form.integrals():
-        md = integral.metadata()
-        mdkey = tuple((k, md[k]) for k in sorted(md.keys()))
-        integrals[(integral.integral_type(),
-                   integral.ufl_domain(),
-                   integral.subdomain_data(),
-                   integral.subdomain_id(),
-                   mdkey)].append(integral)
-    return Form([it[0].reconstruct(reduce(add, [i.integrand() for i in it]))
-                 for it in integrals.values()])
 
 
 class FormSplitter(MultiFunction):
