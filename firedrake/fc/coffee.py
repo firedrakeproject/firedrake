@@ -162,7 +162,7 @@ def arabica(tree, parameters):
     raise AssertionError("cannot generate COFFEE from %s" % type(tree))
 
 
-@arabica.register(imp.Block)
+@arabica.register(imp.Block)  # noqa: Not actually redefinition
 def _(tree, parameters):
     statements = [arabica(child, parameters) for child in tree.children]
     declares = []
@@ -171,7 +171,7 @@ def _(tree, parameters):
     return coffee.Block(declares + statements, open_scope=True)
 
 
-@arabica.register(imp.For)
+@arabica.register(imp.For)  # noqa: Not actually redefinition
 def _(tree, parameters):
     extent = tree.index.extent
     assert extent
@@ -183,7 +183,7 @@ def _(tree, parameters):
                       arabica(tree.children[0], parameters))
 
 
-@arabica.register(imp.Initialise)
+@arabica.register(imp.Initialise)  # noqa: Not actually redefinition
 def _(leaf, parameters):
     if parameters.declare[leaf]:
         return coffee.Decl(SCALAR_TYPE, _decl_symbol(leaf.indexsum, parameters), 0.0)
@@ -191,19 +191,19 @@ def _(leaf, parameters):
         return coffee.Assign(_ref_symbol(leaf.indexsum, parameters), 0.0)
 
 
-@arabica.register(imp.Accumulate)
+@arabica.register(imp.Accumulate)  # noqa: Not actually redefinition
 def _(leaf, parameters):
     return coffee.Incr(_ref_symbol(leaf.indexsum, parameters),
                        expression(leaf.indexsum.children[0], parameters))
 
 
-@arabica.register(imp.Return)
+@arabica.register(imp.Return)  # noqa: Not actually redefinition
 def _(leaf, parameters):
     return coffee.Incr(expression(leaf.variable, parameters),
                        expression(leaf.expression, parameters))
 
 
-@arabica.register(imp.Evaluate)
+@arabica.register(imp.Evaluate)  # noqa: Not actually redefinition
 def _(leaf, parameters):
     expr = leaf.expression
     if isinstance(expr, ein.ListTensor):
@@ -252,38 +252,38 @@ def handle(expr, parameters):
     raise AssertionError("cannot generate COFFEE from %s" % type(expr))
 
 
-@handle.register(ein.Product)
+@handle.register(ein.Product)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.Prod(*[expression(c, parameters)
                          for c in expr.children])
 
 
-@handle.register(ein.Sum)
+@handle.register(ein.Sum)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.Sum(*[expression(c, parameters)
                         for c in expr.children])
 
 
-@handle.register(ein.Division)
+@handle.register(ein.Division)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.Div(*[expression(c, parameters)
                         for c in expr.children])
 
 
-@handle.register(ein.Power)
+@handle.register(ein.Power)  # noqa: Not actually redefinition
 def _(expr, parameters):
     base, exponent = expr.children
     return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
 
 
-@handle.register(ein.MathFunction)
+@handle.register(ein.MathFunction)  # noqa: Not actually redefinition
 def _(expr, parameters):
     name_map = {'abs': 'fabs', 'ln': 'log'}
     name = name_map.get(expr.name, expr.name)
     return coffee.FunCall(name, expression(expr.children[0], parameters))
 
 
-@handle.register(ein.Comparison)
+@handle.register(ein.Comparison)  # noqa: Not actually redefinition
 def _(expr, parameters):
     type_map = {">": coffee.Greater,
                 ">=": coffee.GreaterEq,
@@ -294,27 +294,27 @@ def _(expr, parameters):
     return type_map[expr.operator](*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.LogicalNot)
+@handle.register(ein.LogicalNot)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.Not(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.LogicalAnd)
+@handle.register(ein.LogicalAnd)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.And(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.LogicalOr)
+@handle.register(ein.LogicalOr)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.Or(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.Conditional)
+@handle.register(ein.Conditional)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.Ternary(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.Literal)
+@handle.register(ein.Literal)  # noqa: Not actually redefinition
 @handle.register(ein.Zero)
 def _(expr, parameters):
     assert not expr.shape
@@ -325,12 +325,12 @@ def _(expr, parameters):
         return expr.value
 
 
-@handle.register(ein.Variable)
+@handle.register(ein.Variable)  # noqa: Not actually redefinition
 def _(expr, parameters):
     return coffee.Symbol(expr.name)
 
 
-@handle.register(ein.Indexed)
+@handle.register(ein.Indexed)  # noqa: Not actually redefinition
 def _(expr, parameters):
     rank = []
     for index in expr.multiindex:

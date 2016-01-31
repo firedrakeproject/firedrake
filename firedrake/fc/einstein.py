@@ -486,7 +486,7 @@ def inline_indices(expression):
     def handle(node, subst):
         raise AssertionError("Cannot handle foreign type: %s" % type(node))
 
-    @handle.register(Node)
+    @handle.register(Node)  # noqa: Not actually redefinition
     def _(node, subst):
         new_children = [cached_handle(child, subst) for child in node.children]
         if all(nc == c for nc, c in zip(new_children, node.children)):
@@ -494,7 +494,7 @@ def inline_indices(expression):
         else:
             return node.reconstruct(*new_children)
 
-    @handle.register(Indexed)
+    @handle.register(Indexed)  # noqa: Not actually redefinition
     def _(node, subst):
         child, = node.children
         multiindex = tuple(subst.get(i, i) for i in node.multiindex)

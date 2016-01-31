@@ -75,23 +75,23 @@ def impero_indices(node, indices):
     raise AssertionError("Cannot handle type: %s" % type(node))
 
 
-@impero_indices.register(imp.Return)
+@impero_indices.register(imp.Return)  # noqa: Not actually redefinition
 def _(node, indices):
     assert set(node.variable.free_indices) >= set(node.expression.free_indices)
     return indices(node.variable)
 
 
-@impero_indices.register(imp.Initialise)
+@impero_indices.register(imp.Initialise)  # noqa: Not actually redefinition
 def _(node, indices):
     return indices(node.indexsum)
 
 
-@impero_indices.register(imp.Accumulate)
+@impero_indices.register(imp.Accumulate)  # noqa: Not actually redefinition
 def _(node, indices):
     return indices(node.indexsum.children[0])
 
 
-@impero_indices.register(imp.Evaluate)
+@impero_indices.register(imp.Evaluate)  # noqa: Not actually redefinition
 def _(node, indices):
     return indices(node.expression)
 
@@ -101,48 +101,48 @@ def handle(node, enqueue, emit):
     raise AssertionError("Cannot handle foreign type: %s" % type(node))
 
 
-@handle.register(ein.Node)
+@handle.register(ein.Node)  # noqa: Not actually redefinition
 def _(node, enqueue, emit):
     emit(imp.Evaluate(node))
     for child in node.children:
         enqueue(child)
 
 
-@handle.register(ein.Variable)
+@handle.register(ein.Variable)  # noqa: Not actually redefinition
 def _(node, enqueue, emit):
     pass
 
 
-@handle.register(ein.Literal)
+@handle.register(ein.Literal)  # noqa: Not actually redefinition
 @handle.register(ein.Zero)
 def _(node, enqueue, emit):
     if node.shape:
         emit(imp.Evaluate(node))
 
 
-@handle.register(ein.Indexed)
+@handle.register(ein.Indexed)  # noqa: Not actually redefinition
 def _(node, enqueue, emit):
     enqueue(node.children[0])
 
 
-@handle.register(ein.IndexSum)
+@handle.register(ein.IndexSum)  # noqa: Not actually redefinition
 def _(node, enqueue, emit):
     enqueue(imp.Accumulate(node))
 
 
-@handle.register(imp.Initialise)
+@handle.register(imp.Initialise)  # noqa: Not actually redefinition
 def _(op, enqueue, emit):
     emit(op)
 
 
-@handle.register(imp.Accumulate)
+@handle.register(imp.Accumulate)  # noqa: Not actually redefinition
 def _(op, enqueue, emit):
     emit(op)
     enqueue(imp.Initialise(op.indexsum))
     enqueue(op.indexsum.children[0])
 
 
-@handle.register(imp.Return)
+@handle.register(imp.Return)  # noqa: Not actually redefinition
 def _(op, enqueue, emit):
     emit(op)
     enqueue(op.expression)

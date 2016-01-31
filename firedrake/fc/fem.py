@@ -314,22 +314,22 @@ def translate(terminal, e, mt, params):
     raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
 
 
-@translate.register(Zero)
+@translate.register(Zero)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     assert False
 
 
-@translate.register(ScalarValue)
+@translate.register(ScalarValue)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     assert False
 
 
-@translate.register(QuadratureWeight)
+@translate.register(QuadratureWeight)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     return ein.Indexed(params.weights, (params.quadrature_index,))
 
 
-@translate.register(Argument)
+@translate.register(Argument)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     argument_index = params.argument_indices[terminal.number()]
 
@@ -346,7 +346,7 @@ def _(terminal, e, mt, params):
         return result[()]
 
 
-@translate.register(Coefficient)
+@translate.register(Coefficient)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     def evaluate(table, kernel_argument):
         q = ein.Index()
@@ -386,7 +386,7 @@ def _(terminal, e, mt, params):
         return result[()]
 
 
-@translate.register(CellFacetJacobian)
+@translate.register(CellFacetJacobian)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     i = ein.Index()
     j = ein.Index()
@@ -405,7 +405,7 @@ def _(terminal, e, mt, params):
         (i, j))
 
 
-@translate.register(ReferenceNormal)
+@translate.register(ReferenceNormal)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     i = ein.Index()
     f = params.facet[mt.restriction]
@@ -423,7 +423,7 @@ def _(terminal, e, mt, params):
         (i,))
 
 
-@translate.register(CellOrientation)
+@translate.register(CellOrientation)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     if mt.restriction == '+' or mt.restriction is None:
         f = 0
@@ -440,7 +440,7 @@ def _(terminal, e, mt, params):
                                            ein.Literal(numpy.nan)))
 
 
-@translate.register(ReferenceCellVolume)
+@translate.register(ReferenceCellVolume)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     cell = terminal.ufl_domain().ufl_cell()
     volume = {ufl.Cell("interval"): 1.0,
@@ -453,7 +453,7 @@ def _(terminal, e, mt, params):
     return ein.Literal(volume[cell])
 
 
-@translate.register(CellEdgeVectors)
+@translate.register(CellEdgeVectors)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     return ein.Literal(make_cell_edge_vectors(terminal))
 
