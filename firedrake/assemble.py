@@ -241,7 +241,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # assemble it.
     def thunk(bcs):
         zero_tensor()
-        for (i, j), (kernel, integral_type, needs_orientations, subdomain_id, coeff_map) in kernels:
+        for indices, (kernel, integral_type, needs_orientations, subdomain_id, coeff_map) in kernels:
+            if is_mat:
+                i, j = indices
+            elif is_vec:
+                i, = indices
+            else:
+                assert len(indices) == 0
+
             sdata = subdomain_data.get(integral_type, None)
             coords = m.coordinates
             if integral_type != 'cell' and sdata is not None:
@@ -285,8 +292,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.cell_node_map(),
                                                           flatten=True))
-                    for i in coeff_map:
-                        c = coefficients[i]
+                    for n in coeff_map:
+                        c = coefficients[n]
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
 
@@ -314,8 +321,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.exterior_facet_node_map(),
                                                           flatten=True))
-                    for i in coeff_map:
-                        c = coefficients[i]
+                    for n in coeff_map:
+                        c = coefficients[n]
                         args.append(c.dat(op2.READ, c.exterior_facet_node_map(),
                                           flatten=True))
                     args.append(m.exterior_facets.local_facet_dat(op2.READ))
@@ -352,8 +359,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                             args.append(cell_orientations.dat(op2.READ,
                                                               cell_orientations.cell_node_map(),
                                                               flatten=True))
-                        for i in coeff_map:
-                            c = coefficients[i]
+                        for n in coeff_map:
+                            c = coefficients[n]
                             args.append(c.dat(op2.READ, c.cell_node_map(),
                                               flatten=True))
                         try:
@@ -378,8 +385,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.interior_facet_node_map(),
                                                           flatten=True))
-                    for i in coeff_map:
-                        c = coefficients[i]
+                    for n in coeff_map:
+                        c = coefficients[n]
                         args.append(c.dat(op2.READ, c.interior_facet_node_map(),
                                           flatten=True))
                     args.append(m.interior_facets.local_facet_dat(op2.READ))
@@ -409,8 +416,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         args.append(cell_orientations.dat(op2.READ,
                                                           cell_orientations.cell_node_map(),
                                                           flatten=True))
-                    for i in coeff_map:
-                        c = coefficients[i]
+                    for n in coeff_map:
+                        c = coefficients[n]
                         args.append(c.dat(op2.READ, c.cell_node_map(),
                                           flatten=True))
                     try:

@@ -7,11 +7,12 @@ from hashlib import md5
 from operator import add
 from os import path, environ, getuid, makedirs
 import tempfile
+import numpy
 
 from ufl import Form, as_vector
 from ufl.classes import ListTensor, FixedIndex
-from ufl.measure import Measure
-from ufl.algorithms import ReuseTransformer
+from ufl.corealg.map_dag import MultiFunction, map_expr_dag
+from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.constantvalue import Zero
 from firedrake.ufl_expr import Argument
 
@@ -42,50 +43,77 @@ def sum_integrands(form):
                  for it in integrals.values()])
 
 
-class FormSplitter(ReuseTransformer):
-    """Split a form into a subtree for each component of the mixed space it is
-    built on. This is a no-op on forms over non-mixed spaces."""
+class FormSplitter(MultiFunction):
+
+    """Split a form in a list of subtrees for each component of the
+    mixed space it is built on.  See :meth:`split` for a usage
+    description."""
 
     def split(self, form):
-        """Split the given form."""
+        """Split the form.
+
+        :arg form: the form to split.
+
+        This is a no-op if none of the arguments in the form are
+        defined on :class:`~.MixedFunctionSpace`\s.
+
+        The return-value is a tuple for which each entry is.
+
+        .. code-block::
+
+           (argument_indices, form)
+
+        Where ``argument_indices`` is a tuple indicating which part of
+        the mixed space the form belongs to, it has length equal to
+        the number of arguments in the form.  Hence functionals have
+        a 0-tuple, 1-forms have a 1-tuple and 2-forms a 2-tuple
+        of indices.
+
+        For example, consider the following code:
+
+        .. code-block::
+
+            V = FunctionSpace(m, 'CG', 1)
+            W = V*V*V
+            u, v, w = TrialFunctions(W)
+            p, q, r = TestFunctions(W)
+            a = q*u*dx + p*w*dx
+
+        Then splitting the form returns a tuple of two forms.
+
+        .. code-block::
+
+           ((0, 2), w*p*dx),
+            (1, 0), q*u*dx))
+
+        """
         args = form.arguments()
         if not any(isinstance(a.function_space(), functionspace.MixedFunctionSpace)
                    for a in args):
-            return [[((0, 0), form)]]
-        # Visit each integrand and obtain the tuple of sub forms
-        args = tuple((a.number(), len(a.function_space()))
-                     for a in form.arguments())
-        forms_list = []
-        for it in sum_integrands(form).integrals():
-            forms = []
+            # No mixed spaces, just return the form directly.
+            idx = tuple([0]*len(form.arguments()))
+            return ((idx, form), )
+        forms = []
+        # How many subspaces do we have for each argument?
+        shape = tuple(len(a.function_space()) for a in args)
+        # Walk over all the indices of the spaces
+        for idx in numpy.ndindex(shape):
+            # Which subspace are we currently interested in?
+            self.idx = dict(enumerate(idx))
+            # Cache for the arguments we construct
+            self._args = {}
+            # Visit the form
+            f = map_integrand_dags(self, form)
+            # Zero-simplification may result in an empty form, only
+            # collect those that are non-zero.
+            if len(f.integrals()) > 0:
+                forms.append((idx, f))
+        return tuple(forms)
 
-            def visit(idx):
-                integrand = self.visit(it.integrand())
-                if not isinstance(integrand, Zero):
-                    forms.append([(idx, integrand * Measure(it.integral_type(),
-                                                            domain=it.ufl_domain(),
-                                                            subdomain_id=it.subdomain_id(),
-                                                            subdomain_data=it.subdomain_data(),
-                                                            metadata=it.metadata()))])
-            # 0 form
-            if not args:
-                visit((0, 0))
-            # 1 form
-            elif len(args) == 1:
-                count, l = args[0]
-                for i in range(l):
-                    self._idx = {count: i}
-                    self._args = {}
-                    visit((i, 0))
-            # 2 form
-            elif len(args) == 2:
-                for i in range(args[0][1]):
-                    for j in range(args[1][1]):
-                        self._idx = {args[0][0]: i, args[1][0]: j}
-                        self._args = {}
-                        visit((i, j))
-            forms_list += forms
-        return forms_list
+    expr = MultiFunction.reuse_if_untouched
+
+    def multi_index(self, o):
+        return o
 
     def indexed(self, o, op, idx):
         # Simplify ListTensor()[fixed_index]
@@ -98,40 +126,31 @@ class FormSplitter(ReuseTransformer):
             ret = op.ufl_operands[top]
             if len(rest) == 0:
                 return ret
-            return self.visit(ret[rest])
+            return map_expr_dag(self, ret[rest])
         return self.reuse_if_untouched(o, op, idx)
 
-    def argument(self, arg):
-        """Split an argument into its constituent spaces."""
-        from itertools import product
-        if isinstance(arg.function_space(), functionspace.MixedFunctionSpace):
-            # Look up the split argument in cache since we want it unique
-            if arg in self._args:
-                return self._args[arg]
-            args = []
-            for i, fs in enumerate(arg.function_space().split()):
-                # Build the sub-space Argument (not part of the mixed
-                # space).
-                a = Argument(fs, arg.number(), part=arg.part())
-
-                # Produce indexing iterator.
-                # For scalar-valued spaces this results in the empty
-                # tuple (), which returns the Argument when indexing.
-                # For vector-valued spaces, this is just
-                # range(a.ufl_shape[0])
-                # For tensor-valued spaces, it's the nested loop of
-                # range(x for x in a.ufl_shape).
-                #
-                # Each of the indexed things is then scalar-valued
-                # which we turn into a ufl Vector.
-                indices = product(*map(range, a.ufl_shape))
-                if self._idx[arg.number()] == i:
-                    args += [a[idx] for idx in indices]
-                else:
-                    args += [Zero() for _ in indices]
-            self._args[arg] = as_vector(args)
-            return self._args[arg]
-        return arg
+    def argument(self, o):
+        V = o.function_space()
+        if not isinstance(V, functionspace.MixedFunctionSpace):
+            # Not on a mixed space, just return ourselves.
+            return o
+        # Already seen this argument, return the cached version.
+        if o in self._args:
+            return self._args[o]
+        args = []
+        for i, V_i in enumerate(V.split()):
+            # Walk over the subspaces and build a vector that is zero
+            # where the argument does not match the one we're looking
+            # for and is just the non-mixed argument when we do want
+            # it.
+            a = Argument(V_i, o.number(), part=o.part())
+            indices = numpy.ndindex(a.ufl_shape)
+            if self.idx[o.number()] == i:
+                args += [a[j] for j in indices]
+            else:
+                args += [Zero() for j in indices]
+        self._args[o] = as_vector(args)
+        return self._args[o]
 
 
 class FFCKernel(DiskCached):
@@ -233,17 +252,15 @@ def compile_form(form, name, parameters=None, inverse=False):
     # A map from all form coefficients to their number.
     coefficient_numbers = dict((c, n)
                                for (n, c) in enumerate(form.coefficients()))
-    for forms in FormSplitter().split(form):
-        for (i, j), f in forms:
-            # Map local coefficient numbers (as seen inside the
-            # compiler) to the global coefficient numbers
-            number_map = dict((n, coefficient_numbers[c])
-                              for (n, c) in enumerate(f.coefficients()))
-            ffc_kernel = FFCKernel(f, name + str(i) + str(j), parameters,
-                                   number_map)
-            for kinfo in ffc_kernel.kernels:
-                kernels.append(((i, j),
-                                kinfo))
+    for idx, f in FormSplitter().split(form):
+        # Map local coefficient numbers (as seen inside the
+        # compiler) to the global coefficient numbers
+        number_map = dict((n, coefficient_numbers[c])
+                          for (n, c) in enumerate(f.coefficients()))
+        ffc_kernel = FFCKernel(f, name + "".join(map(str, idx)), parameters,
+                               number_map)
+        for kinfo in ffc_kernel.kernels:
+            kernels.append((idx, kinfo))
     kernels = tuple(kernels)
     form._cache["firedrake_kernels"] = (kernels, default_parameters["coffee"].copy(),
                                         name, parameters)
