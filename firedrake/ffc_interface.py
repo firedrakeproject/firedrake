@@ -8,8 +8,7 @@ import tempfile
 import numpy
 
 from ufl import Form, as_vector
-from ufl.classes import ListTensor, FixedIndex
-from ufl.corealg.map_dag import MultiFunction, map_expr_dag
+from ufl.corealg.map_dag import MultiFunction
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.constantvalue import Zero
 from firedrake.ufl_expr import Argument
