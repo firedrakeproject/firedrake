@@ -5,8 +5,8 @@ import time
 import collections
 
 from ufl.algorithms import compute_form_data
+from ufl.log import GREEN
 
-from ffc.log import info_green
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement as ffc_MixedElement
 from tsfc.quadrature import create_quadrature, QuadratureRule
@@ -186,7 +186,7 @@ def compile_integral(integral, idata, fd, prefix, parameters):
                          pred=["static", "inline"])
     kernel.ast = ast
 
-    info_green("TSFC finished in %g seconds." % (time.time() - cpu_time))
+    print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
     return kernel
 
 
