@@ -97,21 +97,6 @@ class FormSplitter(MultiFunction):
     def multi_index(self, o):
         return o
 
-    # FIXME: This simplification causes some test fails!
-    # def indexed(self, o, op, idx):
-    #     # Simplify ListTensor()[fixed_index]
-    #     if isinstance(op, ListTensor):
-    #         indices = idx.indices()
-    #         if not all(type(i) is FixedIndex for i in indices):
-    #             return self.reuse_if_untouched(o, op, idx)
-    #         top = indices[0]._value
-    #         rest = indices[1:]
-    #         ret = op.ufl_operands[top]
-    #         if len(rest) == 0:
-    #             return ret
-    #         return map_expr_dag(self, ret[rest])
-    #     return self.reuse_if_untouched(o, op, idx)
-
     def argument(self, o):
         V = o.function_space()
         if not isinstance(V, functionspace.MixedFunctionSpace):
