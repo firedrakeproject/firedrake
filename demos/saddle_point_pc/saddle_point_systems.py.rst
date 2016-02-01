@@ -57,14 +57,9 @@ As ever, we begin by importing the Firedrake module::
     from firedrake import *
 
 We'll also turn off some of the more verbose output that Firedrake
-produces.  First we turn off chatty output from PyOP2_::
+produces.  We turn off chatty output from PyOP2_::
 
     parameters["pyop2_options"]["log_level"] = "WARNING"
-
-and then from FFC::
-
-    from ffc.log import set_level, ERROR
-    set_level(ERROR)
 
 Bulding the problem
 -------------------

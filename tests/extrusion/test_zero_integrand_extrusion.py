@@ -21,8 +21,6 @@ def test_empty_integrand():
     u = Function(P1)
     solve(A == L, u)
 
-    # Derivative of ds_v term wrt sol is zero, but FFC generates
-    # "empty" code, which we must catch.
     F = inner(sol, v)*dx - inner(f, v)*dx - inner(f, v)*ds_v
     solve(F == 0, sol)
 

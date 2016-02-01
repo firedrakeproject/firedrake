@@ -1,7 +1,7 @@
 """The parameters dictionary contains global parameter settings."""
 from __future__ import absolute_import
 
-from ffc import default_parameters
+from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
 from firedrake.citations import Citations
 
@@ -78,12 +78,7 @@ pyop2_opts["log_level"] = "INFO"
 
 parameters.add(pyop2_opts)
 
-ffc_parameters = default_parameters()
-ffc_parameters['write_file'] = False
-ffc_parameters['format'] = 'pyop2'
-ffc_parameters['representation'] = 'quadrature'
-ffc_parameters['pyop2-ir'] = True
-parameters.add(Parameters("form_compiler", **ffc_parameters))
+parameters.add(Parameters("form_compiler", **default_parameters()))
 
 parameters["reorder_meshes"] = True
 
