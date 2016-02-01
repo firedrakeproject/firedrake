@@ -35,92 +35,19 @@ def src_locate_cell(mesh):
     return src
 
 
-# Code snippets for computing Jacobian inverses.  Only uses Jacobian entries, so don't
-# need a separate set for interior facets.
-
-_compute_jacobian_inverse_interval_1d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[1];
-double detJ%(restriction)s;
-compute_jacobian_inverse_interval_1d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_interval_2d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[2];
-double detJ%(restriction)s;
-compute_jacobian_inverse_interval_2d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_interval_3d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[3];
-double detJ%(restriction)s;
-compute_jacobian_inverse_interval_3d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_triangle_2d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[4];
-double detJ%(restriction)s;
-compute_jacobian_inverse_triangle_2d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_triangle_3d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[6];
-double detJ%(restriction)s;
-compute_jacobian_inverse_triangle_3d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_tetrahedron_3d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[9];
-double detJ%(restriction)s;
-compute_jacobian_inverse_tetrahedron_3d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_quad_2d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[4];
-double detJ%(restriction)s;
-compute_jacobian_inverse_quad_2d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_quad_3d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[6];
-double detJ%(restriction)s;
-compute_jacobian_inverse_quad_3d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_prism_3d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[9];
-double detJ%(restriction)s;
-compute_jacobian_inverse_prism_3d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-_compute_jacobian_inverse_hex_3d = """\
-// Compute Jacobian inverse and determinant
-double K%(restriction)s[9];
-double detJ%(restriction)s;
-compute_jacobian_inverse_hex_3d(K%(restriction)s, detJ%(restriction)s, J%(restriction)s);
-"""
-
-compute_jacobian_inverse = {
-    Cell("interval"): _compute_jacobian_inverse_interval_1d,
-    Cell("interval", 2): _compute_jacobian_inverse_interval_2d,
-    Cell("interval", 3): _compute_jacobian_inverse_interval_3d,
-    Cell("triangle"): _compute_jacobian_inverse_triangle_2d,
-    Cell("triangle", 3): _compute_jacobian_inverse_triangle_3d,
-    Cell("tetrahedron"): _compute_jacobian_inverse_tetrahedron_3d,
-    Cell("quadrilateral"): _compute_jacobian_inverse_quad_2d,
-    Cell("quadrilateral", 3): _compute_jacobian_inverse_quad_3d,
-    OuterProductCell(Cell("interval"), Cell("interval")): _compute_jacobian_inverse_quad_2d,
-    OuterProductCell(Cell("interval"), Cell("interval"), gdim=3): _compute_jacobian_inverse_quad_3d,
-    OuterProductCell(Cell("triangle"), Cell("interval")): _compute_jacobian_inverse_prism_3d,
-    OuterProductCell(Cell("quadrilateral"), Cell("interval")): _compute_jacobian_inverse_hex_3d,
+cellname = {
+    Cell("interval"): "interval_1d",
+    Cell("interval", 2): "interval_2d",
+    Cell("interval", 3): "interval_3d",
+    Cell("triangle"): "triangle_2d",
+    Cell("triangle", 3): "triangle_3d",
+    Cell("tetrahedron"): "tetrahedron_3d",
+    Cell("quadrilateral"): "quad_2d",
+    Cell("quadrilateral", 3): "quad_3d",
+    OuterProductCell(Cell("interval"), Cell("interval")): "quad_2d",
+    OuterProductCell(Cell("interval"), Cell("interval"), gdim=3): "quad_3d",
+    OuterProductCell(Cell("triangle"), Cell("interval")): "prism_3d",
+    OuterProductCell(Cell("quadrilateral"), Cell("interval")): "hex_3d",
 }
 
 
@@ -172,7 +99,6 @@ format = {
     "assign": lambda v, w: "%s = %s;" % (v, str(w)),
     "declaration": _declaration,
     "float declaration": "double",
-    "compute_jacobian_inverse": lambda cell: compute_jacobian_inverse[cell] % {"restriction": ""},
     "block": lambda v: "{%s}" % v,
     "list separator": ", ",
     "block separator": ",\n",
@@ -301,14 +227,10 @@ def compile_coordinate_element(ufl_coordinate_element):
 
         # Get code snippets for Jacobian, inverse of Jacobian and mapping of
         # coordinates from physical element to the FIAT reference element.
-        code_ = [format["compute_jacobian_inverse"](cell)]
+        code += ["compute_jacobian_inverse_%s(K, detJ, J);" % cellname[cell]]
         # FIXME: use cell orientations!
         # if needs_orientation:
         #     code_ += [format["orientation"]["ufc"](tdim, gdim)]
-        # FIXME: ugly hack
-        code_ = "\n".join(code_).split("\n")
-        code_ = filter(lambda line: not line.startswith(("double J", "double K", "double detJ")), code_)
-        code += code_
 
         x = np.array([sp.Symbol("x[%d]" % i) for i in xrange(gdim)])
         x0 = np.array([sp.Symbol("x0[%d]" % i) for i in xrange(gdim)])
