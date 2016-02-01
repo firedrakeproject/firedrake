@@ -116,7 +116,8 @@ class Projector(object):
 
     def __init__(self, v, v_out, solver_parameters=None):
 
-        if not isinstance(v, (ufl.core.expr.Expr, function.Function)):
+        if isinstance(v, expression.Expression) or \
+           not isinstance(v, (ufl.core.expr.Expr, function.Function)):
             raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
 
         V = v_out.function_space()

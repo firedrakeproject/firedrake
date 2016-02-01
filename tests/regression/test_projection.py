@@ -210,6 +210,16 @@ def test_projector():
     mass2 = assemble(vo*dx)
     assert(np.abs(mass1-mass2) < 1.0e-10)
 
+
+def test_projector_expression():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    vo = Function(V)
+    expr = Expression("1")
+    with pytest.raises(ValueError):
+        Projector(expr, vo)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
