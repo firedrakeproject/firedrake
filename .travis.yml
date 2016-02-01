@@ -37,6 +37,7 @@ env:
     - CC=mpicc
     # The install script expects to see this environment variable
     - CACHE_DIRECTORY=$HOME/cached_dependencies_$TRAVIS_OS_NAME
+    - FIREDRAKE_TRAVIS_TESTS=1
   matrix:
     - PYOP2_BACKEND=none
 matrix:
