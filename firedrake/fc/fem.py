@@ -147,16 +147,22 @@ class FindPolynomialDegree(MultiFunction):
            For non-simplex elements, this assumes a tensor-product
            space.
         """
-        name = element.cell().cellname()
-        if name in ("interval", "triangle", "tetrahedron"):
+        cell = element.cell()
+        if cell is None:
             return element.degree()
-        elif name == "quadrilateral":
+        if cell.cellname() in ("interval", "triangle", "tetrahedron"):
+            return element.degree()
+        elif cell.cellname() == "quadrilateral":
             # TODO: Tensor-product space assumed
             return 2*element.degree()
-        elif name == "OuterProductCell":
-            return sum(element.degree())
+        elif cell.cellname() == "OuterProductCell":
+            try:
+                return sum(element.degree())
+            except TypeError:
+                assert element.degree() == 0
+                return 0
         else:
-            raise ValueError("Unknown cell %s" % name)
+            raise ValueError("Unknown cell %s" % cell.cellname())
 
     def quadrature_weight(self, o):
         return 0
@@ -391,31 +397,32 @@ class TabulationManager(object):
         for tabulator in self.tabulators:
             tabulator.tabulate(ufl_element, max_deriv)
 
-    def get(self, key, restriction):
+    def get(self, key, restriction, cellwise_constant=False):
         try:
-            table = self.tables[key]
+            table = self.tables[(key, cellwise_constant)]
         except KeyError:
             tables = [tabulator[key] for tabulator in self.tabulators]
+            if cellwise_constant:
+                tables = [table[0] for table in tables]
 
             if self.integral_type == 'cell':
                 table, = tables
             else:
                 table = numpy.array(tables)
 
-            self.tables[key] = table
+            self.tables[(key, cellwise_constant)] = table
 
         if self.integral_type == 'cell':
             return ein.Literal(table)
         else:
             f = self.facet[restriction]
 
-            i = ein.Index()
-            j = ein.Index()
+            indices = tuple(ein.Index() for i in range(len(table.shape)-1))
             return ein.ComponentTensor(
                 ein.Indexed(
                     ein.Literal(table),
-                    (f, i, j)),
-                (i, j))
+                    (f,) + indices),
+                indices)
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, FromUFLMixin):
@@ -497,7 +504,13 @@ def _(terminal, e, mt, params):
 
 @translate.register(Coefficient)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
-    def evaluate(table, kernel_argument):
+    degree = map_expr_dag(FindPolynomialDegree(), e)
+    cellwise_constant = not (degree is None or degree > 0)
+
+    def evaluate_at(params, key):
+        table = params.tabulation_manager.get(key, mt.restriction, cellwise_constant)
+        kernel_argument = params.coefficient_map[terminal]
+
         q = ein.Index()
         r = ein.Index()
 
@@ -510,12 +523,17 @@ def _(terminal, e, mt, params):
         else:
             assert False
 
-        return ein.ComponentTensor(
-            ein.IndexSum(
-                ein.Product(ein.Indexed(table, (q, r)),
-                            kar),
-                r),
-            (q,))
+        if cellwise_constant:
+            return ein.IndexSum(ein.Product(ein.Indexed(table, (r,)), kar), r)
+        else:
+            return ein.Indexed(
+                ein.ComponentTensor(
+                    ein.IndexSum(
+                        ein.Product(ein.Indexed(table, (q, r)),
+                                    kar),
+                        r),
+                    (q,)),
+                (params.quadrature_index,))
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0
@@ -525,9 +543,7 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        evaluated = evaluate(params.tabulation_manager.get(key, mt.restriction),
-                             params.coefficient_map[terminal])
-        result[multiindex] = ein.Indexed(evaluated, (params.quadrature_index,))
+        result[multiindex] = evaluate_at(params, key)
 
     if result.shape:
         return ein.ListTensor(result)
