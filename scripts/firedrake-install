@@ -676,6 +676,17 @@ if mode == "install":
     os.chdir("src")
 
     git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+    if travis:
+        travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+        travis_commit = os.environ["TRAVIS_COMMIT"]
+        os.chdir("firedrake")
+        if travis_pull_request != "false":
+            check_call(["git", "fetch", "origin", "pull/" + travis_pull_request + "/merge"])
+            check_call(["git", "checkout", "FETCH_HEAD"])
+        else:
+            check_call(["git", "checkout", travis_commit])
+        os.chdir("..")
+
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]

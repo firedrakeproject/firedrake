@@ -24,7 +24,6 @@ addons:
         - liblapack-dev
         - gfortran
         - libspatialindex-dev
-        - swig
         - gmsh
 os:
     - linux
@@ -72,10 +71,9 @@ install:
   # Having activated the virtualenv, attempt to save cached dependencies
   # This saves PETSc and petsc4py to speed up building
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
-  - cd firedrake/src/firedrake
-  - if git fetch origin pull/$TRAVIS_PULL_REQUEST/merge; then git checkout FETCH_HEAD; else git checkout $TRAVIS_COMMIT; fi
-  - python setup.py build_ext --inplace
 # command to run tests
 script:
+  - cd firedrake/src/firedrake
+  - python setup.py build_ext --inplace
   - make lint
   - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
