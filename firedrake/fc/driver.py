@@ -40,8 +40,9 @@ def compile_form(form, prefix="form", parameters=None):
         if len(idata.integrals) != 1:
             raise NotImplementedError("Don't support IntegralData with more than one integral")
         for integral in idata.integrals:
-            kernels.append(compile_integral(integral, idata, fd, prefix,
-                                            parameters))
+            kernel = compile_integral(integral, idata, fd, prefix, parameters)
+            if kernel is not None:
+                kernels.append(kernel)
     return kernels
 
 
@@ -167,6 +168,9 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     ordered_shape_map = lambda expr: apply_ordering(shape_map(expr))
 
     indexed_ops = sch.make_ordering(zip(expressions, simplified), ordered_shape_map)
+    # Zero-simplification occurred
+    if len(indexed_ops) == 0:
+        return None
     temporaries = make_temporaries(op for indices, op in indexed_ops)
 
     index_names = zip((quadrature_index,) + argument_indices, ['ip', 'j', 'k'])
