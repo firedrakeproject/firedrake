@@ -739,7 +739,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     given Firedrake :class:`Function`."""
 
     from os import path
-    from ffc import compile_element
+    from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     import firedrake.pointquery_utils as pq_utils
 
