@@ -4,7 +4,7 @@ import ufl
 import weakref
 from FIAT.finite_element import facet_support_dofs
 from FIAT.tensor_finite_element import horiz_facet_support_dofs, vert_facet_support_dofs
-from fpfc.fiatinterface import create_element
+from tsfc.fiatinterface import create_element
 
 import coffee.base as ast
 

@@ -14,7 +14,7 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.constantvalue import Zero
 from firedrake.ufl_expr import Argument
 
-from firedrake.fc import compile_form as ffc_compile_form
+from tsfc import compile_form as ffc_compile_form
 
 from pyop2.caching import DiskCached
 from pyop2.op2 import Kernel

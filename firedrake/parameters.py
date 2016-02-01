@@ -1,7 +1,7 @@
 """The parameters dictionary contains global parameter settings."""
 from __future__ import absolute_import
 
-from firedrake.fc.constants import default_parameters
+from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
 from firedrake.citations import Citations
 
