@@ -24,6 +24,7 @@ branches = {}
 
 # Disgusting hack, are we running on travis?
 travis = "TRAVIS" in os.environ
+travis_testing_firedrake = "FIREDRAKE_TRAVIS_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
 
 if mode == "install":
@@ -676,7 +677,7 @@ if mode == "install":
     os.chdir("src")
 
     git_clone("git+https://github.com/firedrakeproject/firedrake.git")
-    if travis:
+    if travis and travis_testing_firedrake:
         travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
         travis_commit = os.environ["TRAVIS_COMMIT"]
         os.chdir("firedrake")
