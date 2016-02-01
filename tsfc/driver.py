@@ -181,8 +181,7 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     body.open_scope = False
 
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
-    ast = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body]
-                                                                + finalise),
+    ast = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body] + finalise),
                          pred=["static", "inline"])
     kernel.ast = ast
 
