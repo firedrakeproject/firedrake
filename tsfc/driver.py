@@ -151,7 +151,8 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     quadrature_index, nonfem, cell_orientations = \
         fem.process(integral_type, integrand, tabulation_manager, quad_rule.weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
-    simplified = [ein.inline_indices(e) for e in nonfem]
+    inlining_cache = {}
+    simplified = [ein.inline_indices(e, inlining_cache) for e in nonfem]
 
     if cell_orientations:
         decl = coffee.Decl("const int *restrict *restrict", coffee.Symbol("cell_orientations"))

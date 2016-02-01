@@ -470,9 +470,7 @@ class FromUFLMixin(object):
             return IndexSum(summand, index)
 
 
-def inline_indices(expression):
-    result_cache = {}
-
+def inline_indices(expression, result_cache):
     def cached_handle(node, subst):
         cache_key = (node, tuple(sorted(subst.items())))
         try:
