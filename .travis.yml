@@ -24,7 +24,6 @@ addons:
         - liblapack-dev
         - gfortran
         - libspatialindex-dev
-        - swig
         - gmsh
 os:
     - linux
