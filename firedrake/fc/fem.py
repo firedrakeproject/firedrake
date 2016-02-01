@@ -14,6 +14,7 @@ from ufl.classes import (Argument, CellEdgeVectors, CellFacetJacobian,
                          QuadratureWeight, ReferenceCellVolume,
                          ReferenceNormal, ReferenceValue, ScalarValue,
                          Zero)
+from ufl.domain import find_geometric_dimension
 
 from fpfc.fiatinterface import create_element, as_fiat_cell
 
@@ -122,22 +123,170 @@ class PickRestriction(MultiFunction, ModifiedTerminalMixin):
             return o
 
 
+class FindPolynomialDegree(MultiFunction):
+
+    """Simple-minded degree estimator.
+
+    Attempt to estimate the polynomial degree of an expression.  Used
+    to determine whether something we're taking a gradient of is
+    cellwise constant.  Returns either the degree of the expression,
+    or else ``None`` if the degree could not be determined.
+
+    To do this properly, we'd need to carry around a tensor-valued
+    degree object such that we can determine when (say) d^2/dx^2 is
+    zero but d^2/dxdy is not.
+
+    """
+    def _spanning_degree(self, element):
+        """Determine the degree of the polynomial space spanning an element.
+
+        :arg element: The element to determine the degree of.
+
+        .. warning::
+
+           For non-simplex elements, this assumes a tensor-product
+           space.
+        """
+        name = element.cell().cellname()
+        if name in ("interval", "triangle", "tetrahedron"):
+            return element.degree()
+        elif name == "quadrilateral":
+            # TODO: Tensor-product space assumed
+            return 2*element.degree()
+        elif name == "OuterProductCell":
+            return sum(element.degree())
+        else:
+            raise ValueError("Unknown cell %s" % name)
+
+    def quadrature_weight(self, o):
+        return 0
+
+    def multi_index(self, o):
+        return 0
+
+    # Default handler, no estimation.
+    def expr(self, o):
+        return None
+
+    # Coefficient-like things, compute degree of spanning polynomial space
+    def spatial_coordinate(self, o):
+        return self._spanning_degree(o.ufl_domain().ufl_coordinate_element())
+
+    def form_argument(self, o):
+        return self._spanning_degree(o.ufl_element())
+
+    # Index-like operations, return degree of operand
+    def component_tensor(self, o, op, idx):
+        return op
+
+    def indexed(self, o, op, idx):
+        return op
+
+    def index_sum(self, o, op, idx):
+        return op
+
+    def list_tensor(self, o, *ops):
+        if any(ops is None for op in ops):
+            return None
+        return max(*ops)
+
+    # No change
+    def reference_value(self, o, op):
+        return op
+
+    def restricted(self, o, op):
+        return op
+
+    # Constants are constant
+    def constant_value(self, o):
+        return 0
+
+    # Multiplication adds degrees
+    def product(self, o, a, b):
+        if a is None or b is None:
+            return None
+        return a + b
+
+    # If the degree of the exponent is zero, use degree of operand,
+    # otherwise don't guess.
+    def power(self, o, a, b):
+        if b == 0:
+            return a
+        return None
+
+    # Pick maximal degree
+    def conditional(self, o, test, a, b):
+        if a is None or b is None:
+            return None
+        return max(a, b)
+
+    def min_value(self, o, a, b):
+        if a is None or b is None:
+            return None
+        return max(a, b)
+
+    def max_value(self, o, a, b):
+        if a is None or b is None:
+            return None
+        return max(a, b)
+
+    def sum(self, o, a, b):
+        if a is None or b is None:
+            return None
+        return max(a, b)
+
+    # If denominator is constant, use degree of numerator, otherwise
+    # don't guess
+    def division(self, o, a, b):
+        if b == 0:
+            return a
+        return None
+
+    def abs(self, o, a):
+        if a == 0:
+            return a
+        return None
+
+    # If operand is constant, return 0, otherwise don't guess.
+    def math_function(self, o, op):
+        if op == 0:
+            return 0
+        return None
+
+    # Reduce degrees!
+    def reference_grad(self, o, degree):
+        if degree is None:
+            return None
+        return max(degree - 1, 0)
+
+
 class SimplifyExpr(MultiFunction):
     """Apply some simplification passes to an expression."""
 
+    def __init__(self):
+        MultiFunction.__init__(self)
+        self.mapper = FindPolynomialDegree()
+
     expr = MultiFunction.reuse_if_untouched
 
-    # def sum(self, o, a, b):
-    #     """Splat sums to scalar (removing shape)
+    def reference_grad(self, o):
+        """Try and zero-simplify ``RGrad(expr)`` where the degree of
+        ``expr`` can be determined.
 
-    #     Sum(a, b) -> CT(Sum(a[i], b[i]), i)"""
-    #     if o.ufl_shape == ():
-    #         return self.expr(o, a, b)
-    #     indices = ufl.classes.MultiIndex(ufl.indexing.indices(len(o.ufl_shape)))
-    #     a = ufl.classes.Indexed(a, indices)
-    #     b = ufl.classes.Indexed(b, indices)
-    #     s = ufl.classes.Sum(a, b)
-    #     return ufl.classes.ComponentTensor(s, indices)
+        Uses :class:`FindPolynomialDegree` to determine the degree of
+        ``expr``."""
+        # Find degree of operand
+        degree = map_expr_dag(self.mapper, o.ufl_operands[0])
+        # Either we have non-constant, or we didn't know, in which
+        # case return ourselves.
+        if degree is None or degree > 0:
+            return o
+        # We are RGrad(constant-function), return Zero of appropriate shape
+        op = o.ufl_operands[0]
+        gdim = find_geometric_dimension(op)
+        return ufl.classes.Zero(op.ufl_shape + (gdim, ),
+                                op.ufl_free_indices,
+                                op.ufl_index_dimensions)
 
     def abs(self, o, op):
         """Convert Abs(CellOrientation * ...) -> Abs(...)"""
