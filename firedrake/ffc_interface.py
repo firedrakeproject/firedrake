@@ -6,6 +6,7 @@ from hashlib import md5
 from os import path, environ, getuid, makedirs
 import tempfile
 import numpy
+import collections
 
 from ufl import Form, as_vector
 from ufl.corealg.map_dag import MultiFunction
@@ -23,6 +24,9 @@ from coffee.base import Invert
 
 import firedrake.functionspace as functionspace
 from firedrake.parameters import parameters as default_parameters
+
+
+SplitForm = collections.namedtuple("SplitForm", ["indices", "form"])
 
 
 class FormSplitter(MultiFunction):
@@ -74,7 +78,7 @@ class FormSplitter(MultiFunction):
                    for a in args):
             # No mixed spaces, just return the form directly.
             idx = tuple([0]*len(form.arguments()))
-            return ((idx, form), )
+            return (SplitForm(indices=idx, form=form), )
         forms = []
         # How many subspaces do we have for each argument?
         shape = tuple(len(a.function_space()) for a in args)
@@ -89,7 +93,7 @@ class FormSplitter(MultiFunction):
             # Zero-simplification may result in an empty form, only
             # collect those that are non-zero.
             if len(f.integrals()) > 0:
-                forms.append((idx, f))
+                forms.append(SplitForm(indices=idx, form=f))
         return tuple(forms)
 
     expr = MultiFunction.reuse_if_untouched
@@ -119,6 +123,14 @@ class FormSplitter(MultiFunction):
                 args += [Zero() for j in indices]
         self._args[o] = as_vector(args)
         return self._args[o]
+
+
+KernelInfo = collections.namedtuple("KernelInfo",
+                                    ["kernel",
+                                     "integral_type",
+                                     "oriented",
+                                     "subdomain_id",
+                                     "coefficient_map"])
 
 
 class FFCKernel(DiskCached):
@@ -161,13 +173,17 @@ class FFCKernel(DiskCached):
             ast = ast if not parameters.get("assemble_inverse", False) else _inverse(ast)
             # Unwind coefficient numbering
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
-            kernels.append((Kernel(ast, ast.name, opts=opts),
-                            kernel.integral_type,
-                            kernel.oriented,
-                            kernel.subdomain_id,
-                            numbers))
+            kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
+                                      integral_type=kernel.integral_type,
+                                      oriented=kernel.oriented,
+                                      subdomain_id=kernel.subdomain_id,
+                                      coefficient_map=numbers))
         self.kernels = tuple(kernels)
         self._initialized = True
+
+
+SplitKernel = collections.namedtuple("SplitKernel", ["indices",
+                                                     "kinfo"])
 
 
 def compile_form(form, name, parameters=None, inverse=False):
@@ -225,10 +241,10 @@ def compile_form(form, name, parameters=None, inverse=False):
         # compiler) to the global coefficient numbers
         number_map = dict((n, coefficient_numbers[c])
                           for (n, c) in enumerate(f.coefficients()))
-        ffc_kernel = FFCKernel(f, name + "".join(map(str, idx)), parameters,
-                               number_map)
-        for kinfo in ffc_kernel.kernels:
-            kernels.append((idx, kinfo))
+        kinfos = FFCKernel(f, name + "".join(map(str, idx)), parameters,
+                           number_map).kernels
+        for kinfo in kinfos:
+            kernels.append(SplitKernel(idx, kinfo))
     kernels = tuple(kernels)
     form._cache["firedrake_kernels"] = (kernels, default_parameters["coffee"].copy(),
                                         name, parameters)
