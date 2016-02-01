@@ -102,11 +102,12 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     argument_indices = tuple(index for index in expressions[0].multiindex if isinstance(index, ein.Index))
 
     mesh = idata.domain
-    funarg, prepare_, expression = prepare_coefficient(integral_type, mesh.coordinates, "coords")
+    coordinates = fem.coordinate_coefficient(mesh)
+    funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords")
 
     arglist.append(funarg)
     prepare += prepare_
-    coefficient_map[mesh.coordinates] = expression
+    coefficient_map[coordinates] = expression
 
     coefficient_numbers = []
     # enabled_coefficients is a boolean array that indicates which of
@@ -146,6 +147,7 @@ def compile_integral(integral, idata, fd, prefix, parameters):
                          type(quad_rule))
 
     tabulation_manager = fem.TabulationManager(integral_type, cell, quad_rule.points)
+    integrand = fem.replace_coordinates(integrand, coordinates)
     quadrature_index, nonfem, cell_orientations = \
         fem.process(integral_type, integrand, tabulation_manager, quad_rule.weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]

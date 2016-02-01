@@ -30,15 +30,17 @@ epsilon = eval("1e-%d" % (PRECISION - 1))
 
 class ReplaceSpatialCoordinates(MultiFunction):
 
+    def __init__(self, coordinates):
+        self.coordinates = coordinates
+        MultiFunction.__init__(self)
+
     expr = MultiFunction.reuse_if_untouched
 
     def terminal(self, t):
         return t
 
     def spatial_coordinate(self, o):
-        # Firedrake-specific
-        mesh = o.ufl_domain()
-        return ReferenceValue(mesh.coordinates)
+        return ReferenceValue(self.coordinates)
 
 
 class ModifiedTerminalMixin(object):
@@ -623,10 +625,16 @@ def _(terminal, e, mt, params):
     return ein.Literal(make_cell_edge_vectors(terminal))
 
 
-def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
-    # Replace SpatialCoordinate nodes with Coefficients
-    integrand = map_expr_dag(ReplaceSpatialCoordinates(), integrand)
+def coordinate_coefficient(domain):
+    return ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
 
+
+def replace_coordinates(integrand, coordinate_coefficient):
+    # Replace SpatialCoordinate nodes with Coefficients
+    return map_expr_dag(ReplaceSpatialCoordinates(coordinate_coefficient), integrand)
+
+
+def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
     # Abs-simplification
     integrand = map_expr_dag(SimplifyExpr(), integrand)
 
