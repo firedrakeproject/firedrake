@@ -52,7 +52,7 @@ matrix:
     - os: linux
       env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion checkpoints multigrid benchmarks demos"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion checkpoints multigrid benchmarks"
     - os: linux
       env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="extrusion checkpoints multigrid benchmarks"
 before_install:
