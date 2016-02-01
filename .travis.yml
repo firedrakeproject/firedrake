@@ -24,7 +24,6 @@ addons:
         - liblapack-dev
         - gfortran
         - libspatialindex-dev
-        - swig
         - gmsh
 os:
     - linux
@@ -64,7 +63,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --package-branch ufl tsfc --package-branch fiat tsfc --package branch COFFEE tsfc
+  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --package-branch ufl tsfc --package-branch fiat tsfc --package-branch COFFEE tsfc
   - . ./firedrake/bin/activate
   # Install pytest inside the virtualenv
   - pip install pytest

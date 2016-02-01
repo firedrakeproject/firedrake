@@ -2,3 +2,4 @@ six
 sympy
 psutil
 cachetools
+singledispatch
