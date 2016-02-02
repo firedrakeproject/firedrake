@@ -336,11 +336,13 @@ extern "C" void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
                       %(wrapper_args)s
                       %(const_args)s
+                      %(rank)s
                       %(region_flag)s);
 void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
                       %(wrapper_args)s
                       %(const_args)s
+                      %(rank)s
                       %(region_flag)s) {
   %(user_code)s
   %(wrapper_decs)s;
@@ -364,6 +366,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
   i = %(index_expr)s;
   %(itset_loop_body)s;
 }
+%(tile_finish)s;
 %(interm_globals_writeback)s;
 """
 
@@ -404,7 +407,9 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                         argtypes.append(m._argtype)
         for c in Const._definitions():
             argtypes.append(c._argtype)
-        # For the MPI region flag
+
+        # MPI related stuff (rank, region)
+        argtypes.append(ctypes.c_int)
         argtypes.append(ctypes.c_int)
 
         self._argtypes = argtypes
@@ -450,6 +455,8 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
         code_dict['wrapper_args'] = _wrapper_args
         code_dict['wrapper_decs'] = indent(_wrapper_decs, 1)
+        code_dict['rank'] = ", %s %s" % (slope.Executor.meta['ctype_rank'],
+                                         slope.Executor.meta['rank'])
         code_dict['region_flag'] = ", %s %s" % (slope.Executor.meta['ctype_region_flag'],
                                                 slope.Executor.meta['region_flag'])
 
@@ -485,6 +492,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             # ... finish building up the /code_dict/
             loop_code_dict['args_binding'] = binding
             loop_code_dict['tile_init'] = self._executor.c_loop_init[i]
+            loop_code_dict['tile_finish'] = self._executor.c_loop_end[i]
             loop_code_dict['tile_start'] = slope.Executor.meta['tile_start']
             loop_code_dict['tile_end'] = slope.Executor.meta['tile_end']
             loop_code_dict['tile_iter'] = '%s[n]' % self._executor.gtl_maps[i]['DIRECT']
@@ -580,6 +588,8 @@ class ParLoop(sequential.ParLoop):
         for c in Const._definitions():
             arglist.append(c._data.ctypes.data)
 
+        arglist.append(MPI.comm.rank)
+
         return arglist
 
     @collective
@@ -594,11 +604,13 @@ class ParLoop(sequential.ParLoop):
         fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
         arglist = self.prepare_arglist(None, *self.args)
 
-        with timed_region("ParLoopChain: executor"):
+        with timed_region("ParLoopChain: executor (%s)" % self.kernel._insp_name):
             self.halo_exchange_begin()
-            fun(*(arglist + [0]))
+            with timed_region("ParLoopChain: executor - core (%s)" % self.kernel._insp_name):
+                fun(*(arglist + [0]))
             self.halo_exchange_end()
-            fun(*(arglist + [1]))
+            with timed_region("ParLoopChain: executor - exec (%s)" % self.kernel._insp_name):
+                fun(*(arglist + [1]))
 
             # Only meaningful if the user is enforcing tiling in presence of
             # global reductions
@@ -1398,6 +1410,7 @@ class Inspector(Cached):
         executor = slope.Executor(inspector)
 
         kernel = Kernel(tuple(loop.kernel for loop in self._loop_chain))
+        kernel._insp_name = self._name
         self._schedule = TilingSchedule(kernel, self._schedule, inspection, executor)
 
     @property
