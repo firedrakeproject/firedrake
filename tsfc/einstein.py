@@ -7,7 +7,7 @@ from singledispatch import singledispatch
 
 import ufl
 
-from tsfc.node import Node as node_Node, traversal
+from tsfc.node import Node as NodeBase, traversal
 
 
 class NodeMeta(type):
@@ -25,10 +25,16 @@ class NodeMeta(type):
         return obj
 
 
-class Node(node_Node):
+class Node(NodeBase):
     __metaclass__ = NodeMeta
 
     __slots__ = ('free_indices')
+
+    def is_equal(self, other):
+        result = NodeBase.is_equal(self, other)
+        if result:
+            self.children = other.children
+        return result
 
 
 class Scalar(Node):
@@ -45,6 +51,9 @@ class Zero(Node):
         self.shape = shape
 
     children = ()
+
+    def is_equal(self, other):
+        return NodeBase.is_equal(self, other)
 
     @property
     def value(self):
@@ -360,9 +369,10 @@ class ListTensor(Node):
     def is_equal(self, other):
         if type(self) != type(other):
             return False
-        if self.shape != other.shape:
-            return False
-        return self.children == other.children
+        result = (self.array == other.array).all()
+        if result:
+            self.array = other.array
+        return result
 
     def get_hash(self):
         return hash((type(self), self.shape, self.children))
