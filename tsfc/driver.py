@@ -72,6 +72,12 @@ class Kernel(object):
 def compile_integral(integral, idata, fd, prefix, parameters):
     cpu_time = time.time()
 
+    # Remove these here, they're handled below.
+    if parameters.get("quadrature_degree") == "auto":
+        del parameters["quadrature_degree"]
+    if parameters.get("quadrature_rule") == "auto":
+        del parameters["quadrature_rule"]
+
     _ = {}
     # Record per-integral parameters
     _.update(integral.metadata())
@@ -79,10 +85,6 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     _.update(parameters)
     parameters = _
 
-    if parameters.get("quadrature_degree") == "auto":
-        del parameters["quadrature_degree"]
-    if parameters.get("quadrature_rule") == "auto":
-        del parameters["quadrature_rule"]
     # Check if the integral has a quad degree attached, otherwise use
     # the estimated polynomial degree attached by compute_form_data
     quadrature_degree = parameters.get("quadrature_degree",
