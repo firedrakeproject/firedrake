@@ -469,6 +469,14 @@ class FromUFLMixin(object):
         else:
             return IndexSum(summand, index)
 
+    def variable(self, o, expression, label):
+        """Only used by UFL AD, at this point, the bare expression is what we want."""
+        return expression
+
+    def label(self, o):
+        """Only used by UFL AD, don't need it at this point."""
+        pass
+
 
 def inline_indices(expression, result_cache):
     def cached_handle(node, subst):
