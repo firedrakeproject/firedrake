@@ -37,23 +37,26 @@ class Node(NodeBase):
         return result
 
 
+class Terminal(Node):
+    __slots__ = ()
+
+    children = ()
+
+    is_equal = NodeBase.is_equal
+
+
 class Scalar(Node):
     __slots__ = ()
 
     shape = ()
 
 
-class Zero(Node):
+class Zero(Terminal):
     __slots__ = ('shape',)
     __front__ = ('shape',)
 
     def __init__(self, shape=()):
         self.shape = shape
-
-    children = ()
-
-    def is_equal(self, other):
-        return NodeBase.is_equal(self, other)
 
     @property
     def value(self):
@@ -61,7 +64,7 @@ class Zero(Node):
         return 0.0
 
 
-class Literal(Node):
+class Literal(Terminal):
     __slots__ = ('array',)
     __front__ = ('array',)
 
@@ -74,8 +77,6 @@ class Literal(Node):
 
     def __init__(self, array):
         self.array = numpy.asarray(array, dtype=float)
-
-    children = ()
 
     def is_equal(self, other):
         if type(self) != type(other):
@@ -96,15 +97,13 @@ class Literal(Node):
         return self.array.shape
 
 
-class Variable(Node):
+class Variable(Terminal):
     __slots__ = ('name', 'shape')
     __front__ = ('name', 'shape')
 
     def __init__(self, name, shape):
         self.name = name
         self.shape = shape
-
-    children = ()
 
 
 class Sum(Scalar):
