@@ -19,6 +19,8 @@ from tsfc.constants import default_parameters
 
 
 def compile_form(form, prefix="form", parameters=None):
+    cpu_time = time.time()
+
     assert not isinstance(form, (list, tuple))
 
     if parameters is None:
@@ -34,15 +36,20 @@ def compile_form(form, prefix="form", parameters=None):
                            do_apply_geometry_lowering=True,
                            do_apply_restrictions=True,
                            do_estimate_degrees=True)
+    print GREEN % ("compute_form_data finished in %g seconds." % (time.time() - cpu_time))
 
     kernels = []
     for idata in fd.integral_data:
         if len(idata.integrals) != 1:
             raise NotImplementedError("Don't support IntegralData with more than one integral")
         for integral in idata.integrals:
+            start = time.time()
             kernel = compile_integral(integral, idata, fd, prefix, parameters)
             if kernel is not None:
+                print GREEN % ("compile_integral finished in %g seconds." % (time.time() - start))
                 kernels.append(kernel)
+
+    print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
     return kernels
 
 
@@ -70,8 +77,6 @@ class Kernel(object):
 
 
 def compile_integral(integral, idata, fd, prefix, parameters):
-    cpu_time = time.time()
-
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") == "auto":
         del parameters["quadrature_degree"]
@@ -188,7 +193,6 @@ def compile_integral(integral, idata, fd, prefix, parameters):
                          pred=["static", "inline"])
     kernel.ast = ast
 
-    print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
     return kernel
 
 
