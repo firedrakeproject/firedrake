@@ -321,8 +321,7 @@ def _(expr, parameters):
     if isnan(expr.value):
         return coffee.Symbol("NAN")
     else:
-        # Formatting? Symbol?
-        return expr.value
+        return coffee.Symbol(("%%.%dg" % PRECISION) % expr.value)
 
 
 @handle.register(ein.Variable)  # noqa: Not actually redefinition

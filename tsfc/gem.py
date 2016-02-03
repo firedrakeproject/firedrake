@@ -526,6 +526,8 @@ def inline_indices(expression, result_cache):
             return cached_handle(child.children[0], filtered_subst)
         elif isinstance(child, ListTensor) and all(isinstance(i, int) for i in multiindex):
             return cached_handle(child.array[multiindex], subst)
+        elif isinstance(child, Literal) and all(isinstance(i, int) for i in multiindex):
+            return Literal(child.array[multiindex])
         else:
             new_child = cached_handle(child, subst)
             if new_child == child and multiindex == node.multiindex:
