@@ -69,7 +69,7 @@ def fiat_scheme(cell, degree):
     except TypeError:
         points = (degree + 2) // 2
 
-    if numpy.prod(points) < 0:
+    if numpy.prod(points) <= 0:
         raise ValueError("Requested a quadrature rule with a negative number of points")
     if numpy.prod(points) > 500:
         raise RuntimeError("Requested a quadrature rule with more than 500")
@@ -330,6 +330,8 @@ def create_quadrature_rule(cell, degree, scheme="default"):
             degree = (degree, degree)
 
     if cellname == "vertex":
+        if degree < 0:
+            raise ValueError("Need positive degree, not %d" % degree)
         return QuadratureRule(numpy.zeros((1, 0), dtype=numpy.float64),
                               numpy.ones(1, dtype=numpy.float64))
     cell = as_fiat_cell(cell)
@@ -378,6 +380,9 @@ def select_degree(degree, cell, integral_type):
     if integral_type == "cell":
         return degree
     if integral_type in ("exterior_facet", "interior_facet"):
+        if cell.cellname() == "OuterProductCell":
+            raise ValueError("Integral type '%s' invalid for cell '%s'" %
+                             (integral_type, cell.cellname()))
         if cell.cellname() == "quadrilateral":
             try:
                 d1, d2 = degree
@@ -389,6 +394,9 @@ def select_degree(degree, cell, integral_type):
             except TypeError:
                 return degree
         return degree
+    if cell.cellname() != "OuterProductCell":
+        raise ValueError("Integral type '%s' invalid for cell '%s'" %
+                         (integral_type, cell.cellname()))
     if integral_type in ("exterior_facet_top", "exterior_facet_bottom",
                          "interior_facet_horiz"):
         return degree[0]
@@ -396,6 +404,7 @@ def select_degree(degree, cell, integral_type):
         if cell.topological_dimension() == 2:
             return degree[1]
         return degree
+    raise ValueError("Invalid cell, integral_type combination")
 
 
 def create_quadrature(cell, integral_type, degree, scheme="default"):
