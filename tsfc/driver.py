@@ -13,7 +13,7 @@ from tsfc.quadrature import create_quadrature, QuadratureRule
 
 import coffee.base as coffee
 
-from tsfc import fem, gem as ein, impero as imp, scheduling as sch
+from tsfc import fem, gem as ein, impero as imp, scheduling as sch, optimise as opt
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.node import traversal
@@ -160,11 +160,11 @@ def compile_integral(integral, idata, fd, prefix, parameters):
         fem.process(integral_type, integrand, tabulation_manager, quad_rule.weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
     inlining_cache = {}
-    simplified = [ein.inline_indices(e, inlining_cache) for e in nonfem]
+    simplified = [opt.inline_indices(e, inlining_cache) for e in nonfem]
 
-    simplified = ein.expand_indexsum(simplified, max_extent=3)
+    simplified = opt.expand_indexsum(simplified, max_extent=3)
     inlining_cache = {}
-    simplified = [ein.inline_indices(e, inlining_cache) for e in simplified]
+    simplified = [opt.inline_indices(e, inlining_cache) for e in simplified]
 
     refcount = sch.count_references(simplified)
     candidates = set()
@@ -186,7 +186,7 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     # Need a deterministic ordering for these
     index_extents = collections.OrderedDict()
     for e in simplified:
-        index_extents.update(ein.collect_index_extents(e))
+        index_extents.update(opt.collect_index_extents(e))
     index_ordering = apply_prefix_ordering(index_extents.keys(),
                                            (quadrature_index,) + argument_indices)
     apply_ordering = make_index_orderer(index_ordering)

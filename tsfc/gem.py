@@ -1,36 +1,60 @@
+"""GEM is the intermediate language of TSFC for describing
+tensor-valued mathematical expressions and tensor operations.
+It is similar to Einstein's notation.
+
+Its design was heavily inspired by UFL, with some major differences:
+ - GEM has got nothing FEM-specific.
+ - In UFL free indices are just unrolled shape, thus UFL is very
+   restrictive about operations on expressions with different sets of
+   free indices. GEM is much more relaxed about free indices.
+
+Similarly to UFL, all GEM nodes have 'shape' and 'free_indices'
+attributes / properties. Unlike UFL, however, index extents live on
+the Index objects in GEM, not on all the nodes that have those free
+indices.
+"""
+
 from __future__ import absolute_import
 
-import collections
-import numpy
+from itertools import chain
+from numpy import asarray, unique
 
-from singledispatch import singledispatch
-
-import ufl
-
-from tsfc.node import Node as NodeBase, traversal
+from tsfc.node import Node as NodeBase
 
 
 class NodeMeta(type):
+    """Metaclass of GEM nodes.
+
+    When a GEM node is constructed, this metaclass automatically
+    collects its free indices if 'free_indices' has not been set yet.
+    """
+
     def __call__(self, *args, **kwargs):
         # Create and initialise object
         obj = super(NodeMeta, self).__call__(*args, **kwargs)
 
         # Set free_indices if not set already
         if not hasattr(obj, 'free_indices'):
-            free_indices = set()
-            for child in obj.children:
-                free_indices |= set(child.free_indices)
-            obj.free_indices = tuple(free_indices)
+            cfi = list(chain(*[c.free_indices for c in obj.children]))
+            obj.free_indices = tuple(unique(cfi))
 
         return obj
 
 
 class Node(NodeBase):
+    """Abstract GEM node class."""
+
     __metaclass__ = NodeMeta
 
     __slots__ = ('free_indices')
 
     def is_equal(self, other):
+        """Common subexpression eliminating equality predicate.
+
+        When two (sub)expressions are equal, the children of one
+        object are reassigned to the children of the other, so some
+        duplicated subexpressions are eliminated.
+        """
         result = NodeBase.is_equal(self, other)
         if result:
             self.children = other.children
@@ -38,6 +62,8 @@ class Node(NodeBase):
 
 
 class Terminal(Node):
+    """Abstract class for terminal GEM nodes."""
+
     __slots__ = ()
 
     children = ()
@@ -46,12 +72,16 @@ class Terminal(Node):
 
 
 class Scalar(Node):
+    """Abstract class for scalar-valued GEM nodes."""
+
     __slots__ = ()
 
     shape = ()
 
 
 class Zero(Terminal):
+    """Symbolic zero tensor"""
+
     __slots__ = ('shape',)
     __front__ = ('shape',)
 
@@ -65,18 +95,21 @@ class Zero(Terminal):
 
 
 class Literal(Terminal):
+    """Tensor-valued constant"""
+
     __slots__ = ('array',)
     __front__ = ('array',)
 
     def __new__(cls, array):
-        array = numpy.asarray(array)
+        array = asarray(array)
         if (array == 0).all():
+            # All zeros, make symbolic zero
             return Zero(array.shape)
         else:
             return super(Literal, cls).__new__(cls)
 
     def __init__(self, array):
-        self.array = numpy.asarray(array, dtype=float)
+        self.array = asarray(array, dtype=float)
 
     def is_equal(self, other):
         if type(self) != type(other):
@@ -98,6 +131,8 @@ class Literal(Terminal):
 
 
 class Variable(Terminal):
+    """Symbolic variable tensor"""
+
     __slots__ = ('name', 'shape')
     __front__ = ('name', 'shape')
 
@@ -113,6 +148,7 @@ class Sum(Scalar):
         assert not a.shape
         assert not b.shape
 
+        # Zero folding
         if isinstance(a, Zero):
             return b
         elif isinstance(b, Zero):
@@ -130,6 +166,7 @@ class Product(Scalar):
         assert not a.shape
         assert not b.shape
 
+        # Zero folding
         if isinstance(a, Zero) or isinstance(b, Zero):
             return Zero()
 
@@ -145,6 +182,7 @@ class Division(Scalar):
         assert not a.shape
         assert not b.shape
 
+        # Zero folding
         if isinstance(b, Zero):
             raise ValueError("division by zero")
         if isinstance(a, Zero):
@@ -162,6 +200,7 @@ class Power(Scalar):
         assert not base.shape
         assert not exponent.shape
 
+        # Zero folding
         if isinstance(base, Zero):
             if isinstance(exponent, Zero):
                 raise ValueError("cannot solve 0^0")
@@ -262,12 +301,16 @@ class Conditional(Node):
 
 
 class Index(object):
+    """Free index"""
+
     __slots__ = ('extent')
 
     def __init__(self):
+        # Initialise with indefinite extent
         self.extent = None
 
     def set_extent(self, value):
+        # Set extent, check for consistency
         if self.extent is None:
             self.extent = value
         elif self.extent != value:
@@ -284,11 +327,13 @@ class Indexed(Scalar):
     __back__ = ('multiindex',)
 
     def __new__(cls, aggregate, multiindex):
+        # Set index extents from shape
         assert len(aggregate.shape) == len(multiindex)
         for index, extent in zip(multiindex, aggregate.shape):
             if isinstance(index, Index):
                 index.set_extent(extent)
 
+        # Zero folding
         if isinstance(aggregate, Zero):
             return Zero()
         else:
@@ -298,24 +343,35 @@ class Indexed(Scalar):
         self.children = (aggregate,)
         self.multiindex = multiindex
 
-        new_indices = set(i for i in multiindex if isinstance(i, Index))
-        self.free_indices = tuple(set(aggregate.free_indices) | new_indices)
+        new_indices = tuple(i for i in multiindex if isinstance(i, Index))
+        self.free_indices = tuple(unique(aggregate.free_indices + new_indices))
 
 
 class ComponentTensor(Node):
     __slots__ = ('children', 'multiindex', 'shape')
     __back__ = ('multiindex',)
 
-    def __init__(self, expression, multiindex):
+    def __new__(cls, expression, multiindex):
         assert not expression.shape
-        # assert set(multiindex) <= set(expression.free_indices)
-        assert all(index.extent for index in multiindex)
 
+        # Collect shape
+        shape = tuple(index.extent for index in multiindex)
+        assert all(shape)
+
+        # Zero folding
+        if isinstance(expression, Zero):
+            return Zero(shape)
+
+        self = super(ComponentTensor, cls).__new__(cls)
         self.children = (expression,)
         self.multiindex = multiindex
+        self.shape = shape
 
+        # Collect free indices
+        assert set(multiindex) <= set(expression.free_indices)
         self.free_indices = tuple(set(expression.free_indices) - set(multiindex))
-        self.shape = tuple(index.extent for index in multiindex)
+
+        return self
 
 
 class IndexSum(Scalar):
@@ -336,6 +392,7 @@ class IndexSum(Scalar):
         self.children = (summand,)
         self.index = index
 
+        # Collect shape and free indices
         assert index in summand.free_indices
         self.free_indices = tuple(set(summand.free_indices) - {index})
 
@@ -346,8 +403,9 @@ class ListTensor(Node):
     __slots__ = ('array',)
 
     def __new__(cls, array):
-        array = numpy.asarray(array)
+        array = asarray(array)
 
+        # Zero folding
         if all(isinstance(elem, Zero) for elem in array.flat):
             assert all(elem.shape == () for elem in array.flat)
             return Zero(array.shape)
@@ -365,228 +423,19 @@ class ListTensor(Node):
         return self.array.shape
 
     def reconstruct(self, *args):
-        return ListTensor(numpy.asarray(args).reshape(self.array.shape))
+        return ListTensor(asarray(args).reshape(self.array.shape))
 
     def __repr__(self):
         return "ListTensor(%r)" % self.array.tolist()
 
     def is_equal(self, other):
+        """Common subexpression eliminating equality predicate."""
         if type(self) != type(other):
             return False
-        result = (self.array == other.array).all()
-        if result:
+        if (self.array == other.array).all():
             self.array = other.array
-        return result
+            return True
+        return False
 
     def get_hash(self):
         return hash((type(self), self.shape, self.children))
-
-
-class FromUFLMixin(object):
-    def __init__(self):
-        self.index_map = collections.defaultdict(Index)
-
-    def scalar_value(self, o):
-        return Literal(o.value())
-
-    def identity(self, o):
-        return Literal(numpy.eye(*o.ufl_shape))
-
-    def zero(self, o):
-        return Zero(o.ufl_shape)
-
-    def sum(self, o, *ops):
-        if o.ufl_shape:
-            indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(Sum(*[Indexed(op, indices) for op in ops]), indices)
-        else:
-            return Sum(*ops)
-
-    def product(self, o, *ops):
-        assert o.ufl_shape == ()
-        return Product(*ops)
-
-    def division(self, o, numerator, denominator):
-        return Division(numerator, denominator)
-
-    def abs(self, o, expr):
-        if o.ufl_shape:
-            indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(MathFunction('abs', Indexed(expr, indices)), indices)
-        else:
-            return MathFunction('abs', expr)
-
-    def power(self, o, base, exponent):
-        return Power(base, exponent)
-
-    def math_function(self, o, expr):
-        return MathFunction(o._name, expr)
-
-    def min_value(self, o, *ops):
-        return MinValue(*ops)
-
-    def max_value(self, o, *ops):
-        return MaxValue(*ops)
-
-    def binary_condition(self, o, left, right):
-        return Comparison(o._name, left, right)
-
-    def not_condition(self, o, expr):
-        return LogicalNot(expr)
-
-    def and_condition(self, o, *ops):
-        return LogicalAnd(*ops)
-
-    def or_condition(self, o, *ops):
-        return LogicalOr(*ops)
-
-    def conditional(self, o, condition, then, else_):
-        assert o.ufl_shape == ()  # TODO
-        return Conditional(condition, then, else_)
-
-    def multi_index(self, o):
-        indices = []
-        for i in o:
-            if isinstance(i, ufl.classes.FixedIndex):
-                indices.append(int(i))
-            elif isinstance(i, ufl.classes.Index):
-                indices.append(self.index_map[i.count()])
-        return tuple(indices)
-
-    def indexed(self, o, aggregate, index):
-        return Indexed(aggregate, index)
-
-    def list_tensor(self, o, *ops):
-        nesting = [isinstance(op, ListTensor) for op in ops]
-        if all(nesting):
-            return ListTensor(numpy.array([op.array for op in ops]))
-        elif len(o.ufl_shape) > 1:
-            children = []
-            for op in ops:
-                child = numpy.zeros(o.ufl_shape[1:], dtype=object)
-                for multiindex in numpy.ndindex(child.shape):
-                    child[multiindex] = Indexed(op, multiindex)
-                children.append(child)
-            return ListTensor(numpy.array(children))
-        else:
-            return ListTensor(numpy.array(ops))
-
-    def component_tensor(self, o, expression, index):
-        return ComponentTensor(expression, index)
-
-    def index_sum(self, o, summand, indices):
-        index, = indices
-
-        if o.ufl_shape:
-            indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(IndexSum(Indexed(summand, indices), index), indices)
-        else:
-            return IndexSum(summand, index)
-
-    def variable(self, o, expression, label):
-        """Only used by UFL AD, at this point, the bare expression is what we want."""
-        return expression
-
-    def label(self, o):
-        """Only used by UFL AD, don't need it at this point."""
-        pass
-
-
-def inline_indices(expression, result_cache):
-    def cached_handle(node, subst):
-        cache_key = (node, tuple(sorted(subst.items())))
-        try:
-            return result_cache[cache_key]
-        except KeyError:
-            result = handle(node, subst)
-            result_cache[cache_key] = result
-            return result
-
-    @singledispatch
-    def handle(node, subst):
-        raise AssertionError("Cannot handle foreign type: %s" % type(node))
-
-    @handle.register(Node)  # noqa: Not actually redefinition
-    def _(node, subst):
-        new_children = [cached_handle(child, subst) for child in node.children]
-        if all(nc == c for nc, c in zip(new_children, node.children)):
-            return node
-        else:
-            return node.reconstruct(*new_children)
-
-    @handle.register(Indexed)  # noqa: Not actually redefinition
-    def _(node, subst):
-        child, = node.children
-        multiindex = tuple(subst.get(i, i) for i in node.multiindex)
-        if isinstance(child, ComponentTensor):
-            new_subst = dict(zip(child.multiindex, multiindex))
-            composed_subst = {k: new_subst.get(v, v) for k, v in subst.items()}
-            composed_subst.update(new_subst)
-            filtered_subst = {k: v for k, v in composed_subst.items() if k in child.children[0].free_indices}
-            return cached_handle(child.children[0], filtered_subst)
-        elif isinstance(child, ListTensor) and all(isinstance(i, int) for i in multiindex):
-            return cached_handle(child.array[multiindex], subst)
-        elif isinstance(child, Literal) and all(isinstance(i, int) for i in multiindex):
-            return Literal(child.array[multiindex])
-        else:
-            new_child = cached_handle(child, subst)
-            if new_child == child and multiindex == node.multiindex:
-                return node
-            else:
-                return Indexed(new_child, multiindex)
-
-    return cached_handle(expression, {})
-
-
-def expand_indexsum(expressions, max_extent):
-    result_cache = {}
-
-    def cached_handle(node):
-        try:
-            return result_cache[node]
-        except KeyError:
-            result = handle(node)
-            result_cache[node] = result
-            return result
-
-    @singledispatch
-    def handle(node):
-        raise AssertionError("Cannot handle foreign type: %s" % type(node))
-
-    @handle.register(Node)  # noqa: Not actually redefinition
-    def _(node):
-        new_children = [cached_handle(child) for child in node.children]
-        if all(nc == c for nc, c in zip(new_children, node.children)):
-            return node
-        else:
-            return node.reconstruct(*new_children)
-
-    @handle.register(IndexSum)  # noqa: Not actually redefinition
-    def _(node):
-        if node.index.extent <= max_extent:
-            summand = cached_handle(node.children[0])
-            ct = ComponentTensor(summand, (node.index,))
-            result = Zero()
-            for i in xrange(node.index.extent):
-                result = Sum(result, Indexed(ct, (i,)))
-            return result
-        else:
-            return node.reconstruct(*[cached_handle(child) for child in node.children])
-
-    return [cached_handle(expression) for expression in expressions]
-
-
-def collect_index_extents(expression):
-    result = collections.OrderedDict()
-
-    for node in traversal([expression]):
-        if isinstance(node, Indexed):
-            assert len(node.multiindex) == len(node.children[0].shape)
-            for index, extent in zip(node.multiindex, node.children[0].shape):
-                if isinstance(index, Index):
-                    if index not in result:
-                        result[index] = extent
-                    elif result[index] != extent:
-                        raise AssertionError("Inconsistent index extents!")
-
-    return result

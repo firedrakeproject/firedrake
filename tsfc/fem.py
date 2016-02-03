@@ -21,7 +21,7 @@ from tsfc.fiatinterface import create_element, as_fiat_cell
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from tsfc.constants import NUMPY_TYPE, PRECISION
 from tsfc import gem as ein
-from tsfc.gem import FromUFLMixin
+from tsfc import ufl2gem
 
 
 # FFC uses one less digits for rounding than for printing
@@ -427,11 +427,11 @@ class TabulationManager(object):
                 indices)
 
 
-class Translator(MultiFunction, ModifiedTerminalMixin, FromUFLMixin):
+class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
 
     def __init__(self, weights, quadrature_index, argument_indices, tabulation_manager, coefficient_map):
         MultiFunction.__init__(self)
-        FromUFLMixin.__init__(self)
+        ufl2gem.Mixin.__init__(self)
         self.weights = ein.Literal(weights)
         self.quadrature_index = quadrature_index
         self.argument_indices = argument_indices
