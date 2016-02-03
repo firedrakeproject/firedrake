@@ -1,19 +1,51 @@
+"""Generic abstract node class and utility functions for creating
+expression DAG languages."""
+
 from __future__ import absolute_import
 
 
 class Node(object):
+    """Abstract node class.
+
+    Nodes are not meant to be modified.
+
+    A node can reference other nodes; they are called children. A node
+    might contain data, or reference other objects which are not
+    themselves nodes; they are not called children.
+
+    Both the children (if any) and non-child data (if any) are
+    required to create a node, or determine the equality of two
+    nodes. For reconstruction, however, only the new children are
+    necessary.
+    """
+
     __slots__ = ('hash_value',)
 
+    # Non-child data as the first arguments of the constructor.
+    # To be (potentially) overridden by derived node classes.
     __front__ = ()
+
+    # Non-child data as the last arguments of the constructor.
+    # To be (potentially) overridden by derived node classes.
     __back__ = ()
 
     def __getinitargs__(self, children):
+        """Constructs an argument list for the constructor with
+        non-child data from 'self' and children from 'children'.
+
+        Internally used utility function.
+        """
         front_args = [getattr(self, name) for name in self.__front__]
         back_args = [getattr(self, name) for name in self.__back__]
 
         return tuple(front_args) + tuple(children) + tuple(back_args)
 
     def reconstruct(self, *args):
+        """Reconstructs the node with new children from
+        'args'. Non-child data are copied from 'self'.
+
+        Returns a new object.
+        """
         return type(self)(*self.__getinitargs__(args))
 
     def __repr__(self):
@@ -43,6 +75,11 @@ class Node(object):
             return self.hash_value
 
     def is_equal(self, other):
+        """Equality predicate.
+
+        This is the method to potentially override in derived classes,
+        not :meth:`__eq__` or :meth:`__ne__`.
+        """
         if type(self) != type(other):
             return False
         self_initargs = self.__getinitargs__(self.children)
@@ -50,6 +87,11 @@ class Node(object):
         return self_initargs == other_initargs
 
     def get_hash(self):
+        """Hash function.
+
+        This is the method to potentially override in derived classes,
+        not :meth:`__hash__`.
+        """
         return hash((type(self),) + self.__getinitargs__(self.children))
 
 
