@@ -323,9 +323,14 @@ class IndexSum(Scalar):
     __back__ = ('index',)
 
     def __new__(cls, summand, index):
+        # Sum zeros
         assert not summand.shape
         if isinstance(summand, Zero):
             return summand
+
+        # Sum a single expression
+        if index.extent == 1:
+            return Indexed(ComponentTensor(summand, (index,)), (0,))
 
         self = super(IndexSum, cls).__new__(cls)
         self.children = (summand,)
@@ -529,6 +534,44 @@ def inline_indices(expression, result_cache):
                 return Indexed(new_child, multiindex)
 
     return cached_handle(expression, {})
+
+
+def expand_indexsum(expressions, max_extent):
+    result_cache = {}
+
+    def cached_handle(node):
+        try:
+            return result_cache[node]
+        except KeyError:
+            result = handle(node)
+            result_cache[node] = result
+            return result
+
+    @singledispatch
+    def handle(node):
+        raise AssertionError("Cannot handle foreign type: %s" % type(node))
+
+    @handle.register(Node)  # noqa: Not actually redefinition
+    def _(node):
+        new_children = [cached_handle(child) for child in node.children]
+        if all(nc == c for nc, c in zip(new_children, node.children)):
+            return node
+        else:
+            return node.reconstruct(*new_children)
+
+    @handle.register(IndexSum)  # noqa: Not actually redefinition
+    def _(node):
+        if node.index.extent <= max_extent:
+            summand = cached_handle(node.children[0])
+            ct = ComponentTensor(summand, (node.index,))
+            result = Zero()
+            for i in xrange(node.index.extent):
+                result = Sum(result, Indexed(ct, (i,)))
+            return result
+        else:
+            return node.reconstruct(*[cached_handle(child) for child in node.children])
+
+    return [cached_handle(expression) for expression in expressions]
 
 
 def collect_index_extents(expression):

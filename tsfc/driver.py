@@ -16,6 +16,7 @@ import coffee.base as coffee
 from tsfc import fem, gem as ein, impero as imp, scheduling as sch
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.constants import default_parameters
+from tsfc.node import traversal
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -161,6 +162,22 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     inlining_cache = {}
     simplified = [ein.inline_indices(e, inlining_cache) for e in nonfem]
 
+    simplified = ein.expand_indexsum(simplified, max_extent=3)
+    inlining_cache = {}
+    simplified = [ein.inline_indices(e, inlining_cache) for e in simplified]
+
+    refcount = sch.count_references(simplified)
+    candidates = set()
+    for node in traversal(simplified):
+        if isinstance(node, ein.IndexSum):
+            if refcount[node.children[0]] == 1:
+                candidates.add(node.children[0])
+        else:
+            for child in node.children:
+                if set(child.free_indices) == set(node.free_indices) and refcount[child] == 1:
+                    if not (isinstance(child, ein.Literal) and child.shape):
+                        candidates.add(child)
+
     if cell_orientations:
         decl = coffee.Decl("const int *restrict *restrict", coffee.Symbol("cell_orientations"))
         arglist.insert(2, decl)
@@ -178,6 +195,10 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     ordered_shape_map = lambda expr: apply_ordering(shape_map(expr))
 
     indexed_ops = sch.make_ordering(zip(expressions, simplified), ordered_shape_map)
+    indexed_ops = [(multiindex, op)
+                   for multiindex, op in indexed_ops
+                   if not (isinstance(op, imp.Evaluate) and op.expression in candidates)]
+
     # Zero-simplification occurred
     if len(indexed_ops) == 0:
         return None
