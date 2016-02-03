@@ -4,7 +4,7 @@ import collections
 
 from singledispatch import singledispatch
 
-from tsfc import einstein as ein, impero as imp
+from tsfc import gem as ein, impero as imp
 from tsfc.node import traversal
 
 

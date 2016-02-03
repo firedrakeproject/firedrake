@@ -13,7 +13,7 @@ from tsfc.quadrature import create_quadrature, QuadratureRule
 
 import coffee.base as coffee
 
-from tsfc import fem, einstein as ein, impero as imp, scheduling as sch
+from tsfc import fem, gem as ein, impero as imp, scheduling as sch
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.constants import default_parameters
 

@@ -9,7 +9,7 @@ from singledispatch import singledispatch
 
 import coffee.base as coffee
 
-from tsfc import einstein as ein, impero as imp
+from tsfc import gem as ein, impero as imp
 from tsfc.constants import NUMPY_TYPE, SCALAR_TYPE, PRECISION
 
 

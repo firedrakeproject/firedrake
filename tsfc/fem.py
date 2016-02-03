@@ -20,8 +20,8 @@ from tsfc.fiatinterface import create_element, as_fiat_cell
 
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from tsfc.constants import NUMPY_TYPE, PRECISION
-from tsfc import einstein as ein
-from tsfc.einstein import FromUFLMixin
+from tsfc import gem as ein
+from tsfc.gem import FromUFLMixin
 
 
 # FFC uses one less digits for rounding than for printing
