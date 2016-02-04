@@ -4,6 +4,7 @@ import ufl
 import weakref
 from FIAT.finite_element import facet_support_dofs
 from FIAT.tensor_finite_element import horiz_facet_support_dofs, vert_facet_support_dofs
+from tsfc.fiatinterface import create_element
 
 import coffee.base as ast
 
@@ -13,7 +14,6 @@ from pyop2.utils import flatten
 
 from firedrake.petsc import PETSc
 from firedrake import dmplex
-from firedrake import fiat_utils
 import firedrake.mesh as mesh_t
 from firedrake import halo
 from firedrake import utils
@@ -74,7 +74,7 @@ class FunctionSpaceBase(ObjectCached):
         self._shape = shape
 
         # Compute the FIAT version of the UFL element above
-        self.fiat_element = fiat_utils.fiat_from_ufl_element(element)
+        self.fiat_element = create_element(element, vector_is_mixed=False)
 
         entity_dofs = self.fiat_element.entity_dofs()
         dofs_per_entity = mesh.make_dofs_per_plex_entity(entity_dofs)

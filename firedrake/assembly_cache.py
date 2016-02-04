@@ -184,13 +184,13 @@ class AssemblyCache(object):
         sd_sig = tuple(id(it.subdomain_data()) for it in form.integrals())
         return (form_sig, sd_sig)
 
-    def _lookup(self, form, bcs, ffc_parameters):
+    def _lookup(self, form, bcs, tsfc_parameters):
         key = self._cache_key(form)
         parms, cache_entry = self.cache.get(key, (None, None))
 
         retval = None
         if cache_entry is not None:
-            if parms != str(ffc_parameters) or not cache_entry.is_valid(form, bcs):
+            if parms != str(tsfc_parameters) or not cache_entry.is_valid(form, bcs):
                 self.invalid_count[key] += 1
                 del self.cache[key]
                 return None
@@ -203,7 +203,7 @@ class AssemblyCache(object):
 
         return retval
 
-    def _store(self, obj, form, bcs, ffc_parameters):
+    def _store(self, obj, form, bcs, tsfc_parameters):
         key = self._cache_key(form)
 
         if self.invalid_count[key] > parameters["assembly_cache"]["max_misses"]:
@@ -213,7 +213,7 @@ class AssemblyCache(object):
 
         else:
             cache_entry = _CacheEntry(obj, form, bcs)
-            self.cache[key] = str(ffc_parameters), cache_entry
+            self.cache[key] = str(tsfc_parameters), cache_entry
             self.evict()
 
     def evict(self):
