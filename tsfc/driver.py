@@ -41,8 +41,8 @@ def compile_form(form, prefix="form", parameters=None):
 
     kernels = []
     for idata in fd.integral_data:
-        if len(idata.integrals) != 1:
-            raise NotImplementedError("Don't support IntegralData with more than one integral")
+        # TODO: Merge kernel bodies for multiple integrals with same
+        # integral-data (same mesh iteration space).
         for integral in idata.integrals:
             start = time.time()
             kernel = compile_integral(integral, idata, fd, prefix, parameters)
