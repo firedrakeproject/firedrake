@@ -70,8 +70,14 @@ class Mixin(object):
         return LogicalOr(*ops)
 
     def conditional(self, o, condition, then, else_):
-        assert o.ufl_shape == ()  # TODO
-        return Conditional(condition, then, else_)
+        assert condition.shape == ()
+        if o.ufl_shape:
+            indices = tuple(Index() for i in range(len(o.ufl_shape)))
+            return ComponentTensor(Conditional(condition, Indexed(then, indices),
+                                               Indexed(else_, indices)),
+                                   indices)
+        else:
+            return Conditional(condition, then, else_)
 
     def multi_index(self, o):
         indices = []
