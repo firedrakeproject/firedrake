@@ -303,9 +303,17 @@ class Conditional(Node):
 class Index(object):
     """Free index"""
 
-    __slots__ = ('extent')
+    # Not true object count, just for naming purposes
+    count = 0
 
-    def __init__(self):
+    __slots__ = ('name', 'extent')
+
+    def __init__(self, name=None):
+        if name is None:
+            Index.count += 1
+            name = "i_%d" % Index.count
+        self.name = name
+
         # Initialise with indefinite extent
         self.extent = None
 

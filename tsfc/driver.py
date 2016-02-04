@@ -2,7 +2,6 @@ from __future__ import absolute_import
 
 import numpy
 import time
-import collections
 
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
@@ -104,6 +103,7 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     coefficient_map = {}
 
     funarg, prepare_, expressions, finalise = prepare_arguments(integral_type, fd.preprocessed_form.arguments())
+    argument_indices = sorted(expressions[0].free_indices, key=lambda index: index.name)
 
     arglist.append(funarg)
     prepare += prepare_
@@ -187,11 +187,12 @@ def compile_integral(integral, idata, fd, prefix, parameters):
         kernel.oriented = True
 
     # Need a deterministic ordering for these
-    index_extents = collections.OrderedDict()
-    for e in simplified:
-        index_extents.update(opt.collect_index_extents(e))
-    index_ordering = apply_prefix_ordering(index_extents.keys(),
-                                           (quadrature_index,) + argument_indices)
+    indices = set()
+    for node in traversal(simplified):
+        indices.update(node.free_indices)
+    indices = sorted(indices)
+
+    index_ordering = apply_prefix_ordering(indices, (quadrature_index,) + argument_indices)
     apply_ordering = make_index_orderer(index_ordering)
 
     shape_map = lambda expr: expr.free_indices
@@ -205,11 +206,9 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     # Zero-simplification occurred
     if len(indexed_ops) == 0:
         return None
-    temporaries = make_temporaries(op for indices, op in indexed_ops)
+    temporaries = make_temporaries(op for loop_indices, op in indexed_ops)
 
-    index_names = zip((quadrature_index,) + argument_indices, ['ip', 'j', 'k'])
-    body = generate_coffee(indexed_ops, temporaries, shape_map,
-                           apply_ordering, index_extents, index_names)
+    body = generate_coffee(indexed_ops, temporaries, shape_map, apply_ordering)
     body.open_scope = False
 
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
@@ -307,7 +306,7 @@ def prepare_arguments(integral_type, arguments):
         return funarg, [], [expression], []
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    indices = tuple(ein.Index() for i in xrange(len(arguments)))
+    indices = tuple(ein.Index(name=name) for i, name in zip(range(len(arguments)), ['j', 'k']))
 
     if not integral_type.startswith("interior_facet"):
         # Not an interior facet integral

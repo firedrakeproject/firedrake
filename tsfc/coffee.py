@@ -22,7 +22,7 @@ class OrderedCounter(collections.Counter, collections.OrderedDict):
     pass
 
 
-def generate(indexed_ops, temporaries, shape_map, apply_ordering, index_extents, index_names):
+def generate(indexed_ops, temporaries, shape_map, apply_ordering):
     temporaries_set = set(temporaries)
     ops = [op for indices, op in indexed_ops]
 
@@ -36,22 +36,12 @@ def generate(indexed_ops, temporaries, shape_map, apply_ordering, index_extents,
     indices, declare = place_declarations(code, reference_count, shape_map, apply_ordering, ops)
 
     parameters = Bunch()
-    parameters.index_extents = index_extents
     parameters.declare = declare
     parameters.indices = indices
     parameters.names = {}
 
     for i, temp in enumerate(temporaries):
         parameters.names[temp] = "t%d" % i
-
-    for index, name in index_names:
-        parameters.names[index] = name
-
-    index_counter = 0
-    for index in index_extents:
-        if index not in parameters.names:
-            index_counter += 1
-            parameters.names[index] = "i_%d" % index_counter
 
     return arabica(code, parameters)
 
@@ -160,7 +150,7 @@ def _coffee_symbol(symbol, rank=()):
 
 def _decl_symbol(expr, parameters):
     multiindex = parameters.indices[expr]
-    rank = tuple(parameters.index_extents[index] for index in multiindex)
+    rank = tuple(index.extent for index in multiindex)
     if hasattr(expr, 'shape'):
         rank += expr.shape
     return _coffee_symbol(parameters.names[expr], rank=rank)
@@ -168,7 +158,7 @@ def _decl_symbol(expr, parameters):
 
 def _ref_symbol(expr, parameters):
     multiindex = parameters.indices[expr]
-    rank = tuple(parameters.names[index] for index in multiindex)
+    rank = tuple(index.name for index in multiindex)
     return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
 
 
@@ -190,7 +180,7 @@ def _(tree, parameters):
 def _(tree, parameters):
     extent = tree.index.extent
     assert extent
-    i = _coffee_symbol(parameters.names[tree.index])
+    i = _coffee_symbol(tree.index.name)
     # TODO: symbolic constant for "int"
     return coffee.For(coffee.Decl("int", i, init=0),
                       coffee.Less(i, extent),
@@ -349,7 +339,7 @@ def _(expr, parameters):
     rank = []
     for index in expr.multiindex:
         if isinstance(index, ein.Index):
-            rank.append(parameters.names[index])
+            rank.append(index.name)
         elif isinstance(index, ein.VariableIndex):
             rank.append(index.name)
         else:

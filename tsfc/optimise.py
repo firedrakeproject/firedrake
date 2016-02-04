@@ -1,11 +1,8 @@
 from __future__ import absolute_import
 
-import collections
-
 from singledispatch import singledispatch
 
-from tsfc.node import traversal
-from tsfc.gem import (Node, Literal, Zero, Sum, Index, Indexed,
+from tsfc.gem import (Node, Literal, Zero, Sum, Indexed,
                       IndexSum, ComponentTensor, ListTensor)
 
 
@@ -91,19 +88,3 @@ def expand_indexsum(expressions, max_extent):
             return node.reconstruct(*[cached_handle(child) for child in node.children])
 
     return [cached_handle(expression) for expression in expressions]
-
-
-def collect_index_extents(expression):
-    result = collections.OrderedDict()
-
-    for node in traversal([expression]):
-        if isinstance(node, Indexed):
-            assert len(node.multiindex) == len(node.children[0].shape)
-            for index, extent in zip(node.multiindex, node.children[0].shape):
-                if isinstance(index, Index):
-                    if index not in result:
-                        result[index] = extent
-                    elif result[index] != extent:
-                        raise AssertionError("Inconsistent index extents!")
-
-    return result

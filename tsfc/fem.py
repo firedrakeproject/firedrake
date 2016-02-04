@@ -664,7 +664,7 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, ar
 
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
-    quadrature_index = ein.Index()
+    quadrature_index = ein.Index(name='ip')
 
     translator = Translator(quadrature_weights, quadrature_index,
                             argument_indices, tabulation_manager,
