@@ -123,12 +123,12 @@ def test_invalid_quadrature_degree_tensor_prod(tensor_product_cell, itype):
 
 def test_high_degree_runtime_error(cell):
     with pytest.raises(RuntimeError):
-        q.create_quadrature(cell, "cell", 2000)
+        q.create_quadrature(cell, "cell", 60)
 
 
 def test_high_degree_runtime_error_tensor_prod(tensor_product_cell):
     with pytest.raises(RuntimeError):
-        q.create_quadrature(tensor_product_cell, "cell", (20, 100))
+        q.create_quadrature(tensor_product_cell, "cell", (60, 60))
 
 
 if __name__ == "__main__":

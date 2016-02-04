@@ -68,11 +68,14 @@ def fiat_scheme(cell, degree):
         points = tuple((d + 2) // 2 for d in degree)
     except TypeError:
         points = (degree + 2) // 2
-
+        tdim = cell.get_spatial_dimension()
+        if points > 30:
+            raise RuntimeError("Requested a quadrature rule with %d points per direction (%d points)" %
+                               (points, points**tdim))
     if numpy.prod(points) <= 0:
         raise ValueError("Requested a quadrature rule with a negative number of points")
-    if numpy.prod(points) > 500:
-        raise RuntimeError("Requested a quadrature rule with more than 500")
+    if numpy.prod(points) > 900:
+        raise RuntimeError("Requested a quadrature rule with %d points" % numpy.prod(points))
     quad = FIAT.make_quadrature(cell, points)
     return QuadratureRule(quad.get_points(), quad.get_weights())
 
