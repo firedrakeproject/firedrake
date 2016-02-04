@@ -142,19 +142,34 @@ def place_declarations(tree, reference_count, shape_map, apply_ordering, operati
     return indices, declare
 
 
+def _coffee_symbol(symbol, rank=()):
+    """Build a coffee Symbol, concatenating rank.
+
+    :arg symbol: Either a symbol name, or else an existing coffee Symbol.
+    :arg rank: The ``rank`` argument to the coffee Symbol constructor.
+
+    If symbol is a symbol, then the returned symbol has rank
+    ``symbol.rank + rank``."""
+    if isinstance(symbol, coffee.Symbol):
+        rank = symbol.rank + rank
+        symbol = symbol.symbol
+    else:
+        assert isinstance(symbol, str)
+    return coffee.Symbol(symbol, rank=rank)
+
+
 def _decl_symbol(expr, parameters):
     multiindex = parameters.indices[expr]
     rank = tuple(parameters.index_extents[index] for index in multiindex)
     if hasattr(expr, 'shape'):
         rank += expr.shape
-    return coffee.Symbol(parameters.names[expr], rank=rank)
+    return _coffee_symbol(parameters.names[expr], rank=rank)
 
 
 def _ref_symbol(expr, parameters):
     multiindex = parameters.indices[expr]
-    # TODO: Shall I make a COFFEE Symbol here?
     rank = tuple(parameters.names[index] for index in multiindex)
-    return coffee.Symbol(parameters.names[expr], rank=tuple(rank))
+    return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
 
 
 @singledispatch
@@ -175,7 +190,7 @@ def _(tree, parameters):
 def _(tree, parameters):
     extent = tree.index.extent
     assert extent
-    i = coffee.Symbol(parameters.names[tree.index])
+    i = _coffee_symbol(parameters.names[tree.index])
     # TODO: symbolic constant for "int"
     return coffee.For(coffee.Decl("int", i, init=0),
                       coffee.Less(i, extent),
@@ -223,7 +238,7 @@ def _(leaf, parameters):
         else:
             ops = []
             for multiindex, value in numpy.ndenumerate(expr.array):
-                coffee_sym = coffee.Symbol(_ref_symbol(expr, parameters), rank=multiindex)
+                coffee_sym = _coffee_symbol(_ref_symbol(expr, parameters), rank=multiindex)
                 ops.append(coffee.Assign(coffee_sym, expression(value, parameters)))
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, ein.Literal):
@@ -326,7 +341,7 @@ def _(expr, parameters):
 
 @handle.register(ein.Variable)  # noqa: Not actually redefinition
 def _(expr, parameters):
-    return coffee.Symbol(expr.name)
+    return _coffee_symbol(expr.name)
 
 
 @handle.register(ein.Indexed)  # noqa: Not actually redefinition
@@ -339,5 +354,5 @@ def _(expr, parameters):
             rank.append(index.name)
         else:
             rank.append(index)
-    return coffee.Symbol(expression(expr.children[0], parameters),
-                         rank=tuple(rank))
+    return _coffee_symbol(expression(expr.children[0], parameters),
+                          rank=tuple(rank))
