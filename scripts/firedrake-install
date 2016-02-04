@@ -5,6 +5,7 @@ import sys
 import os
 import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from collections import OrderedDict
 
 
 class InstallError(Exception):
@@ -96,6 +97,8 @@ else:
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--clean", action='store_true',
+                        help="Delete any remnants of obsolete Firedrake components.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
@@ -108,6 +111,7 @@ else:
     args.minimal_petsc = False
     args.rebuild_script = False
     args.mpicc = False
+    args.disable_ssh = False
 
 
 # Where are packages installed relative to --root?
@@ -115,6 +119,9 @@ else:
 v = sys.version_info
 sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 path_extension = ""
+
+# Record of obsolete packages which --clean should remove from old installs.
+old_git_packages = ["instant", "ffc"]
 
 python = ["python"]
 if args.sudo and args.system:
@@ -258,10 +265,10 @@ def git_clone(url):
 
 def list_cloned_dependencies(name):
     stdout.write("Finding dependencies of %s\n" % name)
-    deps = []
+    deps = OrderedDict()
     for dep in open(name + "/requirements-git.txt", "r"):
         name, _ = split_requirements_url(dep.strip())
-        deps.append(name)
+        deps[name] = dep.strip()
     return deps
 
 
@@ -446,8 +453,8 @@ def get_h5py():
     run_cmd(["tar", "-zxvf", "h5py.tar.gz"])
 
 
-def build_and_install_h5py():
-    stdout.write("Removing existing h5py installations\n")
+def pip_uninstall(package):
+    stdout.write("Removing existing %s installations\n" % package)
     # Uninstalling something with pip is an absolute disaster.  We
     # have to use pip freeze to list all available packages "locally"
     # and keep on removing the one we want until it is gone from this
@@ -464,8 +471,8 @@ def build_and_install_h5py():
         lines = check_output(sudopip + ["freeze", "-l"])
         again = False
         for line in lines.split("\n"):
-            # Do we have a locally installed h5py?
-            if line.startswith("h5py"):
+            # Do we have a locally installed package?
+            if line.startswith(package):
                 # Uninstall it.
                 run_pip(["uninstall", "-y", line.strip()])
                 # Go round again, because THERE MIGHT BE ANOTHER ONE!
@@ -473,6 +480,10 @@ def build_and_install_h5py():
         i += 1
         if i > 10:
             raise InstallError("pip claims it uninstalled h5py more than 10 times.  Something is probably broken.")
+
+
+def build_and_install_h5py():
+    pip_uninstall("h5py")
 
     stdout.write("Installing h5py\n")
     if os.path.exists("h5py-2.5.0"):
@@ -508,6 +519,14 @@ def build_and_install_h5py():
     os.chdir("..")
 
 
+def clean_obsolete_packages():
+    dirs = os.listdir(".")
+    for package in old_git_packages:
+        pip_uninstall(package)
+        if package in dirs:
+            shutil.rmtree(package)
+
+
 def quit(message):
     stderr.write(message)
     sys.exit(1)
@@ -519,7 +538,7 @@ def build_update_script():
         update_script = f.read()
 
     for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
-                   "mpicc"]:
+                   "mpicc", "disable_ssh"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
@@ -734,7 +753,11 @@ else:
     # Update mode
     os.chdir("src")
 
-    packages = list_cloned_dependencies("PyOP2") + list_cloned_dependencies("firedrake")
+    if args.clean:
+        clean_obsolete_packages()
+
+    deps = OrderedDict(list_cloned_dependencies("PyOP2"), **list_cloned_dependencies("firedrake"))
+    packages = deps.keys()
     packages += ["firedrake"]
 
     # update packages.
@@ -748,7 +771,14 @@ else:
     packages.remove("petsc4py")
 
     for p in packages:
-        git_update(p)
+        try:
+            git_update(p)
+        except OSError as e:
+            if e.errno == 2:
+                stderr.write("%s missing, cloning anew.\n" % p)
+                git_clone(deps[p])
+            else:
+                raise
 
     # update dependencies.
     pip_requirements("PyOP2")
