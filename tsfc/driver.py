@@ -138,10 +138,12 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     if integral_type in ["exterior_facet", "exterior_facet_vert"]:
-        decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(1,)))
+        decl = coffee.Decl("unsigned int", coffee.Symbol("facet", rank=(1,)),
+                           qualifiers=["const"])
         arglist.append(decl)
     elif integral_type in ["interior_facet", "interior_facet_vert"]:
-        decl = coffee.Decl("const unsigned int", coffee.Symbol("facet", rank=(2,)))
+        decl = coffee.Decl("unsigned int", coffee.Symbol("facet", rank=(2,)),
+                           qualifiers=["const"])
         arglist.append(decl)
 
     cell = integrand.ufl_domain().ufl_cell()
@@ -179,7 +181,8 @@ def compile_integral(integral, idata, fd, prefix, parameters):
                         candidates.add(child)
 
     if cell_orientations:
-        decl = coffee.Decl("const int *restrict *restrict", coffee.Symbol("cell_orientations"))
+        decl = coffee.Decl("int *restrict *restrict", coffee.Symbol("cell_orientations"),
+                           qualifiers=["const"])
         arglist.insert(2, decl)
         kernel.oriented = True
 
@@ -224,7 +227,8 @@ def prepare_coefficient(integral_type, coefficient, name):
 
         shape = coefficient.ufl_shape or (1,)
 
-        funarg = coffee.Decl("const %s" % SCALAR_TYPE, coffee.Symbol(name, rank=shape))
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+                             qualifiers=["const"])
         expression = ein.Variable(name, shape)
         if coefficient.ufl_shape == ():
             expression = ein.Indexed(expression, (0,))
@@ -237,7 +241,8 @@ def prepare_coefficient(integral_type, coefficient, name):
         # Simple case
 
         shape = (fiat_element.space_dimension(),)
-        funarg = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape))
+        funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+                             qualifiers=["const"])
 
         i = ein.Index()
         expression = ein.ComponentTensor(
@@ -252,7 +257,8 @@ def prepare_coefficient(integral_type, coefficient, name):
 
         shape = (2, fiat_element.space_dimension())
 
-        funarg = coffee.Decl("const %s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape))
+        funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+                             qualifiers=["const"])
         expression = ein.Variable(name, shape + (1,))
 
         f, i = ein.Index(), ein.Index()
@@ -267,7 +273,8 @@ def prepare_coefficient(integral_type, coefficient, name):
     name_ = name + "_"
     shape = (2, fiat_element.space_dimension())
 
-    funarg = coffee.Decl("const %s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_))
+    funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
+                         qualifiers=["const"])
     prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
     expression = ein.Variable(name, shape)
 
