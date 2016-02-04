@@ -5,6 +5,7 @@ import sys
 import os
 import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from collections import OrderedDict
 
 
 class InstallError(Exception):
@@ -264,7 +265,7 @@ def git_clone(url):
 
 def list_cloned_dependencies(name):
     stdout.write("Finding dependencies of %s\n" % name)
-    deps = {}
+    deps = OrderedDict()
     for dep in open(name + "/requirements-git.txt", "r"):
         name, _ = split_requirements_url(dep.strip())
         deps[name] = dep.strip()
@@ -755,7 +756,7 @@ else:
     if args.clean:
         clean_obsolete_packages()
 
-    deps = dict(list_cloned_dependencies("PyOP2"), **list_cloned_dependencies("firedrake"))
+    deps = OrderedDict(list_cloned_dependencies("PyOP2"), **list_cloned_dependencies("firedrake"))
     packages = deps.keys()
     packages += ["firedrake"]
 
