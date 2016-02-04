@@ -756,7 +756,9 @@ else:
     if args.clean:
         clean_obsolete_packages()
 
-    deps = OrderedDict(list_cloned_dependencies("PyOP2"), **list_cloned_dependencies("firedrake"))
+    deps = OrderedDict()
+    deps.update(list_cloned_dependencies("PyOP2"))
+    deps.update(list_cloned_dependencies("firedrake"))
     packages = deps.keys()
     packages += ["firedrake"]
 
