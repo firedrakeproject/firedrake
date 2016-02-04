@@ -28,7 +28,7 @@ _cells[Cell("quadrilateral")] = hl.VtkQuad
 _cells[Cell("quadrilateral", 3)] = hl.VtkQuad
 _cells[Cell("tetrahedron")] = hl.VtkTetra
 _cells[TensorProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
-_cells[TensorProductCell(Cell("interval"), Cell("interval"), gdim=3)] = hl.VtkQuad
+_cells[TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3)] = hl.VtkQuad
 _cells[TensorProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
 _cells[TensorProductCell(Cell("quadrilateral"), Cell("interval"))] = hl.VtkHexahedron
 
@@ -42,7 +42,7 @@ _points_per_cell[Cell("quadrilateral")] = 4
 _points_per_cell[Cell("quadrilateral", 3)] = 4
 _points_per_cell[Cell("tetrahedron")] = 4
 _points_per_cell[TensorProductCell(Cell("interval"), Cell("interval"))] = 4
-_points_per_cell[TensorProductCell(Cell("interval"), Cell("interval"), gdim=3)] = 4
+_points_per_cell[TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3)] = 4
 _points_per_cell[TensorProductCell(Cell("triangle"), Cell("interval"))] = 6
 _points_per_cell[TensorProductCell(Cell("quadrilateral"), Cell("interval"))] = 8
 
