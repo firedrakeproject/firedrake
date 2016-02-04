@@ -681,7 +681,7 @@ elif not args.system:
             check_call(["pip", "install", "virtualenv"])
         else:
             check_call(["pip", "install", "--user", "virtualenv"])
-        quit("Virtual env installed. Please run firedrake-install again.\n")
+        quit("Virtual env installed. Please run firedrake-%s again.\n" % mode)
     if mode == "install":
         stdout.write("Creating firedrake virtualenv.\n")
         virtualenv.create_environment("firedrake", site_packages=False)
