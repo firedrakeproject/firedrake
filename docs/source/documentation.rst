@@ -18,8 +18,8 @@
      Firedrake and PyOP2 are developed on `GitHub <http://github.com>`__ while we also maintain Firedrake-ready versions of the `FEniCS <http://fenicsproject.org>`__ tools on `Bitbucket <http://bitbucket.org>`__. 
 
      * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
+     * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
      * `PyOP2 on GitHub <https://github.com/OP2/PyOP2>`__
-     * `Firedrake version of FFC on Bitbucket <https://bitbucket.org/mapdes/ffc>`__
      * `Firedrake version of UFL on Bitbucket <https://bitbucket.org/mapdes/ufl>`__
      * `Firedrake version of FIAT on Bitbucket <https://bitbucket.org/mapdes/fiat>`__
 
@@ -39,6 +39,7 @@ Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
 
 .. toctree::
+   :maxdepth: 1
 
    A basic Helmholtz equation.<demos/helmholtz.py>
    The Burgers equation, a non-linear, unsteady example.<demos/burgers.py>
@@ -46,7 +47,9 @@ PDEs. Below are a few tutorial examples to get you started.
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
+   Preconditioning saddle-point systems, using the mixed Poisson problem as an example.<demos/saddle_point_systems.py>
    The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
+   The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
 
 Manual
 ======

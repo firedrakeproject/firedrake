@@ -5,9 +5,11 @@ from firedrake import expression
 from firedrake import functionspace
 from firedrake import solving
 from firedrake import ufl_expr
+from firedrake import function
+import firedrake.variational_solver as vs
 
 
-__all__ = ['project']
+__all__ = ['project', 'Projector']
 
 # Store the solve function to use in a variable so external packages
 # (dolfin-adjoint) can override it.
@@ -97,3 +99,48 @@ def project(v, V, bcs=None, mesh=None,
            solver_parameters=solver_parameters,
            form_compiler_parameters=form_compiler_parameters)
     return ret
+
+
+class Projector(object):
+    """
+    A projector projects a UFL expression into a function space
+    and places the result in a function from that function space,
+    allowing the solver to be reused.
+
+    :arg v: the :class:`ufl.Expr` or
+         :class:`.Function` to project
+    :arg v_out: :class:`.Function` to put the result in
+    :arg solver_parameters: parameters to pass to the solver used when
+         projecting.
+    """
+
+    def __init__(self, v, v_out, solver_parameters=None):
+
+        if isinstance(v, expression.Expression) or \
+           not isinstance(v, (ufl.core.expr.Expr, function.Function)):
+            raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
+
+        V = v_out.function_space()
+
+        p = ufl_expr.TestFunction(V)
+        q = ufl_expr.TrialFunction(V)
+
+        a = ufl.inner(p, q)*ufl.dx
+        L = ufl.inner(p, v)*ufl.dx
+
+        problem = vs.LinearVariationalProblem(a, L, v_out)
+
+        if solver_parameters is None:
+            solver_parameters = {}
+
+        solver_parameters.setdefault("ksp_type", "cg")
+
+        self.solver = vs.LinearVariationalSolver(problem,
+                                                 solver_parameters=solver_parameters)
+
+    def project(self):
+        """
+        Apply the projection.
+        """
+
+        self.solver.solve()

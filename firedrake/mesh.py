@@ -31,7 +31,7 @@ _cells = {
 
 
 class _Facets(object):
-    """Wrapper class for facet interation information on a :class:`Mesh`
+    """Wrapper class for facet interation information on a :func:`Mesh`
 
     .. warning::
 
@@ -98,9 +98,9 @@ class _Facets(object):
         # ufl.Measure doesn't have enums for these any more :(
         if subdomain_id in ["everywhere", "otherwise"]:
             if integral_type == "exterior_facet_bottom":
-                return [(op2.ON_BOTTOM, self.bottom_set)]
+                return (op2.ON_BOTTOM, self.bottom_set)
             elif integral_type == "exterior_facet_top":
-                return [(op2.ON_TOP, self.bottom_set)]
+                return (op2.ON_TOP, self.bottom_set)
             elif integral_type == "interior_facet_horiz":
                 return self.bottom_set
             else:
@@ -297,6 +297,8 @@ class MeshTopology(object):
         :arg reorder: whether to reorder the mesh (bool)
         :arg distribute: whether to distribute the mesh to parallel processes
         """
+        # Do some validation of the input mesh
+        dmplex.validate_mesh(plex)
         utils._init()
 
         self._plex = plex
@@ -389,7 +391,7 @@ class MeshTopology(object):
         return None
 
     def ufl_cell(self):
-        """The UFL :class:`~ufl.cell.Cell` associated with the mesh."""
+        """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
         return self._ufl_cell
 
     @utils.cached_property
@@ -421,6 +423,9 @@ class MeshTopology(object):
                                            cell_numbering, entity_per_cell)
 
         elif cell.cellname() == "quadrilateral":
+            from firedrake.citations import Citations
+            Citations().register("Homolya2016")
+            Citations().register("McRae2014")
             # Quadrilateral mesh
             cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
@@ -583,6 +588,8 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg layers:         number of extruded cell layers in the "vertical"
                              direction.
         """
+        from firedrake.citations import Citations
+        Citations().register("McRae2014")
         # A cache of function spaces that have been built on this mesh
         self._cache = {}
 
@@ -996,7 +1003,7 @@ def Mesh(meshfile, **kwargs):
            the topological dimension of entities in the mesh.
     :param reorder: optional flag indicating whether to reorder
            meshes for better cache locality.  If not supplied the
-           default value in :data:`parameters["reorder_meshes"]`
+           default value in ``parameters["reorder_meshes"]``
            is used.
 
     When the mesh is read from a file the following mesh formats
@@ -1011,7 +1018,7 @@ def Mesh(meshfile, **kwargs):
     .. note::
 
         When the mesh is created directly from a DMPlex object,
-        the :data:`dim` parameter is ignored (the DMPlex already
+        the ``dim`` parameter is ignored (the DMPlex already
         knows its geometric and topological dimensions).
 
     """

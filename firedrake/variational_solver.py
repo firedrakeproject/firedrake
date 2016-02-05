@@ -36,7 +36,7 @@ class NonlinearVariationalProblem(object):
                built as monolithic operators (suitable for direct
                solves), or as nested blocks (suitable for fieldsplit
                preconditioning).  If not provided, uses the default
-               given by :data:`parameters["matnest"]`.
+               given by ``parameters["matnest"]``.
         """
         from firedrake import solving
 
@@ -82,7 +82,7 @@ class NonlinearVariationalSolver(object):
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
-               through the :data:`solver_parameters` dict.
+               through the ``solver_parameters`` dict.
 
         .. code-block:: python
 
@@ -196,11 +196,11 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                built as monolithic operators (suitable for direct
                solves), or as nested blocks (suitable for fieldsplit
                preconditioning).  If not provided, uses the default
-               given by :data:`parameters["matnest"]`.
+               given by ``parameters["matnest"]``.
         :param constant_jacobian: (optional) flag indicating that the
                  Jacobian is constant (i.e. does not depend on
                  varying fields).  If your Jacobian can change, set
-                 this flag to :data:`False`.
+                 this flag to ``False``.
         """
 
         # In the linear case, the Jacobian is the equation LHS.
@@ -227,7 +227,7 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
-               through the :data:`solver_parameters` dict.
+               through the ``solver_parameters`` dict.
         """
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
 

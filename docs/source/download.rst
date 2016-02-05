@@ -6,8 +6,8 @@ The simplest way to install Firedrake is to use our install script::
   curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
   python firedrake-install
 
-Running `firedrake-install` with no arguments will install firedrake in
-a python virtualenv_ created in a `firedrake` subdirectory of the
+Running ``firedrake-install`` with no arguments will install firedrake in
+a python virtualenv_ created in a ``firedrake`` subdirectory of the
 current directory. Run::
 
   python firedrake-install --help
@@ -198,14 +198,14 @@ Otherwise, use the appropriate values of ``PETSC_DIR`` and ``PETSC_ARCH``.
 Further dependencies
 ~~~~~~~~~~~~~~~~~~~~
 
-Firedrake depends on the Python packages PyOP2_, FFC_, FIAT_ and UFL_.
+Firedrake depends on the Python packages PyOP2_, TSFC_, FIAT_ and UFL_.
 
 Optional dependencies
 ~~~~~~~~~~~~~~~~~~~~~
 
 For performance reasons, there are various levels of caching with
 eviction policies.  To support these, you will need to install the
-python packages::
+python packages:
 
 - cachetools
 - psutil
@@ -223,7 +223,7 @@ the python package ``sphinxcontrib-bibtex``.
 .. _petsc4py: https://bitbucket.org/mapdes/petsc4py
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _PyOP2: http://op2.github.io/PyOP2
-.. _FFC: https://bitbucket.org/mapdes/ffc
+.. _TSFC: https://github.com/firedrakeproject/tsfc
 .. _FIAT: https://bitbucket.org/mapdes/fiat
 .. _UFL: https://bitbucket.org/mapdes/ufl
 .. _Paraview: http://www.paraview.org

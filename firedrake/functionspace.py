@@ -4,6 +4,7 @@ import ufl
 import weakref
 from FIAT.finite_element import facet_support_dofs
 from FIAT.tensor_finite_element import horiz_facet_support_dofs, vert_facet_support_dofs
+from tsfc.fiatinterface import create_element
 
 import coffee.base as ast
 
@@ -13,7 +14,6 @@ from pyop2.utils import flatten
 
 from firedrake.petsc import PETSc
 from firedrake import dmplex
-from firedrake import fiat_utils
 import firedrake.mesh as mesh_t
 from firedrake import halo
 from firedrake import utils
@@ -74,7 +74,7 @@ class FunctionSpaceBase(ObjectCached):
         self._shape = shape
 
         # Compute the FIAT version of the UFL element above
-        self.fiat_element = fiat_utils.fiat_from_ufl_element(element)
+        self.fiat_element = create_element(element, vector_is_mixed=False)
 
         entity_dofs = self.fiat_element.entity_dofs()
         dofs_per_entity = mesh.make_dofs_per_plex_entity(entity_dofs)
@@ -164,7 +164,7 @@ class FunctionSpaceBase(ObjectCached):
 
     @property
     def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
+        """Position of this :class:`.FunctionSpace` in the
         :class:`.MixedFunctionSpace` it was extracted from."""
         return None
 
@@ -973,7 +973,7 @@ class IndexedVFS(FunctionSpaceBase):
 
     @property
     def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
+        """Position of this :class:`FunctionSpace` in the
         :class:`.MixedFunctionSpace` it was extracted from."""
         return self._index
 
@@ -986,12 +986,12 @@ class IndexedVFS(FunctionSpaceBase):
 
 
 class IndexedFunctionSpace(FunctionSpaceBase):
-    """A :class:`.FunctionSpaceBase` with an index to indicate which position
+    """A :class:`.FunctionSpace` with an index to indicate which position
     it has as part of a :class:`MixedFunctionSpace`."""
 
     def __new__(cls, fs, index, parent):
         """
-        :param fs: the :class:`.FunctionSpaceBase` that was extracted
+        :param fs: the :class:`.FunctionSpace` that was extracted
         :param index: the position in the parent :class:`MixedFunctionSpace`
         :param parent: the parent :class:`MixedFunctionSpace`
         """
@@ -1011,7 +1011,7 @@ class IndexedFunctionSpace(FunctionSpaceBase):
 
     @property
     def index(self):
-        """Position of this :class:`FunctionSpaceBase` in the
+        """Position of this :class:`FunctionSpace` in the
         :class:`.MixedFunctionSpace` it was extracted from."""
         return self._index
 

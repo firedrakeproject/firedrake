@@ -22,9 +22,6 @@ def test_empty_integrand():
     u = Function(Mini)
     solve(a == L, u)
 
-    # Derivative of ds term wrt sol is zero, but FFC generates
-    # "empty" code, which we must catch.
-
     # At one point, this test would have failed since we use an EnrichedElement
     # rather than a FiniteElement or VectorElement.
     # Note the failure mode is an error during the solve, not a failed assertion.

@@ -31,7 +31,7 @@ class Constant(ufl.Coefficient):
     """A "constant" coefficient
 
     A :class:`Constant` takes one value over the whole
-    :class:`~.Mesh`. The advantage of using a :class:`Constant` in a
+    :func:`~.Mesh`. The advantage of using a :class:`Constant` in a
     form rather than a literal value is that the constant will be
     passed as an argument to the generated kernel which avoids the
     need to recompile the kernel if the form is assembled for a
@@ -42,13 +42,13 @@ class Constant(ufl.Coefficient):
          of iterables (or numpy array with 2-dimensional shape) for a
          tensor-valued constant.
 
-    :arg domain: an optional :class:`~.Mesh` on which the constant is defined.
+    :arg domain: an optional :func:`~.Mesh` on which the constant is defined.
 
     .. note::
 
        If you intend to use this :class:`Constant` in a
        :class:`~ufl.form.Form` on its own you need to pass a
-       :class:`~.Mesh` as the domain argument.
+       :func:`~.Mesh` as the domain argument.
     """
 
     def __init__(self, value, domain=None):
@@ -77,7 +77,7 @@ class Constant(ufl.Coefficient):
         :arg x: The coordinate to evaluate at (ignored).
         :arg mapping: A mapping (ignored).
         :arg component: The requested component of the constant (may
-             be :data:`None` or :data:`()` to obtain all components).
+             be ``None`` or ``()`` to obtain all components).
         :arg index_values: ignored.
         """
         if component in ((), None):

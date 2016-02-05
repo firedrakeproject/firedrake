@@ -58,7 +58,7 @@ def test_helmholtz_sphere(MeshClass):
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])
 
-    assert (l2conv > 1.7).all()
+    assert (l2conv > 1.6).all()
 
 
 @pytest.mark.parametrize('MeshClass', [UnitIcosahedralSphereMesh, UnitCubedSphereMesh])

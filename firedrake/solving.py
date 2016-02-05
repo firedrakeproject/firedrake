@@ -177,7 +177,7 @@ def _la_solve(A, x, b, **kwargs):
          PETSc options.  If not provided a unique prefix will be
          created.  Use this option if you want to pass options
          to the solver from the command line in addition to
-         through the :data:`solver_parameters` dict.
+         through the ``solver_parameters`` dict.
 
     .. note::
 

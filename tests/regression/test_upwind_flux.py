@@ -103,12 +103,10 @@ def test_upwind_flux_icosahedral_sphere_parallel():
     run_test(quadrilateral=False)
 
 
-@pytest.mark.xfail
 def test_upwind_flux_cubed_sphere():
     run_test(quadrilateral=True)
 
 
-@pytest.mark.xfail
 @pytest.mark.parallel
 def test_upwind_flux_cubed_sphere_parallel():
     run_test(quadrilateral=True)

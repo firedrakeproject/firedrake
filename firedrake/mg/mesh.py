@@ -16,7 +16,7 @@ class MeshHierarchy(object):
     def __init__(self, m, refinement_levels, reorder=None):
         """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
-        :arg m: the coarse :class:`~.Mesh` to refine
+        :arg m: the coarse :func:`~.Mesh` to refine
         :arg refinement_levels: the number of levels of refinement
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
@@ -99,7 +99,7 @@ class MeshHierarchy(object):
     def __getitem__(self, idx):
         """Return a mesh in the hierarchy
 
-        :arg idx: The :class:`~.Mesh` to return"""
+        :arg idx: The :func:`~.Mesh` to return"""
         return self._hierarchy[idx]
 
 
@@ -110,7 +110,7 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
 
         :arg mesh_hierarchy: the :class:`MeshHierarchy` to extruded
 
-        See :class:`~.ExtrudedMesh` for the meaning of the remaining parameters.
+        See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
         """
         self._base_hierarchy = mesh_hierarchy
         hierarchy = [set_level(mesh.ExtrudedMesh(m, layers, kernel=kernel,

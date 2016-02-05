@@ -74,7 +74,7 @@ class Argument(ufl.argument.Argument):
 def TestFunction(function_space, part=None):
     """Build a test function on the specified function space.
 
-    :arg function_space: the :class:`.FunctionSpaceBase` to build the test
+    :arg function_space: the :class:`.FunctionSpace` to build the test
          function on.
     :kwarg part: optional index (mostly ignored)."""
     return Argument(function_space, 0, part=part)
@@ -83,7 +83,7 @@ def TestFunction(function_space, part=None):
 def TrialFunction(function_space, part=None):
     """Build a trial function on the specified function space.
 
-    :arg function_space: the :class:`.FunctionSpaceBase` to build the trial
+    :arg function_space: the :class:`.FunctionSpace` to build the trial
          function on.
     :kwarg part: optional index (mostly ignored)."""
     return Argument(function_space, 1, part=None)
@@ -92,7 +92,7 @@ def TrialFunction(function_space, part=None):
 def TestFunctions(function_space):
     """Return a tuple of test functions on the specified function space.
 
-    :arg function_space: the :class:`.FunctionSpaceBase` to build the test
+    :arg function_space: the :class:`.FunctionSpace` to build the test
          functions on.
 
     This returns ``len(function_space)`` test functions, which, if the
@@ -105,7 +105,7 @@ def TestFunctions(function_space):
 def TrialFunctions(function_space):
     """Return a tuple of trial functions on the specified function space.
 
-    :arg function_space: the :class:`.FunctionSpaceBase` to build the trial
+    :arg function_space: the :class:`.FunctionSpace` to build the trial
          functions on.
 
     This returns ``len(function_space)`` trial functions, which, if the
@@ -123,7 +123,7 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     additional :class:`Argument` in the same finite element space as
     the Function.
 
-    :arg form: a :class:`ufl.Form` to compute the derivative of.
+    :arg form: a :class:`~ufl.classes.Form` to compute the derivative of.
     :arg u: a :class:`.Function` to compute the derivative with
          respect to.
     :arg du: an optional :class:`Argument` to use as the replacement

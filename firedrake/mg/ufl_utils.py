@@ -3,10 +3,9 @@ from __future__ import absolute_import
 from operator import add
 
 import ufl
-from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
 
-from firedrake.ffc_interface import sum_integrands
 import firedrake
 
 from . import utils
@@ -76,7 +75,7 @@ class CoarsenIntegrand(MultiFunction):
 def coarsen_form(form):
     """Return a coarse mesh version of a form
 
-    :arg form: The :class:`ufl.Form` to coarsen.
+    :arg form: The :class:`~ufl.classes.Form` to coarsen.
 
     This maps over the form and replaces coefficients and arguments
     with their coarse mesh equivalents."""
@@ -86,13 +85,12 @@ def coarsen_form(form):
         "Don't know how to coarsen %r" % type(form)
 
     mapper = CoarsenIntegrand()
-    integrals = sum_integrands(form).integrals()
     forms = []
     # Ugh, visitors can't deal with measures (they're not actual
     # Exprs) so we need to map the transformer over the integrand and
     # reconstruct the integral by building the measure by hand.
-    for it in integrals:
-        integrand = map_integrand_dags(mapper, it.integrand())
+    for it in form.integrals():
+        integrand = map_expr_dag(mapper, it.integrand())
         mesh = it.ufl_domain()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
@@ -136,7 +134,7 @@ def coarsen_bc(bc):
 
     if isinstance(val, (firedrake.Constant, firedrake.Function)):
         mapper = CoarsenIntegrand()
-        new_val = map_integrand_dags(mapper, val)
+        new_val = map_expr_dag(mapper, val)
 
     new_bc = firedrake.DirichletBC(new_V, new_val, subdomain,
                                    method=method)

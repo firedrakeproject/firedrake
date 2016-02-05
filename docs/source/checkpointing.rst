@@ -18,8 +18,8 @@ The current support for checkpointing is somewhat limited.  One may
 only store :class:`~.Function`\s in the checkpoint object.  Moreover,
 no remapping of data is performed.  This means that resuming the
 checkpoint is only possible on the same number of processes as used to
-create the checkpoint file.  Additionally, the *same* :class:`~.Mesh`
-must be used: that is a :class:`~.Mesh` constructed identically to the
+create the checkpoint file.  Additionally, the *same* ``Mesh``
+must be used: that is a ``Mesh`` constructed identically to the
 mesh used to generate the saved checkpoint state.
 
 .. note::
@@ -218,10 +218,10 @@ For large simulations, it may not be expedient to store all timesteps
 in the same on-disk file.  To this end, the :class:`~.DumbCheckpoint`
 object offers the facility to retain the same checkpoint object, but
 change the on-disk file used to store the data.  To switch to a new
-on-disk file one uses :class:`~.DumbCheckpoint.new_file`.  There are
+on-disk file one uses :meth:`~.DumbCheckpoint.new_file`.  There are
 two method of choosing the new file name.  If the
 :class:`~.DumbCheckpoint` object was created passing
-``single_file=False`` then calling :class:`~.DumbCheckpoint.new_file`
+``single_file=False`` then calling :meth:`~.DumbCheckpoint.new_file`
 without any additional arguments will use an internal counter to
 create file names by appending this counter to the provided base
 name.  This selection can be overridden by explicitly passing the

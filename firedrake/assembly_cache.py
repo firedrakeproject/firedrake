@@ -8,25 +8,25 @@ eviction strategy is implemented. This is documented below. In
 addition, the following parameters control the operation of the
 assembly_cache:
 
-:data:`parameters["assembly_cache"]["enabled"]`
+- ``parameters["assembly_cache"]["enabled"]``
   a boolean value used to disable the assembly cache if required.
 
-:data:`parameters["assembly_cache"]["eviction"]`
+- ``parameters["assembly_cache"]["eviction"]``
   a boolean value used to disable the cache eviction
   strategy. Disabling cache eviction can lead to memory leaks so is
   discouraged in almost all circumstances.
 
-:data:`parameters["assembly_cache"]["max_misses"]`
+- ``parameters["assembly_cache"]["max_misses"]``
   attempting to cache objects whose inputs change every time they are
   assembled is a waste of memory. This parameter sets a maximum number
   of consecutive misses beyond which a form will be marked as
   uncachable.
 
-:data:`parameters["assembly_cache"]["max_bytes"]`
+- ``parameters["assembly_cache"]["max_bytes"]``
   absolute limit on the size of the assembly cache in bytes. This
-  defaults to :data:`float("inf")`.
+  defaults to ``float("inf")``.
 
-:data:`parameters["assembly_cache"]["max_factor"]`
+- ``parameters["assembly_cache"]["max_factor"]``
   limit on the size of the assembly cache relative to the amount of
   memory per core on the current system. This defaults to 0.6.
 """
@@ -184,13 +184,13 @@ class AssemblyCache(object):
         sd_sig = tuple(id(it.subdomain_data()) for it in form.integrals())
         return (form_sig, sd_sig)
 
-    def _lookup(self, form, bcs, ffc_parameters):
+    def _lookup(self, form, bcs, tsfc_parameters):
         key = self._cache_key(form)
         parms, cache_entry = self.cache.get(key, (None, None))
 
         retval = None
         if cache_entry is not None:
-            if parms != str(ffc_parameters) or not cache_entry.is_valid(form, bcs):
+            if parms != str(tsfc_parameters) or not cache_entry.is_valid(form, bcs):
                 self.invalid_count[key] += 1
                 del self.cache[key]
                 return None
@@ -203,7 +203,7 @@ class AssemblyCache(object):
 
         return retval
 
-    def _store(self, obj, form, bcs, ffc_parameters):
+    def _store(self, obj, form, bcs, tsfc_parameters):
         key = self._cache_key(form)
 
         if self.invalid_count[key] > parameters["assembly_cache"]["max_misses"]:
@@ -213,21 +213,21 @@ class AssemblyCache(object):
 
         else:
             cache_entry = _CacheEntry(obj, form, bcs)
-            self.cache[key] = str(ffc_parameters), cache_entry
+            self.cache[key] = str(tsfc_parameters), cache_entry
             self.evict()
 
     def evict(self):
         """Run the cache eviction algorithm. This works out the permitted
 cache size and deletes objects until it is achieved. Cache values are
-assumed to have a :attr:`value` attribute and eviction occurs in
-increasing :attr:`value` order. Currently :attr:`value` is an index of
+assumed to have a ``value`` attribute and eviction occurs in
+increasing ``value`` order. Currently ``value`` is an index of
 the assembly operation, so older operations are evicted first.
 
 The cache will be evicted down to 90% of permitted size.
 
 The permitted size is either the explicit
-:data:`parameters["assembly_cache"]["max_bytes"]` or it is the amount of
-memory per core scaled by :data:`parameters["assembly_cache"]["max_factor"]`
+``parameters["assembly_cache"]["max_bytes"]`` or it is the amount of
+memory per core scaled by ``parameters["assembly_cache"]["max_factor"]``
 (by default the scale factor is 0.6).
 
 In MPI parallel, the nbytes of each cache entry is set to the maximum

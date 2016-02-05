@@ -33,7 +33,7 @@ def interpolate(expr, V):
     :arg expr: an :class:`.Expression`.
     :arg V: the :class:`.FunctionSpace` to interpolate into.
 
-    Returns a new :class:`.Function` in the space :data:`V`.
+    Returns a new :class:`.Function` in the space ``V``.
     """
     return Function(V).interpolate(expr)
 
@@ -58,10 +58,10 @@ class CoordinatelessFunction(ufl.Coefficient):
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`op2.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
-               (defaults to :data:`valuetype`).
+               (defaults to ``valuetype``).
         """
         assert isinstance(function_space, functionspace.FunctionSpaceBase), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
@@ -104,7 +104,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         See also :meth:`split`.
 
         If the :class:`Function` is defined on a
-        :class:`.~VectorFunctionSpace`, this returns a proxy object
+        :class:`~.VectorFunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         if isinstance(self.function_space(), functionspace.VectorFunctionSpace):
@@ -183,7 +183,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
 class Function(ufl.Coefficient):
     """A :class:`Function` represents a discretised field over the
-    domain defined by the underlying :class:`.Mesh`. Functions are
+    domain defined by the underlying :func:`.Mesh`. Functions are
     represented as sums of basis functions:
 
     .. math::
@@ -191,12 +191,12 @@ class Function(ufl.Coefficient):
             f = \\sum_i f_i \phi_i(x)
 
     The :class:`Function` class provides storage for the coefficients
-    :math:`f_i` and associates them with a :class:`FunctionSpace` object
+    :math:`f_i` and associates them with a :class:`.FunctionSpace` object
     which provides the basis functions :math:`\\phi_i(x)`.
 
     Note that the coefficients are always scalars: if the
     :class:`Function` is vector-valued then this is specified in
-    the :class:`FunctionSpace`.
+    the :class:`.FunctionSpace`.
     """
 
     def __init__(self, function_space, val=None, name=None, dtype=valuetype):
@@ -205,10 +205,10 @@ class Function(ufl.Coefficient):
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`op2.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
-               (defaults to :data:`valuetype`).
+               (defaults to ``valuetype``).
         """
 
         if isinstance(function_space, Function):
@@ -249,7 +249,7 @@ class Function(ufl.Coefficient):
 
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`FunctionSpace`."""
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if self._split is None:
             self._split = tuple(Function(fs, dat, name="%s[%d]" % (self.name(), i))
                                 for i, (fs, dat) in
@@ -264,7 +264,7 @@ class Function(ufl.Coefficient):
         See also :meth:`split`.
 
         If the :class:`Function` is defined on a
-        :class:`.~VectorFunctionSpace`, this returns a proxy object
+        :class:`~.VectorFunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         if isinstance(self.function_space(), functionspace.VectorFunctionSpace):
@@ -275,7 +275,7 @@ class Function(ufl.Coefficient):
 
     def project(self, b, *args, **kwargs):
         """Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
-        :class:`Expression`.
+        :class:`.Expression`.
 
         This is equivalent to ``project(b, self)``.
         Any of the additional arguments to :func:`~firedrake.projection.project`
@@ -331,7 +331,7 @@ class Function(ufl.Coefficient):
     def _interpolate(self, fs, dat, expression, subset):
         """Interpolate expression onto a :class:`FunctionSpace`.
 
-        :param fs: :class:`FunctionSpace`
+        :param fs: :class:`.FunctionSpace`
         :param dat: :class:`pyop2.Dat`
         :param expression: :class:`.Expression`
         """
@@ -493,15 +493,15 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
         Similar functionality is available for the augmented assignment
         operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
-        both Functions on the same :class:`FunctionSpace` then::
+        both Functions on the same :class:`.FunctionSpace` then::
 
           f += 2 * g
 
         will add twice `g` to `f`.
 
-        If present, subset must be an :class:`pyop2.Subset` of
-        :attr:`node_set`. The expression will then only be assigned
-        to the nodes on that subset.
+        If present, subset must be an :class:`pyop2.Subset` of this
+        :class:`Function`'s ``node_set``.  The expression will then
+        only be assigned to the nodes on that subset.
         """
 
         if isinstance(expr, Function) and \
@@ -739,7 +739,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     given Firedrake :class:`Function`."""
 
     from os import path
-    from ffc import compile_element
+    from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     import firedrake.pointquery_utils as pq_utils
 

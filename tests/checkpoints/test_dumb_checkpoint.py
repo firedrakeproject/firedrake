@@ -135,11 +135,12 @@ def test_multiple_timesteps(f, dumpfile):
 
 
 def test_new_file(f, dumpfile):
+    custom_name = "%s_custom" % dumpfile
     with DumbCheckpoint(dumpfile, single_file=False, mode=FILE_CREATE) as chk:
         chk.store(f)
         chk.new_file()
         chk.store(f)
-        chk.new_file(name="custom")
+        chk.new_file(name=custom_name)
         chk.store(f)
 
     with DumbCheckpoint("%s_1" % dumpfile, mode=FILE_READ) as chk:
@@ -147,7 +148,7 @@ def test_new_file(f, dumpfile):
         chk.load(g)
         assert np.allclose(g.dat.data_ro, f.dat.data_ro)
 
-    with DumbCheckpoint("custom", mode=FILE_READ) as chk:
+    with DumbCheckpoint(custom_name, mode=FILE_READ) as chk:
         g = Function(f.function_space(), name=f.name())
         chk.load(g)
         assert np.allclose(g.dat.data_ro, f.dat.data_ro)
