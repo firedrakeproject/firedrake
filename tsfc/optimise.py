@@ -81,10 +81,11 @@ def _(node, self, subst):
             return Indexed(new_child, multiindex)
 
 
-def remove_componenttensors(expressions):
-    def argskeyfunc(subst):
-        return tuple(sorted(subst.items()))
+def argskeyfunc(subst):
+    return tuple(sorted(subst.items()))
 
+
+def remove_componenttensors(expressions):
     def filtered(node, self, subst):
         filtered_subst = {k: v for k, v in subst.items() if k in node.free_indices}
         return replace_indices(node, self, filtered_subst)
@@ -105,16 +106,23 @@ _unroll_indexsum.register(Node)(reuse_if_untouched)
 def _(node, self):
     if node.index.extent <= self.max_extent:
         summand = self(node.children[0])
-        ct = ComponentTensor(summand, (node.index,))
         return reduce(Sum,
-                      (Indexed(ct, (i,))
+                      (self.replace(summand, {node.index: i})
                        for i in range(node.index.extent)),
                       Zero())
     else:
         return reuse_if_untouched(node, self)
 
 
+def replace_indices_top(node, self, subst):
+    if subst:
+        return replace_indices(node, self, subst)
+    else:
+        return node
+
+
 def unroll_indexsum(expressions, max_extent):
     mapper = Memoizer(_unroll_indexsum)
     mapper.max_extent = max_extent
+    mapper.replace = MemoizerWithArgs(replace_indices_top, argskeyfunc)
     return map(mapper, expressions)
