@@ -6,7 +6,7 @@ import os
 from firedrake import *
 cwd = abspath(dirname(__file__))
 
-print "hi"
+
 exp1="x[0]*(1-x[0])"
 exp2="sin(2*pi *(x[0]-x[1]))"
 exp3="(x[0]*x[0])+(x[1]*x[1])"
@@ -58,28 +58,28 @@ def atest_ex1():
     os.system('open ' + namepng)
 
 
-def atest_ex2():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "P", 4)
-    f = Function(V).interpolate(Expression(exp3))
-    namenrrd=imgpath+'ex2.nrrd'
-    namepng=imgpath+'ex2.png'
-    res=100
-    stepSize=0.01
-    type=0  # creates nrrd file
-    vis_diderot.basic_d2s_sample(namenrrd,f, res,res, stepSize,type) is None
-    quantize(namenrrd,namepng)
+#def atest_ex2():
+#    mesh = UnitSquareMesh(2, 2)
+#    V = FunctionSpace(mesh, "P", 4)
+#    f = Function(V).interpolate(Expression(exp3))
+#    namenrrd=imgpath+'ex2.nrrd'
+#    namepng=imgpath+'ex2.png'
+#    res=100
+#    stepSize=0.01
+#    type=0  # creates nrrd file
+#    vis_diderot.basic_d2s_sample(namenrrd,f, res,res, stepSize,type) is None
+#    quantize(namenrrd,namepng)
 
-def atest_ex3():
-    mesh = UnitSquareMesh(2, 2)
-    V = FunctionSpace(mesh, "P", 6)
-    f = Function(V).interpolate(Expression(exp4))
-    namepng=imgpath+'ex3.png'
-    res=100
-    stepSize=0.01
-    type=1  # creates png file
-    vis_diderot.basic_d2s_sample(namepng,f,res,res, stepSize,type) is None
-    os.system('open ' + namepng)
+#def atest_ex3():
+#    mesh = UnitSquareMesh(2, 2)
+#    V = FunctionSpace(mesh, "P", 6)
+#    f = Function(V).interpolate(Expression(exp4))
+#    namepng=imgpath+'ex3.png'
+#    res=100
+#    stepSize=0.01
+#    type=1  # creates png file
+#    vis_diderot.basic_d2s_sample(namepng,f,res,res, stepSize,type) is None
+#    os.system('open ' + namepng)
 
 
 if __name__ == '__main__':
