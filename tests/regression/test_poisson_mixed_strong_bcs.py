@@ -58,49 +58,42 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
 
     # Analytical solution
     f.interpolate(Expression("42*x[1]"))
-    return sqrt(assemble(dot(u - f, u - f) * dx)), u, f
+    return sqrt(assemble(dot(u - f, u - f) * dx))
 
 
 @pytest.mark.parametrize('quadrilateral', [False, True])
 @pytest.mark.parametrize('parameters',
-                         [{}, {'pc_type': 'fieldsplit',
-                               'pc_fieldsplit_type': 'schur',
-                               'ksp_type': 'gmres',
-                               'pc_fieldsplit_schur_fact_type': 'FULL',
-                               'fieldsplit_0_pc_factor_shift_type': 'INBLOCKS',
-                               'fieldsplit_1_pc_factor_shift_type': 'INBLOCKS',
-                               'fieldsplit_0_ksp_type': 'cg',
-                               'fieldsplit_1_ksp_type': 'cg'}])
+                         [{},
+                          {'ksp_type': 'fgmres',
+                           'pc_type': 'fieldsplit',
+                           'pc_fieldsplit_type': 'schur',
+                           'pc_fieldsplit_schur_fact_type': 'diag',
+                           'fieldsplit_0_ksp_type': 'preonly',
+                           'fieldsplit_0_pc_type': 'icc',
+                           'fieldsplit_1_ksp_type': 'cg',
+                           'fieldsplit_1_pc_type': 'none'}])
 def test_poisson_mixed(parameters, quadrilateral):
-    assert poisson_mixed(3, parameters, quadrilateral=quadrilateral)[0] < 2e-5
+    assert poisson_mixed(3, parameters, quadrilateral=quadrilateral) < 2e-5
 
 
 @pytest.mark.parallel(nprocs=3)
 def test_poisson_mixed_parallel_fieldsplit():
-    x = poisson_mixed(3, parameters={'pc_type': 'fieldsplit',
-                                     'snes_type': 'ksponly',
-                                     'snes_monitor': True,
+    x = poisson_mixed(3, parameters={'ksp_type': 'fgmres',
+                                     'pc_type': 'fieldsplit',
                                      'pc_fieldsplit_type': 'schur',
-                                     'fieldsplit_schur_fact_type': 'full',
-                                     'fieldsplit_0_ksp_type': 'cg',
+                                     'fieldsplit_schur_fact_type': 'diag',
+                                     'fieldsplit_0_ksp_type': 'preonly',
                                      'fieldsplit_1_ksp_type': 'cg',
                                      'fieldsplit_0_pc_type': 'bjacobi',
-                                     'fieldsplit_0_sub_pc_type': 'ilu',
-                                     'fieldsplit_1_pc_type': 'none',
-                                     'ksp_type': 'bcgs'})[0]
+                                     'fieldsplit_0_sub_pc_type': 'icc',
+                                     'fieldsplit_1_pc_type': 'none'})
     assert x < 2e-5
 
 
 @pytest.mark.parallel(nprocs=3)
-def test_poisson_mixed_parallel():
-    x = poisson_mixed(3)[0]
-    assert x < 2e-5
-
-
-@pytest.mark.parallel(nprocs=3)
-def test_poisson_mixed_parallel_on_quadrilaterals():
-    x = poisson_mixed(3, quadrilateral=True)[0]
-    assert x < 2e-5
+@pytest.mark.parametrize('quadrilateral', [False, True])
+def test_poisson_mixed_parallel(quadrilateral):
+    assert poisson_mixed(3, quadrilateral=quadrilateral) < 2e-5
 
 
 if __name__ == '__main__':
