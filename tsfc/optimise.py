@@ -6,85 +6,112 @@ from tsfc.gem import (Node, Literal, Zero, Sum, Indexed,
                       IndexSum, ComponentTensor, ListTensor)
 
 
-def inline_indices(expression, result_cache):
-    def cached_handle(node, subst):
-        cache_key = (node, tuple(sorted(subst.items())))
+class Memoizer(object):
+    def __init__(self, function):
+        self.cache = {}
+        self.function = function
+
+    def __call__(self, node):
         try:
-            return result_cache[cache_key]
+            return self.cache[node]
         except KeyError:
-            result = handle(node, subst)
-            result_cache[cache_key] = result
+            result = self.function(node, self)
+            self.cache[node] = result
             return result
 
-    @singledispatch
-    def handle(node, subst):
-        raise AssertionError("Cannot handle foreign type: %s" % type(node))
 
-    @handle.register(Node)  # noqa: Not actually redefinition
-    def _(node, subst):
-        new_children = [cached_handle(child, subst) for child in node.children]
-        if all(nc == c for nc, c in zip(new_children, node.children)):
+class MemoizerWithArgs(object):
+    def __init__(self, function, argskeyfunc):
+        self.cache = {}
+        self.function = function
+        self.argskeyfunc = argskeyfunc
+
+    def __call__(self, node, *args, **kwargs):
+        cache_key = (node, self.argskeyfunc(*args, **kwargs))
+        try:
+            return self.cache[cache_key]
+        except KeyError:
+            result = self.function(node, self, *args, **kwargs)
+            self.cache[cache_key] = result
+            return result
+
+
+def reuse_if_untouched(node, self):
+    new_children = map(self, node.children)
+    if all(nc == c for nc, c in zip(new_children, node.children)):
+        return node
+    else:
+        return node.reconstruct(*new_children)
+
+
+def reuse_if_untouched_with_args(node, self, *args, **kwargs):
+    new_children = [self(child, *args, **kwargs) for child in node.children]
+    if all(nc == c for nc, c in zip(new_children, node.children)):
+        return node
+    else:
+        return node.reconstruct(*new_children)
+
+
+@singledispatch
+def replace_indices(node, self, subst):
+    raise AssertionError("cannot handle type %s" % type(node))
+
+
+replace_indices.register(Node)(reuse_if_untouched_with_args)
+
+
+@replace_indices.register(Indexed)  # noqa
+def _(node, self, subst):
+    child, = node.children
+    multiindex = tuple(subst.get(i, i) for i in node.multiindex)
+    if isinstance(child, ComponentTensor):
+        new_subst = dict(zip(child.multiindex, multiindex))
+        composed_subst = {k: new_subst.get(v, v) for k, v in subst.items()}
+        composed_subst.update(new_subst)
+        filtered_subst = {k: v for k, v in composed_subst.items() if k in child.children[0].free_indices}
+        return self(child.children[0], filtered_subst)
+    elif isinstance(child, ListTensor) and all(isinstance(i, int) for i in multiindex):
+        return self(child.array[multiindex], subst)
+    elif isinstance(child, Literal) and all(isinstance(i, int) for i in multiindex):
+        return Literal(child.array[multiindex])
+    else:
+        new_child = self(child, subst)
+        if new_child == child and multiindex == node.multiindex:
             return node
         else:
-            return node.reconstruct(*new_children)
-
-    @handle.register(Indexed)  # noqa: Not actually redefinition
-    def _(node, subst):
-        child, = node.children
-        multiindex = tuple(subst.get(i, i) for i in node.multiindex)
-        if isinstance(child, ComponentTensor):
-            new_subst = dict(zip(child.multiindex, multiindex))
-            composed_subst = {k: new_subst.get(v, v) for k, v in subst.items()}
-            composed_subst.update(new_subst)
-            filtered_subst = {k: v for k, v in composed_subst.items() if k in child.children[0].free_indices}
-            return cached_handle(child.children[0], filtered_subst)
-        elif isinstance(child, ListTensor) and all(isinstance(i, int) for i in multiindex):
-            return cached_handle(child.array[multiindex], subst)
-        elif isinstance(child, Literal) and all(isinstance(i, int) for i in multiindex):
-            return Literal(child.array[multiindex])
-        else:
-            new_child = cached_handle(child, subst)
-            if new_child == child and multiindex == node.multiindex:
-                return node
-            else:
-                return Indexed(new_child, multiindex)
-
-    return cached_handle(expression, {})
+            return Indexed(new_child, multiindex)
 
 
-def expand_indexsum(expressions, max_extent):
-    result_cache = {}
+def remove_componenttensors(expressions):
+    def argskeyfunc(subst):
+        return tuple(sorted(subst.items()))
 
-    def cached_handle(node):
-        try:
-            return result_cache[node]
-        except KeyError:
-            result = handle(node)
-            result_cache[node] = result
-            return result
+    mapper = MemoizerWithArgs(replace_indices, argskeyfunc)
+    return [mapper(expression, {}) for expression in expressions]
 
-    @singledispatch
-    def handle(node):
-        raise AssertionError("Cannot handle foreign type: %s" % type(node))
 
-    @handle.register(Node)  # noqa: Not actually redefinition
-    def _(node):
-        new_children = [cached_handle(child) for child in node.children]
-        if all(nc == c for nc, c in zip(new_children, node.children)):
-            return node
-        else:
-            return node.reconstruct(*new_children)
+@singledispatch
+def _unroll_indexsum(node, self):
+    raise AssertionError("cannot handle type %s" % type(node))
 
-    @handle.register(IndexSum)  # noqa: Not actually redefinition
-    def _(node):
-        if node.index.extent <= max_extent:
-            summand = cached_handle(node.children[0])
-            ct = ComponentTensor(summand, (node.index,))
-            result = Zero()
-            for i in xrange(node.index.extent):
-                result = Sum(result, Indexed(ct, (i,)))
-            return result
-        else:
-            return node.reconstruct(*[cached_handle(child) for child in node.children])
 
-    return [cached_handle(expression) for expression in expressions]
+_unroll_indexsum.register(Node)(reuse_if_untouched)
+
+
+@_unroll_indexsum.register(IndexSum)  # noqa
+def _(node, self):
+    if node.index.extent <= self.max_extent:
+        summand = self(node.children[0])
+        ct = ComponentTensor(summand, (node.index,))
+        return reduce(Sum,
+                      (Indexed(ct, (i,))
+                       for i in range(node.index.extent)),
+                      Zero())
+    else:
+        return reuse_if_untouched(node, self)
+
+
+def unroll_indexsum(expressions, max_extent):
+    mapper = Memoizer(_unroll_indexsum)
+    mapper.max_extent = max_extent
+    return map(mapper, expressions)

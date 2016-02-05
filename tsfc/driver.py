@@ -161,12 +161,10 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     quadrature_index, nonfem, cell_orientations = \
         fem.process(integral_type, integrand, tabulation_manager, quad_rule.weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
-    inlining_cache = {}
-    simplified = [opt.inline_indices(e, inlining_cache) for e in nonfem]
+    simplified = opt.remove_componenttensors(nonfem)
 
-    simplified = opt.expand_indexsum(simplified, max_extent=3)
-    inlining_cache = {}
-    simplified = [opt.inline_indices(e, inlining_cache) for e in simplified]
+    simplified = opt.unroll_indexsum(simplified, max_extent=3)
+    simplified = opt.remove_componenttensors(simplified)
 
     refcount = sch.count_references(simplified)
     candidates = set()
