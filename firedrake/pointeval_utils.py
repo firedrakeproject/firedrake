@@ -190,6 +190,60 @@ def compile_element(ufl_element, cdim):
             vdim = shape[1]
         return "\n".join(code), vdim
 
+    def calculate_jacobi_basisvalues(ufl_cell, fiat_element):
+        f_component = format["component"]
+        f_decl = format["declaration"]
+        f_float_decl = format["float declaration"]
+        f_tensor = format["tabulate tensor"]
+        f_new_line = format["new line"]
+
+        tdim = ufl_cell.topological_dimension()
+        gdim = ufl_cell.geometric_dimension()
+
+        code = []
+
+        # Symbolic tabulation
+        tabs = fiat_element.tabulate(1, np.array([[sp.Symbol("reference_coords.X[%d]" % i)
+                                                   for i in xrange(tdim)]]))
+
+        tabs = sorted(tabs.items(), reverse=True)[:-1]  # Drop (0,) * tdim
+        tabs = np.array([t.reshape(t.shape[:-1]) for _, t in tabs])
+        tabs = np.rollaxis(tabs, 0, len(tabs.shape))
+
+        # Generate code for intermediate values
+        s_code, (theta,) = ssa_arrays([tabs])
+        for name, value in s_code:
+            code += [f_decl(f_float_decl, name, c_print(value))]
+
+        # Prepare Jacobian, Jacobian inverse and determinant
+        s_detJ = sp.Symbol('detJ')
+        s_J = np.array([[sp.Symbol("J[{i}*{tdim} + {j}]".format(i=i, j=j, tdim=tdim))
+                         for j in range(tdim)]
+                        for i in range(gdim)])
+        s_Jinv = np.array([[sp.Symbol("K[{i}*{gdim} + {j}]".format(i=i, j=j, gdim=gdim))
+                            for j in range(gdim)]
+                           for i in range(tdim)])
+
+        # Apply transformations
+        phi = []
+        for i, val in enumerate(theta):
+            mapping = fiat_element.mapping()[i]
+            if mapping == "affine":
+                phi.append(val)
+            elif mapping == "contravariant piola":
+                phi.append(s_J.dot(val) / s_detJ)
+            elif mapping == "covariant piola":
+                phi.append(s_Jinv.transpose().dot(val))
+            else:
+                raise ValueError("Unknown mapping: %s" % mapping)
+        phi = np.asarray(phi, dtype=object)
+
+        # Dump tables of basis values
+        code += ["", "\t// Values of basis functions"]
+        code += [f_decl("double", f_component("phi", phi.shape),
+                        f_new_line + f_tensor(phi))]
+        return "\n".join(code)
+
     # Create FIAT element
     element = create_element(ufl_element, vector_is_mixed=False)
     cell = ufl_element.cell()
@@ -203,6 +257,7 @@ def compile_element(ufl_element, cdim):
         "geometric_dimension": cell.geometric_dimension(),
         "ndofs": element.space_dimension(),
         "calculate_basisvalues": calculate_basisvalues,
+        "calculate_jacobi_basisvalues": calculate_jacobi_basisvalues(cell, element),
         "extruded_arg": ", int nlayers" if extruded else "",
         "nlayers": ", f->n_layers" if extruded else "",
     }
@@ -252,6 +307,28 @@ int evaluate(struct Function *f, double *x, double *result)
     double detJ = reference_coords.detJ;
 
 %(calculate_basisvalues)s
+
+    wrap_evaluate(result, (double *)phi, f->f, f->f_map%(nlayers)s, cell);
+    return 0;
+}
+
+extern "C" int evaluate_jacobi(struct Function *f, double *x, double *result)
+{
+    struct ReferenceCoords reference_coords;
+    int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+    if (cell == -1) {
+        return -1;
+    }
+
+    if (!result) {
+        return 0;
+    }
+
+    double *J = reference_coords.J;
+    double *K = reference_coords.K;
+    double detJ = reference_coords.detJ;
+
+%(calculate_jacobi_basisvalues)s
 
     wrap_evaluate(result, (double *)phi, f->f, f->f_map%(nlayers)s, cell);
     return 0;
