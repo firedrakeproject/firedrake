@@ -68,8 +68,7 @@ def _(node, self, subst):
         new_subst = dict(zip(child.multiindex, multiindex))
         composed_subst = {k: new_subst.get(v, v) for k, v in subst.items()}
         composed_subst.update(new_subst)
-        filtered_subst = {k: v for k, v in composed_subst.items() if k in child.children[0].free_indices}
-        return self(child.children[0], filtered_subst)
+        return self(child.children[0], composed_subst)
     elif isinstance(child, ListTensor) and all(isinstance(i, int) for i in multiindex):
         return self(child.array[multiindex], subst)
     elif isinstance(child, Literal) and all(isinstance(i, int) for i in multiindex):
@@ -86,7 +85,11 @@ def remove_componenttensors(expressions):
     def argskeyfunc(subst):
         return tuple(sorted(subst.items()))
 
-    mapper = MemoizerWithArgs(replace_indices, argskeyfunc)
+    def filtered(node, self, subst):
+        filtered_subst = {k: v for k, v in subst.items() if k in node.free_indices}
+        return replace_indices(node, self, filtered_subst)
+
+    mapper = MemoizerWithArgs(filtered, argskeyfunc)
     return [mapper(expression, {}) for expression in expressions]
 
 
