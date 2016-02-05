@@ -33,6 +33,7 @@
 
 import os
 from mpi import MPI, collective
+from mpi4py import MPI as _MPI
 import subprocess
 import sys
 import ctypes
@@ -40,6 +41,16 @@ from hashlib import md5
 from configuration import configuration
 from logger import progress, INFO
 from exceptions import CompilationError
+
+
+def _check_hashes(x, y, datatype):
+    """MPI reduction op to check if code hashes differ across ranks."""
+    if x == y:
+        return x
+    return False
+
+
+_check_op = _MPI.Op.Create(_check_hashes, commute=True)
 
 
 class Compiler(object):
@@ -93,10 +104,10 @@ class Compiler(object):
         tmpname = os.path.join(cachedir, "%s_p%d.so.tmp" % (basename, pid))
 
         if configuration['check_src_hashes'] or configuration['debug']:
-            basenames = MPI.comm.allgather(basename)
-            if not all(b == basename for b in basenames):
+            matching = MPI.comm.allreduce(basename, op=_check_op)
+            if matching != basename:
                 # Dump all src code to disk for debugging
-                output = os.path.join(cachedir, basenames[0])
+                output = os.path.join(cachedir, "mismatching-kernels")
                 srcfile = os.path.join(output, "src-rank%d.c" % MPI.comm.rank)
                 if MPI.comm.rank == 0:
                     if not os.path.exists(output):
@@ -104,6 +115,7 @@ class Compiler(object):
                 MPI.comm.barrier()
                 with open(srcfile, "w") as f:
                     f.write(src)
+                MPI.comm.barrier()
                 raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
         try:
             # Are we in the cache?
