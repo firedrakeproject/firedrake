@@ -139,6 +139,9 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     # Sum the expressions that are part of the same restriction
     ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))
 
+    # Need optimised roots for COFFEE
+    ir = opt.remove_componenttensors(ir)
+
     # Look for cell orientations in the IR
     if needs_cell_orientations(ir):
         builder.require_cell_orientations()
@@ -156,7 +159,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names)
+    body = generate_coffee(impero_c, index_names, ir)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)

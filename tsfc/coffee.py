@@ -23,16 +23,19 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names):
+def generate(impero_c, index_names, roots=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
+    :arg roots: list of expression DAG roots for attaching
+        #pragma coffee expression
     :returns: COFFEE function body
     """
     parameters = Bunch()
     parameters.declare = impero_c.declare
     parameters.indices = impero_c.indices
+    parameters.roots = roots
 
     parameters.names = {}
     for i, temp in enumerate(impero_c.temporaries):
@@ -73,6 +76,15 @@ def _ref_symbol(expr, parameters):
     multiindex = parameters.indices[expr]
     rank = tuple(parameters.index_names[index] for index in multiindex)
     return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
+
+
+def _root_pragma(expr, parameters):
+    """Decides whether to annonate the expression with
+    #pragma coffee expression"""
+    if expr in parameters.roots:
+        return "#pragma coffee expression"
+    else:
+        return None
 
 
 @singledispatch
@@ -118,20 +130,26 @@ def statement_initialise(leaf, parameters):
 
 @statement.register(imp.Accumulate)
 def statement_accumulate(leaf, parameters):
+    pragma = _root_pragma(leaf.indexsum, parameters)
     return coffee.Incr(_ref_symbol(leaf.indexsum, parameters),
-                       expression(leaf.indexsum.children[0], parameters))
+                       expression(leaf.indexsum.children[0], parameters),
+                       pragma=pragma)
 
 
 @statement.register(imp.Return)
 def statement_return(leaf, parameters):
+    pragma = _root_pragma(leaf.expression, parameters)
     return coffee.Incr(expression(leaf.variable, parameters),
-                       expression(leaf.expression, parameters))
+                       expression(leaf.expression, parameters),
+                       pragma=pragma)
 
 
 @statement.register(imp.ReturnAccumulate)
 def statement_returnaccumulate(leaf, parameters):
+    pragma = _root_pragma(leaf.indexsum, parameters)
     return coffee.Incr(expression(leaf.variable, parameters),
-                       expression(leaf.indexsum.children[0], parameters))
+                       expression(leaf.indexsum.children[0], parameters),
+                       pragma=pragma)
 
 
 @statement.register(imp.Evaluate)
