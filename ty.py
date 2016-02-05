@@ -2,6 +2,7 @@ from os.path import abspath, dirname
 import pytest
 import os
 
+print "hello"
 
 from firedrake import *
 cwd = abspath(dirname(__file__))

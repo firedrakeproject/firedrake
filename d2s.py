@@ -6,7 +6,6 @@ import os
 from firedrake import *
 cwd = abspath(dirname(__file__))
 
-print "hi"
 exp1="x[0]*(1-x[0])"
 exp2="sin(2*pi *(x[0]-x[1]))"
 exp3="(x[0]*x[0])+(x[1]*x[1])"
