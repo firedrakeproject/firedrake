@@ -39,6 +39,13 @@ and then run::
   cd firedrake/src/firedrake
   make alltest
 
+.. note::
+
+   At present, ``make alltest`` will return three test failures, see
+   https://github.com/firedrakeproject/firedrake/issues/531 for
+   details.  However, firedrake is nonetheless functional at this
+   point.
+
 
 System requirements
 -------------------
