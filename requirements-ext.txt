@@ -3,3 +3,8 @@ sympy
 psutil
 cachetools
 singledispatch
+pytest
+pytest-xdist
+pytest-benchmark
+virtualenv
+ipython
