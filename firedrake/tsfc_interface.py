@@ -45,7 +45,7 @@ class FormSplitter(MultiFunction):
 
         The return-value is a tuple for which each entry is.
 
-        .. code-block::
+        .. code-block:: python
 
            (argument_indices, form)
 
@@ -57,7 +57,7 @@ class FormSplitter(MultiFunction):
 
         For example, consider the following code:
 
-        .. code-block::
+        .. code-block:: python
 
             V = FunctionSpace(m, 'CG', 1)
             W = V*V*V
@@ -67,7 +67,7 @@ class FormSplitter(MultiFunction):
 
         Then splitting the form returns a tuple of two forms.
 
-        .. code-block::
+        .. code-block:: python
 
            ((0, 2), w*p*dx),
             (1, 0), q*u*dx))
