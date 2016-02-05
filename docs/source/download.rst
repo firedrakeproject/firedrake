@@ -13,9 +13,14 @@ current directory. Run::
   python firedrake-install --help
 
 for a full list of install options, including system-wide
-installs and installation in developer mode. If you install in
-virtualenv_ mode, you will need to activate the virtualenv in each
-shell from which you use Firedrake::
+installs and installation in developer mode.  In particular, you may
+wish to customise the set of options used to build PETSc.  To do so,
+set the environment variable ``PETSC_CONFIGURE_OPTIONS`` before
+running ``firedrake-install``.  You can see the set of options passed
+to PETSc by providing the flag ``--show-petsc-configure-options``.
+
+If you install in virtualenv_ mode, you will need to activate the
+virtualenv in each shell from which you use Firedrake::
 
   source firedrake/bin/activate
 
@@ -24,6 +29,18 @@ shell from which you use Firedrake::
    Should you use ``csh``, you will need::
 
      source firedrake/bin/activate.csh
+
+Reporting installation bugs
+---------------------------
+
+If ``firedrake-install`` fails to work, please report a bug so that we
+can fix it for you by creating a new `github issue
+<https://github.com/firedrakeproject/firedrake/issues>`__.  To capture
+information about what is going wrong, please run
+``firedrake-install`` with the ``--log`` option and include the log
+file ``firedrake-install.log`` in your bug report.  Similarly if
+``firedrake-update`` fails, you can also run with ``--log`` which
+produces a ``firedrake-update.log`` file.
 
 Testing the installation
 ------------------------
