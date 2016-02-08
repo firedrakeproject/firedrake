@@ -125,7 +125,7 @@ def compile_element(ufl_element, cdim):
     from tsfc.constants import PRECISION
     from firedrake.pointquery_utils import set_float_formatting, format
     from tsfc.fiatinterface import create_element
-    from FIAT.reference_element import two_product_cell
+    from FIAT.reference_element import TensorProductCell as two_product_cell
     import sympy as sp
     import numpy as np
 
