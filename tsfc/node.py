@@ -107,3 +107,94 @@ def traversal(expression_dags):
             if child not in seen:
                 seen.add(child)
                 lifo.append(child)
+
+
+def noop_recursive(function):
+    """No-op wrapper for functions with overridable recursive calls.
+
+    :arg function: a function with parameters (value, rec), where
+                   ``rec`` is expected to be a function used for
+                   recursive calls.
+    :returns: a function with working recursion and nothing fancy
+    """
+    def recursive(node):
+        return function(node, recursive)
+    return recursive
+
+
+def noop_recursive_arg(function):
+    """No-op wrapper for functions with overridable recursive calls
+    and an argument.
+
+    :arg function: a function with parameters (value, rec, arg), where
+                   ``rec`` is expected to be a function used for
+                   recursive calls.
+    :returns: a function with working recursion and nothing fancy
+    """
+    def recursive(node, arg):
+        return function(node, recursive, arg)
+    return recursive
+
+
+class Memoizer(object):
+    """Caching wrapper for functions with overridable recursive calls.
+    The lifetime of the cache is the lifetime of the object instance.
+
+    :arg function: a function with parameters (value, rec), where
+                   ``rec`` is expected to be a function used for
+                   recursive calls.
+    :returns: a function with working recursion and caching
+    """
+    def __init__(self, function):
+        self.cache = {}
+        self.function = function
+
+    def __call__(self, node):
+        try:
+            return self.cache[node]
+        except KeyError:
+            result = self.function(node, self)
+            self.cache[node] = result
+            return result
+
+
+class MemoizerArg(object):
+    """Caching wrapper for functions with overridable recursive calls
+    and an argument.  The lifetime of the cache is the lifetime of the
+    object instance.
+
+    :arg function: a function with parameters (value, rec, arg), where
+                   ``rec`` is expected to be a function used for
+                   recursive calls.
+    :returns: a function with working recursion and caching
+    """
+    def __init__(self, function):
+        self.cache = {}
+        self.function = function
+
+    def __call__(self, node, arg):
+        cache_key = (node, arg)
+        try:
+            return self.cache[cache_key]
+        except KeyError:
+            result = self.function(node, self, arg)
+            self.cache[cache_key] = result
+            return result
+
+
+def reuse_if_untouched(node, self):
+    """Reuse if untouched recipe"""
+    new_children = map(self, node.children)
+    if all(nc == c for nc, c in zip(new_children, node.children)):
+        return node
+    else:
+        return node.reconstruct(*new_children)
+
+
+def reuse_if_untouched_arg(node, self, arg):
+    """Reuse if touched recipe propagating an extra argument"""
+    new_children = [self(child, arg) for child in node.children]
+    if all(nc == c for nc, c in zip(new_children, node.children)):
+        return node
+    else:
+        return node.reconstruct(*new_children)
