@@ -324,6 +324,12 @@ class Index(object):
         elif self.extent != value:
             raise ValueError("Inconsistent index extents!")
 
+    def __str__(self):
+        return self.name
+
+    def __repr__(self):
+        return "Index(%r)" % self.name
+
 
 class VariableIndex(object):
     def __init__(self, name):
@@ -344,15 +350,22 @@ class Indexed(Scalar):
         # Zero folding
         if isinstance(aggregate, Zero):
             return Zero()
-        else:
-            return super(Indexed, cls).__new__(cls)
 
-    def __init__(self, aggregate, multiindex):
+        # All indices fixed
+        if all(isinstance(i, int) for i in multiindex):
+            if isinstance(aggregate, Literal):
+                return Literal(aggregate.array[multiindex])
+            elif isinstance(aggregate, ListTensor):
+                return aggregate.array[multiindex]
+
+        self = super(Indexed, cls).__new__(cls)
         self.children = (aggregate,)
         self.multiindex = multiindex
 
         new_indices = tuple(i for i in multiindex if isinstance(i, Index))
         self.free_indices = tuple(unique(aggregate.free_indices + new_indices))
+
+        return self
 
 
 class ComponentTensor(Node):

@@ -12,7 +12,7 @@ from tsfc.quadrature import create_quadrature, QuadratureRule
 
 import coffee.base as coffee
 
-from tsfc import fem, gem as ein, impero as imp, scheduling as sch, optimise as opt
+from tsfc import fem, gem as ein, impero as imp, scheduling as sch, optimise as opt, impero_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.node import traversal
@@ -161,12 +161,8 @@ def compile_integral(integral, idata, fd, prefix, parameters):
     quadrature_index, nonfem, cell_orientations = \
         fem.process(integral_type, integrand, tabulation_manager, quad_rule.weights, argument_indices, coefficient_map)
     nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
-    inlining_cache = {}
-    simplified = [opt.inline_indices(e, inlining_cache) for e in nonfem]
-
-    simplified = opt.expand_indexsum(simplified, max_extent=3)
-    inlining_cache = {}
-    simplified = [opt.inline_indices(e, inlining_cache) for e in simplified]
+    simplified = opt.remove_componenttensors(nonfem)
+    simplified = opt.unroll_indexsum(simplified, max_extent=3)
 
     refcount = sch.count_references(simplified)
     candidates = set()
@@ -208,7 +204,11 @@ def compile_integral(integral, idata, fd, prefix, parameters):
         return None
     temporaries = make_temporaries(op for loop_indices, op in indexed_ops)
 
-    body = generate_coffee(indexed_ops, temporaries, shape_map, apply_ordering)
+    tree, indices, declare = impero_utils.process(indexed_ops,
+                                                  temporaries,
+                                                  shape_map,
+                                                  apply_ordering)
+    body = generate_coffee(temporaries, tree, indices, declare)
     body.open_scope = False
 
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
