@@ -52,7 +52,7 @@ parameters.add(Parameters("assembly_cache",
                           max_misses=3))
 
 parameters.add(Parameters("coffee",
-                          O2=True))
+                          O3=True))
 
 # Default to the values of PyOP2 configuration dictionary
 pyop2_opts = Parameters("pyop2_options",
