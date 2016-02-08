@@ -429,7 +429,8 @@ class TabulationManager(object):
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
 
-    def __init__(self, weights, quadrature_index, argument_indices, tabulation_manager, coefficient_map):
+    def __init__(self, weights, quadrature_index, argument_indices, tabulation_manager,
+                 coefficient_map, index_cache):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
         self.weights = ein.Literal(weights)
@@ -439,6 +440,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         self.coefficient_map = coefficient_map
         self.cell_orientations = False
         self.facet = tabulation_manager.facet
+        self.index_cache = index_cache
 
     def modified_terminal(self, o):
         mt = analyse_modified_terminal(o)
@@ -509,12 +511,16 @@ def _(terminal, e, mt, params):
     degree = map_expr_dag(FindPolynomialDegree(), e)
     cellwise_constant = not (degree is None or degree > 0)
 
-    def evaluate_at(params, key):
+    def evaluate_at(params, key, index_key):
         table = params.tabulation_manager.get(key, mt.restriction, cellwise_constant)
         kernel_argument = params.coefficient_map[terminal]
 
         q = ein.Index()
-        r = ein.Index()
+        try:
+            r = params.index_cache[index_key]
+        except KeyError:
+            r = ein.Index()
+            params.index_cache[index_key] = r
 
         if mt.restriction is None:
             kar = ein.Indexed(kernel_argument, (r,))
@@ -545,7 +551,7 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        result[multiindex] = evaluate_at(params, key)
+        result[multiindex] = evaluate_at(params, key, terminal.ufl_element())
 
     if result.shape:
         return ein.ListTensor(result)
@@ -634,7 +640,8 @@ def replace_coordinates(integrand, coordinate_coefficient):
     return map_expr_dag(ReplaceSpatialCoordinates(coordinate_coefficient), integrand)
 
 
-def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
+def process(integral_type, integrand, tabulation_manager, quadrature_weights, quadrature_index,
+            argument_indices, coefficient_map, index_cache):
     # Abs-simplification
     integrand = map_expr_dag(SimplifyExpr(), integrand)
 
@@ -664,12 +671,10 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, ar
 
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
-    quadrature_index = ein.Index(name='ip')
-
     translator = Translator(quadrature_weights, quadrature_index,
                             argument_indices, tabulation_manager,
-                            coefficient_map)
-    return quadrature_index, map_expr_dags(translator, expressions), translator.cell_orientations
+                            coefficient_map, index_cache)
+    return map_expr_dags(translator, expressions), translator.cell_orientations
 
 
 def make_cell_facet_jacobian(terminal):

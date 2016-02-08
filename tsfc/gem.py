@@ -335,6 +335,18 @@ class VariableIndex(object):
     def __init__(self, name):
         self.name = name
 
+    def __eq__(self, other):
+        """VariableIndices are equal if their names are equal."""
+        if self is other:
+            return True
+        if type(self) is not type(other):
+            return False
+        return self.name == other.name
+
+    def __hash__(self):
+        """VariableIndices hash to the hash of their name."""
+        return hash(self.name)
+
 
 class Indexed(Scalar):
     __slots__ = ('children', 'multiindex')
