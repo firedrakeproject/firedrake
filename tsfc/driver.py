@@ -42,12 +42,11 @@ def compile_form(form, prefix="form", parameters=None):
     for idata in fd.integral_data:
         # TODO: Merge kernel bodies for multiple integrals with same
         # integral-data (same mesh iteration space).
-        for integral in idata.integrals:
-            start = time.time()
-            kernel = compile_integral(integral, idata, fd, prefix, parameters)
-            if kernel is not None:
-                print GREEN % ("compile_integral finished in %g seconds." % (time.time() - start))
-                kernels.append(kernel)
+        start = time.time()
+        kernel = compile_integral(idata, fd, prefix, parameters)
+        if kernel is not None:
+            print GREEN % ("compile_integral finished in %g seconds." % (time.time() - start))
+            kernels.append(kernel)
 
     print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
     return kernels
@@ -76,27 +75,15 @@ class Kernel(object):
         super(Kernel, self).__init__()
 
 
-def compile_integral(integral, idata, fd, prefix, parameters):
+def compile_integral(idata, fd, prefix, parameters):
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") == "auto":
         del parameters["quadrature_degree"]
     if parameters.get("quadrature_rule") == "auto":
         del parameters["quadrature_rule"]
 
-    _ = {}
-    # Record per-integral parameters
-    _.update(integral.metadata())
-    # parameters override per-integral metadata
-    _.update(parameters)
-    parameters = _
-
-    # Check if the integral has a quad degree attached, otherwise use
-    # the estimated polynomial degree attached by compute_form_data
-    quadrature_degree = parameters.get("quadrature_degree",
-                                       parameters["estimated_polynomial_degree"])
-    integral_type = integral.integral_type()
-    integrand = integral.integrand()
-    kernel = Kernel(integral_type=integral_type, subdomain_id=integral.subdomain_id())
+    integral_type = idata.integral_type
+    kernel = Kernel(integral_type=integral_type, subdomain_id=idata.subdomain_id)
 
     arglist = []
     prepare = []
@@ -146,21 +133,43 @@ def compile_integral(integral, idata, fd, prefix, parameters):
                            qualifiers=["const"])
         arglist.append(decl)
 
-    cell = integrand.ufl_domain().ufl_cell()
+    nonfem_ = []
+    quadrature_indices = []
+    cell = idata.domain.ufl_cell()
+    for i, integral in enumerate(idata.integrals):
+        params = {}
+        # Record per-integral parameters
+        params.update(integral.metadata())
+        # parameters override per-integral metadata
+        params.update(parameters)
 
-    quad_rule = parameters.get("quadrature_rule",
+        # Check if the integral has a quad degree attached, otherwise use
+        # the estimated polynomial degree attached by compute_form_data
+        quadrature_degree = params.get("quadrature_degree",
+                                       params["estimated_polynomial_degree"])
+        quad_rule = params.get("quadrature_rule",
                                create_quadrature(cell, integral_type,
                                                  quadrature_degree))
 
-    if not isinstance(quad_rule, QuadratureRule):
-        raise ValueError("Expected to find a QuadratureRule object, not a %s" %
-                         type(quad_rule))
+        if not isinstance(quad_rule, QuadratureRule):
+            raise ValueError("Expected to find a QuadratureRule object, not a %s" %
+                             type(quad_rule))
 
-    tabulation_manager = fem.TabulationManager(integral_type, cell, quad_rule.points)
-    integrand = fem.replace_coordinates(integrand, coordinates)
-    quadrature_index, nonfem, cell_orientations = \
-        fem.process(integral_type, integrand, tabulation_manager, quad_rule.weights, argument_indices, coefficient_map)
-    nonfem = [ein.IndexSum(e, quadrature_index) for e in nonfem]
+        tabulation_manager = fem.TabulationManager(integral_type, cell,
+                                                   quad_rule.points)
+
+        integrand = fem.replace_coordinates(integral.integrand(), coordinates)
+        quadrature_index = ein.Index(name="ip%d" % i)
+        quadrature_indices.append(quadrature_index)
+        nonfem, cell_orientations = \
+            fem.process(integral_type, integrand, tabulation_manager,
+                        quad_rule.weights, quadrature_index,
+                        argument_indices, coefficient_map)
+        nonfem_.append([ein.IndexSum(e, quadrature_index) for e in nonfem])
+
+    # Sum the expressions that are part of the same restriction
+    nonfem = list(reduce(ein.Sum, e, ein.Zero()) for e in zip(*nonfem_))
+
     inlining_cache = {}
     simplified = [opt.inline_indices(e, inlining_cache) for e in nonfem]
 
@@ -192,7 +201,7 @@ def compile_integral(integral, idata, fd, prefix, parameters):
         indices.update(node.free_indices)
     indices = sorted(indices)
 
-    index_ordering = apply_prefix_ordering(indices, (quadrature_index,) + argument_indices)
+    index_ordering = apply_prefix_ordering(indices, tuple(quadrature_indices) + argument_indices)
     apply_ordering = make_index_orderer(index_ordering)
 
     shape_map = lambda expr: expr.free_indices

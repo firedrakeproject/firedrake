@@ -634,7 +634,7 @@ def replace_coordinates(integrand, coordinate_coefficient):
     return map_expr_dag(ReplaceSpatialCoordinates(coordinate_coefficient), integrand)
 
 
-def process(integral_type, integrand, tabulation_manager, quadrature_weights, argument_indices, coefficient_map):
+def process(integral_type, integrand, tabulation_manager, quadrature_weights, quadrature_index, argument_indices, coefficient_map):
     # Abs-simplification
     integrand = map_expr_dag(SimplifyExpr(), integrand)
 
@@ -664,12 +664,10 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, ar
 
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
-    quadrature_index = ein.Index(name='ip')
-
     translator = Translator(quadrature_weights, quadrature_index,
                             argument_indices, tabulation_manager,
                             coefficient_map)
-    return quadrature_index, map_expr_dags(translator, expressions), translator.cell_orientations
+    return map_expr_dags(translator, expressions), translator.cell_orientations
 
 
 def make_cell_facet_jacobian(terminal):
