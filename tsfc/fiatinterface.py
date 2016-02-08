@@ -56,7 +56,7 @@ supported_elements = {
     "Lagrange": FIAT.Lagrange,
     "Nedelec 1st kind H(curl)": FIAT.Nedelec,
     "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
-    "TensorProductElement": FIAT.TensorFiniteElement,
+    "TensorProductElement": FIAT.TensorProductElement,
     "Raviart-Thomas": FIAT.RaviartThomas,
     "TraceElement": FIAT.HDivTrace,
     "Regge": FIAT.Regge,
@@ -175,8 +175,8 @@ def _(element, vector_is_mixed):
         raise ValueError("OPE not on OPC?")
     A = element._A
     B = element._B
-    return FIAT.TensorFiniteElement(create_element(A, vector_is_mixed),
-                                    create_element(B, vector_is_mixed))
+    return FIAT.TensorProductElement(create_element(A, vector_is_mixed),
+                                     create_element(B, vector_is_mixed))
 
 
 @convert.register(ufl.HDivElement)  # noqa

@@ -29,7 +29,7 @@ import numpy
 
 import FIAT
 from FIAT.reference_element import UFCInterval, UFCTriangle, UFCTetrahedron, \
-    FiredrakeQuadrilateral, two_product_cell
+    FiredrakeQuadrilateral, TensorProductCell
 import ufl
 
 from tsfc.fiatinterface import as_fiat_cell
@@ -94,7 +94,7 @@ def default_scheme(cell, degree):
     raise ValueError("No scheme handler defined for %s" % cell)
 
 
-@default_scheme.register(two_product_cell)  # noqa
+@default_scheme.register(TensorProductCell)  # noqa
 @default_scheme.register(FiredrakeQuadrilateral)
 @default_scheme.register(UFCInterval)
 def _(cell, degree):
@@ -320,19 +320,17 @@ def create_quadrature_rule(cell, degree, scheme="default"):
     if scheme not in ("default", "canonical"):
         raise ValueError("Unknown quadrature scheme '%s'" % scheme)
 
-    cellname = cell.cellname()
-
     try:
         degree = tuple(degree)
-        if cellname != "TensorProductCell":
+        if not isinstance(cell, ufl.TensorProductCell):
             raise ValueError("Not expecting tuple of degrees")
     except TypeError:
-        if cellname == "TensorProductCell":
+        if isinstance(cell, ufl.TensorProductCell):
             # We got a single degree, assume we meant that degree in
             # each direction.
             degree = (degree, degree)
 
-    if cellname == "vertex":
+    if cell.cellname() == "vertex":
         if degree < 0:
             raise ValueError("Need positive degree, not %d" % degree)
         return QuadratureRule(numpy.zeros((1, 0), dtype=numpy.float64),
@@ -360,11 +358,17 @@ def integration_cell(cell, integral_type):
                 "quadrilateral": ufl.interval,
                 "tetrahedron": ufl.triangle,
                 "hexahedron": ufl.quadrilateral}[cell.cellname()]
+    # Extruded cases
+    base_cell, interval = cell.sub_cells()
+    assert interval.cellname() == "interval"
     if integral_type in ("exterior_facet_top", "exterior_facet_bottom",
                          "interior_facet_horiz"):
-        return cell.facet_horiz
+        return base_cell
     if integral_type in ("exterior_facet_vert", "interior_facet_vert"):
-        return cell.facet_vert
+        if base_cell.topological_dimension() == 2:
+            return ufl.TensorProductCell(ufl.interval, ufl.interval)
+        elif base_cell.topological_dimension() == 1:
+            return ufl.interval
     raise ValueError("Don't know how to find an integration cell")
 
 
@@ -383,7 +387,7 @@ def select_degree(degree, cell, integral_type):
     if integral_type == "cell":
         return degree
     if integral_type in ("exterior_facet", "interior_facet"):
-        if cell.cellname() == "TensorProductCell":
+        if isinstance(cell, ufl.TensorProductCell):
             raise ValueError("Integral type '%s' invalid for cell '%s'" %
                              (integral_type, cell.cellname()))
         if cell.cellname() == "quadrilateral":
@@ -397,7 +401,7 @@ def select_degree(degree, cell, integral_type):
             except TypeError:
                 return degree
         return degree
-    if cell.cellname() != "TensorProductCell":
+    if not isinstance(cell, ufl.TensorProductCell):
         raise ValueError("Integral type '%s' invalid for cell '%s'" %
                          (integral_type, cell.cellname()))
     if integral_type in ("exterior_facet_top", "exterior_facet_bottom",
