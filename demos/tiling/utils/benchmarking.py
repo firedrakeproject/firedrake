@@ -97,7 +97,7 @@ def output_time(start, end, **kwargs):
         name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
         for mode in modes:
             if split_mode and nloops > 0:
-                nloops = "split"
+                nloops = "split%d" % split_mode
             filename = os.path.join(output_dir, "times", name, "mesh%d" % mesh_size,
                                     mode, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
