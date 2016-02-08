@@ -1275,10 +1275,14 @@ class Inspector(Cached):
                     raise RuntimeError("SLOPE backend (%s) requires deep halos",
                                        slope.get_exec_mode())
                 # Assume [1, ..., N] levels of halo depth
-                levelN = s._deep_size[-1] if not extra_halo else s._deep_size[-2]
-                core_size = levelN[0]
-                exec_size = levelN[2] - core_size
-                nonexec_size = levelN[3] - levelN[2]
+                level_N = s._deep_size[-1]
+                core_size = level_N[0]
+                exec_size = level_N[2] - core_size
+                nonexec_size = level_N[3] - level_N[2]
+                if extra_halo and nonexec_size == 0:
+                    level_E = s._deep_size[-2]
+                    exec_size = level_E[2] - core_size
+                    nonexec_size = level_E[3] - level_E[2]
                 infoset = s_name, core_size, exec_size, nonexec_size, superset
             insp_sets[infoset] = infoset
             return infoset
