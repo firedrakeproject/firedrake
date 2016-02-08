@@ -64,7 +64,7 @@ def ufl_B(tensor_name):
 
 
 def test_tensor_prod_simple(ufl_A, ufl_B):
-    tensor_ufl = ufl.OuterProductElement(ufl_A, ufl_B)
+    tensor_ufl = ufl.TensorProductElement(ufl_A, ufl_B)
 
     tensor = f.create_element(tensor_ufl)
     A = f.create_element(ufl_A)

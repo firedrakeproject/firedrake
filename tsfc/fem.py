@@ -157,7 +157,7 @@ class FindPolynomialDegree(MultiFunction):
         elif cell.cellname() == "quadrilateral":
             # TODO: Tensor-product space assumed
             return 2*element.degree()
-        elif cell.cellname() == "OuterProductCell":
+        elif cell.cellname() == "TensorProductCell":
             try:
                 return sum(element.degree())
             except TypeError:
@@ -620,9 +620,9 @@ def _(terminal, e, mt, params):
               ufl.Cell("triangle"): 1.0/2.0,
               ufl.Cell("quadrilateral"): 1.0,
               ufl.Cell("tetrahedron"): 1.0/6.0,
-              ufl.OuterProductCell(ufl.Cell("interval"), ufl.Cell("interval")): 1.0,
-              ufl.OuterProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): 1.0/2.0,
-              ufl.OuterProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): 1.0}
+              ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval")): 1.0,
+              ufl.TensorProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): 1.0/2.0,
+              ufl.TensorProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): 1.0}
     return ein.Literal(volume[cell])
 
 
@@ -726,9 +726,9 @@ def make_cell_facet_jacobian(terminal):
                      ufl.Cell("triangle"): triangle,
                      ufl.Cell("quadrilateral"): quadrilateral,
                      ufl.Cell("tetrahedron"): tetrahedron,
-                     ufl.OuterProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
-                     ufl.OuterProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
-                     ufl.OuterProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
+                     ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
+                     ufl.TensorProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
+                     ufl.TensorProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
 
     table = cell_to_table[cell]
 
@@ -779,9 +779,9 @@ def make_reference_normal(terminal):
                      ufl.Cell("triangle"): triangle,
                      ufl.Cell("quadrilateral"): quadrilateral,
                      ufl.Cell("tetrahedron"): tetrahedron,
-                     ufl.OuterProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
-                     ufl.OuterProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
-                     ufl.OuterProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
+                     ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
+                     ufl.TensorProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
+                     ufl.TensorProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
 
     table = cell_to_table[cell]
 

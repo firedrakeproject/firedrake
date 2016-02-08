@@ -324,10 +324,10 @@ def create_quadrature_rule(cell, degree, scheme="default"):
 
     try:
         degree = tuple(degree)
-        if cellname != "OuterProductCell":
+        if cellname != "TensorProductCell":
             raise ValueError("Not expecting tuple of degrees")
     except TypeError:
-        if cellname == "OuterProductCell":
+        if cellname == "TensorProductCell":
             # We got a single degree, assume we meant that degree in
             # each direction.
             degree = (degree, degree)
@@ -383,7 +383,7 @@ def select_degree(degree, cell, integral_type):
     if integral_type == "cell":
         return degree
     if integral_type in ("exterior_facet", "interior_facet"):
-        if cell.cellname() == "OuterProductCell":
+        if cell.cellname() == "TensorProductCell":
             raise ValueError("Integral type '%s' invalid for cell '%s'" %
                              (integral_type, cell.cellname()))
         if cell.cellname() == "quadrilateral":
@@ -397,7 +397,7 @@ def select_degree(degree, cell, integral_type):
             except TypeError:
                 return degree
         return degree
-    if cell.cellname() != "OuterProductCell":
+    if cell.cellname() != "TensorProductCell":
         raise ValueError("Integral type '%s' invalid for cell '%s'" %
                          (integral_type, cell.cellname()))
     if integral_type in ("exterior_facet_top", "exterior_facet_bottom",

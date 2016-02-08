@@ -24,7 +24,7 @@ def tensor_product_cell(cell):
     if cell.cellname() == "tetrahedron":
         pytest.skip("Tensor-producted tet not supported")
 
-    return ufl.OuterProductCell(cell, ufl.interval)
+    return ufl.TensorProductCell(cell, ufl.interval)
 
 
 @pytest.mark.parametrize("degree",

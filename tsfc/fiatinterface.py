@@ -56,7 +56,7 @@ supported_elements = {
     "Lagrange": FIAT.Lagrange,
     "Nedelec 1st kind H(curl)": FIAT.Nedelec,
     "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
-    "OuterProductElement": FIAT.TensorFiniteElement,
+    "TensorProductElement": FIAT.TensorFiniteElement,
     "Raviart-Thomas": FIAT.RaviartThomas,
     "TraceElement": FIAT.HDivTrace,
     "Regge": FIAT.Regge,
@@ -168,10 +168,10 @@ def _(element, vector_is_mixed):
 
 
 # Now for the OPE-specific stuff
-@convert.register(ufl.OuterProductElement)  # noqa
+@convert.register(ufl.TensorProductElement)  # noqa
 def _(element, vector_is_mixed):
     cell = element.cell()
-    if type(cell) is not ufl.OuterProductCell:
+    if type(cell) is not ufl.TensorProductCell:
         raise ValueError("OPE not on OPC?")
     A = element._A
     B = element._B
@@ -196,8 +196,8 @@ def _(element, vector_is_mixed):
     if not vector_is_mixed:
         assert isinstance(element, (ufl.VectorElement,
                                     ufl.TensorElement,
-                                    ufl.OuterProductVectorElement,
-                                    ufl.OuterProductTensorElement))
+                                    ufl.TensorProductVectorElement,
+                                    ufl.TensorProductTensorElement))
         return create_element(element.sub_elements()[0], vector_is_mixed)
 
     elements = []
@@ -215,7 +215,7 @@ def _(element, vector_is_mixed):
     return MixedElement(fiat_elements)
 
 
-quad_opc = ufl.OuterProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
+quad_opc = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
 _cache = weakref.WeakKeyDictionary()
 
 
