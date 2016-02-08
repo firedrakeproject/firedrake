@@ -136,6 +136,12 @@ def compile_integral(idata, fd, prefix, parameters):
     nonfem_ = []
     quadrature_indices = []
     cell = idata.domain.ufl_cell()
+    # Map from UFL FiniteElement objects to Index instances.  This is
+    # so we reuse Index instances when evaluating the same coefficient
+    # multiple times with the same table.  Occurs, for example, if we
+    # have multiple integrals here (and the affine coordinate
+    # evaluation can be hoisted).
+    index_cache = {}
     for i, integral in enumerate(idata.integrals):
         params = {}
         # Record per-integral parameters
@@ -164,7 +170,7 @@ def compile_integral(idata, fd, prefix, parameters):
         nonfem, cell_orientations = \
             fem.process(integral_type, integrand, tabulation_manager,
                         quad_rule.weights, quadrature_index,
-                        argument_indices, coefficient_map)
+                        argument_indices, coefficient_map, index_cache)
         nonfem_.append([ein.IndexSum(e, quadrature_index) for e in nonfem])
 
     # Sum the expressions that are part of the same restriction
