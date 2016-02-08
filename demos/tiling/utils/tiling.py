@@ -4,11 +4,9 @@ from pyop2.mpi import MPI
 
 
 def calculate_sdepth(num_solves, num_unroll, extra_halo):
-    """The sdepth is calculated through the following formula:
-
-        sdepth = 1 if sequential else 1 + num_solves*num_unroll + extra_halo
-
-    Where:
+    """Automate the computation of s_depth based on the input parameters.
+    The returned value is an overestimation; that is, it ensures correctness,
+    but a smaller s_depth could actually be sufficient.
 
     :arg num_solves: number of solves per loop chain iteration
     :arg num_unroll: unroll factor for the loop chain
