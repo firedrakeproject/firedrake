@@ -230,18 +230,18 @@ the base cell with an element defined on an interval.
 
 We will now introduce the new operators which act on ``FiniteElement`` objects.
 
-The ``OuterProductElement`` operator
+The ``TensorProductElement`` operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 To create an element compatible with an extruded mesh, one should use
-the :py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+the :py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
 operator. For example,
 
 .. code-block:: python
 
     horiz_elt = FiniteElement("CG", triangle, 1)
     vert_elt = FiniteElement("CG", interval, 1)
-    elt = OuterProductElement(horiz_elt, vert_elt)
+    elt = TensorProductElement(horiz_elt, vert_elt)
     V = FunctionSpace(mesh, elt)
 
 will give a continuous, scalar-valued function space. The resulting space
@@ -259,7 +259,7 @@ The degree and continuity may differ; for example
 
     horiz_elt = FiniteElement("DG", triangle, 0)
     vert_elt = FiniteElement("CG", interval, 2)
-    elt = OuterProductElement(horiz_elt, vert_elt)
+    elt = TensorProductElement(horiz_elt, vert_elt)
     V = FunctionSpace(mesh, elt)
 
 will give a function space which is continuous between cells in a column,
@@ -283,7 +283,7 @@ in either of the following ways:
     mini_horiz_2 = FiniteElement("B", triangle, 3)
     mini_horiz = mini_horiz_1 + mini_horiz_2  # Enriched element
     mini_vert = FiniteElement("CG", interval, 1)
-    mini_elt = OuterProductElement(mini_horiz, mini_vert)
+    mini_elt = TensorProductElement(mini_horiz, mini_vert)
     V = FunctionSpace(mesh, mini_elt)
 
 or
@@ -293,8 +293,8 @@ or
     mini_horiz_1 = FiniteElement("CG", triangle, 1)
     mini_horiz_2 = FiniteElement("B", triangle, 3)
     mini_vert = FiniteElement("CG", interval, 1)
-    mini_elt_1 = OuterProductElement(mini_horiz_1, mini_vert)
-    mini_elt_2 = OuterProductElement(mini_horiz_2, mini_vert)
+    mini_elt_1 = TensorProductElement(mini_horiz_1, mini_vert)
+    mini_elt_2 = TensorProductElement(mini_horiz_2, mini_vert)
     mini_elt = mini_elt_1 + mini_elt_2  # Enriched element
     V = FunctionSpace(mesh, mini_elt)
 
@@ -307,7 +307,7 @@ The ``HDivElement`` and ``HCurlElement`` operators
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements,
-:py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+:py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
 does not give enough information to unambiguously produce the desired
 space. As an example, consider the lowest-order *Raviart-Thomas* element on a
 quadrilateral. The degrees of freedom live on the facets, and consist of
@@ -319,8 +319,8 @@ The following element is closely related to the desired Raviart-Thomas element:
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
-    P1P0 = OuterProductElement(CG_1, DG_0)
-    P0P1 = OuterProductElement(DG_0, CG_1)
+    P1P0 = TensorProductElement(CG_1, DG_0)
+    P0P1 = TensorProductElement(DG_0, CG_1)
     elt = P1P0 + P0P1
 
 .. figure:: images/rt_quad_pre.svg
@@ -338,9 +338,9 @@ between elements. To obtain the Raviart-Thomas element, we must use the
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
-    P1P0 = OuterProductElement(CG_1, DG_0)
+    P1P0 = TensorProductElement(CG_1, DG_0)
     RT_horiz = HDivElement(P1P0)
-    P0P1 = OuterProductElement(DG_0, CG_1)
+    P0P1 = TensorProductElement(DG_0, CG_1)
     RT_vert = HDivElement(P0P1)
     elt = RT_horiz + RT_vert
 
@@ -364,7 +364,7 @@ the product of this with a continuous element on an interval:
 .. code-block:: python
 
     CG_2 = FiniteElement("CG", interval, 2)
-    N2CG = OuterProductElement(N2_1, CG_2)
+    N2CG = TensorProductElement(N2_1, CG_2)
 
 This element still only has two components. To expand this into a
 three-dimensional curl-conforming element, we must use the
@@ -384,11 +384,11 @@ prism. The full element can be built as follows:
 
     N2_1 = FiniteElement("N2curl", triangle, 1)
     CG_2 = FiniteElement("CG", interval, 2)
-    N2CG = OuterProductElement(N2_1, CG_2)
+    N2CG = TensorProductElement(N2_1, CG_2)
     Ned_horiz = HCurlElement(N2CG)
     P2tr = FiniteElement("CG", triangle, 2)
     P1dg = FiniteElement("DG", interval, 1)
-    P2P1 = OuterProductElement(P2tr, P1dg)
+    P2P1 = TensorProductElement(P2tr, P1dg)
     Ned_vert = HCurlElement(P2P1)
     Ned_wedge = Ned_horiz + Ned_vert
     V = FunctionSpace(mesh, Ned_wedge)

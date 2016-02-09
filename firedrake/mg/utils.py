@@ -35,7 +35,7 @@ def get_transformations(fiat_cell):
     1-0
 
     """
-    if isinstance(fiat_cell, FIAT.reference_element.two_product_cell):
+    if isinstance(fiat_cell, FIAT.reference_element.TensorProductCell):
         extruded = True
         cell = fiat_cell.A
     else:
@@ -112,7 +112,7 @@ def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
     perms = get_node_permutations(fiat_element)
     order = -np.ones_like(nonunique_map)
     cell = fiat_element.get_reference_element()
-    if isinstance(cell, FIAT.reference_element.two_product_cell):
+    if isinstance(cell, FIAT.reference_element.TensorProductCell):
         cell = cell.A
     tdim = cell.get_spatial_dimension()
     nvtx = len(cell.get_vertices())
@@ -140,7 +140,7 @@ def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
 
 
 def get_transforms_to_fine(cell):
-    if isinstance(cell, FIAT.reference_element.two_product_cell):
+    if isinstance(cell, FIAT.reference_element.TensorProductCell):
         extruded = True
         cell = cell.A
     else:

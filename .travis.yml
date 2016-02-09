@@ -76,5 +76,8 @@ install:
 script:
   - cd firedrake/src/firedrake
   - python setup.py build_ext --inplace
+  - cd ..
+  - pip install firedrake/
+  - cd firedrake
   - make lint
   - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)

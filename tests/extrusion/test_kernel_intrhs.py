@@ -18,7 +18,7 @@ def integrate_rhs(family, degree):
 
     horiz = ufl.FiniteElement(family, "triangle", degree)
     vert = ufl.FiniteElement(family, "interval", degree)
-    prod = ufl.OuterProductElement(horiz, vert)
+    prod = ufl.TensorProductElement(horiz, vert)
 
     fs = FunctionSpace(mesh, prod, name="fs")
 

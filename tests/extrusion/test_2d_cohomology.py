@@ -35,7 +35,7 @@ def test_betti0(horiz_complex, vert_complex):
     U0 = FiniteElement(U0[0], "interval", U0[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
 
-    W0_elt = OuterProductElement(U0, V0)
+    W0_elt = TensorProductElement(U0, V0)
     W0 = FunctionSpace(mesh, W0_elt)
 
     u = TrialFunction(W0)
@@ -72,7 +72,7 @@ def test_betti0_periodic(horiz_complex, vert_complex):
     U0 = FiniteElement(U0[0], "interval", U0[1])
     V0 = FiniteElement(V0[0], "interval", V0[1])
 
-    W0_elt = OuterProductElement(U0, V0)
+    W0_elt = TensorProductElement(U0, V0)
     W0 = FunctionSpace(mesh, W0_elt)
 
     u = TrialFunction(W0)
@@ -111,10 +111,10 @@ def test_betti1(horiz_complex, vert_complex):
     V0 = FiniteElement(V0[0], "interval", V0[1])
     V1 = FiniteElement(V1[0], "interval", V1[1])
 
-    W0_elt = OuterProductElement(U0, V0)
+    W0_elt = TensorProductElement(U0, V0)
 
-    W1_a = HDiv(OuterProductElement(U1, V0))
-    W1_b = HDiv(OuterProductElement(U0, V1))
+    W1_a = HDiv(TensorProductElement(U1, V0))
+    W1_b = HDiv(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
 
     W0 = FunctionSpace(mesh, W0_elt)
@@ -180,10 +180,10 @@ def test_betti1_periodic(horiz_complex, vert_complex):
     V0 = FiniteElement(V0[0], "interval", V0[1])
     V1 = FiniteElement(V1[0], "interval", V1[1])
 
-    W0_elt = OuterProductElement(U0, V0)
+    W0_elt = TensorProductElement(U0, V0)
 
-    W1_a = HDiv(OuterProductElement(U1, V0))
-    W1_b = HDiv(OuterProductElement(U0, V1))
+    W1_a = HDiv(TensorProductElement(U1, V0))
+    W1_b = HDiv(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
 
     W0 = FunctionSpace(mesh, W0_elt)
@@ -248,10 +248,10 @@ def test_betti2(horiz_complex, vert_complex):
     V0 = FiniteElement(V0[0], "interval", V0[1])
     V1 = FiniteElement(V1[0], "interval", V1[1])
 
-    W1_a = HDiv(OuterProductElement(U1, V0))
-    W1_b = HDiv(OuterProductElement(U0, V1))
+    W1_a = HDiv(TensorProductElement(U1, V0))
+    W1_b = HDiv(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
-    W2_elt = OuterProductElement(U1, V1)
+    W2_elt = TensorProductElement(U1, V1)
 
     W1 = FunctionSpace(mesh, W1_elt)
     W2 = FunctionSpace(mesh, W2_elt)
@@ -315,10 +315,10 @@ def test_betti2_periodic(horiz_complex, vert_complex):
     V0 = FiniteElement(V0[0], "interval", V0[1])
     V1 = FiniteElement(V1[0], "interval", V1[1])
 
-    W1_a = HDiv(OuterProductElement(U1, V0))
-    W1_b = HDiv(OuterProductElement(U0, V1))
+    W1_a = HDiv(TensorProductElement(U1, V0))
+    W1_b = HDiv(TensorProductElement(U0, V1))
     W1_elt = W1_a + W1_b
-    W2_elt = OuterProductElement(U1, V1)
+    W2_elt = TensorProductElement(U1, V1)
 
     W1 = FunctionSpace(mesh, W1_elt)
     W2 = FunctionSpace(mesh, W2_elt)

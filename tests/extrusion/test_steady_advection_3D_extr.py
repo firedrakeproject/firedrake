@@ -27,7 +27,7 @@ def DG1(mesh):
 
 @pytest.fixture
 def W(mesh):
-    if mesh.ufl_cell()._A.cellname() == "quadrilateral":
+    if mesh.ufl_cell().sub_cells()[0].cellname() == "quadrilateral":
         # RTCF1 element on a hexahedron
         W0_h = FiniteElement("RTCF", "quadrilateral", 1)
         W1_h = FiniteElement("DQ", "quadrilateral", 0)
@@ -37,10 +37,10 @@ def W(mesh):
         W1_h = FiniteElement("DG", "triangle", 0)
 
     W0_v = FiniteElement("DG", "interval", 0)
-    W0 = HDiv(OuterProductElement(W0_h, W0_v))
+    W0 = HDiv(TensorProductElement(W0_h, W0_v))
 
     W1_v = FiniteElement("CG", "interval", 1)
-    W1 = HDiv(OuterProductElement(W1_h, W1_v))
+    W1 = HDiv(TensorProductElement(W1_h, W1_v))
 
     return FunctionSpace(mesh, W0+W1)
 

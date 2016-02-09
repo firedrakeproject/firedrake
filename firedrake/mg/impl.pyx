@@ -456,7 +456,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
         PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
 
     cell = coarse.fiat_element.get_reference_element()
-    if isinstance(cell, FIAT.reference_element.two_product_cell):
+    if isinstance(cell, FIAT.reference_element.TensorProductCell):
         tdim = cell.A.get_spatial_dimension()
     else:
         tdim = cell.get_spatial_dimension()

@@ -7,7 +7,7 @@ from pyop2 import op2
 from pyop2.base import build_itspace
 from pyop2.sequential import generate_cell_wrapper
 
-from ufl import Cell, OuterProductCell
+from ufl import Cell, TensorProductCell
 
 
 def make_args(function):
@@ -44,10 +44,10 @@ cellname = {
     Cell("tetrahedron"): "tetrahedron_3d",
     Cell("quadrilateral"): "quad_2d",
     Cell("quadrilateral", 3): "quad_3d",
-    OuterProductCell(Cell("interval"), Cell("interval")): "quad_2d",
-    OuterProductCell(Cell("interval"), Cell("interval"), gdim=3): "quad_3d",
-    OuterProductCell(Cell("triangle"), Cell("interval")): "prism_3d",
-    OuterProductCell(Cell("quadrilateral"), Cell("interval")): "hex_3d",
+    TensorProductCell(Cell("interval"), Cell("interval")): "quad_2d",
+    TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3): "quad_3d",
+    TensorProductCell(Cell("triangle"), Cell("interval")): "prism_3d",
+    TensorProductCell(Cell("quadrilateral"), Cell("interval")): "hex_3d",
 }
 
 
@@ -154,7 +154,7 @@ def compile_coordinate_element(ufl_coordinate_element):
     from tsfc.constants import PRECISION
     from tsfc.fiatinterface import create_element
     from firedrake.pointeval_utils import ssa_arrays, c_print
-    from FIAT.reference_element import two_product_cell
+    from FIAT.reference_element import TensorProductCell as two_product_cell
     import sympy as sp
     import numpy as np
 

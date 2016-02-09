@@ -2,7 +2,7 @@ from __future__ import absolute_import
 from evtk import hl
 from evtk.vtk import _get_byte_order
 from evtk.hl import _requiresLargeVTKFileSize
-from ufl import Cell, OuterProductCell
+from ufl import Cell, TensorProductCell
 import numpy as np
 import os
 
@@ -27,10 +27,10 @@ _cells[Cell("triangle", 3)] = hl.VtkTriangle
 _cells[Cell("quadrilateral")] = hl.VtkQuad
 _cells[Cell("quadrilateral", 3)] = hl.VtkQuad
 _cells[Cell("tetrahedron")] = hl.VtkTetra
-_cells[OuterProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
-_cells[OuterProductCell(Cell("interval"), Cell("interval"), gdim=3)] = hl.VtkQuad
-_cells[OuterProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
-_cells[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = hl.VtkHexahedron
+_cells[TensorProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
+_cells[TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3)] = hl.VtkQuad
+_cells[TensorProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
+_cells[TensorProductCell(Cell("quadrilateral"), Cell("interval"))] = hl.VtkHexahedron
 
 _points_per_cell = {}
 _points_per_cell[Cell("interval")] = 2
@@ -41,10 +41,10 @@ _points_per_cell[Cell("triangle", 3)] = 3
 _points_per_cell[Cell("quadrilateral")] = 4
 _points_per_cell[Cell("quadrilateral", 3)] = 4
 _points_per_cell[Cell("tetrahedron")] = 4
-_points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"))] = 4
-_points_per_cell[OuterProductCell(Cell("interval"), Cell("interval"), gdim=3)] = 4
-_points_per_cell[OuterProductCell(Cell("triangle"), Cell("interval"))] = 6
-_points_per_cell[OuterProductCell(Cell("quadrilateral"), Cell("interval"))] = 8
+_points_per_cell[TensorProductCell(Cell("interval"), Cell("interval"))] = 4
+_points_per_cell[TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3)] = 4
+_points_per_cell[TensorProductCell(Cell("triangle"), Cell("interval"))] = 6
+_points_per_cell[TensorProductCell(Cell("quadrilateral"), Cell("interval"))] = 8
 
 
 class File(object):
@@ -156,7 +156,7 @@ class _VTUFile(object):
             import ufl.finiteelement.hdivcurl as hc
             if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
                 return False
-            if e.family() == 'OuterProductElement':
+            if e.family() == 'TensorProductElement':
                 if e.degree() == (1, 1):
                     if e._A.family() == family \
                        and e._B.family() == family:
@@ -169,7 +169,7 @@ class _VTUFile(object):
             import ufl.finiteelement.hdivcurl as hc
             if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
                 return False
-            if e.family() == 'OuterProductElement':
+            if e.family() == 'TensorProductElement':
                 if e._A.family() in ('Lagrange', 'Q') \
                    and e._B.family() == 'Lagrange':
                     return True
@@ -236,7 +236,7 @@ class _VTUFile(object):
         layers = mesh.layers - 1 if mesh.layers else 1
         num_cells = mesh.num_cells() * layers
 
-        if not isinstance(e.cell(), OuterProductCell) and e.cell().cellname() != "quadrilateral":
+        if not isinstance(e.cell(), TensorProductCell) and e.cell().cellname() != "quadrilateral":
             connectivity = Vc.cell_node_map().values_with_halo.flatten()
         else:
             # Connectivity of bottom cell in extruded mesh
