@@ -96,6 +96,8 @@ honoured.""",
 else:
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument("--no-update-script", action="store_false", dest="update_script",
+                        help="Do not update script before updating Firedrake.")
     parser.add_argument("--rebuild", action="store_true",
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -763,9 +765,17 @@ if mode == "install":
         file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
             easyinstall[:1] + new_packages + easyinstall[1:])
 
+    build_update_script()
+
 else:
     # Update mode
     os.chdir("src")
+
+    if args.update_script:
+        # Pull firedrake, rebuild update script, launch new script
+        git_update("firedrake")
+        build_update_script()
+        os.execv(sys.executable, [sys.executable, sys.argv[0], "--no-update-script"] + sys.argv[1:])
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
@@ -826,8 +836,6 @@ else:
     for p in packages:
         clean(p)
         install(p+"/")
-
-build_update_script()
 
 os.chdir("../..")
 
