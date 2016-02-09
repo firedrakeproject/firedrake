@@ -754,9 +754,6 @@ else:
     # Update mode
     os.chdir("src")
 
-    if args.clean:
-        clean_obsolete_packages()
-
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
@@ -772,6 +769,14 @@ else:
 
     packages.remove("petsc")
     packages.remove("petsc4py")
+
+    if args.clean:
+        clean_obsolete_packages()
+        for package in packages:
+            pip_uninstall(package)
+        if args.rebuild:
+            pip_uninstall("petsc")
+            pip_uninstall("petsc4py")
 
     for p in packages:
         try:
