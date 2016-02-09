@@ -18,7 +18,7 @@ from tsfc.fiatinterface import create_element, as_fiat_cell
 
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from tsfc.constants import PRECISION
-from tsfc import gem as ein
+from tsfc import gem
 from tsfc import ufl2gem
 from tsfc import geometric
 
@@ -357,7 +357,6 @@ class TabulationManager(object):
 
     def __init__(self, integral_type, cell, points):
         self.integral_type = integral_type
-        self.cell = cell
         self.points = points
 
         self.tabulators = []
@@ -386,27 +385,13 @@ class TabulationManager(object):
         else:
             raise NotImplementedError("integral type %s not supported" % integral_type)
 
-        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            self.facet = {None: ein.VariableIndex('facet[0]')}
-        elif integral_type in ['interior_facet', 'interior_facet_vert']:
-            self.facet = {'+': ein.VariableIndex('facet[0]'),
-                          '-': ein.VariableIndex('facet[1]')}
-        elif integral_type == 'exterior_facet_bottom':
-            self.facet = {None: 0}
-        elif integral_type == 'exterior_facet_top':
-            self.facet = {None: 1}
-        elif integral_type == 'interior_facet_horiz':
-            self.facet = {'+': 1, '-': 0}
-        else:
-            self.facet = None
-
     def tabulate(self, ufl_element, max_deriv):
         for tabulator in self.tabulators:
             tabulator.tabulate(ufl_element, max_deriv)
 
-    def get(self, key, restriction, cellwise_constant=False):
+    def get(self, key, cellwise_constant=False):
         try:
-            table = self.tables[(key, cellwise_constant)]
+            return self.tables[(key, cellwise_constant)]
         except KeyError:
             tables = [tabulator[key] for tabulator in self.tabulators]
             if cellwise_constant:
@@ -420,18 +405,7 @@ class TabulationManager(object):
                 table = numpy.array(tables)
 
             self.tables[(key, cellwise_constant)] = table
-
-        if self.integral_type == 'cell':
-            return ein.Literal(table)
-        else:
-            f = self.facet[restriction]
-
-            indices = tuple(ein.Index() for i in range(len(table.shape)-1))
-            return ein.ComponentTensor(
-                ein.Indexed(
-                    ein.Literal(table),
-                    (f,) + indices),
-                indices)
+            return table
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
@@ -440,27 +414,48 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
                  coefficient_map, index_cache):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
-        self.weights = ein.Literal(weights)
+        integral_type = tabulation_manager.integral_type
+        self.weights = gem.Literal(weights)
         self.quadrature_index = quadrature_index
         self.argument_indices = argument_indices
         self.tabulation_manager = tabulation_manager
-        self.integral_type = tabulation_manager.integral_type
+        self.integral_type = integral_type
         self.coefficient_map = coefficient_map
         self.cell_orientations = False
-        self.facet = tabulation_manager.facet
         self.index_cache = index_cache
+
+        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
+            self.facet = {None: gem.VariableIndex('facet[0]')}
+        elif integral_type in ['interior_facet', 'interior_facet_vert']:
+            self.facet = {'+': gem.VariableIndex('facet[0]'),
+                          '-': gem.VariableIndex('facet[1]')}
+        elif integral_type == 'exterior_facet_bottom':
+            self.facet = {None: 0}
+        elif integral_type == 'exterior_facet_top':
+            self.facet = {None: 1}
+        elif integral_type == 'interior_facet_horiz':
+            self.facet = {'+': 1, '-': 0}
+        else:
+            self.facet = None
 
     def get_cell_orientations(self):
         try:
             return self._cell_orientations
         except AttributeError:
             if self.integral_type.startswith("interior_facet"):
-                result = ein.Variable("cell_orientations", (2, 1))
+                result = gem.Variable("cell_orientations", (2, 1))
             else:
-                result = ein.Variable("cell_orientations", (1, 1))
+                result = gem.Variable("cell_orientations", (1, 1))
             self.cell_orientations = True
             self._cell_orientations = result
             return result
+
+    def select_facet(self, tensor, restriction):
+        if self.integral_type == 'cell':
+            return tensor
+        else:
+            f = self.facet[restriction]
+            return gem.partial_indexed(tensor, (f,))
 
     def modified_terminal(self, o):
         mt = analyse_modified_terminal(o)
@@ -496,7 +491,7 @@ def translate(terminal, e, mt, params):
 
 @translate.register(QuadratureWeight)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
-    return ein.Indexed(params.weights, (params.quadrature_index,))
+    return gem.Indexed(params.weights, (params.quadrature_index,))
 
 
 @translate.register(GeometricQuantity)  # noqa: Not actually redefinition
@@ -512,11 +507,12 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        table = params.tabulation_manager.get(key, mt.restriction)
-        result[multiindex] = ein.Indexed(table, (params.quadrature_index, argument_index))
+        table = params.tabulation_manager.get(key)
+        table = params.select_facet(gem.Literal(table), mt.restriction)
+        result[multiindex] = gem.Indexed(table, (params.quadrature_index, argument_index))
 
     if result.shape:
-        return ein.ListTensor(result)
+        return gem.ListTensor(result)
     else:
         return result[()]
 
@@ -527,32 +523,33 @@ def _(terminal, e, mt, params):
     cellwise_constant = not (degree is None or degree > 0)
 
     def evaluate_at(params, key, index_key):
-        table = params.tabulation_manager.get(key, mt.restriction, cellwise_constant)
+        table = params.tabulation_manager.get(key, cellwise_constant)
+        table = params.select_facet(gem.Literal(table), mt.restriction)
         kernel_argument = params.coefficient_map[terminal]
 
-        q = ein.Index()
+        q = gem.Index()
         try:
             r = params.index_cache[index_key]
         except KeyError:
-            r = ein.Index()
+            r = gem.Index()
             params.index_cache[index_key] = r
 
         if mt.restriction is None:
-            kar = ein.Indexed(kernel_argument, (r,))
+            kar = gem.Indexed(kernel_argument, (r,))
         elif mt.restriction is '+':
-            kar = ein.Indexed(kernel_argument, (0, r))
+            kar = gem.Indexed(kernel_argument, (0, r))
         elif mt.restriction is '-':
-            kar = ein.Indexed(kernel_argument, (1, r))
+            kar = gem.Indexed(kernel_argument, (1, r))
         else:
             assert False
 
         if cellwise_constant:
-            return ein.IndexSum(ein.Product(ein.Indexed(table, (r,)), kar), r)
+            return gem.IndexSum(gem.Product(gem.Indexed(table, (r,)), kar), r)
         else:
-            return ein.Indexed(
-                ein.ComponentTensor(
-                    ein.IndexSum(
-                        ein.Product(ein.Indexed(table, (q, r)),
+            return gem.Indexed(
+                gem.ComponentTensor(
+                    gem.IndexSum(
+                        gem.Product(gem.Indexed(table, (q, r)),
                                     kar),
                         r),
                     (q,)),
@@ -569,7 +566,7 @@ def _(terminal, e, mt, params):
         result[multiindex] = evaluate_at(params, key, terminal.ufl_element())
 
     if result.shape:
-        return ein.ListTensor(result)
+        return gem.ListTensor(result)
     else:
         return result[()]
 
