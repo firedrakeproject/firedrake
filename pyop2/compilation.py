@@ -248,7 +248,7 @@ class LinuxIntelCompiler(Compiler):
     :arg ldargs: A list of arguments to pass to the linker (optional).
     :arg cpp: Are we actually using the C++ compiler?"""
     def __init__(self, cppargs=[], ldargs=[], cpp=False):
-        opt_flags = ['-O3', '-xHost']
+        opt_flags = ['-O3', '-xHost', '-restrict']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
         cc = "mpicc"
