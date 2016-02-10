@@ -49,7 +49,7 @@ class Configuration(dict):
     :param type_check: Should PyOP2 type-check API-calls?  (Default,
         yes)
     :param check_src_hashes: Should PyOP2 check that generated code is
-        the same on all processes?  (Default, no).
+        the same on all processes?  (Default, yes).  Uses an allreduce.
     :param log_level: How chatty should PyOP2 be?  Valid values
         are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL".
     :param lazy_evaluation: Should lazy evaluation be on or off?
@@ -76,7 +76,7 @@ class Configuration(dict):
         "blas": ("PYOP2_BLAS", str, ""),
         "debug": ("PYOP2_DEBUG", int, 0),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
-        "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, False),
+        "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),
         "lazy_evaluation": ("PYOP2_LAZY", bool, True),
         "lazy_max_trace_length": ("PYOP2_MAX_TRACE_LENGTH", int, 100),
