@@ -560,7 +560,7 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
-if travis and travis_cache_dir and args.write_cache:
+if travis and travis_cache_dir and mode == "install" and args.write_cache:
     # Cache update mode
     src_dir = os.path.abspath("src")
     write_cache("petsc", src_dir, travis_cache_dir)
