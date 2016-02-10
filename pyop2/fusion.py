@@ -372,7 +372,10 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
     @classmethod
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
-        key = (hash(kwargs['executor']),)
+        insp_name = kwargs['insp_name']
+        if insp_name != lazy_trace_name:
+            return (insp_name,)
+        key = (insp_name,)
         all_kernels = kwargs['all_kernels']
         all_itspaces = kwargs['all_itspaces']
         all_args = kwargs['all_args']
@@ -528,6 +531,7 @@ class ParLoop(sequential.ParLoop):
         self._all_kernels = kwargs.get('all_kernels', [kernel])
         self._all_itspaces = kwargs.get('all_itspaces', [kernel])
         self._all_args = kwargs.get('all_args', [args])
+        self._insp_name = kwargs.get('insp_name')
         self._inspection = kwargs.get('inspection')
         self._executor = kwargs.get('executor')
 
@@ -600,16 +604,17 @@ class ParLoop(sequential.ParLoop):
             'all_itspaces': self._all_itspaces,
             'all_args': self._all_args,
             'executor': self._executor,
+            'insp_name': self._insp_name
         }
         fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
         arglist = self.prepare_arglist(None, *self.args)
 
-        with timed_region("ParLoopChain: executor (%s)" % self.kernel._insp_name):
+        with timed_region("ParLoopChain: executor (%s)" % self._insp_name):
             self.halo_exchange_begin()
-            with timed_region("ParLoopChain: executor - core (%s)" % self.kernel._insp_name):
+            with timed_region("ParLoopChain: executor - core (%s)" % self._insp_name):
                 fun(*(arglist + [0]))
             self.halo_exchange_end()
-            with timed_region("ParLoopChain: executor - exec (%s)" % self.kernel._insp_name):
+            with timed_region("ParLoopChain: executor - exec (%s)" % self._insp_name):
                 fun(*(arglist + [1]))
 
             # Only meaningful if the user is enforcing tiling in presence of
@@ -626,7 +631,8 @@ class Schedule(object):
 
     """Represent an execution scheme for a sequence of :class:`ParLoop` objects."""
 
-    def __init__(self, kernel):
+    def __init__(self, insp_name, kernel):
+        self._insp_name = insp_name
         self._kernel = list(kernel)
 
     def __call__(self, loop_chain):
@@ -647,8 +653,8 @@ class Schedule(object):
 
 class PlainSchedule(Schedule):
 
-    def __init__(self, kernels=None):
-        super(PlainSchedule, self).__init__(kernels or [])
+    def __init__(self, insp_name, kernels):
+        super(PlainSchedule, self).__init__(insp_name, kernels or [])
 
     def __call__(self, loop_chain):
         return loop_chain
@@ -658,8 +664,8 @@ class FusionSchedule(Schedule):
 
     """Schedule an iterator of :class:`ParLoop` objects applying soft fusion."""
 
-    def __init__(self, kernels, offsets):
-        super(FusionSchedule, self).__init__(kernels)
+    def __init__(self, insp_name, kernels, offsets):
+        super(FusionSchedule, self).__init__(insp_name, kernels)
         # Track the /ParLoop/ indices in the loop chain that each fused kernel maps to
         offsets = [0] + list(offsets)
         loop_indices = [range(offsets[i], o) for i, o in enumerate(offsets[1:])]
@@ -684,7 +690,8 @@ class FusionSchedule(Schedule):
                 a.__dict__.pop('name', None)
             # Create the actual ParLoop, resulting from the fusion of some kernels
             fused_par_loops.append(_make_object('ParLoop', kernel, iterset, *args,
-                                                **{'iterate': iterregion}))
+                                                **{'iterate': iterregion,
+                                                   'insp_name': self._insp_name}))
         return fused_par_loops
 
 
@@ -693,7 +700,8 @@ class HardFusionSchedule(FusionSchedule):
     """Schedule an iterator of :class:`ParLoop` objects applying hard fusion
     on top of soft fusion."""
 
-    def __init__(self, schedule, fused):
+    def __init__(self, insp_name, schedule, fused):
+        self._insp_name = insp_name
         self._schedule = schedule
         self._fused = fused
 
@@ -735,7 +743,8 @@ class TilingSchedule(Schedule):
     """Schedule an iterator of :class:`ParLoop` objects applying tiling on top
     of hard fusion and soft fusion."""
 
-    def __init__(self, kernel, schedule, inspection, executor):
+    def __init__(self, insp_name, kernel, schedule, inspection, executor):
+        self._insp_name = insp_name
         self._schedule = schedule
         self._inspection = inspection
         self._executor = executor
@@ -762,6 +771,7 @@ class TilingSchedule(Schedule):
             'written_args': written_args,
             'reduced_globals': reduced_globals,
             'inc_args': inc_args,
+            'insp_name': self._insp_name,
             'inspection': self._inspection,
             'executor': self._executor
         }
@@ -839,7 +849,7 @@ class Inspector(Cached):
         self._loop_chain = loop_chain
         self._mode = options.pop('mode')
         self._options = options
-        self._schedule = PlainSchedule([loop.kernel for loop in self._loop_chain])
+        self._schedule = PlainSchedule(name, [loop.kernel for loop in self._loop_chain])
 
     def inspect(self):
         """Inspect the loop chain and produce a :class:`Schedule`."""
@@ -1000,7 +1010,7 @@ class Inspector(Cached):
             fused.append((fuse(self, fusing, len(fused)), len(self._loop_chain)))
 
         fused_kernels, offsets = zip(*fused)
-        self._schedule = FusionSchedule(fused_kernels, offsets)
+        self._schedule = FusionSchedule(self._name, fused_kernels, offsets)
         self._loop_chain = self._schedule(self._loop_chain)
 
     def _hard_fuse(self):
@@ -1246,7 +1256,7 @@ class Inspector(Cached):
             fused.append((Kernel(kernels, fused_ast, loop_chain_index), fused_map))
 
         # Finally, generate a new schedule
-        self._schedule = HardFusionSchedule(self._schedule, fused)
+        self._schedule = HardFusionSchedule(self._name, self._schedule, fused)
         self._loop_chain = self._schedule(self._loop_chain, only_hard=True)
 
     def _tile(self):
@@ -1414,8 +1424,7 @@ class Inspector(Cached):
         executor = slope.Executor(inspector)
 
         kernel = Kernel(tuple(loop.kernel for loop in self._loop_chain))
-        kernel._insp_name = self._name
-        self._schedule = TilingSchedule(kernel, self._schedule, inspection, executor)
+        self._schedule = TilingSchedule(self._name, kernel, self._schedule, inspection, executor)
 
     @property
     def mode(self):
