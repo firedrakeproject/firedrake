@@ -12,10 +12,13 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
                          GeometricQuantity, QuadratureWeight,
                          ReferenceValue, Zero)
+from ufl.classes import (Abs, CellOrientation, Expr, FloatValue,
+                         Division, Product, ScalarValue)
 
 from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, as_fiat_cell
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
+from tsfc.node import MemoizerArg
 from tsfc import gem
 from tsfc import ufl2gem
 from tsfc import geometric
@@ -153,6 +156,75 @@ def spanning_degree(element):
        space.
     """
     return _spanning_degree(element.cell(), element.degree())
+
+
+def ufl_reuse_if_untouched(o, *ops):
+    """Reuse object if operands are the same objects."""
+    if all(a is b for a, b in zip(o.ufl_operands, ops)):
+        return o
+    else:
+        return o._ufl_expr_reconstruct_(*ops)
+
+
+@singledispatch
+def _simplify_abs(o, self, in_abs):
+    raise AssertionError("UFL node expected, not %s" % type(o))
+
+
+@_simplify_abs.register(Expr)  # noqa
+def _(o, self, in_abs):
+    operands = [self(op, False) for op in o.ufl_operands]
+    result = ufl_reuse_if_untouched(o, *operands)
+    if in_abs:
+        result = Abs(result)
+    return result
+
+
+@_simplify_abs.register(ScalarValue)  # noqa
+def _(o, self, in_abs):
+    if not in_abs:
+        return o
+    # Inline abs(constant)
+    return ufl.as_ufl(abs(o._value))
+
+
+@_simplify_abs.register(CellOrientation)  # noqa
+def _(o, self, in_abs):
+    if not in_abs:
+        return o
+    # Cell orientation is +-1
+    return FloatValue(1)
+
+
+@_simplify_abs.register(Division)  # noqa
+@_simplify_abs.register(Product)
+def _(o, self, in_abs):
+    if not in_abs:
+        ops = [self(op, False) for op in o.ufl_operands]
+        return ufl_reuse_if_untouched(o, *ops)
+
+    # Visit children, distributing Abs
+    ops = [self(op, True) for op in o.ufl_operands]
+
+    # Strip Abs off again (we will put it outside now)
+    strip_ops = []
+    for op in ops:
+        if isinstance(op, Abs):
+            strip_ops.append(op.ufl_operands[0])
+        else:
+            strip_ops.append(op)
+
+    # Rebuild
+    return Abs(ufl_reuse_if_untouched(o, *strip_ops))
+
+
+@_simplify_abs.register(Abs)  # noqa
+def _(o, self, in_abs):
+    return self(o.ufl_operands[0], True)
+
+
+def simplify_abs(expression):
+    return MemoizerArg(_simplify_abs)(expression, False)
 
 
 class SimplifyExpr(MultiFunction):
@@ -438,7 +510,7 @@ def replace_coordinates(integrand, coordinate_coefficient):
 def process(integral_type, integrand, tabulation_manager, quadrature_weights, quadrature_index,
             argument_indices, coefficient_map, index_cache):
     # Abs-simplification
-    integrand = map_expr_dag(SimplifyExpr(), integrand)
+    integrand = simplify_abs(integrand)
 
     # Collect modified terminals
     modified_terminals = []
