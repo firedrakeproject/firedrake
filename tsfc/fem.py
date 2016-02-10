@@ -13,7 +13,7 @@ from ufl.classes import (Argument, Coefficient, FormArgument,
                          GeometricQuantity, QuadratureWeight,
                          ReferenceValue, Zero)
 from ufl.classes import (Abs, CellOrientation, Expr, FloatValue,
-                         Division, Product, ScalarValue)
+                         Division, Product, ScalarValue, Sqrt)
 
 from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, as_fiat_cell
@@ -180,6 +180,11 @@ def _(o, self, in_abs):
     return result
 
 
+@_simplify_abs.register(Sqrt)  # noqa
+def _(o, self, in_abs):
+    return ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
+
+
 @_simplify_abs.register(ScalarValue)  # noqa
 def _(o, self, in_abs):
     if not in_abs:
@@ -207,15 +212,20 @@ def _(o, self, in_abs):
     ops = [self(op, True) for op in o.ufl_operands]
 
     # Strip Abs off again (we will put it outside now)
+    stripped = False
     strip_ops = []
     for op in ops:
         if isinstance(op, Abs):
+            stripped = True
             strip_ops.append(op.ufl_operands[0])
         else:
             strip_ops.append(op)
 
     # Rebuild
-    return Abs(ufl_reuse_if_untouched(o, *strip_ops))
+    result = ufl_reuse_if_untouched(o, *strip_ops)
+    if stripped:
+        result = Abs(result)
+    return result
 
 
 @_simplify_abs.register(Abs)  # noqa
