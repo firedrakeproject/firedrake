@@ -29,12 +29,8 @@ Testing the installation
 ------------------------
 
 It is recommended to run the test suite after installation to check
-that the Firedrake installation is fully functional. Enter the
-virtualenv_ as above, install pytest_ with::
-
-  pip install pytest
-
-and then run::
+that the Firedrake installation is fully functional.  Activate the
+virtualenv_ as above and then run::
 
   cd firedrake/src/firedrake
   make alltest
