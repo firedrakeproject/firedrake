@@ -196,18 +196,16 @@ def reconstruct_element(element, cell=None):
         degree = element.degree()
         return ufl.FiniteElement(family, cell, degree)
     if isinstance(element, ufl.VectorElement):
-        family = element.family()
-        degree = element.degree()
+        sub = reconstruct_element(element.sub_elements()[0], cell=cell)
         dim = len(element.sub_elements())
-        return ufl.VectorElement(family, cell, degree, dim)
+        return ufl.VectorElement(sub, dim=dim)
     if isinstance(element, ufl.TensorElement):
-        family = element.family()
-        degree = element.degree()
+        sub = reconstruct_element(element.sub_elements()[0], cell=cell)
         shape = element.value_shape()
         symmetry = element.symmetry()
-        return ufl.TensorElement(family, cell, degree, shape, symmetry)
+        return ufl.TensorElement(sub, shape=shape, symmetry=symmetry)
     if isinstance(element, ufl.EnrichedElement):
-        eles = [reconstruct_element(sub, cell=cell) for sub in element._elements]
+        eles = [reconstruct_element(e, cell=cell) for e in element._elements]
         return ufl.EnrichedElement(*eles)
     if isinstance(element, ufl.RestrictedElement):
         return ufl.RestrictedElement(reconstruct_element(element.sub_element(), cell=cell),
@@ -221,12 +219,7 @@ def reconstruct_element(element, cell=None):
         return type(element)(reconstruct_element(element._element, cell=cell))
     if isinstance(element, ufl.TensorProductElement):
         return ufl.TensorProductElement(element._A, element._B, cell=cell)
-    if isinstance(element, ufl.TensorProductVectorElement):
-        dim = len(element.sub_elements())
-        return ufl.TensorProductVectorElement(element._A, element._B, cell=cell, dim=dim)
-    if isinstance(element, ufl.TensorProductTensorElement):
-        return element.reconstruct(cell=cell)
     if isinstance(element, ufl.MixedElement):
-        eles = [reconstruct_element(sub, cell=cell) for sub in element.sub_elements()]
+        eles = [reconstruct_element(e, cell=cell) for e in element.sub_elements()]
         return ufl.MixedElement(*eles)
     raise NotImplementedError("Don't know how to reconstruct element of type %s" % type(element))

@@ -154,8 +154,11 @@ class _VTUFile(object):
 
         def is_family1(e, family):
             import ufl.finiteelement.hdivcurl as hc
+            import ufl.finiteelement.mixedelement as me
             if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
                 return False
+            if isinstance(e, (me.VectorElement, me.TensorElement)):
+                e = e.sub_elements()[0]
             if e.family() == 'TensorProductElement':
                 if e.degree() == (1, 1):
                     if e._A.family() == family \
@@ -167,8 +170,11 @@ class _VTUFile(object):
 
         def is_cgN(e):
             import ufl.finiteelement.hdivcurl as hc
+            import ufl.finiteelement.mixedelement as me
             if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
                 return False
+            if isinstance(e, (me.VectorElement, me.TensorElement)):
+                e = e.sub_elements()[0]
             if e.family() == 'TensorProductElement':
                 if e._A.family() in ('Lagrange', 'Q') \
                    and e._B.family() == 'Lagrange':

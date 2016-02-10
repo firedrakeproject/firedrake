@@ -81,9 +81,10 @@ def test_cg_dg_vector_expansion(base_cell, fs, degree):
     cell = TensorProductCell(base_cell, interval)
     actual = VectorElement(fs, cell, degree, dim=3)
 
-    expected = TensorProductVectorElement(FiniteElement(fs, base_cell, degree),
-                                          FiniteElement(fs, interval, degree),
-                                          cell=cell, dim=3)
+    expected = VectorElement(TensorProductElement(FiniteElement(fs, base_cell, degree),
+                                                  FiniteElement(fs, interval, degree),
+                                                  cell=cell),
+                             dim=3)
     assert expected == actual
 
 
