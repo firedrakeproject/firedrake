@@ -14,10 +14,9 @@ from ufl.classes import (Argument, Coefficient, FormArgument,
                          ReferenceValue, Zero)
 from ufl.domain import find_geometric_dimension
 
-from tsfc.fiatinterface import create_element, as_fiat_cell
-
-from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from tsfc.constants import PRECISION
+from tsfc.fiatinterface import create_element, as_fiat_cell
+from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from tsfc import gem
 from tsfc import ufl2gem
 from tsfc import geometric
@@ -327,30 +326,35 @@ class SimplifyExpr(MultiFunction):
         return self.expr(o, op)
 
 
-class NumericTabulator(object):
+def _tabulate(ufl_element, order, points):
+    element = create_element(ufl_element)
+    phi = element.space_dimension()
+    C = ufl_element.reference_value_size() - len(ufl_element.symmetry())
+    q = len(points)
+    for D, fiat_table in element.tabulate(order, points).iteritems():
+        reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
+        for c, table in enumerate(reordered_table):
+            yield (ufl_element, c, D), table
 
-    def __init__(self, points):
-        self.points = points
-        self.tables = {}
 
-    def tabulate(self, ufl_element, max_deriv):
-        element = create_element(ufl_element)
-        phi = element.space_dimension()
-        C = ufl_element.reference_value_size() - len(ufl_element.symmetry())
-        q = len(self.points)
-        for D, fiat_table in element.tabulate(max_deriv, self.points).iteritems():
-            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
-            for c, table in enumerate(reordered_table):
-                # Copied from FFC (ffc/quadrature/quadratureutils.py)
-                table[abs(table) < epsilon] = 0
-                table[abs(table - 1.0) < epsilon] = 1.0
-                table[abs(table + 1.0) < epsilon] = -1.0
-                table[abs(table - 0.5) < epsilon] = 0.5
-                table[abs(table + 0.5) < epsilon] = -0.5
-                self.tables[(ufl_element, c, D)] = table
+def tabulate(ufl_element, order, points):
+    for key, table in _tabulate(ufl_element, order, points):
+        # Copied from FFC (ffc/quadrature/quadratureutils.py)
+        table[abs(table) < epsilon] = 0
+        table[abs(table - 1.0) < epsilon] = 1.0
+        table[abs(table + 1.0) < epsilon] = -1.0
+        table[abs(table - 0.5) < epsilon] = 0.5
+        table[abs(table + 0.5) < epsilon] = -0.5
 
-    def __getitem__(self, key):
-        return self.tables[key]
+        if FindPolynomialDegree()._spanning_degree(ufl_element) <= sum(key[2]):
+            assert numpy.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
+            table = table[0]
+
+        yield key, table
+
+
+def make_tabulator(points):
+    return lambda elem, order: tabulate(elem, order, points)
 
 
 class TabulationManager(object):
@@ -363,49 +367,41 @@ class TabulationManager(object):
         self.tables = {}
 
         if integral_type == 'cell':
-            self.tabulators.append(NumericTabulator(points))
+            self.tabulators.append(make_tabulator(points))
 
         elif integral_type in ['exterior_facet', 'interior_facet']:
-            # TODO: handle and test integration on facets of intervals
-
             for entity in range(cell.num_facets()):
                 t = as_fiat_cell(cell).get_facet_transform(entity)
-                self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
+                self.tabulators.append(make_tabulator(numpy.asarray(map(t, points))))
 
         elif integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
             for entity in range(2):  # top and bottom
                 t = as_fiat_cell(cell).get_horiz_facet_transform(entity)
-                self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
+                self.tabulators.append(make_tabulator(numpy.asarray(map(t, points))))
 
         elif integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
             for entity in range(cell.sub_cells()[0].num_facets()):  # "base cell" facets
                 t = as_fiat_cell(cell).get_vert_facet_transform(entity)
-                self.tabulators.append(NumericTabulator(numpy.asarray(map(t, points))))
+                self.tabulators.append(make_tabulator(numpy.asarray(map(t, points))))
 
         else:
             raise NotImplementedError("integral type %s not supported" % integral_type)
 
     def tabulate(self, ufl_element, max_deriv):
+        store = collections.defaultdict(list)
         for tabulator in self.tabulators:
-            tabulator.tabulate(ufl_element, max_deriv)
+            for key, table in tabulator(ufl_element, max_deriv):
+                store[key].append(table)
 
-    def get(self, key, cellwise_constant=False):
-        try:
-            return self.tables[(key, cellwise_constant)]
-        except KeyError:
-            tables = [tabulator[key] for tabulator in self.tabulators]
-            if cellwise_constant:
-                for table in tables:
-                    assert numpy.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
-                tables = [table[0] for table in tables]
+        if self.integral_type == 'cell':
+            for key, (table,) in store.iteritems():
+                self.tables[key] = table
+        else:
+            for key, tables in store.iteritems():
+                self.tables[key] = numpy.array(tables)
 
-            if self.integral_type == 'cell':
-                table, = tables
-            else:
-                table = numpy.array(tables)
-
-            self.tables[(key, cellwise_constant)] = table
-            return table
+    def __getitem__(self, key):
+        return self.tables[key]
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
@@ -507,9 +503,17 @@ def _(terminal, e, mt, params):
     for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
-        table = params.tabulation_manager.get(key)
+        table = params.tabulation_manager[key]
         table = params.select_facet(gem.Literal(table), mt.restriction)
-        result[multiindex] = gem.Indexed(table, (params.quadrature_index, argument_index))
+        if len(table.shape) == 1:
+            # Cellwise constant
+            row = table
+        elif len(table.shape) == 2:
+            # Varying on cell
+            row = gem.partial_indexed(table, (params.quadrature_index,))
+        else:
+            assert False
+        result[multiindex] = gem.Indexed(row, (argument_index,))
 
     if result.shape:
         return gem.ListTensor(result)
@@ -519,20 +523,12 @@ def _(terminal, e, mt, params):
 
 @translate.register(Coefficient)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
-    degree = map_expr_dag(FindPolynomialDegree(), e)
-    cellwise_constant = not (degree is None or degree > 0)
-
     def evaluate_at(params, key, index_key):
-        table = params.tabulation_manager.get(key, cellwise_constant)
+        table = params.tabulation_manager[key]
         table = params.select_facet(gem.Literal(table), mt.restriction)
         kernel_argument = params.coefficient_map[terminal]
 
-        q = gem.Index()
-        try:
-            r = params.index_cache[index_key]
-        except KeyError:
-            r = gem.Index()
-            params.index_cache[index_key] = r
+        r = params.index_cache[index_key]
 
         if mt.restriction is None:
             kar = gem.Indexed(kernel_argument, (r,))
@@ -543,17 +539,16 @@ def _(terminal, e, mt, params):
         else:
             assert False
 
-        if cellwise_constant:
-            return gem.IndexSum(gem.Product(gem.Indexed(table, (r,)), kar), r)
+        if len(table.shape) == 1:
+            # Cellwise constant
+            row = table
+        elif len(table.shape) == 2:
+            # Varying on cell
+            row = gem.partial_indexed(table, (params.quadrature_index,))
         else:
-            return gem.Indexed(
-                gem.ComponentTensor(
-                    gem.IndexSum(
-                        gem.Product(gem.Indexed(table, (q, r)),
-                                    kar),
-                        r),
-                    (q,)),
-                (params.quadrature_index,))
+            assert False
+
+        return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)), kar), r)
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0

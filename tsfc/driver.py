@@ -1,7 +1,9 @@
 from __future__ import absolute_import
 
-import numpy
+import collections
 import time
+
+import numpy
 
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
@@ -141,7 +143,7 @@ def compile_integral(idata, fd, prefix, parameters):
     # multiple times with the same table.  Occurs, for example, if we
     # have multiple integrals here (and the affine coordinate
     # evaluation can be hoisted).
-    index_cache = {}
+    index_cache = collections.defaultdict(ein.Index)
     for i, integral in enumerate(idata.integrals):
         params = {}
         # Record per-integral parameters
@@ -171,7 +173,8 @@ def compile_integral(idata, fd, prefix, parameters):
             fem.process(integral_type, integrand, tabulation_manager,
                         quad_rule.weights, quadrature_index,
                         argument_indices, coefficient_map, index_cache)
-        nonfem_.append([ein.IndexSum(e, quadrature_index) for e in nonfem])
+        nonfem_.append([(ein.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
+                        for e in nonfem])
 
     # Sum the expressions that are part of the same restriction
     nonfem = list(reduce(ein.Sum, e, ein.Zero()) for e in zip(*nonfem_))
