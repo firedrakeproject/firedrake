@@ -686,17 +686,17 @@ if args.system and mode == "install":
         raise
 
 elif not args.system:
-    try:
-        import virtualenv
-    except:
-        stdout.write("Installing virtualenv.\n")
-        # sys.real_prefix exists if we are already in the virtualenv
-        if hasattr(sys, "real_prefix"):
-            check_call(["pip", "install", "virtualenv"])
-        else:
-            check_call(["pip", "install", "--user", "virtualenv"])
-        quit("Virtual env installed. Please run firedrake-%s again.\n" % mode)
     if mode == "install":
+        try:
+            import virtualenv
+        except:
+            stdout.write("Installing virtualenv.\n")
+            # sys.real_prefix exists if we are already in the virtualenv
+            if hasattr(sys, "real_prefix"):
+                check_call(["pip", "install", "virtualenv"])
+            else:
+                check_call(["pip", "install", "--user", "virtualenv"])
+            quit("Virtual env installed. Please run firedrake-%s again.\n" % mode)
         stdout.write("Creating firedrake virtualenv.\n")
         virtualenv.create_environment("firedrake", site_packages=False)
         # For some reason virtualenv does not always install the latest pip.

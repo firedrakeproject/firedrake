@@ -66,9 +66,6 @@ install:
   - cd tmp
   - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc
   - . ./firedrake/bin/activate
-  # Install pytest inside the virtualenv
-  - pip install pytest
-  - pip install pytest-benchmark
   # Having activated the virtualenv, attempt to save cached dependencies
   # This saves PETSc and petsc4py to speed up building
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
