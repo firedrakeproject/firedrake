@@ -124,6 +124,39 @@ class PickRestriction(MultiFunction, ModifiedTerminalMixin):
             return o
 
 
+def _spanning_degree(cell, degree):
+    if cell is None:
+        assert degree == 0
+        return degree
+    elif cell.cellname() in ["interval", "triangle", "tetrahedron"]:
+        return degree
+    elif cell.cellname() == "quadrilateral":
+        # TODO: Tensor-product space assumed
+        return 2 * degree
+    elif isinstance(cell, ufl.TensorProductCell):
+        try:
+            return sum(_spanning_degree(sub_cell, d)
+                       for sub_cell, d in zip(cell.sub_cells(), degree))
+        except TypeError:
+            assert degree == 0
+            return 0
+    else:
+        raise ValueError("Unknown cell %s" % cell.cellname())
+
+
+def spanning_degree(element):
+    """Determine the degree of the polynomial space spanning an element.
+
+    :arg element: The element to determine the degree of.
+
+    .. warning::
+
+       For non-simplex elements, this assumes a tensor-product
+       space.
+    """
+    return _spanning_degree(element.cell(), element.degree())
+
+
 class FindPolynomialDegree(MultiFunction):
 
     """Simple-minded degree estimator.
@@ -138,33 +171,6 @@ class FindPolynomialDegree(MultiFunction):
     zero but d^2/dxdy is not.
 
     """
-    def _spanning_degree(self, element):
-        """Determine the degree of the polynomial space spanning an element.
-
-        :arg element: The element to determine the degree of.
-
-        .. warning::
-
-           For non-simplex elements, this assumes a tensor-product
-           space.
-        """
-        cell = element.cell()
-        if cell is None:
-            return element.degree()
-        if cell.cellname() in ("interval", "triangle", "tetrahedron"):
-            return element.degree()
-        elif cell.cellname() == "quadrilateral":
-            # TODO: Tensor-product space assumed
-            return 2*element.degree()
-        elif isinstance(cell, ufl.TensorProductCell):
-            try:
-                return sum(element.degree())
-            except TypeError:
-                assert element.degree() == 0
-                return 0
-        else:
-            raise ValueError("Unknown cell %s" % cell.cellname())
-
     def quadrature_weight(self, o):
         return 0
 
@@ -177,10 +183,10 @@ class FindPolynomialDegree(MultiFunction):
 
     # Coefficient-like things, compute degree of spanning polynomial space
     def spatial_coordinate(self, o):
-        return self._spanning_degree(o.ufl_domain().ufl_coordinate_element())
+        return spanning_degree(o.ufl_domain().ufl_coordinate_element())
 
     def form_argument(self, o):
-        return self._spanning_degree(o.ufl_element())
+        return spanning_degree(o.ufl_element())
 
     # Index-like operations, return degree of operand
     def component_tensor(self, o, op, idx):
@@ -404,6 +410,8 @@ class TabulationManager(object):
         except KeyError:
             tables = [tabulator[key] for tabulator in self.tabulators]
             if cellwise_constant:
+                for table in tables:
+                    assert numpy.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
                 tables = [table[0] for table in tables]
 
             if self.integral_type == 'cell':
