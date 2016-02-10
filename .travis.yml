@@ -66,6 +66,8 @@ install:
   - cd tmp
   - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc
   - . ./firedrake/bin/activate
+  # Test that running firedrake-update works
+  - firedrake-update
   # Having activated the virtualenv, attempt to save cached dependencies
   # This saves PETSc and petsc4py to speed up building
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
