@@ -775,7 +775,7 @@ else:
         # Pull firedrake, rebuild update script, launch new script
         git_update("firedrake")
         build_update_script()
-        os.execv(sys.executable, [sys.executable, sys.argv[0], "--no-update-script"] + sys.argv[1:])
+        os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
