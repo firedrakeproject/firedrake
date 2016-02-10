@@ -9,19 +9,18 @@ from singledispatch import singledispatch
 import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, CellEdgeVectors, CellFacetJacobian,
-                         CellOrientation, Coefficient, FormArgument,
-                         QuadratureWeight, ReferenceCellVolume,
-                         ReferenceNormal, ReferenceValue, ScalarValue,
-                         Zero)
+from ufl.classes import (Argument, Coefficient, FormArgument,
+                         GeometricQuantity, QuadratureWeight,
+                         ReferenceValue, Zero)
 from ufl.domain import find_geometric_dimension
 
 from tsfc.fiatinterface import create_element, as_fiat_cell
 
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
-from tsfc.constants import NUMPY_TYPE, PRECISION
+from tsfc.constants import PRECISION
 from tsfc import gem as ein
 from tsfc import ufl2gem
+from tsfc import geometric
 
 
 # FFC uses one less digits for rounding than for printing
@@ -437,10 +436,23 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         self.quadrature_index = quadrature_index
         self.argument_indices = argument_indices
         self.tabulation_manager = tabulation_manager
+        self.integral_type = tabulation_manager.integral_type
         self.coefficient_map = coefficient_map
         self.cell_orientations = False
         self.facet = tabulation_manager.facet
         self.index_cache = index_cache
+
+    def get_cell_orientations(self):
+        try:
+            return self._cell_orientations
+        except AttributeError:
+            if self.integral_type.startswith("interior_facet"):
+                result = ein.Variable("cell_orientations", (2, 1))
+            else:
+                result = ein.Variable("cell_orientations", (1, 1))
+            self.cell_orientations = True
+            self._cell_orientations = result
+            return result
 
     def modified_terminal(self, o):
         mt = analyse_modified_terminal(o)
@@ -474,19 +486,14 @@ def translate(terminal, e, mt, params):
     raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
 
 
-@translate.register(Zero)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    assert False
-
-
-@translate.register(ScalarValue)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    assert False
-
-
 @translate.register(QuadratureWeight)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     return ein.Indexed(params.weights, (params.quadrature_index,))
+
+
+@translate.register(GeometricQuantity)  # noqa: Not actually redefinition
+def _(terminal, e, mt, params):
+    return geometric.translate(terminal, mt, params)
 
 
 @translate.register(Argument)  # noqa: Not actually redefinition
@@ -559,78 +566,6 @@ def _(terminal, e, mt, params):
         return result[()]
 
 
-@translate.register(CellFacetJacobian)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    i = ein.Index()
-    j = ein.Index()
-    f = params.facet[mt.restriction]
-    table = make_cell_facet_jacobian(terminal)
-    if params.tabulation_manager.integral_type in ["exterior_facet_bottom",
-                                                   "exterior_facet_top",
-                                                   "interior_facet_horiz"]:
-        table = table[:2]
-    elif params.tabulation_manager.integral_type in ["exterior_facet_vert", "interior_facet_vert"]:
-        table = table[2:]
-    return ein.ComponentTensor(
-        ein.Indexed(
-            ein.Literal(table),
-            (f, i, j)),
-        (i, j))
-
-
-@translate.register(ReferenceNormal)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    i = ein.Index()
-    f = params.facet[mt.restriction]
-    table = make_reference_normal(terminal)
-    if params.tabulation_manager.integral_type in ["exterior_facet_bottom",
-                                                   "exterior_facet_top",
-                                                   "interior_facet_horiz"]:
-        table = table[:2]
-    elif params.tabulation_manager.integral_type in ["exterior_facet_vert", "interior_facet_vert"]:
-        table = table[2:]
-    return ein.ComponentTensor(
-        ein.Indexed(
-            ein.Literal(table),
-            (f, i,)),
-        (i,))
-
-
-@translate.register(CellOrientation)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    if mt.restriction == '+' or mt.restriction is None:
-        f = 0
-    elif mt.restriction == '-':
-        f = 1
-    else:
-        assert False
-    params.cell_orientations = True
-    raw = ein.Indexed(ein.Variable("cell_orientations", (2, 1)), (f, 0))  # TODO: (2, 1) and (1, 1)
-    return ein.Conditional(ein.Comparison("==", raw, ein.Literal(1)),
-                           ein.Literal(-1),
-                           ein.Conditional(ein.Comparison("==", raw, ein.Zero()),
-                                           ein.Literal(1),
-                                           ein.Literal(numpy.nan)))
-
-
-@translate.register(ReferenceCellVolume)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    cell = terminal.ufl_domain().ufl_cell()
-    volume = {ufl.Cell("interval"): 1.0,
-              ufl.Cell("triangle"): 1.0/2.0,
-              ufl.Cell("quadrilateral"): 1.0,
-              ufl.Cell("tetrahedron"): 1.0/6.0,
-              ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval")): 1.0,
-              ufl.TensorProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): 1.0/2.0,
-              ufl.TensorProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): 1.0}
-    return ein.Literal(volume[cell])
-
-
-@translate.register(CellEdgeVectors)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    return ein.Literal(make_cell_edge_vectors(terminal))
-
-
 def coordinate_coefficient(domain):
     return ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
 
@@ -675,128 +610,3 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, qu
                             argument_indices, tabulation_manager,
                             coefficient_map, index_cache)
     return map_expr_dags(translator, expressions), translator.cell_orientations
-
-
-def make_cell_facet_jacobian(terminal):
-
-    interval = numpy.array([[1.0],
-                            [1.0]], dtype=NUMPY_TYPE)
-
-    triangle = numpy.array([[-1.0, 1.0],
-                            [0.0, 1.0],
-                            [1.0, 0.0]], dtype=NUMPY_TYPE)
-
-    tetrahedron = numpy.array([[-1.0, -1.0, 1.0, 0.0, 0.0, 1.0],
-                               [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                               [1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                               [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]], dtype=NUMPY_TYPE)
-
-    quadrilateral = numpy.array([[0.0, 1.0],
-                                 [0.0, 1.0],
-                                 [1.0, 0.0],
-                                 [1.0, 0.0]], dtype=NUMPY_TYPE)
-
-    # Outer product cells
-    # Convention is:
-    # Bottom facet, top facet, then the extruded facets in the order
-    # of the base cell
-    interval_x_interval = numpy.array([[1.0, 0.0],
-                                       [1.0, 0.0],
-                                       [0.0, 1.0],
-                                       [0.0, 1.0]], dtype=NUMPY_TYPE)
-
-    triangle_x_interval = numpy.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                       [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                       [-1.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                       [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                       [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]], dtype=NUMPY_TYPE)
-
-    quadrilateral_x_interval = numpy.array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                            [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                            [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                            [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                            [1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                                            [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]],
-                                           dtype=NUMPY_TYPE)
-
-    cell = terminal.ufl_domain().ufl_cell()
-    cell = cell.reconstruct(geometric_dimension=cell.topological_dimension())
-
-    cell_to_table = {ufl.Cell("interval"): interval,
-                     ufl.Cell("triangle"): triangle,
-                     ufl.Cell("quadrilateral"): quadrilateral,
-                     ufl.Cell("tetrahedron"): tetrahedron,
-                     ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
-                     ufl.TensorProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
-                     ufl.TensorProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
-
-    table = cell_to_table[cell]
-
-    shape = table.shape[:1] + terminal.ufl_shape
-    return table.reshape(shape)
-
-
-def make_reference_normal(terminal):
-    interval = numpy.array([[-1.0],
-                            [1.0]], dtype=NUMPY_TYPE)
-
-    triangle = numpy.array([[1.0, 1.0],
-                            [-1.0, 0.0],
-                            [0.0, -1.]], dtype=NUMPY_TYPE)
-
-    tetrahedron = numpy.array([[1.0, 1.0, 1.0],
-                               [-1.0, 0.0, 0.0],
-                               [0.0, -1.0, 0.0],
-                               [0.0, 0.0, -1.0]], dtype=NUMPY_TYPE)
-
-    quadrilateral = numpy.array([[-1.0, 0.0],
-                                 [1.0, 0.0],
-                                 [0.0, -1.0],
-                                 [0.0, 1.0]], dtype=NUMPY_TYPE)
-
-    interval_x_interval = numpy.array([[0.0, -1.0],
-                                       [0.0, 1.0],
-                                       [-1.0, 0.0],
-                                       [1.0, 0.0]], dtype=NUMPY_TYPE)
-
-    triangle_x_interval = numpy.array([[0.0, 0.0, -1.0],
-                                       [0.0, 0.0, 1.0],
-                                       [1.0, 1.0, 0.0],
-                                       [-1.0, 0.0, 0.0],
-                                       [0.0, -1.0, 0.0]], dtype=NUMPY_TYPE)
-
-    quadrilateral_x_interval = numpy.array([[0.0, 0.0, -1.0],
-                                            [0.0, 0.0, 1.0],
-                                            [-1.0, 0.0, 0.0],
-                                            [1.0, 0.0, 0.0],
-                                            [0.0, -1.0, 0.0],
-                                            [0.0, 1.0, 0.0]], dtype=NUMPY_TYPE)
-
-    cell = terminal.ufl_domain().ufl_cell()
-    cell = cell.reconstruct(geometric_dimension=cell.topological_dimension())
-
-    cell_to_table = {ufl.Cell("interval"): interval,
-                     ufl.Cell("triangle"): triangle,
-                     ufl.Cell("quadrilateral"): quadrilateral,
-                     ufl.Cell("tetrahedron"): tetrahedron,
-                     ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval")): interval_x_interval,
-                     ufl.TensorProductCell(ufl.Cell("triangle"), ufl.Cell("interval")): triangle_x_interval,
-                     ufl.TensorProductCell(ufl.Cell("quadrilateral"), ufl.Cell("interval")): quadrilateral_x_interval}
-
-    table = cell_to_table[cell]
-
-    shape = table.shape[:1] + terminal.ufl_shape
-    return table.reshape(shape)
-
-
-def make_cell_edge_vectors(terminal):
-    from FIAT.reference_element import TensorProductCell
-    shape = terminal.ufl_shape
-    cell = as_fiat_cell(terminal.ufl_domain().ufl_cell())
-    if isinstance(cell, TensorProductCell):
-        raise NotImplementedError("CEV not implemented on TPEs yet")
-    nedge = len(cell.get_topology()[1])
-    vecs = numpy.vstack(tuple(cell.compute_edge_tangent(i) for i in range(nedge))).astype(NUMPY_TYPE)
-
-    assert vecs.shape == shape
-    return vecs

@@ -472,3 +472,26 @@ class ListTensor(Node):
 
     def get_hash(self):
         return hash((type(self), self.shape, self.children))
+
+
+def partial_indexed(tensor, indices):
+    """Generalised indexing into a tensor.  The number of indices may
+    be less than or equal to the rank of the tensor, so the result may
+    have a non-empty shape.
+
+    :arg tensor: tensor-valued GEM expression
+    :arg indices: indices, at most as many as the rank of the tensor
+    :returns: a potentially tensor-valued expression
+    """
+    if len(indices) == 0:
+        return tensor
+    elif len(indices) < len(tensor.shape):
+        rank = len(tensor.shape) - len(indices)
+        shape_indices = tuple(Index() for i in range(rank))
+        return ComponentTensor(
+            Indexed(tensor, indices + shape_indices),
+            shape_indices)
+    elif len(indices) == len(tensor.shape):
+        return Indexed(tensor, indices)
+    else:
+        raise ValueError("More indices than rank!")
