@@ -29,7 +29,12 @@ epsilon = eval("1e-%d" % (PRECISION - 1))
 
 
 class ReplaceSpatialCoordinates(MultiFunction):
+    """Replace SpatialCoordinate nodes with the ReferenceValue of a
+    Coefficient.  Assumes that the coordinate element only needs
+    affine mapping.
 
+    :arg coordinates: the coefficient to replace spatial coordinates with
+    """
     def __init__(self, coordinates):
         self.coordinates = coordinates
         MultiFunction.__init__(self)
@@ -44,6 +49,8 @@ class ReplaceSpatialCoordinates(MultiFunction):
 
 
 class ModifiedTerminalMixin(object):
+    """Mixin to use with MultiFunctions that operate on modified
+    terminals."""
 
     def unexpected(self, o):
         assert False, "Not expected %r at this stage." % o
@@ -77,7 +84,10 @@ class ModifiedTerminalMixin(object):
 
 
 class CollectModifiedTerminals(MultiFunction, ModifiedTerminalMixin):
+    """Collect the modified terminals in a UFL expression.
 
+    :arg return_list: modified terminals will be appended to this list
+    """
     def __init__(self, return_list):
         MultiFunction.__init__(self)
         self.return_list = return_list
@@ -136,6 +146,7 @@ def _spanning_degree(cell, degree):
         return 2 * degree
     elif isinstance(cell, ufl.TensorProductCell):
         try:
+            # A component cell might be a quadrilateral, so recurse.
             return sum(_spanning_degree(sub_cell, d)
                        for sub_cell, d in zip(cell.sub_cells(), degree))
         except TypeError:
@@ -168,11 +179,21 @@ def ufl_reuse_if_untouched(o, *ops):
 
 @singledispatch
 def _simplify_abs(o, self, in_abs):
+    """Single-dispatch function to simplify absolute values.
+
+    :arg o: UFL node
+    :arg self: Callback handler for recursion
+    :arg in_abs: Is ``o`` inside an absolute value?
+
+    When ``in_abs`` we must return a non-negative value, potentially
+    by wrapping the returned node with ``Abs``.
+    """
     raise AssertionError("UFL node expected, not %s" % type(o))
 
 
 @_simplify_abs.register(Expr)  # noqa
 def _(o, self, in_abs):
+    # General case, only wrap the outer expression (if necessary)
     operands = [self(op, False) for op in o.ufl_operands]
     result = ufl_reuse_if_untouched(o, *operands)
     if in_abs:
@@ -182,6 +203,7 @@ def _(o, self, in_abs):
 
 @_simplify_abs.register(Sqrt)  # noqa
 def _(o, self, in_abs):
+    # Square root is always non-negative
     return ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
 
 
@@ -205,6 +227,7 @@ def _(o, self, in_abs):
 @_simplify_abs.register(Product)
 def _(o, self, in_abs):
     if not in_abs:
+        # Just reconstruct
         ops = [self(op, False) for op in o.ufl_operands]
         return ufl_reuse_if_untouched(o, *ops)
 
@@ -221,7 +244,7 @@ def _(o, self, in_abs):
         else:
             strip_ops.append(op)
 
-    # Rebuild
+    # Rebuild, and wrap with Abs if necessary
     result = ufl_reuse_if_untouched(o, *strip_ops)
     if stripped:
         result = Abs(result)
@@ -234,10 +257,26 @@ def _(o, self, in_abs):
 
 
 def simplify_abs(expression):
+    """Simplify absolute values in a UFL expression.  Its primary
+    purpose is to "neutralise" CellOrientation nodes that are
+    surrounded by absolute values and thus not at all necessary."""
     return MemoizerArg(_simplify_abs)(expression, False)
 
 
 def _tabulate(ufl_element, order, points):
+    """Ask FIAT to tabulate ``points`` up to order ``order``, then
+    rearranges the result into a series of ``(c, D, table)`` tuples,
+    where:
+
+    c: component index (for vector-valued and tensor-valued elements)
+    D: derivative tuple (e.g. (1, 2) means d/dx d^2/dy^2)
+    table: tabulation matrix for the given component and derivative.
+           shape: len(points) x space_dimension
+
+    :arg ufl_element: element to tabulate
+    :arg order: FIAT gives all derivatives up to this order
+    :arg points: points to tabulate the element on
+    """
     element = create_element(ufl_element)
     phi = element.space_dimension()
     C = ufl_element.reference_value_size() - len(ufl_element.symmetry())
@@ -245,11 +284,14 @@ def _tabulate(ufl_element, order, points):
     for D, fiat_table in element.tabulate(order, points).iteritems():
         reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
         for c, table in enumerate(reordered_table):
-            yield (ufl_element, c, D), table
+            yield c, D, table
 
 
 def tabulate(ufl_element, order, points):
-    for key, table in _tabulate(ufl_element, order, points):
+    """Same as the above, but also applies FFC rounding and recognises
+    cellwise constantness.  Cellwise constantness is determined
+    symbolically, but we also check the numerics to be safe."""
+    for c, D, table in _tabulate(ufl_element, order, points):
         # Copied from FFC (ffc/quadrature/quadratureutils.py)
         table[abs(table) < epsilon] = 0
         table[abs(table - 1.0) < epsilon] = 1.0
@@ -257,18 +299,21 @@ def tabulate(ufl_element, order, points):
         table[abs(table - 0.5) < epsilon] = 0.5
         table[abs(table + 0.5) < epsilon] = -0.5
 
-        if spanning_degree(ufl_element) <= sum(key[2]):
+        if spanning_degree(ufl_element) <= sum(D):
             assert numpy.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
             table = table[0]
 
-        yield key, table
+        yield c, D, table
 
 
 def make_tabulator(points):
+    """Creates a tabulator for an array of points."""
     return lambda elem, order: tabulate(elem, order, points)
 
 
 class TabulationManager(object):
+    """Manages the generation of tabulation matrices for the different
+    integral types."""
 
     def __init__(self, integral_type, cell, points):
         self.integral_type = integral_type
@@ -301,8 +346,8 @@ class TabulationManager(object):
     def tabulate(self, ufl_element, max_deriv):
         store = collections.defaultdict(list)
         for tabulator in self.tabulators:
-            for key, table in tabulator(ufl_element, max_deriv):
-                store[key].append(table)
+            for c, D, table in tabulator(ufl_element, max_deriv):
+                store[(ufl_element, c, D)].append(table)
 
         if self.integral_type == 'cell':
             for key, (table,) in store.iteritems():
@@ -321,6 +366,7 @@ class TabulationManager(object):
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
+    """Contains all the context necessary to translate UFL into GEM."""
 
     def __init__(self, weights, quadrature_index, argument_indices, tabulation_manager,
                  coefficient_map, index_cache):
@@ -367,6 +413,18 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
 
 
 def iterate_shape(mt, callback):
+    """Iterates through the components of a modified terminal, and
+    calls ``callback`` with ``(ufl_element, c, D)`` keys which are
+    used to look up tabulation matrix for that component.  Then
+    assembles the result into a GEM tensor (if tensor-valued)
+    corresponding to the modified terminal.
+
+    :arg mt: analysed modified terminal
+    :arg callback: callback to get the GEM translation of a component
+    :returns: GEM translation of the modified terminal
+
+    This is a helper for translating Arguments and Coefficients.
+    """
     ufl_element = mt.terminal.ufl_element()
     dim = ufl_element.cell().topological_dimension()
 
@@ -392,6 +450,13 @@ def iterate_shape(mt, callback):
 
 @singledispatch
 def translate(terminal, mt, params):
+    """Translates modified terminals into GEM.
+
+    :arg terminal: terminal, for dispatching
+    :arg mt: analysed modified terminal
+    :arg params: translator context
+    :returns: GEM translation of the modified terminal
+    """
     raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
 
 
