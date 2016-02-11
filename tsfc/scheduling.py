@@ -171,4 +171,5 @@ def make_ordering(assignments, indices_map):
 
     for o in queue:
         handle(o, enqueue, emit)
+    assert not any(queue.waiting.values())
     return list(reversed(result))

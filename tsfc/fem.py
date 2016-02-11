@@ -309,7 +309,12 @@ class TabulationManager(object):
                 self.tables[key] = table
         else:
             for key, tables in store.iteritems():
-                self.tables[key] = numpy.array(tables)
+                table = numpy.array(tables)
+                if len(table.shape) == 2:
+                    # Cellwise constant; must not depend on the facet
+                    assert numpy.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
+                    table = table[0]
+                self.tables[key] = table
 
     def __getitem__(self, key):
         return self.tables[key]
@@ -407,12 +412,14 @@ def _(terminal, e, mt, params):
                                table_keys(terminal.ufl_element(),
                                           mt.local_derivatives)):
         table = params.tabulation_manager[key]
-        table = params.select_facet(gem.Literal(table), mt.restriction)
         if len(table.shape) == 1:
             # Cellwise constant
+            table = gem.Literal(table)
             row = table
-        elif len(table.shape) == 2:
+        elif len(table.shape) in [2, 3]:
             # Varying on cell
+            table = params.select_facet(gem.Literal(table), mt.restriction)
+            assert len(table.shape) == 2
             row = gem.partial_indexed(table, (params.quadrature_index,))
         else:
             assert False
@@ -428,26 +435,26 @@ def _(terminal, e, mt, params):
 def _(terminal, e, mt, params):
     def evaluate_at(params, key, index_key):
         table = params.tabulation_manager[key]
-        table = params.select_facet(gem.Literal(table), mt.restriction)
+        if len(table.shape) == 1:
+            # Cellwise constant
+            table = gem.Literal(table)
+            row = table
+        elif len(table.shape) in [2, 3]:
+            # Varying on cell
+            table = params.select_facet(gem.Literal(table), mt.restriction)
+            assert len(table.shape) == 2
+            row = gem.partial_indexed(table, (params.quadrature_index,))
+        else:
+            assert False
+
         kernel_argument = params.coefficient_map[terminal]
-
         r = params.index_cache[index_key]
-
         if mt.restriction is None:
             kar = gem.Indexed(kernel_argument, (r,))
         elif mt.restriction is '+':
             kar = gem.Indexed(kernel_argument, (0, r))
         elif mt.restriction is '-':
             kar = gem.Indexed(kernel_argument, (1, r))
-        else:
-            assert False
-
-        if len(table.shape) == 1:
-            # Cellwise constant
-            row = table
-        elif len(table.shape) == 2:
-            # Varying on cell
-            row = gem.partial_indexed(table, (params.quadrature_index,))
         else:
             assert False
 
