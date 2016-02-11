@@ -434,11 +434,29 @@ def _(terminal, e, mt, params):
 @translate.register(Coefficient)  # noqa: Not actually redefinition
 def _(terminal, e, mt, params):
     def evaluate_at(params, key, index_key):
+        kernel_argument = params.coefficient_map[terminal]
+        if mt.restriction is None:
+            ka = kernel_argument
+        elif mt.restriction is '+':
+            ka = gem.partial_indexed(kernel_argument, (0,))
+        elif mt.restriction is '-':
+            ka = gem.partial_indexed(kernel_argument, (1,))
+        else:
+            assert False
+
         table = params.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            table = gem.Literal(table)
-            row = table
+            if numpy.count_nonzero(table) <= 2:
+                assert table.shape == ka.shape
+                size, = table.shape  # asserts rank 1
+                return reduce(gem.Sum,
+                              [gem.Product(gem.Literal(t), kai)
+                               for t, kai in zip(table, [gem.Indexed(ka, (i,))
+                                                         for i in range(size)])],
+                              gem.Zero())
+            else:
+                row = gem.Literal(table)
         elif len(table.shape) in [2, 3]:
             # Varying on cell
             table = params.select_facet(gem.Literal(table), mt.restriction)
@@ -447,18 +465,8 @@ def _(terminal, e, mt, params):
         else:
             assert False
 
-        kernel_argument = params.coefficient_map[terminal]
         r = params.index_cache[index_key]
-        if mt.restriction is None:
-            kar = gem.Indexed(kernel_argument, (r,))
-        elif mt.restriction is '+':
-            kar = gem.Indexed(kernel_argument, (0, r))
-        elif mt.restriction is '-':
-            kar = gem.Indexed(kernel_argument, (1, r))
-        else:
-            assert False
-
-        return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)), kar), r)
+        return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)), gem.Indexed(ka, (r,))), r)
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0
