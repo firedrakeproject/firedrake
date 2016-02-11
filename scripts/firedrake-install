@@ -117,6 +117,7 @@ else:
     args.rebuild_script = False
     args.mpicc = False
     args.disable_ssh = False
+    args.show_petsc_configure_options = False
 
 
 # Where are packages installed relative to --root?
@@ -548,7 +549,7 @@ def build_update_script():
         update_script = f.read()
 
     for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
-                   "mpicc", "disable_ssh"]:
+                   "mpicc", "disable_ssh", "show_petsc_configure_options"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
