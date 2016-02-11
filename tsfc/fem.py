@@ -237,37 +237,6 @@ def simplify_abs(expression):
     return MemoizerArg(_simplify_abs)(expression, False)
 
 
-class SimplifyExpr(MultiFunction):
-    """Apply some simplification passes to an expression."""
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def abs(self, o, op):
-        """Convert Abs(CellOrientation * ...) -> Abs(...)"""
-        if isinstance(op, ufl.classes.CellOrientation):
-            # Cell orientation is +-1
-            return ufl.classes.FloatValue(1)
-        if isinstance(op, ufl.classes.ScalarValue):
-            # Inline abs(constant)
-            return self.expr(op, abs(op._value))
-        if isinstance(op, (ufl.classes.Division, ufl.classes.Product)):
-            # Visit children, distributing Abs
-            ops = tuple(map_expr_dag(self, ufl.classes.Abs(_))
-                        for _ in op.ufl_operands)
-            new_ops = []
-            # Strip Abs off again (we'll put it outside the product now)
-            for _ in ops:
-                if isinstance(_, ufl.classes.Abs):
-                    new_ops.append(_.ufl_operands[0])
-                else:
-                    new_ops.append(_)
-            # Rebuild product
-            new_prod = self.expr(op, *new_ops)
-            # Rebuild Abs
-            return self.expr(o, new_prod)
-        return self.expr(o, op)
-
-
 def _tabulate(ufl_element, order, points):
     element = create_element(ufl_element)
     phi = element.space_dimension()
@@ -359,7 +328,6 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         self.tabulation_manager = tabulation_manager
         self.integral_type = integral_type
         self.coefficient_map = coefficient_map
-        self.cell_orientations = False
         self.index_cache = index_cache
 
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
@@ -376,17 +344,10 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         else:
             self.facet = None
 
-    def get_cell_orientations(self):
-        try:
-            return self._cell_orientations
-        except AttributeError:
-            if self.integral_type.startswith("interior_facet"):
-                result = gem.Variable("cell_orientations", (2, 1))
-            else:
-                result = gem.Variable("cell_orientations", (1, 1))
-            self.cell_orientations = True
-            self._cell_orientations = result
-            return result
+        if self.integral_type.startswith("interior_facet"):
+            self.cell_orientations = gem.Variable("cell_orientations", (2, 1))
+        else:
+            self.cell_orientations = gem.Variable("cell_orientations", (1, 1))
 
     def select_facet(self, tensor, restriction):
         if self.integral_type == 'cell':
@@ -551,4 +512,4 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, qu
     translator = Translator(quadrature_weights, quadrature_index,
                             argument_indices, tabulation_manager,
                             coefficient_map, index_cache)
-    return map_expr_dags(translator, expressions), translator.cell_orientations
+    return map_expr_dags(translator, expressions)

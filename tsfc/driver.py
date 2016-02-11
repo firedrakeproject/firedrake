@@ -169,10 +169,10 @@ def compile_integral(idata, fd, prefix, parameters):
         integrand = fem.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = ein.Index(name="ip%d" % i)
         quadrature_indices.append(quadrature_index)
-        nonfem, cell_orientations = \
-            fem.process(integral_type, integrand, tabulation_manager,
-                        quad_rule.weights, quadrature_index,
-                        argument_indices, coefficient_map, index_cache)
+        nonfem = fem.process(integral_type, integrand,
+                             tabulation_manager, quad_rule.weights,
+                             quadrature_index, argument_indices,
+                             coefficient_map, index_cache)
         nonfem_.append([(ein.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
                         for e in nonfem])
 
@@ -182,6 +182,7 @@ def compile_integral(idata, fd, prefix, parameters):
     simplified = opt.remove_componenttensors(nonfem)
     simplified = opt.unroll_indexsum(simplified, max_extent=3)
 
+    cell_orientations = False
     refcount = sch.count_references(simplified)
     candidates = set()
     for node in traversal(simplified):
@@ -193,6 +194,9 @@ def compile_integral(idata, fd, prefix, parameters):
                 if set(child.free_indices) == set(node.free_indices) and refcount[child] == 1:
                     if not (isinstance(child, ein.Literal) and child.shape):
                         candidates.add(child)
+
+        if isinstance(node, ein.Variable) and node.name == "cell_orientations":
+            cell_orientations = True
 
     if cell_orientations:
         decl = coffee.Decl("int *restrict *restrict", coffee.Symbol("cell_orientations"),
