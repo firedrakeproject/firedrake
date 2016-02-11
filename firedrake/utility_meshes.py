@@ -28,7 +28,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
-           'TorusMesh']
+           'TorusMesh', 'CylinderMesh', 'PeriodicRectangleMeshX']
 
 
 _cachedir = os.path.join(tempfile.gettempdir(),
@@ -899,3 +899,90 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
     plex = mesh._from_cell_list(2, cells, vertices)
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     return m
+
+
+@profile
+def CylinderMesh(nr, nz, radius=1, depth=1, quadrilateral=False, reorder=None):
+    """Generates a cylinder mesh.
+
+    :arg nr: number of cells the cylinder circumference should be
+         divided into (min 3)
+    :arg nz: number of cells along the longitudinal z-axis of the cylinder
+    :kwarg radius: (optional) radius of the cylinder to approximate
+         (default 1).
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    """
+    if nr < 3:
+        raise ValueError("CircleManifoldMesh must have at least three cells")
+
+    coord_xy = radius*np.column_stack((np.cos(np.arange(nr)*(2*np.pi/nr)),
+                                       np.sin(np.arange(nr)*(2*np.pi/nr))))
+    coord_z = depth*np.linspace(0.0, 1.0, nz + 1).reshape(-1, 1)
+    vertices = np.column_stack((np.tile(coord_xy, (nz + 1, 1)),
+                                np.tile(coord_z, (1, nr)).reshape(-1, 1)))
+
+    # intervals on circumference
+    ring_cells = np.column_stack((np.arange(0, nr, dtype=np.int32),
+                                  np.roll(np.arange(0, nr, dtype=np.int32), -1)))
+    # quads in the first layer
+    ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
+    scalar = np.arange(nz)*nr
+    cells = np.row_stack((ring_cells + i for i in scalar))
+    if not quadrilateral:
+        # two cells per cell above...
+        cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
+
+    plex = mesh._from_cell_list(2, cells, vertices)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    return m
+
+
+def PeriodicRectangleMeshX(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
+    """Generates RectangleMesh that is periodic in the x-direction.
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg Lx: The extent in the x direction
+    :arg Ly: The extent in the y direction
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    """
+
+    if nx < 3:
+        raise ValueError("2D periodic meshes with fewer than 3 \
+cells in each direction are not currently supported")
+
+    m = CylinderMesh(nx, ny, 1.0, 1.0, quadrilateral=quadrilateral, reorder=reorder)
+    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    old_coordinates = m.coordinates
+    new_coordinates = Function(coord_fs)
+
+    # unravel x coordinates like in periodic interval
+    # set y coordinates to z coordinates
+    periodic_kernel = """double Y,pi;
+            Y = 0.0;
+            for(int i=0; i<old_coords.dofs; i++) {
+                Y += old_coords[i][1];
+            }
+
+            pi=3.141592653589793;
+            for(int i=0;i<new_coords.dofs;i++){
+            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
+            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
+            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
+            new_coords[i][0] *= Lx[0];
+            new_coords[i][1] = old_coords[i][2]*Ly[0];
+            }"""
+
+    cLx = Constant(Lx)
+    cLy = Constant(Ly)
+
+    par_loop(periodic_kernel, dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ),
+              "Lx": (cLx, READ),
+              "Ly": (cLy, READ)})
+
+    # TODO boundaries
+
+    return mesh.Mesh(new_coordinates)
