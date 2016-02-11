@@ -321,6 +321,16 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0 (bottom)
+    * 2: plane y == Ly (top)
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0 (bottom)
+    * 2: plane x == Lx (top)
     """
 
     if nx < 3 or ny < 3:
@@ -924,6 +934,11 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     :kwarg longitudinal_direction: (option) direction for the
          longitudinal axis of the cylinder.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+
+    The boundary edges in this mesh are numbered as follows:
+
+    * 1: plane l == 0 (bottom)
+    * 2: plane l == depth (top)
     """
     if nr < 3:
         raise ValueError("CylinderMesh must have at least three cells")
@@ -939,8 +954,8 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                                   np.roll(np.arange(0, nr, dtype=np.int32), -1)))
     # quads in the first layer
     ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
-    scalar = np.arange(nl)*nr
-    cells = np.row_stack((ring_cells + i for i in scalar))
+    offset = np.arange(nl)*nr
+    cells = np.row_stack((ring_cells + i for i in offset))
     if not quadrilateral:
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
@@ -952,18 +967,39 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction == "y":
         rotation = np.asarray([[1, 0, 0],
-                               [0, 0, -1],
-                               [0, 1, 0]])
+                               [0, 0, 1],
+                               [0, -1, 0]])
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
     plex = mesh._from_cell_list(2, cells, vertices)
+
+    plex.createLabel("boundary_ids")
+    plex.markBoundaryFaces("boundary_faces")
+    coords = plex.getCoordinates()
+    coord_sec = plex.getCoordinateSection()
+    if plex.getStratumSize("boundary_faces", 1) > 0:
+        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+        eps = float(depth)/(2*nl)
+        for face in boundary_faces:
+            face_coords = plex.vecGetClosure(coord_sec, coords, face)
+            # index of x/y/z coordinates of the face element
+            axis_ix = {"x": 0, "y": 1, "z": 2}
+            i = axis_ix[longitudinal_direction]
+            j = i + 3
+            if abs(face_coords[i]) < eps and abs(face_coords[j]) < eps:
+                # bottom of cylinder
+                plex.setLabelValue("boundary_ids", face, 1)
+            if abs(face_coords[i] - depth) < eps and abs(face_coords[j] - depth) < eps:
+                # top of cylinder
+                plex.setLabelValue("boundary_ids", face, 2)
+
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     return m
 
 
 def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False, reorder=None):
-    """Generates RectangleMesh that is periodic in the x-direction.
+    """Generates RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
@@ -972,20 +1008,37 @@ def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=
     :kwarg direction: The direction of the periodicity (default x).
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0 (bottom)
+    * 2: plane y == Ly (top)
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0 (bottom)
+    * 2: plane x == Lx (top)
     """
 
-    if nx < 3:
+    if direction not in ("x", "y"):
+        raise ValueError("Unsupported periodic direction '%s'" % direction)
+
+    # handle x/y directions: na, La are for the periodic axis
+    na, nb, La, Lb = nx, ny, Lx, Ly
+    if direction == "y":
+        na, nb, La, Lb = ny, nx, Ly, Lx
+
+    if na < 3:
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
 
-    if direction not in ("x", ):
-        raise ValueError("Unsupported periodic direction '%s'" % direction)
-    m = CylinderMesh(nx, ny, 1.0, 1.0, longitudinal_direction="z",
+    m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
+    # make x-periodic mesh
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
     periodic_kernel = """double Y,pi;
@@ -1003,8 +1056,8 @@ cells in each direction are not currently supported")
             new_coords[i][1] = old_coords[i][2]*Ly[0];
             }"""
 
-    cLx = Constant(Lx)
-    cLy = Constant(Ly)
+    cLx = Constant(La)
+    cLy = Constant(Lb)
 
     par_loop(periodic_kernel, dx,
              {"new_coords": (new_coordinates, WRITE),
@@ -1012,6 +1065,10 @@ cells in each direction are not currently supported")
               "Lx": (cLx, READ),
               "Ly": (cLy, READ)})
 
-    # TODO boundaries
+    if direction == "y":
+        # flip x and y coordinates
+        operator = np.asarray([[0, 1],
+                               [1, 0]])
+        new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
     return mesh.Mesh(new_coordinates)
