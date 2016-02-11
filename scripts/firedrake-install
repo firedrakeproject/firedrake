@@ -96,6 +96,8 @@ honoured.""",
 else:
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument("--no-update-script", action="store_false", dest="update_script",
+                        help="Do not update script before updating Firedrake.")
     parser.add_argument("--rebuild", action="store_true",
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -115,6 +117,7 @@ else:
     args.rebuild_script = False
     args.mpicc = False
     args.disable_ssh = False
+    args.show_petsc_configure_options = False
 
 
 # Where are packages installed relative to --root?
@@ -288,7 +291,17 @@ def git_update(name):
     stdout.write("Updating the git repository for %s\n" % name)
     os.chdir(name)
     git_sha = check_output(["git", "rev-parse", "HEAD"])
-    check_call(["git", "pull"])
+    # Disgusting hack, on travis we've checked out a detached head.
+    if name == "firedrake" and travis and travis_testing_firedrake:
+        travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+        travis_commit = os.environ["TRAVIS_COMMIT"]
+        if travis_pull_request != "false":
+            check_call(["git", "fetch", "origin", "pull/" + travis_pull_request + "/merge"])
+            check_call(["git", "checkout", "FETCH_HEAD"])
+        else:
+            check_call(["git", "checkout", travis_commit])
+    else:
+        check_call(["git", "pull"])
     git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     os.chdir("..")
     return git_sha != git_sha_new
@@ -546,7 +559,7 @@ def build_update_script():
         update_script = f.read()
 
     for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
-                   "mpicc", "disable_ssh"]:
+                   "mpicc", "disable_ssh", "show_petsc_configure_options"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
@@ -558,7 +571,7 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
-if travis and travis_cache_dir and args.write_cache:
+if travis and travis_cache_dir and mode == "install" and args.write_cache:
     # Cache update mode
     src_dir = os.path.abspath("src")
     write_cache("petsc", src_dir, travis_cache_dir)
@@ -763,9 +776,17 @@ if mode == "install":
         file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
             easyinstall[:1] + new_packages + easyinstall[1:])
 
+    build_update_script()
+
 else:
     # Update mode
     os.chdir("src")
+
+    if args.update_script:
+        # Pull firedrake, rebuild update script, launch new script
+        git_update("firedrake")
+        build_update_script()
+        os.execv(sys.executable, [sys.executable, "../bin/firedrake-update", "--no-update-script"] + sys.argv[1:])
 
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
@@ -826,8 +847,6 @@ else:
     for p in packages:
         clean(p)
         install(p+"/")
-
-build_update_script()
 
 os.chdir("../..")
 

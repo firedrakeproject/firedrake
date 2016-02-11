@@ -88,6 +88,12 @@ The install script will install an upgrade script in
 `firedrake/bin/firedrake-update`. Running this script will update
 Firedrake and all its dependencies.
 
+.. note::
+
+   If you installed firedrake in a virtualenv_ (the default
+   installation mode), you should activate the virtualenv_ before
+   running `firedrake-update`.
+
 Cleaning disk caches after upgrade
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
