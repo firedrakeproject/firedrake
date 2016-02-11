@@ -363,125 +363,95 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
 
     def modified_terminal(self, o):
         mt = analyse_modified_terminal(o)
-        return translate(mt.terminal, o, mt, self)
+        return translate(mt.terminal, mt, self)
 
 
-def table_keys(ufl_element, local_derivatives):
-    # TODO:
-    # Consider potential duplicate calculation due to second
-    # derivatives and symmetries.
-
-    size = ufl_element.reference_value_size()
+def iterate_shape(mt, callback):
+    ufl_element = mt.terminal.ufl_element()
     dim = ufl_element.cell().topological_dimension()
 
     def flat_index(ordered_deriv):
-        result = [0] * dim
-        for i in ordered_deriv:
-            result[i] += 1
-        return tuple(result)
+        return tuple((numpy.asarray(ordered_deriv) == d).sum() for d in range(dim))
 
-    ordered_derivs = itertools.product(range(dim), repeat=local_derivatives)
+    ordered_derivs = itertools.product(range(dim), repeat=mt.local_derivatives)
     flat_derivs = map(flat_index, ordered_derivs)
 
-    return [(ufl_element, c, flat_deriv)
-            for c in xrange(size)
-            for flat_deriv in flat_derivs]
+    result = []
+    for c in range(ufl_element.reference_value_size()):
+        for flat_deriv in flat_derivs:
+            result.append(callback((ufl_element, c, flat_deriv)))
+
+    shape = mt.expr.ufl_shape
+    assert len(result) == numpy.prod(shape)
+
+    if shape:
+        return gem.ListTensor(numpy.asarray(result).reshape(shape))
+    else:
+        return result[0]
 
 
 @singledispatch
-def translate(terminal, e, mt, params):
+def translate(terminal, mt, params):
     raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
 
 
 @translate.register(QuadratureWeight)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
+def _(terminal, mt, params):
     return gem.Indexed(params.weights, (params.quadrature_index,))
 
 
 @translate.register(GeometricQuantity)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
+def _(terminal, mt, params):
     return geometric.translate(terminal, mt, params)
 
 
 @translate.register(Argument)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
+def _(terminal, mt, params):
     argument_index = params.argument_indices[terminal.number()]
 
-    result = numpy.zeros(e.ufl_shape, dtype=object)
-    for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
-                               table_keys(terminal.ufl_element(),
-                                          mt.local_derivatives)):
+    def callback(key):
         table = params.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            table = gem.Literal(table)
-            row = table
-        elif len(table.shape) in [2, 3]:
-            # Varying on cell
-            table = params.select_facet(gem.Literal(table), mt.restriction)
-            assert len(table.shape) == 2
-            row = gem.partial_indexed(table, (params.quadrature_index,))
+            row = gem.Literal(table)
         else:
-            assert False
-        result[multiindex] = gem.Indexed(row, (argument_index,))
+            table = params.select_facet(gem.Literal(table), mt.restriction)
+            row = gem.partial_indexed(table, (params.quadrature_index,))
+        return gem.Indexed(row, (argument_index,))
 
-    if result.shape:
-        return gem.ListTensor(result)
-    else:
-        return result[()]
+    return iterate_shape(mt, callback)
 
 
 @translate.register(Coefficient)  # noqa: Not actually redefinition
-def _(terminal, e, mt, params):
-    def evaluate_at(params, key, index_key):
-        kernel_argument = params.coefficient_map[terminal]
-        if mt.restriction is None:
-            ka = kernel_argument
-        elif mt.restriction is '+':
-            ka = gem.partial_indexed(kernel_argument, (0,))
-        elif mt.restriction is '-':
-            ka = gem.partial_indexed(kernel_argument, (1,))
-        else:
-            assert False
-
-        table = params.tabulation_manager[key]
-        if len(table.shape) == 1:
-            # Cellwise constant
-            if numpy.count_nonzero(table) <= 2:
-                assert table.shape == ka.shape
-                size, = table.shape  # asserts rank 1
-                return reduce(gem.Sum,
-                              [gem.Product(gem.Literal(t), kai)
-                               for t, kai in zip(table, [gem.Indexed(ka, (i,))
-                                                         for i in range(size)])],
-                              gem.Zero())
-            else:
-                row = gem.Literal(table)
-        elif len(table.shape) in [2, 3]:
-            # Varying on cell
-            table = params.select_facet(gem.Literal(table), mt.restriction)
-            assert len(table.shape) == 2
-            row = gem.partial_indexed(table, (params.quadrature_index,))
-        else:
-            assert False
-
-        r = params.index_cache[index_key]
-        return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)), gem.Indexed(ka, (r,))), r)
+def _(terminal, mt, params):
+    kernel_arg = params.coefficient_map[terminal]
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0
-        return params.coefficient_map[terminal]
+        return kernel_arg
 
-    result = numpy.zeros(e.ufl_shape, dtype=object)
-    for multiindex, key in zip(numpy.ndindex(e.ufl_shape),
-                               table_keys(terminal.ufl_element(),
-                                          mt.local_derivatives)):
-        result[multiindex] = evaluate_at(params, key, terminal.ufl_element())
+    ka = gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[mt.restriction])
 
-    if result.shape:
-        return gem.ListTensor(result)
-    else:
-        return result[()]
+    def callback(key):
+        table = params.tabulation_manager[key]
+        if len(table.shape) == 1:
+            # Cellwise constant
+            row = gem.Literal(table)
+            if numpy.count_nonzero(table) <= 2:
+                assert row.shape == ka.shape
+                return reduce(gem.Sum,
+                              [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(ka, (i,)))
+                               for i in range(row.shape[0])],
+                              gem.Zero())
+        else:
+            table = params.select_facet(gem.Literal(table), mt.restriction)
+            row = gem.partial_indexed(table, (params.quadrature_index,))
+
+        r = params.index_cache[terminal.ufl_element()]
+        return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)),
+                                        gem.Indexed(ka, (r,))), r)
+
+    return iterate_shape(mt, callback)
 
 
 def coordinate_coefficient(domain):
