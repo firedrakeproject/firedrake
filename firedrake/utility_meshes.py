@@ -28,7 +28,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
-           'TorusMesh', 'CylinderMesh', 'PeriodicRectangleMeshX']
+           'TorusMesh', 'CylinderMesh']
 
 
 _cachedir = os.path.join(tempfile.gettempdir(),
@@ -309,13 +309,16 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False):
 
 
 @profile
-def PeriodicRectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
+def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
+                          quadrilateral=False, reorder=None):
     """Generate a periodic rectangular mesh
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
+    :arg direction: The direction of the periodicity, one of
+    ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     """
@@ -324,6 +327,11 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
 
+    if direction not in ("both", "x", "y"):
+        raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
+    if direction != "both":
+        return PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction=direction,
+                                              quadrilateral=quadrilateral, reorder=reorder)
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
     old_coordinates = m.coordinates
@@ -902,23 +910,28 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
 
 
 @profile
-def CylinderMesh(nr, nz, radius=1, depth=1, quadrilateral=False, reorder=None):
+def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
+                 quadrilateral=False, reorder=None):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
          divided into (min 3)
-    :arg nz: number of cells along the longitudinal z-axis of the cylinder
+    :arg nl: number of cells along the longitudinal axis of the cylinder
     :kwarg radius: (optional) radius of the cylinder to approximate
          (default 1).
+    :kwarg depth: (optional) depth of the cylinder to approximate
+         (default 1).
+    :kwarg longitudinal_direction: (option) direction for the
+         longitudinal axis of the cylinder.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     """
     if nr < 3:
-        raise ValueError("CircleManifoldMesh must have at least three cells")
+        raise ValueError("CylinderMesh must have at least three cells")
 
     coord_xy = radius*np.column_stack((np.cos(np.arange(nr)*(2*np.pi/nr)),
                                        np.sin(np.arange(nr)*(2*np.pi/nr))))
-    coord_z = depth*np.linspace(0.0, 1.0, nz + 1).reshape(-1, 1)
-    vertices = np.column_stack((np.tile(coord_xy, (nz + 1, 1)),
+    coord_z = depth*np.linspace(0.0, 1.0, nl + 1).reshape(-1, 1)
+    vertices = np.column_stack((np.tile(coord_xy, (nl + 1, 1)),
                                 np.tile(coord_z, (1, nr)).reshape(-1, 1)))
 
     # intervals on circumference
@@ -926,24 +939,37 @@ def CylinderMesh(nr, nz, radius=1, depth=1, quadrilateral=False, reorder=None):
                                   np.roll(np.arange(0, nr, dtype=np.int32), -1)))
     # quads in the first layer
     ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
-    scalar = np.arange(nz)*nr
+    scalar = np.arange(nl)*nr
     cells = np.row_stack((ring_cells + i for i in scalar))
     if not quadrilateral:
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
+    if longitudinal_direction == "x":
+        rotation = np.asarray([[0, 0, 1],
+                               [0, 1, 0],
+                               [-1, 0, 0]])
+        vertices = np.dot(vertices, rotation.T)
+    elif longitudinal_direction == "y":
+        rotation = np.asarray([[1, 0, 0],
+                               [0, 0, -1],
+                               [0, 1, 0]])
+        vertices = np.dot(vertices, rotation.T)
+    elif longitudinal_direction != "z":
+        raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
     plex = mesh._from_cell_list(2, cells, vertices)
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     return m
 
 
-def PeriodicRectangleMeshX(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
+def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False, reorder=None):
     """Generates RectangleMesh that is periodic in the x-direction.
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
+    :kwarg direction: The direction of the periodicity (default x).
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     """
@@ -952,7 +978,10 @@ def PeriodicRectangleMeshX(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         raise ValueError("2D periodic meshes with fewer than 3 \
 cells in each direction are not currently supported")
 
-    m = CylinderMesh(nx, ny, 1.0, 1.0, quadrilateral=quadrilateral, reorder=reorder)
+    if direction not in ("x", ):
+        raise ValueError("Unsupported periodic direction '%s'" % direction)
+    m = CylinderMesh(nx, ny, 1.0, 1.0, longitudinal_direction="z",
+                     quadrilateral=quadrilateral, reorder=reorder)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
