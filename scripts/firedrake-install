@@ -291,7 +291,17 @@ def git_update(name):
     stdout.write("Updating the git repository for %s\n" % name)
     os.chdir(name)
     git_sha = check_output(["git", "rev-parse", "HEAD"])
-    check_call(["git", "pull"])
+    # Disgusting hack, on travis we've checked out a detached head.
+    if name == "firedrake" and travis and travis_testing_firedrake:
+        travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+        travis_commit = os.environ["TRAVIS_COMMIT"]
+        if travis_pull_request != "false":
+            check_call(["git", "fetch", "origin", "pull/" + travis_pull_request + "/merge"])
+            check_call(["git", "checkout", "FETCH_HEAD"])
+        else:
+            check_call(["git", "checkout", travis_commit])
+    else:
+        check_call(["git", "pull"])
     git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     os.chdir("..")
     return git_sha != git_sha_new
