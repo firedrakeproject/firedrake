@@ -324,13 +324,13 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
-    * 1: plane y == 0 (bottom)
-    * 2: plane y == Ly (top)
+    * 1: plane y == 0
+    * 2: plane y == Ly
 
     If direction == "y" the boundary edges are:
 
-    * 1: plane x == 0 (bottom)
-    * 2: plane x == Lx (top)
+    * 1: plane x == 0
+    * 2: plane x == Lx
     """
 
     if direction not in ("both", "x", "y"):
@@ -400,27 +400,53 @@ for(int i=0; i<new_coords.dofs; i++) {
     return mesh.Mesh(new_coordinates)
 
 
-def PeriodicSquareMesh(nx, ny, L, quadrilateral=False, reorder=None):
+def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None):
     """Generate a periodic square mesh
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg L: The extent in the x and y directions
+    :arg direction: The direction of the periodicity, one of
+    ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0
+    * 2: plane y == L
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0
+    * 2: plane x == L
     """
-    return PeriodicRectangleMesh(nx, ny, L, L, quadrilateral=quadrilateral, reorder=reorder)
+    return PeriodicRectangleMesh(nx, ny, L, L, direction=direction,
+                                 quadrilateral=quadrilateral, reorder=reorder)
 
 
-def PeriodicUnitSquareMesh(nx, ny, reorder=None, quadrilateral=False):
+def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None, quadrilateral=False):
     """Generate a periodic unit square mesh
 
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
+    :arg direction: The direction of the periodicity, one of
+    ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0
+    * 2: plane y == 1
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0
+    * 2: plane x == 1
     """
-    return PeriodicSquareMesh(nx, ny, 1.0, reorder=reorder, quadrilateral=quadrilateral)
+    return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
+                              reorder=reorder, quadrilateral=quadrilateral)
 
 
 @profile
@@ -1011,13 +1037,13 @@ def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=
 
     If direction == "x" the boundary edges in this mesh are numbered as follows:
 
-    * 1: plane y == 0 (bottom)
-    * 2: plane y == Ly (top)
+    * 1: plane y == 0
+    * 2: plane y == Ly
 
     If direction == "y" the boundary edges are:
 
-    * 1: plane x == 0 (bottom)
-    * 2: plane x == Lx (top)
+    * 1: plane x == 0
+    * 2: plane x == Lx
     """
 
     if direction not in ("x", "y"):
