@@ -4,9 +4,9 @@ import pytest
 
 
 @pytest.fixture(params=[ufl.interval,
-                        pytest.mark.xfail(reason="indices")(ufl.triangle),
-                        pytest.mark.xfail(reason="indices")(ufl.quadrilateral),
-                        pytest.mark.xfail(reason="indices")(ufl.tetrahedron)],
+                        ufl.triangle,
+                        ufl.quadrilateral,
+                        ufl.tetrahedron],
                 ids=lambda x: x.cellname())
 def cell(request):
     return request.param

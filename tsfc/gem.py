@@ -304,16 +304,14 @@ class Index(object):
     """Free index"""
 
     # Not true object count, just for naming purposes
-    count = 0
+    _count = 0
 
-    __slots__ = ('name', 'extent')
+    __slots__ = ('name', 'extent', 'count')
 
     def __init__(self, name=None):
-        if name is None:
-            Index.count += 1
-            name = "i_%d" % Index.count
         self.name = name
-
+        Index._count += 1
+        self.count = Index._count
         # Initialise with indefinite extent
         self.extent = None
 
@@ -325,9 +323,13 @@ class Index(object):
             raise ValueError("Inconsistent index extents!")
 
     def __str__(self):
+        if self.name is None:
+            return "i_%d" % self.count
         return self.name
 
     def __repr__(self):
+        if self.name is None:
+            return "Index(%r)" % self.count
         return "Index(%r)" % self.name
 
 
