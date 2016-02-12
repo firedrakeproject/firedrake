@@ -47,8 +47,8 @@ def check_snes_convergence(snes):
     except KeyError:
         r = snes.getKSP().getConvergedReason()
         try:
-            reason = KSPReasons[r]
             inner = True
+            reason = KSPReasons[r]
         except KeyError:
             reason = 'unknown reason (petsc4py enum incomplete?)'
     if r < 0:
