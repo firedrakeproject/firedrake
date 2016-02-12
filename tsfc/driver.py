@@ -100,7 +100,10 @@ def compile_integral(idata, fd, prefix, parameters):
 
     mesh = idata.domain
     coordinates = fem.coordinate_coefficient(mesh)
-    funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords")
+    if mesh.ufl_cell().cellname() in ["interval", "triangle", "tetrahedron"]:
+        funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords", mode='list_tensor')
+    else:
+        funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords")
 
     arglist.append(funarg)
     prepare += prepare_
@@ -240,7 +243,11 @@ def compile_integral(idata, fd, prefix, parameters):
     return kernel
 
 
-def prepare_coefficient(integral_type, coefficient, name):
+def prepare_coefficient(integral_type, coefficient, name, mode=None):
+    if mode is None:
+        mode = 'manual_loop'
+
+    assert mode in ['manual_loop', 'list_tensor']
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
@@ -290,30 +297,54 @@ def prepare_coefficient(integral_type, coefficient, name):
         return funarg, [], expression
 
     # Interior facet integral + mixed / vector element
-    name_ = name + "_"
-    shape = (2, fiat_element.space_dimension())
+    if mode == 'manual_loop':
+        name_ = name + "_"
+        shape = (2, fiat_element.space_dimension())
 
-    funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
-                         qualifiers=["const"])
-    prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
-    expression = ein.Variable(name, shape)
+        funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
+                             qualifiers=["const"])
+        prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
+        expression = ein.Variable(name, shape)
 
-    offset = 0
-    i = coffee.Symbol("i")
-    for element in fiat_element.elements():
-        space_dim = element.space_dimension()
+        offset = 0
+        i = coffee.Symbol("i")
+        for element in fiat_element.elements():
+            space_dim = element.space_dimension()
 
-        loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, coffee.Sum(offset, i))),
-                                  coffee.Symbol(name_, rank=(coffee.Sum(2 * offset, i), 0)))
-        prepare.append(coffee_for(i, space_dim, loop_body))
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, coffee.Sum(offset, i))),
+                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset, i), 0)))
+            prepare.append(coffee_for(i, space_dim, loop_body))
 
-        loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, coffee.Sum(offset, i))),
-                                  coffee.Symbol(name_, rank=(coffee.Sum(2 * offset + space_dim, i), 0)))
-        prepare.append(coffee_for(i, space_dim, loop_body))
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, coffee.Sum(offset, i))),
+                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset + space_dim, i), 0)))
+            prepare.append(coffee_for(i, space_dim, loop_body))
 
-        offset += space_dim
+            offset += space_dim
 
-    return funarg, prepare, expression
+        return funarg, prepare, expression
+
+    elif mode == 'list_tensor':
+        funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name),
+                             qualifiers=["const"])
+
+        variable = ein.Variable(name, (2 * fiat_element.space_dimension(), 1))
+
+        facet_0 = []
+        facet_1 = []
+        offset = 0
+        for element in fiat_element.elements():
+            space_dim = element.space_dimension()
+
+            for i in range(offset, offset + space_dim):
+                facet_0.append(ein.Indexed(variable, (i, 0)))
+            offset += space_dim
+
+            for i in range(offset, offset + space_dim):
+                facet_1.append(ein.Indexed(variable, (i, 0)))
+            offset += space_dim
+
+        expression = ein.ListTensor(numpy.array([facet_0, facet_1]))
+        return funarg, [], expression
 
 
 def prepare_arguments(integral_type, arguments):
