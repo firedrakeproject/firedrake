@@ -173,14 +173,13 @@ def compile_integral(idata, fd, prefix, parameters):
                              tabulation_manager, quad_rule.weights,
                              quadrature_index, argument_indices,
                              coefficient_map, index_cache)
+        nonfem = opt.unroll_indexsum(nonfem, max_extent=3)
         nonfem_.append([(ein.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
                         for e in nonfem])
 
     # Sum the expressions that are part of the same restriction
     nonfem = list(reduce(ein.Sum, e, ein.Zero()) for e in zip(*nonfem_))
-
     simplified = opt.remove_componenttensors(nonfem)
-    simplified = opt.unroll_indexsum(simplified, max_extent=3)
 
     cell_orientations = False
     refcount = sch.count_references(simplified)
