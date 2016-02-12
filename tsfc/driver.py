@@ -436,7 +436,7 @@ def make_temporaries(operations):
             list.append(o)
 
     for op in operations:
-        if isinstance(op, (imp.Initialise, imp.Return)):
+        if isinstance(op, (imp.Initialise, imp.Return, imp.ReturnAccumulate)):
             pass
         elif isinstance(op, imp.Accumulate):
             make_temporary(op.indexsum)

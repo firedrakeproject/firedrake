@@ -103,6 +103,12 @@ def _(leaf, parameters):
                        expression(leaf.expression, parameters))
 
 
+@arabica.register(imp.ReturnAccumulate)  # noqa: Not actually redefinition
+def _(leaf, parameters):
+    return coffee.Incr(expression(leaf.variable, parameters),
+                       expression(leaf.indexsum.children[0], parameters))
+
+
 @arabica.register(imp.Evaluate)  # noqa: Not actually redefinition
 def _(leaf, parameters):
     expr = leaf.expression
