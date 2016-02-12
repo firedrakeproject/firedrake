@@ -48,17 +48,6 @@ def filtered_replace_indices(node, self, subst):
     return replace_indices(node, self, filtered_subst)
 
 
-def filtered_replace_indices_top(node, self, subst):
-    """Wrapper for :func:`replace_indices`.  At each call removes
-    substitution rules that do not apply.  Stops recursion when there
-    is nothing to substitute."""
-    filtered_subst = tuple((k, v) for k, v in subst if k in node.free_indices)
-    if filtered_subst:
-        return replace_indices(node, self, filtered_subst)
-    else:
-        return node
-
-
 def remove_componenttensors(expressions):
     """Removes all ComponentTensors from a list of expression DAGs."""
     mapper = MemoizerArg(filtered_replace_indices)
@@ -84,7 +73,7 @@ def _(node, self):
         # Unrolling
         summand = self(node.children[0])
         return reduce(Sum,
-                      (self.replace(summand, ((node.index, i),))
+                      (Indexed(ComponentTensor(summand, (node.index,)), (i,))
                        for i in range(node.index.extent)),
                       Zero())
     else:
@@ -100,5 +89,4 @@ def unroll_indexsum(expressions, max_extent):
     """
     mapper = Memoizer(_unroll_indexsum)
     mapper.max_extent = max_extent
-    mapper.replace = MemoizerArg(filtered_replace_indices_top)
     return map(mapper, expressions)
