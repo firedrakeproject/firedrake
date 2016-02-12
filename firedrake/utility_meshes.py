@@ -333,15 +333,15 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     * 2: plane x == Lx (top)
     """
 
-    if nx < 3 or ny < 3:
-        raise ValueError("2D periodic meshes with fewer than 3 \
-cells in each direction are not currently supported")
-
     if direction not in ("both", "x", "y"):
         raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
     if direction != "both":
         return PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction=direction,
                                               quadrilateral=quadrilateral, reorder=reorder)
+    if nx < 3 or ny < 3:
+        raise ValueError("2D periodic meshes with fewer than 3 \
+cells in each direction are not currently supported")
+
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder)
     coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
     old_coordinates = m.coordinates
