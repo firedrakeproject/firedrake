@@ -97,8 +97,15 @@ class Node(object):
 
 def traversal(expression_dags):
     """Pre-order traversal of the nodes of expression DAGs."""
-    seen = set(expression_dags)
-    lifo = list(expression_dags)
+    seen = set()
+    lifo = []
+    # Some roots might be same, but they must be visited only once.
+    # Keep the original ordering of roots, for deterministic code
+    # generation.
+    for root in expression_dags:
+        if root not in seen:
+            seen.add(root)
+            lifo.append(root)
 
     while lifo:
         node = lifo.pop()

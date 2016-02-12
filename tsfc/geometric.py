@@ -138,7 +138,7 @@ def translate(terminal, mt, params):
 
 @translate.register(CellOrientation)  # noqa
 def _(terminal, mt, params):
-    cell_orientations = params.get_cell_orientations()
+    cell_orientations = params.cell_orientations
     f = {None: 0, '+': 0, '-': 1}[mt.restriction]
     co_int = gem.Indexed(cell_orientations, (f, 0))
     return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),

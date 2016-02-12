@@ -1,7 +1,9 @@
 from __future__ import absolute_import
 
-import numpy
+import collections
 import time
+
+import numpy
 
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
@@ -141,7 +143,7 @@ def compile_integral(idata, fd, prefix, parameters):
     # multiple times with the same table.  Occurs, for example, if we
     # have multiple integrals here (and the affine coordinate
     # evaluation can be hoisted).
-    index_cache = {}
+    index_cache = collections.defaultdict(ein.Index)
     for i, integral in enumerate(idata.integrals):
         params = {}
         # Record per-integral parameters
@@ -167,11 +169,12 @@ def compile_integral(idata, fd, prefix, parameters):
         integrand = fem.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = ein.Index(name="ip%d" % i)
         quadrature_indices.append(quadrature_index)
-        nonfem, cell_orientations = \
-            fem.process(integral_type, integrand, tabulation_manager,
-                        quad_rule.weights, quadrature_index,
-                        argument_indices, coefficient_map, index_cache)
-        nonfem_.append([ein.IndexSum(e, quadrature_index) for e in nonfem])
+        nonfem = fem.process(integral_type, integrand,
+                             tabulation_manager, quad_rule.weights,
+                             quadrature_index, argument_indices,
+                             coefficient_map, index_cache)
+        nonfem_.append([(ein.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
+                        for e in nonfem])
 
     # Sum the expressions that are part of the same restriction
     nonfem = list(reduce(ein.Sum, e, ein.Zero()) for e in zip(*nonfem_))
@@ -179,6 +182,7 @@ def compile_integral(idata, fd, prefix, parameters):
     simplified = opt.remove_componenttensors(nonfem)
     simplified = opt.unroll_indexsum(simplified, max_extent=3)
 
+    cell_orientations = False
     refcount = sch.count_references(simplified)
     candidates = set()
     for node in traversal(simplified):
@@ -190,6 +194,9 @@ def compile_integral(idata, fd, prefix, parameters):
                 if set(child.free_indices) == set(node.free_indices) and refcount[child] == 1:
                     if not (isinstance(child, ein.Literal) and child.shape):
                         candidates.add(child)
+
+        if isinstance(node, ein.Variable) and node.name == "cell_orientations":
+            cell_orientations = True
 
     if cell_orientations:
         decl = coffee.Decl("int *restrict *restrict", coffee.Symbol("cell_orientations"),
