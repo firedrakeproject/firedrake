@@ -45,6 +45,7 @@ class ReplaceSpatialCoordinates(MultiFunction):
         return t
 
     def spatial_coordinate(self, o):
+        assert o.ufl_domain().ufl_coordinate_element().mapping() == "identity"
         return ReferenceValue(self.coordinates)
 
 
