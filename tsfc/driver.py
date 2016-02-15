@@ -221,7 +221,8 @@ def compile_integral(idata, fd, prefix, parameters):
     shape_map = lambda expr: expr.free_indices
     ordered_shape_map = lambda expr: apply_ordering(shape_map(expr))
 
-    indexed_ops = sch.make_ordering(zip(expressions, simplified), ordered_shape_map)
+    ops = sch.emit_operations(zip(expressions, simplified), ordered_shape_map)
+    indexed_ops = [(op.loop_shape(ordered_shape_map), op) for op in ops]
     indexed_ops = [(multiindex, op)
                    for multiindex, op in indexed_ops
                    if not (isinstance(op, imp.Evaluate) and op.expression in candidates)]

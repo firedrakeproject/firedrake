@@ -1,10 +1,12 @@
+"""Schedules operations to evaluate a multi-root expression DAG,
+forming an ordered list of Impero terminals."""
+
 from __future__ import absolute_import
 
 import collections
+import functools
 
-from singledispatch import singledispatch
-
-from tsfc import gem as ein, impero as imp
+from tsfc import gem, impero
 from tsfc.node import traversal
 
 
@@ -25,27 +27,68 @@ class OrderedDefaultDict(collections.OrderedDict):
         return val
 
 
-class Queue(object):
-    def __init__(self, reference_count, get_indices):
+class ReferenceStager(object):
+    """Provides staging for nodes in reference counted expression
+    DAGs.  A callback function is called once the reference count is
+    exhausted."""
+
+    def __init__(self, reference_count, callback):
+        """Initialises a ReferenceStager.
+
+        :arg reference_count: initial reference counts for all
+                              expected nodes
+        :arg callback: function to call on each node when
+                       reference count is exhausted
+        """
         self.waiting = reference_count.copy()
-        # Need to have deterministic iteration over the queue.
-        self.queue = OrderedDefaultDict(list)
-        self.get_indices = get_indices
+        self.callback = callback
 
     def reference(self, o):
-        if o not in self.waiting:
-            return
-
+        """References a node, decreasing its reference count, and
+        possibly triggering a callback (when the reference count
+        becomes zero)."""
         assert 1 <= self.waiting[o]
 
         self.waiting[o] -= 1
         if self.waiting[o] == 0:
-            self.insert(o, self.get_indices(o))
+            self.callback(o)
 
-    def insert(self, o, indices):
-        self.queue[indices].append(o)
+    def empty(self):
+        """All reference counts exhausted?"""
+        return not any(self.waiting.values())
 
-    def __iter__(self):
+
+class Queue(object):
+    """Special queue for operation scheduling.  GEM / Impero nodes are
+    inserted when they are ready to be scheduled, i.e. any operation
+    which depends on the operation to be inserted must have been
+    scheduled already.  This class implements a heuristic for ordering
+    operations within the constraints in a way which aims to achieve
+    maximum loop fusion to minimise the size of temporaries which need
+    to be introduced.
+    """
+    def __init__(self, callback):
+        """Initialises a Queue.
+
+        :arg callback: function called on each element "popped" from the queue
+        """
+        # Must have deterministic iteration over the queue
+        self.queue = OrderedDefaultDict(list)
+        self.callback = callback
+
+    def insert(self, indices, elem):
+        """Insert element into queue.
+
+        :arg indices: loop indices used by the scheduling heuristic
+        :arg elem: element to be scheduled
+        """
+        self.queue[indices].append(elem)
+
+    def process(self):
+        """Pops elements from the queue and calls the callback
+        function on them until the queue is empty.  The callback
+        function can insert further elements into the queue.
+        """
         indices = ()
         while self.queue:
             # Find innermost non-empty outer loop
@@ -59,140 +102,105 @@ class Queue(object):
                     break
 
             while self.queue[indices]:
-                yield self.queue[indices].pop()
+                self.callback(self.queue[indices].pop())
             del self.queue[indices]
 
 
 def count_references(expressions):
+    """Collects reference counts for a multi-root expression DAG."""
     result = collections.Counter(expressions)
     for node in traversal(expressions):
         result.update(node.children)
     return result
 
 
-@singledispatch
-def impero_indices(node, indices):
-    raise AssertionError("Cannot handle type: %s" % type(node))
+def handle(ops, push, ref, node):
+    """Helper function for scheduling"""
+    if isinstance(node, gem.Variable):
+        # Declared in the kernel header
+        pass
+    elif isinstance(node, gem.Literal):
+        # Constant literals inlined, unless tensor-valued
+        if node.shape:
+            ops.append(impero.Evaluate(node))
+    elif isinstance(node, gem.Zero):  # should rarely happen
+        assert not node.shape
+    elif isinstance(node, gem.Indexed):
+        # Indexing always inlined
+        ref(node.children[0])
+    elif isinstance(node, gem.IndexSum):
+        push(impero.Accumulate(node))
+    elif isinstance(node, gem.Node):
+        ops.append(impero.Evaluate(node))
+        for child in node.children:
+            ref(child)
+    elif isinstance(node, impero.Initialise):
+        ops.append(node)
+    elif isinstance(node, impero.Accumulate):
+        ops.append(node)
+        push(impero.Initialise(node.indexsum))
+        ref(node.indexsum.children[0])
+    elif isinstance(node, impero.Return):
+        ops.append(node)
+        ref(node.expression)
+    elif isinstance(node, impero.ReturnAccumulate):
+        ops.append(node)
+        ref(node.indexsum.children[0])
+    else:
+        raise AssertionError("no handler for node type %s" % type(node))
 
 
-@impero_indices.register(imp.Return)  # noqa: Not actually redefinition
-def _(node, indices):
-    assert set(node.variable.free_indices) == set(node.expression.free_indices)
-    return indices(node.variable)
+def emit_operations(assignments, index_ordering):
+    """Makes an ordering of operations to evaluate a multi-root
+    expression DAG.
 
+    :arg assignments: Iterable of (variable, expression) pairs.
+                      The value of expression is written into variable
+                      upon execution.
+    :arg index_ordering: mapping from GEM nodes to an ordering of free
+                         indices
+    :returns: list of Impero terminals correctly ordered to evaluate
+              the assignments
+    """
+    # Filter out zeros
+    assignments = [(variable, expression)
+                   for variable, expression in assignments
+                   if not isinstance(expression, gem.Zero)]
 
-@impero_indices.register(imp.Initialise)  # noqa: Not actually redefinition
-def _(node, indices):
-    return indices(node.indexsum)
+    # Prepare reference counts
+    refcount = count_references([e for v, e in assignments])
 
-
-@impero_indices.register(imp.Accumulate)  # noqa: Not actually redefinition
-def _(node, indices):
-    return indices(node.indexsum.children[0])
-
-
-@impero_indices.register(imp.Evaluate)  # noqa: Not actually redefinition
-def _(node, indices):
-    return indices(node.expression)
-
-
-@impero_indices.register(imp.ReturnAccumulate)  # noqa: Not actually redefinition
-def _(node, indices):
-    assert set(node.variable.free_indices) == set(node.indexsum.free_indices)
-    return indices(node.indexsum.children[0])
-
-
-@singledispatch
-def handle(node, enqueue, emit):
-    raise AssertionError("Cannot handle foreign type: %s" % type(node))
-
-
-@handle.register(ein.Node)  # noqa: Not actually redefinition
-def _(node, enqueue, emit):
-    emit(imp.Evaluate(node))
-    for child in node.children:
-        enqueue(child)
-
-
-@handle.register(ein.Variable)  # noqa: Not actually redefinition
-def _(node, enqueue, emit):
-    pass
-
-
-@handle.register(ein.Literal)  # noqa: Not actually redefinition
-@handle.register(ein.Zero)
-def _(node, enqueue, emit):
-    if node.shape:
-        emit(imp.Evaluate(node))
-
-
-@handle.register(ein.Indexed)  # noqa: Not actually redefinition
-def _(node, enqueue, emit):
-    enqueue(node.children[0])
-
-
-@handle.register(ein.IndexSum)  # noqa: Not actually redefinition
-def _(node, enqueue, emit):
-    enqueue(imp.Accumulate(node))
-
-
-@handle.register(imp.Initialise)  # noqa: Not actually redefinition
-def _(op, enqueue, emit):
-    emit(op)
-
-
-@handle.register(imp.Accumulate)  # noqa: Not actually redefinition
-def _(op, enqueue, emit):
-    emit(op)
-    enqueue(imp.Initialise(op.indexsum))
-    enqueue(op.indexsum.children[0])
-
-
-@handle.register(imp.Return)  # noqa: Not actually redefinition
-def _(op, enqueue, emit):
-    emit(op)
-    enqueue(op.expression)
-
-
-@handle.register(imp.ReturnAccumulate)  # noqa: Not actually redefinition
-def _(op, enqueue, emit):
-    emit(op)
-    enqueue(op.indexsum.children[0])
-
-
-def make_ordering(assignments, indices_map):
-    assignments = filter(lambda x: not isinstance(x[1], ein.Zero), assignments)
-    expressions = [expression for variable, expression in assignments]
-    refcount = count_references(expressions)
-
+    # Stage return operations
     staging = []
     for variable, expression in assignments:
-        if isinstance(expression, ein.IndexSum) and refcount[expression] == 1:
-            staging.append((imp.ReturnAccumulate(variable, expression),
-                            indices_map(expression.children[0])))
+        if isinstance(expression, gem.IndexSum) and refcount[expression] == 1:
+            staging.append(impero.ReturnAccumulate(variable, expression))
             refcount[expression] -= 1
         else:
-            staging.append((imp.Return(variable, expression),
-                            indices_map(expression)))
+            staging.append(impero.Return(variable, expression))
 
-    queue = Queue(refcount, indices_map)
-    for op, indices in staging:
-        queue.insert(op, indices)
+    # Prepare data structures
+    def push_node(node):
+        queue.insert(index_ordering(node), node)
 
-    result = []
+    def push_op(op):
+        queue.insert(op.loop_shape(index_ordering), op)
 
-    def emit(op):
-        return result.append((impero_indices(op, indices_map), op))
+    ops = []
 
-    def enqueue(item):
-        if isinstance(item, ein.Node):
-            queue.reference(item)
-        elif isinstance(item, imp.Node):
-            queue.insert(item, impero_indices(item, indices_map))
-        else:
-            raise AssertionError("should never happen")
+    stager = ReferenceStager(refcount, push_node)
+    queue = Queue(functools.partial(handle, ops, push_op, stager.reference))
 
-    for o in queue:
-        handle(o, enqueue, emit)
-    assert not any(queue.waiting.values())
-    return list(reversed(result))
+    # Enqueue return operations
+    for op in staging:
+        push_op(op)
+
+    # Schedule operations
+    queue.process()
+
+    # Assert that nothing left unprocessed
+    assert stager.empty()
+
+    # Return
+    ops.reverse()
+    return ops
