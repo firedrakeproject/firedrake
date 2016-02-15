@@ -17,18 +17,18 @@ class Bunch(object):
     pass
 
 
-def generate(temporaries, code, indices, declare):
+def generate(impero_c):
     parameters = Bunch()
-    parameters.declare = declare
-    parameters.indices = indices
+    parameters.declare = impero_c.declare
+    parameters.indices = impero_c.indices
     parameters.names = {}
     counter = itertools.count()
     parameters.index_names = defaultdict(lambda: "i_%d" % next(counter))
 
-    for i, temp in enumerate(temporaries):
+    for i, temp in enumerate(impero_c.temporaries):
         parameters.names[temp] = "t%d" % i
 
-    return arabica(code, parameters)
+    return arabica(impero_c.tree, parameters)
 
 
 def _coffee_symbol(symbol, rank=()):

@@ -14,7 +14,7 @@ from tsfc.quadrature import create_quadrature, QuadratureRule
 
 import coffee.base as coffee
 
-from tsfc import fem, gem as ein, impero as imp, scheduling as sch, optimise as opt, impero_utils
+from tsfc import fem, gem, scheduling as sch, optimise as opt, impero_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.node import traversal
@@ -96,7 +96,7 @@ def compile_integral(idata, fd, prefix, parameters):
 
     arglist.append(funarg)
     prepare += prepare_
-    argument_indices = tuple(index for index in expressions[0].multiindex if isinstance(index, ein.Index))
+    argument_indices = tuple(index for index in expressions[0].multiindex if isinstance(index, gem.Index))
 
     mesh = idata.domain
     coordinates = fem.coordinate_coefficient(mesh)
@@ -149,7 +149,7 @@ def compile_integral(idata, fd, prefix, parameters):
     # multiple times with the same table.  Occurs, for example, if we
     # have multiple integrals here (and the affine coordinate
     # evaluation can be hoisted).
-    index_cache = collections.defaultdict(ein.Index)
+    index_cache = collections.defaultdict(gem.Index)
     for i, integral in enumerate(idata.integrals):
         params = {}
         # Record per-integral parameters
@@ -173,34 +173,23 @@ def compile_integral(idata, fd, prefix, parameters):
                                                    quad_rule.points)
 
         integrand = fem.replace_coordinates(integral.integrand(), coordinates)
-        quadrature_index = ein.Index(name="ip%d" % i)
+        quadrature_index = gem.Index(name="ip%d" % i)
         quadrature_indices.append(quadrature_index)
         nonfem = fem.process(integral_type, integrand,
                              tabulation_manager, quad_rule.weights,
                              quadrature_index, argument_indices,
                              coefficient_map, index_cache)
         nonfem = opt.unroll_indexsum(nonfem, max_extent=3)
-        nonfem_.append([(ein.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
+        nonfem_.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
                         for e in nonfem])
 
     # Sum the expressions that are part of the same restriction
-    nonfem = list(reduce(ein.Sum, e, ein.Zero()) for e in zip(*nonfem_))
+    nonfem = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*nonfem_))
     simplified = opt.remove_componenttensors(nonfem)
 
     cell_orientations = False
-    refcount = sch.count_references(simplified)
-    candidates = set()
     for node in traversal(simplified):
-        if isinstance(node, ein.IndexSum):
-            if refcount[node.children[0]] == 1:
-                candidates.add(node.children[0])
-        else:
-            for child in node.children:
-                if set(child.free_indices) == set(node.free_indices) and refcount[child] == 1:
-                    if not (isinstance(child, ein.Literal) and child.shape):
-                        candidates.add(child)
-
-        if isinstance(node, ein.Variable) and node.name == "cell_orientations":
+        if isinstance(node, gem.Variable) and node.name == "cell_orientations":
             cell_orientations = True
 
     if cell_orientations:
@@ -209,34 +198,34 @@ def compile_integral(idata, fd, prefix, parameters):
         arglist.insert(2, decl)
         kernel.oriented = True
 
-    # Need a deterministic ordering for these
-    indices = set()
+    # Collect indices in a deterministic order
+    indices = []
     for node in traversal(simplified):
-        indices.update(node.free_indices)
-    indices = sorted(indices)
+        if isinstance(node, gem.Indexed):
+            indices.extend(node.multiindex)
+    _, unique_indices = numpy.unique(indices, return_index=True)
+    indices = numpy.asarray(indices)[sorted(unique_indices)]
 
-    index_ordering = apply_prefix_ordering(indices, tuple(quadrature_indices) + argument_indices)
+    # Build ordered index map
+    index_ordering = make_prefix_ordering(indices, tuple(quadrature_indices) + argument_indices)
     apply_ordering = make_index_orderer(index_ordering)
 
-    shape_map = lambda expr: expr.free_indices
-    ordered_shape_map = lambda expr: apply_ordering(shape_map(expr))
+    get_indices = lambda expr: apply_ordering(expr.free_indices)
 
-    ops = sch.emit_operations(zip(expressions, simplified), ordered_shape_map)
-    indexed_ops = [(op.loop_shape(ordered_shape_map), op) for op in ops]
-    indexed_ops = [(multiindex, op)
-                   for multiindex, op in indexed_ops
-                   if not (isinstance(op, imp.Evaluate) and op.expression in candidates)]
+    # Build operation ordering
+    ops = sch.emit_operations(zip(expressions, simplified), get_indices)
 
     # Zero-simplification occurred
-    if len(indexed_ops) == 0:
+    if len(ops) == 0:
         return None
-    temporaries = make_temporaries(op for loop_indices, op in indexed_ops)
 
-    tree, indices, declare = impero_utils.process(indexed_ops,
-                                                  temporaries,
-                                                  shape_map,
-                                                  apply_ordering)
-    body = generate_coffee(temporaries, tree, indices, declare)
+    # Drop unnecessary temporaries
+    ops = impero_utils.inline_temporaries(simplified, ops)
+
+    # Prepare ImperoC (Impero AST + other data for code generation)
+    impero_c = impero_utils.process(ops, get_indices)
+
+    body = generate_coffee(impero_c)
     body.open_scope = False
 
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
@@ -267,9 +256,9 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
                              qualifiers=["const"])
-        expression = ein.Variable(name, shape)
+        expression = gem.Variable(name, shape)
         if coefficient.ufl_shape == ():
-            expression = ein.Indexed(expression, (0,))
+            expression = gem.Indexed(expression, (0,))
 
         return funarg, [], expression
 
@@ -282,9 +271,9 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
         funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
                              qualifiers=["const"])
 
-        i = ein.Index()
-        expression = ein.ComponentTensor(
-            ein.Indexed(ein.Variable(name, shape + (1,)),
+        i = gem.Index()
+        expression = gem.ComponentTensor(
+            gem.Indexed(gem.Variable(name, shape + (1,)),
                         (i, 0)),
             (i,))
 
@@ -297,11 +286,11 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
 
         funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
                              qualifiers=["const"])
-        expression = ein.Variable(name, shape + (1,))
+        expression = gem.Variable(name, shape + (1,))
 
-        f, i = ein.Index(), ein.Index()
-        expression = ein.ComponentTensor(
-            ein.Indexed(ein.Variable(name, shape + (1,)),
+        f, i = gem.Index(), gem.Index()
+        expression = gem.ComponentTensor(
+            gem.Indexed(gem.Variable(name, shape + (1,)),
                         (f, i, 0)),
             (f, i,))
 
@@ -331,7 +320,7 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
         funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
                              qualifiers=["const"])
         prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
-        expression = ein.Variable(name, shape)
+        expression = gem.Variable(name, shape)
 
         offset = 0
         i = coffee.Symbol("i")
@@ -357,7 +346,7 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
         funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name),
                              qualifiers=["const"])
 
-        variable = ein.Variable(name, (2 * fiat_element.space_dimension(), 1))
+        variable = gem.Variable(name, (2 * fiat_element.space_dimension(), 1))
 
         facet_0 = []
         facet_1 = []
@@ -366,14 +355,14 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
             space_dim = element.space_dimension()
 
             for i in range(offset, offset + space_dim):
-                facet_0.append(ein.Indexed(variable, (i, 0)))
+                facet_0.append(gem.Indexed(variable, (i, 0)))
             offset += space_dim
 
             for i in range(offset, offset + space_dim):
-                facet_1.append(ein.Indexed(variable, (i, 0)))
+                facet_1.append(gem.Indexed(variable, (i, 0)))
             offset += space_dim
 
-        expression = ein.ListTensor(numpy.array([facet_0, facet_1]))
+        expression = gem.ListTensor(numpy.array([facet_0, facet_1]))
         return funarg, [], expression
 
 
@@ -383,19 +372,19 @@ def prepare_arguments(integral_type, arguments):
     if len(arguments) == 0:
         # No arguments
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=(1,)))
-        expression = ein.Indexed(ein.Variable("A", (1,)), (0,))
+        expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
 
         return funarg, [], [expression], []
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    indices = tuple(ein.Index(name=name) for i, name in zip(range(len(arguments)), ['j', 'k']))
+    indices = tuple(gem.Index(name=name) for i, name in zip(range(len(arguments)), ['j', 'k']))
 
     if not integral_type.startswith("interior_facet"):
         # Not an interior facet integral
         shape = tuple(element.space_dimension() for element in elements)
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
-        expression = ein.Indexed(ein.Variable("A", shape), indices)
+        expression = gem.Indexed(gem.Variable("A", shape), indices)
 
         return funarg, [], [expression], []
 
@@ -407,12 +396,12 @@ def prepare_arguments(integral_type, arguments):
         shape = tuple(shape)
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
-        varexp = ein.Variable("A", shape)
+        varexp = gem.Variable("A", shape)
 
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
             is_ = tuple(chain(*zip(restrictions, indices)))
-            expressions.append(ein.Indexed(varexp, is_))
+            expressions.append(gem.Indexed(varexp, is_))
 
         return funarg, [], expressions, []
 
@@ -431,7 +420,7 @@ def prepare_arguments(integral_type, arguments):
         prepare.append(coffee.Decl(SCALAR_TYPE,
                                    coffee.Symbol(name, rank=shape),
                                    init=coffee.ArrayInit(numpy.zeros(1))))
-        expressions.append(ein.Indexed(ein.Variable(name, shape), indices))
+        expressions.append(gem.Indexed(gem.Variable(name, shape), indices))
 
         for multiindex in numpy.ndindex(shape):
             references.append(coffee.Symbol(name, multiindex))
@@ -469,40 +458,14 @@ def coffee_for(index, extent, body):
                       body)
 
 
+def make_prefix_ordering(indices, prefix_ordering):
+    # Need to return deterministically ordered indices
+    return tuple(prefix_ordering) + tuple(k for k in indices if k not in prefix_ordering)
+
+
 def make_index_orderer(index_ordering):
     idx2pos = {idx: pos for pos, idx in enumerate(index_ordering)}
 
-    def apply_ordering(shape):
-        return tuple(sorted(shape, key=lambda i: idx2pos[i]))
+    def apply_ordering(indices):
+        return tuple(sorted(indices, key=lambda i: idx2pos[i]))
     return apply_ordering
-
-
-def apply_prefix_ordering(indices, prefix_ordering):
-    rest = set(indices) - set(prefix_ordering)
-    # Need to return deterministically ordered indices
-    return tuple(prefix_ordering) + tuple(k for k in indices if k in rest)
-
-
-def make_temporaries(operations):
-    # For fast look up
-    set_ = set()
-
-    # For ordering
-    list = []
-
-    def make_temporary(o):
-        if o not in set_:
-            set_.add(o)
-            list.append(o)
-
-    for op in operations:
-        if isinstance(op, (imp.Initialise, imp.Return, imp.ReturnAccumulate)):
-            pass
-        elif isinstance(op, imp.Accumulate):
-            make_temporary(op.indexsum)
-        elif isinstance(op, imp.Evaluate):
-            make_temporary(op.expression)
-        else:
-            raise AssertionError("unhandled operation: %s" % type(op))
-
-    return list

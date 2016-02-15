@@ -7,7 +7,7 @@ import collections
 import functools
 
 from tsfc import gem, impero
-from tsfc.node import traversal
+from tsfc.node import collect_refcount
 
 
 class OrderedDefaultDict(collections.OrderedDict):
@@ -106,14 +106,6 @@ class Queue(object):
             del self.queue[indices]
 
 
-def count_references(expressions):
-    """Collects reference counts for a multi-root expression DAG."""
-    result = collections.Counter(expressions)
-    for node in traversal(expressions):
-        result.update(node.children)
-    return result
-
-
 def handle(ops, push, ref, node):
     """Helper function for scheduling"""
     if isinstance(node, gem.Variable):
@@ -150,15 +142,15 @@ def handle(ops, push, ref, node):
         raise AssertionError("no handler for node type %s" % type(node))
 
 
-def emit_operations(assignments, index_ordering):
+def emit_operations(assignments, get_indices):
     """Makes an ordering of operations to evaluate a multi-root
     expression DAG.
 
     :arg assignments: Iterable of (variable, expression) pairs.
                       The value of expression is written into variable
                       upon execution.
-    :arg index_ordering: mapping from GEM nodes to an ordering of free
-                         indices
+    :arg get_indices: mapping from GEM nodes to an ordering of free
+                      indices
     :returns: list of Impero terminals correctly ordered to evaluate
               the assignments
     """
@@ -168,7 +160,7 @@ def emit_operations(assignments, index_ordering):
                    if not isinstance(expression, gem.Zero)]
 
     # Prepare reference counts
-    refcount = count_references([e for v, e in assignments])
+    refcount = collect_refcount([e for v, e in assignments])
 
     # Stage return operations
     staging = []
@@ -181,10 +173,10 @@ def emit_operations(assignments, index_ordering):
 
     # Prepare data structures
     def push_node(node):
-        queue.insert(index_ordering(node), node)
+        queue.insert(get_indices(node), node)
 
     def push_op(op):
-        queue.insert(op.loop_shape(index_ordering), op)
+        queue.insert(op.loop_shape(get_indices), op)
 
     ops = []
 
