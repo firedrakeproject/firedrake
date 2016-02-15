@@ -444,7 +444,7 @@ if travis:
             shutil.copytree(cached_dep, installed_dep)
             return True
         log.info("Cache was not up to date for %s (had key %s, needed %s)\n" %
-                     (dep, cache_hash, src_hash))
+                 (dep, cache_hash, src_hash))
         return False
 
 
@@ -823,7 +823,7 @@ else:
             git_update(p)
         except OSError as e:
             if e.errno == 2:
-                stderr.write("%s missing, cloning anew.\n" % p)
+                log.warn("%s missing, cloning anew.\n" % p)
                 git_clone(deps[p])
             else:
                 raise
