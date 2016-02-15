@@ -10,3 +10,13 @@ License for more details.
 
 You should have received a copy of the GNU Lesser General Public
 License along with Firedrake. If not, see <http://www.gnu.org/licenses/>.
+
+Included packages:
+
+Firedrake includes two third-party packages:
+
+- evtk (in source directory evtk)
+- pylit (in source directory pylit)
+
+Please see, respectively, evtk/LICENSE and pylit/README.rst for their
+respective licenses.
