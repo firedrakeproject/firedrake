@@ -72,6 +72,8 @@ def count_references(temporaries, op):
     elif isinstance(op, imp.Accumulate):
         counter[op.indexsum] += 1
         recurse(op.indexsum.children[0])
+    elif isinstance(op, imp.ReturnAccumulate):
+        recurse(op.indexsum.children[0])
     else:
         raise AssertionError("unhandled operation: %s" % type(op))
 

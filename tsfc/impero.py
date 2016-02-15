@@ -71,6 +71,18 @@ class Return(Terminal):
         self.expression = expression
 
 
+class ReturnAccumulate(Terminal):
+    """Accumulate an :class:`gem.IndexSum` directly into a return
+    variable."""
+
+    __slots__ = ('variable', 'indexsum')
+    __front__ = ('variable', 'indexsum')
+
+    def __init__(self, variable, indexsum):
+        self.variable = variable
+        self.indexsum = indexsum
+
+
 class Block(Node):
     """An ordered set of Impero expressions.  Corresponds to a curly
     braces block in C."""

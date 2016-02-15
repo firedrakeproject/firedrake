@@ -100,7 +100,13 @@ def compile_integral(idata, fd, prefix, parameters):
 
     mesh = idata.domain
     coordinates = fem.coordinate_coefficient(mesh)
-    funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords")
+    if is_mesh_affine(mesh):
+        # For affine mesh geometries we prefer code generation that
+        # composes well with optimisations.
+        funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords", mode='list_tensor')
+    else:
+        # Otherwise we use the approach that might be faster (?)
+        funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords")
 
     arglist.append(funarg)
     prepare += prepare_
@@ -173,14 +179,13 @@ def compile_integral(idata, fd, prefix, parameters):
                              tabulation_manager, quad_rule.weights,
                              quadrature_index, argument_indices,
                              coefficient_map, index_cache)
+        nonfem = opt.unroll_indexsum(nonfem, max_extent=3)
         nonfem_.append([(ein.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
                         for e in nonfem])
 
     # Sum the expressions that are part of the same restriction
     nonfem = list(reduce(ein.Sum, e, ein.Zero()) for e in zip(*nonfem_))
-
     simplified = opt.remove_componenttensors(nonfem)
-    simplified = opt.unroll_indexsum(simplified, max_extent=3)
 
     cell_orientations = False
     refcount = sch.count_references(simplified)
@@ -241,7 +246,18 @@ def compile_integral(idata, fd, prefix, parameters):
     return kernel
 
 
-def prepare_coefficient(integral_type, coefficient, name):
+def is_mesh_affine(mesh):
+    """Tells if a mesh geometry is affine."""
+    affine_cells = ["interval", "triangle", "tetrahedron"]
+    degree = mesh.ufl_coordinate_element().degree()
+    return mesh.ufl_cell().cellname() in affine_cells and degree == 1
+
+
+def prepare_coefficient(integral_type, coefficient, name, mode=None):
+    if mode is None:
+        mode = 'manual_loop'
+
+    assert mode in ['manual_loop', 'list_tensor']
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
@@ -291,30 +307,73 @@ def prepare_coefficient(integral_type, coefficient, name):
         return funarg, [], expression
 
     # Interior facet integral + mixed / vector element
-    name_ = name + "_"
-    shape = (2, fiat_element.space_dimension())
 
-    funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
-                         qualifiers=["const"])
-    prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
-    expression = ein.Variable(name, shape)
+    # Here we need to reorder the coefficient values.
+    #
+    # Incoming ordering: E1+ E1- E2+ E2- E3+ E3-
+    # Required ordering: E1+ E2+ E3+ E1- E2- E3-
+    #
+    # Each of E[n]{+,-} is a vector of basis function coefficients for
+    # subelement E[n].
+    #
+    # There are two code generation method to reorder the values.
+    # We have not done extensive research yet as to which way yield
+    # faster code.
 
-    offset = 0
-    i = coffee.Symbol("i")
-    for element in fiat_element.elements():
-        space_dim = element.space_dimension()
+    if mode == 'manual_loop':
+        # In this case we generate loops outside the GEM abstraction
+        # to reorder the values.  A whole E[n]{+,-} block is copied by
+        # a single loop.
+        name_ = name + "_"
+        shape = (2, fiat_element.space_dimension())
 
-        loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, coffee.Sum(offset, i))),
-                                  coffee.Symbol(name_, rank=(coffee.Sum(2 * offset, i), 0)))
-        prepare.append(coffee_for(i, space_dim, loop_body))
+        funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
+                             qualifiers=["const"])
+        prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
+        expression = ein.Variable(name, shape)
 
-        loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, coffee.Sum(offset, i))),
-                                  coffee.Symbol(name_, rank=(coffee.Sum(2 * offset + space_dim, i), 0)))
-        prepare.append(coffee_for(i, space_dim, loop_body))
+        offset = 0
+        i = coffee.Symbol("i")
+        for element in fiat_element.elements():
+            space_dim = element.space_dimension()
 
-        offset += space_dim
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, coffee.Sum(offset, i))),
+                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset, i), 0)))
+            prepare.append(coffee_for(i, space_dim, loop_body))
 
-    return funarg, prepare, expression
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, coffee.Sum(offset, i))),
+                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset + space_dim, i), 0)))
+            prepare.append(coffee_for(i, space_dim, loop_body))
+
+            offset += space_dim
+
+        return funarg, prepare, expression
+
+    elif mode == 'list_tensor':
+        # In this case we generate a gem.ListTensor to do the
+        # reordering.  Every single element in a E[n]{+,-} block is
+        # referenced separately.
+        funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name),
+                             qualifiers=["const"])
+
+        variable = ein.Variable(name, (2 * fiat_element.space_dimension(), 1))
+
+        facet_0 = []
+        facet_1 = []
+        offset = 0
+        for element in fiat_element.elements():
+            space_dim = element.space_dimension()
+
+            for i in range(offset, offset + space_dim):
+                facet_0.append(ein.Indexed(variable, (i, 0)))
+            offset += space_dim
+
+            for i in range(offset, offset + space_dim):
+                facet_1.append(ein.Indexed(variable, (i, 0)))
+            offset += space_dim
+
+        expression = ein.ListTensor(numpy.array([facet_0, facet_1]))
+        return funarg, [], expression
 
 
 def prepare_arguments(integral_type, arguments):
@@ -436,7 +495,7 @@ def make_temporaries(operations):
             list.append(o)
 
     for op in operations:
-        if isinstance(op, (imp.Initialise, imp.Return)):
+        if isinstance(op, (imp.Initialise, imp.Return, imp.ReturnAccumulate)):
             pass
         elif isinstance(op, imp.Accumulate):
             make_temporary(op.indexsum)

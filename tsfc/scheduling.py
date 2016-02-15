@@ -77,7 +77,7 @@ def impero_indices(node, indices):
 
 @impero_indices.register(imp.Return)  # noqa: Not actually redefinition
 def _(node, indices):
-    assert set(node.variable.free_indices) >= set(node.expression.free_indices)
+    assert set(node.variable.free_indices) == set(node.expression.free_indices)
     return indices(node.variable)
 
 
@@ -94,6 +94,12 @@ def _(node, indices):
 @impero_indices.register(imp.Evaluate)  # noqa: Not actually redefinition
 def _(node, indices):
     return indices(node.expression)
+
+
+@impero_indices.register(imp.ReturnAccumulate)  # noqa: Not actually redefinition
+def _(node, indices):
+    assert set(node.variable.free_indices) == set(node.indexsum.free_indices)
+    return indices(node.indexsum.children[0])
 
 
 @singledispatch
@@ -148,13 +154,30 @@ def _(op, enqueue, emit):
     enqueue(op.expression)
 
 
+@handle.register(imp.ReturnAccumulate)  # noqa: Not actually redefinition
+def _(op, enqueue, emit):
+    emit(op)
+    enqueue(op.indexsum.children[0])
+
+
 def make_ordering(assignments, indices_map):
     assignments = filter(lambda x: not isinstance(x[1], ein.Zero), assignments)
     expressions = [expression for variable, expression in assignments]
-    queue = Queue(count_references(expressions), indices_map)
+    refcount = count_references(expressions)
 
+    staging = []
     for variable, expression in assignments:
-        queue.insert(imp.Return(variable, expression), indices_map(expression))
+        if isinstance(expression, ein.IndexSum) and refcount[expression] == 1:
+            staging.append((imp.ReturnAccumulate(variable, expression),
+                            indices_map(expression.children[0])))
+            refcount[expression] -= 1
+        else:
+            staging.append((imp.Return(variable, expression),
+                            indices_map(expression)))
+
+    queue = Queue(refcount, indices_map)
+    for op, indices in staging:
+        queue.insert(op, indices)
 
     result = []
 
