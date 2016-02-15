@@ -70,6 +70,8 @@ class DirichletBC(object):
                self._original_val._state != self._expression_state:
                 # Expression values have changed, need to reinterpolate
                 self.function_arg = self._original_val
+                # Remember "new" value of original arg, to work with zero/restore pair.
+                self._original_arg = self.function_arg
         return self._function_arg
 
     @function_arg.setter

@@ -379,7 +379,6 @@ def test_invalid_marker_raises_error(a, V):
         assemble(a, bcs=[bc1])
 
 
-@pytest.mark.xfail(reason="Bad interaction between zero bc application and Expressions")
 def test_shared_expression_bc(mesh):
     V = FunctionSpace(mesh, "CG", 2)
     f = Function(V)
