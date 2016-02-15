@@ -142,40 +142,69 @@ def test_cubed_sphere_mesh_num_exterior_facets_parallel():
     run_cubed_sphere_mesh_num_exterior_facets()
 
 
-def test_bendy_icos():
-    for d in range(1, 4):
-        m = IcosahedralSphereMesh(5.0, refinement_level=1, degree=d)
-        coords = m.coordinates.dat.data
-        assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+@pytest.fixture(params=range(1, 4))
+def degree(request):
+    return request.param
 
 
-def test_bendy_icos_unit():
-    for d in range(1, 4):
-        m = UnitIcosahedralSphereMesh(refinement_level=1, degree=d)
-        coords = m.coordinates.dat.data
-        assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+def run_bendy_icos(degree):
+    m = IcosahedralSphereMesh(5.0, refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
 
 
-test_bendy_icos_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_icos)
-test_bendy_icos_unit_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_icos_unit)
+def run_bendy_icos_unit(degree):
+    m = UnitIcosahedralSphereMesh(refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
 
 
-def test_bendy_cube():
-    for d in range(1, 4):
-        m = CubedSphereMesh(5.0, refinement_level=1, degree=d)
-        coords = m.coordinates.dat.data
-        assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+def test_bendy_icos(degree):
+    return run_bendy_icos(degree)
 
 
-def test_bendy_cube_unit():
-    for d in range(1, 4):
-        m = UnitCubedSphereMesh(refinement_level=1, degree=d)
-        coords = m.coordinates.dat.data
-        assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+def test_bendy_icos_unit(degree):
+    return run_bendy_icos_unit(degree)
 
 
-test_bendy_cube_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_cube)
-test_bendy_cube_unit_parallel = pytest.mark.parallel(nprocs=2)(test_bendy_cube_unit)
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_icos_parallel(degree):
+    return run_bendy_icos(degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_icos_unit_parallel(degree):
+    return run_bendy_icos_unit(degree)
+
+
+def run_bendy_cube(degree):
+    m = CubedSphereMesh(5.0, refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+
+
+def run_bendy_cube_unit(degree):
+    m = UnitCubedSphereMesh(refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+
+
+def test_bendy_cube(degree):
+    return run_bendy_cube(degree)
+
+
+def test_bendy_cube_unit(degree):
+    return run_bendy_cube_unit(degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_cube_parallel(degree):
+    return run_bendy_cube(degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_cube_unit_parallel(degree):
+    return run_bendy_cube_unit(degree)
 
 
 def test_mesh_reordering_defaults_on():
@@ -186,7 +215,7 @@ def test_mesh_reordering_defaults_on():
     assert m._did_reordering
 
 
-def test_mesh_validation():
+def run_mesh_validation():
     from os.path import abspath, dirname, join
     meshfile = join(abspath(dirname(__file__)), "broken_rogue_point.msh")
     with pytest.raises(ValueError):
@@ -195,7 +224,13 @@ def test_mesh_validation():
         Mesh(meshfile)
 
 
-test_mesh_validation_parallel = pytest.mark.parallel(nprocs=2)(test_mesh_validation)
+def test_mesh_validation():
+    run_mesh_validation()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_mesh_validation_parallel():
+    run_mesh_validation()
 
 
 @pytest.mark.parametrize("reorder",
