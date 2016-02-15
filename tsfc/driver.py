@@ -100,9 +100,12 @@ def compile_integral(idata, fd, prefix, parameters):
 
     mesh = idata.domain
     coordinates = fem.coordinate_coefficient(mesh)
-    if mesh.ufl_cell().cellname() in ["interval", "triangle", "tetrahedron"]:
+    if is_mesh_affine(mesh):
+        # For affine mesh geometries we prefer code generation that
+        # composes well with optimisations.
         funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords", mode='list_tensor')
     else:
+        # Otherwise we use the approach that might be faster (?)
         funarg, prepare_, expression = prepare_coefficient(integral_type, coordinates, "coords")
 
     arglist.append(funarg)
@@ -243,6 +246,13 @@ def compile_integral(idata, fd, prefix, parameters):
     return kernel
 
 
+def is_mesh_affine(mesh):
+    """Tells if a mesh geometry is affine."""
+    affine_cells = ["interval", "triangle", "tetrahedron"]
+    degree = mesh.ufl_coordinate_element().degree()
+    return mesh.ufl_cell().cellname() in affine_cells and degree == 1
+
+
 def prepare_coefficient(integral_type, coefficient, name, mode=None):
     if mode is None:
         mode = 'manual_loop'
@@ -297,7 +307,23 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
         return funarg, [], expression
 
     # Interior facet integral + mixed / vector element
+
+    # Here we need to reorder the coefficient values.
+    #
+    # Incoming ordering: E1+ E1- E2+ E2- E3+ E3-
+    # Required ordering: E1+ E2+ E3+ E1- E2- E3-
+    #
+    # Each of E[n]{+,-} is a vector of basis function coefficients for
+    # subelement E[n].
+    #
+    # There are two code generation method to reorder the values.
+    # We have not done extensive research yet as to which way yield
+    # faster code.
+
     if mode == 'manual_loop':
+        # In this case we generate loops outside the GEM abstraction
+        # to reorder the values.  A whole E[n]{+,-} block is copied by
+        # a single loop.
         name_ = name + "_"
         shape = (2, fiat_element.space_dimension())
 
@@ -324,6 +350,9 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
         return funarg, prepare, expression
 
     elif mode == 'list_tensor':
+        # In this case we generate a gem.ListTensor to do the
+        # reordering.  Every single element in a E[n]{+,-} block is
+        # referenced separately.
         funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name),
                              qualifiers=["const"])
 
