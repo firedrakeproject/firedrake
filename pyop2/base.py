@@ -97,8 +97,9 @@ class ExecutionTrace(object):
             computation._run()
         elif configuration['lazy_max_trace_length'] > 0 and \
                 configuration['lazy_max_trace_length'] == len(self._trace):
-            self.evaluate(computation.reads, computation.writes)
-            computation._run()
+            # Garbage collect trace (stop the world)
+            self.evaluate_all()
+            self._trace.append(computation)
         else:
             self._trace.append(computation)
 
