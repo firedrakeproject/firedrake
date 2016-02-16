@@ -5,11 +5,12 @@ import time
 
 import numpy
 
+from ufl.classes import Form
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
 
 from tsfc.fiatinterface import create_element
-from tsfc.mixedelement import MixedElement as ffc_MixedElement
+from tsfc.mixedelement import MixedElement
 from tsfc.quadrature import create_quadrature, QuadratureRule
 
 import coffee.base as coffee
@@ -18,40 +19,6 @@ from tsfc import fem, gem, scheduling as sch, optimise as opt, impero_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.node import traversal
-
-
-def compile_form(form, prefix="form", parameters=None):
-    cpu_time = time.time()
-
-    assert not isinstance(form, (list, tuple))
-
-    if parameters is None:
-        parameters = default_parameters()
-    else:
-        _ = default_parameters()
-        _.update(parameters)
-        parameters = _
-
-    fd = compute_form_data(form,
-                           do_apply_function_pullbacks=True,
-                           do_apply_integral_scaling=True,
-                           do_apply_geometry_lowering=True,
-                           do_apply_restrictions=True,
-                           do_estimate_degrees=True)
-    print GREEN % ("compute_form_data finished in %g seconds." % (time.time() - cpu_time))
-
-    kernels = []
-    for idata in fd.integral_data:
-        # TODO: Merge kernel bodies for multiple integrals with same
-        # integral-data (same mesh iteration space).
-        start = time.time()
-        kernel = compile_integral(idata, fd, prefix, parameters)
-        if kernel is not None:
-            print GREEN % ("compile_integral finished in %g seconds." % (time.time() - start))
-            kernels.append(kernel)
-
-    print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
-    return kernels
 
 
 class Kernel(object):
@@ -75,6 +42,38 @@ class Kernel(object):
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
         super(Kernel, self).__init__()
+
+
+def compile_form(form, prefix="form", parameters=None):
+    cpu_time = time.time()
+
+    assert isinstance(form, Form)
+
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
+
+    fd = compute_form_data(form,
+                           do_apply_function_pullbacks=True,
+                           do_apply_integral_scaling=True,
+                           do_apply_geometry_lowering=True,
+                           do_apply_restrictions=True,
+                           do_estimate_degrees=True)
+    print GREEN % ("compute_form_data finished in %g seconds." % (time.time() - cpu_time))
+
+    kernels = []
+    for integral_data in fd.integral_data:
+        start = time.time()
+        kernel = compile_integral(integral_data, fd, prefix, parameters)
+        if kernel is not None:
+            kernels.append(kernel)
+        print GREEN % ("compile_integral finished in %g seconds." % (time.time() - start))
+
+    print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
+    return kernels
 
 
 def compile_integral(idata, fd, prefix, parameters):
@@ -187,16 +186,16 @@ def compile_integral(idata, fd, prefix, parameters):
     nonfem = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*nonfem_))
     simplified = opt.remove_componenttensors(nonfem)
 
-    cell_orientations = False
+    # Look for cell orientations in the simplified GEM
+    kernel.oriented = False
     for node in traversal(simplified):
         if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-            cell_orientations = True
-
-    if cell_orientations:
-        decl = coffee.Decl("int *restrict *restrict", coffee.Symbol("cell_orientations"),
-                           qualifiers=["const"])
-        arglist.insert(2, decl)
-        kernel.oriented = True
+            kernel.oriented = True
+            decl = coffee.Decl("int *restrict *restrict",
+                               coffee.Symbol("cell_orientations"),
+                               qualifiers=["const"])
+            arglist.insert(2, decl)
+            break
 
     # Collect indices in a deterministic order
     indices = []
@@ -225,13 +224,14 @@ def compile_integral(idata, fd, prefix, parameters):
     # Prepare ImperoC (Impero AST + other data for code generation)
     impero_c = impero_utils.process(ops, get_indices)
 
+    # Generate COFFEE
     body = generate_coffee(impero_c)
     body.open_scope = False
 
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
-    ast = coffee.FunDecl("void", funname, arglist, coffee.Block(prepare + [body] + finalise),
-                         pred=["static", "inline"])
-    kernel.ast = ast
+    kernel.ast = coffee.FunDecl("void", funname, arglist,
+                                coffee.Block(prepare + [body] + finalise),
+                                pred=["static", "inline"])
 
     return kernel
 
@@ -279,7 +279,7 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
 
         return funarg, [], expression
 
-    if not isinstance(fiat_element, ffc_MixedElement):
+    if not isinstance(fiat_element, MixedElement):
         # Interior facet integral
 
         shape = (2, fiat_element.space_dimension())
@@ -388,7 +388,7 @@ def prepare_arguments(integral_type, arguments):
 
         return funarg, [], [expression], []
 
-    if not any(isinstance(element, ffc_MixedElement) for element in elements):
+    if not any(isinstance(element, MixedElement) for element in elements):
         # Interior facet integral, but no vector (mixed) arguments
         shape = []
         for element in elements:
@@ -427,7 +427,7 @@ def prepare_arguments(integral_type, arguments):
 
     restriction_shape = []
     for e in elements:
-        if isinstance(e, ffc_MixedElement):
+        if isinstance(e, MixedElement):
             restriction_shape += [len(e.elements()),
                                   e.elements()[0].space_dimension()]
         else:
