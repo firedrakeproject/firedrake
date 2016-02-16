@@ -1,3 +1,7 @@
+"""Generate COFFEE AST from ImperoC tuple data.
+
+This is the final stage of code generation in TSFC."""
+
 from __future__ import absolute_import
 
 from collections import defaultdict
@@ -18,6 +22,12 @@ class Bunch(object):
 
 
 def generate(impero_c, index_names):
+    """Generates COFFEE code.
+
+    :arg impero_c: ImperoC tuple with Impero AST and other data
+    :arg index_names: pre-assigned index names
+    :returns: COFFEE function body
+    """
     parameters = Bunch()
     parameters.declare = impero_c.declare
     parameters.indices = impero_c.indices
@@ -50,12 +60,14 @@ def _coffee_symbol(symbol, rank=()):
 
 
 def _decl_symbol(expr, parameters):
+    """Build a COFFEE Symbol for declaration."""
     multiindex = parameters.indices[expr]
     rank = tuple(index.extent for index in multiindex) + expr.shape
     return _coffee_symbol(parameters.names[expr], rank=rank)
 
 
 def _ref_symbol(expr, parameters):
+    """Build a COFFEE Symbol for referencing a value."""
     multiindex = parameters.indices[expr]
     rank = tuple(parameters.index_names[index] for index in multiindex)
     return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
@@ -63,6 +75,13 @@ def _ref_symbol(expr, parameters):
 
 @singledispatch
 def statement(tree, parameters):
+    """Translates an Impero (sub)tree into a COFFEE AST corresponding
+    to a C statement.
+
+    :arg tree: Impero (sub)tree
+    :arg parameters: miscellaneous code generation data
+    :returns: COFFEE AST
+    """
     raise AssertionError("cannot generate COFFEE from %s" % type(tree))
 
 
@@ -144,6 +163,14 @@ def statement_evaluate(leaf, parameters):
 
 
 def expression(expr, parameters, top=False):
+    """Translates GEM expression into a COFFEE snippet, stopping at
+    temporaries.
+
+    :arg expr: GEM expression
+    :arg parameters: miscellaneous code generation data
+    :arg top: do not generate temporary reference for the root node
+    :returns: COFFEE expression
+    """
     if not top and expr in parameters.names:
         return _ref_symbol(expr, parameters)
     else:
