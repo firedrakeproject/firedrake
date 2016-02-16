@@ -1,11 +1,11 @@
 from __future__ import absolute_import
 
+from collections import defaultdict
 from math import isnan
+import itertools
 
 import numpy
 from singledispatch import singledispatch
-from collections import defaultdict
-import itertools
 
 import coffee.base as coffee
 
@@ -17,16 +17,18 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c):
+def generate(impero_c, index_names):
     parameters = Bunch()
     parameters.declare = impero_c.declare
     parameters.indices = impero_c.indices
-    parameters.names = {}
-    counter = itertools.count()
-    parameters.index_names = defaultdict(lambda: "i_%d" % next(counter))
 
+    parameters.names = {}
     for i, temp in enumerate(impero_c.temporaries):
         parameters.names[temp] = "t%d" % i
+
+    counter = itertools.count()
+    parameters.index_names = defaultdict(lambda: "i_%d" % next(counter))
+    parameters.index_names.update(index_names)
 
     return statement(impero_c.tree, parameters)
 
@@ -53,15 +55,9 @@ def _decl_symbol(expr, parameters):
     return _coffee_symbol(parameters.names[expr], rank=rank)
 
 
-def _index_name(index, parameters):
-    if index.name is None:
-        return parameters.index_names[index]
-    return index.name
-
-
 def _ref_symbol(expr, parameters):
     multiindex = parameters.indices[expr]
-    rank = tuple(_index_name(index, parameters) for index in multiindex)
+    rank = tuple(parameters.index_names[index] for index in multiindex)
     return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
 
 
@@ -83,7 +79,7 @@ def statement_block(tree, parameters):
 def statement_for(tree, parameters):
     extent = tree.index.extent
     assert extent
-    i = _coffee_symbol(_index_name(tree.index, parameters))
+    i = _coffee_symbol(parameters.index_names[tree.index])
     # TODO: symbolic constant for "int"
     return coffee.For(coffee.Decl("int", i, init=0),
                       coffee.Less(i, extent),
@@ -241,7 +237,7 @@ def _expression_indexed(expr, parameters):
     rank = []
     for index in expr.multiindex:
         if isinstance(index, ein.Index):
-            rank.append(_index_name(index, parameters))
+            rank.append(parameters.index_names[index])
         elif isinstance(index, ein.VariableIndex):
             rank.append(index.name)
         else:

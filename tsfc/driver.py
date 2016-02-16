@@ -225,7 +225,14 @@ def compile_integral(idata, fd, prefix, parameters):
     impero_c = impero_utils.process(ops, get_indices)
 
     # Generate COFFEE
-    body = generate_coffee(impero_c)
+    index_names = zip(argument_indices, ['j', 'k'])
+    if len(quadrature_indices) == 1:
+        index_names.append((quadrature_indices[0], 'ip'))
+    else:
+        for i, quadrature_index in enumerate(quadrature_indices):
+            index_names.append((quadrature_index, 'ip_%d' % i))
+
+    body = generate_coffee(impero_c, index_names)
     body.open_scope = False
 
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
