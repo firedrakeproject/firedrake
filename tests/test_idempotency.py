@@ -12,9 +12,15 @@ def cell(request):
     return request.param
 
 
+@pytest.fixture(params=[1, 2],
+                ids=lambda x: "P%d-coords" % x)
+def coord_degree(request):
+    return request.param
+
+
 @pytest.fixture
-def mesh(cell):
-    c = ufl.VectorElement("CG", cell, 2)
+def mesh(cell, coord_degree):
+    c = ufl.VectorElement("CG", cell, coord_degree)
     return ufl.Mesh(c)
 
 
@@ -26,8 +32,13 @@ def V(request, mesh):
     return ufl.FunctionSpace(mesh, request.param("CG", mesh.ufl_cell(), 2))
 
 
+@pytest.fixture(params=["cell", "ext_facet", "int_facet"])
+def itype(request):
+    return request.param
+
+
 @pytest.fixture(params=["functional", "1-form", "2-form"])
-def form(V, request):
+def form(V, itype, request):
     if request.param == "functional":
         u = ufl.Coefficient(V)
         v = ufl.Coefficient(V)
@@ -38,7 +49,12 @@ def form(V, request):
         u = ufl.TrialFunction(V)
         v = ufl.TestFunction(V)
 
-    return ufl.inner(u, v)*ufl.dx
+    if itype == "cell":
+        return ufl.inner(u, v)*ufl.dx
+    elif itype == "ext_facet":
+        return ufl.inner(u, v)*ufl.ds
+    elif itype == "int_facet":
+        return ufl.inner(u('+'), v('-'))*ufl.dS
 
 
 def test_idempotency(form):

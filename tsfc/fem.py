@@ -19,6 +19,7 @@ from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, as_fiat_cell
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
 from tsfc.node import MemoizerArg
+from tsfc import compat
 from tsfc import gem
 from tsfc import ufl2gem
 from tsfc import geometric
@@ -301,7 +302,7 @@ def tabulate(ufl_element, order, points):
         table[abs(table + 0.5) < epsilon] = -0.5
 
         if spanning_degree(ufl_element) <= sum(D):
-            assert numpy.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
+            assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
             table = table[0]
 
         yield c, D, table
@@ -358,7 +359,7 @@ class TabulationManager(object):
                 table = numpy.array(tables)
                 if len(table.shape) == 2:
                     # Cellwise constant; must not depend on the facet
-                    assert numpy.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
+                    assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
                     table = table[0]
                 self.tables[key] = table
 
