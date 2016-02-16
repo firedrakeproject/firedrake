@@ -2405,7 +2405,7 @@ class MixedDat(Dat):
         if subset is not None:
             raise NotImplementedError("MixedDat.copy with a Subset is not supported")
         for s, o in zip(self, other):
-            s._copy_parloop(o).enqueue()
+            s.copy(o)
 
     @collective
     def _cow_actual_copy(self, src):
@@ -2737,6 +2737,7 @@ class Global(DataCarrier, _EmptyDataMixin):
         return self._dim
 
     @property
+    @modifies
     def data(self):
         """Data array."""
         _trace.evaluate(set([self]), set())
