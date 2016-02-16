@@ -10,7 +10,7 @@ import itertools
 import coffee.base as coffee
 
 from tsfc import gem as ein, impero as imp
-from tsfc.constants import NUMPY_TYPE, SCALAR_TYPE, PRECISION
+from tsfc.constants import SCALAR_TYPE, PRECISION
 
 
 class Bunch(object):
@@ -49,9 +49,7 @@ def _coffee_symbol(symbol, rank=()):
 
 def _decl_symbol(expr, parameters):
     multiindex = parameters.indices[expr]
-    rank = tuple(index.extent for index in multiindex)
-    if hasattr(expr, 'shape'):
-        rank += expr.shape
+    rank = tuple(index.extent for index in multiindex) + expr.shape
     return _coffee_symbol(parameters.names[expr], rank=rank)
 
 
@@ -123,19 +121,12 @@ def statement_returnaccumulate(leaf, parameters):
 def statement_evaluate(leaf, parameters):
     expr = leaf.expression
     if isinstance(expr, ein.ListTensor):
-        # TODO: remove constant float branch.
         if parameters.declare[leaf]:
-            values = numpy.array([expression(v, parameters) for v in expr.array.flat], dtype=object)
-            if all(isinstance(value, float) for value in values):
-                qualifiers = ["static", "const"]
-                values = numpy.array(values, dtype=NUMPY_TYPE)
-            else:
-                qualifiers = []
-            values = values.reshape(expr.shape)
+            array_expression = numpy.vectorize(lambda v: expression(v, parameters))
             return coffee.Decl(SCALAR_TYPE,
                                _decl_symbol(expr, parameters),
-                               coffee.ArrayInit(values, precision=PRECISION),
-                               qualifiers=qualifiers)
+                               coffee.ArrayInit(array_expression(expr.array),
+                                                precision=PRECISION))
         else:
             ops = []
             for multiindex, value in numpy.ndenumerate(expr.array):
