@@ -43,10 +43,10 @@ class ReferenceStager(object):
         self.waiting = reference_count.copy()
         self.callback = callback
 
-    def reference(self, o):
-        """References a node, decreasing its reference count, and
-        possibly triggering a callback (when the reference count
-        becomes zero)."""
+    def decref(self, o):
+        """Decreases the reference count of a node, and possibly
+        triggering a callback (when the reference count drops to
+        zero)."""
         assert 1 <= self.waiting[o]
 
         self.waiting[o] -= 1
@@ -106,7 +106,7 @@ class Queue(object):
             del self.queue[indices]
 
 
-def handle(ops, push, ref, node):
+def handle(ops, push, decref, node):
     """Helper function for scheduling"""
     if isinstance(node, gem.Variable):
         # Declared in the kernel header
@@ -119,25 +119,25 @@ def handle(ops, push, ref, node):
         assert not node.shape
     elif isinstance(node, gem.Indexed):
         # Indexing always inlined
-        ref(node.children[0])
+        decref(node.children[0])
     elif isinstance(node, gem.IndexSum):
         push(impero.Accumulate(node))
     elif isinstance(node, gem.Node):
         ops.append(impero.Evaluate(node))
         for child in node.children:
-            ref(child)
+            decref(child)
     elif isinstance(node, impero.Initialise):
         ops.append(node)
     elif isinstance(node, impero.Accumulate):
         ops.append(node)
         push(impero.Initialise(node.indexsum))
-        ref(node.indexsum.children[0])
+        decref(node.indexsum.children[0])
     elif isinstance(node, impero.Return):
         ops.append(node)
-        ref(node.expression)
+        decref(node.expression)
     elif isinstance(node, impero.ReturnAccumulate):
         ops.append(node)
-        ref(node.indexsum.children[0])
+        decref(node.indexsum.children[0])
     else:
         raise AssertionError("no handler for node type %s" % type(node))
 
@@ -181,7 +181,7 @@ def emit_operations(assignments, get_indices):
     ops = []
 
     stager = ReferenceStager(refcount, push_node)
-    queue = Queue(functools.partial(handle, ops, push_op, stager.reference))
+    queue = Queue(functools.partial(handle, ops, push_op, stager.decref))
 
     # Enqueue return operations
     for op in staging:

@@ -37,8 +37,8 @@ class Terminal(Node):
         """Gives the loop shape, an ordering of indices for an Impero
         terminal.
 
-        :arg free_indices: a mapping of GEM expressions to ordered
-                           free indices.
+        :arg free_indices: a callable mapping of GEM expressions to
+                           ordered free indices.
         """
         pass
 

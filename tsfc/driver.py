@@ -202,8 +202,11 @@ def compile_integral(idata, fd, prefix, parameters):
     for node in traversal(simplified):
         if isinstance(node, gem.Indexed):
             indices.extend(node.multiindex)
+    # The next two lines remove duplicate elements from the list, but
+    # preserve the ordering, i.e. all elements will appear only once,
+    # in the order of their first occurance in the original list.
     _, unique_indices = numpy.unique(indices, return_index=True)
-    indices = numpy.asarray(indices)[sorted(unique_indices)]
+    indices = numpy.asarray(indices)[numpy.sort(unique_indices)]
 
     # Build ordered index map
     index_ordering = make_prefix_ordering(indices, tuple(quadrature_indices) + argument_indices)

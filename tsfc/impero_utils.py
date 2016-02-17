@@ -60,13 +60,21 @@ def inline_temporaries(expressions, ops, coffee_licm=False):
 
 
 def process(ops, get_indices):
+    """Process the scheduling of operations, builds an Impero AST +
+    other data which are directly used for C / COFFEE code generation.
+
+    :arg ops: a list of Impero terminal nodes
+    :arg get_indices: callable mapping from GEM nodes to an ordering
+                      of free indices
+    :returns: ImperoC named tuple
+    """
     # Build Impero AST
     tree = make_loop_tree(ops, get_indices)
 
     # Collect temporaries
     temporaries = collect_temporaries(ops)
 
-    # Determine declarations (incomplete)
+    # Determine declarations
     declare, indices = place_declarations(ops, tree, temporaries, get_indices)
 
     return ImperoC(tree, temporaries, declare, indices)
@@ -96,8 +104,8 @@ def make_loop_tree(ops, get_indices, level=0):
     their respective free indices.
 
     :arg ops: a list of Impero terminal nodes
-    :arg get_indices: mapping from GEM nodes to an ordering of free
-                      indices
+    :arg get_indices: callable mapping from GEM nodes to an ordering
+                      of free indices
     :arg level: depth of loop nesting
     :returns: Impero AST with loops, without declarations
     """
@@ -119,8 +127,8 @@ def place_declarations(ops, tree, temporaries, get_indices):
     :arg tree: Impero AST to determine the declarations for
     :arg temporaries: list of GEM expressions which are assigned to
                       temporaries
-    :arg get_indices: mapping from GEM nodes to an ordering of free
-                      indices
+    :arg get_indices: callable mapping from GEM nodes to an ordering
+                      of free indices
     """
 
     temporaries_set = set(temporaries)
