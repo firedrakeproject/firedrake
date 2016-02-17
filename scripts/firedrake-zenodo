@@ -6,16 +6,28 @@ import subprocess
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 import json
+import getpass
+import time
 
-descriptions = OrderedDict(
-    firedrake="Firedrake: an automated finite element system",
-    PyOP2="PyOP2: Framework for performance-portable parallel computations on unstructured meshes",
-    tsfc="TSFC: The Two Stage Form Compiler",
-    COFFEE="COFFEE: A Compiler for Fast Expression Evaluation",
-    ufl="UFL: The Unified Form Language",
-    fiat="FIAT: The Finite Element Automated Tabulator",
-    petsc="PETSc: Portable, Extensible Toolkit for Scientific Computation",
-    petsc4py="PETSc4py: The Python interface to PETSc")
+descriptions = OrderedDict([
+    ("firedrake", "Firedrake: an automated finite element system"),
+    ("PyOP2", "PyOP2: Framework for performance-portable parallel computations on unstructured meshes"),
+    ("tsfc", "TSFC: The Two Stage Form Compiler"),
+    ("COFFEE", "COFFEE: A Compiler for Fast Expression Evaluation"),
+    ("ufl", "UFL: The Unified Form Language"),
+    ("fiat", "FIAT: The Finite Element Automated Tabulator"),
+    ("petsc", "PETSc: Portable, Extensible Toolkit for Scientific Computation"),
+    ("petsc4py", "PETSc4py: The Python interface to PETSc")])
+
+projects = dict(
+    [("firedrake", "firedrakeproject"),
+     ("PyOP2", "OP2"),
+     ("tsfc", "firedrakeproject"),
+     ("COFFEE", "coneoproject"),
+     ("ufl", "firedrakeproject"),
+     ("fiat", "firedrakeproject"),
+     ("petsc", "firedrakeproject"),
+     ("petsc4py", "firedrakeproject")])
 
 components = descriptions.keys()
 
@@ -39,7 +51,8 @@ group.add_argument("--input", "-i", action="store", nargs=1,
                    help="Release based on the named input file")
 group.add_argument("--release", action="store_true",
                    help="Release based on the current checked out versions.")
-
+parser.add_argument("--message", "-m", action="store", nargs=1,
+                    help="Short description of the reason for this release. E.g. Version of Firedrake used in <paper name>.")
 for component in components:
     parser.add_argument("--%s" % component, action="store", nargs=1,
                         help="Use this git hash for %s instead of that in the file or the checked out version."
@@ -106,12 +119,19 @@ def collect_repo_shas():
     return shas
 
 if args.release or not args.input:
+    if not args.message:
+        log.error("You must provide a message using the -m option")
+        sys.exit(1)
+
     # Collect hashes from the current repo.
     shas = collect_repo_shas()
 else:
     # Read hashes from file.
     infile = file(cwd+"/"+args.input[0], "r")
     shas = json.loads(infile.read())
+
+if args.message:
+    shas["message"] = args.message[0]
 
 # Override hashes with any read from the command line.
 for component in components:
@@ -127,5 +147,68 @@ if not (args.release or args.input):
     log.info("Wrote release information to %s" % args.output[0])
     sys.exit(0)
 
+try:
+    import github3
+except ImportError:
+    "Publishing releases requires the github3 module. Please pip install github3.py"
+
+message = shas["message"] + """
+
+This release is specifically created to document the version of
+Firedrake used in a particular set of experiments. Please do not cite
+this as a general source for Firedrake or any of its
+dependencies. Instead, refer to
+http://www.firedrakeproject.org/publications.html"""
+
+
+# Github authentication.
+if os.getenv("FIREDRAKE_OAUTH"):
+    gh = github3.login(token=os.getenv("FIREDRAKE_OAUTH"))
+else:
+    try:
+        # Python 2
+        prompt = raw_input
+    except NameError:
+        # Python 3
+        prompt = input
+
+    def my_two_factor_function():
+        code = ''
+        while not code:
+            # The user could accidentally press Enter before being ready,
+            # let's protect them from doing that.
+            code = prompt('Enter two factor authentication code: ')
+        return code
+
+    print "To avoid having to enter username and password, set FIREDRAKE_OAUTH to a github OAUTH token"
+    user = prompt("GitHub username: ")
+    password = getpass.getpass("GitHub password: ")
+
+    gh = github3.login(user, password, two_factor_callback=my_two_factor_function)
+
+fd = gh.repository("firedrakeproject", "firedrake")
+
+tag = time.strftime("Firedrake_%Y%m%d", time.localtime())
+index = -1
+
+for r in fd.iter_releases():
+    if r.tag_name.startswith(tag):
+        newindex = int(r.tag_name.split(".")[1])
+        index = max(index, newindex)
+tag += "." + str(index + 1)
+
+
+for component in components:
+    log.info("Releasing %s" % component)
+    repo = gh.repository(projects[component], component)
+
+    repo.create_release(
+        tag_name=tag,
+        target_commitish=shas[component],
+        name=descriptions[component],
+        body=message,
+        draft=False,
+        prerelease=True)
+
 # Now create releases.
-print shas
+log.info("Releases complete. The release tag is %s" % tag)
