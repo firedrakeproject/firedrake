@@ -242,32 +242,41 @@ def apt_install(names):
 def split_requirements_url(url):
     name = url.split(".git")[0].split("#")[0].split("/")[-1]
     spliturl = url.split("://")[1].split("#")[0].split("@")
-    return name, spliturl
+    try:
+        plain_url, branch = spliturl
+    except ValueError:
+        plain_url = spliturl[0]
+        branch = "master"
+    return name, plain_url, branch
+
+
+def git_url(plain_url, protocol):
+    if protocol == "ssh":
+        return "git@%s:%s" % tuple(plain_url.split("/", 1))
+    elif protocol == "https":
+        return "https://%s" % plain_url
+    else:
+        raise ValueError("Unknown git protocol: %s" % protocol)
 
 
 def git_clone(url):
-    name, spliturl = split_requirements_url(url)
+    name, plain_url, branch = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
         log.info("Using existing petsc installation\n")
         return name
     log.info("Cloning %s\n" % name)
-    try:
-        plainurl, branch = spliturl
-    except ValueError:
-        plainurl = spliturl[0]
-        branch = "master"
     if name in branches:
         branch = branches[name]
     try:
         if args.disable_ssh:
             raise Exception
-        check_call(["git", "clone", "-q", "-b", branch, "git@%s:%s" % tuple(plainurl.split("/", 1))])
+        check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "git")])
         log.info("Successfully cloned %s branch %s." % (name, branch))
     except:
         if not args.disable_ssh:
             log.warn("Failed to clone %s using ssh, falling back to https." % name)
         try:
-            check_call(["git", "clone", "-q", "-b", branch, "https://%s" % plainurl])
+            check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "https")])
             log.info("Successfully cloned %s branch %s." % (name, branch))
         except subprocess.CalledProcessError:
             log.error("Failed to clone %s branch %s." % (name, branch))
@@ -279,7 +288,7 @@ def list_cloned_dependencies(name):
     log.info("Finding dependencies of %s\n" % name)
     deps = OrderedDict()
     for dep in open(name + "/requirements-git.txt", "r"):
-        name, _ = split_requirements_url(dep.strip())
+        name = split_requirements_url(dep.strip())[0]
         deps[name] = dep.strip()
     return deps
 
@@ -292,7 +301,7 @@ def clone_dependencies(name):
     return deps
 
 
-def git_update(name):
+def git_update(name, url=None):
     # Update the named git repo and return true if the current branch actually changed.
     log.info("Updating the git repository for %s" % name)
     os.chdir(name)
@@ -307,6 +316,15 @@ def git_update(name):
         else:
             check_call(["git", "checkout", travis_commit])
     else:
+        # Ensure remotes get updated if and when we move repositories.
+        if url:
+            plain_url = split_requirements_url(url)[1]
+            current_url = check_output(["git", "remote", "-v"]).split()[1]
+            protocol = "https" if current_url.startswith("https") else "ssh"
+            new_url = git_url(plain_url, protocol)
+            if new_url != current_url:
+                log.info("Updating git remote for %s" % name)
+                check_call(["git", "remote", "set-url", "origin", new_url])
         check_call(["git", "pull"])
     git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     os.chdir("..")
@@ -802,10 +820,10 @@ else:
 
     # update packages.
     if not args.honour_petsc_dir:
-        petsc_changed = git_update("petsc")
+        petsc_changed = git_update("petsc", deps["petsc"])
     else:
         petsc_changed = False
-    petsc4py_changed = git_update("petsc4py")
+    petsc4py_changed = git_update("petsc4py", deps["petsc4py"])
 
     packages.remove("petsc")
     packages.remove("petsc4py")
@@ -820,7 +838,7 @@ else:
 
     for p in packages:
         try:
-            git_update(p)
+            git_update(p, deps.get(p, None))
         except OSError as e:
             if e.errno == 2:
                 log.warn("%s missing, cloning anew.\n" % p)
