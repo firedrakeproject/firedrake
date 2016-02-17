@@ -1,0 +1,131 @@
+#! /usr/bin/env python
+import logging
+import sys
+import os
+import subprocess
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
+from collections import OrderedDict
+import json
+
+descriptions = OrderedDict(
+    firedrake="Firedrake: an automated finite element system",
+    PyOP2="PyOP2: Framework for performance-portable parallel computations on unstructured meshes",
+    tsfc="TSFC: The Two Stage Form Compiler",
+    COFFEE="COFFEE: A Compiler for Fast Expression Evaluation",
+    ufl="UFL: The Unified Form Language",
+    fiat="FIAT: The Finite Element Automated Tabulator",
+    petsc="PETSc: Portable, Extensible Toolkit for Scientific Computation",
+    petsc4py="PETSc4py: The Python interface to PETSc")
+
+components = descriptions.keys()
+
+parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
+
+If you are a Firedrake user, this script creates a JSON file encoding
+the precise versions of all the Firedrake components you are using,
+and a documentation string. You should create an issue on the
+Firedrake github page and attach this file. The Firedrake core
+developers will generate DOIs for your packages and report them back
+to you.
+
+If you are a Firedrake core developer, this script enables you to
+create DOIs directly, or to create them from a user-supplied JSON file.""",
+                        epilog="""""",
+                        formatter_class=RawDescriptionHelpFormatter)
+group = parser.add_mutually_exclusive_group()
+group.add_argument("--output", "-o", action="store", nargs=1, default=["firedrake.json"],
+                   help="Output to the named file instead of firedrake.json.")
+group.add_argument("--input", "-i", action="store", nargs=1,
+                   help="Release based on the named input file")
+group.add_argument("--release", action="store_true",
+                   help="Release based on the current checked out versions.")
+
+for component in components:
+    parser.add_argument("--%s" % component, action="store", nargs=1,
+                        help="Use this git hash for %s instead of that in the file or the checked out version."
+                        % component)
+
+parser.add_argument("--log", action='store_true',
+                    help="Produce a verbose log of the installation process in firedrake-zenodo.log. If you have problem running this script, please include this log in any bug report you file.")
+
+
+args = parser.parse_args()
+
+cwd = os.getcwd()
+src = os.path.dirname(__file__) + "/../src"
+
+# Set up logging
+if args.log:
+    # Log to file at DEBUG level
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(levelname)-6s %(message)s',
+                        filename='firedrake-zenodo.log',
+                        filemode='w')
+    # Log to console at INFO level
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger().addHandler(console)
+else:
+    # Log to console at INFO level
+    logging.basicConfig(level=logging.INFO,
+                        format='%(message)s')
+log = logging.getLogger()
+
+
+def check_call(arguments):
+    if args.log:
+        try:
+            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
+        except subprocess.CalledProcessError as e:
+            log.debug(e.output)
+            raise
+    else:
+        subprocess.check_call(arguments)
+
+
+def check_output(args):
+    try:
+        return subprocess.check_output(args, stderr=subprocess.STDOUT)
+    except subprocess.CalledProcessError as e:
+        log.debug(e.output)
+        raise
+
+
+def collect_repo_shas():
+    shas = {}
+
+    for component in components:
+        try:
+            os.chdir(src + "/" + component)
+            shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
+        except:
+            log.error("Failed to retrieve git hash for %s" % component)
+            raise
+    return shas
+
+if args.release or not args.input:
+    # Collect hashes from the current repo.
+    shas = collect_repo_shas()
+else:
+    # Read hashes from file.
+    infile = file(cwd+"/"+args.input[0], "r")
+    shas = json.loads(infile.read())
+
+# Override hashes with any read from the command line.
+for component in components:
+    new_sha = getattr(args, component)
+    if new_sha:
+        shas[component] = new_sha[0]
+
+if not (args.release or args.input):
+    # Dump json and exit.
+    out = file(cwd+"/"+args.output[0], "w")
+    out.write(json.dumps(shas) + "\n")
+
+    log.info("Wrote release information to %s" % args.output[0])
+    sys.exit(0)
+
+# Now create releases.
+print shas
