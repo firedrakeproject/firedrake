@@ -1,34 +1,46 @@
+"""Generate COFFEE AST from ImperoC tuple data.
+
+This is the final stage of code generation in TSFC."""
+
 from __future__ import absolute_import
 
+from collections import defaultdict
 from math import isnan
+import itertools
 
 import numpy
 from singledispatch import singledispatch
-from collections import defaultdict
-import itertools
 
 import coffee.base as coffee
 
 from tsfc import gem as ein, impero as imp
-from tsfc.constants import NUMPY_TYPE, SCALAR_TYPE, PRECISION
+from tsfc.constants import SCALAR_TYPE, PRECISION
 
 
 class Bunch(object):
     pass
 
 
-def generate(temporaries, code, indices, declare):
-    parameters = Bunch()
-    parameters.declare = declare
-    parameters.indices = indices
-    parameters.names = {}
-    counter = itertools.count()
-    parameters.index_names = defaultdict(lambda: "i_%d" % next(counter))
+def generate(impero_c, index_names):
+    """Generates COFFEE code.
 
-    for i, temp in enumerate(temporaries):
+    :arg impero_c: ImperoC tuple with Impero AST and other data
+    :arg index_names: pre-assigned index names
+    :returns: COFFEE function body
+    """
+    parameters = Bunch()
+    parameters.declare = impero_c.declare
+    parameters.indices = impero_c.indices
+
+    parameters.names = {}
+    for i, temp in enumerate(impero_c.temporaries):
         parameters.names[temp] = "t%d" % i
 
-    return arabica(code, parameters)
+    counter = itertools.count()
+    parameters.index_names = defaultdict(lambda: "i_%d" % next(counter))
+    parameters.index_names.update(index_names)
+
+    return statement(impero_c.tree, parameters)
 
 
 def _coffee_symbol(symbol, rank=()):
@@ -48,94 +60,88 @@ def _coffee_symbol(symbol, rank=()):
 
 
 def _decl_symbol(expr, parameters):
+    """Build a COFFEE Symbol for declaration."""
     multiindex = parameters.indices[expr]
-    rank = tuple(index.extent for index in multiindex)
-    if hasattr(expr, 'shape'):
-        rank += expr.shape
+    rank = tuple(index.extent for index in multiindex) + expr.shape
     return _coffee_symbol(parameters.names[expr], rank=rank)
 
 
-def _index_name(index, parameters):
-    if index.name is None:
-        return parameters.index_names[index]
-    return index.name
-
-
 def _ref_symbol(expr, parameters):
+    """Build a COFFEE Symbol for referencing a value."""
     multiindex = parameters.indices[expr]
-    rank = tuple(_index_name(index, parameters) for index in multiindex)
+    rank = tuple(parameters.index_names[index] for index in multiindex)
     return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
 
 
 @singledispatch
-def arabica(tree, parameters):
+def statement(tree, parameters):
+    """Translates an Impero (sub)tree into a COFFEE AST corresponding
+    to a C statement.
+
+    :arg tree: Impero (sub)tree
+    :arg parameters: miscellaneous code generation data
+    :returns: COFFEE AST
+    """
     raise AssertionError("cannot generate COFFEE from %s" % type(tree))
 
 
-@arabica.register(imp.Block)  # noqa: Not actually redefinition
-def _(tree, parameters):
-    statements = [arabica(child, parameters) for child in tree.children]
+@statement.register(imp.Block)
+def statement_block(tree, parameters):
+    statements = [statement(child, parameters) for child in tree.children]
     declares = []
     for expr in parameters.declare[tree]:
         declares.append(coffee.Decl(SCALAR_TYPE, _decl_symbol(expr, parameters)))
     return coffee.Block(declares + statements, open_scope=True)
 
 
-@arabica.register(imp.For)  # noqa: Not actually redefinition
-def _(tree, parameters):
+@statement.register(imp.For)
+def statement_for(tree, parameters):
     extent = tree.index.extent
     assert extent
-    i = _coffee_symbol(_index_name(tree.index, parameters))
+    i = _coffee_symbol(parameters.index_names[tree.index])
     # TODO: symbolic constant for "int"
     return coffee.For(coffee.Decl("int", i, init=0),
                       coffee.Less(i, extent),
                       coffee.Incr(i, 1),
-                      arabica(tree.children[0], parameters))
+                      statement(tree.children[0], parameters))
 
 
-@arabica.register(imp.Initialise)  # noqa: Not actually redefinition
-def _(leaf, parameters):
+@statement.register(imp.Initialise)
+def statement_initialise(leaf, parameters):
     if parameters.declare[leaf]:
         return coffee.Decl(SCALAR_TYPE, _decl_symbol(leaf.indexsum, parameters), 0.0)
     else:
         return coffee.Assign(_ref_symbol(leaf.indexsum, parameters), 0.0)
 
 
-@arabica.register(imp.Accumulate)  # noqa: Not actually redefinition
-def _(leaf, parameters):
+@statement.register(imp.Accumulate)
+def statement_accumulate(leaf, parameters):
     return coffee.Incr(_ref_symbol(leaf.indexsum, parameters),
                        expression(leaf.indexsum.children[0], parameters))
 
 
-@arabica.register(imp.Return)  # noqa: Not actually redefinition
-def _(leaf, parameters):
+@statement.register(imp.Return)
+def statement_return(leaf, parameters):
     return coffee.Incr(expression(leaf.variable, parameters),
                        expression(leaf.expression, parameters))
 
 
-@arabica.register(imp.ReturnAccumulate)  # noqa: Not actually redefinition
-def _(leaf, parameters):
+@statement.register(imp.ReturnAccumulate)
+def statement_returnaccumulate(leaf, parameters):
     return coffee.Incr(expression(leaf.variable, parameters),
                        expression(leaf.indexsum.children[0], parameters))
 
 
-@arabica.register(imp.Evaluate)  # noqa: Not actually redefinition
-def _(leaf, parameters):
+@statement.register(imp.Evaluate)
+def statement_evaluate(leaf, parameters):
     expr = leaf.expression
     if isinstance(expr, ein.ListTensor):
-        # TODO: remove constant float branch.
         if parameters.declare[leaf]:
-            values = numpy.array([expression(v, parameters) for v in expr.array.flat], dtype=object)
-            if all(isinstance(value, float) for value in values):
-                qualifiers = ["static", "const"]
-                values = numpy.array(values, dtype=NUMPY_TYPE)
-            else:
-                qualifiers = []
-            values = values.reshape(expr.shape)
+            array_expression = numpy.vectorize(lambda v: expression(v, parameters))
             return coffee.Decl(SCALAR_TYPE,
                                _decl_symbol(expr, parameters),
-                               coffee.ArrayInit(values, precision=PRECISION),
-                               qualifiers=qualifiers)
+                               coffee.ArrayInit(array_expression(expr.array),
+                                                precision=PRECISION))
         else:
             ops = []
             for multiindex, value in numpy.ndenumerate(expr.array):
@@ -157,50 +163,58 @@ def _(leaf, parameters):
 
 
 def expression(expr, parameters, top=False):
+    """Translates GEM expression into a COFFEE snippet, stopping at
+    temporaries.
+
+    :arg expr: GEM expression
+    :arg parameters: miscellaneous code generation data
+    :arg top: do not generate temporary reference for the root node
+    :returns: COFFEE expression
+    """
     if not top and expr in parameters.names:
         return _ref_symbol(expr, parameters)
     else:
-        return handle(expr, parameters)
+        return _expression(expr, parameters)
 
 
 @singledispatch
-def handle(expr, parameters):
+def _expression(expr, parameters):
     raise AssertionError("cannot generate COFFEE from %s" % type(expr))
 
 
-@handle.register(ein.Product)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Product)
+def _expression_product(expr, parameters):
     return coffee.Prod(*[expression(c, parameters)
                          for c in expr.children])
 
 
-@handle.register(ein.Sum)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Sum)
+def _expression_sum(expr, parameters):
     return coffee.Sum(*[expression(c, parameters)
                         for c in expr.children])
 
 
-@handle.register(ein.Division)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Division)
+def _expression_division(expr, parameters):
     return coffee.Div(*[expression(c, parameters)
                         for c in expr.children])
 
 
-@handle.register(ein.Power)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Power)
+def _expression_power(expr, parameters):
     base, exponent = expr.children
     return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
 
 
-@handle.register(ein.MathFunction)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.MathFunction)
+def _expression_mathfunction(expr, parameters):
     name_map = {'abs': 'fabs', 'ln': 'log'}
     name = name_map.get(expr.name, expr.name)
     return coffee.FunCall(name, expression(expr.children[0], parameters))
 
 
-@handle.register(ein.Comparison)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Comparison)
+def _expression_comparison(expr, parameters):
     type_map = {">": coffee.Greater,
                 ">=": coffee.GreaterEq,
                 "==": coffee.Eq,
@@ -210,29 +224,29 @@ def _(expr, parameters):
     return type_map[expr.operator](*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.LogicalNot)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.LogicalNot)
+def _expression_logicalnot(expr, parameters):
     return coffee.Not(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.LogicalAnd)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.LogicalAnd)
+def _expression_logicaland(expr, parameters):
     return coffee.And(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.LogicalOr)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.LogicalOr)
+def _expression_logicalor(expr, parameters):
     return coffee.Or(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.Conditional)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Conditional)
+def _expression_conditional(expr, parameters):
     return coffee.Ternary(*[expression(c, parameters) for c in expr.children])
 
 
-@handle.register(ein.Literal)  # noqa: Not actually redefinition
-@handle.register(ein.Zero)
-def _(expr, parameters):
+@_expression.register(ein.Literal)
+@_expression.register(ein.Zero)
+def _expression_scalar(expr, parameters):
     assert not expr.shape
     if isnan(expr.value):
         return coffee.Symbol("NAN")
@@ -240,17 +254,17 @@ def _(expr, parameters):
         return coffee.Symbol(("%%.%dg" % (PRECISION - 1)) % expr.value)
 
 
-@handle.register(ein.Variable)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Variable)
+def _expression_variable(expr, parameters):
     return _coffee_symbol(expr.name)
 
 
-@handle.register(ein.Indexed)  # noqa: Not actually redefinition
-def _(expr, parameters):
+@_expression.register(ein.Indexed)
+def _expression_indexed(expr, parameters):
     rank = []
     for index in expr.multiindex:
         if isinstance(index, ein.Index):
-            rank.append(_index_name(index, parameters))
+            rank.append(parameters.index_names[index])
         elif isinstance(index, ein.VariableIndex):
             rank.append(index.name)
         else:

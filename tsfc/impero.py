@@ -12,6 +12,8 @@ Trivia:
 
 from __future__ import absolute_import
 
+from abc import ABCMeta, abstractmethod
+
 from tsfc.node import Node as NodeBase
 
 
@@ -24,9 +26,21 @@ class Node(NodeBase):
 class Terminal(Node):
     """Abstract class for terminal Impero nodes"""
 
+    __metaclass__ = ABCMeta
+
     __slots__ = ()
 
     children = ()
+
+    @abstractmethod
+    def loop_shape(self, free_indices):
+        """Gives the loop shape, an ordering of indices for an Impero
+        terminal.
+
+        :arg free_indices: a callable mapping of GEM expressions to
+                           ordered free indices.
+        """
+        pass
 
 
 class Evaluate(Terminal):
@@ -38,6 +52,9 @@ class Evaluate(Terminal):
     def __init__(self, expression):
         self.expression = expression
 
+    def loop_shape(self, free_indices):
+        return free_indices(self.expression)
+
 
 class Initialise(Terminal):
     """Initialise an :class:`gem.IndexSum`."""
@@ -47,6 +64,9 @@ class Initialise(Terminal):
 
     def __init__(self, indexsum):
         self.indexsum = indexsum
+
+    def loop_shape(self, free_indices):
+        return free_indices(self.indexsum)
 
 
 class Accumulate(Terminal):
@@ -58,6 +78,9 @@ class Accumulate(Terminal):
     def __init__(self, indexsum):
         self.indexsum = indexsum
 
+    def loop_shape(self, free_indices):
+        return free_indices(self.indexsum.children[0])
+
 
 class Return(Terminal):
     """Save value of GEM expression into an lvalue. Used to "return"
@@ -67,8 +90,13 @@ class Return(Terminal):
     __front__ = ('variable', 'expression')
 
     def __init__(self, variable, expression):
+        assert set(variable.free_indices) == set(expression.free_indices)
+
         self.variable = variable
         self.expression = expression
+
+    def loop_shape(self, free_indices):
+        return free_indices(self.expression)
 
 
 class ReturnAccumulate(Terminal):
@@ -79,8 +107,13 @@ class ReturnAccumulate(Terminal):
     __front__ = ('variable', 'indexsum')
 
     def __init__(self, variable, indexsum):
+        assert set(variable.free_indices) == set(indexsum.free_indices)
+
         self.variable = variable
         self.indexsum = indexsum
+
+    def loop_shape(self, free_indices):
+        return free_indices(self.indexsum.children[0])
 
 
 class Block(Node):

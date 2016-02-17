@@ -3,6 +3,8 @@ expression DAG languages."""
 
 from __future__ import absolute_import
 
+import collections
+
 
 class Node(object):
     """Abstract node class.
@@ -114,6 +116,14 @@ def traversal(expression_dags):
             if child not in seen:
                 seen.add(child)
                 lifo.append(child)
+
+
+def collect_refcount(expression_dags):
+    """Collects reference counts for a multi-root expression DAG."""
+    result = collections.Counter(expression_dags)
+    for node in traversal(expression_dags):
+        result.update(node.children)
+    return result
 
 
 def noop_recursive(function):
