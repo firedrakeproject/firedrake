@@ -11,8 +11,6 @@ SCALAR_TYPE = {numpy.dtype("double"): "double",
                numpy.dtype("float32"): "float"}[NUMPY_TYPE]
 
 
-RESTRICTION_MAP = {"+": 0, "-": 1}
-
 PARAMETERS = {
     "quadrature_rule": "auto",
     "quadrature_degree": "auto"
