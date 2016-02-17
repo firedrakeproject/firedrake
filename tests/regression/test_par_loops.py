@@ -50,21 +50,20 @@ def test_direct_par_loop(f):
 
     par_loop("""*c = 1;""", direct, {'c': (c, WRITE)})
 
-    assert all(c.dat.data == 1)
+    assert np.allclose(c.dat.data, 1.0)
 
 
-@pytest.mark.xfail
 def test_mixed_direct_par_loop(f_mixed):
-    par_loop("""*c = 1;""", direct, {'c': (f_mixed, WRITE)})
-
-    assert all(f_mixed.dat.data == 1)
+    with pytest.raises(NotImplementedError):
+        par_loop("""*c = 1;""", direct, {'c': (f_mixed, WRITE)})
+        assert all(np.allclose(f.dat.data, 1.0) for f in f_mixed.split())
 
 
 @pytest.mark.parametrize('idx', [0, 1])
 def test_mixed_direct_par_loop_components(f_mixed, idx):
     par_loop("""*c = 1;""", direct, {'c': (f_mixed[idx], WRITE)})
 
-    assert all(f_mixed.dat[idx].data == 1)
+    assert np.allclose(f_mixed.dat[idx].data, 1.0)
 
 
 def test_direct_par_loop_read_const(f, const):
@@ -80,20 +79,19 @@ def test_indirect_par_loop_read_const(f, const):
     _, d = f
     const.assign(10.0)
 
-    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *constant;""",
              dx, {'d': (d, WRITE), 'constant': (const, READ)})
 
     assert np.allclose(d.dat.data, const.dat.data)
 
 
-@pytest.mark.xfail
 def test_indirect_par_loop_read_const_mixed(f_mixed, const):
     const.assign(10.0)
 
-    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
-             dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
-
-    assert np.allclose(f_mixed.dat.data, const.dat.data)
+    with pytest.raises(NotImplementedError):
+        par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *constant;""",
+                 dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
+        assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.split())
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -102,7 +100,7 @@ def test_dict_order_parallel(f):
     mesh = d.ufl_domain()
     consts = []
     for i in range(20):
-        consts.append(Constant(i))
+        consts.append(Constant(i, domain=mesh))
 
     arg = {}
     if op2.MPI.comm.rank == 0:

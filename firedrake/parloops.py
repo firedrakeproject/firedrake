@@ -12,7 +12,7 @@ import pyop2
 
 import coffee.base as ast
 
-from firedrake import constant
+from firedrake import constant, MixedFunctionSpace
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']
@@ -77,6 +77,8 @@ def _form_kernel(kernel, measure, args, **kwargs):
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].fiat_element.space_dimension()
             else:
+                if isinstance(func.function_space(), MixedFunctionSpace):
+                    raise NotImplementedError("Must index mixed function in par_loop.")
                 ndof = func.function_space().fiat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
