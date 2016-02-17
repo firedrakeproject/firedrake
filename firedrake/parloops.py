@@ -2,6 +2,7 @@
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
 from __future__ import absolute_import
+import collections
 
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
@@ -204,6 +205,12 @@ def par_loop(kernel, measure, args, **kwargs):
     """
 
     _map = _maps[measure.integral_type()]
+    # Ensure that the dict args passed in are consistently ordered
+    # (sorted by the string key).
+    sorted_args = collections.OrderedDict()
+    for k in sorted(args.iterkeys()):
+        sorted_args[k] = args[k]
+    args = sorted_args
 
     if measure is direct:
         mesh = None

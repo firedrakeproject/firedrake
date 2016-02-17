@@ -96,6 +96,32 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
     assert np.allclose(f_mixed.dat.data, const.dat.data)
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_dict_order_parallel(f):
+    _, d = f
+    mesh = d.ufl_domain()
+    consts = []
+    for i in range(20):
+        consts.append(Constant(i))
+
+    arg = {}
+    if op2.MPI.comm.rank == 0:
+        arg['d'] = (d, WRITE)
+
+        for i, c in enumerate(consts):
+            arg["c%d" % i] = (c, READ)
+    else:
+        arg['d'] = (d, WRITE)
+
+        for i, c in enumerate(reversed(consts)):
+            arg["c%d" % (len(consts) - i - 1)] = (c, READ)
+
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *c10;""",
+             dx, arg)
+
+    assert np.allclose(d.dat.data, consts[10].dat.data)
+
+
 @pytest.mark.parametrize('idx', [0, 1])
 def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
     const.assign(10.0)
