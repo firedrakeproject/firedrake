@@ -321,7 +321,7 @@ class _VTUFile(object):
 
             connectivity = connectivity_temp.flatten()
 
-        if isinstance(output.function_space(), fs.VectorFunctionSpace):
+        if output.function_space().rank == 1:
             tmp = output.dat.data_ro_with_halos
             vdata = [None]*3
             if output.dat.dim[0] == 1:

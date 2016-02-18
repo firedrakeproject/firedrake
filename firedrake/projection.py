@@ -3,6 +3,7 @@ import ufl
 
 from firedrake import expression
 from firedrake import functionspace
+from firedrake import functionspaceimpl
 from firedrake import solving
 from firedrake import ufl_expr
 from firedrake import function
@@ -41,7 +42,7 @@ def project(v, V, bcs=None, mesh=None,
     currently ignored."""
     from firedrake import function
 
-    if isinstance(V, functionspace.FunctionSpaceBase):
+    if isinstance(V, functionspaceimpl.WithGeometry):
         ret = function.Function(V, name=name)
     elif isinstance(V, function.Function):
         ret = V

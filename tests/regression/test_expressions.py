@@ -232,7 +232,8 @@ def test_asign_to_nonindexed_subspace_fails(mfs):
     space to a function on the mixed function space should fail."""
     for fs in mfs:
         with pytest.raises(ValueError):
-            Function(mfs).assign(Function(fs._fs))
+            f = FunctionSpace(fs.mesh(), fs.ufl_element())
+            Function(mfs).assign(Function(f))
 
 
 def test_assign_mixed_no_nan(mfs):

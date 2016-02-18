@@ -19,7 +19,8 @@ def fs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
 def test_function_space_cached(mesh):
     "FunctionSpaces defined on the same mesh and element are cached."
     assert FunctionSpace(mesh, "CG", 1) == FunctionSpace(mesh, "CG", 1)
-    assert FunctionSpace(mesh, "CG", 1).topological is FunctionSpace(mesh, "CG", 1).topological
+    assert FunctionSpace(mesh, "CG", 1).topological == FunctionSpace(mesh, "CG", 1).topological
+    assert FunctionSpace(mesh, "CG", 1)._shared_data is FunctionSpace(mesh, "CG", 1)._shared_data
 
 
 def test_function_space_different_mesh_differ(mesh, mesh2):
@@ -53,4 +54,4 @@ def test_indexed_function_space_index(fs):
 
 
 def test_mixed_function_space_split(fs):
-    assert fs.split() == list(fs)
+    assert fs.split() == tuple(fs)

@@ -15,7 +15,6 @@ from pyop2 import op2
 
 from firedrake import constant
 from firedrake import function
-from firedrake import functionspace
 from firedrake import utils
 
 
@@ -75,8 +74,7 @@ class DummyFunction(ufl.Coefficient):
                 return "fn_%d[0]" % self.argnum
             else:
                 return "fn_%d[dim]" % self.argnum
-        if isinstance(self.function.function_space(),
-                      functionspace.VectorFunctionSpace):
+        if self.function.function_space().rank == 1:
             return "fn_%d[dim]" % self.argnum
         else:
             return "fn_%d[0]" % self.argnum
@@ -301,8 +299,10 @@ class ExpressionSplitter(ReuseTransformer):
             if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
                 if idx._indices[0]._value != i:
                     return self._identity
-                elif isinstance(coeff.function_space(), functionspace.VectorFunctionSpace):
+                elif coeff.function_space().rank == 1:
                     return o._ufl_expr_reconstruct_(coeff, idx)
+                elif coeff.function_space().rank == 2:
+                    raise NotImplementedError("Not implemented for tensor spaces")
             return coeff
         return [reconstruct_if_vec(*ops, i=i)
                 for i, ops in enumerate(zip(*operands))]
@@ -320,12 +320,11 @@ class ExpressionSplitter(ReuseTransformer):
             # If the function space we're assigning into is /not/
             # Mixed, o must be indexed and the functionspace component
             # much match us.
-            if not isinstance(self._fs, functionspace.MixedFunctionSpace) \
-               and self._fs.index is None:
+            if len(self._fs) == 1 and self._fs.index is None:
                 idx = o.function_space().index
                 if idx is None:
                     raise ValueError("Coefficient %r is not indexed" % o)
-                if o.function_space()._fs != self._fs:
+                if o.function_space() != self._fs:
                     raise ValueError("Mismatching function spaces")
                 return (o,)
             # Otherwise the function space must be indexed and we
@@ -336,11 +335,11 @@ class ExpressionSplitter(ReuseTransformer):
             if self._fs.index is not None:
                 # RHS indexed, indexed RHS function space must match
                 # indexed LHS function space.
-                if idx is not None and self._fs._fs != o.function_space()._fs:
+                if idx is not None and self._fs != o.function_space():
                     raise ValueError("Mismatching indexed function spaces")
                 # RHS not indexed, RHS function space must match
                 # indexed LHS function space
-                elif idx is None and self._fs._fs != o.function_space():
+                elif idx is None and self._fs != o.function_space():
                     raise ValueError("Mismatching function spaces")
                 # OK, everything checked out. Return RHS
                 return (o,)
@@ -348,7 +347,7 @@ class ExpressionSplitter(ReuseTransformer):
             if idx is None:
                 raise ValueError("Coefficient %r is not indexed" % o)
             # RHS indexed, parent function space must match LHS function space
-            if self._fs != o.function_space()._parent:
+            if self._fs != o.function_space().parent:
                 raise ValueError("Mismatching function spaces")
             # Return RHS in index slot in expression and
             # identity otherwise.
@@ -362,7 +361,7 @@ class ExpressionSplitter(ReuseTransformer):
             # LHS is mixed and Constant has same shape, use each
             # component in turn to assign to each component of the
             # mixed space.
-            if isinstance(self._fs, functionspace.MixedFunctionSpace) and \
+            if len(self._fs) > 1 and \
                isinstance(o, constant.Constant) and \
                o.ufl_element().value_shape() == self._fs.ufl_element().value_shape():
                 offset = 0
@@ -423,16 +422,12 @@ class ExpressionWalker(ReuseTransformer):
 
         if isinstance(o, function.Function):
             if self._function_space is None:
-                self._function_space = o._function_space
+                self._function_space = o.function_space()
             else:
                 # Peel out (potentially indexed) function space of LHS
                 # and RHS to check for compatibility.
                 sfs = self._function_space
-                ofs = o._function_space
-                if sfs.index is not None:
-                    sfs = sfs._fs
-                if ofs.index is not None:
-                    ofs = ofs._fs
+                ofs = o.function_space()
                 if sfs != ofs:
                     raise ValueError("Expression has incompatible function spaces %s and %s" %
                                      (sfs, ofs))

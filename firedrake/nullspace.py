@@ -4,7 +4,6 @@ from numpy import prod
 from pyop2 import op2
 
 from firedrake import function
-from firedrake import functionspace
 from firedrake.petsc import PETSc
 
 
@@ -137,15 +136,20 @@ class MixedVectorSpaceBasis(object):
     """
     def __init__(self, function_space, bases):
         self._function_space = function_space
-        if not all(isinstance(basis, (VectorSpaceBasis, functionspace.IndexedFunctionSpace))
-                   for basis in bases):
+        for basis in bases:
+            if isinstance(basis, VectorSpaceBasis):
+                continue
+            if basis.index is not None:
+                continue
             raise RuntimeError("MixedVectorSpaceBasis can only contain vector space bases or indexed function spaces")
         for i, basis in enumerate(bases):
-            if isinstance(basis, functionspace.IndexedFunctionSpace):
-                if i != basis.index:
-                    raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
-                if basis._parent != self._function_space:
-                    raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, self._function_space))
+            if isinstance(basis, VectorSpaceBasis):
+                continue
+            # Must be indexed function space
+            if i != basis.index:
+                raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
+            if basis.parent != function_space:
+                raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
 

@@ -87,7 +87,8 @@ functions over to the new mesh.  To move `f` over to ``mesh``, use:
 
 .. code-block:: python
 
-   g = Function(functionspace.WithGeometry(f.function_space(), mesh), val=f.topological)
+   g = Function(functionspaceimpl.WithGeometry(f.function_space(), mesh),
+                val=f.topological)
 
 This creates a :py:class:`~.Function` `g` which shares data with `f`,
 but its mesh geometry is ``mesh``.

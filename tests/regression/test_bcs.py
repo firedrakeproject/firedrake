@@ -149,7 +149,7 @@ def test_set_bc_value(a, u, V, f):
 
 
 def test_update_bc_expression(a, u, V, f):
-    if isinstance(V, VectorFunctionSpace):
+    if V.rank == 1:
         e = Expression(['t', 't'], t=1.0)
     else:
         e = Expression('t', t=1.0)
@@ -195,7 +195,7 @@ def test_update_bc_expression(a, u, V, f):
 
 
 def test_update_bc_constant(a, u, V, f):
-    if isinstance(V, VectorFunctionSpace):
+    if V.rank == 1:
         # Don't bother with the VFS case
         return
     c = Constant(1)

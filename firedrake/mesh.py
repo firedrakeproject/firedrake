@@ -304,8 +304,8 @@ class MeshTopology(object):
         self._plex = plex
         self.name = name
 
-        # A cache of function spaces that have been built on this mesh
-        self._cache = {}
+        # A cache of shared function space data on this mesh
+        self._shared_data_cache = {}
 
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
@@ -590,8 +590,8 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         from firedrake.citations import Citations
         Citations().register("McRae2014")
-        # A cache of function spaces that have been built on this mesh
-        self._cache = {}
+        # A cache of shared function space data on this mesh
+        self._shared_data_cache = {}
 
         mesh.init()
         self._base_mesh = mesh
@@ -772,12 +772,12 @@ class MeshGeometry(ufl.Mesh):
     @utils.cached_property
     def _coordinates_function(self):
         """The :class:`.Function` containing the coordinates of this mesh."""
-        import firedrake.functionspace as functionspace
+        import firedrake.functionspaceimpl as functionspaceimpl
         import firedrake.function as function
         self.init()
 
         coordinates_fs = self._coordinates.function_space()
-        V = functionspace.WithGeometry(coordinates_fs, self)
+        V = functionspaceimpl.WithGeometry(coordinates_fs, self)
         f = function.Function(V, val=self._coordinates)
         return f
 
@@ -967,7 +967,6 @@ def make_mesh_from_coordinates(coordinates):
 
     :arg coordinates: A :class:`~.Function`.
     """
-    import firedrake.functionspace as functionspace
     from firedrake.ufl_expr import reconstruct_element
 
     if hasattr(coordinates, '_as_mesh_geometry'):
@@ -976,7 +975,7 @@ def make_mesh_from_coordinates(coordinates):
             return mesh
 
     coordinates_fs = coordinates.function_space()
-    if not isinstance(coordinates_fs, functionspace.VectorFunctionSpace):
+    if coordinates_fs.rank != 1:
         raise ValueError("Coordinates must have a VectorFunctionSpace.")
     assert coordinates_fs.mesh().ufl_cell().topological_dimension() <= coordinates_fs.dim
     # Build coordinate element
@@ -1088,7 +1087,7 @@ def Mesh(meshfile, **kwargs):
             coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
                                                                dim=geometric_dim)
 
-            coordinates_data = dmplex.reordered_coords(plex, coordinates_fs._global_numbering,
+            coordinates_data = dmplex.reordered_coords(plex, coordinates_fs._dm.getDefaultSection(),
                                                        (self.num_vertices(), geometric_dim))
 
             coordinates = function.CoordinatelessFunction(coordinates_fs,

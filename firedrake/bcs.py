@@ -8,7 +8,6 @@ from pyop2.profiling import timed_function
 
 import firedrake.expression as expression
 import firedrake.function as function
-import firedrake.functionspace as functionspace
 import firedrake.matrix as matrix
 import firedrake.projection as projection
 import firedrake.utils as utils
@@ -59,7 +58,7 @@ class DirichletBC(object):
             raise ValueError("Unknown boundary condition method %s" % method)
         self.method = method
 
-        if V.extruded and isinstance(V, functionspace.IndexedVFS):
+        if V.extruded and V.component is not None:
             raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
 
     @property
@@ -195,18 +194,18 @@ class DirichletBC(object):
 
         # Check that r's function space matches the BC's function
         # space. Run up through parents (IndexedFunctionSpace or
-        # IndexedVFS) until we either match the function space, or
+        # ComponentFunctionSpace) until we either match the function space, or
         # else we have a mismatch and raise an error.
         while True:
             if fs == r.function_space():
                 break
-            elif hasattr(fs, "_parent"):
-                fs = fs._parent
+            elif fs.parent is not None:
+                fs = fs.parent
             else:
                 raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
         # If this BC is defined on a subspace (IndexedFunctionSpace or
-        # IndexedVFS, possibly recursively), pull out the appropriate
+        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
         # indices.
         indices = []
         fs = self._function_space
@@ -214,9 +213,11 @@ class DirichletBC(object):
             # Add index to indices if found
             if fs.index is not None:
                 indices.append(fs.index)
+            if fs.component is not None:
+                indices.append(fs.component)
             # Now try the parent
-            if hasattr(fs, "_parent"):
-                fs = fs._parent
+            if fs.parent is not None:
+                fs = fs.parent
             else:
                 # All done
                 break
