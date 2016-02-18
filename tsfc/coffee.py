@@ -266,7 +266,7 @@ def _expression_indexed(expr, parameters):
         if isinstance(index, gem.Index):
             rank.append(parameters.index_names[index])
         elif isinstance(index, gem.VariableIndex):
-            rank.append(index.name)
+            rank.append(expression(index.expression, parameters).gencode())
         else:
             rank.append(index)
     return _coffee_symbol(expression(expr.children[0], parameters),

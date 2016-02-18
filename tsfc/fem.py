@@ -384,10 +384,10 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         self.index_cache = index_cache
 
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            self.facet = {None: gem.VariableIndex('facet[0]')}
+            self.facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
         elif integral_type in ['interior_facet', 'interior_facet_vert']:
-            self.facet = {'+': gem.VariableIndex('facet[0]'),
-                          '-': gem.VariableIndex('facet[1]')}
+            self.facet = {'+': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (0,))),
+                          '-': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (1,)))}
         elif integral_type == 'exterior_facet_bottom':
             self.facet = {None: 0}
         elif integral_type == 'exterior_facet_top':

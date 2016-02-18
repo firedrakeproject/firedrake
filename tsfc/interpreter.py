@@ -238,11 +238,10 @@ def _(e, self):
             # Free index, want entire extent
             idx.append(Ellipsis)
         elif isinstance(i, gem.VariableIndex):
-            try:
-                # Variable indices must be provided in bindings
-                idx.append(self.bindings[i])
-            except KeyError:
-                raise ValueError("Binding for %s not found" % i)
+            # Variable index, evaluate inner expression
+            result, = evaluate(i.expression, self.bindings)
+            assert not result.tshape
+            idx.append(result[()])
         else:
             # Fixed index, just pick that value
             idx.append(i)
@@ -293,8 +292,8 @@ def evaluate(expressions, bindings=None):
 
     :arg expressions: A single GEM expression, or iterable of
         expressions to evaluate.
-    :kwarg bindings: An optional dict mapping GEM :class:`gem.Variable` and
-        :class:`gem.VariableIndex` nodes to data.
+    :kwarg bindings: An optional dict mapping GEM :class:`gem.Variable`
+        nodes to data.
     :returns: a list of the evaluated expressions.
     """
     try:
