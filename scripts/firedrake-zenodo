@@ -6,7 +6,6 @@ import subprocess
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 import json
-import getpass
 import time
 
 descriptions = OrderedDict([
@@ -85,17 +84,6 @@ else:
     logging.basicConfig(level=logging.INFO,
                         format='%(message)s')
 log = logging.getLogger()
-
-
-def check_call(arguments):
-    if args.log:
-        try:
-            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
-        except subprocess.CalledProcessError as e:
-            log.debug(e.output)
-            raise
-    else:
-        subprocess.check_call(arguments)
 
 
 def check_output(args):
