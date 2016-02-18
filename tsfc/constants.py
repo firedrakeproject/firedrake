@@ -13,7 +13,9 @@ SCALAR_TYPE = {numpy.dtype("double"): "double",
 
 PARAMETERS = {
     "quadrature_rule": "auto",
-    "quadrature_degree": "auto"
+    "quadrature_degree": "auto",
+    "coffee_licm": False,
+    "unroll_indexsum": 3,
 }
 
 

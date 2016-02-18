@@ -193,7 +193,8 @@ def compile_integral(idata, fd, prefix, parameters):
                              tabulation_manager, quad_rule.weights,
                              quadrature_index, argument_indices,
                              coefficient_map, index_cache)
-        nonfem = opt.unroll_indexsum(nonfem, max_extent=3)
+        if parameters["unroll_indexsum"]:
+            nonfem = opt.unroll_indexsum(nonfem, max_extent=parameters["unroll_indexsum"])
         nonfem_.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
                         for e in nonfem])
 
@@ -237,7 +238,7 @@ def compile_integral(idata, fd, prefix, parameters):
         return None
 
     # Drop unnecessary temporaries
-    ops = impero_utils.inline_temporaries(simplified, ops)
+    ops = impero_utils.inline_temporaries(simplified, ops, coffee_licm=parameters["coffee_licm"])
 
     # Prepare ImperoC (Impero AST + other data for code generation)
     impero_c = impero_utils.process(ops, get_indices)
