@@ -1,3 +1,5 @@
+"""Translation of UFL tensor-algebra into GEM tensor-algebra."""
+
 from __future__ import absolute_import
 
 import collections
@@ -12,8 +14,15 @@ from tsfc.gem import (Literal, Zero, Sum, Product, Division, Power,
 
 
 class Mixin(object):
+    """A mixin to be used with a UFL MultiFunction to translate UFL
+    algebra into GEM tensor-algebra.  This node types translate pretty
+    straightforwardly to GEM.  Other node types are not handled in
+    this mixin."""
+
     def __init__(self):
         self.index_map = collections.defaultdict(Index)
+        """A map for translating UFL free indices into GEM free
+        indices."""
 
     def scalar_value(self, o):
         return Literal(o.value())
@@ -92,10 +101,27 @@ class Mixin(object):
         return Indexed(aggregate, index)
 
     def list_tensor(self, o, *ops):
+        # UFL and GEM have a few semantical differences when it comes
+        # to ListTensor.  In UFL, a ListTensor increases the rank by
+        # one with respect to its constituents.  So to build a matrix
+        # from scalars, one must build a ListTensor of ListTensors in
+        # UFL, while a GEM ListTensor can directly construct rank two
+        # tensor from scalars because it has an explicitly specified
+        # shape.
         nesting = [isinstance(op, ListTensor) for op in ops]
         if all(nesting):
+            # ListTensor of ListTensors in UFL, build a ListTensor of
+            # higher rank in GEM.
             return ListTensor(numpy.array([op.array for op in ops]))
         elif len(o.ufl_shape) > 1:
+            # On the other hand, TSFC only builds ListTensors from
+            # scalars, while the constituents of a UFL ListTensor can
+            # be non-scalar despite not being ListTensors themselves
+            # (e.g. ComponentTensor, Zero).
+            #
+            # In this case we currently break up the tensor-valued
+            # constituents into scalars by generating fixed indices to
+            # access to every single element.
             children = []
             for op in ops:
                 child = numpy.zeros(o.ufl_shape[1:], dtype=object)
@@ -110,6 +136,8 @@ class Mixin(object):
         return ComponentTensor(expression, index)
 
     def index_sum(self, o, summand, indices):
+        # ufl.IndexSum technically has a MultiIndex, but it must have
+        # exactly one index in it.
         index, = indices
 
         if o.ufl_shape:
@@ -119,9 +147,10 @@ class Mixin(object):
             return IndexSum(summand, index)
 
     def variable(self, o, expression, label):
-        """Only used by UFL AD, at this point, the bare expression is what we want."""
+        # Only used by UFL AD, at this point, the bare expression is
+        # what we want.
         return expression
 
     def label(self, o):
-        """Only used by UFL AD, don't need it at this point."""
+        # Only used by UFL AD, don't need it at this point.
         pass
