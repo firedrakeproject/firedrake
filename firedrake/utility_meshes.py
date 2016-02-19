@@ -318,7 +318,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     :arg Lx: The extent in the x direction
     :arg Ly: The extent in the y direction
     :arg direction: The direction of the periodicity, one of
-    ``"both"``, ``"x"`` or ``"y"``.
+        ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
 
@@ -407,7 +407,7 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
     :arg ny: The number of cells in the y direction
     :arg L: The extent in the x and y directions
     :arg direction: The direction of the periodicity, one of
-    ``"both"``, ``"x"`` or ``"y"``.
+        ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
 
@@ -431,7 +431,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None, quadrilateral
     :arg nx: The number of cells in the x direction
     :arg ny: The number of cells in the y direction
     :arg direction: The direction of the periodicity, one of
-    ``"both"``, ``"x"`` or ``"y"``.
+        ``"both"``, ``"x"`` or ``"y"``.
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
 
