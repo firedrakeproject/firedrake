@@ -29,6 +29,7 @@ def find_ids(response, firedrake_tag):
 
 
 class BibtexFinder(HTMLParser):
+    """The BibTeX data is kept inside tag <pre id="clipboard_text">."""
     def __init__(self):
         HTMLParser.__init__(self)
 
