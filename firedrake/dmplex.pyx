@@ -822,20 +822,44 @@ def get_entity_classes(PETSc.DM plex, s_depth=1):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facets_by_class(PETSc.DM plex, label, s_depth=1):
+def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
+    """Builds a list of all facets ordered according to the given numbering.
+
+    :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg facet_numbering: A Section describing the global facet numbering
+    """
+    cdef:
+        PetscInt fi, fStart, fEnd, offset
+        np.ndarray[np.int32_t, ndim=1, mode="c"] facets
+
+    size = facet_numbering.getStorageSize()
+    facets = np.empty(size, dtype=np.int32)
+    fStart, fEnd = plex.getHeightStratum(1)
+    for fi in range(fStart, fEnd):
+        CHKERR(PetscSectionGetOffset(facet_numbering.sec, fi, &offset))
+        facets[offset] = fi
+    return facets
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_facets_by_class(PETSc.DM plex, label,
+                        np.ndarray[np.int32_t, mode="c"] ordering,
+                        s_depth=1):
     """Builds a list of all facets ordered according to OP2 entity
     classes and computes the respective class offsets.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
+    :arg ordering: An array giving the global traversal order of facets
     :arg label: Label string that marks the facets to order
     """
     cdef:
-        PetscInt dim, fi, ci, s, nfacets, nclass, lbl_val, fStart, fEnd
+        PetscInt dim, fi, ci, s, nfacets, nclass, lbl_val, f, fStart, fEnd
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
-        PetscBool has_point
-        DMLabel lbl_facets
+        PetscBool has_point, is_class
+        DMLabel lbl_facets, lbl_class
         np.ndarray[np.int32_t, ndim=1, mode="c"] facets
 
     label_chr = <char*>label
@@ -847,24 +871,21 @@ def get_facets_by_class(PETSc.DM plex, label, s_depth=1):
     facets = np.empty(nfacets, dtype=np.int32)
     facet_classes = [0, 0, 0, 0]
     fi = 0
+    s = s_depth
 
     for i, op2class in enumerate(["op2_core",
                                   "op2_non_core",
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
-        s = s_depth
+        CHKERR(DMPlexGetLabel(plex.dm, op2class, &lbl_class))
         nclass = plex.getStratumSize(op2class, s)
         if nclass > 0:
-            class_is = plex.getStratumIS(op2class, s)
-            CHKERR(ISGetIndices(class_is.iset, &indices))
-            for ci in range(nclass):
-                if fStart <= indices[ci] < fEnd:
-                    CHKERR(DMLabelHasPoint(lbl_facets, indices[ci],
-                                           &has_point))
-                    if has_point:
-                        facets[fi] = indices[ci]
-                        fi += 1
-            CHKERR(ISRestoreIndices(class_is.iset, &indices))
+            for f in ordering:
+                CHKERR(DMLabelHasPoint(lbl_facets, f, &has_point))
+                CHKERR(DMLabelStratumHasPoint(lbl_class, s, f, &is_class))
+                if has_point and is_class:
+                    facets[fi] = f
+                    fi += 1
         facet_classes[i] = fi
 
     return facets, facet_classes
