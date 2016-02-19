@@ -239,7 +239,7 @@ def _(e, self):
             idx.append(Ellipsis)
         elif isinstance(i, gem.VariableIndex):
             # Variable index, evaluate inner expression
-            result, = evaluate(i.expression, self.bindings)
+            result, = self(i.expression)
             assert not result.tshape
             idx.append(result[()])
         else:
