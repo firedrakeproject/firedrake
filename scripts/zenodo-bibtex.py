@@ -20,7 +20,7 @@ def find_ids(response, firedrake_tag):
     for record in response:
         try:
             for id in record['metadata']['related_identifiers']:
-                if firedrake_tag in id['identifier']:
+                if id['identifier'].endswith(firedrake_tag):
                     ids.append(record['record_id'])
         except KeyError:
             pass
@@ -69,10 +69,10 @@ if not firedrake_tag:
 # Do some primitive parsing to avoid more blatant security issues.
 try:
     assert firedrake_tag.startswith("Firedrake_")
-    float(firedrake_tag.split("_")[1])
+    float(firedrake_tag[10:])
 except:
     fail("400 Bad Request", "%s is not a legal Firedrake release tag" % firedrake_tag)
-    
+
 # Use sed to insert OAUTH token on next line before uploading to web server.
 response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions/?access_token=ZENODO_OAUTH")
 

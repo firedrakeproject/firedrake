@@ -9,14 +9,14 @@ import json
 import time
 
 descriptions = OrderedDict([
-    ("firedrake", "Firedrake: an automated finite element system"),
-    ("PyOP2", "PyOP2: Framework for performance-portable parallel computations on unstructured meshes"),
-    ("tsfc", "TSFC: The Two Stage Form Compiler"),
-    ("COFFEE", "COFFEE: A Compiler for Fast Expression Evaluation"),
-    ("ufl", "UFL: The Unified Form Language"),
-    ("fiat", "FIAT: The Finite Element Automated Tabulator"),
-    ("petsc", "PETSc: Portable, Extensible Toolkit for Scientific Computation"),
-    ("petsc4py", "PETSc4py: The Python interface to PETSc")])
+    ("firedrake", "an automated finite element system"),
+    ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
+    ("tsfc", "The Two Stage Form Compiler"),
+    ("COFFEE", "A Compiler for Fast Expression Evaluation"),
+    ("ufl", "The Unified Form Language"),
+    ("fiat", "The Finite Element Automated Tabulator"),
+    ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
+    ("petsc4py", "The Python interface to PETSc")])
 
 projects = dict(
     [("firedrake", "firedrakeproject"),
@@ -50,6 +50,8 @@ group.add_argument("--input", "-i", action="store", nargs=1,
                    help="Release based on the named input file")
 group.add_argument("--release", action="store_true",
                    help="Release based on the current checked out versions.")
+group.add_argument("--bibtex", action="store", nargs=1,
+                   help="Retrieve the BibTex entries corresponding to the tag provided.")
 parser.add_argument("--message", "-m", action="store", nargs=1,
                     help="Short description of the reason for this release. E.g. Version of Firedrake used in <paper name>.")
 for component in components:
@@ -105,6 +107,10 @@ def collect_repo_shas():
             log.error("Failed to retrieve git hash for %s" % component)
             raise
     return shas
+
+if args.bibtex:
+    
+
 
 if args.release or not args.input:
     if not args.message:
