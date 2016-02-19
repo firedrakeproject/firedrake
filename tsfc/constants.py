@@ -11,11 +11,21 @@ SCALAR_TYPE = {numpy.dtype("double"): "double",
                numpy.dtype("float32"): "float"}[NUMPY_TYPE]
 
 
-RESTRICTION_MAP = {"+": 0, "-": 1}
-
 PARAMETERS = {
     "quadrature_rule": "auto",
-    "quadrature_degree": "auto"
+    "quadrature_degree": "auto",
+
+    # Trust COFFEE to do loop-invariant code motion. Disabled by
+    # default as COFFEE does not work on TSFC-generated code yet.
+    # When enabled, it allows the inlining of expressions even if that
+    # pulls calculations into inner loops.
+    "coffee_licm": False,
+
+    # Maximum extent to unroll index sums. Default is 3, so that loops
+    # over geometric dimensions are unrolled; this improves assembly
+    # performance.  Can be disabled by setting it to None, False or 0;
+    # that makes compilation time much shorter.
+    "unroll_indexsum": 3,
 }
 
 

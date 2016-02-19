@@ -334,20 +334,27 @@ class Index(object):
 
 
 class VariableIndex(object):
-    def __init__(self, name):
-        self.name = name
+    """An index that is constant during a single execution of the
+    kernel, but whose value is not known at compile time."""
+
+    def __init__(self, expression):
+        assert isinstance(expression, Node)
+        assert not expression.free_indices
+        assert not expression.shape
+        self.expression = expression
 
     def __eq__(self, other):
-        """VariableIndices are equal if their names are equal."""
         if self is other:
             return True
         if type(self) is not type(other):
             return False
-        return self.name == other.name
+        return self.expression == other.expression
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def __hash__(self):
-        """VariableIndices hash to the hash of their name."""
-        return hash(self.name)
+        return hash((VariableIndex, self.expression))
 
 
 class Indexed(Scalar):

@@ -318,6 +318,13 @@ class TabulationManager(object):
     integral types."""
 
     def __init__(self, integral_type, cell, points):
+        """Constructs a TabulationManager.
+
+        :arg integral_type: integral type
+        :arg cell: UFL cell
+        :arg points: points on the integration entity (e.g. points on
+                     an interval for facet integrals on a triangle)
+        """
         self.integral_type = integral_type
         self.points = points
 
@@ -346,6 +353,12 @@ class TabulationManager(object):
             raise NotImplementedError("integral type %s not supported" % integral_type)
 
     def tabulate(self, ufl_element, max_deriv):
+        """Prepare the tabulations of a finite element up to a given
+        derivative order.
+
+        :arg ufl_element: UFL element to tabulate
+        :arg max_deriv: tabulate derivatives up this order
+        """
         store = collections.defaultdict(list)
         for tabulator in self.tabulators:
             for c, D, table in tabulator(ufl_element, max_deriv):
@@ -384,10 +397,10 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         self.index_cache = index_cache
 
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            self.facet = {None: gem.VariableIndex('facet[0]')}
+            self.facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
         elif integral_type in ['interior_facet', 'interior_facet_vert']:
-            self.facet = {'+': gem.VariableIndex('facet[0]'),
-                          '-': gem.VariableIndex('facet[1]')}
+            self.facet = {'+': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (0,))),
+                          '-': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (1,)))}
         elif integral_type == 'exterior_facet_bottom':
             self.facet = {None: 0}
         elif integral_type == 'exterior_facet_top':
@@ -403,6 +416,12 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
             self.cell_orientations = gem.Variable("cell_orientations", (1, 1))
 
     def select_facet(self, tensor, restriction):
+        """Applies facet selection on a GEM tensor if necessary.
+
+        :arg tensor: GEM tensor
+        :arg restriction: restriction on the modified terminal
+        :returns: another GEM tensor
+        """
         if self.integral_type == 'cell':
             return tensor
         else:
@@ -410,6 +429,8 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
             return gem.partial_indexed(tensor, (f,))
 
     def modified_terminal(self, o):
+        """Overrides the modified terminal handler from
+        :class:`ModifiedTerminalMixin`."""
         mt = analyse_modified_terminal(o)
         return translate(mt.terminal, mt, self)
 
@@ -522,11 +543,12 @@ def _(terminal, mt, params):
 
 
 def coordinate_coefficient(domain):
+    """Create a fake coordinate coefficient for a domain."""
     return ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
 
 
 def replace_coordinates(integrand, coordinate_coefficient):
-    # Replace SpatialCoordinate nodes with Coefficients
+    """Replace SpatialCoordinate nodes with Coefficients."""
     return map_expr_dag(ReplaceSpatialCoordinates(coordinate_coefficient), integrand)
 
 

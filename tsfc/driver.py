@@ -45,6 +45,13 @@ class Kernel(object):
 
 
 def compile_form(form, prefix="form", parameters=None):
+    """Compiles a UFL form into a set of assembly kernels.
+
+    :arg form: UFL form
+    :arg prefix: kernel name will start with this string
+    :arg parameters: parameters object
+    :returns: list of kernels
+    """
     cpu_time = time.time()
 
     assert isinstance(form, Form)
@@ -77,6 +84,14 @@ def compile_form(form, prefix="form", parameters=None):
 
 
 def compile_integral(idata, fd, prefix, parameters):
+    """Compiles a UFL integral into an assembly kernel.
+
+    :arg idata: UFL integral data
+    :arg fd: UFL form data
+    :arg prefix: kernel name will start with this string
+    :arg parameters: parameters object
+    :returns: a kernel, or None if the integral simplifies to zero
+    """
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") == "auto":
         del parameters["quadrature_degree"]
@@ -178,7 +193,8 @@ def compile_integral(idata, fd, prefix, parameters):
                              tabulation_manager, quad_rule.weights,
                              quadrature_index, argument_indices,
                              coefficient_map, index_cache)
-        nonfem = opt.unroll_indexsum(nonfem, max_extent=3)
+        if parameters["unroll_indexsum"]:
+            nonfem = opt.unroll_indexsum(nonfem, max_extent=parameters["unroll_indexsum"])
         nonfem_.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
                         for e in nonfem])
 
@@ -222,7 +238,7 @@ def compile_integral(idata, fd, prefix, parameters):
         return None
 
     # Drop unnecessary temporaries
-    ops = impero_utils.inline_temporaries(simplified, ops)
+    ops = impero_utils.inline_temporaries(simplified, ops, coffee_licm=parameters["coffee_licm"])
 
     # Prepare ImperoC (Impero AST + other data for code generation)
     impero_c = impero_utils.process(ops, get_indices)
@@ -254,6 +270,22 @@ def is_mesh_affine(mesh):
 
 
 def prepare_coefficient(integral_type, coefficient, name, mode=None):
+    """Bridges the kernel interface and the GEM abstraction for
+    Coefficients.  Mixed element Coefficients are rearranged here for
+    interior facet integrals.
+
+    :arg integral_type: integral type
+    :arg coefficient: UFL Coefficient
+    :arg name: unique name to refer to the Coefficient in the kernel
+    :arg mode: 'manual_loop' or 'list_tensor'; two ways to deal with
+               interior facet integrals on mixed elements
+    :returns: (funarg, prepare, expression)
+         funarg     - :class:`coffee.Decl` function argument
+         prepare    - list of COFFEE nodes to be prepended to the
+                      kernel body
+         expression - GEM expression referring to the Coefficient
+                      values
+    """
     if mode is None:
         mode = 'manual_loop'
 
@@ -377,6 +409,20 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
 
 
 def prepare_arguments(integral_type, arguments):
+    """Bridges the kernel interface and the GEM abstraction for
+    Arguments.  Vector Arguments are rearranged here for interior
+    facet integrals.
+
+    :arg integral_type: integral type
+    :arg arguments: UFL Arguments
+    :returns: (funarg, prepare, expression, finalise)
+         funarg     - :class:`coffee.Decl` function argument
+         prepare    - list of COFFEE nodes to be prepended to the
+                      kernel body
+         expression - GEM expression referring to the argument tensor
+         finalise   - list of COFFEE nodes to be appended to the
+                      kernel body
+    """
     from itertools import chain, product
 
     if len(arguments) == 0:
@@ -462,6 +508,13 @@ def prepare_arguments(integral_type, arguments):
 
 
 def coffee_for(index, extent, body):
+    """Helper function to make a COFFEE loop.
+
+    :arg index: :class:`coffee.Symbol` loop index
+    :arg extent: loop extent (integer)
+    :arg body: loop body (COFFEE node)
+    :returns: COFFEE loop
+    """
     return coffee.For(coffee.Decl("int", index, init=0),
                       coffee.Less(index, extent),
                       coffee.Incr(index, 1),
@@ -469,11 +522,15 @@ def coffee_for(index, extent, body):
 
 
 def make_prefix_ordering(indices, prefix_ordering):
+    """Creates an ordering of ``indices`` which starts with those
+    indices in ``prefix_ordering``."""
     # Need to return deterministically ordered indices
     return tuple(prefix_ordering) + tuple(k for k in indices if k not in prefix_ordering)
 
 
 def make_index_orderer(index_ordering):
+    """Returns a function which given a set of indices returns those
+    indices in the order as they appear in ``index_ordering``."""
     idx2pos = {idx: pos for pos, idx in enumerate(index_ordering)}
 
     def apply_ordering(indices):

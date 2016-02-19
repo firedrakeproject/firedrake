@@ -13,7 +13,7 @@ from singledispatch import singledispatch
 
 import coffee.base as coffee
 
-from tsfc import gem as ein, impero as imp
+from tsfc import gem, impero as imp
 from tsfc.constants import SCALAR_TYPE, PRECISION
 
 
@@ -135,7 +135,7 @@ def statement_returnaccumulate(leaf, parameters):
 @statement.register(imp.Evaluate)
 def statement_evaluate(leaf, parameters):
     expr = leaf.expression
-    if isinstance(expr, ein.ListTensor):
+    if isinstance(expr, gem.ListTensor):
         if parameters.declare[leaf]:
             array_expression = numpy.vectorize(lambda v: expression(v, parameters))
             return coffee.Decl(SCALAR_TYPE,
@@ -148,7 +148,7 @@ def statement_evaluate(leaf, parameters):
                 coffee_sym = _coffee_symbol(_ref_symbol(expr, parameters), rank=multiindex)
                 ops.append(coffee.Assign(coffee_sym, expression(value, parameters)))
             return coffee.Block(ops, open_scope=False)
-    elif isinstance(expr, ein.Literal):
+    elif isinstance(expr, gem.Literal):
         assert parameters.declare[leaf]
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
@@ -182,38 +182,38 @@ def _expression(expr, parameters):
     raise AssertionError("cannot generate COFFEE from %s" % type(expr))
 
 
-@_expression.register(ein.Product)
+@_expression.register(gem.Product)
 def _expression_product(expr, parameters):
     return coffee.Prod(*[expression(c, parameters)
                          for c in expr.children])
 
 
-@_expression.register(ein.Sum)
+@_expression.register(gem.Sum)
 def _expression_sum(expr, parameters):
     return coffee.Sum(*[expression(c, parameters)
                         for c in expr.children])
 
 
-@_expression.register(ein.Division)
+@_expression.register(gem.Division)
 def _expression_division(expr, parameters):
     return coffee.Div(*[expression(c, parameters)
                         for c in expr.children])
 
 
-@_expression.register(ein.Power)
+@_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
     return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
 
 
-@_expression.register(ein.MathFunction)
+@_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
     name_map = {'abs': 'fabs', 'ln': 'log'}
     name = name_map.get(expr.name, expr.name)
     return coffee.FunCall(name, expression(expr.children[0], parameters))
 
 
-@_expression.register(ein.Comparison)
+@_expression.register(gem.Comparison)
 def _expression_comparison(expr, parameters):
     type_map = {">": coffee.Greater,
                 ">=": coffee.GreaterEq,
@@ -224,28 +224,28 @@ def _expression_comparison(expr, parameters):
     return type_map[expr.operator](*[expression(c, parameters) for c in expr.children])
 
 
-@_expression.register(ein.LogicalNot)
+@_expression.register(gem.LogicalNot)
 def _expression_logicalnot(expr, parameters):
     return coffee.Not(*[expression(c, parameters) for c in expr.children])
 
 
-@_expression.register(ein.LogicalAnd)
+@_expression.register(gem.LogicalAnd)
 def _expression_logicaland(expr, parameters):
     return coffee.And(*[expression(c, parameters) for c in expr.children])
 
 
-@_expression.register(ein.LogicalOr)
+@_expression.register(gem.LogicalOr)
 def _expression_logicalor(expr, parameters):
     return coffee.Or(*[expression(c, parameters) for c in expr.children])
 
 
-@_expression.register(ein.Conditional)
+@_expression.register(gem.Conditional)
 def _expression_conditional(expr, parameters):
     return coffee.Ternary(*[expression(c, parameters) for c in expr.children])
 
 
-@_expression.register(ein.Literal)
-@_expression.register(ein.Zero)
+@_expression.register(gem.Literal)
+@_expression.register(gem.Zero)
 def _expression_scalar(expr, parameters):
     assert not expr.shape
     if isnan(expr.value):
@@ -254,19 +254,19 @@ def _expression_scalar(expr, parameters):
         return coffee.Symbol(("%%.%dg" % (PRECISION - 1)) % expr.value)
 
 
-@_expression.register(ein.Variable)
+@_expression.register(gem.Variable)
 def _expression_variable(expr, parameters):
     return _coffee_symbol(expr.name)
 
 
-@_expression.register(ein.Indexed)
+@_expression.register(gem.Indexed)
 def _expression_indexed(expr, parameters):
     rank = []
     for index in expr.multiindex:
-        if isinstance(index, ein.Index):
+        if isinstance(index, gem.Index):
             rank.append(parameters.index_names[index])
-        elif isinstance(index, ein.VariableIndex):
-            rank.append(index.name)
+        elif isinstance(index, gem.VariableIndex):
+            rank.append(expression(index.expression, parameters).gencode())
         else:
             rank.append(index)
     return _coffee_symbol(expression(expr.children[0], parameters),

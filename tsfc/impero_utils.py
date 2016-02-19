@@ -52,7 +52,7 @@ def inline_temporaries(expressions, ops, coffee_licm=False):
         # Prevent inlining that pulls expressions into inner loops
         for node in traversal(expressions):
             for child in node.children:
-                if child in candidates and set(child.free_indices) != set(node.free_indices):
+                if child in candidates and set(child.free_indices) < set(node.free_indices):
                     candidates.remove(child)
 
     # Filter out candidates

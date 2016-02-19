@@ -1,3 +1,6 @@
+"""A set of routines implementing various transformations on GEM
+expressions."""
+
 from __future__ import absolute_import
 
 from singledispatch import singledispatch
