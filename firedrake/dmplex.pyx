@@ -2028,3 +2028,27 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
         CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
                                <const void *>buf.data,
                                <void *>buf.data))
+
+
+def partition_locally(PETSc.DM plex, PETSc.Partitioner partitioner, npart):
+    """Apply the internals of the PETSc partitioning routines to the
+    given DM. Since we need to dictate the partition size we need tod
+    do this manually.
+    """
+    cdef:
+        PetscInt numcells, *start, *adjacency
+        PETSc.Section partsec = PETSc.Section().create()
+        PETSc.IS partition = PETSc.IS()
+
+    CHKERR(DMPlexCreatePartitionerGraph(plex.dm, 0, &numcells, &start, &adjacency))
+    if partitioner.getType() == "chaco":
+        CHKERR(PetscPartitionerPartition_Chaco(partitioner.part, plex.dm, <PetscInt>npart,
+                                               numcells, start, adjacency,
+                                               partsec.sec, &partition.iset))
+    elif partitioner.getType() == "parmetis":
+        CHKERR(PetscPartitionerPartition_ParMetis(partitioner.part, plex.dm, <PetscInt>npart,
+                                                  numcells, start, adjacency,
+                                                  partsec.sec, &partition.iset))
+    else:
+        raise RuntimeError("Unknown partitioning type")
+    return partition.indices

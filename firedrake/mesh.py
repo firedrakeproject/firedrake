@@ -341,10 +341,28 @@ class MeshTopology(object):
             self._grown_halos = True
 
             if reorder:
+                # Reordering algorithms provided by PETSc
+                ordering_types = {'rcm': PETSc.Mat.OrderingType.RCM,
+                                  'nd': PETSc.Mat.OrderingType.ND,
+                                  '1wd': PETSc.Mat.OrderingType.OWD,
+                                  'qmd': PETSc.Mat.OrderingType.QMD,
+                                  'sfc': PETSc.Mat.OrderingType.SFC}
                 with timed_region("Mesh: reorder"):
-                    old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
-                    reordering = np.empty_like(old_to_new)
-                    reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+                    # Determine which reordering algorithms to use
+                    if reorder in ordering_types:
+                        old_to_new = self._plex.getOrdering(ordering_types[reorder]).indices
+                        reordering = np.empty_like(old_to_new)
+                        reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+                    elif isinstance(reorder, tuple):
+                        print "DMPlex: Reordering using %s with %d partitions" % reorder
+                        partitioner = PETSc.Partitioner().create(comm=PETSc.COMM_SELF)
+                        partitioner.setType(reorder[0])
+                        reordering = dmplex.partition_locally(self._plex, partitioner, reorder[1])
+                    else:
+                        old_to_new = self._plex.getOrdering(PETSc.Mat.OrderingType.RCM).indices
+                        reordering = np.empty_like(old_to_new)
+                        reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
+
             else:
                 # No reordering
                 reordering = None
