@@ -35,4 +35,49 @@ scripts in your path.
 
 2. Create an issue on the Firedrake GitHub page asking that a Zenodo
    release be created. Attach the ``firedrake.json`` file to the
-   issue.
+   issue. You can create the issue `here
+   <https://github.com/firedrakeproject/firedrake/issues/new>`_.
+
+3. The Firedrake developers will generate a bespoke Firedrake release
+   containing exactly the set of versions your JSON file
+   specifies. You will be provided with a firedrake release tag of the
+   form ``Firedrake_YYYYMMDD.N``.
+
+4. You can use this release tag to retrieve BibTeX entries (including
+   the DOI) for all of the components::
+
+     firedrake-zenodo --bibtex Firedrake_YYYYMMDD.N
+
+   Obviously, you substitute in your Firedrake release tag.
+
+You can explore the full set of options for ``firedrake-zenodo``
+with::
+
+  firedrake-zenodo -h
+
+What else do you need to do?
+----------------------------
+
+Archive your code
+~~~~~~~~~~~~~~~~~
+
+``firedrake-zenodo`` produces citable DOIs which point to the versions
+of firedrake components you used. This covers your bases as far as
+Firedrake concerns, but doesn't cover your code which uses
+Firedrake. Best practice in computational science also demands that
+you provide the code which you used to conduct your experiments. You
+could attach a tarball as a supplement to your paper, or you could
+also use Zenodo. Using Zenodo in combination with GitHub for this
+purpose is documented `here
+<https://guides.github.com/activities/citable-code/>`_.
+
+Cite your sources
+~~~~~~~~~~~~~~~~~
+
+``firedrake-zenodo`` is a tool for reproducible science. Citing custom
+DOIs for particular versions of Firedrake and its dependencies aids
+readers of your papers in reproducing your science. However it's a
+supplement to, and not a replacement for, citing the published
+resources for the computational methods you are employing. Firedrake
+also offers support for citing the papers on which your computations
+depend. This is documented on the :doc:`publications` page.
