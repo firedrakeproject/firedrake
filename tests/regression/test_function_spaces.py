@@ -23,6 +23,15 @@ def test_function_space_cached(mesh):
     assert FunctionSpace(mesh, "CG", 1)._shared_data is FunctionSpace(mesh, "CG", 1)._shared_data
 
 
+def test_function_spaces_shared_data(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = VectorFunctionSpace(mesh, "Lagrange", 1)
+    assert V != Q
+    assert V.topological != Q.topological
+    assert V._shared_data is Q._shared_data
+    assert V.node_set is Q.node_set
+
+
 def test_function_space_different_mesh_differ(mesh, mesh2):
     "FunctionSpaces defined on different meshes differ."
     assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh2, "CG", 1)
