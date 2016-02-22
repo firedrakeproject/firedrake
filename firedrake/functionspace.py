@@ -115,13 +115,14 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
 
     .. note::
 
-       The element that you provide should be a scalar element (with
-       empty ``value_shape``).  If you already have an existing
-       :class:`~ufl.classes.VectorElement`, you should pass it to
-       :func:`FunctionSpace` directly instead.
+       The element that you provide need be a scalar element (with
+       empty ``value_shape``), however, it should not be an existing
+       :class:`~ufl.classes.VectorElement`.  If you already have an
+       existing :class:`~ufl.classes.VectorElement`, you should pass
+       it to :func:`FunctionSpace` directly instead.
+
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
-    assert sub_element.value_shape() == ()
     dim = dim or mesh.ufl_cell().geometric_dimension()
     element = ufl.VectorElement(sub_element, dim=dim)
     return FunctionSpace(mesh, element, name=name)
@@ -153,7 +154,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
     .. note::
 
-       The element that you provide should be a scalar element (with
+       The element that you provide must be a scalar element (with
        empty ``value_shape``).  If you already have an existing
        :class:`~ufl.classes.TensorElement`, you should pass it to
        :func:`FunctionSpace` directly instead.
