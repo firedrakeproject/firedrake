@@ -367,9 +367,12 @@ class Function(ufl.Coefficient):
         coords = fs.mesh().coordinates
 
         if not isinstance(expression, expression_t.Expression):
-            kernel, coefficients = self._interpolate_ufl_expression(expression, to_pts, to_element, fs)
+            kernel, oriented, coefficients = self._interpolate_ufl_expression(expression, to_pts, to_element, fs)
             args = [kernel, subset or self.cell_set,
                     dat(op2.WRITE, fs.cell_node_map()[op2.i[0]])]
+            if oriented:
+                co = fs.mesh().cell_orientations()
+                args.append(co.dat(op2.READ, co.cell_node_map(), flatten=True))
             for coefficient in coefficients:
                 args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=True))
         elif hasattr(expression, "eval"):
@@ -444,12 +447,16 @@ class Function(ufl.Coefficient):
             nonfem = [gem.Indexed(nonfem[0], tensor_indices)]
 
         body, oriented = driver.build_kernel_body([gem.Indexed(gem.Variable('A', (len(to_pts),) + fs.shape), (point_index,) + tensor_indices)], nonfem, [point_index], index_names={point_index: 'p'})
-        assert not oriented
+        if oriented:
+            decl = ast.Decl("int *restrict *restrict",
+                            ast.Symbol("cell_orientations"),
+                            qualifiers=["const"])
+            arglist.insert(0, decl)
 
         kernel_code = ast.FunDecl("void", "expression_kernel", [ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape))] + arglist, body, pred=["static", "inline"])
         print kernel_code
 
-        return op2.Kernel(kernel_code, "expression_kernel"), coefficients
+        return op2.Kernel(kernel_code, "expression_kernel"), oriented, coefficients
 
     def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
         """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the

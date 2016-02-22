@@ -85,6 +85,22 @@ def test_compound_expression():
 
     assert np.allclose(g.dat.data, h.dat.data)
 
+
+def test_cell_orientation():
+    m = UnitCubedSphereMesh(1)
+    m.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    x = m.coordinates
+    U = FunctionSpace(m, 'RTCF', 1)
+    V = VectorFunctionSpace(m, 'Q', 1)
+
+    f = project(as_tensor([x[1], -x[0], 0.0]), U)
+    g = interpolate(f, V)
+
+    # g shall be equivalent to:
+    h = interpolate(f, V)
+
+    assert np.allclose(g.dat.data, h.dat.data)
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
