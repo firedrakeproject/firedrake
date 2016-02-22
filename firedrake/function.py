@@ -54,8 +54,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def __init__(self, function_space, val=None, name=None, dtype=valuetype):
         """
-        :param function_space: the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
-            or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
+        :param function_space: the :class:`.FunctionSpace`, or
+            :class:`.MixedFunctionSpace` on which to build this
+            :class:`Function`.
+
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
@@ -90,7 +92,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`FunctionSpace`."""
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if self._split is None:
             self._split = tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
                                 for i, (fs, dat) in
@@ -105,7 +107,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         See also :meth:`split`.
 
         If the :class:`Function` is defined on a
-        :class:`~.VectorFunctionSpace`, this returns a proxy object
+        rank-1 :class:`~.FunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
         if len(self.function_space()) == 1 and self.function_space().rank == 1:
@@ -123,9 +125,9 @@ class CoordinatelessFunction(ufl.Coefficient):
     @property
     def node_set(self):
         """A :class:`pyop2.Set` containing the nodes of this
-        :class:`Function`. One or (for
-        :class:`.VectorFunctionSpace`\s) more degrees of freedom are
-        stored at each node.
+        :class:`Function`. One or (for rank-1 and 2
+        :class:`.FunctionSpace`\s) more degrees of freedom are stored
+        at each node.
         """
         return self.function_space().node_set
 

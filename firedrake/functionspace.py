@@ -1,8 +1,8 @@
 """
 This module implements the user-visible API for constructing
-:class:`FunctionSpace` and :class:`MixedFunctionSpace` objects.  The
+:class:`.FunctionSpace` and :class:`.MixedFunctionSpace` objects.  The
 API is functional, rather than object-based, to allow for simple
-backwards-compatibility and argument checking and dispatch.
+backwards-compatibility, argument checking, and dispatch.
 """
 from __future__ import absolute_import
 
@@ -36,7 +36,7 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
 
        As a side effect, this function finalises the initialisation of
        the provided mesh, by calling :meth:`.MeshTopology.init` (or
-       :meth:`.MeshGeometry.init` as appropriate.
+       :meth:`.MeshGeometry.init`) as appropriate.
     """
     mesh.init()
     if isinstance(family, ufl.FiniteElementBase):
@@ -113,8 +113,12 @@ def VectorFunctionSpace(mesh, family, degree=None, dim=None,
     returned.  In this case, the provided element must have an empty
     :meth:`ufl.FiniteElementBase.value_shape`.
 
-    If you have an existing :class:`ufl.VectorElement`, you should
-    pass it to :func:`FunctionSpace`.
+    .. note::
+
+       The element that you provide should be a scalar element (with
+       empty ``value_shape``).  If you already have an existing
+       :class:`~ufl.classes.VectorElement`, you should pass it to
+       :func:`FunctionSpace` directly instead.
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
     assert sub_element.value_shape() == ()
@@ -142,13 +146,17 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
         (extruded meshes only).
 
     The ``family`` argument may be an existing
-    :class:`ufl.FiniteElementBase`, in which case all other arguments
+    :class:`~ufl.classes.FiniteElementBase`, in which case all other arguments
     are ignored and the appropriate :class:`.FunctionSpace` is
     returned.  In this case, the provided element must have an empty
-    :meth:`ufl.FiniteElementBase.value_shape`.
+    :meth:`~ufl.classes.FiniteElementBase.value_shape`.
 
-    If you have an existing :class:`ufl.TensorElement`, you should
-    pass it to :func:`FunctionSpace`.
+    .. note::
+
+       The element that you provide should be a scalar element (with
+       empty ``value_shape``).  If you already have an existing
+       :class:`~ufl.classes.TensorElement`, you should pass it to
+       :func:`FunctionSpace` directly instead.
     """
     sub_element = make_scalar_element(mesh, family, degree, vfamily, vdegree)
     assert sub_element.value_shape() == ()
@@ -161,10 +169,10 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
 
     :arg spaces: An iterable of constituent spaces, or a
-        :class:`ufl.MixedElement`.
+        :class:`~ufl.classes.MixedElement`.
     :arg name: An optional name for the mixed function space.
     :arg mesh: An optional mesh.  Must be provided if spaces is a
-        :class:`ufl.MixedElement`, ignored otherwise.
+        :class:`~ufl.classes.MixedElement`, ignored otherwise.
     """
     if isinstance(spaces, ufl.FiniteElementBase):
         # Build the spaces if we got a mixed element
@@ -196,7 +204,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
             continue
         elif type(space) is impl.ProxyFunctionSpace:
             if space.component is not None:
-                raise ValueError("Can't pass a %s %s" % (space.typ, type(space)))
+                raise ValueError("Can't make mixed space with %s" % space)
             continue
         else:
             raise ValueError("Can't make mixed space with %s" % type(space))

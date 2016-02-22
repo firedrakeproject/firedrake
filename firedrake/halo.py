@@ -38,7 +38,7 @@ def _get_mtype(dat):
 class Halo(object):
     """Build a Halo for a function space.
 
-    :arg fs:  The :class:`.FunctionSpace` to build a :class:`Halo` for.
+    :arg dm:  The DM describing the data layout (has a Section attached).
 
     The halo is implemented using a PETSc SF (star forest) object and
     is usable as a PyOP2 :class:`pyop2.Halo`."""
@@ -61,8 +61,7 @@ class Halo(object):
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")
         if op2.MPI.comm.size == 1:
             self._gnn2unn = None
-        self._gnn2unn = dmplex.make_global_numbering(lsec,
-                                                     gsec)
+        self._gnn2unn = dmplex.make_global_numbering(lsec, gsec)
 
     @property
     def comm(self):

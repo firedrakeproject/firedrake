@@ -290,18 +290,18 @@ class ExpressionSplitter(ReuseTransformer):
 
     def indexed(self, o, *operands):
         """Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
-        is defined on a :class:`.VectorFunctionSpace`."""
+        is defined on a :class:`.FunctionSpace` with rank 1."""
         def reconstruct_if_vec(coeff, idx, i):
             # If the MultiIndex contains a FixedIndex we only want to return
             # the indexed coefficient if its position matches the FixedIndex
-            # Since we don't split VectorFunctionSpaces, we have to
+            # Since we don't split rank-1 function spaces, we have to
             # reconstruct the fixed index expression for those (and only those)
             if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
                 if idx._indices[0]._value != i:
                     return self._identity
                 elif coeff.function_space().rank == 1:
                     return o._ufl_expr_reconstruct_(coeff, idx)
-                elif coeff.function_space().rank == 2:
+                elif coeff.function_space().rank >= 2:
                     raise NotImplementedError("Not implemented for tensor spaces")
             return coeff
         return [reconstruct_if_vec(*ops, i=i)

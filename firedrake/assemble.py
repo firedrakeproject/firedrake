@@ -47,7 +47,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     If f is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
-    :class:`.FunctionSpace`
+    :class:`.FunctionSpace`.
 
     If ``tensor`` is supplied, the assembled result will be placed
     there, otherwise a new object of the appropriate type will be

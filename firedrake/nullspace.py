@@ -100,7 +100,7 @@ class VectorSpaceBasis(object):
 class MixedVectorSpaceBasis(object):
     """A basis for a mixed vector space
 
-    :arg function_space: the :class:`~MixedFunctionSpace` this vector
+    :arg function_space: the :class:`~.MixedFunctionSpace` this vector
          space is a basis for.
     :arg bases: an iterable of bases for the null spaces of the
          subspaces in the mixed space.

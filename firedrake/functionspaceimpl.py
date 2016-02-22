@@ -52,11 +52,11 @@ class WithGeometry(ufl.FunctionSpace):
     mesh = ufl.FunctionSpace.ufl_domain
 
     def ufl_function_space(self):
-        """The :class:`ufl.FunctionSpace` this object represents."""
+        """The :class:`~ufl.classes.FunctionSpace` this object represents."""
         return self
 
     def ufl_cell(self):
-        """The :class:`ufl.Cell` this FunctionSpace is defined on."""
+        """The :class:`~ufl.classes.Cell` this FunctionSpace is defined on."""
         return self.ufl_domain().ufl_cell()
 
     def split(self):
@@ -111,13 +111,14 @@ class FunctionSpace(object):
     determined from the provided element.
 
     :arg mesh: The :func:`~.Mesh` to build the function space on.
-    :arg element: The :class:`ufl.FiniteElementBase` describing the
+    :arg element: The :class:`~ufl.classes.FiniteElementBase` describing the
         degrees of freedom.
     :kwarg name: An optional name for this :class:`FunctionSpace`,
         useful for later identification.
 
-    The element can be a essentially any ufl FiniteElementBase, except
-    for a :class:`ufl.MixedElement`, for which one should use the
+    The element can be a essentially any
+    :class:`~ufl.classes.FiniteElementBase`, except for a
+    :class:`~ufl.classes.MixedElement`, for which one should use the
     :class:`MixedFunctionSpace` constructor.
 
     To determine whether the space is scalar-, vector- or
@@ -128,9 +129,10 @@ class FunctionSpace(object):
 
     .. warning::
 
-       Users should build a :class:`FunctionSpace` directly, instead
+       Users should not build a :class:`FunctionSpace` directly, instead
        they should use the utility :func:`~.FunctionSpace` function,
        which provides extra error checking and argument sanitising.
+
     """
     def __init__(self, mesh, element, name=None):
         super(FunctionSpace, self).__init__()
@@ -145,16 +147,29 @@ class FunctionSpace(object):
             self.shape = element.value_shape()
         else:
             self.shape = ()
+            """The shape of the degrees of freedom at each function space node."""
         self._ufl_element = element
         self._shared_data = sdata
         self._mesh = mesh
 
         self.rank = len(self.shape)
+        """The rank of this :class:`FunctionSpace`.  Spaces where the
+        element is scalar-valued (or intrinsically vector-valued) have
+        rank zero.  Spaces built on :class:`~ufl.classes.VectorElement` or
+        :class:`~ufl.classes.TensorElement` instances have rank equivalent to
+        the number of components of their
+        :meth:`~ufl.classes.FiniteElementBase.value_shape`."""
         self.dim = numpy.prod(self.shape, dtype=int)
+        """The total number of degrees of freedom at each function
+        space node."""
         self.name = name
+        """The (optional) descriptive name for this space."""
         self.node_set = sdata.node_set
+        """A :class:`pyop2.Set` representing the function space nodes."""
         self.dof_dset = op2.DataSet(self.node_set, self.shape or 1,
                                     name="%s_nodes_dset" % self.name)
+        """A :class:`pyop2.DataSet` representing the function space
+        degrees of freedom."""
         self.fiat_element = fiat_element
         self.extruded = sdata.extruded
         self.offset = sdata.offset
@@ -192,8 +207,9 @@ class FunctionSpace(object):
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setPointSF(self.mesh()._plex.getPointSF())
         dm.setDefaultSection(self._shared_data.global_numbering)
-        # FIXME: The Vec could be shared between functionspaces with
-        # the same dof_dset.
+        # FIXME: The Vec, but not the DM (since it holds a reference
+        # to the function space) could be shared between
+        # functionspaces with the same dof_dset.
         with self.make_dat().vec_ro as v:
             dm.setGlobalVector(v.duplicate())
         return dm
@@ -394,7 +410,7 @@ class MixedFunctionSpace(object):
 
        Users should not build a :class:`MixedFunctionSpace` directly,
        but should instead use the functional interface provided by
-       :func:`MixedFunctionSpace`.
+       :func:`.MixedFunctionSpace`.
     """
     def __init__(self, spaces, name=None):
         super(MixedFunctionSpace, self).__init__()
@@ -421,7 +437,7 @@ class MixedFunctionSpace(object):
         return self
 
     def ufl_element(self):
-        """The :class:`ufl.Mixedelement` this space represents."""
+        """The :class:`~ufl.classes.Mixedelement` this space represents."""
         return self._ufl_element
 
     def __eq__(self, other):
@@ -623,6 +639,11 @@ class ProxyFunctionSpace(FunctionSpace):
     :arg mesh: The mesh to use.
     :arg element: The UFL element.
     :arg name: The name of the function space.
+
+    .. warning::
+
+       Users should not build a :class:`ProxyFunctionSpace` directly,
+       it is mostly used as an internal implementation detail.
     """
     def __new__(cls, mesh, element, name=None):
         topology = mesh.topology
@@ -673,7 +694,7 @@ def IndexedFunctionSpace(index, space, parent):
     :arg index: The index into the parent space.
     :arg space: The subspace to represent
     :arg parent: The parent mixed space.
-    :returns: A new :class:`ProxyFunctionSpaceBase` with index and parent
+    :returns: A new :class:`ProxyFunctionSpace` with index and parent
         set.
     """
     new = ProxyFunctionSpace(space.mesh(), space.ufl_element(),
@@ -687,12 +708,12 @@ def IndexedFunctionSpace(index, space, parent):
 def ComponentFunctionSpace(parent, component):
     """Build a new FunctionSpace that remembers it represents a
     particular component.  Used for applying boundary conditions to
-    components of a :func:`VectorFunctionSpace`.
+    components of a :func:`.VectorFunctionSpace`.
 
     :arg parent: The parent space (a FunctionSpace with a
         VectorElement).
     :arg component: The component to represent.
-    :returns: A new :class:`ProxyFunctionSpaceBase` with the component set.
+    :returns: A new :class:`ProxyFunctionSpace` with the component set.
     """
     element = parent.ufl_element()
     assert type(element) is ufl.VectorElement
