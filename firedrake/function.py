@@ -398,20 +398,18 @@ class Function(ufl.Coefficient):
         op2.par_loop(*args)
 
     def _interpolate_ufl_expression(self, expression, to_pts, to_element, fs):
-        # These are the main symbolic processing steps:
+        import collections
         from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
         from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
         from ufl.algorithms.apply_derivatives import apply_derivatives
         from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
         from ufl.algorithms import extract_arguments, extract_coefficients
-
         from tsfc import driver, fem, gem
 
-        print expression
-        print to_pts
-        print to_element
-        print fs
-
+        # Imitate the compute_form_data processing pipeline
+        #
+        # Unfortunately, we cannot call compute_form_data here, since
+        # we only have an expression, not a form
         expression = apply_algebra_lowering(expression)
         expression = apply_derivatives(expression)
         expression = apply_function_pullbacks(expression)
@@ -420,16 +418,19 @@ class Function(ufl.Coefficient):
         expression = apply_geometry_lowering(expression)
         expression = apply_derivatives(expression)
 
+        # Replace coordinates (if any)
         if expression.ufl_domain():
             assert fs.mesh() == expression.ufl_domain()
             expression = fem.replace_coordinates(expression, fs.mesh().coordinates)
-        print expression
 
+        if extract_arguments(expression):
+            return ValueError("Cannot interpolate UFL expression with Arguments!")
+
+        # Prepare Coefficients
         arglist = []
         prepare = []
         coefficient_map = {}
 
-        assert not extract_arguments(expression)
         coefficients = extract_coefficients(expression)
         for i, coefficient in enumerate(coefficients):
             funarg, prepare_, variable = driver.prepare_coefficient('cell', coefficient, "w_%d" % i)
@@ -438,23 +439,34 @@ class Function(ufl.Coefficient):
             coefficient_map[coefficient] = variable
 
         point_index = gem.Index(name='p')
-        nonfem = driver.evaluate_at_points('cell', expression, coefficient_map, point_index, (), to_pts)
+        tabulation_manager = fem.TabulationManager('cell', fs.mesh().ufl_cell(), to_pts)
+        nonfem = fem.process('cell', expression, tabulation_manager,
+                             None, point_index, (), coefficient_map,
+                             collections.defaultdict(gem.Index))
         assert len(nonfem) == 1 and set(nonfem[0].free_indices) <= set([point_index])
 
+        # Deal with non-scalar expressions
         tensor_indices = ()
         if fs.shape:
             tensor_indices = tuple(gem.Index() for s in fs.shape)
             nonfem = [gem.Indexed(nonfem[0], tensor_indices)]
 
-        body, oriented = driver.build_kernel_body([gem.Indexed(gem.Variable('A', (len(to_pts),) + fs.shape), (point_index,) + tensor_indices)], nonfem, [point_index], index_names={point_index: 'p'})
+        # Build kernel body
+        return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
+        return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
+        body, oriented = driver.build_kernel_body([return_expr], nonfem, [point_index],
+                                                  index_names={point_index: 'p'})
         if oriented:
             decl = ast.Decl("int *restrict *restrict",
                             ast.Symbol("cell_orientations"),
                             qualifiers=["const"])
             arglist.insert(0, decl)
 
-        kernel_code = ast.FunDecl("void", "expression_kernel", [ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape))] + arglist, body, pred=["static", "inline"])
-        print kernel_code
+        # Build kernel
+        arglist.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
+        kernel_code = ast.FunDecl("void", "expression_kernel", arglist,
+                                  ast.Block(prepare + [body]),
+                                  pred=["static", "inline"])
 
         return op2.Kernel(kernel_code, "expression_kernel"), oriented, coefficients
 
