@@ -333,7 +333,7 @@ class MeshTopology(object):
         self._grown_halos = False
         self._ufl_cell = ufl.Cell(_cells[dim][cell_nfacets])
 
-        def callback(self):
+        def callback(self, reorder):
             """Finish initialisation."""
             del self._callback
             if op2.MPI.comm.size > 1:
@@ -402,11 +402,11 @@ class MeshTopology(object):
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
 
-    def init(self, s_depth=1):
+    def init(self, s_depth=1, reorder='rcm'):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
             self.s_depth = s_depth
-            self._callback(self)
+            self._callback(self, reorder)
 
     @property
     def topology(self):
