@@ -98,6 +98,17 @@ else:
 log = logging.getLogger()
 
 
+def check_call(arguments):
+    if args.log:
+        try:
+            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
+        except subprocess.CalledProcessError as e:
+            log.debug(e.output)
+            raise
+    else:
+        subprocess.check_call(arguments)
+
+
 def check_output(args):
     try:
         return subprocess.check_output(args, stderr=subprocess.STDOUT)
@@ -112,6 +123,11 @@ def collect_repo_shas():
     for component in components:
         try:
             os.chdir(src + "/" + component)
+            try:
+                check_call(["git", "diff-index", "--quiet", "HEAD"])
+            except subprocess.CalledProcessError:
+                log.error("Component %s has uncommitted changes, cannot create release" % component)
+                sys.exit(0)
             shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
         except:
             log.error("Failed to retrieve git hash for %s" % component)
