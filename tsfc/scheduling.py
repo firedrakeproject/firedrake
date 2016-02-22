@@ -165,7 +165,8 @@ def emit_operations(assignments, get_indices):
     # Stage return operations
     staging = []
     for variable, expression in assignments:
-        if isinstance(expression, gem.IndexSum) and refcount[expression] == 1:
+        if refcount[expression] == 1 and isinstance(expression, gem.IndexSum) \
+                and set(variable.free_indices) == set(expression.free_indices):
             staging.append(impero.ReturnAccumulate(variable, expression))
             refcount[expression] -= 1
         else:
