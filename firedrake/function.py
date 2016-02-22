@@ -299,20 +299,17 @@ class Function(ufl.Coefficient):
 
         :param expression: :class:`.Expression` to interpolate
         :returns: this :class:`Function` object"""
+        assert isinstance(expression, ufl.classes.Expr)
 
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
         dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
                 for fs in self.function_space()]
-        if isinstance(expression, ufl.classes.Expr):
-            value_shape = expression.ufl_shape
-        else:
-            value_shape = expression.value_shape()
-        if np.prod(value_shape, dtype=int) != sum(dims):
+        if np.prod(expression.ufl_shape, dtype=int) != sum(dims):
             raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), np.prod(value_shape, dtype=int)))
+                               % (sum(dims), np.prod(expression.ufl_shape, dtype=int)))
 
-        if isinstance(expression, ufl.classes.Expr) or hasattr(expression, 'eval'):
+        if not isinstance(expression, expression_t.Expression) or hasattr(expression, 'eval'):
             fs = self.function_space()
             if len(fs) > 1:
                 raise NotImplementedError(
@@ -363,21 +360,18 @@ class Function(ufl.Coefficient):
             raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
                                % (expression.rank(), len(fs.ufl_element().value_shape())))
 
-        if isinstance(expression, ufl.classes.Expr):
-            value_shape = expression.ufl_shape
-        else:
-            value_shape = expression.value_shape()
-        if value_shape != fs.ufl_element().value_shape():
+        if expression.ufl_shape != fs.ufl_element().value_shape():
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (value_shape, fs.ufl_element().value_shape()))
+                               % (expression.ufl_shape, fs.ufl_element().value_shape()))
 
         coords = fs.mesh().coordinates
 
-        if isinstance(expression, ufl.classes.Expr):
-            kernel = self._interpolate_ufl_expression(expression, to_pts, to_element, fs)
+        if not isinstance(expression, expression_t.Expression):
+            kernel, coefficients = self._interpolate_ufl_expression(expression, to_pts, to_element, fs)
             args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                    coords.dat(op2.READ, coords.cell_node_map(), flatten=True)]
+                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]])]
+            for coefficient in coefficients:
+                args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=True))
         elif hasattr(expression, "eval"):
             kernel = self._interpolate_python_kernel(expression,
                                                      to_pts, to_element, fs, coords)
@@ -394,7 +388,7 @@ class Function(ufl.Coefficient):
             raise RuntimeError(
                 "Attempting to evaluate an Expression which has no value.")
 
-        if hasattr(expression, '_user_args'):
+        if isinstance(expression, expression_t.Expression):
             for _, arg in expression._user_args:
                 args.append(arg(op2.READ))
 
@@ -405,17 +399,10 @@ class Function(ufl.Coefficient):
         from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
         from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
         from ufl.algorithms.apply_derivatives import apply_derivatives
-        from ufl.algorithms.apply_integral_scaling import apply_integral_scaling
         from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
-        from ufl.algorithms.apply_restrictions import apply_restrictions
-        from ufl.algorithms.estimate_degrees import estimate_total_polynomial_degree
+        from ufl.algorithms import extract_arguments, extract_coefficients
 
-        import collections
-        import numpy
-
-        from tsfc import driver, fem, gem, optimise as opt, scheduling as sch, impero_utils
-        from tsfc.node import traversal
-        from tsfc.coffee import generate as generate_coffee
+        from tsfc import driver, fem, gem
 
         print expression
         print to_pts
@@ -430,61 +417,39 @@ class Function(ufl.Coefficient):
         expression = apply_geometry_lowering(expression)
         expression = apply_derivatives(expression)
 
-        expression = fem.replace_coordinates(expression, fs.mesh().coordinates)
+        if expression.ufl_domain():
+            assert fs.mesh() == expression.ufl_domain()
+            expression = fem.replace_coordinates(expression, fs.mesh().coordinates)
         print expression
 
-        funarg, prepare_, variable = driver.prepare_coefficient('cell', fs.mesh().coordinates, "coords")
-        assert not prepare_
+        arglist = []
+        prepare = []
+        coefficient_map = {}
 
-        tabulation_manager = fem.TabulationManager('cell', fs.mesh().ufl_cell(), to_pts)
-        coefficient_map = {fs.mesh().coordinates: variable}
-        index_cache = collections.defaultdict(gem.Index)
+        assert not extract_arguments(expression)
+        coefficients = extract_coefficients(expression)
+        for i, coefficient in enumerate(coefficients):
+            funarg, prepare_, variable = driver.prepare_coefficient('cell', coefficient, "w_%d" % i)
+            arglist.append(funarg)
+            prepare.extend(prepare_)
+            coefficient_map[coefficient] = variable
 
         point_index = gem.Index(name='p')
-        nonfem = fem.process('cell', expression, tabulation_manager, None, point_index, None, coefficient_map, index_cache)
-        simplified = opt.remove_componenttensors(nonfem)
+        nonfem = driver.evaluate_at_points('cell', expression, coefficient_map, point_index, (), to_pts)
+        assert len(nonfem) == 1 and set(nonfem[0].free_indices) <= set([point_index])
 
-        assert simplified[0].free_indices == (point_index,)
-        print simplified[0]
+        tensor_indices = ()
+        if fs.shape:
+            tensor_indices = tuple(gem.Index() for s in fs.shape)
+            nonfem = [gem.Indexed(nonfem[0], tensor_indices)]
 
-        # Collect indices in a deterministic order
-        indices = []
-        for node in traversal(simplified):
-            if isinstance(node, gem.Indexed):
-                indices.extend(node.multiindex)
-        # The next two lines remove duplicate elements from the list, but
-        # preserve the ordering, i.e. all elements will appear only once,
-        # in the order of their first occurance in the original list.
-        _, unique_indices = numpy.unique(indices, return_index=True)
-        indices = numpy.asarray(indices)[numpy.sort(unique_indices)]
+        body, oriented = driver.build_kernel_body([gem.Indexed(gem.Variable('A', (len(to_pts),) + fs.shape), (point_index,) + tensor_indices)], nonfem, [point_index], index_names={point_index: 'p'})
+        assert not oriented
 
-        # Build ordered index map
-        index_ordering = driver.make_prefix_ordering(indices, (point_index,))
-        apply_ordering = driver.make_index_orderer(index_ordering)
-
-        get_indices = lambda expr: apply_ordering(expr.free_indices)
-
-        # Build operation ordering
-        ops = sch.emit_operations(zip([gem.Indexed(gem.Variable('A', (len(to_pts),)), (point_index,))], simplified), get_indices)
-        for op in ops:
-            print op.loop_shape(get_indices), type(op)
-        print '============='
-
-        # Drop unnecessary temporaries
-        ops = impero_utils.inline_temporaries(simplified, ops)
-        for op in ops:
-            print op.loop_shape(get_indices), type(op)
-
-        # Prepare ImperoC (Impero AST + other data for code generation)
-        impero_c = impero_utils.process(ops, get_indices)
-
-        body = generate_coffee(impero_c, {point_index: 'p'})
-        body.open_scope = False
-
-        kernel_code = ast.FunDecl("void", "expression_kernel", [ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),))), funarg], body, pred=["static", "inline"])
+        kernel_code = ast.FunDecl("void", "expression_kernel", [ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape))] + arglist, body, pred=["static", "inline"])
         print kernel_code
 
-        return op2.Kernel(kernel_code, "expression_kernel")
+        return op2.Kernel(kernel_code, "expression_kernel"), coefficients
 
     def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
         """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the

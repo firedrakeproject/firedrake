@@ -207,6 +207,10 @@ class Expression(ufl.Coefficient):
         """
         return self._shape
 
+    @property
+    def ufl_shape(self):
+        return self.value_shape()
+
 
 def to_expression(val, **kwargs):
     """Convert val to an :class:`Expression`.
