@@ -322,7 +322,9 @@ def git_update(name, url=None):
             current_url = check_output(["git", "remote", "-v"]).split()[1]
             protocol = "https" if current_url.startswith("https") else "ssh"
             new_url = git_url(plain_url, protocol)
-            if new_url != current_url:
+            # Ensure we only change from bitbucket to github and not the reverse.
+            if new_url != current_url and "bitbucket.org:mapdes" in current_url \
+               and "github.com:firedrakeproject" in new_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
         check_call(["git", "pull"])
