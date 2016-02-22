@@ -2,6 +2,7 @@
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
 from __future__ import absolute_import
+import collections
 
 from ufl.indexed import Indexed
 from ufl.domain import join_domains
@@ -11,7 +12,7 @@ import pyop2
 
 import coffee.base as ast
 
-from firedrake import constant
+from firedrake import constant, MixedFunctionSpace
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']
@@ -76,6 +77,8 @@ def _form_kernel(kernel, measure, args, **kwargs):
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].fiat_element.space_dimension()
             else:
+                if isinstance(func.function_space(), MixedFunctionSpace):
+                    raise NotImplementedError("Must index mixed function in par_loop.")
                 ndof = func.function_space().fiat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
@@ -204,6 +207,12 @@ def par_loop(kernel, measure, args, **kwargs):
     """
 
     _map = _maps[measure.integral_type()]
+    # Ensure that the dict args passed in are consistently ordered
+    # (sorted by the string key).
+    sorted_args = collections.OrderedDict()
+    for k in sorted(args.iterkeys()):
+        sorted_args[k] = args[k]
+    args = sorted_args
 
     if measure is direct:
         mesh = None
