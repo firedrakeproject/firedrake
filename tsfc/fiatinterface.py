@@ -195,9 +195,7 @@ def _(element, vector_is_mixed):
     # If we're just trying to get the scalar part of a vector element?
     if not vector_is_mixed:
         assert isinstance(element, (ufl.VectorElement,
-                                    ufl.TensorElement,
-                                    ufl.TensorProductVectorElement,
-                                    ufl.TensorProductTensorElement))
+                                    ufl.TensorElement))
         return create_element(element.sub_elements()[0], vector_is_mixed)
 
     elements = []
