@@ -126,6 +126,9 @@ class Expression(ufl.Coefficient):
             self._shape = arr.shape
             # Flatten to something indexable for use.
             self.code = arr.flatten()
+            for val in self.code:
+                if str(val).strip() == "":
+                    raise ValueError("Cannot provide empty expression")
         self.cell = cell
         self.degree = degree
         # These attributes are required by ufl.Coefficient to render the repr

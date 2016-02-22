@@ -317,6 +317,16 @@ def test_assign_vector_const_to_mfs_scalars(cg1):
         assert np.allclose(w_.dat.data_ro, c.dat.data_ro[i])
 
 
+def test_empty_expression():
+    with pytest.raises(ValueError):
+        Expression('')
+    with pytest.raises(ValueError):
+        Expression(["x[0]", ""])
+    with pytest.raises(ValueError):
+        Expression((("1", "0"),
+                    ("0", "")))
+
+
 def test_assign_to_mfs_sub(cg1, vcg1):
     W = cg1*vcg1
 
