@@ -1,11 +1,25 @@
-
 Firedrake Zenodo integration: tools for reproducible science
 ============================================================
+
+.. image:: _static/zenodo-gradient-1000.png
+   :width: 25%
+   :alt: Zenodo
+   :align: right
+   :target: https://zenodo.org
+   :class: round-corners
+            
+.. image:: _static/GitHub_Logo.png
+   :width: 25%
+   :alt: Zenodo
+   :align: right
+   :target: http://github.com
+   :class: round-corners
+
 
 `Zenodo <http://zenodo.org>`_ provides a facility for archiving
 scientific data, such as software. Zenodo provides secure archiving
 and referability, including digital object identifiers
-(DOIs). Firedrake integrates with Zenodo to provide Firedrake users
+(DOIs). Firedrake integrates with Zenodo and GitHub to provide Firedrake users
 with the ability to generate a set of DOIs corresponding to the exact
 set of Firedrake components which were used to conduct a particular
 simulation.
@@ -18,7 +32,7 @@ How to register DOIs for a version of Firedrake
 -----------------------------------------------
 
 This section assumes that you have a Firedrake installation which you
-have used to conduct some numerical experiment which you wish to
+have used to conduct some numerical experiment and which you wish to
 publish or otherwise record for posterity. It is assumed that your
 virtualenv is activated or that you otherwise have the firedrake
 scripts in your path.
@@ -62,7 +76,7 @@ Archive your code
 ~~~~~~~~~~~~~~~~~
 
 ``firedrake-zenodo`` produces citable DOIs which point to the versions
-of firedrake components you used. This covers your bases as far as
+of Firedrake components you used. This covers your bases as far as
 Firedrake concerns, but doesn't cover your code which uses
 Firedrake. Best practice in computational science also demands that
 you provide the code which you used to conduct your experiments. You
@@ -74,10 +88,10 @@ purpose is documented `here
 Cite your sources
 ~~~~~~~~~~~~~~~~~
 
-``firedrake-zenodo`` is a tool for reproducible science. Citing custom
-DOIs for particular versions of Firedrake and its dependencies aids
-readers of your papers in reproducing your science. However it's a
-supplement to, and not a replacement for, citing the published
-resources for the computational methods you are employing. Firedrake
-also offers support for citing the papers on which your computations
-depend. This is documented on the :doc:`publications` page.
+Citing custom DOIs for particular versions of Firedrake and its
+dependencies aids readers of your papers in reproducing your
+science. However it's a supplement to, and not a replacement for,
+citing the published resources for the computational methods you are
+employing. Firedrake also offers support for citing the papers on
+which your computations depend. This is documented on the
+:doc:`publications` page.
