@@ -126,8 +126,8 @@ def test_project_mismatched_rank():
     U = FunctionSpace(m, 'RT', 1)
     v = Function(V)
     u = Function(U)
-    ev = Expression('')
-    eu = Expression(('', ''))
+    ev = Expression('x[0]')
+    eu = Expression(('x[0]', 'x[1]'))
     with pytest.raises(RuntimeError):
         project(v, U)
     with pytest.raises(RuntimeError):
