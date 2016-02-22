@@ -36,7 +36,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     coordinates on the extruded cell (to write to), the layer number
     of each cell and the fixed layer height.
     """
-    vert_space = ext_coords.function_space().ufl_element()._B
+    vert_space = ext_coords.function_space().ufl_element().sub_elements()[0]._B
     if kernel is None and not (vert_space.degree() == 1 and
                                vert_space.family() in ['Lagrange',
                                                        'Discontinuous Lagrange']):

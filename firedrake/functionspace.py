@@ -678,7 +678,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
         dim = dim or mesh.ufl_cell().geometric_dimension()
 
         if isinstance(mesh_t.ufl_cell(), ufl.TensorProductCell) and isinstance(family, ufl.TensorProductElement):
-            element = ufl.TensorProductVectorElement(family, dim=dim)
+            element = ufl.VectorElement(family, dim=dim)
         elif isinstance(mesh_t.ufl_cell(), ufl.TensorProductCell) and vfamily is not None and vdegree is not None:
             la = ufl.FiniteElement(family,
                                    cell=mesh_t._base_mesh.ufl_cell(),
@@ -686,7 +686,7 @@ class VectorFunctionSpace(FunctionSpaceBase):
             lb = ufl.FiniteElement(vfamily,
                                    cell=ufl.interval,
                                    degree=vdegree)
-            element = ufl.TensorProductVectorElement(la, lb, dim=dim)
+            element = ufl.VectorElement(ufl.TensorProductElement(la, lb), dim=dim)
         else:
             element = ufl.VectorElement(family,
                                         cell=mesh_t.ufl_cell(),
