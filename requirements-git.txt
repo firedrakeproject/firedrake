@@ -1,3 +1,3 @@
-git+https://bitbucket.org/mapdes/petsc.git@firedrake#egg=petsc
---no-deps git+https://bitbucket.org/mapdes/petsc4py.git@firedrake#egg=petsc4py
+git+https://github.com/firedrakeproject/petsc.git@firedrake#egg=petsc
+--no-deps git+https://github.com/firedrakeproject/petsc4py.git@firedrake#egg=petsc4py
 git+https://github.com/coneoproject/COFFEE#egg=COFFEE-dev
