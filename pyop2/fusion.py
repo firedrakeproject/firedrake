@@ -794,7 +794,7 @@ class Inspector(Cached):
         key = (name,)
         if name != lazy_trace_name:
             # Special case: the Inspector comes from a user-defined /loop_chain/
-            key += (options['mode'], options['tile_size'], options['partitioning'])
+            key += (options['mode'], options['tile_size'])
             key += (loop_chain[0].kernel.cache_key,)
             return key
         # Inspector extracted from lazy evaluation trace
@@ -839,7 +839,6 @@ class Inspector(Cached):
                 * only_tile: only tiling through the SLOPE library (i.e., no fusion)
                 * only_omp: ompize individual parloops through the SLOPE library
             * tile_size: starting average tile size
-            * partitioning: strategy for tile partitioning
             * extra_halo: are we providing SLOPE with extra halo to be efficient
                 and allow it to minimize redundant computation ?
         """
@@ -1298,7 +1297,6 @@ class Inspector(Cached):
             return infoset
 
         tile_size = self._options.get('tile_size', 1)
-        partitioning = self._options.get('partitioning', 'chunk')
         extra_halo = self._options.get('extra_halo', False)
         log = self._options.get('log', False)
 
@@ -1365,7 +1363,7 @@ class Inspector(Cached):
         argtypes, argvalues = zip(*arguments)
 
         # Set a tile partitioning strategy
-        inspector.set_partitioning(partitioning)
+        inspector.set_partitioning('chunk')
 
         # Generate the C code
         src = inspector.generate_code()
@@ -1483,7 +1481,6 @@ def fuse(name, loop_chain, **kwargs):
         'log': kwargs.get('log', False),
         'mode': kwargs.get('mode', 'hard'),
         'tile_size': kwargs.get('tile_size', 1),
-        'partitioning': kwargs.get('partitioning', 'chunk'),
         'extra_halo': kwargs.get('extra_halo', False)
     }
     inspector = Inspector(name, loop_chain, **options)
@@ -1574,9 +1571,6 @@ def loop_chain(name, **kwargs):
         * force_glb (default=False): force tiling even in presence of global
             reductions. In this case, the user becomes responsible of semantic
             correctness.
-        * partitioning (default='chunk'): select a partitioning mode for crafting
-            tiles. The partitioning modes available are those accepted by SLOPE;
-            refer to the SLOPE documentation for more info.
         * split_mode (default=0): split the loop chain every /split_mode/ occurrences
             of the special object ``LoopChainTag`` in the trace, thus creating a
             specific inspector for each slice.
@@ -1586,7 +1580,6 @@ def loop_chain(name, **kwargs):
 
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
-    partitioning = kwargs.setdefault('partitioning', 'chunk')
     split_mode = kwargs.pop('split_mode', 0)
 
     # Get a snapshot of the trace before new par loops are added within this
@@ -1631,8 +1624,7 @@ def loop_chain(name, **kwargs):
         if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
             block_size = tile_size    # This is rather a 'block' size (no tiling)
             options = {'mode': 'only_omp',
-                       'tile_size': block_size,
-                       'partitioning': partitioning}
+                       'tile_size': block_size}
             new_trace = [Inspector(name, [loop], **options).inspect()([loop])
                          for loop in extracted_trace]
             trace[bottom:] = list(flatten(new_trace))
