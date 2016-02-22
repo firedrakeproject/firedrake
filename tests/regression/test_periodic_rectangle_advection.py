@@ -102,8 +102,9 @@ def test_periodic_rectangle_advection(degree, threshold,
     assert np.all(convergence > threshold)
 
 
-test_parallel_periodic_rectangle_advection = \
-    pytest.mark.parallel(nprocs=2)(test_periodic_rectangle_advection)
+@pytest.mark.parallel(nprocs=3)
+def test_parallel_periodic_rectangle_advection():
+    test_periodic_rectangle_advection(1, 1.8, "x", False)
 
 
 if __name__ == '__main__':
