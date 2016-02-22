@@ -23,9 +23,14 @@ def gen_mesh(args):
     mesh_size = int(args.mesh_size)
     extra_halo = args.extra_halo
     debug_mode = args.debug
+    part_mode = args.part_mode
+    tile_size = args.tile_size
 
+    kwargs = {'s_depth': calculate_sdepth(num_solves, num_unroll, extra_halo)}
+    if part_mode == 'metis':
+        kwargs['reorder'] = ('parmetis', tile_size)
     mesh = Mesh(mesh_file) if mesh_file else UnitSquareMesh(mesh_size, mesh_size)
-    mesh.topology.init(s_depth=calculate_sdepth(num_solves, num_unroll, extra_halo))
+    mesh.topology.init(**kwargs)
     slope(mesh, debug=debug_mode)
     return mesh
 
@@ -68,7 +73,7 @@ def run(args, mesh, time_scale=1):
     start = time()
     while t <= T:
         with loop_chain("main", tile_size=tile_size, num_unroll=num_unroll, mode=mode,
-                        partitioning=part_mode, extra_halo=extra_halo):
+                        extra_halo=extra_halo):
             phi -= dt / 2 * p
 
             asm = assemble(form)
