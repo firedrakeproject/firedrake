@@ -345,8 +345,7 @@ class MeshTopology(object):
                 ordering_types = {'rcm': PETSc.Mat.OrderingType.RCM,
                                   'nd': PETSc.Mat.OrderingType.ND,
                                   '1wd': PETSc.Mat.OrderingType.OWD,
-                                  'qmd': PETSc.Mat.OrderingType.QMD,
-                                  'sfc': PETSc.Mat.OrderingType.SFC}
+                                  'qmd': PETSc.Mat.OrderingType.QMD}
                 with timed_region("Mesh: reorder"):
                     # Determine which reordering algorithms to use
                     if reorder in ordering_types:
