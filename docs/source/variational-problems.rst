@@ -589,7 +589,7 @@ we can write:
 
 .. code-block:: python
 
-   e = Expression('sin(x[0]*t'), t=t)
+   e = Expression('sin(x[0]*t)', t=t)
    bc = DirichletBC(V, e, 1)
    while t < T:
        solve(F == 0, bcs=[bc])
