@@ -975,13 +975,14 @@ def make_mesh_from_coordinates(coordinates):
         if mesh is not None:
             return mesh
 
-    coordinates_fs = coordinates.function_space()
-    if coordinates_fs.rank != 1:
-        raise ValueError("Coordinates must have a VectorFunctionSpace.")
-    assert coordinates_fs.mesh().ufl_cell().topological_dimension() <= coordinates_fs.dim
+    V = coordinates.function_space()
+    element = coordinates.ufl_element()
+    if V.rank != 1 or len(element.value_shape()) != 1:
+        raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
+    assert V.mesh().ufl_cell().topological_dimension() <= V.dim
     # Build coordinate element
     element = coordinates.ufl_element()
-    cell = element.cell().reconstruct(geometric_dimension=coordinates_fs.dim)
+    cell = element.cell().reconstruct(geometric_dimension=V.dim)
     element = reconstruct_element(element, cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
