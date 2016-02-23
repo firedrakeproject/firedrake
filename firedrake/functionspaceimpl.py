@@ -67,6 +67,99 @@ class WithGeometry(ufl.FunctionSpace):
     def sub(self, i):
         return WithGeometry(self.topological.sub(i), self.mesh())
 
+    @property
+    def num_work_functions(self):
+        """The number of checked out work functions."""
+        return sum(self._work_functions.values())
+
+    @property
+    def max_work_functions(self):
+        """The maximum number of work functions this :class:`FunctionSpace` supports.
+
+        See :meth:`get_work_function` for obtaining work functions."""
+        return getattr(self.topological, '_max_work_functions', 25)
+
+    @max_work_functions.setter
+    def max_work_functions(self, val):
+        """Set the number of work functions this :class:`FunctionSpace` supports.
+
+        :arg val: The new maximum number of work functions.
+        :raises ValueError: if the provided value is smaller than the
+            number of currently checked out work functions.
+            """
+        # Clear cache
+        cache = self._work_functions
+        if val < len(cache):
+            for k in cache.keys():
+                if not cache[k]:
+                    del cache[k]
+            if val < len(cache):
+                raise ValueError("Can't set work function cache smaller (%d) than current checked out functions (%d)" %
+                                 (val, len(cache)))
+        setattr(self.topological, '_max_work_functions', val)
+
+    def get_work_function(self, zero=True):
+        """Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
+
+        :arg zero: Should the :class:`~.Function` be guaranteed zero?
+            If ``zero`` is ``False`` the returned function may or may
+            not be zeroed, and the user is responsible for appropriate
+            zeroing.
+
+        :raises ValueError: if :attr:`max_work_functions` are already
+            checked out.
+
+        .. note ::
+
+            This method is intended to be used for short-lived work
+            functions, if you actually need a function for general
+            usage use the :class:`~.Function` constructor.
+
+            When you are finished with the work function, you should
+            restore it to the pool of available functions with
+            :meth:`restore_work_function`.
+
+        """
+        cache = self._work_functions
+        for function in cache.keys():
+            # Check if we've got a free work function available
+            out = cache[function]
+            if not out:
+                cache[function] = True
+                if zero:
+                    function.dat.zero()
+                return function
+        if len(cache) == self.max_work_functions:
+            raise ValueError("Can't check out more than %d work functions." %
+                             self.max_work_functions)
+        from firedrake import Function
+        function = Function(self)
+        cache[function] = True
+        return function
+
+    def restore_work_function(self, function):
+        """Restore a work function obtained with :meth:`get_work_function`.
+
+        :arg function: The work function to restore
+        :raises ValueError: if the provided function was not obtained
+            with :meth:`get_work_function` or it has already been restored.
+
+        .. warning::
+
+           This does *not* invalidate the name in the calling scope,
+           it is the user's responsibility not to use a work function
+           after restoring it.
+        """
+        cache = self._work_functions
+        try:
+            out = cache[function]
+        except KeyError:
+            raise ValueError("Function %s is not a work function" % function)
+
+        if not out:
+            raise ValueError("Function %s is not checked out, cannot restore" % function)
+        cache[function] = False
+
     def __eq__(self, other):
         try:
             return self.topological == other.topological and \
@@ -156,6 +249,11 @@ class FunctionSpace(object):
         self._ufl_element = element
         self._shared_data = sdata
         self._mesh = mesh
+        # Cache for "work functions", temporary Functions built on
+        # this function space that are used and then restored.
+        # TODO: This is not shared between function space instances
+        # that compare the same.
+        self._work_functions = {}
 
         self.rank = len(self.shape)
         """The rank of this :class:`FunctionSpace`.  Spaces where the
