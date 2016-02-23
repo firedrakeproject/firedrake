@@ -14,6 +14,7 @@ def fail(code, reason):
     sys.stdout.write('Status: %s\r\n\r\n%s\r\n\r\n' % (code, reason))
     sys.exit(1)
 
+
 def find_ids(response, firedrake_tag):
 
     ids = []
