@@ -71,6 +71,9 @@ if not firedrake_tag:
 try:
     assert firedrake_tag.startswith("Firedrake_")
     float(firedrake_tag[10:])
+    assert firedrake_tag[18] == "."
+    digits = map(str, range(10))
+    assert all([a in digits for a in (firedrake_tag[10:18] + firedrake_tag[19:])])
 except:
     fail("400 Bad Request", "%s is not a legal Firedrake release tag" % firedrake_tag)
 
