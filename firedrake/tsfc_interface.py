@@ -22,7 +22,6 @@ from pyop2.mpi import MPI
 
 from coffee.base import Invert
 
-import firedrake.functionspace as functionspace
 from firedrake.parameters import parameters as default_parameters
 
 
@@ -74,8 +73,7 @@ class FormSplitter(MultiFunction):
 
         """
         args = form.arguments()
-        if not any(isinstance(a.function_space(), functionspace.MixedFunctionSpace)
-                   for a in args):
+        if all(len(a.function_space()) == 1 for a in args):
             # No mixed spaces, just return the form directly.
             idx = tuple([0]*len(form.arguments()))
             return (SplitForm(indices=idx, form=form), )
@@ -103,7 +101,7 @@ class FormSplitter(MultiFunction):
 
     def argument(self, o):
         V = o.function_space()
-        if not isinstance(V, functionspace.MixedFunctionSpace):
+        if len(V) == 1:
             # Not on a mixed space, just return ourselves.
             return o
         # Already seen this argument, return the cached version.

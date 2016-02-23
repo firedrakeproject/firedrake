@@ -31,7 +31,7 @@ def fs(request, cg1, vcg1, tcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace, TensorFunctionSpace)):
+    if fs.rank >= 1:
         f.interpolate(Expression(("x[0]",) * fs.dim))
     else:
         f.interpolate(Expression("x[0]"))
@@ -41,7 +41,7 @@ def f(fs):
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace, TensorFunctionSpace)):
+    if fs.rank >= 1:
         one.interpolate(Expression(("1",) * fs.dim))
     else:
         one.interpolate(Expression("1"))
@@ -59,7 +59,7 @@ def test_one_form(M, f):
     one_form = assemble(action(M, f))
     assert isinstance(one_form, Function)
     for f in one_form.split():
-        if(isinstance(f.function_space(), TensorFunctionSpace)):
+        if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
             assert abs(f.dat.data.sum() - 0.5*f.function_space().dim) < 1.0e-12

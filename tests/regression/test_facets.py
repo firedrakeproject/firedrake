@@ -45,7 +45,7 @@ def test_right_external_integral(f):
 
 
 def test_internal_integral(f):
-    if len(f.function_space().cell_node_list) == 1:
+    if f.function_space().mesh().num_cells() == 1:
         # Quadrilateral case, no internal facet
         assert abs(assemble(f('+') * dS)) < 1.0e-14
     else:

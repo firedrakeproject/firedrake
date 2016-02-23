@@ -233,6 +233,10 @@ class MixedFunctionSpaceHierarchy(object):
         assert all(isinstance(s, BaseHierarchy) for s in spaces)
         self._hierarchy = tuple([set_level(functionspace.MixedFunctionSpace(s), self, lvl)
                                 for lvl, s in enumerate(zip(*spaces))])
+        # Attach level info to the new ProxyFunctionSpaces inside the mixed spaces.
+        for lvl, mixed_space in enumerate(self._hierarchy):
+            for i, space in enumerate(mixed_space):
+                set_level(space, spaces[i], lvl)
         self._spaces = tuple(spaces)
         self._ufl_element = self._hierarchy[0].ufl_element()
         for V in self:

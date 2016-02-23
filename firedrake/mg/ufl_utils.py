@@ -110,9 +110,11 @@ def coarsen_thing(thing):
         return None
     if isinstance(thing, firedrake.DirichletBC):
         return coarsen_bc(thing)
-    if isinstance(thing, firedrake.IndexedFunctionSpace):
+    if isinstance(thing, (firedrake.functionspaceimpl.FunctionSpace,
+                          firedrake.functionspaceimpl.WithGeometry)) and \
+       thing.index is not None:
         idx = thing.index
-        val = thing._parent
+        val = thing.parent
         hierarchy, level = utils.get_level(val)
         new_val = hierarchy[level-1]
         return new_val.sub(idx)

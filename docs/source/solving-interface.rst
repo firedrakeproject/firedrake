@@ -504,7 +504,7 @@ as follows:
 
 In this example, none of the :class:`~.FunctionSpace`\s used had
 names, and hence we referred to the fields by number.  If the
-FunctionSpaces are named, then any time a single field appears as a
+function spaces are named, then any time a single field appears as a
 split, its options prefix is referred to by the space's *name* (rather
 than a number).  Concretely, if the previous example had use a set of
 FunctionSpace definitions:

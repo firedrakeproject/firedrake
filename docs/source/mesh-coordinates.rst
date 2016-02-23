@@ -59,8 +59,11 @@ mesh object from a field `f`:
 
 ``new_mesh`` has the same mesh topology as the original mesh, but its
 coordinate values and coordinate function space are from `f`. The
-coordinate function space must be a :py:class:`~.VectorFunctionSpace`.
-For efficiency, the new mesh object shares data with `f`. That is,
+coordinate function space must be a rank-1
+:py:class:`~.FunctionSpace`, constructed either with
+:py:func:`~.VectorFunctionSpace`, or by providing a
+:py:class:`~ufl.classes.VectorElement` to :py:func:`~.FunctionSpace`.  For
+efficiency, the new mesh object shares data with `f`. That is,
 changing the values of `f` will change the coordinate values of the
 mesh, and *vice versa*.  If this behaviour is undesired, one should
 explicitly copy:
@@ -87,7 +90,8 @@ functions over to the new mesh.  To move `f` over to ``mesh``, use:
 
 .. code-block:: python
 
-   g = Function(functionspace.WithGeometry(f.function_space(), mesh), val=f.topological)
+   g = Function(functionspaceimpl.WithGeometry(f.function_space(), mesh),
+                val=f.topological)
 
 This creates a :py:class:`~.Function` `g` which shares data with `f`,
 but its mesh geometry is ``mesh``.

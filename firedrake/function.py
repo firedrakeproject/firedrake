@@ -11,7 +11,7 @@ from pyop2 import op2
 from pyop2.logger import warning
 
 from firedrake import expression as expression_t
-from firedrake import functionspace
+from firedrake import functionspaceimpl
 from firedrake import utils
 from firedrake import vector
 try:
@@ -54,8 +54,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def __init__(self, function_space, val=None, name=None, dtype=valuetype):
         """
-        :param function_space: the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
-            or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
+        :param function_space: the :class:`.FunctionSpace`, or
+            :class:`.MixedFunctionSpace` on which to build this
+            :class:`Function`.
+
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
@@ -63,7 +65,8 @@ class CoordinatelessFunction(ufl.Coefficient):
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``valuetype``).
         """
-        assert isinstance(function_space, functionspace.FunctionSpaceBase), \
+        assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
+                                           functionspaceimpl.MixedFunctionSpace)), \
             "Can't make a CoordinatelessFunction defined on a " + str(type(function_space))
 
         ufl.Coefficient.__init__(self, function_space.ufl_element())
@@ -89,11 +92,11 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
-        of this this :class:`Function`'s :class:`FunctionSpace`."""
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
         if self._split is None:
             self._split = tuple(CoordinatelessFunction(fs, dat, name="%s[%d]" % (self.name(), i))
                                 for i, (fs, dat) in
-                                enumerate(zip(self._function_space, self.dat)))
+                                enumerate(zip(self.function_space(), self.dat)))
         return self._split
 
     def sub(self, i):
@@ -104,10 +107,10 @@ class CoordinatelessFunction(ufl.Coefficient):
         See also :meth:`split`.
 
         If the :class:`Function` is defined on a
-        :class:`~.VectorFunctionSpace`, this returns a proxy object
+        rank-1 :class:`~.FunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if isinstance(self.function_space(), functionspace.VectorFunctionSpace):
+        if len(self.function_space()) == 1 and self.function_space().rank == 1:
             fs = self.function_space().sub(i)
             return CoordinatelessFunction(fs, val=op2.DatView(self.dat, i),
                                           name="view[%d](%s)" % (i, self.name()))
@@ -117,42 +120,43 @@ class CoordinatelessFunction(ufl.Coefficient):
     def cell_set(self):
         """The :class:`pyop2.Set` of cells for the mesh on which this
         :class:`Function` is defined."""
-        return self._function_space._mesh.cell_set
+        return self.function_space()._mesh.cell_set
 
     @property
     def node_set(self):
         """A :class:`pyop2.Set` containing the nodes of this
-        :class:`Function`. One or (for
-        :class:`.VectorFunctionSpace`\s) more degrees of freedom are
-        stored at each node.
+        :class:`Function`. One or (for rank-1 and 2
+        :class:`.FunctionSpace`\s) more degrees of freedom are stored
+        at each node.
         """
-        return self._function_space.node_set
+        return self.function_space().node_set
 
     @property
     def dof_dset(self):
         """A :class:`pyop2.DataSet` containing the degrees of freedom of
         this :class:`Function`."""
-        return self._function_space.dof_dset
+        return self.function_space().dof_dset
 
     def cell_node_map(self, bcs=None):
-        return self._function_space.cell_node_map(bcs)
-    cell_node_map.__doc__ = functionspace.FunctionSpace.cell_node_map.__doc__
+        return self.function_space().cell_node_map(bcs)
+    cell_node_map.__doc__ = functionspaceimpl.FunctionSpace.cell_node_map.__doc__
 
     def interior_facet_node_map(self, bcs=None):
-        return self._function_space.interior_facet_node_map(bcs)
-    interior_facet_node_map.__doc__ = functionspace.FunctionSpace.interior_facet_node_map.__doc__
+        return self.function_space().interior_facet_node_map(bcs)
+    interior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.interior_facet_node_map.__doc__
 
     def exterior_facet_node_map(self, bcs=None):
-        return self._function_space.exterior_facet_node_map(bcs)
-    exterior_facet_node_map.__doc__ = functionspace.FunctionSpace.exterior_facet_node_map.__doc__
+        return self.function_space().exterior_facet_node_map(bcs)
+    exterior_facet_node_map.__doc__ = functionspaceimpl.FunctionSpace.exterior_facet_node_map.__doc__
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self.dat)
 
     def function_space(self):
-        """Return the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
-            or :class:`.MixedFunctionSpace` on which this :class:`Function` is defined."""
+        """Return the :class:`.FunctionSpace`, or
+        :class:`.MixedFunctionSpace` on which this :class:`Function`
+        is defined."""
         return self._function_space
 
     def name(self):
@@ -201,7 +205,7 @@ class Function(ufl.Coefficient):
 
     def __init__(self, function_space, val=None, name=None, dtype=valuetype):
         """
-        :param function_space: the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
+        :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
@@ -211,22 +215,22 @@ class Function(ufl.Coefficient):
                (defaults to ``valuetype``).
         """
 
-        if isinstance(function_space, Function):
-            self._function_space = function_space._function_space
-        elif isinstance(function_space, functionspace.FunctionSpaceBase):
-            self._function_space = function_space
-        else:
+        V = function_space
+        if isinstance(V, Function):
+            V = V.function_space()
+        elif not isinstance(V, functionspaceimpl.WithGeometry):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
         if isinstance(val, CoordinatelessFunction):
-            if val.function_space() != self._function_space.topological:
+            if val.function_space() != V.topological:
                 raise ValueError("Function values have wrong function space.")
             self._data = val
         else:
-            self._data = CoordinatelessFunction(self._function_space.topological,
+            self._data = CoordinatelessFunction(V.topological,
                                                 val=val, name=name, dtype=dtype)
 
+        self._function_space = V
         ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
         self._split = None
 
@@ -253,7 +257,7 @@ class Function(ufl.Coefficient):
         if self._split is None:
             self._split = tuple(Function(fs, dat, name="%s[%d]" % (self.name(), i))
                                 for i, (fs, dat) in
-                                enumerate(zip(self._function_space, self.dat)))
+                                enumerate(zip(self.function_space(), self.dat)))
         return self._split
 
     def sub(self, i):
@@ -267,7 +271,7 @@ class Function(ufl.Coefficient):
         :class:`~.VectorFunctionSpace`, this returns a proxy object
         indexing the ith component of the space, suitable for use in
         boundary condition application."""
-        if isinstance(self.function_space(), functionspace.VectorFunctionSpace):
+        if len(self.function_space()) == 1 and self.function_space().rank == 1:
             fs = self.function_space().sub(i)
             return Function(fs, val=op2.DatView(self.dat, i),
                             name="view[%d](%s)" % (i, self.name()))
@@ -285,8 +289,9 @@ class Function(ufl.Coefficient):
         return projection.project(b, self, *args, **kwargs)
 
     def function_space(self):
-        """Return the :class:`.FunctionSpace`, :class:`.VectorFunctionSpace`
-            or :class:`.MixedFunctionSpace` on which this :class:`Function` is defined."""
+        """Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
+            on which this :class:`Function` is defined.
+        """
         return self._function_space
 
     def interpolate(self, expression, subset=None):
@@ -305,7 +310,7 @@ class Function(ufl.Coefficient):
 
         if hasattr(expression, 'eval'):
             fs = self.function_space()
-            if isinstance(fs, functionspace.MixedFunctionSpace):
+            if len(fs) > 1:
                 raise NotImplementedError(
                     "Python expressions for mixed functions are not yet supported.")
             self._interpolate(fs, self.dat, expression, subset)
@@ -505,7 +510,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         """
 
         if isinstance(expr, Function) and \
-           expr._function_space == self._function_space:
+           expr.function_space() == self.function_space():
             expr.dat.copy(self.dat, subset=subset)
             return self
 
@@ -521,7 +526,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat += expr
             return self
         if isinstance(expr, Function) and \
-                expr._function_space == self._function_space:
+           expr.function_space() == self.function_space():
             self.dat += expr.dat
             return self
 
@@ -538,7 +543,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat -= expr
             return self
         if isinstance(expr, Function) and \
-                expr._function_space == self._function_space:
+           expr.function_space() == self.function_space():
             self.dat -= expr.dat
             return self
 
@@ -555,7 +560,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat *= expr
             return self
         if isinstance(expr, Function) and \
-                expr._function_space == self._function_space:
+           expr.function_space() == self.function_space():
             self.dat *= expr.dat
             return self
 
@@ -572,7 +577,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             self.dat /= expr
             return self
         if isinstance(expr, Function) and \
-                expr._function_space == self._function_space:
+           expr.function_space() == self.function_space():
             self.dat /= expr.dat
             return self
 

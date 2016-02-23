@@ -6,6 +6,7 @@ from ufl.split_functions import split
 from ufl.algorithms.analysis import extract_arguments
 
 from firedrake import function
+from firedrake import utils
 
 
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
@@ -16,52 +17,52 @@ __all__ = ['Argument', 'TestFunction', 'TrialFunction',
 
 
 class Argument(ufl.argument.Argument):
-    """Representation of the argument to a form,"""
+    """Representation of the argument to a form.
+
+    :arg function_space: the :class:`.FunctionSpace` the argument
+        corresponds to.
+    :arg number: the number of the argument being constructed.
+    :kwarg part: optional index (mostly ignored).
+
+    .. note::
+
+       an :class:`Argument` with a count of ``0`` is used as a
+       :func:`TestFunction`, with a count of ``1`` it is used as
+       a :func:`TrialFunction`.
+    """
     def __init__(self, function_space, number, part=None):
-        """
-        :arg function_space: the :class:`.FunctionSpace` the argument
-             corresponds to.
-        :arg number: the number of the argument being constructed.
-        :kwarg part: optional index (mostly ignored).
-
-        .. note::
-
-           an :class:`Argument` with a count of ``0`` is used as a
-           :class:`TestFunction`, with a count of ``1`` it is used as
-           a :class:`TrialFunction`.
-
-        """
-        super(Argument, self).__init__(function_space.ufl_function_space(), number, part=part)
+        super(Argument, self).__init__(function_space.ufl_function_space(),
+                                       number, part=part)
         self._function_space = function_space
 
-    @property
+    @utils.cached_property
     def cell_node_map(self):
-        return self._function_space.cell_node_map
+        return self.function_space().cell_node_map
 
-    @property
+    @utils.cached_property
     def interior_facet_node_map(self):
-        return self._function_space.interior_facet_node_map
+        return self.function_space().interior_facet_node_map
 
-    @property
+    @utils.cached_property
     def exterior_facet_node_map(self):
-        return self._function_space.exterior_facet_node_map
+        return self.function_space().exterior_facet_node_map
 
     def function_space(self):
         return self._function_space
 
     def make_dat(self):
-        return self._function_space.make_dat()
+        return self.function_space().make_dat()
 
     def reconstruct(self, function_space=None,
                     number=None, part=None):
-        if function_space is None or function_space == self._function_space:
-            function_space = self._function_space
+        if function_space is None or function_space == self.function_space():
+            function_space = self.function_space()
         if number is None or number == self._number:
             number = self._number
         if part is None or part == self._part:
             part = self._part
         if number is self._number and part is self._part \
-           and function_space is self._function_space:
+           and function_space is self.function_space():
             return self
         ufl_assert(isinstance(number, int),
                    "Expecting an int, not %s" % number)

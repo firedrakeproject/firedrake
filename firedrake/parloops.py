@@ -12,7 +12,7 @@ import pyop2
 
 import coffee.base as ast
 
-from firedrake import constant, MixedFunctionSpace
+from firedrake import constant
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']
@@ -77,7 +77,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].fiat_element.space_dimension()
             else:
-                if isinstance(func.function_space(), MixedFunctionSpace):
+                if len(func.function_space()) > 1:
                     raise NotImplementedError("Must index mixed function in par_loop.")
                 ndof = func.function_space().fiat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
@@ -176,8 +176,7 @@ def par_loop(kernel, measure, args, **kwargs):
     A direct loop over nodes without any indirections can be specified
     by passing :data:`direct` as the measure. In this case, all of the
     arguments must be :class:`.Function`\s in the same
-    :class:`.FunctionSpace` or in the corresponding
-    :class:`.VectorFunctionSpace`.
+    :class:`.FunctionSpace`.
 
     **The kernel code**
 
@@ -193,10 +192,12 @@ def par_loop(kernel, measure, args, **kwargs):
 
     Indirect free variables referencing :class:`.Function`\s are all
     of type `double**` in which the first index is the local node
-    number, while the second index is the vector component. The latter
-    only applies to :class:`.Function`\s over a
-    :class:`.VectorFunctionSpace`, for :class:`.Function`\s over a
-    plain :class:`.FunctionSpace` the second index will always be 0.
+    number, while the second index is the vector (or tensor)
+    component. The latter only applies to :class:`.Function`\s over a
+    :class:`.FunctionSpace` with :attr:`.FunctionSpace.rank` greater
+    than zero (spaces with a VectorElement or TensorElement).  In the
+    case of scalar :class:`FunctionSpace`\s, the second index is
+    always 0.
 
     In a direct :func:`par_loop`, the variables will all be of type
     `double*` with the single index being the vector component.

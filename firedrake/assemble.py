@@ -9,7 +9,6 @@ from firedrake import assembly_cache
 from firedrake import assemble_expressions
 from firedrake import tsfc_interface
 from firedrake import function
-from firedrake import functionspace
 from firedrake import matrix
 from firedrake import parameters
 from firedrake import solving
@@ -48,7 +47,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     If f is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
-    :class:`.FunctionSpace`
+    :class:`.FunctionSpace`.
 
     If ``tensor`` is supplied, the assembled result will be placed
     there, otherwise a new object of the appropriate type will be
@@ -104,9 +103,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     is_mat = rank == 2
     is_vec = rank == 1
 
-    if any(isinstance(coeff.function_space(), functionspace.IndexedVFS)
+    if any((coeff.function_space() and coeff.function_space().component is not None)
            for coeff in f.coefficients()):
-        raise NotImplementedError("Integration of subscribed VFS not yet implemented")
+        raise NotImplementedError("Integration of subscripted VFS not yet implemented")
 
     if inverse and rank != 2:
         raise ValueError("Can only assemble the inverse of a 2-form")
@@ -257,11 +256,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             if is_mat and tensor.sparsity.shape > (1, 1):
                 tsbc = []
                 trbc = []
-                # Unwind IndexedVFS to check for matching BCs
+                # Unwind ComponentFunctionSpace to check for matching BCs
                 for bc in bcs:
                     fs = bc.function_space()
-                    if isinstance(fs, functionspace.IndexedVFS):
-                        fs = fs._parent
+                    if fs.component is not None:
+                        fs = fs.parent
                     if fs.index == i:
                         tsbc.append(bc)
                     if fs.index == j:
@@ -356,7 +355,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         if bcs is not None and is_mat:
             for bc in bcs:
                 fs = bc.function_space()
-                if isinstance(fs, functionspace.MixedFunctionSpace):
+                if len(fs) > 1:
                     raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
                 shape = tensor.sparsity.shape
                 for i in range(shape[0]):
@@ -366,15 +365,18 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                         # index of the function space the bc is defined on.
                         if i != j:
                             continue
-                        if isinstance(fs, functionspace.IndexedFunctionSpace):
-                            # Mixed, index
+                        if fs.component is None and fs.index is not None:
+                            # Mixed, index (no ComponentFunctionSpace)
                             if fs.index == i:
                                 tensor[i, j].set_local_diagonal_entries(bc.nodes)
-                        elif isinstance(fs, functionspace.IndexedVFS):
-                            if isinstance(fs._parent, functionspace.IndexedFunctionSpace):
-                                if fs._parent.index != i:
+                        elif fs.component is not None:
+                            # ComponentFunctionSpace, check parent index
+                            if fs.parent.index is not None:
+                                # Mixed, index doesn't match
+                                if fs.parent.index != i:
                                     continue
-                            tensor[i, j].set_local_diagonal_entries(bc.nodes, idx=fs.index)
+                            # Index matches
+                            tensor[i, j].set_local_diagonal_entries(bc.nodes, idx=fs.component)
                         elif fs.index is None:
                             tensor[i, j].set_local_diagonal_entries(bc.nodes)
                         else:
