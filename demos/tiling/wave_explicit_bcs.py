@@ -107,7 +107,9 @@ def run(args):
                 nloops=loop_chain_length * num_unroll,
                 partitioning=part_mode,
                 tile_size=tile_size,
-                extra_halo=extra_halo)
+                extra_halo=extra_halo,
+                poly_order=1,
+                domain=os.path.splitext(os.path.basename(mesh.name))[0])
 
     if output:
         #outfile << p

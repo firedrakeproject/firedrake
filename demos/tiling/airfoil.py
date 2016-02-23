@@ -143,7 +143,9 @@ def main(args):
                 nloops=loop_chain_length * num_unroll,
                 partitioning=part_mode,
                 tile_size=tile_size,
-                extra_halo=extra_halo)
+                extra_halo=extra_halo,
+                poly_order=1,
+                domain=mesh_file)
 
 def kernels():
 

@@ -29,6 +29,7 @@ def parser(**kwargs):
     p.add_argument('-o', '--output', help='write to file the simulation output', default=False)
     p.add_argument('-l', '--log', help='output inspector to a file', default=False)
     p.add_argument('-d', '--debug', help='debug mode (defaults to False)', default=False)
+    p.add_argument('-y', '--poly-order', type=int, help='the method\'s order in space', default=2)
     for opt, default in kwargs.iteritems():
         p.add_argument("--%s" % opt, default=default)
     return p.parse_args()
@@ -43,6 +44,8 @@ def output_time(start, end, **kwargs):
     partitioning = kwargs.get('partitioning', 'chunk')
     extra_halo = 'yes' if kwargs.get('extra_halo', False) else 'no'
     split_mode = kwargs.get('split_mode', None)
+    poly_order = kwargs.get('poly_order', -1)
+    domain = kwargs.get('domain', 'default_domain')
     backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
 
     # Where do I store the output ?
@@ -78,11 +81,11 @@ def output_time(start, end, **kwargs):
         print "Time stepping: ", tot, "s"
 
     # Find the total mesh size
-    mesh_size = 0
+    ndofs = 0
     if fs:
         total_dofs = np.zeros(1, dtype=int)
         MPI.comm.Allreduce(np.array([fs.dof_dset.size], dtype=int), total_dofs)
-        mesh_size = total_dofs
+        ndofs = total_dofs
 
     # Print to file
     def num(s):
@@ -98,8 +101,8 @@ def output_time(start, end, **kwargs):
         for mode in modes:
             if split_mode and nloops > 0:
                 nloops = "split%d" % split_mode
-            filename = os.path.join(output_dir, "times", name, "mesh%d" % mesh_size,
-                                    mode, "np%d_nt%d.txt" % (num_procs, num_threads))
+            filename = os.path.join(output_dir, "times", name, "poly_%d" % poly_order, domain,
+                                    "ndofs_%d" % ndofs, mode, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
             if not os.path.exists(os.path.dirname(filename)):
                 os.makedirs(os.path.dirname(filename))
