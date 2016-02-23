@@ -368,7 +368,7 @@ we will populate with the x component of the coordinate field.
 
 For details on how :py:class:`~.Expression`\s and
 :py:meth:`~.Function.interpolate` work, see the
-:doc:`appropriate section in the manual <expressions>`.  The
+:doc:`appropriate section in the manual <interpolation>`.  The
 variational problem is to find :math:`u \in V` such that
 
 .. math::
