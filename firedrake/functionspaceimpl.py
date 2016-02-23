@@ -194,13 +194,12 @@ class FunctionSpace(object):
     ``None``."""
 
     def __eq__(self, other):
-        try:
-            # FIXME: Think harder about equality
-            return self.mesh() is other.mesh() and \
-                self.dof_dset is other.dof_dset and \
-                self.ufl_element() == other.ufl_element()
-        except AttributeError:
+        if not isinstance(other, FunctionSpace):
             return False
+        # FIXME: Think harder about equality
+        return self.mesh() is other.mesh() and \
+            self.dof_dset is other.dof_dset and \
+            self.ufl_element() == other.ufl_element()
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -212,11 +211,8 @@ class FunctionSpace(object):
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setPointSF(self.mesh()._plex.getPointSF())
         dm.setDefaultSection(self._shared_data.global_numbering)
-        # FIXME: The Vec, but not the DM (since it holds a reference
-        # to the function space) could be shared between
-        # functionspaces with the same dof_dset.
-        with self.make_dat().vec_ro as v:
-            dm.setGlobalVector(v.duplicate())
+        from firedrake.functionspacedata import get_dof_layout_vec
+        dm.setGlobalVector(get_dof_layout_vec(self.mesh(), self.dof_dset, self))
         return dm
 
     @utils.cached_property
@@ -446,7 +442,7 @@ class MixedFunctionSpace(object):
         return self._ufl_element
 
     def __eq__(self, other):
-        if type(other) is not MixedFunctionSpace:
+        if not isinstance(other, MixedFunctionSpace):
             return False
         return all(s == o for s, o in zip(self, other))
 
@@ -599,10 +595,8 @@ class MixedFunctionSpace(object):
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setCreateFieldDecomposition(self.create_field_decomp)
         dm.setCreateSubDM(self.create_subdm)
-        # FIXME: The Vec could be shared between functionspaces with
-        # the same dof_dset.
-        with self.make_dat().vec_ro as v:
-            dm.setGlobalVector(v.duplicate())
+        from firedrake.functionspacedata import get_dof_layout_vec
+        dm.setGlobalVector(get_dof_layout_vec(self.mesh(), self.dof_dset, self))
         return dm
 
     @utils.cached_property

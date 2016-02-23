@@ -41,7 +41,7 @@ def test_same_fs_hits_cache():
 
     assert V1 == V2
     assert V1.topological == V2.topological
-    assert V1._shared_data is V2._shared_data
+    assert V1._shared_data == V2._shared_data
 
 
 def test_different_fs_misses_cache():
@@ -63,7 +63,7 @@ def test_alias_fs_hits_cache():
 
     assert V1 == V2
     assert V1.topological == V2.topological
-    assert V1._shared_data is V2._shared_data
+    assert V1._shared_data == V2._shared_data
 
 
 def test_extruded_fs_hits_cache():
@@ -77,10 +77,7 @@ def test_extruded_fs_hits_cache():
 
     assert V1 == V2
     assert V1.topological == V2.topological
-    assert V1._shared_data is V2._shared_data
-
-    assert V1._shared_data not in m._shared_data_cache.values()
-    assert V1._shared_data in e._shared_data_cache.values()
+    assert V1._shared_data == V2._shared_data
 
 
 def test_extruded_fs_misses_cache():
@@ -116,7 +113,7 @@ def test_extruded_ope_hits_cache():
 
     assert W1 == W2
     assert W1.topological == W2.topological
-    assert W1._shared_data is W2._shared_data
+    assert W1._shared_data == W2._shared_data
 
 
 def test_extruded_ope_misses_cache():
@@ -154,7 +151,7 @@ def test_extruded_ope_vfamily_hits_cache():
 
     assert W1 == W2
     assert W1.topological == W2.topological
-    assert W1._shared_data is W2._shared_data
+    assert W1._shared_data == W2._shared_data
 
 
 def test_extruded_opve_hits_cache():
@@ -170,7 +167,7 @@ def test_extruded_opve_hits_cache():
 
     assert W1 == W2
     assert W1.topological == W2.topological
-    assert W1._shared_data is W2._shared_data
+    assert W1._shared_data == W2._shared_data
 
 
 def test_mixed_fs_hits_cache():
@@ -186,7 +183,7 @@ def test_mixed_fs_hits_cache():
 
     assert W1 == W2
     assert W1.topological == W2.topological
-    assert all(w1._shared_data is w2._shared_data for w1, w2 in zip(W1, W2))
+    assert all(w1._shared_data == w2._shared_data for w1, w2 in zip(W1, W2))
 
 
 def test_mixed_fs_misses_cache():
@@ -228,7 +225,7 @@ def test_extruded_mixed_fs_hits_cache():
 
     assert W1 == W2
     assert W1.topological == W2.topological
-    assert all(w1._shared_data is w2._shared_data for w1, w2 in zip(W1, W2))
+    assert all(w1._shared_data == w2._shared_data for w1, w2 in zip(W1, W2))
 
 
 def test_extruded_mixed_fs_misses_cache():

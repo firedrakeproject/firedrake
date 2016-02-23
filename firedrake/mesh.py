@@ -4,6 +4,7 @@ import ctypes
 import os
 import ufl
 import weakref
+from collections import defaultdict
 
 from pyop2 import op2
 from pyop2.logger import info_red
@@ -305,7 +306,7 @@ class MeshTopology(object):
         self.name = name
 
         # A cache of shared function space data on this mesh
-        self._shared_data_cache = {}
+        self._shared_data_cache = defaultdict(dict)
 
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
@@ -591,7 +592,7 @@ class ExtrudedMeshTopology(MeshTopology):
         from firedrake.citations import Citations
         Citations().register("McRae2014")
         # A cache of shared function space data on this mesh
-        self._shared_data_cache = {}
+        self._shared_data_cache = defaultdict(dict)
 
         mesh.init()
         self._base_mesh = mesh

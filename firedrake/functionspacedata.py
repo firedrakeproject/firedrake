@@ -4,10 +4,12 @@ shared between different :class:`~.FunctionSpace` objects.
 The sharing is based on the idea of compatibility of function space
 node layout.  The shared data is stored on the :func:`~.Mesh` the
 function space is created on, since the created objects are
-mesh-specific.  The key for this cache is a canonicalised version of
-the function space's FIAT element's entity_dofs.
+mesh-specific.  The sharing is done on an individual key basis.  So,
+for example, Sets can be shared between all function spaces with the
+same number of nodes per topological entity.  However, maps are
+specific to the node *ordering*.
 
-As such, this means that function spaces with the same *node*
+This means, for example, that function spaces with the same *node*
 ordering, but different numbers of dofs per node (e.g. FiniteElement
 vs VectorElement) can share the PyOP2 Set and Map data.
 """
@@ -16,6 +18,8 @@ from __future__ import absolute_import
 
 import numpy
 import FIAT
+from decorator import decorator
+
 
 from FIAT.finite_element import facet_support_dofs
 from FIAT.tensor_product import horiz_facet_support_dofs, vert_facet_support_dofs
@@ -33,6 +37,206 @@ from firedrake.petsc import PETSc
 __all__ = ("get_shared_data", )
 
 
+@decorator
+def cached(f, mesh, key, *args, **kwargs):
+    """Sui generis caching for a function whose data is
+    associated with a mesh.
+
+    :arg f: The function to cache.
+    :arg mesh: The mesh to cache on (should have a
+        ``_shared_data_cache`` object).
+    :arg key: The key to the cache.
+    :args args: Additional arguments to ``f``.
+    :kwargs kwargs:  Additional keyword arguments to ``f``."""
+    assert hasattr(mesh, "_shared_data_cache")
+    cache = mesh._shared_data_cache[f.__name__]
+    try:
+        return cache[key]
+    except KeyError:
+        result = f(mesh, key, *args, **kwargs)
+        cache[key] = result
+        return result
+
+
+@cached
+def get_global_numbering(mesh, nodes_per_entity):
+    """Get a PETSc Section describing the global numbering.
+
+    This numbering associates function space nodes with topological
+    entities.
+
+    :arg mesh: The mesh to use.
+    :arg nodes_per_entity: a tuple of the number of nodes per
+        topological entity.
+    :returns: A new PETSc Section.
+    """
+    return mesh._plex.createSection([1], nodes_per_entity, perm=mesh._plex_renumbering)
+
+
+@cached
+def get_node_set(mesh, nodes_per_entity):
+    """Get the :class:`node set <pyop2.Set>`.
+
+    :arg mesh: The mesh to use.
+    :arg nodes_per_entity: The number of function space nodes per
+        topological entity.
+    :returns: A :class:`pyop2.Set` for the function space nodes.
+    """
+    global_numbering = get_global_numbering(mesh, nodes_per_entity)
+    # Use a DM to create the halo SFs
+    dm = PETSc.DMShell().create()
+    dm.setPointSF(mesh._plex.getPointSF())
+    dm.setDefaultSection(global_numbering)
+    node_classes = tuple(numpy.dot(nodes_per_entity, mesh._entity_classes))
+    node_set = op2.Set(node_classes, halo=halo_mod.Halo(dm))
+    # Don't need it any more, explicitly destroy.
+    dm.destroy()
+    extruded = bool(mesh.layers)
+    if extruded:
+        node_set = op2.ExtrudedSet(node_set, layers=mesh.layers)
+
+    assert global_numbering.getStorageSize() == node_set.total_size
+    return node_set
+
+
+def get_cell_node_list(mesh, entity_dofs, global_numbering):
+    """Get the cell->node list for specified dof layout.
+
+    :arg mesh: The mesh to use.
+    :arg entity_dofs: The FIAT entity_dofs dict.
+    :arg global_numbering: The PETSc Section describing node layout
+        (see :func:`get_global_numbering`).
+    :returns: A numpy array mapping mesh cells to function space
+        nodes.
+    """
+    return mesh.make_cell_node_list(global_numbering, entity_dofs)
+
+
+def get_facet_node_list(mesh, kind, cell_node_list):
+    """Get the facet->node list for specified dof layout.
+
+    :arg mesh: The mesh to use.
+    :arg kind: The facet kind (one of ``"interior_facets"`` or
+        ``"exterior_facets"``).
+    :arg cell_node_list: The map from mesh cells to function space
+        nodes, see :func:`get_cell_node_list`.
+    :returns: A numpy array mapping mesh facets to function space
+        nodes.
+    """
+    assert kind in ["interior_facets", "exterior_facets"]
+    if mesh._plex.getStratumSize(kind, 1) > 0:
+        facet = getattr(mesh, kind)
+        return dm_mod.get_facet_nodes(facet.facet_cell, cell_node_list)
+    else:
+        return numpy.array([], dtype=numpy.int32)
+
+
+@cached
+def get_entity_node_lists(mesh, key, entity_dofs, global_numbering):
+    """Get the map from mesh entity sets to function space nodes.
+
+    :arg mesh: The mesh to use.
+    :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
+    :arg entity_dofs: FIAT entity dofs.
+    :arg global_numbering: The PETSc Section describing node layout
+        (see :func:`get_global_numbering`).
+    :returns: A dict mapping mesh entity sets to numpy arrays of
+        function space nodes.
+    """
+    # set->node lists are specific to the sorted entity_dofs.
+    cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering)
+    interior_facet_node_list = get_facet_node_list(mesh, "interior_facets", cell_node_list)
+    exterior_facet_node_list = get_facet_node_list(mesh, "exterior_facets", cell_node_list)
+    return {mesh.cell_set: cell_node_list,
+            mesh.interior_facets.set: interior_facet_node_list,
+            mesh.exterior_facets.set: exterior_facet_node_list}
+
+
+@cached
+def get_map_caches(mesh, entity_dofs):
+    """Get the map caches for this mesh.
+
+    :arg mesh: The mesh to use.
+    :arg entity_dofs: Canonicalised entity_dofs (see
+        :func:`entity_dofs_key`).
+    """
+    return {mesh.cell_set: {},
+            mesh.interior_facets.set: {},
+            mesh.exterior_facets.set: {},
+            "boundary_node": {}}
+
+
+@cached
+def get_dof_layout_vec(mesh, dof_dset, V):
+    """Get the PETSc Vec describing the dof layout.
+
+    :arg mesh: The mesh to use.
+    :arg dof_dset: The :class:`pyop2.DataSet` describing the data
+        layout.
+    :arg V: The :class:`~.FunctionSpace` that can create a :class:`pyop2.Dat`
+    """
+    with V.make_dat().vec_ro as v:
+        return v.duplicate()
+
+
+@cached
+def get_dof_offset(mesh, key, entity_dofs, ndof):
+    """Get the dof offsets.
+
+    :arg mesh: The mesh to use.
+    :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
+    :arg entity_dofs: The FIAT entity_dofs dict.
+    :arg ndof: The number of dofs (the FIAT space_dimension).
+    :returns: A numpy array of dof offsets (extruded) or ``None``.
+    """
+    return mesh.make_offset(entity_dofs, ndof)
+
+
+@cached
+def get_bt_masks(mesh, key, fiat_element):
+    """Get masks for top and bottom dofs.
+
+    :arg mesh: The mesh to use.
+    :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
+    :arg fiat_element: The FIAT element.
+    :returns: A dict mapping ``"topological"`` and ``"geometric"``
+        keys to bottom and top dofs (extruded) or ``None``.
+    """
+    if not bool(mesh.layers):
+        return None
+    bt_masks = {}
+    # Compute the top and bottom masks to identify boundary dofs
+    #
+    # Sorting the keys of the closure entity dofs, the whole cell
+    # comes last [-1], before that the horizontal facet [-2], before
+    # that vertical facets [-3]. We need the horizontal facets here.
+    closure_dofs = fiat_element.entity_closure_dofs()
+    b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
+    t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
+    bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
+    # Geometric facet dofs
+    facet_dofs = horiz_facet_support_dofs(fiat_element)
+    bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
+    return bt_masks
+
+
+def entity_dofs_key(entity_dofs):
+    """Provide a canonical key for an entity_dofs dict.
+
+    :arg entity_dofs: The FIAT entity_dofs.
+    :returns: A tuple of canonicalised entity_dofs (suitable for
+        caching).
+    """
+    key = []
+    for k in sorted(entity_dofs.keys()):
+        sub_key = [k]
+        for sk in sorted(entity_dofs[k]):
+            sub_key.append(tuple(entity_dofs[k][sk]))
+        key.append(tuple(sub_key))
+    key = tuple(key)
+    return key
+
+
 class FunctionSpaceData(object):
     """Function spaces with the same entity dofs share data.  This class
     stores that shared data.  It is cached on the mesh.
@@ -41,80 +245,44 @@ class FunctionSpaceData(object):
     :arg fiat_element: The FIAT describing how nodes are attached to
        topological entities.
     """
+    __slots__ = ("map_caches", "entity_node_lists",
+                 "node_set", "bt_masks", "offset",
+                 "extruded", "mesh", "global_numbering")
+
     def __init__(self, mesh, fiat_element):
         entity_dofs = fiat_element.entity_dofs()
-        nodes_per_entity = mesh.make_dofs_per_plex_entity(entity_dofs)
-        plex = mesh._plex
+        nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
+
         # Create the PetscSection mapping topological entities to functionspace nodes
         # For non-scalar valued function spaces, there are multiple dofs per node.
-        global_numbering = plex.createSection([1], nodes_per_entity,
-                                              perm=mesh._plex_renumbering)
 
-        offset = mesh.make_offset(entity_dofs, fiat_element.space_dimension())
+        # These are keyed only on nodes per topological entity.
+        global_numbering = get_global_numbering(mesh, nodes_per_entity)
+        node_set = get_node_set(mesh, nodes_per_entity)
 
-        cell_node_list = mesh.make_cell_node_list(global_numbering, entity_dofs)
-
-        if plex.getStratumSize("interior_facets", 1) > 0:
-            interior_facet_node_list = dm_mod.get_facet_nodes(mesh.interior_facets.facet_cell, cell_node_list)
-        else:
-            interior_facet_node_list = numpy.array([], dtype=numpy.int32)
-
-        if plex.getStratumSize("exterior_facets", 1) > 0:
-            exterior_facet_node_list = \
-                dm_mod.get_facet_nodes(mesh.exterior_facets.facet_cell,
-                                       cell_node_list)
-        else:
-            exterior_facet_node_list = numpy.array([], dtype=numpy.int32)
-
-        # Use a DM to create the halo SFs
-        dm = PETSc.DMShell().create()
-        dm.setPointSF(plex.getPointSF())
-        dm.setDefaultSection(global_numbering)
-        node_classes = tuple(numpy.dot(nodes_per_entity, mesh._entity_classes))
-        node_set = op2.Set(node_classes, halo=halo_mod.Halo(dm))
-        # Don't need it any more, explicitly destroy.
-        dm.destroy()
-
-        extruded = bool(mesh.layers)
-        if extruded:
-            node_set = op2.ExtrudedSet(node_set, layers=mesh.layers)
-
-        assert global_numbering.getStorageSize() == node_set.total_size
-
-        bt_masks = None
-        if extruded:
-            bt_masks = {}
-            # Compute the top and bottom masks to identify boundary dofs
-            #
-            # Sorting the keys of the closure entity dofs, the whole cell
-            # comes last [-1], before that the horizontal facet [-2], before
-            # that vertical facets [-3]. We need the horizontal facets here.
-            closure_dofs = fiat_element.entity_closure_dofs()
-            b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
-            t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
-            bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
-            # Geometric facet dofs
-            facet_dofs = horiz_facet_support_dofs(fiat_element)
-            bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
+        edofs_key = entity_dofs_key(entity_dofs)
 
         # Empty map caches. This is a sui generis cache
         # implementation because of the need to support boundary
         # conditions.
-        self.map_caches = {mesh.cell_set: {},
-                           mesh.interior_facets.set: {},
-                           mesh.exterior_facets.set: {},
-                           "boundary_node": {}}
-
-        self.entity_node_lists = {mesh.cell_set: cell_node_list,
-                                  mesh.interior_facets.set: interior_facet_node_list,
-                                  mesh.exterior_facets.set: exterior_facet_node_list}
-
+        # Map caches are specific to a cell_node_list, which is keyed by entity_dof
+        self.map_caches = get_map_caches(mesh, edofs_key)
+        self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering)
         self.node_set = node_set
-        self.offset = offset
-        self.bt_masks = bt_masks
-        self.extruded = extruded
+        self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, fiat_element.space_dimension())
+        self.bt_masks = get_bt_masks(mesh, edofs_key, fiat_element)
+        self.extruded = bool(mesh.layers)
         self.mesh = mesh
         self.global_numbering = global_numbering
+
+    def __eq__(self, other):
+        if type(self) is not type(other):
+            return False
+        return all(getattr(self, s) is getattr(other, s) for s in
+                   FunctionSpaceData.__slots__)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def __repr__(self):
         return "FunctionSpaceData(%r, %r)" % (self.mesh, self.node_set)
@@ -346,22 +514,4 @@ def get_shared_data(mesh, fiat_element):
     if not isinstance(fiat_element, FIAT.finite_element.FiniteElement):
         raise ValueError("Can't create function space data from a %s" %
                          type(fiat_element))
-    entity_dofs = fiat_element.entity_dofs()
-
-    # Build key (sorted entity_dofs)
-    key = []
-    for k in sorted(entity_dofs.keys()):
-        sub_key = [k]
-        for sk in sorted(entity_dofs[k]):
-            sub_key.append(tuple(entity_dofs[k][sk]))
-        key.append(tuple(sub_key))
-    key = tuple(key)
-
-    try:
-        return mesh._shared_data_cache[key]
-    except KeyError:
-        pass
-
-    data = FunctionSpaceData(mesh, fiat_element)
-    mesh._shared_data_cache[key] = data
-    return data
+    return FunctionSpaceData(mesh, fiat_element)
