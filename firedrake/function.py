@@ -297,7 +297,7 @@ class Function(ufl.Coefficient):
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
 
-        :param expression: :class:`.Expression` to interpolate
+        :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
         assert isinstance(expression, ufl.classes.Expr)
 
@@ -309,8 +309,13 @@ class Function(ufl.Coefficient):
             raise RuntimeError('Expression of length %d required, got length %d'
                                % (sum(dims), np.prod(expression.ufl_shape, dtype=int)))
 
-        if not isinstance(expression, expression_t.Expression) or hasattr(expression, 'eval'):
-            fs = self.function_space()
+        fs = self.function_space()
+        if not isinstance(expression, expression_t.Expression):
+            if len(fs) > 1:
+                raise NotImplementedError(
+                    "UFL expressions for mixed functions are not yet supported.")
+            self._interpolate(fs, self.dat, expression, subset)
+        elif hasattr(expression, 'eval'):
             if len(fs) > 1:
                 raise NotImplementedError(
                     "Python expressions for mixed functions are not yet supported.")
@@ -356,9 +361,9 @@ class Function(ufl.Coefficient):
                     evaluation operators. Try projecting instead")
             to_pts.append(dual.pt_dict.keys()[0])
 
-        if expression.rank() != len(fs.ufl_element().value_shape()):
+        if len(expression.ufl_shape) != len(fs.ufl_element().value_shape()):
             raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                               % (expression.rank(), len(fs.ufl_element().value_shape())))
+                               % (len(expression.ufl_shape), len(fs.ufl_element().value_shape())))
 
         if expression.ufl_shape != fs.ufl_element().value_shape():
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'

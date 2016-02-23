@@ -26,7 +26,7 @@ def test_function():
 def test_coordinates(cg2):
     f = interpolate(Expression("x[0]*x[0]"), cg2)
 
-    x = cg2.mesh().coordinates
+    x = SpatialCoordinate(cg2.mesh())
     g = interpolate(x[0]*x[0], cg2)
 
     assert np.allclose(f.dat.data, g.dat.data)
@@ -73,7 +73,7 @@ def test_constant_expression():
 
 def test_compound_expression():
     m = UnitTriangleMesh()
-    x = m.coordinates
+    x = SpatialCoordinate(m)
     U = FunctionSpace(m, 'RT', 2)
     V = FunctionSpace(m, 'P', 2)
 
@@ -87,19 +87,19 @@ def test_compound_expression():
 
 
 def test_cell_orientation():
-    m = UnitCubedSphereMesh(1)
+    m = UnitCubedSphereMesh(2)
     m.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
     x = m.coordinates
     U = FunctionSpace(m, 'RTCF', 1)
-    V = VectorFunctionSpace(m, 'Q', 1)
+    V = VectorFunctionSpace(m, 'DQ', 1)
 
     f = project(as_tensor([x[1], -x[0], 0.0]), U)
     g = interpolate(f, V)
 
-    # g shall be equivalent to:
-    h = interpolate(f, V)
+    # g shall be close to:
+    h = project(f, V)
 
-    assert np.allclose(g.dat.data, h.dat.data)
+    assert abs(g.dat.data - h.dat.data).max() < 1e-2
 
 
 def test_mixed():
