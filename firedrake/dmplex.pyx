@@ -817,7 +817,7 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
-                        np.ndarray[np.int32_t, mode="c"] ordering):
+                        np.ndarray[np.int32_t, ndim=1, mode="c"] ordering):
     """Builds a list of all facets ordered according to OP2 entity
     classes and computes the respective class offsets.
 
@@ -826,7 +826,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     :arg label: Label string that marks the facets to order
     """
     cdef:
-        PetscInt dim, fi, ci, nfacets, nclass, lbl_val, f, fStart, fEnd
+        PetscInt dim, fi, ci, nfacets, nclass, lbl_val, o, f, fStart, fEnd
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
@@ -851,7 +851,8 @@ def get_facets_by_class(PETSc.DM plex, label,
         CHKERR(DMPlexGetLabel(plex.dm, op2class, &lbl_class))
         nclass = plex.getStratumSize(op2class, 1)
         if nclass > 0:
-            for f in ordering:
+            for o in range(ordering.shape[0]):
+                f = ordering[o]
                 CHKERR(DMLabelHasPoint(lbl_facets, f, &has_point))
                 CHKERR(DMLabelHasPoint(lbl_class, f, &is_class))
                 if has_point and is_class:
