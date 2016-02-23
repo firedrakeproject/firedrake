@@ -90,13 +90,13 @@ class Return(Terminal):
     __front__ = ('variable', 'expression')
 
     def __init__(self, variable, expression):
-        assert set(variable.free_indices) == set(expression.free_indices)
+        assert set(variable.free_indices) >= set(expression.free_indices)
 
         self.variable = variable
         self.expression = expression
 
     def loop_shape(self, free_indices):
-        return free_indices(self.expression)
+        return free_indices(self.variable)
 
 
 class ReturnAccumulate(Terminal):

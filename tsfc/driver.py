@@ -110,7 +110,7 @@ def compile_integral(idata, fd, prefix, parameters):
 
     arglist.append(funarg)
     prepare += prepare_
-    argument_indices = tuple(index for index in expressions[0].multiindex if isinstance(index, gem.Index))
+    argument_indices = [index for index in expressions[0].multiindex if isinstance(index, gem.Index)]
 
     mesh = idata.domain
     coordinates = fem.coordinate_coefficient(mesh)
@@ -200,22 +200,47 @@ def compile_integral(idata, fd, prefix, parameters):
 
     # Sum the expressions that are part of the same restriction
     nonfem = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*nonfem_))
-    simplified = opt.remove_componenttensors(nonfem)
+
+    index_names = zip(argument_indices, ['j', 'k'])
+    if len(quadrature_indices) == 1:
+        index_names.append((quadrature_indices[0], 'ip'))
+    else:
+        for i, quadrature_index in enumerate(quadrature_indices):
+            index_names.append((quadrature_index, 'ip_%d' % i))
+
+    body, kernel.oriented = build_kernel_body(expressions, nonfem,
+                                              quadrature_indices + argument_indices,
+                                              coffee_licm=parameters["coffee_licm"],
+                                              index_names=index_names)
+    if body is None:
+        return None
+    if kernel.oriented:
+        decl = coffee.Decl("int *restrict *restrict",
+                           coffee.Symbol("cell_orientations"),
+                           qualifiers=["const"])
+        arglist.insert(2, decl)
+
+    funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
+    kernel.ast = coffee.FunDecl("void", funname, arglist,
+                                coffee.Block(prepare + [body] + finalise),
+                                pred=["static", "inline"])
+
+    return kernel
+
+
+def build_kernel_body(return_variables, ir, prefix_ordering, coffee_licm=False, index_names=None):
+    ir = opt.remove_componenttensors(ir)
 
     # Look for cell orientations in the simplified GEM
-    kernel.oriented = False
-    for node in traversal(simplified):
+    oriented = False
+    for node in traversal(ir):
         if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-            kernel.oriented = True
-            decl = coffee.Decl("int *restrict *restrict",
-                               coffee.Symbol("cell_orientations"),
-                               qualifiers=["const"])
-            arglist.insert(2, decl)
+            oriented = True
             break
 
     # Collect indices in a deterministic order
     indices = []
-    for node in traversal(simplified):
+    for node in traversal(ir):
         if isinstance(node, gem.Indexed):
             indices.extend(node.multiindex)
     # The next two lines remove duplicate elements from the list, but
@@ -225,41 +250,30 @@ def compile_integral(idata, fd, prefix, parameters):
     indices = numpy.asarray(indices)[numpy.sort(unique_indices)]
 
     # Build ordered index map
-    index_ordering = make_prefix_ordering(indices, tuple(quadrature_indices) + argument_indices)
+    index_ordering = make_prefix_ordering(indices, prefix_ordering)
     apply_ordering = make_index_orderer(index_ordering)
 
     get_indices = lambda expr: apply_ordering(expr.free_indices)
 
     # Build operation ordering
-    ops = sch.emit_operations(zip(expressions, simplified), get_indices)
+    ops = sch.emit_operations(zip(return_variables, ir), get_indices)
 
     # Zero-simplification occurred
     if len(ops) == 0:
-        return None
+        return None, False
 
     # Drop unnecessary temporaries
-    ops = impero_utils.inline_temporaries(simplified, ops, coffee_licm=parameters["coffee_licm"])
+    ops = impero_utils.inline_temporaries(ir, ops, coffee_licm=coffee_licm)
 
     # Prepare ImperoC (Impero AST + other data for code generation)
     impero_c = impero_utils.process(ops, get_indices)
 
     # Generate COFFEE
-    index_names = zip(argument_indices, ['j', 'k'])
-    if len(quadrature_indices) == 1:
-        index_names.append((quadrature_indices[0], 'ip'))
-    else:
-        for i, quadrature_index in enumerate(quadrature_indices):
-            index_names.append((quadrature_index, 'ip_%d' % i))
-
+    if index_names is None:
+        index_names = {}
     body = generate_coffee(impero_c, index_names)
     body.open_scope = False
-
-    funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
-    kernel.ast = coffee.FunDecl("void", funname, arglist,
-                                coffee.Block(prepare + [body] + finalise),
-                                pred=["static", "inline"])
-
-    return kernel
+    return body, oriented
 
 
 def is_mesh_affine(mesh):
