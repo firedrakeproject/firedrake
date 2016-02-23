@@ -213,6 +213,16 @@ def _expression_mathfunction(expr, parameters):
     return coffee.FunCall(name, expression(expr.children[0], parameters))
 
 
+@_expression.register(gem.MinValue)
+def _expression_minvalue(expr, parameters):
+    return coffee.FunCall('fmin', *[expression(c, parameters) for c in expr.children])
+
+
+@_expression.register(gem.MaxValue)
+def _expression_maxvalue(expr, parameters):
+    return coffee.FunCall('fmax', *[expression(c, parameters) for c in expr.children])
+
+
 @_expression.register(gem.Comparison)
 def _expression_comparison(expr, parameters):
     type_map = {">": coffee.Greater,
