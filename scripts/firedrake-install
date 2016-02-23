@@ -70,6 +70,8 @@ honoured.""",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", "--no_package_manager", action='store_false', dest="package_manager",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
+    parser.add_argument("--unattended", action="store_true",
+                        help="Do not ask for confirmation. Enable when using in a script.")
     parser.add_argument("--minimal-petsc", "--minimal_petsc", action="store_true",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
     parser.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
@@ -118,6 +120,7 @@ else:
     args.rebuild_script = False
     args.mpicc = False
     args.disable_ssh = False
+    args.unattended = False
     args.show_petsc_configure_options = False
 
 
@@ -234,9 +237,13 @@ def apt_check(name):
         return False
 
 
-def apt_install(names):
-    log.info("Installing missing packages: %s." % ", ".join(names))
-    subprocess.check_call(["sudo", "apt-get", "install"] + names)
+def apt_install(packages):
+    log.info("Installing missing packages: %s." % ", ".join(packages))
+    if args.unattended:
+        cmd = ["sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y"]
+    else:
+        cmd = ["sudo", "apt-get", "install"]
+    subprocess.check_call(cmd + packages)
 
 
 def split_requirements_url(url):
