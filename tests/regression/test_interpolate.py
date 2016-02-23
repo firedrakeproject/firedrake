@@ -101,6 +101,21 @@ def test_cell_orientation():
 
     assert np.allclose(g.dat.data, h.dat.data)
 
+
+def test_mixed():
+    m = UnitTriangleMesh()
+    x = m.coordinates
+    V1 = FunctionSpace(m, 'BDFM', 2)
+    V2 = VectorFunctionSpace(m, 'P', 2)
+    f = Function(V1 * V2)
+    f.sub(0).project(as_tensor([x[1], -x[0]]))
+    f.sub(1).interpolate(as_tensor([x[0], x[1]]))
+
+    V = FunctionSpace(m, 'P', 1)
+    g = interpolate(dot(grad(f[0]), grad(f[3])), V)
+
+    assert np.allclose(1.0, g.dat.data)
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
