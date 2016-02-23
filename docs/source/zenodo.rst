@@ -77,7 +77,7 @@ Archive your code
 
 ``firedrake-zenodo`` produces citable DOIs which point to the versions
 of Firedrake components you used. This covers your bases as far as
-Firedrake concerns, but doesn't cover your code which uses
+concerns Firedrake, but doesn't cover your code which uses
 Firedrake. Best practice in computational science also demands that
 you provide the code which you used to conduct your experiments. You
 could attach a tarball as a supplement to your paper, or you could
