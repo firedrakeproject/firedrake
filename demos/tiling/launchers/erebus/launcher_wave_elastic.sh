@@ -1,19 +1,39 @@
 #!/bin/bash
 
-export OMP_NUM_THREADS=4
-export KMP_AFFINITY=scatter
+rm -rf /data/output/
 
-for b in "SEQUENTIAL" "OMP"
+OPTS="--output 100 --flatten True"
+TILE_OPTS="--extra-halo 1 --fusion-mode only_tile"
+
+export OMP_NUM_THREADS=1
+export SLOPE_BACKEND=SEQUENTIAL
+
+for poly in 1 2 3
 do
-    export SLOPE_BACKEND=$b
-    for m in "(300.0,150.0)" "(600.0,300.0)"
+    output_file="output_p"$poly".txt"
+    echo "Polynomial order "$poly
+    for MESH in "--mesh-size (300.0,150.0,0.8)"
     do
-        # Non-tiled tests
-        python wave_elastic.py --output 20 --mesh-size $m --num-unroll 0
-        # Tiled tests
-        for ts in 100 200 300 400 500 600 700 800 1000 1500
+        rm -f $output_file
+        touch $output_file
+        echo "    Running "$MESH
+        echo "        Untiled ..."
+        mpirun --bind-to-core -np 4 python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 0 >> $output_file
+        for sm in 4
         do
-            python wave_elastic.py --output 20 --mesh-size $m --tile-size $ts
+            for p in "chunk"
+            do
+                for ts in 40 70 150 300
+                do
+                    echo "        Tiled (pm="$pm", ts="$ts") ..."
+                    mpirun --bind-to-core -np 4 python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --split-mode $sm $TILE_OPTS >> $output_file
+                done
+            done
         done
     done
 done
+
+export OMP_NUM_THREADS=4
+export KMP_AFFINITY=scatter
+export SLOPE_BACKEND=OMP
+echo "No OMP experiments set"
