@@ -420,7 +420,7 @@ class MixedFunctionSpace(object):
         self._ufl_element = ufl.MixedElement(*[s.ufl_element() for s
                                                in spaces])
         self.name = name or "_".join(str(s.name) for s in spaces)
-        self._subspaces = []
+        self._subspaces = {}
         self._mesh = spaces[0].mesh()
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
@@ -608,19 +608,27 @@ class MixedFunctionSpace(object):
         W = dm.getAttr('__fs__')()
         if len(fields) == 1:
             # Subspace is just a single FunctionSpace.
-            subspace = W[fields[0]]
+            field = fields[0]
+            subdm = W[field]._dm
+            iset = W._ises[field]
+            return iset, subdm
         else:
+            try:
+                # Look up the subspace in the cache
+                iset, subspace = W._subspaces[tuple(fields)]
+                return iset, subspace._dm
+            except KeyError:
+                pass
             # Need to build an MFS for the subspace
             subspace = MixedFunctionSpace([W[f] for f in fields])
-        # Sub-DM is just the DM belonging to the subspace.
-        subdm = subspace._dm
-        # Keep hold of strong reference to created subspace (given we
-        # only hold a weakref in the shell DM)
-        W._subspaces.append(subspace)
-        # Index set mapping from W into subspace.
-        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
-                                                           for f in fields]))
-        return iset, subdm
+            # Index set mapping from W into subspace.
+            iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
+                                                               for f in fields]))
+            # Keep hold of strong reference to created subspace (given we
+            # only hold a weakref in the shell DM), and so we can
+            # reuse it later.
+            W._subspaces[tuple(fields)] = iset, subspace
+            return iset, subspace._dm
 
     @classmethod
     def create_field_decomp(cls, dm, *args, **kwargs):
