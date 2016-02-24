@@ -297,19 +297,25 @@ class Function(ufl.Coefficient):
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
 
-        :param expression: :class:`.Expression` to interpolate
+        :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
+        assert isinstance(expression, ufl.classes.Expr)
 
         # Make sure we have an expression of the right length i.e. a value for
         # each component in the value shape of each function space
         dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
                 for fs in self.function_space()]
-        if np.prod(expression.value_shape(), dtype=int) != sum(dims):
+        if np.prod(expression.ufl_shape, dtype=int) != sum(dims):
             raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), np.prod(expression.value_shape(), dtype=int)))
+                               % (sum(dims), np.prod(expression.ufl_shape, dtype=int)))
 
-        if hasattr(expression, 'eval'):
-            fs = self.function_space()
+        fs = self.function_space()
+        if not isinstance(expression, expression_t.Expression):
+            if len(fs) > 1:
+                raise NotImplementedError(
+                    "UFL expressions for mixed functions are not yet supported.")
+            self._interpolate(fs, self.dat, expression, subset)
+        elif hasattr(expression, 'eval'):
             if len(fs) > 1:
                 raise NotImplementedError(
                     "Python expressions for mixed functions are not yet supported.")
@@ -355,17 +361,26 @@ class Function(ufl.Coefficient):
                     evaluation operators. Try projecting instead")
             to_pts.append(dual.pt_dict.keys()[0])
 
-        if expression.rank() != len(fs.ufl_element().value_shape()):
+        if len(expression.ufl_shape) != len(fs.ufl_element().value_shape()):
             raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                               % (expression.rank(), len(fs.ufl_element().value_shape())))
+                               % (len(expression.ufl_shape), len(fs.ufl_element().value_shape())))
 
-        if expression.value_shape() != fs.ufl_element().value_shape():
+        if expression.ufl_shape != fs.ufl_element().value_shape():
             raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (expression.value_shape(), fs.ufl_element().value_shape()))
+                               % (expression.ufl_shape, fs.ufl_element().value_shape()))
 
         coords = fs.mesh().coordinates
 
-        if hasattr(expression, "eval"):
+        if not isinstance(expression, expression_t.Expression):
+            kernel, oriented, coefficients = self._interpolate_ufl_expression(expression, to_pts, to_element, fs)
+            args = [kernel, subset or self.cell_set,
+                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]])]
+            if oriented:
+                co = fs.mesh().cell_orientations()
+                args.append(co.dat(op2.READ, co.cell_node_map(), flatten=True))
+            for coefficient in coefficients:
+                args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=True))
+        elif hasattr(expression, "eval"):
             kernel = self._interpolate_python_kernel(expression,
                                                      to_pts, to_element, fs, coords)
             args = [kernel, subset or self.cell_set,
@@ -381,10 +396,84 @@ class Function(ufl.Coefficient):
             raise RuntimeError(
                 "Attempting to evaluate an Expression which has no value.")
 
-        for _, arg in expression._user_args:
-            args.append(arg(op2.READ))
+        if isinstance(expression, expression_t.Expression):
+            for _, arg in expression._user_args:
+                args.append(arg(op2.READ))
 
         op2.par_loop(*args)
+
+    def _interpolate_ufl_expression(self, expression, to_pts, to_element, fs):
+        import collections
+        from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
+        from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
+        from ufl.algorithms.apply_derivatives import apply_derivatives
+        from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
+        from ufl.algorithms import extract_arguments, extract_coefficients
+        from tsfc import driver, fem, gem
+
+        # Imitate the compute_form_data processing pipeline
+        #
+        # Unfortunately, we cannot call compute_form_data here, since
+        # we only have an expression, not a form
+        expression = apply_algebra_lowering(expression)
+        expression = apply_derivatives(expression)
+        expression = apply_function_pullbacks(expression)
+        expression = apply_geometry_lowering(expression)
+        expression = apply_derivatives(expression)
+        expression = apply_geometry_lowering(expression)
+        expression = apply_derivatives(expression)
+
+        # Replace coordinates (if any)
+        if expression.ufl_domain():
+            assert fs.mesh() == expression.ufl_domain()
+            expression = fem.replace_coordinates(expression, fs.mesh().coordinates)
+
+        if extract_arguments(expression):
+            return ValueError("Cannot interpolate UFL expression with Arguments!")
+
+        # Prepare Coefficients
+        arglist = []
+        prepare = []
+        coefficient_map = {}
+
+        coefficients = extract_coefficients(expression)
+        for i, coefficient in enumerate(coefficients):
+            funarg, prepare_, variable = driver.prepare_coefficient('cell', coefficient, "w_%d" % i)
+            arglist.append(funarg)
+            prepare.extend(prepare_)
+            coefficient_map[coefficient] = variable
+
+        point_index = gem.Index(name='p')
+        tabulation_manager = fem.TabulationManager('cell', fs.mesh().ufl_cell(), to_pts)
+        nonfem = fem.process('cell', expression, tabulation_manager,
+                             None, point_index, (), coefficient_map,
+                             collections.defaultdict(gem.Index))
+        assert len(nonfem) == 1 and set(nonfem[0].free_indices) <= set([point_index])
+
+        # Deal with non-scalar expressions
+        tensor_indices = ()
+        if fs.shape:
+            tensor_indices = tuple(gem.Index() for s in fs.shape)
+            nonfem = [gem.Indexed(nonfem[0], tensor_indices)]
+
+        # Build kernel body
+        return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
+        return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
+        body, oriented = driver.build_kernel_body([return_expr], nonfem, [point_index],
+                                                  index_names={point_index: 'p'})
+        if oriented:
+            decl = ast.Decl("int *restrict *restrict",
+                            ast.Symbol("cell_orientations"),
+                            qualifiers=["const"])
+            arglist.insert(0, decl)
+
+        # Build kernel
+        arglist.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
+        kernel_code = ast.FunDecl("void", "expression_kernel", arglist,
+                                  ast.Block(prepare + [body]),
+                                  pred=["static", "inline"])
+
+        return op2.Kernel(kernel_code, "expression_kernel"), oriented, coefficients
 
     def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
         """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the

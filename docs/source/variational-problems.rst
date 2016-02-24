@@ -368,7 +368,7 @@ we will populate with the x component of the coordinate field.
 
 For details on how :py:class:`~.Expression`\s and
 :py:meth:`~.Function.interpolate` work, see the
-:doc:`appropriate section in the manual <expressions>`.  The
+:doc:`appropriate section in the manual <interpolation>`.  The
 variational problem is to find :math:`u \in V` such that
 
 .. math::
@@ -589,7 +589,7 @@ we can write:
 
 .. code-block:: python
 
-   e = Expression('sin(x[0]*t'), t=t)
+   e = Expression('sin(x[0]*t)', t=t)
    bc = DirichletBC(V, e, 1)
    while t < T:
        solve(F == 0, bcs=[bc])

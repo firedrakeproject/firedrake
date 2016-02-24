@@ -66,6 +66,7 @@ finite element problems in Firedrake.
    boundary_conditions
    extruded-meshes
    mesh-coordinates
+   interpolation
    point-evaluation
    checkpointing
    petsc-interface
