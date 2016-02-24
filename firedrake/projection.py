@@ -106,7 +106,9 @@ class Projector(object):
     """
     A projector projects a UFL expression into a function space
     and places the result in a function from that function space,
-    allowing the solver to be reused.
+    allowing the solver to be reused. Projection reverts to an assign
+    operation if ``v`` is a :class:`.Function` and belongs to the same
+    function space as ``v_out``.
 
     :arg v: the :class:`ufl.Expr` or
          :class:`.Function` to project
@@ -121,27 +123,35 @@ class Projector(object):
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
             raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
 
-        V = v_out.function_space()
+        self._same_fspace = (isinstance(v, function.Function) and v.function_space() ==
+                             v_out.function_space())
+        self.v = v
+        self.v_out = v_out
 
-        p = ufl_expr.TestFunction(V)
-        q = ufl_expr.TrialFunction(V)
+        if not self._same_fspace:
+            V = v_out.function_space()
 
-        a = ufl.inner(p, q)*ufl.dx
-        L = ufl.inner(p, v)*ufl.dx
+            p = ufl_expr.TestFunction(V)
+            q = ufl_expr.TrialFunction(V)
 
-        problem = vs.LinearVariationalProblem(a, L, v_out)
+            a = ufl.inner(p, q)*ufl.dx
+            L = ufl.inner(p, v)*ufl.dx
 
-        if solver_parameters is None:
-            solver_parameters = {}
+            problem = vs.LinearVariationalProblem(a, L, v_out)
 
-        solver_parameters.setdefault("ksp_type", "cg")
+            if solver_parameters is None:
+                solver_parameters = {}
 
-        self.solver = vs.LinearVariationalSolver(problem,
-                                                 solver_parameters=solver_parameters)
+            solver_parameters.setdefault("ksp_type", "cg")
+
+            self.solver = vs.LinearVariationalSolver(problem,
+                                                     solver_parameters=solver_parameters)
 
     def project(self):
         """
         Apply the projection.
         """
-
-        self.solver.solve()
+        if self._same_fspace:
+            self.v_out.assign(self.v)
+        else:
+            self.solver.solve()
