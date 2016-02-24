@@ -720,3 +720,6 @@ div.fenics_15 #sponsors img {
     padding-right: 20px
 }
 
+.round-corners {
+    border-radius: 6px;
+}

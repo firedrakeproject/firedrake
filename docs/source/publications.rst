@@ -44,6 +44,13 @@ Firedrake relies heavily on PETSc, which you should cite
 Additionally, if you talk about UFL in your work, please cite the `UFL
 paper <http://fenicsproject.org/citing/#ufl>`_.
 
+Making your simulations reproducible with Zenodo integration
+------------------------------------------------------------
+
+In addition to citing the work you use, you will want to provide
+references to the exact versions of Firedrake and its dependencies
+which you used. Firedrake supports this through :doc:`Zenodo integration <zenodo>`.
+
 
 Journal papers and conference proceedings about or using Firedrake
 ------------------------------------------------------------------

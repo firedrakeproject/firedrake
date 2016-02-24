@@ -1,0 +1,97 @@
+Firedrake Zenodo integration: tools for reproducible science
+============================================================
+
+.. image:: _static/zenodo-gradient-1000.png
+   :width: 25%
+   :alt: Zenodo
+   :align: right
+   :target: https://zenodo.org
+   :class: round-corners
+            
+.. image:: _static/GitHub_Logo.png
+   :width: 25%
+   :alt: Zenodo
+   :align: right
+   :target: http://github.com
+   :class: round-corners
+
+
+`Zenodo <http://zenodo.org>`_ provides a facility for archiving
+scientific data, such as software. Zenodo provides secure archiving
+and referability, including digital object identifiers
+(DOIs). Firedrake integrates with Zenodo and GitHub to provide Firedrake users
+with the ability to generate a set of DOIs corresponding to the exact
+set of Firedrake components which were used to conduct a particular
+simulation.
+
+These DOIs can be used in citations in publications to provide a
+reference to the exact version of the software used, and thereby to
+improve the reproducibility of your computational science.
+
+How to register DOIs for a version of Firedrake
+-----------------------------------------------
+
+This section assumes that you have a Firedrake installation which you
+have used to conduct some numerical experiment and which you wish to
+publish or otherwise record for posterity. It is assumed that your
+virtualenv is activated or that you otherwise have the firedrake
+scripts in your path.
+
+1. Use ``firedrake-zenodo`` to generate a JSON file containing the
+   versions of Firedrake components you are using, as well as a
+   documentation message describing what this version was used for
+   (this will appear online on Zenodo). For example::
+
+     firedrake-zenodo -m "Version of Firedrake used in 'My paper title'."
+
+   This will create a file ``firedrake.json`` containing the required
+   information.
+
+2. Create an issue on the Firedrake GitHub page asking that a Zenodo
+   release be created. Attach the ``firedrake.json`` file to the
+   issue. You can create the issue `here
+   <https://github.com/firedrakeproject/firedrake/issues/new>`_.
+
+3. The Firedrake developers will generate a bespoke Firedrake release
+   containing exactly the set of versions your JSON file
+   specifies. You will be provided with a firedrake release tag of the
+   form ``Firedrake_YYYYMMDD.N``.
+
+4. You can use this release tag to retrieve BibTeX entries (including
+   the DOI) for all of the components::
+
+     firedrake-zenodo --bibtex Firedrake_YYYYMMDD.N
+
+   Obviously, you substitute in your Firedrake release tag.
+
+You can explore the full set of options for ``firedrake-zenodo``
+with::
+
+  firedrake-zenodo -h
+
+What else do you need to do?
+----------------------------
+
+Archive your code
+~~~~~~~~~~~~~~~~~
+
+``firedrake-zenodo`` produces citable DOIs which point to the versions
+of Firedrake components you used. This covers your bases as far as
+concerns Firedrake, but doesn't cover your code which uses
+Firedrake. Best practice in computational science also demands that
+you provide the code which you used to conduct your experiments. You
+could attach a tarball as a supplement to your paper, or you could
+also use Zenodo. Using Zenodo in combination with GitHub for this
+purpose is documented `here
+<https://guides.github.com/activities/citable-code/>`_.
+
+Cite your sources
+~~~~~~~~~~~~~~~~~
+
+Citing custom DOIs for particular versions of Firedrake and its
+dependencies aids readers of your papers in reproducing your
+science. However it's a supplement to, and not a replacement for,
+citing the published resources for the computational methods you are
+employing. Firedrake also offers support for citing the papers on
+which your computations depend. This is documented on the
+:doc:`publications` page.
