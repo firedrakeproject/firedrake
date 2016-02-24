@@ -69,3 +69,31 @@ def test_indexed_function_space_index(fs):
 
 def test_mixed_function_space_split(fs):
     assert fs.split() == tuple(fs)
+
+
+@pytest.mark.parametrize("modifier",
+                         [BrokenElement, FacetElement,
+                          InteriorElement, TraceElement, HDivElement,
+                          HCurlElement])
+@pytest.mark.parametrize("element",
+                         [FiniteElement("CG", triangle, 1),
+                          EnrichedElement(FiniteElement("CG", triangle, 1),
+                                          FiniteElement("B", triangle, 3)),
+                          TensorProductElement(FiniteElement("CG", triangle, 1),
+                                               FiniteElement("CG", interval, 3)),
+                          MixedElement(FiniteElement("CG", triangle, 1),
+                                       FiniteElement("DG", triangle, 2))],
+                         ids=["FE", "Enriched", "TPE", "Mixed"])
+def test_validation(modifier, element):
+    with pytest.raises(ValueError):
+        FunctionSpace(UnitSquareMesh(1, 1), modifier(VectorElement(element)))
+    if type(element) is MixedElement:
+        with pytest.raises(ValueError):
+            FunctionSpace(UnitSquareMesh(1, 1), VectorElement(element))
+        with pytest.raises(ValueError):
+            FunctionSpace(UnitSquareMesh(1, 1), modifier(element))
+
+
+if __name__ == "__main__":
+    import os
+    pytest.main(os.path.abspath(__file__))
