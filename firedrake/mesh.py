@@ -368,6 +368,11 @@ class MeshTopology(object):
                 self._vertex_numbering = self._plex.createSection([1], entity_dofs,
                                                                   perm=self._plex_renumbering)
 
+                entity_dofs[:] = 0
+                entity_dofs[-2] = 1
+                facet_numbering = self._plex.createSection([1], entity_dofs,
+                                                           perm=self._plex_renumbering)
+                self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
 
     def init(self):
@@ -454,7 +459,8 @@ class MeshTopology(object):
 
             # Order exterior facets by OP2 entity class
             exterior_facets, exterior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "exterior_facets")
+                dmplex.get_facets_by_class(self._plex, "exterior_facets",
+                                           self._facet_ordering)
 
             # Derive attached boundary IDs
             if self._plex.hasLabel("boundary_ids"):
@@ -491,7 +497,8 @@ class MeshTopology(object):
 
             # Order interior facets by OP2 entity class
             interior_facets, interior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "interior_facets")
+                dmplex.get_facets_by_class(self._plex, "interior_facets",
+                                           self._facet_ordering)
 
             interior_local_facet_number, interior_facet_cell = \
                 dmplex.facet_numbering(self._plex, "interior",
