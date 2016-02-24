@@ -60,6 +60,44 @@ def make_scalar_element(mesh, family, degree, vfamily, vdegree):
         return ufl.FiniteElement(family, cell=cell, degree=degree)
 
 
+def check_element(element, top=True):
+    """Run some checks on the provided element.
+
+    The :class:`~ufl.classes.VectorElement` and
+    :class:`~ufl.classes.TensorElement` modifiers must be "outermost"
+    for function space construction to work, excepting that they
+    should not wrap a :class:`~ufl.classes.MixedElement`.  Similarly,
+    a base :class:`~ufl.classes.MixedElement` must be outermost (it
+    can contain :class:`~ufl.classes.MixedElement` instances, provided
+    they satisfy the other rules). This function checks that.
+
+    :arg element: The :class:`UFL element
+        <ufl.classes.FiniteElementBase>` to check.
+    :kwarg top: Are we at the top element (in which case the modifier
+        is legal).
+    :returns: ``None`` if the element is legal.
+    :raises ValueError: if the element is illegal.
+
+    """
+    if type(element) in (ufl.BrokenElement, ufl.FacetElement,
+                         ufl.InteriorElement, ufl.RestrictedElement,
+                         ufl.TraceElement, ufl.HDivElement, ufl.HCurlElement):
+        inner = (element._element, )
+    elif type(element) is ufl.EnrichedElement:
+        inner = element._elements
+    elif type(element) is ufl.TensorProductElement:
+        inner = element._A, element._B
+    elif isinstance(element, ufl.MixedElement):
+        if not top:
+            raise ValueError("%s modifier must be outermost" % type(element))
+        else:
+            inner = element.sub_elements()
+    else:
+        return
+    for e in inner:
+        check_element(e, top=False)
+
+
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
     """Create a :class:`.FunctionSpace`.
@@ -82,6 +120,9 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
     # Support FunctionSpace(mesh, MixedElement)
     if type(element) is ufl.MixedElement:
         return MixedFunctionSpace(element, mesh=mesh, name=name)
+
+    # Check that any Vector/Tensor/Mixed modifiers are outermost.
+    check_element(element)
 
     # Otherwise, build the FunctionSpace.
     topology = mesh.topology
