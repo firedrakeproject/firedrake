@@ -187,7 +187,8 @@ if not (args.release or args.input_file):
 try:
     import github3
 except ImportError:
-    "Publishing releases requires the github3 module. Please pip install github3.py"
+    log.error("Publishing releases requires the github3 module. Please pip install github3.py")
+    sys.exit(1)
 
 message = shas["message"] + """
 
