@@ -141,6 +141,34 @@ class DataSet(base.DataSet):
 
 class MixedDataSet(DataSet, base.MixedDataSet):
 
+    def get_vecscatters(self, dat):
+        """Get the vecscatters from the dof layout of this dataset to a PETSc Vec."""
+        if hasattr(self, "_vecscatters"):
+            return self._vecscatters
+        assert hasattr(dat, "_vec")
+        # To be compatible with a MatNest (from a MixedMat) the
+        # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
+        # on P processes is:
+        # (x_0_0, x_1_0, ..., x_k_0, x_0_1, x_1_1, ..., x_k_1, ..., x_k_P)
+        # That is, all the Dats from rank 0, followed by those of
+        # rank 1, ...
+        # Hence the offset into the global Vec is the exclusive
+        # prefix sum of the local size of the mixed dat.
+        size = sum(d.dataset.size * d.dataset.cdim for d in dat)
+        offset = MPI.comm.exscan(size)
+        if offset is None:
+            offset = 0
+        scatters = []
+        for d in dat:
+            size = d.dataset.size * d.dataset.cdim
+            with d.vec_ro as v:
+                vscat = PETSc.Scatter().create(v, None, dat._vec,
+                                               PETSc.IS().createStride(size, offset, 1))
+            offset += size
+            scatters.append(vscat)
+        self._vecscatters = tuple(scatters)
+        return self._vecscatters
+
     @property
     def lgmap(self):
         """A PETSc LGMap mapping process-local indices to global
@@ -224,6 +252,8 @@ class Dat(base.Dat):
                          or read-write (use :meth:`Dat.data`). Read-write
                          access requires a halo update."""
 
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
         acc = (lambda d: d.data_ro) if readonly else (lambda d: d.data)
         # Getting the Vec needs to ensure we've done all current computation.
         self._force_evaluation()
@@ -284,44 +314,27 @@ class MixedDat(base.MixedDat):
            :class:`MixedMat`.  In parallel it is *not* just a
            concatenation of the underlying :class:`Dat`\s."""
 
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
         acc = (lambda d: d.vec_ro) if readonly else (lambda d: d.vec)
-        # Allocate memory for the contiguous vector, create the scatter
-        # contexts and stash them on the object for later reuse
-        if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
+        # Allocate memory for the contiguous vector
+        if not hasattr(self, '_vec'):
             self._vec = PETSc.Vec().create()
             # Size of flattened vector is product of size and cdim of each dat
             sz = sum(d.dataset.size * d.dataset.cdim for d in self._dats)
             self._vec.setSizes((sz, None))
             self._vec.setUp()
-            self._sctxs = []
-            # To be compatible with a MatNest (from a MixedMat) the
-            # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
-            # on P processes is:
-            # (x_0_0, x_1_0, ..., x_k_0, x_0_1, x_1_1, ..., x_k_1, ..., x_k_P)
-            # That is, all the Dats from rank 0, followed by those of
-            # rank 1, ...
-            # Hence the offset into the global Vec is the exclusive
-            # prefix sum of the local size of the mixed dat.
-            offset = MPI.comm.exscan(sz)
-            if offset is None:
-                offset = 0
 
-            for d in self._dats:
-                sz = d.dataset.size * d.dataset.cdim
-                with acc(d) as v:
-                    vscat = PETSc.Scatter().create(v, None, self._vec,
-                                                   PETSc.IS().createStride(sz, offset, 1))
-                offset += sz
-                self._sctxs.append(vscat)
+        scatters = self.dataset.get_vecscatters(self)
         # Do the actual forward scatter to fill the full vector with values
-        for d, vscat in zip(self._dats, self._sctxs):
+        for d, vscat in zip(self, scatters):
             with acc(d) as v:
                 vscat.scatterBegin(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
                 vscat.scatterEnd(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
         yield self._vec
         if not readonly:
             # Reverse scatter to get the values back to their original locations
-            for d, vscat in zip(self._dats, self._sctxs):
+            for d, vscat in zip(self, scatters):
                 with acc(d) as v:
                     vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
                                        mode=PETSc.ScatterMode.REVERSE)
