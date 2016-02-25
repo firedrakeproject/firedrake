@@ -245,7 +245,7 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
     all_same = np.allclose(weights, weights[0, 0])
 
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+               ast.Decl("double *restrict *restrict ", ast.Symbol("fine", ()),
                         qualifiers=["const"])]
     if all_same:
         w_sym = ast.Symbol("weights", ())
@@ -291,7 +291,7 @@ def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
     nfdof = weights.shape[0]
     ncdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("fine", (nfdof*dim, ))),
-               ast.Decl("double", ast.Symbol("*restrict *restrict coarse", ()),
+               ast.Decl("double *restrict *restrict ", ast.Symbol("coarse", ()),
                         qualifiers=["const"])]
     all_same = np.allclose(weights, weights[0, 0])
 
@@ -339,10 +339,10 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False
     ncdof = weights.shape[0]
     nfdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+               ast.Decl("double *restrict *restrict ", ast.Symbol("fine", ()),
                         qualifiers=["const"])]
     if not no_weights:
-        arglist.append(ast.Decl("double", ast.Symbol("*restrict *restrict count_weights", ()),
+        arglist.append(ast.Decl("double *restrict *restrict", ast.Symbol("count_weights", ()),
                                 qualifiers=["const"]))
 
     all_ones = np.allclose(weights, 1.0)
