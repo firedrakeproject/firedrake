@@ -51,6 +51,7 @@ from profiling import timed_region
 import mpi
 from mpi import collective
 import sparsity
+from pyop2 import utils
 
 
 if petsc4py_version < '3.4':
@@ -79,13 +80,11 @@ mpi.MPI = MPI
 
 class DataSet(base.DataSet):
 
-    @property
+    @utils.cached_property
     def lgmap(self):
         """A PETSc LGMap mapping process-local indices to global
         indices for this :class:`DataSet`.
         """
-        if hasattr(self, '_lgmap'):
-            return self._lgmap
         lgmap = PETSc.LGMap()
         if MPI.comm.size == 1:
             lgmap.create(indices=np.arange(self.size, dtype=PETSc.IntType),
@@ -93,17 +92,14 @@ class DataSet(base.DataSet):
         else:
             lgmap.create(indices=self.halo.global_to_petsc_numbering,
                          bsize=self.cdim)
-        self._lgmap = lgmap
         return lgmap
 
-    @property
+    @utils.cached_property
     def field_ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        if hasattr(self, '_field_ises'):
-            return self._field_ises
         ises = []
         nlocal_rows = 0
         for dset in self:
@@ -116,16 +112,13 @@ class DataSet(base.DataSet):
             iset.setBlockSize(dset.cdim)
             ises.append(iset)
             offset += nrows
-        self._field_ises = tuple(ises)
-        return ises
+        return tuple(ises)
 
-    @property
+    @utils.cached_property
     def local_ises(self):
         """A list of PETSc ISes defining the local indices for each set in the DataSet.
 
         Used when extracting blocks from matrices for assembly."""
-        if hasattr(self, '_local_ises'):
-            return self._local_ises
         ises = []
         start = 0
         for dset in self:
@@ -135,8 +128,7 @@ class DataSet(base.DataSet):
             iset.setBlockSize(bs)
             start += n
             ises.append(iset)
-        self._local_ises = tuple(ises)
-        return self._local_ises
+        return tuple(ises)
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
@@ -169,19 +161,17 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         self._vecscatters = tuple(scatters)
         return self._vecscatters
 
-    @property
+    @utils.cached_property
     def lgmap(self):
         """A PETSc LGMap mapping process-local indices to global
         indices for this :class:`MixedDataSet`.
         """
-        if hasattr(self, '_lgmap'):
-            return self._lgmap
-        self._lgmap = PETSc.LGMap()
+        lgmap = PETSc.LGMap()
         if MPI.comm.size == 1:
             size = sum(s.size * s.cdim for s in self)
-            self._lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
-                               bsize=1)
-            return self._lgmap
+            lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
+                         bsize=1)
+            return lgmap
         # Compute local to global maps for a monolithic mixed system
         # from the individual local to global maps for each field.
         # Exposition:
@@ -238,8 +228,8 @@ class MixedDataSet(DataSet, base.MixedDataSet):
             MPI.comm.Allgather(owned_sz, current_offsets[1:])
             all_local_offsets += current_offsets[1:]
             start += s.total_size * s.cdim
-        self._lgmap.create(indices=indices, bsize=1)
-        return self._lgmap
+        lgmap.create(indices=indices, bsize=1)
+        return lgmap
 
 
 class Dat(base.Dat):
