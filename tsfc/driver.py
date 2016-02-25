@@ -9,7 +9,7 @@ from ufl.log import GREEN
 
 from tsfc.quadrature import create_quadrature, QuadratureRule
 
-from tsfc import fem, gem, optimise as opt, impero_utils
+from tsfc import fem, gem, optimise as opt, impero_utils, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.node import traversal
@@ -99,8 +99,8 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     interface = Interface(integral_type, form_data.preprocessed_form.arguments())
 
     mesh = integral_data.domain
-    coordinates = fem.coordinate_coefficient(mesh)
-    if is_mesh_affine(mesh):
+    coordinates = ufl_utils.coordinate_coefficient(mesh)
+    if ufl_utils.is_element_affine(mesh.ufl_coordinate_element()):
         # For affine mesh geometries we prefer code generation that
         # composes well with optimisations.
         interface.preload(coordinates, "coords", mode='list_tensor')
@@ -152,7 +152,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
                              type(quad_rule))
 
-        integrand = fem.replace_coordinates(integral.integrand(), coordinates)
+        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         ir, quadrature_index = fem.process(integral_type, cell,
                                            quad_rule, integrand,
                                            interface, index_cache)
@@ -191,10 +191,3 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
     kernel.ast = interface.construct_kernel_function(funname, body, kernel.oriented)
     return kernel
-
-
-def is_mesh_affine(mesh):
-    """Tells if a mesh geometry is affine."""
-    affine_cells = ["interval", "triangle", "tetrahedron"]
-    degree = mesh.ufl_coordinate_element().degree()
-    return mesh.ufl_cell().cellname() in affine_cells and degree == 1

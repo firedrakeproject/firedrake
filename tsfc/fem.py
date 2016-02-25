@@ -6,263 +6,25 @@ import itertools
 import numpy
 from singledispatch import singledispatch
 
-import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
-                         GeometricQuantity, QuadratureWeight,
-                         ReferenceValue, Zero)
-from ufl.classes import (Abs, CellOrientation, Expr, FloatValue,
-                         Division, Product, ScalarValue, Sqrt)
+                         GeometricQuantity, QuadratureWeight)
 
 from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, as_fiat_cell
-from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
-from tsfc.node import MemoizerArg
+from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc import compat
 from tsfc import gem
 from tsfc import ufl2gem
 from tsfc import geometric
+from tsfc.ufl_utils import (CollectModifiedTerminals,
+                            ModifiedTerminalMixin, PickRestriction,
+                            spanning_degree, simplify_abs)
 
 
 # FFC uses one less digits for rounding than for printing
 epsilon = eval("1e-%d" % (PRECISION - 1))
-
-
-class ReplaceSpatialCoordinates(MultiFunction):
-    """Replace SpatialCoordinate nodes with the ReferenceValue of a
-    Coefficient.  Assumes that the coordinate element only needs
-    affine mapping.
-
-    :arg coordinates: the coefficient to replace spatial coordinates with
-    """
-    def __init__(self, coordinates):
-        self.coordinates = coordinates
-        MultiFunction.__init__(self)
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def terminal(self, t):
-        return t
-
-    def spatial_coordinate(self, o):
-        assert o.ufl_domain().ufl_coordinate_element().mapping() == "identity"
-        return ReferenceValue(self.coordinates)
-
-
-class ModifiedTerminalMixin(object):
-    """Mixin to use with MultiFunctions that operate on modified
-    terminals."""
-
-    def unexpected(self, o):
-        assert False, "Not expected %r at this stage." % o
-
-    # global derivates should have been pulled back
-    grad = unexpected
-    div = unexpected
-    curl = unexpected
-
-    # div and curl should have been algebraically lowered
-    reference_div = unexpected
-    reference_curl = unexpected
-
-    def _modified_terminal(self, o):
-        assert is_modified_terminal(o)
-        return self.modified_terminal(o)
-
-    # Unlike UFL, we do not regard Indexed as a terminal modifier.
-    # indexed = _modified_terminal
-
-    positive_restricted = _modified_terminal
-    negative_restricted = _modified_terminal
-
-    cell_avg = _modified_terminal
-    facet_avg = _modified_terminal
-
-    reference_grad = _modified_terminal
-    reference_value = _modified_terminal
-
-    terminal = _modified_terminal
-
-
-class CollectModifiedTerminals(MultiFunction, ModifiedTerminalMixin):
-    """Collect the modified terminals in a UFL expression.
-
-    :arg return_list: modified terminals will be appended to this list
-    """
-    def __init__(self, return_list):
-        MultiFunction.__init__(self)
-        self.return_list = return_list
-
-    def expr(self, o, *ops):
-        pass  # operands visited
-
-    def indexed(self, o, *ops):
-        pass  # not a terminal modifier
-
-    def multi_index(self, o):
-        pass  # ignore
-
-    def modified_terminal(self, o):
-        self.return_list.append(o)
-
-
-class PickRestriction(MultiFunction, ModifiedTerminalMixin):
-    """Pick out parts of an expression with specified restrictions on
-    the arguments.
-
-    :arg test: The restriction on the test function.
-    :arg trial:  The restriction on the trial function.
-
-    Returns those parts of the expression that have the requested
-    restrictions, or else :class:`ufl.classes.Zero` if no such part
-    exists.
-    """
-    def __init__(self, test=None, trial=None):
-        self.restrictions = {0: test, 1: trial}
-        MultiFunction.__init__(self)
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def multi_index(self, o):
-        return o
-
-    def modified_terminal(self, o):
-        mt = analyse_modified_terminal(o)
-        t = mt.terminal
-        r = mt.restriction
-        if isinstance(t, Argument) and r != self.restrictions[t.number()]:
-            return Zero(o.ufl_shape, o.ufl_free_indices, o.ufl_index_dimensions)
-        else:
-            return o
-
-
-def _spanning_degree(cell, degree):
-    if cell is None:
-        assert degree == 0
-        return degree
-    elif cell.cellname() in ["interval", "triangle", "tetrahedron"]:
-        return degree
-    elif cell.cellname() == "quadrilateral":
-        # TODO: Tensor-product space assumed
-        return 2 * degree
-    elif isinstance(cell, ufl.TensorProductCell):
-        try:
-            # A component cell might be a quadrilateral, so recurse.
-            return sum(_spanning_degree(sub_cell, d)
-                       for sub_cell, d in zip(cell.sub_cells(), degree))
-        except TypeError:
-            assert degree == 0
-            return 0
-    else:
-        raise ValueError("Unknown cell %s" % cell.cellname())
-
-
-def spanning_degree(element):
-    """Determine the degree of the polynomial space spanning an element.
-
-    :arg element: The element to determine the degree of.
-
-    .. warning::
-
-       For non-simplex elements, this assumes a tensor-product
-       space.
-    """
-    return _spanning_degree(element.cell(), element.degree())
-
-
-def ufl_reuse_if_untouched(o, *ops):
-    """Reuse object if operands are the same objects."""
-    if all(a is b for a, b in zip(o.ufl_operands, ops)):
-        return o
-    else:
-        return o._ufl_expr_reconstruct_(*ops)
-
-
-@singledispatch
-def _simplify_abs(o, self, in_abs):
-    """Single-dispatch function to simplify absolute values.
-
-    :arg o: UFL node
-    :arg self: Callback handler for recursion
-    :arg in_abs: Is ``o`` inside an absolute value?
-
-    When ``in_abs`` we must return a non-negative value, potentially
-    by wrapping the returned node with ``Abs``.
-    """
-    raise AssertionError("UFL node expected, not %s" % type(o))
-
-
-@_simplify_abs.register(Expr)  # noqa
-def _(o, self, in_abs):
-    # General case, only wrap the outer expression (if necessary)
-    operands = [self(op, False) for op in o.ufl_operands]
-    result = ufl_reuse_if_untouched(o, *operands)
-    if in_abs:
-        result = Abs(result)
-    return result
-
-
-@_simplify_abs.register(Sqrt)  # noqa
-def _(o, self, in_abs):
-    # Square root is always non-negative
-    return ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
-
-
-@_simplify_abs.register(ScalarValue)  # noqa
-def _(o, self, in_abs):
-    if not in_abs:
-        return o
-    # Inline abs(constant)
-    return ufl.as_ufl(abs(o._value))
-
-
-@_simplify_abs.register(CellOrientation)  # noqa
-def _(o, self, in_abs):
-    if not in_abs:
-        return o
-    # Cell orientation is +-1
-    return FloatValue(1)
-
-
-@_simplify_abs.register(Division)  # noqa
-@_simplify_abs.register(Product)
-def _(o, self, in_abs):
-    if not in_abs:
-        # Just reconstruct
-        ops = [self(op, False) for op in o.ufl_operands]
-        return ufl_reuse_if_untouched(o, *ops)
-
-    # Visit children, distributing Abs
-    ops = [self(op, True) for op in o.ufl_operands]
-
-    # Strip Abs off again (we will put it outside now)
-    stripped = False
-    strip_ops = []
-    for op in ops:
-        if isinstance(op, Abs):
-            stripped = True
-            strip_ops.append(op.ufl_operands[0])
-        else:
-            strip_ops.append(op)
-
-    # Rebuild, and wrap with Abs if necessary
-    result = ufl_reuse_if_untouched(o, *strip_ops)
-    if stripped:
-        result = Abs(result)
-    return result
-
-
-@_simplify_abs.register(Abs)  # noqa
-def _(o, self, in_abs):
-    return self(o.ufl_operands[0], True)
-
-
-def simplify_abs(expression):
-    """Simplify absolute values in a UFL expression.  Its primary
-    purpose is to "neutralise" CellOrientation nodes that are
-    surrounded by absolute values and thus not at all necessary."""
-    return MemoizerArg(_simplify_abs)(expression, False)
 
 
 def _tabulate(ufl_element, order, points):
@@ -538,16 +300,6 @@ def _(terminal, mt, params):
                                         gem.Indexed(ka, (r,))), r)
 
     return iterate_shape(mt, callback)
-
-
-def coordinate_coefficient(domain):
-    """Create a fake coordinate coefficient for a domain."""
-    return ufl.Coefficient(ufl.FunctionSpace(domain, domain.ufl_coordinate_element()))
-
-
-def replace_coordinates(integrand, coordinate_coefficient):
-    """Replace SpatialCoordinate nodes with Coefficients."""
-    return map_expr_dag(ReplaceSpatialCoordinates(coordinate_coefficient), integrand)
 
 
 def process(integral_type, cell, quadrature_rule, integrand, interface, index_cache):
