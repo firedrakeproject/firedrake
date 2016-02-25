@@ -207,6 +207,56 @@ def get_bt_masks(mesh, key, fiat_element):
     return bt_masks
 
 
+@cached
+def get_work_function_cache(mesh, ufl_element):
+    """Get the cache for work functions.
+
+    :arg mesh: The mesh to use.
+    :arg ufl_element: The ufl element, used as a key.
+    :returns: A dict.
+
+    :class:`.FunctionSpace` objects sharing the same UFL element (and
+    therefore comparing equal) share a work function cache.
+    """
+    return {}
+
+
+def get_max_work_functions(V):
+    """Get the maximum number of work functions.
+
+    :arg V: The function space to get the number of work functions for.
+    :returns: The maximum number of work functions.
+
+    This number is shared between all function spaces with the same
+    :meth:`~.FunctionSpace.ufl_element` and
+    :meth:`~FunctionSpace.mesh`.
+
+    The default is 25 work functions per function space.  This can be
+    set using :func:`set_max_work_functions`.
+    """
+    mesh = V.mesh()
+    assert hasattr(mesh, "_shared_data_cache")
+    cache = mesh._shared_data_cache["max_work_functions"]
+    return cache.get(V.ufl_element(), 25)
+
+
+def set_max_work_functions(V, val):
+    """Set the maximum number of work functions.
+
+    :arg V: The function space to set the number of work functions
+        for.
+    :arg val: The new maximum number of work functions.
+
+    This number is shared between all function spaces with the same
+    :meth:`~.FunctionSpace.ufl_element` and
+    :meth:`~FunctionSpace.mesh`.
+    """
+    mesh = V.mesh()
+    assert hasattr(mesh, "_shared_data_cache")
+    cache = mesh._shared_data_cache["max_work_functions"]
+    cache[V.ufl_element()] = val
+
+
 def entity_dofs_key(entity_dofs):
     """Provide a canonical key for an entity_dofs dict.
 

@@ -116,6 +116,33 @@ def test_different_spaces(V, Q):
     assert Q.num_work_functions == 1
 
 
+def test_max_work_functions_shared_across_instances(V, Q):
+    V2 = FunctionSpace(V.mesh(), V.ufl_element())
+
+    assert V.max_work_functions == V2.max_work_functions
+
+    V.max_work_functions = 1
+
+    assert V.max_work_functions == 1
+    assert V2.max_work_functions == 1
+
+    f = V.get_work_function()
+    g = Q.get_work_function()
+    assert f is not g
+    Q.restore_work_function(g)
+    with pytest.raises(ValueError):
+        V2.get_work_function()
+
+    with pytest.raises(ValueError):
+        V.get_work_function()
+
+    V.restore_work_function(f)
+
+    g = V2.get_work_function()
+
+    assert f is g
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))

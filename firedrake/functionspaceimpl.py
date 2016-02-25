@@ -70,14 +70,17 @@ class WithGeometry(ufl.FunctionSpace):
     @property
     def num_work_functions(self):
         """The number of checked out work functions."""
-        return sum(self._work_functions.values())
+        from firedrake.functionspacedata import get_work_function_cache
+        cache = get_work_function_cache(self.mesh(), self.ufl_element())
+        return sum(cache.values())
 
     @property
     def max_work_functions(self):
         """The maximum number of work functions this :class:`FunctionSpace` supports.
 
         See :meth:`get_work_function` for obtaining work functions."""
-        return getattr(self.topological, '_max_work_functions', 25)
+        from firedrake.functionspacedata import get_max_work_functions
+        return get_max_work_functions(self)
 
     @max_work_functions.setter
     def max_work_functions(self, val):
@@ -88,7 +91,8 @@ class WithGeometry(ufl.FunctionSpace):
             number of currently checked out work functions.
             """
         # Clear cache
-        cache = self._work_functions
+        from firedrake.functionspacedata import get_work_function_cache, set_max_work_functions
+        cache = get_work_function_cache(self.mesh(), self.ufl_element())
         if val < len(cache):
             for k in cache.keys():
                 if not cache[k]:
@@ -96,7 +100,7 @@ class WithGeometry(ufl.FunctionSpace):
             if val < len(cache):
                 raise ValueError("Can't set work function cache smaller (%d) than current checked out functions (%d)" %
                                  (val, len(cache)))
-        setattr(self.topological, '_max_work_functions', val)
+        set_max_work_functions(self, val)
 
     def get_work_function(self, zero=True):
         """Get a temporary work :class:`~.Function` on this :class:`FunctionSpace`.
@@ -120,7 +124,8 @@ class WithGeometry(ufl.FunctionSpace):
             :meth:`restore_work_function`.
 
         """
-        cache = self._work_functions
+        from firedrake.functionspacedata import get_work_function_cache
+        cache = get_work_function_cache(self.mesh(), self.ufl_element())
         for function in cache.keys():
             # Check if we've got a free work function available
             out = cache[function]
@@ -150,7 +155,8 @@ class WithGeometry(ufl.FunctionSpace):
            it is the user's responsibility not to use a work function
            after restoring it.
         """
-        cache = self._work_functions
+        from firedrake.functionspacedata import get_work_function_cache
+        cache = get_work_function_cache(self.mesh(), self.ufl_element())
         try:
             out = cache[function]
         except KeyError:
@@ -249,11 +255,6 @@ class FunctionSpace(object):
         self._ufl_element = element
         self._shared_data = sdata
         self._mesh = mesh
-        # Cache for "work functions", temporary Functions built on
-        # this function space that are used and then restored.
-        # TODO: This is not shared between function space instances
-        # that compare the same.
-        self._work_functions = {}
 
         self.rank = len(self.shape)
         """The rank of this :class:`FunctionSpace`.  Spaces where the
