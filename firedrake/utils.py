@@ -4,28 +4,6 @@ from decorator import decorator
 from pyop2.utils import cached_property  # noqa: imported from here elsewhere
 
 
-# after https://micheles.googlecode.com/hg/decorator/documentation.html and
-# http://code.activestate.com/recipes/577452-a-memoize-decorator-for-instance-methods/
-def _memoize(func, obj, *args, **kw):
-    try:
-        cache = obj.__cache
-    except AttributeError:
-        cache = obj.__cache = {}
-    if kw:
-        key = func, args, tuple(kw.iteritems())
-    else:
-        key = func, args
-    if key in cache:
-        return cache[key]
-    else:
-        cache[key] = result = func(obj, *args, **kw)
-        return result
-
-
-def memoize(f):
-    return decorator(_memoize, f)
-
-
 _current_uid = 0
 
 

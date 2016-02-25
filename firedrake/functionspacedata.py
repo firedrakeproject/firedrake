@@ -167,19 +167,6 @@ def get_map_caches(mesh, entity_dofs):
 
 
 @cached
-def get_dof_layout_vec(mesh, dof_dset, V):
-    """Get the PETSc Vec describing the dof layout.
-
-    :arg mesh: The mesh to use.
-    :arg dof_dset: The :class:`pyop2.DataSet` describing the data
-        layout.
-    :arg V: The :class:`~.FunctionSpace` that can create a :class:`pyop2.Dat`
-    """
-    with V.make_dat().vec_ro as v:
-        return v.duplicate()
-
-
-@cached
 def get_dof_offset(mesh, key, entity_dofs, ndof):
     """Get the dof offsets.
 
