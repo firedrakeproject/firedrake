@@ -261,7 +261,9 @@ class Dat(base.Dat):
             "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
         acc = (lambda d: d.data_ro) if readonly else (lambda d: d.data)
         # Getting the Vec needs to ensure we've done all current computation.
-        self._force_evaluation()
+        # If we only want readonly access then there's no need to
+        # force the evaluation of reads from the Dat.
+        self._force_evaluation(read=True, write=not readonly)
         if not hasattr(self, '_vec'):
             # Can't duplicate layout_vec of dataset, because we then
             # carry around extra unnecessary data.
