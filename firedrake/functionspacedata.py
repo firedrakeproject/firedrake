@@ -330,6 +330,9 @@ class FunctionSpaceData(object):
         # array literals.
         c_array = lambda xs: "{"+", ".join(map(str, xs))+"}"
 
+        # AST for: l_nodes[facet[0]][n]
+        rank_ast = ast.Symbol("l_nodes", rank=(ast.Symbol("facet", rank=(0,)), "n"))
+
         body = ast.Block([ast.Decl("int",
                                    ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
                                                           nodes_per_facet)),
@@ -339,7 +342,7 @@ class FunctionSpaceData(object):
                                   ast.Less("n", nodes_per_facet),
                                   ast.Incr("n", 1),
                                   ast.Assign(ast.Symbol("facet_nodes", ("n",)),
-                                             ast.Symbol("cell_nodes", ("l_nodes[facet[0]][n]",))))
+                                             ast.Symbol("cell_nodes", (rank_ast, ))))
                           ])
 
         kernel = op2.Kernel(ast.FunDecl("void", "create_bc_node_map",
