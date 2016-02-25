@@ -130,14 +130,31 @@ class DataSet(base.DataSet):
             ises.append(iset)
         return tuple(ises)
 
+    @utils.cached_property
+    def layout_vec(self):
+        """A PETSc Vec compatible with the dof layout of this DataSet."""
+        vec = PETSc.Vec().create()
+        size = (self.size * self.cdim, None)
+        vec.setSizes(size, bsize=self.cdim)
+        vec.setUp()
+        return vec
+
 
 class MixedDataSet(DataSet, base.MixedDataSet):
 
-    def get_vecscatters(self, dat):
+    @utils.cached_property
+    def layout_vec(self):
+        """A PETSc Vec compatible with the dof layout of this MixedDataSet."""
+        vec = PETSc.Vec().create()
+        # Size of flattened vector is product of size and cdim of each dat
+        size = sum(d.size * d.cdim for d in self)
+        vec.setSizes((size, None))
+        vec.setUp()
+        return vec
+
+    @utils.cached_property
+    def vecscatters(self):
         """Get the vecscatters from the dof layout of this dataset to a PETSc Vec."""
-        if hasattr(self, "_vecscatters"):
-            return self._vecscatters
-        assert hasattr(dat, "_vec")
         # To be compatible with a MatNest (from a MixedMat) the
         # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
         # on P processes is:
@@ -146,20 +163,18 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         # rank 1, ...
         # Hence the offset into the global Vec is the exclusive
         # prefix sum of the local size of the mixed dat.
-        size = sum(d.dataset.size * d.dataset.cdim for d in dat)
+        size = sum(d.size * d.cdim for d in self)
         offset = MPI.comm.exscan(size)
         if offset is None:
             offset = 0
         scatters = []
-        for d in dat:
-            size = d.dataset.size * d.dataset.cdim
-            with d.vec_ro as v:
-                vscat = PETSc.Scatter().create(v, None, dat._vec,
-                                               PETSc.IS().createStride(size, offset, 1))
+        for d in self:
+            size = d.size * d.cdim
+            vscat = PETSc.Scatter().create(d.layout_vec, None, self.layout_vec,
+                                           PETSc.IS().createStride(size, offset, 1))
             offset += size
             scatters.append(vscat)
-        self._vecscatters = tuple(scatters)
-        return self._vecscatters
+        return tuple(scatters)
 
     @utils.cached_property
     def lgmap(self):
@@ -248,7 +263,11 @@ class Dat(base.Dat):
         # Getting the Vec needs to ensure we've done all current computation.
         self._force_evaluation()
         if not hasattr(self, '_vec'):
-            size = (self.dataset.size * self.cdim, None)
+            # Can't duplicate layout_vec of dataset, because we then
+            # carry around extra unnecessary data.
+            # But use getSizes to save an Allreduce in computing the
+            # global size.
+            size = self.dataset.layout_vec.getSizes()
             self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
                                                     bsize=self.cdim)
         # PETSc Vecs have a state counter and cache norm computations
@@ -309,13 +328,11 @@ class MixedDat(base.MixedDat):
         acc = (lambda d: d.vec_ro) if readonly else (lambda d: d.vec)
         # Allocate memory for the contiguous vector
         if not hasattr(self, '_vec'):
-            self._vec = PETSc.Vec().create()
-            # Size of flattened vector is product of size and cdim of each dat
-            sz = sum(d.dataset.size * d.dataset.cdim for d in self._dats)
-            self._vec.setSizes((sz, None))
-            self._vec.setUp()
+            # In this case we can just duplicate the layout vec
+            # because we're not placing an array.
+            self._vec = self.dataset.layout_vec.duplicate()
 
-        scatters = self.dataset.get_vecscatters(self)
+        scatters = self.dataset.vecscatters
         # Do the actual forward scatter to fill the full vector with values
         for d, vscat in zip(self, scatters):
             with acc(d) as v:
