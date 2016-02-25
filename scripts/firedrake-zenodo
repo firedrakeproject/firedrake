@@ -72,11 +72,7 @@ for component in components:
 parser.add_argument("--log", action='store_true',
                     help="Produce a verbose log of the installation process in firedrake-zenodo.log. If you have problem running this script, please include this log in any bug report you file.")
 
-
 args = parser.parse_args()
-
-cwd = os.getcwd()
-src = os.path.dirname(__file__) + "/../src"
 
 # Set up logging
 if args.log:
@@ -96,6 +92,13 @@ else:
     logging.basicConfig(level=logging.INFO,
                         format='%(message)s')
 log = logging.getLogger()
+
+cwd = os.getcwd()
+try:
+    src = os.environ["VIRTUAL_ENV"] + "/src"
+except KeyError:
+    log.error("VIRTUAL_ENV environment variable not set. Please activate virtualenv before running firedrake-zenodo.")
+    sys.exit(1)
 
 
 def check_call(arguments):
