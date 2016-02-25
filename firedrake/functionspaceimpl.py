@@ -211,8 +211,7 @@ class FunctionSpace(object):
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setPointSF(self.mesh()._plex.getPointSF())
         dm.setDefaultSection(self._shared_data.global_numbering)
-        from firedrake.functionspacedata import get_dof_layout_vec
-        dm.setGlobalVector(get_dof_layout_vec(self.mesh(), self.dof_dset, self))
+        dm.setGlobalVector(self.dof_dset.layout_vec)
         return dm
 
     @utils.cached_property
@@ -595,8 +594,7 @@ class MixedFunctionSpace(object):
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setCreateFieldDecomposition(self.create_field_decomp)
         dm.setCreateSubDM(self.create_subdm)
-        from firedrake.functionspacedata import get_dof_layout_vec
-        dm.setGlobalVector(get_dof_layout_vec(self.mesh(), self.dof_dset, self))
+        dm.setGlobalVector(self.dof_dset.layout_vec)
         return dm
 
     @utils.cached_property
