@@ -660,10 +660,9 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_buffer_scatter_offset(self, count, i, j, ofs_name):
         if self.data.dataset._extruded:
-            return '%(ofs_name)s = %(map_name)s[i_0] * %(dim)s' % {
+            return '%(ofs_name)s = %(map_name)s[i_0]' % {
                 'ofs_name': ofs_name,
                 'map_name': 'xtr_%s' % self.c_map_name(0, i),
-                'dim': self.data.split[i].cdim
             }
         else:
             return '%(ofs_name)s = %(map_name)s[i * %(arity)d + i_0] * %(dim)s' % {
