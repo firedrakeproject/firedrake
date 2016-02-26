@@ -617,5 +617,5 @@ problems.
 .. _Exodus: http://sourceforge.net/projects/exodusii/
 .. _UFL: http://arxiv.org/abs/1211.4047
 .. _UFL_package: http://fenicsproject.org/documentation/ufl/dev/ufl.html
-.. _FIAT: https://bitbucket.org/mapdes/fiat
+.. _FIAT: https://github.com/firedrakeproject/fiat
 .. _submanifold: http://en.wikipedia.org/wiki/Submanifold

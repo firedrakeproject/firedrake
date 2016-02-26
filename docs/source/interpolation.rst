@@ -139,5 +139,5 @@ equivalent using C strings or Python expression classes:
 
 
 .. _math.h: http://en.cppreference.com/w/c/numeric/math
-.. _UFL: https://bitbucket.org/mapdes/ufl
+.. _UFL: http://fenics-ufl.readthedocs.org/en/latest/
 .. _TSFC: https://github.com/firedrakeproject/tsfc

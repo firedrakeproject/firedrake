@@ -180,8 +180,8 @@ PETSc
 We maintain branches of PETSc_ and petsc4py_ that are known to work
 with Firedrake.  Use the ``firedrake`` branch for both:
 
-- https://bitbucket.org/mapdes/petsc
-- https://bitbucket.org/mapdes/petsc4py
+- https://github.com/firedrakeproject/petsc
+- https://github.com/firedrakeproject/petsc4py
 
 PETSc must be built with (at least) support for:
 
@@ -239,12 +239,12 @@ plugins are required.  The former is available from the
 <https://bitbucket.org/birkenfeld/sphinx-contrib>`__, the latter is
 the python package ``sphinxcontrib-bibtex``.
 
-.. _petsc4py: https://bitbucket.org/mapdes/petsc4py
+.. _petsc4py: https://github.com/firedrakeproject/petsc4py
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _PyOP2: http://op2.github.io/PyOP2
 .. _TSFC: https://github.com/firedrakeproject/tsfc
-.. _FIAT: https://bitbucket.org/mapdes/fiat
-.. _UFL: https://bitbucket.org/mapdes/ufl
+.. _FIAT: https://github.com/firedrakeproject/fiat
+.. _UFL: https://github.com/firedrakeproject/ufl
 .. _Paraview: http://www.paraview.org
 .. _Sphinx: http://www.sphinx-doc.org
 .. _wget: http://www.gnu.org/software/wget/
