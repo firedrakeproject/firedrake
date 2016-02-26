@@ -162,7 +162,7 @@ We just use ILU to approximate the inverse of A00, without a KSP solver, ::
      "fieldsplit_0_pc_type": "ilu",
      "fieldsplit_0_ksp_type": "preonly",
 
-and use GAMG to approimate the inverse of the Schur complement matrix. ::
+and use GAMG to approximate the inverse of the Schur complement matrix. ::
 
   #
      "fieldsplit_1_ksp_type": "preonly",
