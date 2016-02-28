@@ -355,10 +355,10 @@ class MeshTopology(object):
                     elif isinstance(reorder, tuple):
                         print "DMPlex: Reordering using %s with %d partitions" % reorder
                         if reorder[0] =="metis":
-                            import pymetis
+                            import metis
                             xadj, adjncy = self._plex.createNeighborCSR()
-                            _, assignment = pymetis.part_graph(reorder[1], xadj=xadj.tolist(),
-                                                               adjncy=adjncy.tolist())
+                            adj_list = [adjncy[xadj[i]:xadj[i+1]].tolist() for i in range(xadj.size-1)]
+                            _, assignment = metis.part_graph(adj_list, nparts=reorder[1], contig=True)
                             assign = np.asarray(assignment, dtype=np.int32)
                             reordering = np.asarray(assign.argsort(), dtype=np.int32)
                         else:
