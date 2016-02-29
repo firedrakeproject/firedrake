@@ -15,7 +15,10 @@
      .. |pyop2build| image:: https://travis-ci.org/OP2/PyOP2.png?branch=master
                              :target: https://travis-ci.org/OP2/PyOP2
 
-     Firedrake and PyOP2 are developed on `GitHub <http://github.com>`__ where we also maintain Firedrake-ready versions of the `FEniCS <http://fenicsproject.org>`__. 
+     Firedrake and PyOP2 are developed on `GitHub
+     <http://github.com>`__ where we also maintain Firedrake-ready
+     versions of the `FEniCS <http://fenicsproject.org>`__ components
+     UFL and FIAT.
 
      * `Firedrake on GitHub <https://github.com/firedrakeproject/firedrake/>`__
      * `TSFC on GitHub <https://github.com/firedrakeproject/tsfc/>`__
