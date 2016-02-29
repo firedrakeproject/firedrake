@@ -1,10 +1,12 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import map, range
+from six.moves import map
 
 import collections
 import numpy
 import sympy
 from pyop2.datatypes import IntType, as_cstr
+
+from coffee import base as ast
 
 
 def operands_and_reconstruct(expr):
@@ -117,131 +119,99 @@ def c_print(expr):
     return printer.doprint(expr)
 
 
-def compile_element(ufl_element, cdim):
+def compile_element(expression):
     """Generates C code for point evaluations.
 
-    :arg ufl_element: UFL element of the function space
-    :arg cdim: ``cdim`` of the function space
+    :arg ufl_element: UFL expression
     :returns: C code as string
     """
-    from tsfc import default_parameters
-    from firedrake.pointquery_utils import set_float_formatting, format
-    from tsfc.fiatinterface import create_element
-    from FIAT.reference_element import TensorProductCell as two_product_cell
-    import sympy as sp
-    import numpy as np
+    import collections
+    from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
+    from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
+    from ufl.algorithms.apply_derivatives import apply_derivatives
+    from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
+    from ufl.algorithms import extract_arguments, extract_coefficients
+    from gem import gem, impero_utils
+    from tsfc import coffee, kernel_interface, pointeval, ufl_utils
 
-    # Set code generation parameters
-    set_float_formatting(default_parameters()["precision"])
+    # Imitate the compute_form_data processing pipeline
+    #
+    # Unfortunately, we cannot call compute_form_data here, since
+    # we only have an expression, not a form
+    expression = apply_algebra_lowering(expression)
+    expression = apply_derivatives(expression)
+    expression = apply_function_pullbacks(expression)
+    expression = apply_geometry_lowering(expression)
+    expression = apply_derivatives(expression)
+    expression = apply_geometry_lowering(expression)
+    expression = apply_derivatives(expression)
 
-    def calculate_basisvalues(ufl_cell, fiat_element):
-        f_component = format["component"]
-        f_decl = format["declaration"]
-        f_float_decl = format["float declaration"]
-        f_tensor = format["tabulate tensor"]
-        f_new_line = format["new line"]
+    if extract_arguments(expression):
+        return ValueError("Cannot interpolate UFL expression with Arguments!")
 
-        tdim = ufl_cell.topological_dimension()
-        gdim = ufl_cell.geometric_dimension()
+    # Prepare Coefficients
+    arglist = []
+    coefficient_map = {}
 
-        code = []
+    coefficient, = extract_coefficients(expression)
+    funarg, prepare_, variable = kernel_interface.prepare_coefficient(coefficient, "f")
+    arglist.append(funarg)
+    assert not prepare_
+    coefficient_map[coefficient] = variable
 
-        # Symbolic tabulation
-        tabs = fiat_element.tabulate(0, np.array([[sp.Symbol("reference_coords.X[%d]" % i)
-                                                   for i in range(tdim)]]))
-        tabs = tabs[(0,) * tdim]
-        tabs = tabs.reshape(tabs.shape[:-1])
+    # Replace coordinates (if any)
+    domain = expression.ufl_domain()
+    assert domain
+    coordinate_coefficient = ufl_utils.coordinate_coefficient(domain)
+    expression = ufl_utils.replace_coordinates(expression, coordinate_coefficient)
+    funarg, prepare_, variable = kernel_interface.prepare_coefficient(coordinate_coefficient, "x")
+    arglist.insert(0, funarg)
+    assert not prepare_
+    coefficient_map[coordinate_coefficient] = variable
 
-        # Generate code for intermediate values
-        s_code, (theta,) = ssa_arrays([tabs])
-        for name, value in s_code:
-            code += [f_decl(f_float_decl, name, c_print(value))]
+    X = gem.Variable('X', (domain.ufl_cell().topological_dimension(),))
+    arglist.insert(0, ast.Decl("double", ast.Symbol('X', rank=(domain.ufl_cell().topological_dimension(),))))
 
-        # Prepare Jacobian, Jacobian inverse and determinant
-        s_detJ = sp.Symbol('detJ')
-        s_J = np.array([[sp.Symbol("J[{i}*{tdim} + {j}]".format(i=i, j=j, tdim=tdim))
-                         for j in range(tdim)]
-                        for i in range(gdim)])
-        s_Jinv = np.array([[sp.Symbol("K[{i}*{gdim} + {j}]".format(i=i, j=j, gdim=gdim))
-                            for j in range(gdim)]
-                           for i in range(tdim)])
+    tabman = pointeval.TabulationManager()
+    ic = collections.defaultdict(gem.Index)
+    result = pointeval.process(expression, tabman, X, coefficient_map, ic)
 
-        # Apply transformations
-        phi = []
-        for i, val in enumerate(theta):
-            mapping = fiat_element.mapping()[i]
-            if mapping == "affine":
-                phi.append(val)
-            elif mapping == "contravariant piola":
-                phi.append(s_J.dot(val) / s_detJ)
-            elif mapping == "covariant piola":
-                phi.append(s_Jinv.transpose().dot(val))
-            else:
-                raise ValueError("Unknown mapping: %s" % mapping)
-        phi = np.asarray(phi, dtype=object)
+    tensor_indices = ()
+    if expression.ufl_shape:
+        tensor_indices = tuple(gem.Index() for s in expression.ufl_shape)
+        retvar = gem.Indexed(gem.Variable('R', expression.ufl_shape), tensor_indices)
+        R_sym = ast.Symbol('R', rank=expression.ufl_shape)
+        result = gem.Indexed(result, tensor_indices)
+    else:
+        R_sym = ast.Symbol('R', rank=(1,))
+        retvar = gem.Indexed(gem.Variable('R', (1,)), (0,))
 
-        # Dump tables of basis values
-        code += ["", "\t// Values of basis functions"]
-        code += [f_decl("double", f_component("phi", phi.shape),
-                        f_new_line + f_tensor(phi))]
+    impero_c = impero_utils.compile_gem([retvar], [result], ())
+    body = coffee.generate(impero_c, [])
 
-        shape = phi.shape
-        if len(shape) <= 1:
-            vdim = 1
-        elif len(shape) == 2:
-            vdim = shape[1]
-        return "\n".join(code), vdim
+    # Build kernel
+    arglist.insert(0, ast.Decl("double", R_sym))
+    kernel_code = ast.FunDecl("void", "evaluate_kernel", arglist, body, pred=["static", "inline"])
+
+    from ufl import TensorProductCell
 
     # Create FIAT element
-    element = create_element(ufl_element, vector_is_mixed=False)
-    cell = ufl_element.cell()
-
-    calculate_basisvalues, vdim = calculate_basisvalues(cell, element)
-    extruded = isinstance(element.get_reference_element(), two_product_cell)
+    cell = domain.ufl_cell()
+    extruded = isinstance(cell, TensorProductCell)
 
     code = {
-        "cdim": cdim,
-        "vdim": vdim,
         "geometric_dimension": cell.geometric_dimension(),
-        "ndofs": element.space_dimension(),
-        "calculate_basisvalues": calculate_basisvalues,
         "extruded_arg": ", %s nlayers" % as_cstr(IntType) if extruded else "",
         "nlayers": ", f->n_layers" if extruded else "",
         "IntType": as_cstr(IntType),
     }
 
-    evaluate_template_c = """static inline void evaluate_kernel(double *result, double *phi_, double **F)
-{
-    const int ndofs = %(ndofs)d;
-    const int cdim = %(cdim)d;
-    const int vdim = %(vdim)d;
-
-    double (*phi)[vdim] = (double (*)[vdim]) phi_;
-
-    // F: ndofs x cdim
-    // phi: ndofs x vdim
-    // result = F' * phi: cdim x vdim
-    //
-    // Usually cdim == 1 or vdim == 1.
-
-    for (int q = 0; q < cdim * vdim; q++) {
-        result[q] = 0.0;
-    }
-    for (int i = 0; i < ndofs; i++) {
-        for (int c = 0; c < cdim; c++) {
-            for (int v = 0; v < vdim; v++) {
-                result[c*vdim + v] += F[i][c] * phi[i][v];
-            }
-        }
-    }
-}
-
-static inline void wrap_evaluate(double *result, double *phi, double *data, %(IntType)s *map%(extruded_arg)s, %(IntType)s cell);
+    evaluate_template_c = """static inline void wrap_evaluate(double *result, double *X, double *coords, %(IntType)s *coords_map, double *f, %(IntType)s *f_map%(extruded_arg)s, %(IntType)s cell);
 
 int evaluate(struct Function *f, double *x, double *result)
 {
     struct ReferenceCoords reference_coords;
-    int cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+    %(IntType)s cell = locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
     if (cell == -1) {
         return -1;
     }
@@ -250,15 +220,9 @@ int evaluate(struct Function *f, double *x, double *result)
         return 0;
     }
 
-    double *J = reference_coords.J;
-    double *K = reference_coords.K;
-    double detJ = reference_coords.detJ;
-
-%(calculate_basisvalues)s
-
-    wrap_evaluate(result, (double *)phi, f->f, f->f_map%(nlayers)s, cell);
+    wrap_evaluate(result, reference_coords.X, f->coords, f->coords_map, f->f, f->f_map%(nlayers)s, cell);
     return 0;
 }
 """
 
-    return evaluate_template_c % code
+    return (evaluate_template_c % code) + kernel_code.gencode()
