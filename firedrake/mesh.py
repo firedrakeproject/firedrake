@@ -919,18 +919,18 @@ values from f.)"""
 
         src = pq_utils.src_locate_cell(self)
         src += """
-extern "C" int locator(struct Function *f, double *x)
+int locator(struct Function *f, double *x)
 {
     struct ReferenceCoords reference_coords;
     return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
 }
 """ % dict(geometric_dimension=self.geometric_dimension())
 
-        locator = compilation.load(src, "cpp", "locator",
+        locator = compilation.load(src, "c", "locator",
                                    cppargs=["-I%s" % os.path.dirname(__file__),
                                             "-I%s/include" % sys.prefix],
                                    ldargs=["-L%s/lib" % sys.prefix,
-                                           "-lspatialindex",
+                                           "-lspatialindex_c",
                                            "-Wl,-rpath,%s/lib" % sys.prefix])
 
         locator.argtypes = [ctypes.POINTER(function._CFunction),
