@@ -26,10 +26,11 @@ def gen_mesh(args):
     part_mode = args.part_mode
     tile_size = args.tile_size
 
+    mesh = Mesh(mesh_file) if mesh_file else UnitSquareMesh(mesh_size, mesh_size)
     kwargs = {'s_depth': calculate_sdepth(num_solves, num_unroll, extra_halo)}
     if part_mode == 'metis':
-        kwargs['reorder'] = ('parmetis', tile_size)
-    mesh = Mesh(mesh_file) if mesh_file else UnitSquareMesh(mesh_size, mesh_size)
+        n_parts = mesh.num_cells() / tile_size
+        kwargs['reorder'] = ('metis', n_parts)
     mesh.topology.init(**kwargs)
     slope(mesh, debug=debug_mode)
     return mesh
