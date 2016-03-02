@@ -513,8 +513,11 @@ def filter_exterior_facet_labels(PETSc.DM plex):
     receives its label.  But we want the facet label to really only
     apply to facets, so clear the labels from everything else."""
     cdef:
-        PetscInt pStart, pEnd, fStart, fEnd, p, ext_val
+        PetscInt pStart, pEnd, fStart, fEnd, p, value
         PetscBool has_bdy_ids, has_bdy_faces
+        DMLabel exterior_facets = NULL
+        DMLabel boundary_ids = NULL
+        DMLabel boundary_faces = NULL
 
     pStart, pEnd = plex.getChart()
     fStart, fEnd = plex.getHeightStratum(1)
@@ -525,16 +528,21 @@ def filter_exterior_facet_labels(PETSc.DM plex):
     has_bdy_ids = plex.hasLabel("boundary_ids")
     has_bdy_faces = plex.hasLabel("boundary_faces")
 
+    CHKERR(DMGetLabel(plex.dm, <char*>"exterior_facets", &exterior_facets))
+    if has_bdy_ids:
+        CHKERR(DMGetLabel(plex.dm, <char*>"boundary_ids", &boundary_ids))
+    if has_bdy_faces:
+        CHKERR(DMGetLabel(plex.dm, <char*>"boundary_faces", &boundary_faces))
     for p in range(pStart, pEnd):
         if p < fStart or p >= fEnd:
-            CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"exterior_facets", p, &ext_val))
-            if ext_val >= 0:
-                CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"exterior_facets", p, ext_val))
+            CHKERR(DMLabelGetValue(exterior_facets, p, &value))
+            if value >= 0:
+                CHKERR(DMLabelClearValue(exterior_facets, p, value))
             if has_bdy_ids:
-                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_ids", p, &ext_val))
-                if ext_val >= 0:
-                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_ids", p, ext_val))
+                CHKERR(DMLabelGetValue(boundary_ids, p, &value))
+                if value >= 0:
+                    CHKERR(DMLabelClearValue(boundary_ids, p, value))
             if has_bdy_faces:
-                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_faces", p, &ext_val))
-                if ext_val >= 0:
-                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_faces", p, ext_val))
+                CHKERR(DMLabelGetValue(boundary_faces, p, &value))
+                if value >= 0:
+                    CHKERR(DMLabelClearValue(boundary_faces, p, value))
