@@ -26,8 +26,8 @@ class Argument(ufl.argument.Argument):
 
     .. note::
 
-       an :class:`Argument` with a count of ``0`` is used as a
-       :func:`TestFunction`, with a count of ``1`` it is used as
+       an :class:`Argument` with a number of ``0`` is used as a
+       :func:`TestFunction`, with a number of ``1`` it is used as
        a :func:`TrialFunction`.
     """
     def __init__(self, function_space, number, part=None):
@@ -165,7 +165,7 @@ def adjoint(form, reordered_arguments=None):
                                         number=v.number(),
                                         part=v.part()),
                                Argument(v.function_space(),
-                                        number=u.count(),
+                                        number=u.number(),
                                         part=u.part()))
     return ufl.adjoint(form, reordered_arguments)
 
