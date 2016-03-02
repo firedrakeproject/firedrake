@@ -179,9 +179,18 @@ def statement_evaluate(leaf, parameters):
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, gem.Literal):
         assert parameters.declare[leaf]
+        if expr.track_zeros:
+            # Take all axes except the last one
+            axes = tuple(range(len(expr.array.shape) - 1))
+            nz_indices, = expr.array.any(axis=axes).nonzero()
+            nz_bounds = tuple([(i, 0)] for i in expr.array.shape[:-1])
+            nz_bounds += ([(max(nz_indices) - min(nz_indices) + 1, min(nz_indices))],)
+            init = coffee.SparseArrayInit(expr.array, PRECISION, nz_bounds)
+        else:
+            init = coffee.ArrayInit(expr.array, precision=PRECISION)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
-                           coffee.ArrayInit(expr.array, precision=PRECISION),
+                           init,
                            qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
