@@ -1269,16 +1269,18 @@ class Inspector(Cached):
             a sufficiently depth halo region for correct execution in the case a
             SLOPE MPI backend is enabled."""
             # Get and format some iterset info
-            superset, s_name = None, s.name
+            partitioning, superset, s_name = None, None, s.name
             if isinstance(s, Subset):
                 superset = s.superset.name
                 s_name = "%s_ss" % s.name
+            if hasattr(s, '_partitioning'):
+                partitioning = s._partitioning
             # If not an MPI backend, return "standard" values for core, exec, and
             # non-exec regions (recall that SLOPE expects owned to be part of exec)
             if slope.get_exec_mode() not in ['OMP_MPI', 'ONLY_MPI']:
-                infoset = s_name, s.core_size, s.exec_size - s.core_size, \
-                    s.total_size - s.exec_size, superset
-
+                exec_size = s.exec_size - s.core_size
+                nonexec_size = s.total_size - s.exec_size
+                infoset = s_name, s.core_size, exec_size, nonexec_size, superset
             else:
                 if not hasattr(s, '_deep_size'):
                     raise RuntimeError("SLOPE backend (%s) requires deep halos",
@@ -1293,7 +1295,7 @@ class Inspector(Cached):
                     exec_size = level_E[2] - core_size
                     nonexec_size = level_E[3] - level_E[2]
                 infoset = s_name, core_size, exec_size, nonexec_size, superset
-            insp_sets[infoset] = infoset
+            insp_sets[infoset] = partitioning
             return infoset
 
         tile_size = self._options.get('tile_size', 1)
@@ -1346,7 +1348,7 @@ class Inspector(Cached):
             # 3) Add loop
             insp_loops.append((loop.kernel.name, iterset_name, list(slope_desc)))
         # Provide structure of loop chain to SLOPE
-        arguments.extend([inspector.add_sets(insp_sets.values())])
+        arguments.extend([inspector.add_sets(insp_sets.keys())])
         arguments.extend([inspector.add_maps(insp_maps.values())])
         inspector.add_loops(insp_loops)
 
@@ -1359,11 +1361,15 @@ class Inspector(Cached):
         # Get type and value of additional arguments that SLOPE can exploit
         arguments.extend(inspector.add_extra_info())
 
+        # Add any available partitioning
+        partitionings = [(s[0], v) for s, v in insp_sets.items() if v is not None]
+        arguments.extend([inspector.add_partitionings(partitionings)])
+
         # Arguments types and values
         argtypes, argvalues = zip(*arguments)
 
         # Set a tile partitioning strategy
-        inspector.set_partitioning('chunk')
+        inspector.set_part_mode('chunk')
 
         # Generate the C code
         src = inspector.generate_code()
