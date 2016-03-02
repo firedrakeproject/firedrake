@@ -361,6 +361,7 @@ class MeshTopology(object):
                             _, assignment = metis.part_graph(adj_list, nparts=reorder[1], contig=True)
                             assign = np.asarray(assignment, dtype=np.int32)
                             reordering = np.asarray(assign.argsort(), dtype=np.int32)
+                            dmplex.mark_partitioning(self._plex, assign)
                         else:
                             partitioner = PETSc.Partitioner().create(comm=PETSc.COMM_SELF)
                             partitioner.setType(reorder[0])
@@ -633,6 +634,7 @@ class MeshTopology(object):
         size = list(self._entity_classes[self.cell_dimension(), :])
         s = op2.Set(size, "%s_cells" % self.name, halo=self._cell_halo)
         s._deep_size = self.cell_set_hierarchy
+        s._partitioning = dmplex.get_partitioning(self._plex, self._cell_numbering)
         return s
 
     @utils.cached_property

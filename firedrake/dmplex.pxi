@@ -42,6 +42,7 @@ cdef extern from "petscdmplex.h":
     int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
     int DMLabelStratumHasPoint(DMLabel, PetscInt, PetscInt, PetscBool*)
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
+    int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)

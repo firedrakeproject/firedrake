@@ -2052,3 +2052,36 @@ def partition_locally(PETSc.DM plex, PETSc.Partitioner partitioner, npart):
     else:
         raise RuntimeError("Unknown partitioning type")
     return partition.indices
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def mark_partitioning(PETSc.DM plex,
+                           np.ndarray[PetscInt, ndim=1, mode="c"] partitioning):
+    cdef:
+        PetscInt c, cStart, cEnd
+        DMLabel lbl_part
+    plex.createLabel("metis_partitioning")
+    CHKERR(DMPlexGetLabel(plex.dm, "metis_partitioning", &lbl_part))
+    cStart, cEnd = plex.getHeightStratum(0)
+    for c in range(cStart, cEnd):
+        CHKERR(DMLabelSetValue(lbl_part, c, partitioning[c-cStart]))
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def get_partitioning(PETSc.DM plex, PETSc.Section numbering):
+    cdef:
+        PetscInt p, pStart, pEnd, dof, offset, part
+        DMLabel lbl_part
+        np.ndarray[PetscInt, ndim=1, mode="c"] partitioning
+    CHKERR(DMPlexGetLabel(plex.dm, "metis_partitioning", &lbl_part))
+    pStart, pEnd = numbering.getChart()
+    partitioning = np.empty(numbering.getStorageSize(), dtype=PETSc.IntType)
+    for p in range(pStart, pEnd):
+        CHKERR(PetscSectionGetDof(numbering.sec, p, &dof))
+        if dof > 0:
+            CHKERR(PetscSectionGetOffset(numbering.sec, p, &offset))
+            CHKERR(DMLabelGetValue(lbl_part, p, &part))
+            partitioning[offset] = part
+    return partitioning
