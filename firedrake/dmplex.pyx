@@ -932,6 +932,7 @@ def plex_renumbering(PETSc.DM plex,
     """
     cdef:
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
+        PetscInt pStart, pEnd, cell
         np.ndarray[np.int32_t, ndim=1, mode="c"] lidx, ncells
         PetscInt *facets = NULL
         PetscInt *closure = NULL
@@ -1860,13 +1861,15 @@ def exchange_cell_orientations(
         CHKERR(PetscFree(new_values))
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     """Build an array of global numbers for local dofs
 
     :arg lsec: Section describing local dof layout and numbers.
     :arg gsec: Section describing global dof layout and numbers."""
     cdef:
-        PetscInt p, pStart, pEnd, dof, loff, goff
+        PetscInt c, p, pStart, pEnd, dof, loff, goff
         np.ndarray[PetscInt, ndim=1, mode="c"] val
 
     val = np.empty(lsec.getStorageSize(), dtype=PETSc.IntType)
