@@ -17,7 +17,7 @@ np.import_array()
 cdef extern from "mpi-compat.h":
     pass
 
-include "dmplex.pxi"
+include "dmplexinc.pxi"
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

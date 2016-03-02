@@ -13,7 +13,7 @@ cimport petsc4py.PETSc as PETSc
 
 np.import_array()
 
-include "../dmplex.pxi"
+include "../dmplexinc.pxi"
 include "firedrakeimpl.pxi"
 
 
