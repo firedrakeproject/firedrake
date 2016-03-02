@@ -23,19 +23,23 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, roots=()):
+def generate(impero_c, index_names, roots=(), argument_indices=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
     :arg roots: list of expression DAG roots for attaching
         #pragma coffee expression
+    :arg argument_indices: argument indices for attaching
+        #pragma coffee linear loop
+        to the argument loops
     :returns: COFFEE function body
     """
     parameters = Bunch()
     parameters.declare = impero_c.declare
     parameters.indices = impero_c.indices
     parameters.roots = roots
+    parameters.argument_indices = argument_indices
 
     parameters.names = {}
     for i, temp in enumerate(impero_c.temporaries):
@@ -110,6 +114,10 @@ def statement_block(tree, parameters):
 
 @statement.register(imp.For)
 def statement_for(tree, parameters):
+    if tree.index in parameters.argument_indices:
+        pragma = "#pragma coffee linear loop"
+    else:
+        pragma = None
     extent = tree.index.extent
     assert extent
     i = _coffee_symbol(parameters.index_names[tree.index])
@@ -117,7 +125,8 @@ def statement_for(tree, parameters):
     return coffee.For(coffee.Decl("int", i, init=0),
                       coffee.Less(i, extent),
                       coffee.Incr(i, 1),
-                      statement(tree.children[0], parameters))
+                      statement(tree.children[0], parameters),
+                      pragma=pragma)
 
 
 @statement.register(imp.Initialise)
