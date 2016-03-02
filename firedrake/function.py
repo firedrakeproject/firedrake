@@ -293,6 +293,10 @@ class Function(ufl.Coefficient):
             on which this :class:`Function` is defined.
         """
         return self._function_space
+    
+    def vector(self):
+        """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
+        return vector.Vector(self.dat)
 
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
