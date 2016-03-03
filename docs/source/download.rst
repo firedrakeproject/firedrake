@@ -151,7 +151,6 @@ We list here the required homebrew_ packages:
 - openmpi (or mpich)
 - python
 - cmake
-- spatialindex
 
 Ubuntu
 ------
@@ -165,7 +164,6 @@ On Ubuntu, the following apt packages are required:
 - libblas-dev
 - liblapack-dev
 - libopenmpi-dev
-- libspatialindex-dev
 - mercurial
 - openmpi-bin
 - python-dev
