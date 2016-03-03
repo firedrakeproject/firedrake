@@ -47,15 +47,15 @@ matrix:
     - os: osx
       # Only test a few things on OSX until we can cache some of the
       # build dependencies, otherwise we often get timeouts.
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE"
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - os: linux
       env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS=regression
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion checkpoints multigrid benchmarks demos"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion checkpoints multigrid benchmarks demos" TEST_ADJOINT="TRUE"
     - os: linux
-      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="extrusion checkpoints multigrid benchmarks"
+      env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="extrusion checkpoints multigrid benchmarks" TEST_ADJOINT="TRUE"
 before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
   - pip install -U --user pip
@@ -80,3 +80,4 @@ script:
   - cd firedrake
   - make lint
   - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
+  - if [ -n $TEST_ADJOINT ]; then python ../dolfin-adjoint/tests_firedrake/test.py; fi
