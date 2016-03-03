@@ -7,6 +7,7 @@ import os
 import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
+import distutils
 
 adjoint_deps = {
     "libadjoint": "git+https://bitbucket.org/dolfin-adjoint/libadjoint.git",
@@ -581,23 +582,16 @@ def build_and_install_adjoint():
 
     for package in adjoint_deps:
         try:
-            git_update(package, adjoint_deps[p])
+            git_update(package, adjoint_deps[package])
         except OSError as e:
             if e.errno == 2:
                 log.warn("%s missing, cloning anew.\n" % p)
-                git_clone(adjoint_deps[p])
+                git_clone(adjoint_deps[package])
             else:
                 raise
 
     os.chdir("libadjoint")
-    try:
-        os.mkdir("build")
-    except OSError as e:
-        if e.errno == 17:
-            # Directory exists
-            pass
-        else:
-            raise
+    distutils.dir_util.mkpath("build")
 
     os.chdir("build")
     if "VIRTUAL_ENV" in os.environ:
