@@ -634,7 +634,8 @@ class MeshTopology(object):
         size = list(self._entity_classes[self.cell_dimension(), :])
         s = op2.Set(size, "%s_cells" % self.name, halo=self._cell_halo)
         s._deep_size = self.cell_set_hierarchy
-        s._partitioning = dmplex.get_partitioning(self._plex, self._cell_numbering)
+        if self._plex.hasLabel("metis_partitioning"):
+            s._partitioning = dmplex.get_partitioning(self._plex, self._cell_numbering)
         return s
 
     @utils.cached_property
