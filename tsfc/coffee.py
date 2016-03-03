@@ -245,9 +245,35 @@ def _expression_power(expr, parameters):
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
-    name_map = {'abs': 'fabs', 'ln': 'log'}
+    name_map = {
+        'abs': 'fabs',
+        'ln': 'log',
+
+        # Bessel functions
+        'cyl_bessel_j': 'jn',
+        'cyl_bessel_y': 'yn',
+
+        # Modified Bessel functions (C++ only)
+        #
+        # These mappings work for FEniCS only, and fail with Firedrake
+        # since no Boost available.
+        'cyl_bessel_i': 'boost::math::cyl_bessel_i',
+        'cyl_bessel_k': 'boost::math::cyl_bessel_k',
+    }
     name = name_map.get(expr.name, expr.name)
-    return coffee.FunCall(name, expression(expr.children[0], parameters))
+    if name == 'jn':
+        nu, arg = expr.children
+        if nu == gem.Zero():
+            return coffee.FunCall('j0', expression(arg, parameters))
+        elif nu == gem.one:
+            return coffee.FunCall('j1', expression(arg, parameters))
+    if name == 'yn':
+        nu, arg = expr.children
+        if nu == gem.Zero():
+            return coffee.FunCall('y0', expression(arg, parameters))
+        elif nu == gem.one:
+            return coffee.FunCall('y1', expression(arg, parameters))
+    return coffee.FunCall(name, *[expression(c, parameters) for c in expr.children])
 
 
 @_expression.register(gem.MinValue)
