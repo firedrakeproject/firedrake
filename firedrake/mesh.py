@@ -2,6 +2,7 @@ from __future__ import absolute_import
 import numpy as np
 import ctypes
 import os
+import sys
 import ufl
 import weakref
 from collections import defaultdict
@@ -888,8 +889,11 @@ extern "C" int locator(struct Function *f, double *x)
 """ % dict(geometric_dimension=self.geometric_dimension())
 
         locator = compilation.load(src, "cpp", "locator",
-                                   cppargs=["-I%s" % os.path.dirname(__file__)],
-                                   ldargs=["-lspatialindex"])
+                                   cppargs=["-I%s" % os.path.dirname(__file__),
+                                            "-I%s/include" % sys.prefix],
+                                   ldargs=["-L%s/lib" % sys.prefix,
+                                           "-lspatialindex",
+                                           "-Wl,-rpath,%s/lib" % sys.prefix])
 
         locator.argtypes = [ctypes.POINTER(function._CFunction),
                             ctypes.POINTER(ctypes.c_double)]
