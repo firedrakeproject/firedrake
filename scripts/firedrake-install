@@ -588,6 +588,30 @@ def build_and_install_glpsol():
         os.chdir("..")
 
 
+def build_and_install_libspatialindex():
+    log.info("Installing libspatialindex\n")
+    if os.path.exists("libspatialindex"):
+        libspatialindex_changed = git_update("libspatialindex")
+    else:
+        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
+        libspatialindex_changed = True
+
+    if libspatialindex_changed:
+        os.chdir("libspatialindex")
+        # Clean source directory
+        check_call(["git", "reset", "--hard"])
+        check_call(["git", "clean", "-f", "-x", "-d"])
+        # Patch Makefile.am to skip building test
+        check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
+        # Build and install
+        check_call(["./autogen.sh"])
+        check_call(["./configure", "--prefix=" + sys.prefix,
+                    "--enable-shared", "--disable-static"])
+        check_call(["make"])
+        check_call(["make", "install"])
+        os.chdir("..")
+
+
 def build_and_install_slepc():
     try:
         petsc_dir = check_output(python + ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
@@ -857,6 +881,7 @@ if mode == "install":
 
     build_and_install_h5py()
     build_and_install_glpsol()
+    build_and_install_libspatialindex()
     pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
@@ -942,6 +967,7 @@ else:
     # Always rebuild h5py.
     build_and_install_h5py()
     build_and_install_glpsol()
+    build_and_install_libspatialindex()
 
     try:
         packages.remove("PyOP2")
