@@ -778,7 +778,10 @@ elif not args.system:
         virtualenv.create_environment("firedrake", site_packages=False)
         # For some reason virtualenv does not always install the latest pip.
         run_pip_install(["-U", "pip"])
-    execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
+    virtual_env_vars = dict(__file__='firedrake/bin/activate_this.py')
+    execfile("firedrake/bin/activate_this.py", virtual_env_vars)
+    # Activating the virtual_env from within Python does not automatically set the environment variable.
+    os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir("firedrake")
 if mode == "install":
