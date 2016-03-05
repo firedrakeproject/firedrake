@@ -354,7 +354,7 @@ class MeshTopology(object):
                         reordering[old_to_new] = np.arange(old_to_new.size, dtype=old_to_new.dtype)
                     elif isinstance(reorder, tuple):
                         print "DMPlex: Reordering using %s with %d partitions" % reorder
-                        if reorder[0] =="metis":
+                        if reorder[0] in ['metis', 'metis-rcm']:
                             import metis
                             xadj, adjncy = self._plex.createNeighborCSR()
                             adj_list = [adjncy[xadj[i]:xadj[i+1]].tolist() for i in range(xadj.size-1)]
@@ -362,6 +362,15 @@ class MeshTopology(object):
                             assign = np.asarray(assignment, dtype=np.int32)
                             reordering = np.asarray(assign.argsort(), dtype=np.int32)
                             dmplex.mark_partitioning(self._plex, assign)
+
+                            if reorder[0] == 'metis-rcm':
+                                # Now also perform RCM and replace ordering
+                                metis_reordering = reordering
+                                old_to_new = self._plex.getOrdering(ordering_types['rcm']).indices
+                                old_to_new = dmplex.filter_cell_partitioning(self._plex, old_to_new)
+                                old_to_new = old_to_new[metis_reordering]
+                                reordering[old_to_new] = np.arange(old_to_new.size,
+                                                                   dtype=old_to_new.dtype)
                         else:
                             partitioner = PETSc.Partitioner().create(comm=PETSc.COMM_SELF)
                             partitioner.setType(reorder[0])

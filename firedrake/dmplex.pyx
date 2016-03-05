@@ -2085,3 +2085,19 @@ def get_partitioning(PETSc.DM plex, PETSc.Section numbering):
             CHKERR(DMLabelGetValue(lbl_part, p, &part))
             partitioning[offset] = part
     return partitioning
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def filter_cell_partitioning(PETSc.DM plex,
+                             np.ndarray[PetscInt, ndim=1, mode="c"] partitioning):
+    cdef:
+        PetscInt p, cStart, cEnd, c = 0
+        np.ndarray[PetscInt, ndim=1, mode="c"] cell_partitioning
+    cStart, cEnd = plex.getHeightStratum(0)
+    cell_partitioning = np.empty(cEnd - cStart, dtype=PETSc.IntType)
+    for p in range(partitioning.size):
+        if cStart <= partitioning[p] < cEnd:
+            cell_partitioning[c] = partitioning[p]
+            c += 1
+    return cell_partitioning
