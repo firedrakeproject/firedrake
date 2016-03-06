@@ -2091,13 +2091,21 @@ def get_partitioning(PETSc.DM plex, PETSc.Section numbering):
 @cython.wraparound(False)
 def filter_cell_partitioning(PETSc.DM plex,
                              np.ndarray[PetscInt, ndim=1, mode="c"] partitioning):
+    """Filters a partition-specific cell ordering from a general
+    petsc-derived plex point reordering"""
     cdef:
-        PetscInt p, cStart, cEnd, c = 0
+        PetscInt p, cStart, cEnd, c = 0, l
         np.ndarray[PetscInt, ndim=1, mode="c"] cell_partitioning
+        DMLabel lbl_part
+        PetscBool has_point
+    CHKERR(DMPlexGetLabel(plex.dm, "metis_partitioning", &lbl_part))
     cStart, cEnd = plex.getHeightStratum(0)
     cell_partitioning = np.empty(cEnd - cStart, dtype=PETSc.IntType)
-    for p in range(partitioning.size):
-        if cStart <= partitioning[p] < cEnd:
-            cell_partitioning[c] = partitioning[p]
-            c += 1
+    for l in sorted(plex.getLabelIdIS("metis_partitioning").indices):
+        for p in range(partitioning.size):
+            if cStart <= partitioning[p] < cEnd:
+                CHKERR(DMLabelStratumHasPoint(lbl_part, l, partitioning[p], &has_point))
+                if has_point:
+                    cell_partitioning[c] = partitioning[p]
+                    c += 1
     return cell_partitioning

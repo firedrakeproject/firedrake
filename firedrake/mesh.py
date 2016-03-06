@@ -367,10 +367,10 @@ class MeshTopology(object):
                                 # Now also perform RCM and replace ordering
                                 metis_reordering = reordering
                                 old_to_new = self._plex.getOrdering(ordering_types['rcm']).indices
-                                old_to_new = dmplex.filter_cell_partitioning(self._plex, old_to_new)
-                                old_to_new = old_to_new[metis_reordering]
+                                reordering = np.empty_like(old_to_new)
                                 reordering[old_to_new] = np.arange(old_to_new.size,
                                                                    dtype=old_to_new.dtype)
+                                reordering = dmplex.filter_cell_partitioning(self._plex, reordering)
                         else:
                             partitioner = PETSc.Partitioner().create(comm=PETSc.COMM_SELF)
                             partitioner.setType(reorder[0])
