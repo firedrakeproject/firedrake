@@ -4,12 +4,12 @@ from glob import glob
 from os import environ as env, path
 import sys
 import numpy as np
-import petsc4py
 
 # CX1 hack
-from IPython import embed; embed()
 sys.path.remove('/apps/python/2.7.3/lib/python2.7/site-packages/petsc4py-3.5-py2.7-linux-x86_64.egg')
 sys.path.remove('/apps/python/2.7.3/lib/python2.7/site-packages/mpi4py-1.3.1-py2.7-linux-x86_64.egg')
+sys.path.insert(1, '/home/fl1612/Packages/mpi4py-2.0.0/build/lib.linux-x86_64-2.7')
+import petsc4py
 
 def get_petsc_dir():
     try:
