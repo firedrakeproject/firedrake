@@ -17,16 +17,16 @@ do
         rm -f $output_file
         touch $output_file
         echo "    Running "$MESH
-        echo "        Untiled ..."
-        mpirun --bind-to-core -np 4 python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 0 >> $output_file
-        for sm in 4
+        for p in "chunk" "metis"
         do
-            for p in "chunk"
+            echo "        Untiled ..."
+            mpirun --bind-to-core -np 4 python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 0 --part-mode $p 1>> $output_file 2>> $output_file
+            for sm in 4
             do
                 for ts in 40 70 150 300
                 do
-                    echo "        Tiled (pm="$pm", ts="$ts") ..."
-                    mpirun --bind-to-core -np 4 python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --split-mode $sm $TILE_OPTS >> $output_file
+                    echo "        Tiled (pm="$p", ts="$ts") ..."
+                    mpirun --bind-to-core -np 4 python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --split-mode $sm $TILE_OPTS 1>> $output_file 2>> $output_file
                 done
             done
         done
