@@ -200,20 +200,20 @@ else:
 log = logging.getLogger()
 
 
-def check_call(arguments):
+def check_call(arguments, env=None):
     if args.log:
         try:
-            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
+            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env))
         except subprocess.CalledProcessError as e:
             log.debug(e.output)
             raise
     else:
-        subprocess.check_call(arguments)
+        subprocess.check_call(arguments, env=env)
 
 
-def check_output(args):
+def check_output(args, env=None):
     try:
-        return subprocess.check_output(args, stderr=subprocess.STDOUT)
+        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
     except subprocess.CalledProcessError as e:
         log.debug(e.output)
         raise
@@ -590,14 +590,33 @@ def build_and_install_adjoint():
             else:
                 raise
 
+    if args.honour_petsc_dir:
+        petsc_dir = os.environ["PETSC_DIR"]
+        petsc_arch = os.environ.get("PETSC_ARCH", "")
+    else:
+        try:
+            petsc_dir = check_output(python +
+                                     ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+
+            petsc_arch = ""
+        except subprocess.CalledProcessError:
+            raise InstallError("Unable to find installed PETSc when building h5py")
+
+    env = dict(os.environ)
+    env["PETSC_ARCH"] = petsc_arch
+    env["PETSC_DIR"] = petsc_dir
+
     os.chdir("libadjoint")
     dir_util.mkpath("build")
 
     os.chdir("build")
     if "VIRTUAL_ENV" in os.environ:
-        check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV", ".."])
+        log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
+        check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
     else:
-        check_call(["cmake", ".."])
+        log.info("Configuring libadjoint for global installation")
+        check_call(["cmake", ".."], env=env)
+    log.info("Installing libadjoint.")
     check_call(["make", "install"])
     os.chdir("../..")
 
