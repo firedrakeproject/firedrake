@@ -1,47 +1,7 @@
 # Some generic python utilities not really specific to our work.
+from __future__ import absolute_import
 from decorator import decorator
-
-
-# after https://micheles.googlecode.com/hg/decorator/documentation.html and
-# http://code.activestate.com/recipes/577452-a-memoize-decorator-for-instance-methods/
-def _memoize(func, obj, *args, **kw):
-    try:
-        cache = obj.__cache
-    except AttributeError:
-        cache = obj.__cache = {}
-    if kw:
-        key = func, args, tuple(kw.iteritems())
-    else:
-        key = func, args
-    if key in cache:
-        return cache[key]
-    else:
-        cache[key] = result = func(obj, *args, **kw)
-        return result
-
-
-def memoize(f):
-    return decorator(_memoize, f)
-
-
-# from http://www.toofishes.net/blog/python-cached-property-decorator/
-class cached_property(object):
-
-    '''A read-only @property that is only evaluated once. The value is cached
-    on the object itself rather than the function or class; this should prevent
-    memory leakage.'''
-
-    def __init__(self, fget, doc=None):
-        self.fget = fget
-        self.__doc__ = doc or fget.__doc__
-        self.__name__ = fget.__name__
-        self.__module__ = fget.__module__
-
-    def __get__(self, obj, cls):
-        if obj is None:
-            return self
-        obj.__dict__[self.__name__] = result = self.fget(obj)
-        return result
+from pyop2.utils import cached_property  # noqa: imported from here elsewhere
 
 
 _current_uid = 0
@@ -59,11 +19,9 @@ def _init():
     :func:`pyop2.init` if she wants to set a non-default option, for example
     to switch the backend or the debug or log level."""
     from pyop2 import op2
-    from parameters import parameters
+    from firedrake.parameters import parameters
     if not op2.initialised():
-        op2.init(log_level='INFO',
-                 compiler=parameters["coffee"]["compiler"],
-                 simd_isa=parameters["coffee"]["simd_isa"])
+        op2.init(**parameters["pyop2_options"])
 
 
 def unique_name(name, nameset):
@@ -83,3 +41,25 @@ def unique_name(name, nameset):
         else:
             nameset.add(name)
             return newname
+
+
+def known_pyop2_safe(f):
+    """Decorator to mark a function as being PyOP2 type-safe.
+
+    This switches the current PyOP2 type checking mode to the value
+    given by the parameter "type_check_safe_par_loops", and restores
+    it after the function completes."""
+    from firedrake.parameters import parameters
+
+    def wrapper(f, *args, **kwargs):
+        opts = parameters["pyop2_options"]
+        check = opts["type_check"]
+        safe = parameters["type_check_safe_par_loops"]
+        if check == safe:
+            return f(*args, **kwargs)
+        opts["type_check"] = safe
+        try:
+            return f(*args, **kwargs)
+        finally:
+            opts["type_check"] = check
+    return decorator(wrapper, f)

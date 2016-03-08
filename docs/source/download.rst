@@ -1,72 +1,123 @@
 Obtaining Firedrake
 ===================
 
-Firedrake depends on PyOP2_, FFC_, FIAT_, and UFL_. It is easiest to obtain
-all of these components on Ubuntu Linux and related distributions such as Mint
-or Debian. Installation on other Unix-like operating systems is likely to be
-possible, although harder. Installation on a Mac is straightforward using the
-commands below.
+The simplest way to install Firedrake is to use our install script::
 
-PyOP2
------
+  curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
+  python firedrake-install
 
-Instructions for obtaining PyOP2_ and its dependencies are at
-:doc:`obtaining_pyop2`. Note that PyOP2_ is updated frequently and Firedrake
-requires an up-to-date version.
+Running ``firedrake-install`` with no arguments will install firedrake in
+a python virtualenv_ created in a ``firedrake`` subdirectory of the
+current directory. Run::
 
-FFC, FIAT and UFL
------------------
+  python firedrake-install --help
 
-Firedrake currently requires a fork of FFC_, UFL_ and FIAT_.  Note that FFC_
-requires a version of Instant_.
+for a full list of install options, including system-wide
+installs and installation in developer mode.  In particular, you may
+wish to customise the set of options used to build PETSc.  To do so,
+set the environment variable ``PETSC_CONFIGURE_OPTIONS`` before
+running ``firedrake-install``.  You can see the set of options passed
+to PETSc by providing the flag ``--show-petsc-configure-options``.
 
-FFC_ currently depends on Swig_, which you can install from
-package. On Ubuntu and relatives type::
+If you install in virtualenv_ mode, you will need to activate the
+virtualenv in each shell from which you use Firedrake::
 
-  sudo apt-get install swig
+  source firedrake/bin/activate
 
-while on Mac OS it's::
+.. note::
 
-  brew install swig
+   Should you use ``csh``, you will need::
 
-Install FFC_ and all dependencies via pip::
+     source firedrake/bin/activate.csh
 
-  sudo pip install \
-    six \
-    sympy \
-    git+https://bitbucket.org/mapdes/ffc.git#egg=ffc \
-    git+https://bitbucket.org/mapdes/ufl.git#egg=ufl \
-    git+https://bitbucket.org/mapdes/fiat.git#egg=fiat \
-    git+https://bitbucket.org/fenics-project/instant.git#egg=instant
+Reporting installation bugs
+---------------------------
 
-These dependencies are regularly updated. If you already have the packages
-installed and want to upgrade to the latest versions, do the following::
+If ``firedrake-install`` fails to work, please report a bug so that we
+can fix it for you by creating a new `github issue
+<https://github.com/firedrakeproject/firedrake/issues>`__.  To capture
+information about what is going wrong, please run
+``firedrake-install`` with the ``--log`` option and include the log
+file ``firedrake-install.log`` in your bug report.  Similarly if
+``firedrake-update`` fails, you can also run with ``--log`` which
+produces a ``firedrake-update.log`` file.
 
-  sudo pip install -U --no-deps ...
+Testing the installation
+------------------------
 
-To install for your user only, which does not require sudo permissions,
-modify the pip invocation for either case above as follows::
+It is recommended to run the test suite after installation to check
+that the Firedrake installation is fully functional.  Activate the
+virtualenv_ as above and then run::
 
-  pip install --user ...
+  cd firedrake/src/firedrake
+  make alltest
 
-Potential installation errors on Mac OS
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The installation of FFC_ requires a C++11 compatible compiler and
-standard library, some Mac OS systems (for example OS X "Lion")
-supply the former, but not the latter.  Should you obtain errors
-installing FFC_ of the following form:
+System requirements
+-------------------
 
-.. code-block:: c
+The installation script is tested on Ubuntu and MacOS X. Installation
+is likely to work well on other Linux platforms, although the script
+may stop to ask you to install some dependency packages. Installation
+on other Unix platforms may work but is untested. Installation on
+Windows is very unlikely to work.
 
-   ufc/ufc_wrap.cpp:3841:8: error: no member named 'shared_ptr' in namespace 'std'
-   std::shared_ptr< ufc::function > tempshared1 ;
+Supported python distributions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-It's possible that you just need to tell the compiler to pick the
-correct standard library.  To do so, try running with
-``CXXFLAGS='-stdlib=libc++'`` when installing::
+On Ubuntu, the system installed python 2.7 is supported and tested.
+On Mac OS, the homebrew_ installed python 2.7 is supported and tested.
 
-  sudo CXXFLAGS='-stdlib=libc++' pip install -U --no-deps ...
+.. warning::
+
+   The installation script *does not work* with anaconda_ based python
+   installations, because it uses virtualenvs which anaconda does not
+   support.
+
+Upgrade
+-------
+
+The install script will install an upgrade script in
+`firedrake/bin/firedrake-update`. Running this script will update
+Firedrake and all its dependencies.
+
+.. note::
+
+   If you installed firedrake in a virtualenv_ (the default
+   installation mode), you should activate the virtualenv_ before
+   running `firedrake-update`.
+
+Cleaning disk caches after upgrade
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+After upgrading, you may need to clear any disk caches that Firedrake
+maintains to ensure that your problem does not pick up any out of date
+compiled modules. To do this run::
+
+  firedrake-clean
+
+If you installed to a virtualenv, you will need to activate the
+virtualenv first.
+
+Recovering from a broken installation script
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you find yourself in the unfortunate position that
+`firedrake-update` won't run because of a bug, and the bug has been
+fixed in Firedrake master, then the following procedure will rebuild
+`firedrake-update` using the latest version.
+
+From the top directory of your Firedrake install,
+type::
+
+  cd src/firedrake
+  git pull
+  ./scripts/firedrake-install --rebuild-script
+
+You should also pass any of the other options to `firedrake-install`
+which you wish the rebuilt script to apply (for example `--user` or
+`--disable-ssh`). You should now be able to run `firedrake-update`.
+
 
 Visualisation software
 ----------------------
@@ -76,118 +127,131 @@ Paraview_.  On Ubuntu and similar systems, you can obtain Paraview by
 installing the ``paraview`` package.  On Mac OS, the easiest approach
 is to download a binary from the `paraview website <Paraview_>`_.
 
-Firedrake
----------
+Installing from individual components
+=====================================
 
-In addition to PyOP2, you will need to install Firedrake. There are two
-routes, depending on whether you intend to contribute to Firedrake
-development.
+.. warning::
 
-In order to have the form assembly cache operate in the most automatic
-fashion possible, you are also advised to install psutil::
+  Installation from individual components is an unsupported route.  If
+  you tried the installation script and it failed, please let us know
+  by filing a `bug report
+  <https://github.com/firedrakeproject/firedrake/issues>`__, we
+  *absolutely* want to fix it.  This section of the documentation
+  provides a bare-bones description of the required dependencies.
 
-  sudo pip install psutil
+Firedrake itself is a Python package available on `github
+<https://github.com/firedrakeproject/firedrake>`__, however, you will
+need a number of additional libraries to use it.
 
-or (to install for your user only)::
+Mac OS
+------
 
-  pip install --user psutil
+We list here the required homebrew_ packages:
 
-Pip instructions for users
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+- openmpi (or mpich)
+- python
+- cmake
+- spatialindex
 
-If you only wish to use Firedrake, and will not be contributing to
-development at all, you can install Firedrake using pip::
+Ubuntu
+------
 
-  sudo pip install git+https://github.com/firedrakeproject/firedrake.git
+On Ubuntu, the following apt packages are required:
 
-or (to install for your user only)::
+- build-essential
+- cmake
+- gfortran
+- git-core
+- libblas-dev
+- liblapack-dev
+- libopenmpi-dev
+- libspatialindex-dev
+- mercurial
+- openmpi-bin
+- python-dev
+- python-pip
 
-  pip install --user git+https://github.com/firedrakeproject/firedrake.git
+Common dependencies
+-------------------
 
-You're now ready to go. You might like to start with the tutorial
-examples on the :doc:`documentation page <documentation>`.
+PETSc
+~~~~~
 
-Git instructions for developers
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We maintain branches of PETSc_ and petsc4py_ that are known to work
+with Firedrake.  Use the ``firedrake`` branch for both:
 
-Next, obtain the Firedrake source from GitHub_ ::
+- https://github.com/firedrakeproject/petsc
+- https://github.com/firedrakeproject/petsc4py
 
- git clone https://github.com/firedrakeproject/firedrake.git
+PETSc must be built with (at least) support for:
 
-You will also need to point Python at the right directories. You might
-want to consider setting this permanently in your
-``.bashrc`` or similar::
+- HDF5
+- CHACO
+- Triangle
+- Ctetgen
 
-  cd firedrake
-  export PYTHONPATH=$PWD:$PYTHONPATH
+We also recommend that you build PETSc with shared libraries.
 
-From the Firedrake directory build the relevant modules::
+h5py
+~~~~
 
- make
+Firedrake uses h5py_ to write checkpoint files.  It is critical that
+h5py_ is linked against the same version of the HDF5 library that
+PETSc was built with.  This is unfortunately not possible to specify
+when using ``pip``.  Instead, please follow the instructions for a
+`custom installation`_.  If PETSc was linked against a system HDF5
+library, use that library when building h5py.  If the PETSc
+installation was used to build HDF5 (via ``--download-hdf5``) then the
+appropriate HDF5 library is in the PETSc install directory.  If
+installed with ``pip``, this can be obtained using::
 
-Cleaning disk caches after upgrade
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  python -c "import petsc; print petsc.get_petsc_dir()"
 
-After upgrading, you may need to clear any disk caches that Firedrake
-maintains to ensure that your problem does not pick up any out of date
-compiled modules.  This can be carried out by executing the
-``firedrake-clean`` script.  If you carried out a sudo install of
-Firedrake using pip, ``firedrake-clean`` should be in your ``PATH``
-and so you should just be able to execute it.  If you carried out a
-user install using pip, you will need to add ``$HOME/.local/bin`` to
-your ``PATH`` ::
+Otherwise, use the appropriate values of ``PETSC_DIR`` and ``PETSC_ARCH``.
 
-  export PATH=$HOME/.local/bin:$PATH
+.. note::
 
-If you are using a checkout of Firedrake, ``firedrake-clean`` lives in
-the ``scripts`` subdirectory.
+   It is not necessary that h5py be built with MPI support, although
+   Firedrake supports both options.
 
-Additional dependencies for developers
---------------------------------------
+Further dependencies
+~~~~~~~~~~~~~~~~~~~~
 
-If you plan to develop Firedrake then you will require a few more
-packages. 
+Firedrake depends on the Python packages PyOP2_, TSFC_, FIAT_ and UFL_.
+
+Optional dependencies
+~~~~~~~~~~~~~~~~~~~~~
+
+For performance reasons, there are various levels of caching with
+eviction policies.  To support these, you will need to install the
+python packages:
+
+- cachetools
+- psutil
 
 Documentation dependencies
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Building the documention requires Sphinx_
-(including the Youtube and Bibtex plugins) and wget_. For example on Ubuntu-like
-Linux systems::
+Building the documention requires Sphinx_ (including the Youtube and
+Bibtex plugins) and wget_.  In addition the Sphinx Youtube and bibtex
+plugins are required.  The former is available from the
+`sphinx-contrib repository
+<https://bitbucket.org/birkenfeld/sphinx-contrib>`__, the latter is
+the python package ``sphinxcontrib-bibtex``.
 
-  sudo apt-get install python-sphinx wget
-
-and on Mac OS::
-
-  brew install wget
-  sudo pip install sphinx 
-
-note that the Sphinx in Homebrew is not the python documentation tool!
-
-The Sphinx Youtube plugin is obtained by cloning the sphinx-contrib
-repository::
-
-  hg clone https://bitbucket.org/birkenfeld/sphinx-contrib
-
-Then install the Youtube plugin::
-
-  cd sphinx-contrib/youtube
-  sudo python setup.py install
-
-Note that the ``sphinxcontrib.youtube`` Ubuntu package does not work
-for our purposes.
-
-Finally install the Bibtex plugin::
-
-  sudo pip install sphinxcontrib-bibtex
-
+.. _petsc4py: https://github.com/firedrakeproject/petsc4py
+.. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _PyOP2: http://op2.github.io/PyOP2
-.. _FFC: https://bitbucket.org/mapdes/ffc
-.. _FIAT: https://bitbucket.org/mapdes/fiat
-.. _UFL: https://bitbucket.org/mapdes/ufl
-.. _Instant: https://bitbucket.org/fenics-project/instant
-.. _GitHub: https://github.com/firedrakeproject/firedrake
+.. _TSFC: https://github.com/firedrakeproject/tsfc
+.. _FIAT: https://github.com/firedrakeproject/fiat
+.. _UFL: https://github.com/firedrakeproject/ufl
 .. _Paraview: http://www.paraview.org
 .. _Sphinx: http://www.sphinx-doc.org
 .. _wget: http://www.gnu.org/software/wget/
-.. _Swig: http://www.swig.org/
+.. _virtualenv: https://virtualenv.pypa.io/
+.. _pytest: http://pytest.org/latest/
+.. _libspatialindex: https://libspatialindex.github.io/
+.. _h5py: http://www.h5py.org/
+.. _custom installation: http://docs.h5py.org/en/latest/build.html#via-setup-py
+.. _homebrew: http://brew.sh
+.. _anaconda: https://www.continuum.io/downloads

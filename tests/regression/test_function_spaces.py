@@ -18,28 +18,44 @@ def fs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
 
 def test_function_space_cached(mesh):
     "FunctionSpaces defined on the same mesh and element are cached."
-    assert FunctionSpace(mesh, "CG", 1) is FunctionSpace(mesh, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1) == FunctionSpace(mesh, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1).topological == FunctionSpace(mesh, "CG", 1).topological
+    assert FunctionSpace(mesh, "CG", 1)._shared_data == FunctionSpace(mesh, "CG", 1)._shared_data
+
+
+def test_function_spaces_shared_data(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    Q = VectorFunctionSpace(mesh, "Lagrange", 1)
+    assert V != Q
+    assert V.topological != Q.topological
+    assert V._shared_data == Q._shared_data
+    assert V.node_set is Q.node_set
+    assert V.dof_dset != Q.dof_dset
+    V_data = V._shared_data
+    Q_data = Q._shared_data
+    assert V_data.global_numbering is Q_data.global_numbering
+    assert V_data.map_caches is Q_data.map_caches
 
 
 def test_function_space_different_mesh_differ(mesh, mesh2):
     "FunctionSpaces defined on different meshes differ."
-    assert FunctionSpace(mesh, "CG", 1) is not FunctionSpace(mesh2, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh2, "CG", 1)
 
 
 def test_function_space_different_degree_differ(mesh):
     "FunctionSpaces defined with different degrees differ."
-    assert FunctionSpace(mesh, "CG", 1) is not FunctionSpace(mesh, "CG", 2)
+    assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh, "CG", 2)
 
 
 def test_function_space_different_family_differ(mesh):
     "FunctionSpaces defined with different element families differ."
-    assert FunctionSpace(mesh, "CG", 1) is not FunctionSpace(mesh, "DG", 1)
+    assert FunctionSpace(mesh, "CG", 1) != FunctionSpace(mesh, "DG", 1)
 
 
 def test_function_space_vector_function_space_differ(mesh):
     """A FunctionSpace and a VectorFunctionSpace defined with the same
     family and degree differ."""
-    assert FunctionSpace(mesh, "CG", 1) is not VectorFunctionSpace(mesh, "CG", 1)
+    assert FunctionSpace(mesh, "CG", 1) != VectorFunctionSpace(mesh, "CG", 1)
 
 
 def test_indexed_function_space_index(fs):
@@ -52,4 +68,32 @@ def test_indexed_function_space_index(fs):
 
 
 def test_mixed_function_space_split(fs):
-    assert fs.split() == list(fs)
+    assert fs.split() == tuple(fs)
+
+
+@pytest.mark.parametrize("modifier",
+                         [BrokenElement, FacetElement,
+                          InteriorElement, TraceElement, HDivElement,
+                          HCurlElement])
+@pytest.mark.parametrize("element",
+                         [FiniteElement("CG", triangle, 1),
+                          EnrichedElement(FiniteElement("CG", triangle, 1),
+                                          FiniteElement("B", triangle, 3)),
+                          TensorProductElement(FiniteElement("CG", triangle, 1),
+                                               FiniteElement("CG", interval, 3)),
+                          MixedElement(FiniteElement("CG", triangle, 1),
+                                       FiniteElement("DG", triangle, 2))],
+                         ids=["FE", "Enriched", "TPE", "Mixed"])
+def test_validation(modifier, element):
+    with pytest.raises(ValueError):
+        FunctionSpace(UnitSquareMesh(1, 1), modifier(VectorElement(element)))
+    if type(element) is MixedElement:
+        with pytest.raises(ValueError):
+            FunctionSpace(UnitSquareMesh(1, 1), VectorElement(element))
+        with pytest.raises(ValueError):
+            FunctionSpace(UnitSquareMesh(1, 1), modifier(element))
+
+
+if __name__ == "__main__":
+    import os
+    pytest.main(os.path.abspath(__file__))

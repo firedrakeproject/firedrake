@@ -34,6 +34,24 @@ def run_vector_test(x, degree=1, family='CG'):
     return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
 
 
+def run_tensor_test(x, degree=1, family='CG'):
+    m = UnitSquareMesh(2 ** x, 2 ** x)
+    V = TensorFunctionSpace(m, family, degree)
+    expr = [['cos(x[0]*pi*2)*sin(x[1]*pi*2)', 'cos(x[0]*pi*2)*sin(x[1]*pi*2)'],
+            ['cos(x[0]*pi*2)*sin(x[1]*pi*2)', 'cos(x[0]*pi*2)*sin(x[1]*pi*2)']]
+    e = Expression(expr)
+    exact = Function(TensorFunctionSpace(m, 'CG', 5))
+    exact.interpolate(e)
+
+    # Solve to machine precision.  This version of the test uses the
+    # alternate syntax in which the target Function is already
+    # available.
+    ret = Function(V)
+    project(e, ret, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
+
+    return sqrt(assemble(inner((ret - exact), (ret - exact)) * dx))
+
+
 def run_test(x, degree=1, family='CG'):
     m = UnitSquareMesh(2 ** x, 2 ** x)
     V = FunctionSpace(m, family, degree)
@@ -76,6 +94,19 @@ def test_vector_convergence(degree, family, expected_convergence):
 
 
 @pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
+    (1, 'CG', 1.8),
+    (2, 'CG', 2.6),
+    (3, 'CG', 3.8),
+    (0, 'DG', 0.8),
+    (1, 'DG', 1.8),
+    (2, 'DG', 2.8)])
+def test_tensor_convergence(degree, family, expected_convergence):
+    l2_diff = np.array([run_tensor_test(x, degree, family) for x in range(2, 5)])
+    conv = np.log2(l2_diff[:-1] / l2_diff[1:])
+    assert (conv > expected_convergence).all()
+
+
+@pytest.mark.parametrize(('degree', 'family', 'expected_convergence'), [
     (1, 'RT', 0.75),
     (2, 'RT', 1.8),
     (3, 'RT', 2.8),
@@ -95,8 +126,8 @@ def test_project_mismatched_rank():
     U = FunctionSpace(m, 'RT', 1)
     v = Function(V)
     u = Function(U)
-    ev = Expression('')
-    eu = Expression(('', ''))
+    ev = Expression('x[0]')
+    eu = Expression(('x[0]', 'x[1]'))
     with pytest.raises(RuntimeError):
         project(v, U)
     with pytest.raises(RuntimeError):
@@ -155,6 +186,60 @@ def test_repeatable():
 
     for fd, ud in zip(new.dat.data, old.dat.data):
         assert (fd == ud).all()
+
+
+def test_projector():
+    m = UnitSquareMesh(2, 2)
+    Vc = FunctionSpace(m, "CG", 2)
+    v = Function(Vc).interpolate(Expression("x[0]*x[1] + cos(x[0]+x[1])"))
+    mass1 = assemble(v*dx)
+
+    Vd = FunctionSpace(m, "DG", 1)
+    vo = Function(Vd)
+
+    P = Projector(v, vo)
+    P.project()
+
+    mass2 = assemble(vo*dx)
+    assert(np.abs(mass1-mass2) < 1.0e-10)
+
+    v.interpolate(Expression("x[1] + exp(x[0]+x[1])"))
+    mass1 = assemble(v*dx)
+
+    P.project()
+    mass2 = assemble(vo*dx)
+    assert(np.abs(mass1-mass2) < 1.0e-10)
+
+
+def test_trivial_projector():
+    m = UnitSquareMesh(2, 2)
+    Vc = FunctionSpace(m, "CG", 2)
+    v = Function(Vc).interpolate(Expression("x[0]*x[1] + cos(x[0]+x[1])"))
+    mass1 = assemble(v*dx)
+
+    vo = Function(Vc)
+
+    P = Projector(v, vo)
+    P.project()
+
+    mass2 = assemble(vo*dx)
+    assert(np.abs(mass1-mass2) < 1.0e-10)
+
+    v.interpolate(Expression("x[1] + exp(x[0]+x[1])"))
+    mass1 = assemble(v*dx)
+
+    P.project()
+    mass2 = assemble(vo*dx)
+    assert(np.abs(mass1-mass2) < 1.0e-10)
+
+
+def test_projector_expression():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+    vo = Function(V)
+    expr = Expression("1")
+    with pytest.raises(ValueError):
+        Projector(expr, vo)
 
 
 if __name__ == '__main__':

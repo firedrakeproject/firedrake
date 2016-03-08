@@ -25,7 +25,7 @@ def run_restriction(mtype, vector, space, degree):
 
     for e in expected:
         v = TestFunction(e.function_space())
-        e.assign(assemble(dot(c, v)*e.function_space().mesh()._dx))
+        e.assign(assemble(dot(c, v)*dx(domain=e.function_space().mesh())))
 
     actual = FunctionHierarchy(V)
 
@@ -122,7 +122,7 @@ def run_extruded_restriction(mtype, vector, space, degree):
 
     for e in expected:
         v = TestFunction(e.function_space())
-        e.assign(assemble(dot(c, v)*e.function_space().mesh()._dx))
+        e.assign(assemble(dot(c, v)*dx(domain=e.function_space().mesh())))
 
     actual = FunctionHierarchy(V)
 
@@ -211,8 +211,8 @@ def run_mixed_restriction():
         v, p = TestFunctions(e.function_space())
         c = Constant((1, 1))
 
-        dx = e.function_space().mesh()._dx
-        e.assign(assemble(dot(c, v)*dx + p*dx))
+        _dx = dx(domain=e.function_space().mesh())
+        e.assign(assemble(dot(c, v)*_dx + p*_dx))
 
     actual = FunctionHierarchy(W)
 

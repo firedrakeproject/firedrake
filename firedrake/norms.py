@@ -1,10 +1,11 @@
+from __future__ import absolute_import
 from pyop2.logger import warning
-from ufl import inner, div, grad, curl, sqrt
+from ufl import inner, div, grad, curl, sqrt, dx
 
-import assemble
-import function
-import functionspace
-import projection
+from firedrake.assemble import assemble
+from firedrake import function
+from firedrake import functionspace
+from firedrake import projection
 
 __all__ = ['errornorm', 'norm']
 
@@ -25,8 +26,8 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
     a space of degree ``degree_rise`` higher than the degree of ``uh``
     and computing the error there.
     """
-    urank = len(u.shape())
-    uhrank = len(uh.shape())
+    urank = len(u.ufl_shape)
+    uhrank = len(uh.ufl_shape)
 
     rank = urank
     if urank != uhrank:
@@ -49,7 +50,7 @@ def errornorm(u, uh, norm_type="L2", degree_rise=3, mesh=None):
         V = functionspace.FunctionSpace(mesh, 'DG', degree)
     elif rank == 1:
         V = functionspace.VectorFunctionSpace(mesh, 'DG', degree,
-                                              dim=u.shape()[0])
+                                              dim=u.ufl_shape[0])
     else:
         raise RuntimeError("Don't know how to compute error norm for tensor valued functions")
 
@@ -99,8 +100,6 @@ def norm(v, norm_type="L2", mesh=None):
     assert isinstance(v, function.Function)
 
     typ = norm_type.lower()
-    mesh = v.function_space().mesh()
-    dx = mesh._dx
     if typ == 'l2':
         form = inner(v, v)*dx
     elif typ == 'h1':
@@ -112,4 +111,4 @@ def norm(v, norm_type="L2", mesh=None):
     else:
         raise RuntimeError("Unknown norm type '%s'" % norm_type)
 
-    return sqrt(assemble.assemble(form))
+    return sqrt(assemble(form))

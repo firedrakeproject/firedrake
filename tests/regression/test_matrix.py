@@ -86,7 +86,7 @@ def test_assemble_with_bcs(a, V):
     assert A.assembled
     assert not A._needs_reassembly
 
-    bc3 = DirichletBC(V, 1, 0)
+    bc3 = DirichletBC(V, 1, 2)
     A.bcs = bc3
     assert A.assembled
     assert A._needs_reassembly
@@ -122,7 +122,7 @@ def test_assemble_with_bcs_then_not(a, V):
 
 
 def test_assemble_with_bcs_multiple_subdomains(a, V):
-    bc1 = DirichletBC(V, 0, [0, 1])
+    bc1 = DirichletBC(V, 0, [1, 2])
     A = assemble(a, bcs=[bc1])
     assert not A.assembled
     assert A._needs_reassembly

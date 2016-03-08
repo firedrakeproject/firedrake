@@ -35,7 +35,7 @@ def get_transformations(fiat_cell):
     1-0
 
     """
-    if isinstance(fiat_cell, FIAT.reference_element.two_product_cell):
+    if isinstance(fiat_cell, FIAT.reference_element.TensorProductCell):
         extruded = True
         cell = fiat_cell.A
     else:
@@ -112,7 +112,7 @@ def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
     perms = get_node_permutations(fiat_element)
     order = -np.ones_like(nonunique_map)
     cell = fiat_element.get_reference_element()
-    if isinstance(cell, FIAT.reference_element.two_product_cell):
+    if isinstance(cell, FIAT.reference_element.TensorProductCell):
         cell = cell.A
     tdim = cell.get_spatial_dimension()
     nvtx = len(cell.get_vertices())
@@ -140,7 +140,7 @@ def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
 
 
 def get_transforms_to_fine(cell):
-    if isinstance(cell, FIAT.reference_element.two_product_cell):
+    if isinstance(cell, FIAT.reference_element.TensorProductCell):
         extruded = True
         cell = cell.A
     else:
@@ -245,7 +245,7 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
     all_same = np.allclose(weights, weights[0, 0])
 
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+               ast.Decl("double *restrict *restrict ", ast.Symbol("fine", ()),
                         qualifiers=["const"])]
     if all_same:
         w_sym = ast.Symbol("weights", ())
@@ -291,7 +291,7 @@ def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
     nfdof = weights.shape[0]
     ncdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("fine", (nfdof*dim, ))),
-               ast.Decl("double", ast.Symbol("*restrict *restrict coarse", ()),
+               ast.Decl("double *restrict *restrict ", ast.Symbol("coarse", ()),
                         qualifiers=["const"])]
     all_same = np.allclose(weights, weights[0, 0])
 
@@ -339,10 +339,10 @@ def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False
     ncdof = weights.shape[0]
     nfdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
-               ast.Decl("double", ast.Symbol("*restrict *restrict fine", ()),
+               ast.Decl("double *restrict *restrict ", ast.Symbol("fine", ()),
                         qualifiers=["const"])]
     if not no_weights:
-        arglist.append(ast.Decl("double", ast.Symbol("*restrict *restrict count_weights", ()),
+        arglist.append(ast.Decl("double *restrict *restrict", ast.Symbol("count_weights", ()),
                                 qualifiers=["const"]))
 
     all_ones = np.allclose(weights, 1.0)
@@ -403,3 +403,26 @@ def get_count_kernel(arity):
                     ast.Block([loop]),
                     pred=["static", "inline"])
     return op2.Kernel(k, "count_weights", opts=parameters["coffee"])
+
+
+def set_level(obj, hierarchy, level):
+    """Attach hierarchy and level info to an object."""
+    setattr(obj.topological, "__level_info__", (hierarchy, level))
+    return obj
+
+
+def get_level(obj):
+    """Try and obtain hierarchy and level info from an object.
+
+    If no level info is available, return ``None, -1``."""
+    try:
+        if isinstance(obj, PETSc.DM):
+            return get_level(obj.getAttr("__fs__")())
+        return getattr(obj.topological, "__level_info__")
+    except AttributeError:
+        return None, -1
+
+
+def has_level(obj):
+    """Does the provided object have level info?"""
+    return hasattr(obj.topological, "__level_info__")

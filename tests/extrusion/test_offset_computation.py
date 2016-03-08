@@ -24,10 +24,10 @@ def test_offset_enriched():
     m = UnitSquareMesh(1, 1)
     m = ExtrudedMesh(m, layers=1)
 
-    ele = OuterProductElement(FiniteElement("CG", "triangle", 2),
-                              FiniteElement("CG", "interval", 1)) + \
-        OuterProductElement(FiniteElement("CG", "triangle", 1),
-                            FiniteElement("DG", "interval", 0))
+    ele = TensorProductElement(FiniteElement("CG", "triangle", 2),
+                               FiniteElement("CG", "interval", 1)) + \
+        TensorProductElement(FiniteElement("CG", "triangle", 1),
+                             FiniteElement("DG", "interval", 0))
 
     V = FunctionSpace(m, ele)
 

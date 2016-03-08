@@ -1,9 +1,10 @@
+from __future__ import absolute_import
 import numpy as np
 import ufl
 
 from pyop2 import op2
 
-import utils
+import firedrake.utils as utils
 
 
 __all__ = ['Expression']
@@ -14,7 +15,7 @@ class Expression(ufl.Coefficient):
     :class:`.FunctionSpace`. This provides a mechanism for setting
     :class:`.Function` values to user-determined values.
 
-    To use an Expression, we can either :meth:`~Function.interpolate`
+    To use an Expression, we can either :meth:`~.Function.interpolate`
     it onto a :class:`.Function`, or :func:`.project` it into a
     :class:`.FunctionSpace`.  Note that not all
     :class:`.FunctionSpace`\s support interpolation, but all do
@@ -52,7 +53,7 @@ class Expression(ufl.Coefficient):
     **The Python interface**
 
     The Python interface is accessed by creating a subclass of
-    :class:`Expression` with a user-specified :meth:`eval` method. For
+    :class:`Expression` with a user-specified `eval`` method. For
     example, the following expression sets the output
     :class:`.Function` to the square of the magnitude of the
     coordinate:
@@ -73,10 +74,10 @@ class Expression(ufl.Coefficient):
 
         f.interpolate(MyExpression())
 
-    Note the brackets required to instantiate the :class:`MyExpression` object.
+    Note the brackets required to instantiate the ``MyExpression`` object.
 
     If a Python :class:`Expression` is to set the value of a
-    vector-valued :class:`Function` then it is necessary to explicitly
+    vector-valued :class:`.Function` then it is necessary to explicitly
     override the :meth:`value_shape` method of that
     :class:`Expression`. For example:
 
@@ -95,7 +96,7 @@ class Expression(ufl.Coefficient):
         :param code: a string C statement, or list of statements.
         :param element: a :class:`~ufl.finiteelement.finiteelement.FiniteElement`, optional
               (currently ignored)
-        :param cell: a :class:`~ufl.geometry.Cell`, optional (currently ignored)
+        :param cell: a :class:`~ufl.classes.Cell`, optional (currently ignored)
         :param degree: the degree of quadrature to use for evaluation (currently ignored)
         :param kwargs: user-defined values that are accessible in the
                Expression code.  These values maybe updated by
@@ -118,14 +119,16 @@ class Expression(ufl.Coefficient):
         """
         # Init also called in mesh constructor, but expression can be built without mesh
         utils._init()
-        self.code = code
+        self.code = None
         self._shape = ()
         if code is not None:
-            shape = np.array(code).shape
-            self._shape = shape
-            if self.rank() == 0:
-                # Make code slot iterable even for scalar expressions
-                self.code = [code]
+            arr = np.array(code)
+            self._shape = arr.shape
+            # Flatten to something indexable for use.
+            self.code = arr.flatten()
+            for val in self.code:
+                if str(val).strip() == "":
+                    raise ValueError("Cannot provide empty expression")
         self.cell = cell
         self.degree = degree
         # These attributes are required by ufl.Coefficient to render the repr
@@ -203,6 +206,10 @@ class Expression(ufl.Coefficient):
 
         """
         return self._shape
+
+    @property
+    def ufl_shape(self):
+        return self.value_shape()
 
 
 def to_expression(val, **kwargs):

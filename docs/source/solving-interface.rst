@@ -152,7 +152,7 @@ which to place our solution:
 
    x = Function(V)
 
-We then :py:func:`~firedrake.solving.assemble` the left hand side
+We then :py:func:`~.assemble` the left hand side
 matrix ``A`` and known right hand side ``b`` from the bilinear and
 linear forms respectively:
 
@@ -169,7 +169,7 @@ Finally, we can solve the problem placing the solution in ``x``:
 
 to apply boundary conditions to the problem, we can assemble the
 linear operator ``A`` with boundary conditions using the ``bcs``
-keyword argument to :py:func:`~firedrake.solving.assemble` (and then
+keyword argument to :py:func:`~.assemble` (and then
 not supply them in solve call):
 
 .. code-block:: python
@@ -468,14 +468,58 @@ inverses of the block system.  These work for any number of blocks,
 whereas the Schur complement approach mentioned above only works for
 two by two blocks.
 
-.. note::
+Recursive fieldsplits
++++++++++++++++++++++
 
-   PETSc offers support for composing fieldsplit preconditioners
-   recursively.  That is, defining a :math:`3\times3` block system as
-   composed of a :math:`2\times2` piece and a :math:`1\times1` piece.
-   However, the Firedrake interface to the solver options does not
-   currently support this.  At present, we cannot tell PETSc that the
-   blocks should be split recursively.
+If your system contains more than two fields, it is possible to
+recursively define block preconditioners by specifying the
+fields which should belong to each split.  Note that at present this
+only works for "monolithically assembled" matrices, so you should
+either specify ``nest=False`` when solving your system or assembling
+your matrix, or else set the global parameter ``parameters["matnest"] = False``.
+
+As an example, consider a three field system which we wish to
+precondition by forming a schur complement of the first two fields
+into the third, and then using a multiplicative fieldsplit with LU on
+each split for the approximation to :math:`A^{-1}` and ILU to
+precondition the schur complement.  The solver parameters we need are
+as follows:
+
+.. code-block:: python
+
+   parameters = {"pc_type": "fieldsplit",
+                 "pc_fieldsplit_type": "schur",
+                 # first split contains first two fields, second
+                 # contains the third
+                 "pc_fieldsplit_0_fields": "0, 1",
+                 "pc_fieldsplit_1_fields": "2",
+                 # Multiplicative fieldsplit for first field
+                 "fieldsplit_0_pc_type": "fieldsplit",
+                 "fieldsplit_0_pc_fieldsplit_type": "multiplicative",
+                 # LU on each field
+                 "fieldsplit_0_fieldsplit_0_pc_type": "lu",
+                 "fieldsplit_0_fieldsplit_1_pc_type": "lu",
+                 # ILU on the schur complement block
+                 "fieldsplit_1_pc_type": "ilu"}
+
+In this example, none of the :class:`~.FunctionSpace`\s used had
+names, and hence we referred to the fields by number.  If the
+function spaces are named, then any time a single field appears as a
+split, its options prefix is referred to by the space's *name* (rather
+than a number).  Concretely, if the previous example had use a set of
+FunctionSpace definitions:
+
+.. code-block:: python
+
+   V = FunctionSpace(..., name="V")
+   P = FunctionSpace(..., name="P")
+   T = FunctionSpace(..., name="T")
+   W = V*P*T
+
+Then we would have referred to the single (field 1) split using
+``fieldsplit_T_pc_type``, rather than ``fieldsplit_1_pc_type``.
+
+.. note::
 
    Future versions of Firedrake may offer a symbolic language for
    describing the composition of such physics-like preconditioners,
@@ -555,7 +599,7 @@ know something about the structure of our problem, we may be able to
 construct an operator :math:`P` explicitly which is "easy" to invert,
 and whose inverse approximates :math:`A^{-1}` well.  Firedrake allows
 you to provide this operator when solving variational problems by
-passing an explicit :py:data:`Jp` keyword argument to the solve call,
+passing an explicit ``Jp`` keyword argument to the solve call,
 the provided form will then be used to construct an approximate
 inverse when preconditioning the problem, rather than the form we're
 solving with.
@@ -799,6 +843,142 @@ iterations do not, the problem is likely a bad Jacobian.  If you
 provided the Jacobian by hand, is it correct?  If no Jacobian was
 provided in the solve call, it is likely a bug in Firedrake and you
 should `report it to us <firedrake_bugs_>`_.
+
+Checking the provided Jacobian
+++++++++++++++++++++++++++++++
+
+It is possible to verify that the provided Jacobian is consistent with
+the residual we are trying to minimise by comparing it with a finite
+differenced Jacobian computed by PETSc.  This is possible using only a
+few extra options to the call to :func:`~.solve`.  We just need to
+specify that the nonlinear solver we want PETSc to employ should be of
+type ``test``.  PETSc will then go away, compute an approximate
+Jacobian by finite differencing the residual and compare it to our
+provided exact Jacobian.  The only thing we need to be aware of is
+that if the problem to be solved is in a mixed space, we need to pass
+``nest=False`` to the solve call.
+
+To make things concrete, consider the following, somewhat contrived,
+example where we attempt to solve a Galerkin projection in a mixed
+space, but provide an incorrectly scaled Jacobian to the solve.
+
+.. code-block:: python
+
+   from firedrake import *
+   mesh = UnitSquareMesh(1, 1)
+   V = FunctionSpace(mesh, "CG", 1)
+   W = V*V
+   f = Function(W)
+   v = TestFunction(W)
+   u = TrialFunction(W)
+
+   F = dot(f, v)*dx - dot(Constant((1, 2)), v)*dx
+
+   J = Constant(4)*dot(u, v)*dx
+
+   solve(F == 0, f, J=J)
+
+When run, this produces the following output:
+
+.. code-block:: python
+
+   pyop2:INFO Solving nonlinear variational problem...
+   Traceback (most recent call last):
+       solve(F == 0, u, J=J)
+     File "firedrake/solving.py", line 120, in solve
+       _solve_varproblem(*args, **kwargs)
+     File "firedrake/solving.py", line 162, in _solve_varproblem
+       solver.solve()
+     File "<string>", line 2, in solve
+     File "pyop2/profiling.py", line 203, in wrapper
+       return f(*args, **kwargs)
+     File "firedrake/variational_solver.py", line 175, in solve
+       solving_utils.check_snes_convergence(self.snes)
+     File "firedrake/solving_utils.py", line 62, in check_snes_convergence
+       """%s""" % (snes.getIterationNumber(), msg))
+   RuntimeError: Nonlinear solve failed to converge after 50 nonlinear iterations.
+   Reason:
+       DIVERGED_MAX_IT
+
+In this example we can notice by inspection of the code that the
+provided Jacobian is incorrect.  The Gateaux derivative of :math:`F`
+with respect to :math:`f` is :math:`\langle u, v \rangle`, not
+:math:`4\langle u, v \rangle`.  In the more general case, it may be
+that there is a bug in the assembly of the Jacobian, even if the
+symbolic form is correct.  To verify the Jacobian we rerun the solve,
+but pass some additional options:
+
+.. code-block:: python
+
+   solve(F == 0, f, J=J, nest=False,
+         solver_parameters={'snes_type': 'test'})
+
+This time we get the following output
+
+.. code-block:: python
+
+   pyop2:INFO Solving nonlinear variational problem...
+   Testing hand-coded Jacobian, if the ratio is
+   O(1.e-8), the hand-coded Jacobian is probably correct.
+   Run with -snes_test_display to show difference
+   of hand-coded and finite difference Jacobian.
+   Norm of matrix ratio 0.75, difference 1.32288 (user-defined state)
+   Norm of matrix ratio 0.75, difference 1.32288 (constant state -1.0)
+   Norm of matrix ratio 0.75, difference 1.32288 (constant state 1.0)
+   Traceback (most recent call last):
+       solve(F == 0, u, J=J, nest=False, solver_parameters={'snes_type': 'test'})
+     File "firedrake/solving.py", line 120, in solve
+       _solve_varproblem(*args, **kwargs)
+     File "firedrake/solving.py", line 162, in _solve_varproblem
+       solver.solve()
+     File "<string>", line 2, in solve
+     File "pyop2/profiling.py", line 203, in wrapper
+       return f(*args, **kwargs)
+     File "firedrake/variational_solver.py", line 173, in solve
+       self.snes.solve(None, v)
+     File "PETSc/SNES.pyx", line 520, in petsc4py.PETSc.SNES.solve (src/petsc4py.PETSc.c:165224)
+   petsc4py.PETSc.Error: error code 73
+   [0] SNESSolve() line 3907 in petsc/src/snes/interface/snes.c
+   [0] SNESSolve_Test() line 127 in petsc/src/snes/impls/test/snestest.c
+   [0] Object is in wrong state
+   [0] SNESTest aborts after Jacobian test: it is NORMAL behavior.
+
+The important lines are:
+
+.. code-block:: python
+
+   Testing hand-coded Jacobian, if the ratio is
+   O(1.e-8), the hand-coded Jacobian is probably correct.
+   Run with -snes_test_display to show difference
+   of hand-coded and finite difference Jacobian.
+   Norm of matrix ratio 0.75, difference 1.32288 (user-defined state)
+   Norm of matrix ratio 0.75, difference 1.32288 (constant state -1.0)
+   Norm of matrix ratio 0.75, difference 1.32288 (constant state 1.0)
+
+Here PETSc is printing information about the difference between the
+finite difference and provided Jacobians.  We can see that these
+differences are large.  Therefore, we conclude the the provided
+"exact" Jacobian is not consistent with the residual, and likely
+incorrect.
+
+For comparison, here are the same relevant lines when running with the
+correct Jacobian:
+
+.. code-block:: python
+
+   solve(F == 0, f, solver_parameters={'snes_type': 'test'})
+
+   Testing hand-coded Jacobian, if the ratio is
+   O(1.e-8), the hand-coded Jacobian is probably correct.
+   Run with -snes_test_display to show difference
+   of hand-coded and finite difference Jacobian.
+   Norm of matrix ratio 4.98807e-08, difference 2.19953e-08 (user-defined state)
+   Norm of matrix ratio 2.91936e-08, difference 1.28732e-08 (constant state -1.0)
+   Norm of matrix ratio 1.51242e-08, difference 6.66915e-09 (constant state 1.0)
+
+Notice how now the differences are small (within expected error
+tolerances) so we are happy that the Jacobian is correct.
+
 
 .. _Hypre: http://acts.nersc.gov/hypre/
 .. _PETSc: http://www.mcs.anl.gov/petsc/

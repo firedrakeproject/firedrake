@@ -1,8 +1,10 @@
+from __future__ import absolute_import
 from numpy import prod
 
-import function
-import functionspace
-from petsc import PETSc
+from pyop2 import op2
+
+from firedrake import function
+from firedrake.petsc import PETSc
 
 
 __all__ = ['VectorSpaceBasis', 'MixedVectorSpaceBasis']
@@ -80,12 +82,14 @@ class VectorSpaceBasis(object):
                     return False
         return True
 
-    def _apply(self, matrix, ises=None):
+    def _apply(self, matrix):
         """Set this VectorSpaceBasis as a nullspace for a matrix
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set.
-        :arg ises: optional list of PETSc IS objects to compose the
-             nullspace with (ignored)."""
+        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
+             be set.
+        """
+        if not isinstance(matrix, op2.Mat):
+            return
         matrix.handle.setNullSpace(self.nullspace)
 
     def __iter__(self):
@@ -96,7 +100,7 @@ class VectorSpaceBasis(object):
 class MixedVectorSpaceBasis(object):
     """A basis for a mixed vector space
 
-    :arg function_space: the :class:`~MixedFunctionSpace` this vector
+    :arg function_space: the :class:`~.MixedFunctionSpace` this vector
          space is a basis for.
     :arg bases: an iterable of bases for the null spaces of the
          subspaces in the mixed space.
@@ -132,15 +136,20 @@ class MixedVectorSpaceBasis(object):
     """
     def __init__(self, function_space, bases):
         self._function_space = function_space
-        if not all(isinstance(basis, (VectorSpaceBasis, functionspace.IndexedFunctionSpace))
-                   for basis in bases):
+        for basis in bases:
+            if isinstance(basis, VectorSpaceBasis):
+                continue
+            if basis.index is not None:
+                continue
             raise RuntimeError("MixedVectorSpaceBasis can only contain vector space bases or indexed function spaces")
         for i, basis in enumerate(bases):
-            if isinstance(basis, functionspace.IndexedFunctionSpace):
-                if i != basis.index:
-                    raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
-                if basis._parent != self._function_space:
-                    raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, self._function_space))
+            if isinstance(basis, VectorSpaceBasis):
+                continue
+            # Must be indexed function space
+            if i != basis.index:
+                raise RuntimeError("FunctionSpace with index %d cannot appear at position %d" % (basis.index, i))
+            if basis.parent != function_space:
+                raise RuntimeError("FunctionSpace with index %d does not have %s as a parent" % (basis.index, function_space))
         self._bases = bases
         self._nullspace = None
 
@@ -198,28 +207,37 @@ class MixedVectorSpaceBasis(object):
             self._build_monolithic_basis()
         matrix.handle.setNullSpace(self._nullspace)
 
-    def _apply(self, matrix, ises):
+    def _apply(self, matrix_or_ises):
         """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should be set.
-        :arg ises: optional list of PETSc IS objects to compose the
-             nullspace with.  You must pass these if you intend to
-             solve a mixed problem with a nullspace using a Schur
-             complement."""
-        rows, cols = matrix.sparsity.shape
-        if rows != cols:
-            raise RuntimeError("Can only apply nullspace to square operator")
-        if rows != len(self):
-            raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
-                               (rows, cols, len(self)))
-        # Hang the expanded nullspace on the big matrix
-        self._apply_monolithic(matrix)
+        :arg matrix_or_ises: either a :class:`pyop2.op2.Mat` to set a
+             nullspace on, or else a list of PETSc ISes to compose a
+             nullspace with.
+
+        .. note::
+
+           If you're using a Schur complement preconditioner you
+           should both call :meth:`_apply` on the matrix, and the ises
+           defining the splits.
+        """
+        if isinstance(matrix_or_ises, op2.Mat):
+            matrix = matrix_or_ises
+            rows, cols = matrix.sparsity.shape
+            if rows != cols:
+                raise RuntimeError("Can only apply nullspace to square operator")
+            if rows != len(self):
+                raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
+                                   (rows, cols, len(self)))
+            # Hang the expanded nullspace on the big matrix
+            self._apply_monolithic(matrix)
+            return
+        ises = matrix_or_ises
         for i, basis in enumerate(self):
             if not isinstance(basis, VectorSpaceBasis):
                 continue
             # Compose appropriate nullspace with IS for schur complement
             if ises is not None:
-                is_ = ises[i][1]
+                is_ = ises[i]
                 is_.compose("nullspace", basis.nullspace)
 
     def __iter__(self):

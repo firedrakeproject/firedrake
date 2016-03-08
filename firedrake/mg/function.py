@@ -1,8 +1,9 @@
 from __future__ import absolute_import
 
-from firedrake import function
+import firedrake
 from . import functionspace
-
+from . import interface
+from .utils import set_level
 
 __all__ = ["FunctionHierarchy"]
 
@@ -18,11 +19,14 @@ class FunctionHierarchy(object):
         self._function_space = fs_hierarchy
 
         if functions is not None:
-            assert all(isinstance(f, function.Function) for f in functions)
+            assert all(isinstance(f, firedrake.Function) for f in functions)
             assert len(functions) == len(self._function_space)
-            self._hierarchy = tuple(functions)
+            self._hierarchy = tuple([set_level(f, self, lvl)
+                                     for lvl, f in enumerate(functions)])
         else:
-            self._hierarchy = tuple(function.Function(f) for f in fs_hierarchy)
+            self._hierarchy = tuple([set_level(firedrake.Function(f),
+                                               self, lvl)
+                                     for lvl, f in enumerate(fs_hierarchy)])
 
         if isinstance(self._function_space, functionspace.MixedFunctionSpaceHierarchy):
             split = []
@@ -74,20 +78,20 @@ class FunctionHierarchy(object):
         """Prolong from a coarse to the next finest hierarchy level.
 
         :arg level: The coarse level to prolong from"""
-        self.function_space().prolong(self, level)
+        interface.prolong(self[level], self[level+1])
 
     def restrict(self, level):
         """Restrict from a fine to the next coarsest hierarchy level.
 
         :arg level: The fine level to restrict from
         """
-        self.function_space().restrict(self, level)
+        interface.restrict(self[level], self[level-1])
 
     def inject(self, level):
         """Inject from a fine to the next coarsest hierarchy level.
 
         :arg level: the fine level to inject from"""
-        self.function_space().inject(self, level)
+        interface.inject(self[level], self[level-1])
 
     def assign(self, other):
         """Assign into this :class:`FunctionHierarchy`.

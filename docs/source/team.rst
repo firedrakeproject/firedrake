@@ -6,8 +6,10 @@ Firedrake is brought to you by the departments of `Computing <http://www.imperia
 
 .. include:: teamgrid.rst
 
-Summer students 2013
---------------------
+Other contributors
+------------------
+
+Nicolas Loriant
 
 George Boutsioukis
 

@@ -1,3 +1,6 @@
+cdef extern from "../mpi-compat.h":
+    pass
+
 cdef extern from * nogil:
     int DMPlexCreatePointNumbering(PETSc.PetscDM,PETSc.PetscIS*)
     int ISLocalToGlobalMappingCreateIS(PETSc.PetscIS,PETSc.PetscLGMap*)

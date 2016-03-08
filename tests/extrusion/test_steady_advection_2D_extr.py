@@ -29,11 +29,11 @@ def W(mesh):
     # BDM1 element on a quad
     W0_h = FiniteElement("CG", "interval", 1)
     W0_v = FiniteElement("DG", "interval", 1)
-    W0 = HDiv(OuterProductElement(W0_h, W0_v))
+    W0 = HDiv(TensorProductElement(W0_h, W0_v))
 
     W1_h = FiniteElement("DG", "interval", 1)
     W1_v = FiniteElement("CG", "interval", 1)
-    W1 = HDiv(OuterProductElement(W1_h, W1_v))
+    W1 = HDiv(TensorProductElement(W1_h, W1_v))
 
     return FunctionSpace(mesh, W0+W1)
 
@@ -104,7 +104,7 @@ def run_right_to_left(mesh, DG1, W):
     out = Function(DG1)
     solve(a == L, out)
 
-    assert max(abs(out.dat.data - inflow.dat.data)) < 1e-14
+    assert max(abs(out.dat.data - inflow.dat.data)) < 2e-14
 
 
 def test_right_to_left(mesh, DG1, W):

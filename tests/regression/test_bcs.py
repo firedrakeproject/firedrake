@@ -149,7 +149,7 @@ def test_set_bc_value(a, u, V, f):
 
 
 def test_update_bc_expression(a, u, V, f):
-    if isinstance(V, VectorFunctionSpace):
+    if V.rank == 1:
         e = Expression(['t', 't'], t=1.0)
     else:
         e = Expression('t', t=1.0)
@@ -195,7 +195,7 @@ def test_update_bc_expression(a, u, V, f):
 
 
 def test_update_bc_constant(a, u, V, f):
-    if isinstance(V, VectorFunctionSpace):
+    if V.rank == 1:
         # Don't bother with the VFS case
         return
     c = Constant(1)
@@ -323,6 +323,21 @@ def test_assemble_mass_bcs_2d(V):
     assert assemble(dot((w - f), (w - f))*dx) < 1e-12
 
 
+@pytest.mark.parametrize("quad",
+                         [False, True],
+                         ids=["triangle", "quad"])
+def test_overlapping_bc_nodes(quad):
+    m = UnitSquareMesh(1, 1, quadrilateral=quad)
+    V = FunctionSpace(m, 'CG', 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    bcs = [DirichletBC(V, 0, (1, 2, 3)),
+           DirichletBC(V, 1, 4)]
+    A = assemble(u*v*dx, bcs=bcs).M.values
+
+    assert np.allclose(A, np.identity(V.dof_dset.size))
+
+
 def test_mixed_bcs():
     m = UnitSquareMesh(2, 2)
     V = FunctionSpace(m, 'CG', 1)
@@ -354,6 +369,33 @@ def test_empty_exterior_facet_node_list():
     V = FunctionSpace(mesh, 'CG', 1)
     bc = DirichletBC(V, 1, 1)
     assert V.exterior_facet_node_map([bc])
+
+
+def test_invalid_marker_raises_error(a, V):
+    with pytest.raises(LookupError):
+        # UnitSquareMesh has region IDs from 1 to 4. Thus 100 should raise an
+        # exception.
+        bc1 = DirichletBC(V, 0, 100)
+        assemble(a, bcs=[bc1])
+
+
+def test_shared_expression_bc(mesh):
+    V = FunctionSpace(mesh, "CG", 2)
+    f = Function(V)
+    g = Function(V)
+    expr = Expression("t", t=1)
+
+    bc = DirichletBC(V, expr, (1, 2, 3, 4))
+
+    for t in range(4):
+        expr.t = t
+        bc.zero(f)
+        bc.apply(f)
+        bc.zero(g)
+        bc.apply(g)
+
+        assert np.allclose(np.unique(f.dat.data), [0, t])
+        assert np.allclose(g.dat.data, f.dat.data)
 
 
 if __name__ == '__main__':

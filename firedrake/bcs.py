@@ -1,15 +1,16 @@
 # A module implementing strong (Dirichlet) boundary conditions.
+from __future__ import absolute_import
 import numpy as np
 from ufl import as_ufl, UFLException
 
 import pyop2 as op2
 from pyop2.profiling import timed_function
 
-import expression
-import function
-import matrix
-import projection
-import utils
+import firedrake.expression as expression
+import firedrake.function as function
+import firedrake.matrix as matrix
+import firedrake.projection as projection
+import firedrake.utils as utils
 
 
 __all__ = ['DirichletBC', 'homogenize']
@@ -37,10 +38,6 @@ class DirichletBC(object):
         which indicates that nodes associated with basis functions which do not
         vanish on the boundary will be included. This can be used to impose
         strong boundary conditions on DG spaces, or no-slip conditions on HDiv spaces.
-
-    .. warning::
-
-        Geometric boundary conditions are not yet supported on extruded meshes
     '''
 
     def __init__(self, V, g, sub_domain, method="topological"):
@@ -61,8 +58,8 @@ class DirichletBC(object):
             raise ValueError("Unknown boundary condition method %s" % method)
         self.method = method
 
-        if V.extruded and method == "geometric":
-            raise ValueError("Geometric boundary conditions are not yet supported on extruded meshes")
+        if V.extruded and V.component is not None:
+            raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
 
     @property
     def function_arg(self):
@@ -72,6 +69,8 @@ class DirichletBC(object):
                self._original_val._state != self._expression_state:
                 # Expression values have changed, need to reinterpolate
                 self.function_arg = self._original_val
+                # Remember "new" value of original arg, to work with zero/restore pair.
+                self._original_arg = self.function_arg
         return self._function_arg
 
     @function_arg.setter
@@ -137,14 +136,14 @@ class DirichletBC(object):
 
         fs = self._function_space
         if self.sub_domain == "bottom":
-            return fs.bottom_nodes()
+            return fs.bottom_nodes(method=self.method)
         elif self.sub_domain == "top":
-            return fs.top_nodes()
+            return fs.top_nodes(method=self.method)
         else:
             if fs.extruded:
                 base_maps = fs.exterior_facet_boundary_node_map(
                     self.method).values_with_halo.take(
-                    fs._mesh._old_mesh.exterior_facets.subset(self.sub_domain).indices,
+                    fs._mesh._base_mesh.exterior_facets.subset(self.sub_domain).indices,
                     axis=0)
                 facet_offset = fs.exterior_facet_boundary_node_map(self.method).offset
                 return np.unique(np.concatenate([base_maps + i * facet_offset
@@ -188,19 +187,47 @@ class DirichletBC(object):
             r.add_bc(self)
             return
         fs = self._function_space
-        # Check if the FunctionSpace of the Function r to apply is compatible.
-        # If fs is an IndexedFunctionSpace and r is defined on a
-        # MixedFunctionSpace, we need to compare the parent of fs
-        if not (fs == r.function_space() or (hasattr(fs, "_parent") and
-                                             fs._parent == r.function_space())):
-            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
-        # If this BC is defined on a subspace of a mixed function space, make
-        # sure we only apply to the appropriate subspace of the Function r
-        if fs.index is not None:
-            r = function.Function(self._function_space, r.dat[fs.index])
-        if u:
+
+        # Check that u matches r if supplied
+        if u and u.function_space() != r.function_space():
+            raise RuntimeError("Mismatching spaces for %s and %s" % (r, u))
+
+        # Check that r's function space matches the BC's function
+        # space. Run up through parents (IndexedFunctionSpace or
+        # ComponentFunctionSpace) until we either match the function space, or
+        # else we have a mismatch and raise an error.
+        while True:
+            if fs == r.function_space():
+                break
+            elif fs.parent is not None:
+                fs = fs.parent
+            else:
+                raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
+
+        # If this BC is defined on a subspace (IndexedFunctionSpace or
+        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
+        # indices.
+        indices = []
+        fs = self._function_space
+        while True:
+            # Add index to indices if found
             if fs.index is not None:
-                u = function.Function(fs, u.dat[fs.index])
+                indices.append(fs.index)
+            if fs.component is not None:
+                indices.append(fs.component)
+            # Now try the parent
+            if fs.parent is not None:
+                fs = fs.parent
+            else:
+                # All done
+                break
+
+        # Apply the indexing to r (and u if supplied)
+        for idx in reversed(indices):
+            r = r.sub(idx)
+            if u:
+                u = u.sub(idx)
+        if u:
             r.assign(u - self.function_arg, subset=self.node_set)
         else:
             r.assign(self.function_arg, subset=self.node_set)

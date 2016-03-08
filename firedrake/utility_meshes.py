@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 import os
 import tempfile
@@ -6,20 +7,28 @@ from shutil import rmtree
 from pyop2.mpi import MPI
 from pyop2.profiling import profile
 
-import mesh
-from petsc import PETSc
+from firedrake import VectorFunctionSpace, Function, Constant, \
+    par_loop, dx, WRITE, READ
+from firedrake import mesh
+from firedrake import expression
+from firedrake import function
+from firedrake import functionspace
+from firedrake.petsc import PETSc
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
            'UnitTriangleMesh',
            'RectangleMesh', 'SquareMesh', 'UnitSquareMesh',
+           'PeriodicRectangleMesh', 'PeriodicSquareMesh',
+           'PeriodicUnitSquareMesh',
            'CircleMesh', 'UnitCircleMesh',
            'CircleManifoldMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
-           'CubedSphereMesh', 'UnitCubedSphereMesh']
+           'CubedSphereMesh', 'UnitCubedSphereMesh',
+           'TorusMesh', 'CylinderMesh']
 
 
 _cachedir = os.path.join(tempfile.gettempdir(),
@@ -90,49 +99,16 @@ def _get_msh_file(source, name, dimension, meshed=False):
     return output + '.msh'
 
 
-def _from_cell_list(dim, cells, coords, comm=None):
-    """
-    Create a DMPlex from a list of cells and coords.
-
-    :arg dim: The topological dimension of the mesh
-    :arg cells: The vertices of each cell
-    :arg coords: The coordinates of each vertex
-    :arg comm: An optional MPI communicator to build the plex on
-         (defaults to ``COMM_WORLD``)
-    """
-
-    if comm is None:
-        comm = MPI.comm
-    if comm.rank == 0:
-        cells = np.asarray(cells, dtype=PETSc.IntType)
-        coords = np.asarray(coords, dtype=float)
-        comm.bcast(cells.shape, root=0)
-        comm.bcast(coords.shape, root=0)
-        # Provide the actual data on rank 0.
-        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-
-    cell_shape = list(comm.bcast(None, root=0))
-    coord_shape = list(comm.bcast(None, root=0))
-    cell_shape[0] = 0
-    coord_shape[0] = 0
-    # Provide empty plex on other ranks
-    # A subsequent call to plex.distribute() takes care of parallel partitioning
-    return PETSc.DMPlex().createFromCellList(dim,
-                                             np.zeros(cell_shape, dtype=PETSc.IntType),
-                                             np.zeros(coord_shape, dtype=float),
-                                             comm=comm)
-
-
 @profile
 def IntervalMesh(ncells, length_or_left, right=None):
     """
     Generate a uniform mesh of an interval.
 
     :arg ncells: The number of the cells over the interval.
-    :arg length_or_left: The length of the interval (if :data:`right`
+    :arg length_or_left: The length of the interval (if ``right``
          is not provided) or else the left hand boundary point.
     :arg right: (optional) position of the right
-         boundary point (in which case :data:`length_or_left` should
+         boundary point (in which case ``length_or_left`` should
          be the left boundary point).
 
     The left hand boundary point has boundary marker 1,
@@ -152,7 +128,7 @@ def IntervalMesh(ncells, length_or_left, right=None):
     coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
-    plex = _from_cell_list(1, cells, coords)
+    plex = mesh._from_cell_list(1, cells, coords)
     # Apply boundary IDs
     plex.createLabel("boundary_ids")
     coordinates = plex.getCoordinates()
@@ -188,48 +164,33 @@ def PeriodicIntervalMesh(ncells, length):
     :arg ncells: The number of cells over the interval.
     :arg length: The length the interval."""
 
-    if MPI.comm.size > 1:
-        raise NotImplementedError("Periodic intervals not yet implemented in parallel")
-    nvert = ncells
-    nedge = ncells
-    plex = PETSc.DMPlex().create()
-    plex.setDimension(1)
-    plex.setChart(0, nvert+nedge)
-    for e in range(nedge):
-        plex.setConeSize(e, 2)
-    plex.setUp()
-    for e in range(nedge-1):
-        plex.setCone(e, [nedge+e, nedge+e+1])
-        plex.setConeOrientation(e, [0, 0])
-    # Connect v_(n-1) with v_0
-    plex.setCone(nedge-1, [nedge+nvert-1, nedge])
-    plex.setConeOrientation(nedge-1, [0, 0])
-    plex.symmetrize()
-    plex.stratify()
+    if ncells < 3:
+        raise ValueError("1D periodic meshes with fewer than 3 \
+cells are not currently supported")
 
-    # Build coordinate section
-    dx = float(length) / ncells
-    coords = [x for x in np.arange(0, length + 0.01 * dx, dx)]
+    m = CircleManifoldMesh(ncells)
+    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=1)
+    old_coordinates = m.coordinates
+    new_coordinates = Function(coord_fs)
 
-    coordsec = plex.getCoordinateSection()
-    coordsec.setChart(nedge, nedge+nvert)
-    for v in range(nedge, nedge+nvert):
-        coordsec.setDof(v, 1)
-    coordsec.setUp()
-    size = coordsec.getStorageSize()
-    coordvec = PETSc.Vec().createWithArray(coords, size=size)
-    plex.setCoordinatesLocal(coordvec)
+    periodic_kernel = """double Y,pi;
+            Y = 0.5*(old_coords[0][1]-old_coords[1][1]);
+            pi=3.141592653589793;
+            for(int i=0;i<2;i++){
+            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
+            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
+            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
+            new_coords[i][0] *= L[0];
+            }"""
 
-    dx = length / ncells
-    # HACK ALERT!
-    # Almost certainly not right when symbolic geometry stuff lands.
-    # Hopefully DMPlex will eventually give us a DG coordinate
-    # field.  Until then, we build one by hand.
-    coords = np.dstack((np.arange(dx, length + dx*0.01, dx),
-                        np.arange(0, length - dx*0.01, dx))).flatten()
-    # Last cell is back to front.
-    coords[-2:] = coords[-2:][::-1]
-    return mesh.Mesh(plex, periodic_coords=coords, reorder=False)
+    cL = Constant(length)
+
+    par_loop(periodic_kernel, dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ),
+              "L": (cL, READ)})
+
+    return mesh.Mesh(new_coordinates)
 
 
 def PeriodicUnitIntervalMesh(ncells):
@@ -244,7 +205,7 @@ def UnitTriangleMesh():
     """Generate a mesh of the reference triangle"""
     coords = [[0., 0.], [1., 0.], [0., 1.]]
     cells = [[0, 1, 2]]
-    plex = _from_cell_list(2, cells, coords)
+    plex = mesh._from_cell_list(2, cells, coords)
     return mesh.Mesh(plex, reorder=False)
 
 
@@ -278,7 +239,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
         cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
         cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
 
-        plex = _from_cell_list(2, cells, coords)
+        plex = mesh._from_cell_list(2, cells, coords)
     else:
         boundary = PETSc.DMPlex().create(MPI.comm)
         boundary.setDimension(1)
@@ -348,6 +309,147 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False):
 
 
 @profile
+def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
+                          quadrilateral=False, reorder=None):
+    """Generate a periodic rectangular mesh
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg Lx: The extent in the x direction
+    :arg Ly: The extent in the y direction
+    :arg direction: The direction of the periodicity, one of
+        ``"both"``, ``"x"`` or ``"y"``.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0
+    * 2: plane y == Ly
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0
+    * 2: plane x == Lx
+    """
+
+    if direction not in ("both", "x", "y"):
+        raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
+    if direction != "both":
+        return PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction=direction,
+                                              quadrilateral=quadrilateral, reorder=reorder)
+    if nx < 3 or ny < 3:
+        raise ValueError("2D periodic meshes with fewer than 3 \
+cells in each direction are not currently supported")
+
+    m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder)
+    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    old_coordinates = m.coordinates
+    new_coordinates = Function(coord_fs)
+
+    periodic_kernel = """
+double pi = 3.141592653589793;
+double eps = 1e-12;
+double bigeps = 1e-1;
+double phi, theta, Y, Z;
+Y = 0.0;
+Z = 0.0;
+
+for(int i=0; i<old_coords.dofs; i++) {
+    Y += old_coords[i][1];
+    Z += old_coords[i][2];
+}
+
+for(int i=0; i<new_coords.dofs; i++) {
+    phi = atan2(old_coords[i][1], old_coords[i][0]);
+    if (fabs(sin(phi)) > bigeps)
+        theta = atan2(old_coords[i][2], old_coords[i][1]/sin(phi) - 1.0);
+    else
+        theta = atan2(old_coords[i][2], old_coords[i][0]/cos(phi) - 1.0);
+
+    new_coords[i][0] = phi/(2.0*pi);
+    if(new_coords[i][0] < -eps) {
+        new_coords[i][0] += 1.0;
+    }
+    if(fabs(new_coords[i][0]) < eps && Y < 0.0) {
+        new_coords[i][0] = 1.0;
+    }
+
+    new_coords[i][1] = theta/(2.0*pi);
+    if(new_coords[i][1] < -eps) {
+        new_coords[i][1] += 1.0;
+    }
+    if(fabs(new_coords[i][1]) < eps && Z < 0.0) {
+        new_coords[i][1] = 1.0;
+    }
+
+    new_coords[i][0] *= Lx[0];
+    new_coords[i][1] *= Ly[0];
+}
+"""
+
+    cLx = Constant(Lx)
+    cLy = Constant(Ly)
+
+    par_loop(periodic_kernel, dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ),
+              "Lx": (cLx, READ),
+              "Ly": (cLy, READ)})
+
+    return mesh.Mesh(new_coordinates)
+
+
+def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None):
+    """Generate a periodic square mesh
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg L: The extent in the x and y directions
+    :arg direction: The direction of the periodicity, one of
+        ``"both"``, ``"x"`` or ``"y"``.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0
+    * 2: plane y == L
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0
+    * 2: plane x == L
+    """
+    return PeriodicRectangleMesh(nx, ny, L, L, direction=direction,
+                                 quadrilateral=quadrilateral, reorder=reorder)
+
+
+def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None, quadrilateral=False):
+    """Generate a periodic unit square mesh
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg direction: The direction of the periodicity, one of
+        ``"both"``, ``"x"`` or ``"y"``.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0
+    * 2: plane y == 1
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0
+    * 2: plane x == 1
+    """
+    return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
+                              reorder=reorder, quadrilateral=quadrilateral)
+
+
+@profile
 def CircleMesh(radius, resolution, reorder=None):
     """Generate a structured triangular mesh of a circle.
 
@@ -381,6 +483,7 @@ def UnitCircleMesh(resolution, reorder=None):
     return CircleMesh(1.0, resolution, reorder=reorder)
 
 
+@profile
 def CircleManifoldMesh(ncells, radius=1):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
@@ -398,7 +501,7 @@ def CircleManifoldMesh(ncells, radius=1):
     cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
-    plex = _from_cell_list(1, cells, vertices)
+    plex = mesh._from_cell_list(1, cells, vertices)
     m = mesh.Mesh(plex, dim=2, reorder=False)
     m._circle_manifold = radius
     return m
@@ -408,7 +511,7 @@ def UnitTetrahedronMesh():
     """Generate a mesh of the reference tetrahedron"""
     coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
     cells = [[0, 1, 2, 3]]
-    plex = _from_cell_list(3, cells, coords)
+    plex = mesh._from_cell_list(3, cells, coords)
     return mesh.Mesh(plex, reorder=False)
 
 
@@ -509,7 +612,7 @@ def UnitCubeMesh(nx, ny, nz, reorder=None):
 
 
 @profile
-def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
+def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
     """Generate an icosahedral approximation to the surface of the
     sphere.
 
@@ -523,8 +626,12 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
     :kwarg reorder: (optional), should the mesh be reordered?
     """
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
     from math import sqrt
     phi = (1 + sqrt(5)) / 2
     # vertices of an icosahedron with an edge length of 2
@@ -562,7 +669,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
                       [8, 6, 7],
                       [9, 8, 1]], dtype=np.int32)
 
-    plex = _from_cell_list(2, faces, vertices)
+    plex = mesh._from_cell_list(2, faces, vertices)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
@@ -571,19 +678,27 @@ def IcosahedralSphereMesh(radius, refinement_level=0, reorder=None):
     scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
     coords *= scale
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    if degree > 1:
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
+        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        # "push out" to sphere
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
+        m = mesh.Mesh(new_coords)
     m._icosahedral_sphere = radius
     return m
 
 
-def UnitIcosahedralSphereMesh(refinement_level=0, reorder=None):
+def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None):
     """Generate an icosahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
         icosahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
     :kwarg reorder: (optional), should the mesh be reordered?
     """
     return IcosahedralSphereMesh(1.0, refinement_level=refinement_level,
-                                 reorder=reorder)
+                                 degree=degree, reorder=reorder)
 
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
@@ -713,17 +828,23 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     return cells, coords
 
 
-def CubedSphereMesh(radius, refinement_level=0, reorder=None,
-                    use_dmplex_refinement=False):
+@profile
+def CubedSphereMesh(radius, refinement_level=0, degree=1,
+                    reorder=None, use_dmplex_refinement=False):
     """Generate an cubed approximation to the surface of the
     sphere.
 
     :arg radius: The radius of the sphere to approximate.
     :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: bilinear quads)
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg use_dmplex_refinement: (optional), use dmplex to apply
         the refinement.
     """
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
+
     if use_dmplex_refinement:
         # vertices of a cube with an edge length of 2
         vertices = np.array([[-1., -1., -1.],
@@ -748,7 +869,7 @@ def CubedSphereMesh(radius, refinement_level=0, reorder=None,
                           [0, 2, 6, 4],
                           [1, 3, 7, 5]], dtype=np.int32)
 
-        plex = _from_cell_list(2, faces, vertices)
+        plex = mesh._from_cell_list(2, faces, vertices)
         plex.setRefinementUniform(True)
         for i in range(refinement_level):
             plex = plex.refine()
@@ -760,16 +881,220 @@ def CubedSphereMesh(radius, refinement_level=0, reorder=None,
         coords *= scale
     else:
         cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-        plex = _from_cell_list(2, cells, coords)
+        plex = mesh._from_cell_list(2, cells, coords)
 
-    return mesh.Mesh(plex, dim=3, reorder=reorder)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+
+    if degree > 1:
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
+        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        # "push out" to sphere
+        new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
+        m = mesh.Mesh(new_coords)
+
+    return m
 
 
-def UnitCubedSphereMesh(refinement_level=0, reorder=None):
+def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None):
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: bilinear quads)
     :kwarg reorder: (optional), should the mesh be reordered?
     """
     return CubedSphereMesh(1.0, refinement_level=refinement_level,
-                           reorder=reorder)
+                           degree=degree, reorder=reorder)
+
+
+@profile
+def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
+    """Generate a toroidal mesh
+
+    :arg nR: The number of cells in the major direction (min 3)
+    :arg nr: The number of cells in the minor direction (min 3)
+    :arg R: The major radius
+    :arg r: The minor radius
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+    """
+    if nR < 3 or nr < 3:
+        raise ValueError("Must have at least 3 cells in each direction")
+
+    # gives an array [[0, 0], [0, 1], ..., [1, 0], [1, 1], ...]
+    idx_temp = np.asarray(np.meshgrid(np.arange(nR), np.arange(nr))).swapaxes(0, 2).reshape(-1, 2)
+
+    # vertices - standard formula for (x, y, z), see Wikipedia
+    vertices = np.column_stack((
+        (R + r*np.cos(idx_temp[:, 1]*(2*np.pi/nr)))*np.cos(idx_temp[:, 0]*(2*np.pi/nR)),
+        (R + r*np.cos(idx_temp[:, 1]*(2*np.pi/nr)))*np.sin(idx_temp[:, 0]*(2*np.pi/nR)),
+        r*np.sin(idx_temp[:, 1]*(2*np.pi/nr))))
+
+    # cell vertices
+    i, j = np.meshgrid(np.arange(nR), np.arange(nr))
+    i = i.reshape(-1)  # Miklos's suggestion to make the code
+    j = j.reshape(-1)  # less impenetrable
+    cells = [i*nr + j, i*nr + (j+1) % nr, ((i+1) % nR)*nr + (j+1) % nr, ((i+1) % nR)*nr + j]
+    cells = np.column_stack(cells)
+    if not quadrilateral:
+        # two cells per cell above...
+        cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
+
+    plex = mesh._from_cell_list(2, cells, vertices)
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    return m
+
+
+@profile
+def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
+                 quadrilateral=False, reorder=None):
+    """Generates a cylinder mesh.
+
+    :arg nr: number of cells the cylinder circumference should be
+         divided into (min 3)
+    :arg nl: number of cells along the longitudinal axis of the cylinder
+    :kwarg radius: (optional) radius of the cylinder to approximate
+         (default 1).
+    :kwarg depth: (optional) depth of the cylinder to approximate
+         (default 1).
+    :kwarg longitudinal_direction: (option) direction for the
+         longitudinal axis of the cylinder.
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+
+    The boundary edges in this mesh are numbered as follows:
+
+    * 1: plane l == 0 (bottom)
+    * 2: plane l == depth (top)
+    """
+    if nr < 3:
+        raise ValueError("CylinderMesh must have at least three cells")
+
+    coord_xy = radius*np.column_stack((np.cos(np.arange(nr)*(2*np.pi/nr)),
+                                       np.sin(np.arange(nr)*(2*np.pi/nr))))
+    coord_z = depth*np.linspace(0.0, 1.0, nl + 1).reshape(-1, 1)
+    vertices = np.column_stack((np.tile(coord_xy, (nl + 1, 1)),
+                                np.tile(coord_z, (1, nr)).reshape(-1, 1)))
+
+    # intervals on circumference
+    ring_cells = np.column_stack((np.arange(0, nr, dtype=np.int32),
+                                  np.roll(np.arange(0, nr, dtype=np.int32), -1)))
+    # quads in the first layer
+    ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
+    offset = np.arange(nl)*nr
+    cells = np.row_stack((ring_cells + i for i in offset))
+    if not quadrilateral:
+        # two cells per cell above...
+        cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
+
+    if longitudinal_direction == "x":
+        rotation = np.asarray([[0, 0, 1],
+                               [0, 1, 0],
+                               [-1, 0, 0]])
+        vertices = np.dot(vertices, rotation.T)
+    elif longitudinal_direction == "y":
+        rotation = np.asarray([[1, 0, 0],
+                               [0, 0, 1],
+                               [0, -1, 0]])
+        vertices = np.dot(vertices, rotation.T)
+    elif longitudinal_direction != "z":
+        raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
+    plex = mesh._from_cell_list(2, cells, vertices)
+
+    plex.createLabel("boundary_ids")
+    plex.markBoundaryFaces("boundary_faces")
+    coords = plex.getCoordinates()
+    coord_sec = plex.getCoordinateSection()
+    if plex.getStratumSize("boundary_faces", 1) > 0:
+        boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
+        eps = float(depth)/(2*nl)
+        for face in boundary_faces:
+            face_coords = plex.vecGetClosure(coord_sec, coords, face)
+            # index of x/y/z coordinates of the face element
+            axis_ix = {"x": 0, "y": 1, "z": 2}
+            i = axis_ix[longitudinal_direction]
+            j = i + 3
+            if abs(face_coords[i]) < eps and abs(face_coords[j]) < eps:
+                # bottom of cylinder
+                plex.setLabelValue("boundary_ids", face, 1)
+            if abs(face_coords[i] - depth) < eps and abs(face_coords[j] - depth) < eps:
+                # top of cylinder
+                plex.setLabelValue("boundary_ids", face, 2)
+
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    return m
+
+
+def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False, reorder=None):
+    """Generates RectangleMesh that is periodic in the x or y direction.
+
+    :arg nx: The number of cells in the x direction
+    :arg ny: The number of cells in the y direction
+    :arg Lx: The extent in the x direction
+    :arg Ly: The extent in the y direction
+    :kwarg direction: The direction of the periodicity (default x).
+    :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
+    :kwarg reorder: (optional), should the mesh be reordered
+
+    If direction == "x" the boundary edges in this mesh are numbered as follows:
+
+    * 1: plane y == 0
+    * 2: plane y == Ly
+
+    If direction == "y" the boundary edges are:
+
+    * 1: plane x == 0
+    * 2: plane x == Lx
+    """
+
+    if direction not in ("x", "y"):
+        raise ValueError("Unsupported periodic direction '%s'" % direction)
+
+    # handle x/y directions: na, La are for the periodic axis
+    na, nb, La, Lb = nx, ny, Lx, Ly
+    if direction == "y":
+        na, nb, La, Lb = ny, nx, Ly, Lx
+
+    if na < 3:
+        raise ValueError("2D periodic meshes with fewer than 3 \
+cells in each direction are not currently supported")
+
+    m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
+                     quadrilateral=quadrilateral, reorder=reorder)
+    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    old_coordinates = m.coordinates
+    new_coordinates = Function(coord_fs)
+
+    # make x-periodic mesh
+    # unravel x coordinates like in periodic interval
+    # set y coordinates to z coordinates
+    periodic_kernel = """double Y,pi;
+            Y = 0.0;
+            for(int i=0; i<old_coords.dofs; i++) {
+                Y += old_coords[i][1];
+            }
+
+            pi=3.141592653589793;
+            for(int i=0;i<new_coords.dofs;i++){
+            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
+            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
+            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
+            new_coords[i][0] *= Lx[0];
+            new_coords[i][1] = old_coords[i][2]*Ly[0];
+            }"""
+
+    cLx = Constant(La)
+    cLy = Constant(Lb)
+
+    par_loop(periodic_kernel, dx,
+             {"new_coords": (new_coordinates, WRITE),
+              "old_coords": (old_coordinates, READ),
+              "Lx": (cLx, READ),
+              "Ly": (cLy, READ)})
+
+    if direction == "y":
+        # flip x and y coordinates
+        operator = np.asarray([[0, 1],
+                               [1, 0]])
+        new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
+
+    return mesh.Mesh(new_coordinates)

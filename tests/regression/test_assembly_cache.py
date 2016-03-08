@@ -9,19 +9,29 @@ def mesh():
 
 
 @pytest.fixture(scope='module')
-def cg1(mesh):
+def V(mesh):
     return FunctionSpace(mesh, "CG", 1)
 
 
-def test_eviction(cg1):
+@pytest.fixture(scope='module')
+def U(mesh):
+    return FunctionSpace(mesh, "CG", 2)
+
+
+@pytest.fixture(scope='module')
+def W(U, V):
+    return U*V
+
+
+def test_eviction(V):
     cache = assembly_cache.AssemblyCache()
     cache.clear()
 
     old_limit = parameters["assembly_cache"]["max_bytes"]
     try:
         parameters["assembly_cache"]["max_bytes"] = 5000
-        u = TrialFunction(cg1)
-        v = TestFunction(cg1)
+        u = TrialFunction(V)
+        v = TestFunction(V)
 
         # The mass matrix should be 1648 bytes, so 3 of them fit in
         # cache, and inserting a 4th will cause two to be evicted.
@@ -42,13 +52,13 @@ def test_eviction_parallel():
     cache.clear()
 
     mesh = UnitSquareMesh(5, 5)
-    cg1 = FunctionSpace(mesh, "Lagrange", 1)
+    V = FunctionSpace(mesh, "Lagrange", 1)
 
     old_limit = parameters["assembly_cache"]["max_bytes"]
     try:
         parameters["assembly_cache"]["max_bytes"] = 5000
-        u = TrialFunction(cg1)
-        v = TestFunction(cg1)
+        u = TrialFunction(V)
+        v = TestFunction(V)
 
         # In the parallel case it's harder to ascertain exactly how
         # much cache we will use, so we do this enough times that we
@@ -63,12 +73,12 @@ def test_eviction_parallel():
     assert 3000 < cache.nbytes < 5000
 
 
-def test_hit(cg1):
+def test_hit(V):
     cache = assembly_cache.AssemblyCache()
     cache.clear()
 
-    u = TrialFunction(cg1)
-    v = TestFunction(cg1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
 
     assemble(u*v*dx).M
     assemble(u*v*dx).M
@@ -77,11 +87,11 @@ def test_hit(cg1):
     assert cache._hits == 1
 
 
-def test_assemble_rhs_with_without_constant(cg1):
+def test_assemble_rhs_with_without_constant(V):
     cache = assembly_cache.AssemblyCache()
     cache.clear()
-    v = TestFunction(cg1)
-    f = Function(cg1)
+    v = TestFunction(V)
+    f = Function(V)
 
     f = assemble(v*dx, f)
     f = assemble(Constant(2)*v*dx, f)
@@ -91,12 +101,12 @@ def test_assemble_rhs_with_without_constant(cg1):
     assert cache.num_objects == 2
 
 
-def test_repeated_assign(cg1):
+def test_repeated_assign(V):
     cache = assembly_cache.AssemblyCache()
     cache.clear()
-    u = Function(cg1)
-    g = Function(cg1)
-    f = Function(cg1)
+    u = Function(V)
+    g = Function(V)
+    f = Function(V)
 
     assert np.allclose(assemble(g*g*dx), 0)
     assert cache.num_objects == 1
@@ -107,6 +117,72 @@ def test_repeated_assign(cg1):
     assert cache.num_objects == 1
     assert np.allclose(assemble(g*g*dx), 1.0)
     assert cache.num_objects == 1
+
+
+def test_mixed_dat_caching(W):
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
+    fg = Function(W)
+    f, g = split(fg)
+    f_form = f*f*dx
+    g_form = g*g*dx
+
+    f = fg.sub(0)
+    g = fg.sub(1)
+    f_sum = 0
+    g_sum = 0
+    for ii in range(5):
+        f += 1
+        g += 2
+        f_sum += 1
+        g_sum += 2
+        assert np.allclose(assemble(f_form), f_sum**2)
+        assert np.allclose(assemble(g_form), g_sum**2)
+
+
+def test_lumping_assign_combo(V):
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
+    g = Function(V)
+    g.interpolate(Expression("sin(x[0])"))
+    v = TestFunction(V)
+    lump = assemble(v*dx)
+    g.assign(assemble(g*v*dx) / lump)
+
+    tmp = Function(V)
+    v = TestFunction(V)
+    tmp.interpolate(Expression("sin(x[0])"))
+    tmp.assign(assemble(tmp*v*dx) / assemble(v*dx))
+
+    assert np.allclose(tmp.dat.data, g.dat.data)
+
+
+def test_assign_same_form(V):
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
+    g = Function(V)
+    tmp = Function(V)
+    v = TestFunction(V)
+    g.assign(assemble(v*dx))
+    tmp.assign(assemble(v*dx))
+    assert np.allclose(tmp.dat.data, g.dat.data)
+
+
+def test_solve_then_assemble(V):
+    cache = assembly_cache.AssemblyCache()
+    cache.clear()
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = u*v*dx
+    L = v*dx
+    f = Function(V)
+
+    A = assemble(a)
+    b = assemble(L)
+    solve(A, f, b)
+
+    assert np.allclose(f.dat.data, 1)
+    assert np.allclose(assemble(L).dat.data, b.dat.data)
 
 
 @pytest.mark.parallel

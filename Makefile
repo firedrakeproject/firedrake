@@ -9,15 +9,28 @@ lint:
 	@flake8 firedrake
 	@echo "    Linting firedrake test suite"
 	@flake8 tests
-
+	@echo "    Linting firedrake scripts"
+	@flake8 scripts
 
 clean:
 	@echo "    Cleaning extension modules"
 	@python setup.py clean > /dev/null 2>&1
 	@echo "    RM firedrake/dmplex.so"
 	-@rm -f firedrake/dmplex.so > /dev/null 2>&1
+	@echo "    RM firedrake/dmplex.c"
+	-@rm -f firedrake/dmplex.c > /dev/null 2>&1
+	@echo "    RM firedrake/hdf5interface.so"
+	-@rm -f firedrake/hdf5interface.so > /dev/null 2>&1
+	@echo "    RM firedrake/hdf5interface.c"
+	-@rm -f firedrake/hdf5interface.c > /dev/null 2>&1
+	@echo "    RM firedrake/spatialindex.so"
+	-@rm -f firedrake/spatialindex.so > /dev/null 2>&1
+	@echo "    RM firedrake/spatialindex.cpp"
+	-@rm -f firedrake/spatialindex.cpp > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.so"
 	-@rm -f firedrake/mg/impl.so > /dev/null 2>&1
+	@echo "    RM firedrake/mg/impl.c"
+	-@rm -f firedrake/mg/impl.c > /dev/null 2>&1
 
 
 THREADS=1
@@ -34,6 +47,10 @@ test_regression: modules
 test_extrusion: modules
 	@echo "    Running extruded regression tests"
 	@py.test tests/extrusion $(PYTEST_ARGS)
+
+test_demos: modules
+	@echo "    Running test of demos"
+	@py.test tests/demos $(PYTEST_ARGS)
 
 test: modules
 	@echo "    Running all regression tests"

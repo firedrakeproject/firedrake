@@ -1,10 +1,5 @@
 cimport petsc4py.PETSc as PETSc
-
-cdef extern from "mpi.h" nogil:
-    ctypedef struct _mpi_datatype_t
-    ctypedef _mpi_datatype_t* MPI_Datatype
-
-    MPI_Datatype MPI_INT
+cimport mpi4py.MPI as MPI
 
 cdef extern from "petsc.h":
    ctypedef long PetscInt
@@ -22,6 +17,7 @@ cdef extern from "petscsys.h":
 
 cdef extern from "petscdmplex.h":
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
+    int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
 
     int DMPlexGetConeSize(PETSc.PetscDM,PetscInt,PetscInt*)
     int DMPlexGetCone(PETSc.PetscDM,PetscInt,PetscInt*[])
@@ -32,11 +28,18 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
 
+    struct _n_DMLabel
+    ctypedef _n_DMLabel* DMLabel "DMLabel"
+    int DMPlexGetLabel(PETSc.PetscDM,char[],DMLabel*)
     int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
     int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
+    int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
+    int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
+    int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
+    int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
-    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI_Datatype,void*,PETSc.PetscSection,void**)
+    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
@@ -52,6 +55,11 @@ cdef extern from "petscsf.h":
     ctypedef PetscSFNode PetscSFNode "PetscSFNode"
 
     int PetscSFGetGraph(PETSc.PetscSF,PetscInt*,PetscInt*,PetscInt**,PetscSFNode**)
+    int PetscSFSetGraph(PETSc.PetscSF,PetscInt,PetscInt,PetscInt*,PetscCopyMode,PetscSFNode*,PetscCopyMode)
+    int PetscSFBcastBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,)
+    int PetscSFBcastEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*)
+    int PetscSFReduceBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
+    int PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
 
 cdef extern from "petscbt.h":
     ctypedef char * PetscBT

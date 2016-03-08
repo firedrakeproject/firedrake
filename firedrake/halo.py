@@ -1,121 +1,108 @@
-import numpy as np
-from collections import defaultdict
+from __future__ import absolute_import
+from pyop2 import op2
+from pyop2.utils import maybe_setflags
 from mpi4py import MPI
 
-from pyop2 import op2
+import firedrake.dmplex as dmplex
 
-import utils
+
+_MPI_types = {}
+
+
+def _get_mtype(dat):
+    """Get an MPI datatype corresponding to a Dat.
+
+    This builds (if necessary a contiguous derived datatype of the
+    correct size)."""
+    key = (dat.dtype, dat.cdim)
+    try:
+        return _MPI_types[key]
+    except KeyError:
+        try:
+            tdict = MPI.__TypeDict__
+        except AttributeError:
+            tdict = MPI._typedict
+        try:
+            btype = tdict[dat.dtype.char]
+        except KeyError:
+            raise RuntimeError("Unknown base type %r", dat.dtype)
+        if dat.cdim == 1:
+            typ = btype
+        else:
+            typ = btype.Create_contiguous(dat.cdim)
+            typ.Commit()
+        _MPI_types[key] = typ
+        return typ
 
 
 class Halo(object):
-    """Build a Halo associated with the appropriate FunctionSpace.
+    """Build a Halo for a function space.
 
-    The Halo is derived from a PetscSF object and builds the global
-    to universal numbering map from the respective PetscSections."""
+    :arg dm:  The DM describing the data layout (has a Section attached).
 
-    def __init__(self, petscsf, global_numbering, universal_numbering):
-        self._tag = utils._new_uid()
-        self._comm = op2.MPI.comm
-        self._nprocs = self.comm.size
-        self._sends = defaultdict(list)
-        self._receives = defaultdict(list)
-        self._gnn2unn = None
-        remote_sends = defaultdict(list)
+    The halo is implemented using a PETSc SF (star forest) object and
+    is usable as a PyOP2 :class:`pyop2.Halo`."""
 
-        if op2.MPI.comm.size <= 1:
-            return
-
-        # Sort the SF by local indices
-        nroots, nleaves, local, remote = petscsf.getGraph()
-        local_new, remote_new = (list(x) for x in zip(*sorted(zip(local, remote), key=lambda x: x[0])))
-        petscsf.setGraph(nroots, nleaves, local_new, remote_new)
-
-        # Derive local receives and according remote sends
-        nroots, nleaves, local, remote = petscsf.getGraph()
-        for local, (rank, index) in zip(local, remote):
-            if rank != self.comm.rank:
-                self._receives[rank].append(local)
-                remote_sends[rank].append(index)
-
-        # Propagate remote send lists to the actual sender
-        send_reqs = []
-        for p in range(self._nprocs):
-            # send sizes
-            if p != self._comm.rank:
-                s = np.array(len(remote_sends[p]), dtype=np.int32)
-                send_reqs.append(self.comm.Isend(s, dest=p, tag=self.tag))
-
-        recv_reqs = []
-        sizes = [np.zeros(1, dtype=np.int32) for _ in range(self._nprocs)]
-        for p in range(self._nprocs):
-            # receive sizes
-            if p != self._comm.rank:
-                recv_reqs.append(self.comm.Irecv(sizes[p], source=p, tag=self.tag))
-
-        MPI.Request.Waitall(recv_reqs)
-        MPI.Request.Waitall(send_reqs)
-
-        for p in range(self._nprocs):
-            # allocate buffers
-            if p != self._comm.rank:
-                if sizes[p][0] > 0:
-                    self._sends[p] = np.empty(sizes[p][0], dtype=np.int32)
-
-        send_reqs = []
-        for p in range(self._nprocs):
-            if p != self._comm.rank:
-                if len(remote_sends[p]) > 0:
-                    send_buf = np.array(remote_sends[p], dtype=np.int32)
-                    send_reqs.append(self.comm.Isend(send_buf, dest=p, tag=self.tag))
-
-        recv_reqs = []
-        for p in range(self._nprocs):
-            if p != self._comm.rank:
-                if sizes[p][0] > 0:
-                    recv_reqs.append(self.comm.Irecv(self._sends[p], source=p, tag=self.tag))
-
-        MPI.Request.Waitall(send_reqs)
-        MPI.Request.Waitall(recv_reqs)
-
-        # Build Global-To-Universal mapping
-        pStart, pEnd = global_numbering.getChart()
-        self._gnn2unn = np.zeros(global_numbering.getStorageSize(), dtype=np.int32)
-        for p in range(pStart, pEnd):
-            dof = global_numbering.getDof(p)
-            goff = global_numbering.getOffset(p)
-            uoff = universal_numbering.getOffset(p)
-            if uoff < 0:
-                uoff = (-1*uoff)-1
-            for c in range(dof):
-                self._gnn2unn[goff+c] = uoff+c
-
-    @utils.cached_property
-    def op2_halo(self):
-        if not self.sends and not self.receives:
-            return None
-        return op2.Halo(self.sends, self.receives,
-                        comm=self.comm, gnn2unn=self.gnn2unn)
+    def __init__(self, dm):
+        lsec = dm.getDefaultSection()
+        gsec = dm.getDefaultGlobalSection()
+        dm.createDefaultSF(lsec, gsec)
+        sf = dm.getDefaultSF()
+        # The full SF is designed for GlobalToLocal or LocalToGlobal
+        # where the input and output buffers are different.  So on the
+        # local rank, it copies data from input to output.  However,
+        # our halo exchanges use the same buffer for input and output
+        # (so we don't need to do the local copy).  To facilitate
+        # this, prune the SF to remove all the roots that reference
+        # the local rank.
+        self.sf = dmplex.prune_sf(sf)
+        self.sf.setFromOptions()
+        if self.sf.getType() != self.sf.Type.BASIC:
+            raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")
+        if op2.MPI.comm.size == 1:
+            self._gnn2unn = None
+        self._gnn2unn = dmplex.make_global_numbering(lsec, gsec)
 
     @property
     def comm(self):
-        return self._comm
+        """The communicator for this halo."""
+        return self.sf.comm
+
+    def begin(self, dat, reverse=False):
+        """Begin a halo exchange.
+
+        :arg dat: The :class:`pyop2.Dat` to start a halo exchange on.
+        :arg reverse: (optional) perform a reverse halo exchange.
+
+        .. note::
+
+           If ``reverse`` is ``True`` then the input buffer
+           may not be touched before calling :meth:`.end`."""
+        if self.comm.size == 1:
+            return
+        mtype = _get_mtype(dat)
+        dmplex.halo_begin(self.sf, dat, mtype, reverse)
+
+    def end(self, dat, reverse=False):
+        """End a halo exchange.
+
+        :arg dat: The :class:`pyop2.Dat` to end a halo exchange on.
+        :arg reverse: (optional) perform a reverse halo exchange.
+
+        See also :meth:`.begin`."""
+        if self.comm.size == 1:
+            return
+        mtype = _get_mtype(dat)
+        maybe_setflags(dat._data, write=True)
+        dmplex.halo_end(self.sf, dat, mtype, reverse)
+        maybe_setflags(dat._data, write=False)
+
+    def verify(self, *args):
+        """No-op"""
+        pass
 
     @property
-    def tag(self):
-        return self._tag
-
-    @property
-    def nprocs(self):
-        return self._nprocs
-
-    @property
-    def sends(self):
-        return self._sends
-
-    @property
-    def receives(self):
-        return self._receives
-
-    @property
-    def gnn2unn(self):
+    def global_to_petsc_numbering(self):
+        """Return a mapping from global (process-local) to universal
+    (process-global) numbers"""
         return self._gnn2unn

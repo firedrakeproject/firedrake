@@ -33,6 +33,12 @@ def vfs(request, vcg1, cg1vcg1):
             'cg1vcg1[1]': cg1vcg1[1]}[request.param]
 
 
+@pytest.fixture(scope='module', params=['tcg1'])
+def tfs(request, tcg1):
+    """A parametrized fixture for tensor function spaces."""
+    return {'tcg1': tcg1}[request.param]
+
+
 @pytest.fixture(scope='module', params=['cg1cg1', 'cg1vcg1', 'cg1dg0', 'cg2dg1'])
 def mfs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
     """A parametrized fixture for mixed function spaces."""
@@ -61,6 +67,11 @@ def vfunctions(request, vfs):
 
 
 @pytest.fixture()
+def tfunctions(request, tfs):
+    return func_factory(tfs)
+
+
+@pytest.fixture()
 def mfunctions(request, mfs):
     return func_factory(mfs)
 
@@ -81,13 +92,18 @@ def vf(vcg1):
 
 
 @pytest.fixture
+def tf(tcg1):
+    return Function(tcg1, name="tf")
+
+
+@pytest.fixture
 def mf(cg1, vcg1):
     return Function(cg1 * vcg1, name="mf")
 
 
-@pytest.fixture(params=permutations(['sf', 'vf', 'mf'], 2))
-def fs_combinations(sf, vf, mf, request):
-    funcs = {'sf': sf, 'vf': vf, 'mf': mf}
+@pytest.fixture(params=permutations(['sf', 'vf', 'tf', 'mf'], 2))
+def fs_combinations(sf, vf, tf, mf, request):
+    funcs = {'sf': sf, 'vf': vf, 'tf': tf, 'mf': mf}
     return [funcs[p] for p in request.param]
 
 
@@ -107,8 +123,8 @@ def ioptest(f, expr, x, op):
 
 
 def interpolatetest(f, expr, x):
-    if f.function_space().cdim > 1:
-        expr = (expr,) * f.function_space().cdim
+    if f.function_space().dim > 1:
+        expr = (expr,) * f.function_space().dim
     return evaluate(f.interpolate(Expression(expr)).dat.data, x)
 
 exprtest = lambda expr, x: evaluate(assemble(expr).dat.data, x)
@@ -121,6 +137,7 @@ idivtest = partial(ioptest, op=idiv)
 
 common_tests = [
     'assigntest(f, 1, 1)',
+    'assigntest(f, 2.0*(one + one), 4)',
     'exprtest(one + one, 2)',
     'exprtest(3 * one, 3)',
     'exprtest(one + two, 3)',
@@ -140,6 +157,7 @@ common_tests = [
 scalar_tests = common_tests + [
     'interpolatetest(f, 0.0, 0)',
     'interpolatetest(f, "sin(pi/2)", 1)',
+    'assigntest(f, sqrt(one), 1)',
     'exprtest(ufl.ln(one), 0)',
     'exprtest(two ** minusthree, 0.125)',
     'exprtest(ufl.sign(minusthree), -1)',
@@ -183,6 +201,12 @@ def test_vector_expressions(expr, vfunctions):
     assert eval(expr)
 
 
+@pytest.mark.parametrize('expr', common_tests)
+def test_tensor_expressions(expr, tfunctions):
+    f, one, two, minusthree = tfunctions
+    assert eval(expr)
+
+
 @pytest.mark.parametrize('expr', mixed_tests)
 def test_mixed_expressions(expr, mfunctions):
     f, one, two, minusthree = mfunctions
@@ -208,7 +232,8 @@ def test_asign_to_nonindexed_subspace_fails(mfs):
     space to a function on the mixed function space should fail."""
     for fs in mfs:
         with pytest.raises(ValueError):
-            Function(mfs).assign(Function(fs._fs))
+            f = FunctionSpace(fs.mesh(), fs.ufl_element())
+            Function(mfs).assign(Function(f))
 
 
 def test_assign_mixed_no_nan(mfs):
@@ -236,7 +261,7 @@ def test_assign_vector_const_to_mfs_scalar_vector(cg1, vcg1):
 
     w = Function(W)
 
-    c = Constant(range(1, w.element().value_shape()[0]+1))
+    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
 
     w.assign(c)
 
@@ -251,7 +276,7 @@ def test_assign_vector_const_to_mfs_scalar_vector_vector(cg1, vcg1):
 
     w = Function(W)
 
-    c = Constant(range(1, w.element().value_shape()[0]+1))
+    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
 
     w.assign(c)
 
@@ -265,7 +290,7 @@ def test_assign_vector_const_to_mfs_scalar_vector_vector(cg1, vcg1):
 def test_assign_vector_const_to_vfs(vcg1):
     f = Function(vcg1)
 
-    c = Constant(range(1, f.element().value_shape()[0]+1))
+    c = Constant(range(1, f.ufl_element().value_shape()[0]+1))
 
     f.assign(c)
     assert np.allclose(f.dat.data_ro, c.dat.data_ro)
@@ -285,12 +310,22 @@ def test_assign_vector_const_to_mfs_scalars(cg1):
 
     w = Function(W)
 
-    c = Constant(range(1, w.element().value_shape()[0]+1))
+    c = Constant(range(1, w.ufl_element().value_shape()[0]+1))
 
     w.assign(c)
 
     for i, w_ in enumerate(w.split()):
         assert np.allclose(w_.dat.data_ro, c.dat.data_ro[i])
+
+
+def test_empty_expression():
+    with pytest.raises(ValueError):
+        Expression('')
+    with pytest.raises(ValueError):
+        Expression(["x[0]", ""])
+    with pytest.raises(ValueError):
+        Expression((("1", "0"),
+                    ("0", "")))
 
 
 def test_assign_to_mfs_sub(cg1, vcg1):
@@ -440,6 +475,49 @@ def test_vector_increment_fails():
         e.n[0] += 2
 
     assert np.allclose(e.n, 1.0)
+
+
+def test_tensor_increment_fails():
+    e = Expression('n', n=[[1.0, 1.0], [1.0, 1.0]])
+
+    with pytest.raises((ValueError, RuntimeError)):
+        e.n += 1
+
+    with pytest.raises((ValueError, RuntimeError)):
+        e.n[0] += 2
+
+    assert np.allclose(e.n, 1.0)
+
+
+@pytest.mark.parametrize('value', [1, 10, 20, -1, -10, -20],
+                         ids=lambda v: "(f = %d)" % v)
+@pytest.mark.parametrize('expr', ['f',
+                                  '2*f',
+                                  'tanh(f)',
+                                  '2 * tanh(f)',
+                                  'f + tanh(f)',
+                                  'cos(f) + sin(f)',
+                                  'cos(f)*cos(f) + sin(f)*sin(f)',
+                                  'tanh(f) + cos(f) + sin(f)',
+                                  '1.0/tanh(f) + 1.0/f',
+                                  'sqrt(f*f)',
+                                  'sin(cos(f))',
+                                  'sqrt(2 + cos(f))',
+                                  'sin(sqrt(abs(f)))',
+                                  '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'])
+def test_math_functions(expr, value):
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, 'CG', 1)
+    f = Function(V)
+    f.assign(value)
+
+    actual = Function(V)
+
+    actual.assign(eval(expr))
+    from math import *
+    f = value
+    expect = eval(expr)
+    assert np.allclose(actual.dat.data_ro, expect)
 
 
 if __name__ == '__main__':

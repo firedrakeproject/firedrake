@@ -3,9 +3,13 @@ import numpy as np
 from firedrake import *
 
 
+@pytest.fixture(scope="module")
+def m():
+    return UnitIntervalMesh(2)
+
+
 @pytest.fixture
-def f():
-    m = UnitIntervalMesh(2)
+def f(m):
     cg = FunctionSpace(m, "CG", 1)
     dg = FunctionSpace(m, "DG", 0)
 
@@ -16,8 +20,7 @@ def f():
 
 
 @pytest.fixture
-def f_mixed():
-    m = UnitIntervalMesh(2)
+def f_mixed(m):
     cg = FunctionSpace(m, "CG", 1)
     dg = FunctionSpace(m, "DG", 0)
 
@@ -25,8 +28,8 @@ def f_mixed():
 
 
 @pytest.fixture
-def const(f):
-    return Constant(1.0, domain=f[0].function_space().mesh())
+def const(m):
+    return Constant(1.0, domain=m)
 
 
 @pytest.fixture
@@ -47,21 +50,20 @@ def test_direct_par_loop(f):
 
     par_loop("""*c = 1;""", direct, {'c': (c, WRITE)})
 
-    assert all(c.dat.data == 1)
+    assert np.allclose(c.dat.data, 1.0)
 
 
-@pytest.mark.xfail
 def test_mixed_direct_par_loop(f_mixed):
-    par_loop("""*c = 1;""", direct, {'c': (f_mixed, WRITE)})
-
-    assert all(f_mixed.dat.data == 1)
+    with pytest.raises(NotImplementedError):
+        par_loop("""*c = 1;""", direct, {'c': (f_mixed, WRITE)})
+        assert all(np.allclose(f.dat.data, 1.0) for f in f_mixed.split())
 
 
 @pytest.mark.parametrize('idx', [0, 1])
 def test_mixed_direct_par_loop_components(f_mixed, idx):
     par_loop("""*c = 1;""", direct, {'c': (f_mixed[idx], WRITE)})
 
-    assert all(f_mixed.dat[idx].data == 1)
+    assert np.allclose(f_mixed.dat[idx].data, 1.0)
 
 
 def test_direct_par_loop_read_const(f, const):
@@ -77,30 +79,52 @@ def test_indirect_par_loop_read_const(f, const):
     _, d = f
     const.assign(10.0)
 
-    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *constant;""",
              dx, {'d': (d, WRITE), 'constant': (const, READ)})
 
     assert np.allclose(d.dat.data, const.dat.data)
 
 
-@pytest.mark.xfail
 def test_indirect_par_loop_read_const_mixed(f_mixed, const):
     const.assign(10.0)
 
-    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
-             dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
+    with pytest.raises(NotImplementedError):
+        par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *constant;""",
+                 dx, {'d': (f_mixed, WRITE), 'constant': (const, READ)})
+        assert all(np.allclose(f.dat.data, const.dat.data) for f in f_mixed.split())
 
-    assert np.allclose(f_mixed.dat.data, const.dat.data)
+
+@pytest.mark.parallel(nprocs=2)
+def test_dict_order_parallel(f):
+    _, d = f
+    mesh = d.ufl_domain()
+    consts = []
+    for i in range(20):
+        consts.append(Constant(i, domain=mesh))
+
+    arg = {}
+    if op2.MPI.comm.rank == 0:
+        arg['d'] = (d, WRITE)
+
+        for i, c in enumerate(consts):
+            arg["c%d" % i] = (c, READ)
+    else:
+        arg['d'] = (d, WRITE)
+
+        for i, c in enumerate(reversed(consts)):
+            arg["c%d" % (len(consts) - i - 1)] = (c, READ)
+
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *c10;""",
+             dx, arg)
+
+    assert np.allclose(d.dat.data, consts[10].dat.data)
 
 
-# FIXME: this is supposed to work, but for unknown reasons fails with
-# MapValueError: Iterset of arg 1 map 0 doesn't match ParLoop iterset.
-@pytest.mark.xfail
 @pytest.mark.parametrize('idx', [0, 1])
 def test_indirect_par_loop_read_const_mixed_component(f_mixed, const, idx):
     const.assign(10.0)
 
-    par_loop("""for (int i = 0; i < d.dofs; i++) d[0][0] = *constant;""",
+    par_loop("""for (int i = 0; i < d.dofs; i++) d[i][0] = *constant;""",
              dx, {'d': (f_mixed[idx], WRITE), 'constant': (const, READ)})
 
     assert np.allclose(f_mixed.dat[idx].data, const.dat.data)

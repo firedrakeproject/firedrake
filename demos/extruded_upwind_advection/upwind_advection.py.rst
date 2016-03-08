@@ -101,10 +101,10 @@ are combined into a single element which is used to build a FunctionSpace. ::
   # RT1 element on a prism
   W0_h = FiniteElement("RT", "triangle", 1)
   W0_v = FiniteElement("DG", "interval", 0)
-  W0 = HDiv(OuterProductElement(W0_h, W0_v))
+  W0 = HDivElement(TensorProductElement(W0_h, W0_v))
   W1_h = FiniteElement("DG", "triangle", 0)
   W1_v = FiniteElement("CG", "interval", 1)
-  W1 = HDiv(OuterProductElement(W1_h, W1_v))
+  W1 = HDivElement(TensorProductElement(W1_h, W1_v))
   W_elt = W0 + W1
   W = FunctionSpace(mesh, W_elt)
 
@@ -114,7 +114,7 @@ simpler space would have sufficed: ::
   # Vertical part of RT1 element
   # W_h = FiniteElement("DG", "triangle", 0)
   # W_v = FiniteElement("CG", "interval", 1)
-  # W_elt = HDiv(OuterProductElement(W_h, W_v))
+  # W_elt = HDivElement(TensorProductElement(W_h, W_v))
   # W = FunctionSpace(mesh, W_elt)
 
 Or even: ::

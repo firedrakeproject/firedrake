@@ -5,14 +5,15 @@ from tests.common import *
 
 
 # FIXME: cg1vcg1 is not supported yet
-@pytest.fixture(scope='module', params=['cg1', 'vcg1',
+@pytest.fixture(scope='module', params=['cg1', 'vcg1', 'tcg1',
                                         'cg1cg1', 'cg1cg1[0]', 'cg1cg1[1]',
                                         'cg1vcg1[0]', 'cg1vcg1[1]',
                                         'cg1dg0', 'cg1dg0[0]', 'cg1dg0[1]',
                                         'cg2dg1', 'cg2dg1[0]', 'cg2dg1[1]'])
-def fs(request, cg1, vcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
+def fs(request, cg1, vcg1, tcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
     return {'cg1': cg1,
             'vcg1': vcg1,
+            'tcg1': tcg1,
             'cg1cg1': cg1cg1,
             'cg1cg1[0]': cg1cg1[0],
             'cg1cg1[1]': cg1cg1[1],
@@ -30,8 +31,8 @@ def fs(request, cg1, vcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
 @pytest.fixture
 def f(fs):
     f = Function(fs, name="f")
-    if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace)):
-        f.interpolate(Expression(("x[0]",) * fs.cdim))
+    if fs.rank >= 1:
+        f.interpolate(Expression(("x[0]",) * fs.dim))
     else:
         f.interpolate(Expression("x[0]"))
     return f
@@ -40,8 +41,8 @@ def f(fs):
 @pytest.fixture
 def one(fs):
     one = Function(fs, name="one")
-    if isinstance(fs, (MixedFunctionSpace, VectorFunctionSpace)):
-        one.interpolate(Expression(("1",) * fs.cdim))
+    if fs.rank >= 1:
+        one.interpolate(Expression(("1",) * fs.dim))
     else:
         one.interpolate(Expression("1"))
     return one
@@ -58,7 +59,10 @@ def test_one_form(M, f):
     one_form = assemble(action(M, f))
     assert isinstance(one_form, Function)
     for f in one_form.split():
-        assert abs(f.dat.data.sum() - 0.5*f.function_space().dim) < 1.0e-12
+        if f.function_space().rank == 2:
+            assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
+        else:
+            assert abs(f.dat.data.sum() - 0.5*f.function_space().dim) < 1.0e-12
 
 
 def test_zero_form(M, f, one):

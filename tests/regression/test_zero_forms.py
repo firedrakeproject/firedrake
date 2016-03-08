@@ -71,7 +71,7 @@ def test_dsn_parallel_on_quadrilaterals():
         assert np.allclose(assemble(form), len(domain))
 
 
-@pytest.mark.parametrize(['expr', 'value', 'typ', 'vector'],
+@pytest.mark.parametrize(['expr', 'value', 'typ', 'fs_type'],
                          itertools.product(['f',
                                             '2*f',
                                             'tanh(f)',
@@ -85,29 +85,38 @@ def test_dsn_parallel_on_quadrilaterals():
                                             '1.0/tanh(sqrt(f*f)) + 1.0/f + sqrt(f*f)'],
                                            [1, 10, 20, -1, -10, -20],
                                            ['function', 'constant'],
-                                           [False, True]))
-def test_math_functions(mesh, expr, value, typ, vector):
+                                           ['scalar', 'vector', 'tensor']))
+def test_math_functions(mesh, expr, value, typ, fs_type):
     if typ == 'function':
-        if vector:
+        if fs_type == "vector":
             V = VectorFunctionSpace(mesh, 'CG', 1)
+        elif fs_type == "tensor":
+            V = TensorFunctionSpace(mesh, 'CG', 1)
         else:
             V = FunctionSpace(mesh, 'CG', 1)
         f = Function(V)
         f.assign(value)
-        if vector:
+        if fs_type == "vector":
             f = dot(f, f)
+        elif fs_type == "tensor":
+            f = inner(f, f)
     elif typ == 'constant':
-        if vector:
+        if fs_type == "vector":
             f = Constant([value, value], domain=mesh)
             f = dot(f, f)
+        elif fs_type == "tensor":
+            f = Constant([[value, value], [value, value]], domain=mesh)
+            f = inner(f, f)
         else:
             f = Constant(value, domain=mesh)
 
     actual = assemble(eval(expr)*dx)
 
     from math import *
-    if vector:
+    if fs_type == "vector":
         f = 2*value**2
+    elif fs_type == "tensor":
+        f = 4*value**2
     else:
         f = value
     expect = eval(expr)

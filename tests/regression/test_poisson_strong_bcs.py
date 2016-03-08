@@ -50,7 +50,7 @@ def run_test_linear(x, degree, parameters={}, quadrilateral=False):
     u = TrialFunction(V)
     v = TestFunction(V)
     a = dot(grad(v), grad(u)) * dx
-    L = v*0*dx
+    L = v*Constant(0)*dx
 
     bcs = [DirichletBC(V, 0, 3),
            DirichletBC(V, 42, 4)]

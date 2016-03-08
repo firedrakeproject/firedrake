@@ -55,15 +55,15 @@ the performance should approach that of a fully structured mesh.
 Generating Extruded Meshes in Firedrake
 ---------------------------------------
 
-Extruded meshes are built using the :py:class:`~.ExtrudedMesh` class. There
+Extruded meshes are built using :py:func:`~.ExtrudedMesh`. There
 are several built-in extrusion types that generate commonly-used extruded
 meshes. To create a more complicated extruded mesh, one can either pass a
-hand-written kernel into the :py:class:`~.ExtrudedMesh` constructor, or one
+hand-written kernel to :py:func:`~.ExtrudedMesh`, or one
 can use a built-in extrusion type and modify the coordinate field afterwards.
 
 The following information may be passed in to the constructor:
 
-- a :py:class:`~.Mesh` object, which will be used as the base mesh.
+- a ``Mesh`` object, which will be used as the base mesh.
 - the desired number of cell layers in the extruded mesh.
 - the ``extrusion_type``, which can be one of the built-in "uniform",
   "radial" or "radial_hedgehog" -- these are described below -- or "custom".
@@ -81,7 +81,7 @@ Uniform extrusion adds another spatial dimension to the mesh. For example, a
 are computed on the assumption that the layers are evenly spaced (hence the
 word 'uniform').
 
-Let ``m`` be a standard :py:class:`~.UnitSquareMesh`. The following code
+Let ``m`` be a standard :py:func:`~.UnitSquareMesh`. The following code
 produces the extruded mesh, whose base mesh is ``m``, with 5 mesh layers and
 a layer thickness of 0.2:
 
@@ -103,11 +103,11 @@ same effect:
 The base mesh and extruded mesh are shown below.
 
 .. figure:: images/UnitSquare44.png
-  :scale: 63 %
+  :scale: 60 %
   :align: left
 
 .. figure:: images/UnifExt.png
-  :scale: 57 %
+  :scale: 54 %
   :align: right
 
 Radial Extrusion
@@ -125,11 +125,11 @@ which a circle is extruded into an annulus, is:
 The base mesh and extruded mesh are shown below.
 
 .. figure:: images/CircleMM20.png
-  :scale: 67 %
+  :scale: 64 %
   :align: left
 
 .. figure:: images/RadExt2D.png
-  :scale: 68 %
+  :scale: 65 %
   :align: right
 
 An example in 3 dimensions, in which a sphere is extruded into a spherical
@@ -143,11 +143,11 @@ annulus, is:
 The base mesh and part of the extruded mesh are shown below.
 
 .. figure:: images/Icos3.png
-  :scale: 68 %
+  :scale: 65 %
   :align: left
 
 .. figure:: images/RadExt3D.png
-  :scale: 72 %
+  :scale: 69 %
   :align: right
 
 Hedgehog Extrusion
@@ -173,11 +173,11 @@ annulus, is:
 The 2D and 3D hedgehog-extruded meshes are shown below.
 
 .. figure:: images/HedgeExt2D.png
-  :scale: 65 %
+  :scale: 62 %
   :align: left
 
 .. figure:: images/HedgeExt3D.png
-  :scale: 70 %
+  :scale: 67 %
   :align: right
 
 Custom Extrusion
@@ -220,7 +220,7 @@ supports a more general syntax:
     V = FunctionSpace(mesh, element)
 
 where ``element`` is a UFL :py:class:`~ufl.finiteelement.finiteelement.FiniteElement` object. This
-requires generation and manipulation of FiniteElement objects.
+requires generation and manipulation of ``FiniteElement`` objects.
 
 Geometrically, an extruded mesh cell is the *product* of a base, "horizontal",
 cell with a "vertical" interval. The construction of function spaces on
@@ -228,20 +228,20 @@ extruded meshes makes use of this. Firedrake supports all function spaces
 whose local element can be expressed as the product of an element defined on
 the base cell with an element defined on an interval.
 
-We will now introduce the new operators which act on FiniteElement objects.
+We will now introduce the new operators which act on ``FiniteElement`` objects.
 
-The OuterProductElement operator
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The ``TensorProductElement`` operator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-To create an Element compatible with an extruded mesh, one should use
-the :py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+To create an element compatible with an extruded mesh, one should use
+the :py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
 operator. For example,
 
 .. code-block:: python
 
     horiz_elt = FiniteElement("CG", triangle, 1)
     vert_elt = FiniteElement("CG", interval, 1)
-    elt = OuterProductElement(horiz_elt, vert_elt)
+    elt = TensorProductElement(horiz_elt, vert_elt)
     V = FunctionSpace(mesh, elt)
 
 will give a continuous, scalar-valued function space. The resulting space
@@ -259,7 +259,7 @@ The degree and continuity may differ; for example
 
     horiz_elt = FiniteElement("DG", triangle, 0)
     vert_elt = FiniteElement("CG", interval, 2)
-    elt = OuterProductElement(horiz_elt, vert_elt)
+    elt = TensorProductElement(horiz_elt, vert_elt)
     V = FunctionSpace(mesh, elt)
 
 will give a function space which is continuous between cells in a column,
@@ -283,7 +283,7 @@ in either of the following ways:
     mini_horiz_2 = FiniteElement("B", triangle, 3)
     mini_horiz = mini_horiz_1 + mini_horiz_2  # Enriched element
     mini_vert = FiniteElement("CG", interval, 1)
-    mini_elt = OuterProductElement(mini_horiz, mini_vert)
+    mini_elt = TensorProductElement(mini_horiz, mini_vert)
     V = FunctionSpace(mesh, mini_elt)
 
 or
@@ -293,8 +293,8 @@ or
     mini_horiz_1 = FiniteElement("CG", triangle, 1)
     mini_horiz_2 = FiniteElement("B", triangle, 3)
     mini_vert = FiniteElement("CG", interval, 1)
-    mini_elt_1 = OuterProductElement(mini_horiz_1, mini_vert)
-    mini_elt_2 = OuterProductElement(mini_horiz_2, mini_vert)
+    mini_elt_1 = TensorProductElement(mini_horiz_1, mini_vert)
+    mini_elt_2 = TensorProductElement(mini_horiz_2, mini_vert)
     mini_elt = mini_elt_1 + mini_elt_2  # Enriched element
     V = FunctionSpace(mesh, mini_elt)
 
@@ -303,11 +303,11 @@ or
 
   The product of a Mini triangle element with a CG1 interval element
 
-The HDiv and HCurl operators
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The ``HDivElement`` and ``HCurlElement`` operators
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 For moderately complicated vector-valued elements,
-:py:class:`~ufl.finiteelement.outerproductelement.OuterProductElement`
+:py:class:`~ufl.finiteelement.outerproductelement.TensorProductElement`
 does not give enough information to unambiguously produce the desired
 space. As an example, consider the lowest-order *Raviart-Thomas* element on a
 quadrilateral. The degrees of freedom live on the facets, and consist of
@@ -319,8 +319,8 @@ The following element is closely related to the desired Raviart-Thomas element:
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
-    P1P0 = OuterProductElement(CG_1, DG_0)
-    P0P1 = OuterProductElement(DG_0, CG_1)
+    P1P0 = TensorProductElement(CG_1, DG_0)
+    P0P1 = TensorProductElement(DG_0, CG_1)
     elt = P1P0 + P0P1
 
 .. figure:: images/rt_quad_pre.svg
@@ -332,23 +332,23 @@ However, this is only scalar-valued. There are two natural vector-valued
 elements that can be generated from this: one of them preserves tangential
 continuity between elements, and the other preserves normal continuity
 between elements. To obtain the Raviart-Thomas element, we must use the
-:py:class:`~ufl.finiteelement.hdivcurl.HDiv` operator:
+:py:class:`~ufl.finiteelement.hdivcurl.HDivElement` operator:
 
 .. code-block:: python
 
     CG_1 = FiniteElement("CG", interval, 1)
     DG_0 = FiniteElement("DG", interval, 0)
-    P1P0 = OuterProductElement(CG_1, DG_0)
-    RT_horiz = HDiv(P1P0)
-    P0P1 = OuterProductElement(DG_0, CG_1)
-    RT_vert = HDiv(P0P1)
+    P1P0 = TensorProductElement(CG_1, DG_0)
+    RT_horiz = HDivElement(P1P0)
+    P0P1 = TensorProductElement(DG_0, CG_1)
+    RT_vert = HDivElement(P0P1)
     elt = RT_horiz + RT_vert
 
 .. figure:: images/rt_quad_post.svg
   :align: center
 
   The RT quadrilateral element, requiring the use
-  of :py:class:`~ufl.finiteelement.hdivcurl.HDiv`
+  of :py:class:`~ufl.finiteelement.hdivcurl.HDivElement`
 
 Another reason to use these operators is when expanding a vector into a
 higher dimensional space. Consider the lowest-order Nedelec element of the
@@ -364,15 +364,15 @@ the product of this with a continuous element on an interval:
 .. code-block:: python
 
     CG_2 = FiniteElement("CG", interval, 2)
-    N2CG = OuterProductElement(N2_1, CG_2)
+    N2CG = TensorProductElement(N2_1, CG_2)
 
 This element still only has two components. To expand this into a
 three-dimensional curl-conforming element, we must use the
-:py:class:`~ufl.finiteelement.hdivcurl.HCurl` operator; the syntax is:
+:py:class:`~ufl.finiteelement.hdivcurl.HCurlElement` operator; the syntax is:
 
 .. code-block:: python
 
-    Ned_horiz = HCurl(N2CG)
+    Ned_horiz = HCurlElement(N2CG)
 
 .. figure:: images/ned_prism.svg
   :align: center
@@ -384,12 +384,12 @@ prism. The full element can be built as follows:
 
     N2_1 = FiniteElement("N2curl", triangle, 1)
     CG_2 = FiniteElement("CG", interval, 2)
-    N2CG = OuterProductElement(N2_1, CG_2)
-    Ned_horiz = HCurl(N2CG)
+    N2CG = TensorProductElement(N2_1, CG_2)
+    Ned_horiz = HCurlElement(N2CG)
     P2tr = FiniteElement("CG", triangle, 2)
     P1dg = FiniteElement("DG", interval, 1)
-    P2P1 = OuterProductElement(P2tr, P1dg)
-    Ned_vert = HCurl(P2P1)
+    P2P1 = TensorProductElement(P2tr, P1dg)
+    Ned_vert = HCurlElement(P2P1)
     Ned_wedge = Ned_horiz + Ned_vert
     V = FunctionSpace(mesh, Ned_wedge)
 
@@ -397,7 +397,7 @@ Shortcuts for simple spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Simple scalar-valued spaces can be created using a variation on the existing
-syntax, if the ``HDiv``, ``HCurl`` and enrichment operations
+syntax, if the ``HDivElement``, ``HCurlElement`` and enrichment operations
 are not required. To create a function space of degree 2 in the horizontal
 direction, degree 1 in the vertical direction and possibly discontinuous
 between layers, the short syntax is
@@ -408,7 +408,7 @@ between layers, the short syntax is
 
 If the horizontal and vertical parts have the same ``family`` and ``degree``,
 the ``vfamily`` and ``vdegree`` arguments may be omitted. If ``mesh`` is an
-:py:class:`~.ExtrudedMesh` object then the following are equivalent:
+``ExtrudedMesh`` then the following are equivalent:
 
 .. code-block:: python
 
@@ -442,8 +442,10 @@ which are listed below.
    and *vertical* interior facets may require different numerical treatment.
    To facilitate this, the following notation is used:
 
-   * ``dS_v`` is used to denote an integral over *horizontal* interior facets.
-   * ``dS_h`` is used to denote an integral over *vertical* interior facets.
+   * ``dS_h`` is used to denote an integral over *horizontal* interior facets
+     (between cells that are vertically-adjacent).
+   * ``dS_v`` is used to denote an integral over *vertical* interior facets
+     (between cells that are horizontally-adjacent).
 
 3. When setting strong boundary conditions, the boundary markers from the base
    mesh can be used to set boundary conditions on the relevant side of the

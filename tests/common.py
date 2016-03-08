@@ -1,9 +1,23 @@
 import pytest
+from decorator import decorator
 
 from firedrake import *
 
 
 longtest = pytest.mark.skipif("config.option.short")
+
+
+@decorator
+def disable_cache_lazy(func, *args, **kwargs):
+    val = parameters["assembly_cache"]["enabled"]
+    parameters["assembly_cache"]["enabled"] = False
+    lazy_val = parameters["pyop2_options"]["lazy_evaluation"]
+    parameters["pyop2_options"]["lazy_evaluation"] = False
+    try:
+        func(*args, **kwargs)
+    finally:
+        parameters["assembly_cache"]["enabled"] = val
+        parameters["pyop2_options"]["lazy_evaluation"] = lazy_val
 
 
 @pytest.fixture(scope='module')
@@ -42,6 +56,11 @@ def dg1(mesh):
 @pytest.fixture(scope='module')
 def vcg1(mesh):
     return VectorFunctionSpace(mesh, "CG", 1)
+
+
+@pytest.fixture(scope='module')
+def tcg1(mesh):
+    return TensorFunctionSpace(mesh, "CG", 1)
 
 
 @pytest.fixture(scope='module')

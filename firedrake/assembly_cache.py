@@ -8,28 +8,29 @@ eviction strategy is implemented. This is documented below. In
 addition, the following parameters control the operation of the
 assembly_cache:
 
-:data:`parameters["assembly_cache"]["enabled"]`
+- ``parameters["assembly_cache"]["enabled"]``
   a boolean value used to disable the assembly cache if required.
 
-:data:`parameters["assembly_cache"]["eviction"]`
+- ``parameters["assembly_cache"]["eviction"]``
   a boolean value used to disable the cache eviction
   strategy. Disabling cache eviction can lead to memory leaks so is
   discouraged in almost all circumstances.
 
-:data:`parameters["assembly_cache"]["max_misses"]`
+- ``parameters["assembly_cache"]["max_misses"]``
   attempting to cache objects whose inputs change every time they are
   assembled is a waste of memory. This parameter sets a maximum number
   of consecutive misses beyond which a form will be marked as
   uncachable.
 
-:data:`parameters["assembly_cache"]["max_bytes"]`
+- ``parameters["assembly_cache"]["max_bytes"]``
   absolute limit on the size of the assembly cache in bytes. This
-  defaults to :data:`float("inf")`.
+  defaults to ``float("inf")``.
 
-:data:`parameters["assembly_cache"]["max_factor"]`
+- ``parameters["assembly_cache"]["max_factor"]``
   limit on the size of the assembly cache relative to the amount of
   memory per core on the current system. This defaults to 0.6.
 """
+from __future__ import absolute_import
 import numpy as np
 import weakref
 from collections import defaultdict
@@ -37,10 +38,8 @@ from collections import defaultdict
 from pyop2.logger import debug, warning
 from pyop2.mpi import MPI, _MPI
 
-import function
-import matrix
-from parameters import parameters
-from petsc import PETSc
+from firedrake.parameters import parameters
+from firedrake.petsc import PETSc
 
 try:
     # Estimate the amount of memory per core may use.
@@ -48,7 +47,7 @@ try:
     memory = np.array([psutil.virtual_memory().total/psutil.cpu_count()])
     if MPI.comm.size > 1:
         MPI.comm.Allreduce(_MPI.IN_PLACE, memory, _MPI.MIN)
-except ImportError:
+except (ImportError, AttributeError):
     memory = None
 
 
@@ -64,7 +63,7 @@ class _DependencySnapshot(object):
 
         deps = []
 
-        coords = form.integrals()[0].domain().data().coordinates
+        coords = form.integrals()[0].ufl_domain().coordinates
         deps.append(ref(coords))
 
         for c in form.coefficients():
@@ -77,7 +76,7 @@ class _DependencySnapshot(object):
 
         original_coords = self.dependencies[0][0]()
         if original_coords:
-            coords = form.integrals()[0].domain().data().coordinates
+            coords = form.integrals()[0].ufl_domain().coordinates
             if coords is not original_coords or \
                coords.dat._version != self.dependencies[0][1]:
                 return False
@@ -119,13 +118,16 @@ class _BCSnapshot(object):
 
 
 class _CacheEntry(object):
-    """This is the basic caching unit. The form signature forms the key for
-    each CacheEntry, while a reference to the main data object is kept.
-    Additionally a list of Snapshot objects are kept in self.dependencies that
-    together form a snapshot of all the data objects used during assembly.
+    """This is the basic caching unit. The form signature, plus the id of
+    any subdomain_data forms the key for each CacheEntry, while a
+    reference to the main data object is kept.  Additionally a list of
+    Snapshot objects are kept in self.dependencies that together form
+    a snapshot of all the data objects used during assembly.
 
     The validity of each CacheEntry object depends on the validity of its
-    dependencies (i.e., that none of the referred objects have changed)."""
+    dependencies (i.e., that none of the referred objects have changed).
+
+    """
 
     def __init__(self, obj, form, bcs):
         self.form = form
@@ -177,18 +179,23 @@ class AssemblyCache(object):
             cls._instance.evictwarned = False
         return cls._instance
 
-    def _lookup(self, form, bcs, ffc_parameters):
+    def _cache_key(self, form):
         form_sig = form.signature()
-        parms, cache_entry = self.cache.get(form_sig, (None, None))
+        sd_sig = tuple(id(it.subdomain_data()) for it in form.integrals())
+        return (form_sig, sd_sig)
+
+    def _lookup(self, form, bcs, tsfc_parameters):
+        key = self._cache_key(form)
+        parms, cache_entry = self.cache.get(key, (None, None))
 
         retval = None
         if cache_entry is not None:
-            if parms != str(ffc_parameters) or not cache_entry.is_valid(form, bcs):
-                self.invalid_count[form_sig] += 1
-                del self.cache[form_sig]
+            if parms != str(tsfc_parameters) or not cache_entry.is_valid(form, bcs):
+                self.invalid_count[key] += 1
+                del self.cache[key]
                 return None
             else:
-                self.invalid_count[form_sig] = 0
+                self.invalid_count[key] = 0
 
             retval = cache_entry.get_object()
             self._hits += 1
@@ -196,31 +203,31 @@ class AssemblyCache(object):
 
         return retval
 
-    def _store(self, obj, form, bcs, ffc_parameters):
-        form_sig = form.signature()
+    def _store(self, obj, form, bcs, tsfc_parameters):
+        key = self._cache_key(form)
 
-        if self.invalid_count[form_sig] > parameters["assembly_cache"]["max_misses"]:
-            if self.invalid_count[form_sig] == \
+        if self.invalid_count[key] > parameters["assembly_cache"]["max_misses"]:
+            if self.invalid_count[key] == \
                parameters["assembly_cache"]["max_misses"] + 1:
                 debug("form %s missed too many times, excluding from cache." % form)
 
         else:
             cache_entry = _CacheEntry(obj, form, bcs)
-            self.cache[form_sig] = str(ffc_parameters), cache_entry
+            self.cache[key] = str(tsfc_parameters), cache_entry
             self.evict()
 
     def evict(self):
         """Run the cache eviction algorithm. This works out the permitted
 cache size and deletes objects until it is achieved. Cache values are
-assumed to have a :attr:`value` attribute and eviction occurs in
-increasing :attr:`value` order. Currently :attr:`value` is an index of
+assumed to have a ``value`` attribute and eviction occurs in
+increasing ``value`` order. Currently ``value`` is an index of
 the assembly operation, so older operations are evicted first.
 
 The cache will be evicted down to 90% of permitted size.
 
 The permitted size is either the explicit
-:data:`parameters["assembly_cache"]["max_bytes"]` or it is the amount of
-memory per core scaled by :data:`parameters["assembly_cache"]["max_factor"]`
+``parameters["assembly_cache"]["max_bytes"]`` or it is the amount of
+memory per core scaled by ``parameters["assembly_cache"]["max_factor"]``
 (by default the scale factor is 0.6).
 
 In MPI parallel, the nbytes of each cache entry is set to the maximum
@@ -240,7 +247,7 @@ guaranteed to result in the same evictions on each processor.
 
         if max_cache_size == float("inf"):
             if not self.evictwarned:
-                warning("No maximum assembly cache size. Install psutil or risk leaking memory!")
+                warning("No maximum assembly cache size. Install psutil >= 2.0.0 or risk leaking memory!")
                 self.evictwarned = True
             return
 
@@ -312,6 +319,8 @@ guaranteed to result in the same evictions on each processor.
 def _cache_thunk(thunk, form, result, form_compiler_parameters=None):
     """Wrap thunk so that thunk is only executed if its target is not in
     the cache."""
+    from firedrake import function
+    from firedrake import matrix
 
     if form_compiler_parameters is None:
         form_compiler_parameters = parameters["form_compiler"]

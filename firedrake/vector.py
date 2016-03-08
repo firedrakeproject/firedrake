@@ -1,9 +1,10 @@
+from __future__ import absolute_import
 import numpy as np
 from mpi4py import MPI
 
 from pyop2 import op2
 
-from petsc import PETSc
+from firedrake.petsc import PETSc
 
 
 __all__ = ['Vector']
@@ -33,13 +34,28 @@ class Vector(object):
     def _scale(self, a):
         """Scale self by `a`.
 
-        :arg a: a scalar
+        :arg a: a scalar (or something that contains a dat)
         """
-        self.dat *= a
+        try:
+            self.dat *= a.dat
+        except AttributeError:
+            self.dat *= a
+
+    def __mul__(self, other):
+        """Scale self by other"""
+        return self._scale(other)
+
+    def __add__(self, other):
+        """Add other to self"""
+        try:
+            self.dat += other.dat
+        except AttributeError:
+            self.dat += other
 
     def array(self):
         """Return a copy of the process local data as a numpy array"""
-        return np.copy(self.dat.data_ro)
+        with self.dat.vec_ro as v:
+            return np.copy(v.array)
 
     def get_local(self):
         """Return a copy of the process local data as a numpy array"""
@@ -49,7 +65,8 @@ class Vector(object):
         """Set process local values
 
         :arg values: a numpy array of values of length :func:`Vector.local_size`"""
-        self.dat.data[:] = values
+        with self.dat.vec as v:
+            v.array[:] = values
 
     def local_size(self):
         """Return the size of the process local data (without ghost points)"""
@@ -57,8 +74,15 @@ class Vector(object):
 
     def size(self):
         """Return the global size of the data"""
+        if hasattr(self, '_size'):
+            return self._size
         lsize = self.local_size()
-        return op2.MPI.comm.allreduce(lsize, op=MPI.SUM)
+        self._size = op2.MPI.comm.allreduce(lsize, op=MPI.SUM)
+        return self._size
+
+    def inner(self, other):
+        """Return the l2-inner product of self with other"""
+        return self.dat.inner(other.dat)
 
     def gather(self, global_indices=None):
         """Gather a :class:`Vector` to all processes
@@ -76,7 +100,7 @@ class Vector(object):
             v = PETSc.Vec().createSeq(N, comm=PETSc.COMM_SELF)
             is_ = PETSc.IS().createGeneral(global_indices, comm=PETSc.COMM_SELF)
 
-        with self.dat.vec as vec:
+        with self.dat.vec_ro as vec:
             vscat = PETSc.Scatter().create(vec, is_, v, None)
             vscat.scatterBegin(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)
             vscat.scatterEnd(vec, v, addv=PETSc.InsertMode.INSERT_VALUES)

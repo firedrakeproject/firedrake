@@ -1,3 +1,6 @@
+from __future__ import absolute_import
+import weakref
+
 import ufl
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero, IntValue
@@ -10,9 +13,9 @@ from ufl import classes
 import coffee.base as ast
 from pyop2 import op2
 
-import constant
-import function
-import functionspace
+from firedrake import constant
+from firedrake import function
+from firedrake import utils
 
 
 def ufl_type(*args, **kwargs):
@@ -55,7 +58,7 @@ class DummyFunction(ufl.Coefficient):
     """
 
     def __init__(self, function, argnum, intent=op2.READ):
-        ufl.Coefficient.__init__(self, function._element)
+        ufl.Coefficient.__init__(self, function.ufl_function_space())
 
         self.argnum = argnum
         self.function = function
@@ -71,8 +74,7 @@ class DummyFunction(ufl.Coefficient):
                 return "fn_%d[0]" % self.argnum
             else:
                 return "fn_%d[dim]" % self.argnum
-        if isinstance(self.function.function_space(),
-                      functionspace.VectorFunctionSpace):
+        if self.function.function_space().rank == 1:
             return "fn_%d[dim]" % self.argnum
         else:
             return "fn_%d[0]" % self.argnum
@@ -271,7 +273,7 @@ class Indexed(ufl.indexed.Indexed):
 
 class ExpressionSplitter(ReuseTransformer):
     """Split an expression tree into a subtree for each component of the
-    appropriate :class:`.FunctionSpaceBase`."""
+    appropriate :class:`.FunctionSpace`."""
 
     def split(self, expr):
         """Split the given expression."""
@@ -284,21 +286,23 @@ class ExpressionSplitter(ReuseTransformer):
                 lhs.function_space() != rhs.function_space():
             raise ValueError("Operands of %r must have the same FunctionSpace" % expr)
         self._fs = lhs.function_space()
-        return [expr.reconstruct(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
+        return [expr._ufl_expr_reconstruct_(*ops) for ops in zip(*map(self.visit, (lhs, rhs)))]
 
     def indexed(self, o, *operands):
         """Reconstruct the :class:`ufl.indexed.Indexed` only if the coefficient
-        is defined on a :class:`.VectorFunctionSpace`."""
+        is defined on a :class:`.FunctionSpace` with rank 1."""
         def reconstruct_if_vec(coeff, idx, i):
             # If the MultiIndex contains a FixedIndex we only want to return
             # the indexed coefficient if its position matches the FixedIndex
-            # Since we don't split VectorFunctionSpaces, we have to
+            # Since we don't split rank-1 function spaces, we have to
             # reconstruct the fixed index expression for those (and only those)
             if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
                 if idx._indices[0]._value != i:
                     return self._identity
-                elif isinstance(coeff.function_space(), functionspace.VectorFunctionSpace):
-                    return o.reconstruct(coeff, idx)
+                elif coeff.function_space().rank == 1:
+                    return o._ufl_expr_reconstruct_(coeff, idx)
+                elif coeff.function_space().rank >= 2:
+                    raise NotImplementedError("Not implemented for tensor spaces")
             return coeff
         return [reconstruct_if_vec(*ops, i=i)
                 for i, ops in enumerate(zip(*operands))]
@@ -316,12 +320,11 @@ class ExpressionSplitter(ReuseTransformer):
             # If the function space we're assigning into is /not/
             # Mixed, o must be indexed and the functionspace component
             # much match us.
-            if not isinstance(self._fs, functionspace.MixedFunctionSpace) \
-               and self._fs.index is None:
+            if len(self._fs) == 1 and self._fs.index is None:
                 idx = o.function_space().index
                 if idx is None:
                     raise ValueError("Coefficient %r is not indexed" % o)
-                if o.function_space()._fs != self._fs:
+                if o.function_space() != self._fs:
                     raise ValueError("Mismatching function spaces")
                 return (o,)
             # Otherwise the function space must be indexed and we
@@ -332,11 +335,11 @@ class ExpressionSplitter(ReuseTransformer):
             if self._fs.index is not None:
                 # RHS indexed, indexed RHS function space must match
                 # indexed LHS function space.
-                if idx is not None and self._fs._fs != o.function_space()._fs:
+                if idx is not None and self._fs != o.function_space():
                     raise ValueError("Mismatching indexed function spaces")
                 # RHS not indexed, RHS function space must match
                 # indexed LHS function space
-                elif idx is None and self._fs._fs != o.function_space():
+                elif idx is None and self._fs != o.function_space():
                     raise ValueError("Mismatching function spaces")
                 # OK, everything checked out. Return RHS
                 return (o,)
@@ -344,7 +347,7 @@ class ExpressionSplitter(ReuseTransformer):
             if idx is None:
                 raise ValueError("Coefficient %r is not indexed" % o)
             # RHS indexed, parent function space must match LHS function space
-            if self._fs != o.function_space()._parent:
+            if self._fs != o.function_space().parent:
                 raise ValueError("Mismatching function spaces")
             # Return RHS in index slot in expression and
             # identity otherwise.
@@ -358,20 +361,20 @@ class ExpressionSplitter(ReuseTransformer):
             # LHS is mixed and Constant has same shape, use each
             # component in turn to assign to each component of the
             # mixed space.
-            if isinstance(self._fs, functionspace.MixedFunctionSpace) and \
+            if len(self._fs) > 1 and \
                isinstance(o, constant.Constant) and \
-               o.element().value_shape() == self._fs.ufl_element().value_shape():
+               o.ufl_element().value_shape() == self._fs.ufl_element().value_shape():
                 offset = 0
                 consts = []
                 val = o.dat.data_ro
                 for fs in self._fs:
                     shp = fs.ufl_element().value_shape()
                     if len(shp) == 0:
-                        c = constant.Constant(val[offset], domain=o.domain())
+                        c = constant.Constant(val[offset], domain=o.ufl_domain())
                         offset += 1
                     elif len(shp) == 1:
                         c = constant.Constant(val[offset:offset+shp[0]],
-                                              domain=o.domain())
+                                              domain=o.ufl_domain())
                         offset += shp[0]
                     else:
                         raise NotImplementedError("Broadcasting Constant to TFS not implemented")
@@ -394,7 +397,7 @@ class ExpressionSplitter(ReuseTransformer):
             if len(ops) == 1 and type(ops[0]) is type(self._identity):
                 ret.append(ops[0])
             else:
-                ret.append(o.reconstruct(*ops))
+                ret.append(o._ufl_expr_reconstruct_(*ops))
         return ret
 
 
@@ -419,16 +422,12 @@ class ExpressionWalker(ReuseTransformer):
 
         if isinstance(o, function.Function):
             if self._function_space is None:
-                self._function_space = o._function_space
+                self._function_space = o.function_space()
             else:
                 # Peel out (potentially indexed) function space of LHS
                 # and RHS to check for compatibility.
                 sfs = self._function_space
-                ofs = o._function_space
-                if sfs.index is not None:
-                    sfs = sfs._fs
-                if ofs.index is not None:
-                    ofs = ofs._fs
+                ofs = o.function_space()
                 if sfs != ofs:
                     raise ValueError("Expression has incompatible function spaces %s and %s" %
                                      (sfs, ofs))
@@ -504,12 +503,16 @@ class ExpressionWalker(ReuseTransformer):
             # For all other operators, just visit the children.
             operands = map(self.visit, o.ufl_operands)
 
-        return o.reconstruct(*operands)
+        return o._ufl_expr_reconstruct_(*operands)
 
 
 def expression_kernel(expr, args):
     """Produce a :class:`pyop2.Kernel` from the processed UFL expression
     expr and the corresponding args."""
+
+    # Empty slot indicating assignment to indexed LHS, so don't do anything
+    if type(expr) is Zero:
+        return
 
     fs = args[0].function.function_space()
 
@@ -530,13 +533,7 @@ def expression_kernel(expr, args):
                       "expression")
 
 
-def evaluate_preprocessed_expression(expr, args, subset=None):
-
-    # Empty slot indicating assignment to indexed LHS, so don't do anything
-    if type(expr) is Zero:
-        return
-    kernel = expression_kernel(expr, args)
-
+def evaluate_preprocessed_expression(kernel, args, subset=None):
     # We need to splice the args according to the components of the
     # MixedFunctionSpace if we have one
     for j, dats in enumerate(zip(*tuple(a.function.dat for a in args))):
@@ -546,12 +543,42 @@ def evaluate_preprocessed_expression(expr, args, subset=None):
         op2.par_loop(kernel, itset, *parloop_args)
 
 
+@utils.known_pyop2_safe
 def evaluate_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s."""
 
+    # We cache the generated kernel and the argument list on the
+    # result function, keyed on the hash of the expression
+    # (implemented by UFL).  Since the argument list references
+    # objects that we may want collected, we do a little magic in the
+    # cache.  The "function" slot in the DummyFunction argument is
+    # replaced by a weakref to the function in the cached arglist.
+    # This ensures that we don't leak objects.  However, sometimes, it
+    # means that the proxy will have been collected and will be out of
+    # date.  So we catch this error and fall back to the slow code
+    # path in that case.
+    result = expr.ufl_operands[0]
+    if result._expression_cache is not None:
+        key = hash(expr)
+        vals = result._expression_cache.get(key)
+        if vals:
+            try:
+                for k, args in vals:
+                    evaluate_preprocessed_expression(k, args, subset=subset)
+                return
+            except ReferenceError:
+                pass
+    vals = []
     for tree in ExpressionSplitter().split(expr):
         e, args, _ = ExpressionWalker().walk(tree)
-        evaluate_preprocessed_expression(e, args, subset)
+        k = expression_kernel(e, args)
+        evaluate_preprocessed_expression(k, args, subset)
+        # Replace function slot by weakref to avoid leaking objects
+        for a in args:
+            a.function = weakref.proxy(a.function)
+        vals.append((k, args))
+    if result._expression_cache is not None:
+        result._expression_cache[key] = vals
 
 
 def assemble_expression(expr, subset=None):
@@ -568,11 +595,12 @@ _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _as
 _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
 _ast_map = {
-    MathFunction: (lambda e: ast.FunCall(e._name, _ast(e._argument)), None),
-    ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
-    ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
-    ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
+    MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
+    ufl.algebra.Sum: (lambda e: ast.Par(_to_sum(e.ufl_operands))),
+    ufl.algebra.Product: (lambda e: ast.Par(_to_prod(e.ufl_operands))),
+    ufl.algebra.Division: (lambda e: ast.Par(ast.Div(*[_ast(o) for o in e.ufl_operands]))),
     ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
+    Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
     ufl.constantvalue.Zero: (lambda e: ast.Symbol(0)),

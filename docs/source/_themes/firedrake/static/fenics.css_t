@@ -109,6 +109,17 @@ div.related ul {
 	padding-left: 240px;
 }
 
+/* Formatting for sphinx-bibtex generated tables */
+table.citation {
+    border: none;
+}
+
+/* Override some bibbase styles that make things look ugly. */
+td.label {
+    background: inherit;
+    font-weight: normal;
+    text-shadow: none;
+}
 /* -- sidebars -------------------------------------------------------------- */
 
 div.sidebar {
@@ -247,6 +258,14 @@ div.note {
 	border-left-style: none;
 	padding: 10px 20px 10px 60px;
 	background: #e1ecfe url(dialog-note.png) no-repeat 10px 8px;
+}
+
+div.note div.last {
+    float: none;
+}
+
+div.warning div.last {
+    float: none;
 }
 
 .emphasis {
@@ -689,10 +708,10 @@ img[alt="build status"] {
 
 /* Modifications for the FEniCS '15 website */
 
-div.fenics_15 h1,
-div.fenics_15 h2,
-div.fenics_15 h3,
-div.fenics_15 h4 {
+div[class^="fenics_15"] h1,
+div[class^="fenics_15"] h2,
+div[class^="fenics_15"] h3,
+div[class^="fenics_15"] h4 {
     font-family: 'Comfortaa', cursive;
 }
 
@@ -701,3 +720,6 @@ div.fenics_15 #sponsors img {
     padding-right: 20px
 }
 
+.round-corners {
+    border-radius: 6px;
+}

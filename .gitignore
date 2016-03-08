@@ -10,10 +10,13 @@
 *.vtu
 /evtk/cevtk.c
 /firedrake/dmplex.c
+/firedrake/spatialindex.cpp
+/firedrake/hdf5interface.c
 /docs/build/
 /docs/source/firedrake.mg.rst
 /docs/source/firedrake.rst
 /docs/source/obtaining_pyop2.rst
+/docs/source/teamgrid.rst
 /docs/source/demos
 /demos/**/*.py
 /firedrake/mg/impl.c

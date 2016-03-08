@@ -1,15 +1,18 @@
 """This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
+from __future__ import absolute_import
+import collections
 
 from ufl.indexed import Indexed
+from ufl.domain import join_domains
 
 from pyop2 import READ, WRITE, RW, INC  # NOQA get flake8 to ignore unused import.
 import pyop2
 
 import coffee.base as ast
 
-import constant
+from firedrake import constant
 
 
 __all__ = ['par_loop', 'direct', 'READ', 'WRITE', 'RW', 'INC']
@@ -74,6 +77,8 @@ def _form_kernel(kernel, measure, args, **kwargs):
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].fiat_element.space_dimension()
             else:
+                if len(func.function_space()) > 1:
+                    raise NotImplementedError("Must index mixed function in par_loop.")
                 ndof = func.function_space().fiat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
@@ -171,8 +176,7 @@ def par_loop(kernel, measure, args, **kwargs):
     A direct loop over nodes without any indirections can be specified
     by passing :data:`direct` as the measure. In this case, all of the
     arguments must be :class:`.Function`\s in the same
-    :class:`.FunctionSpace` or in the corresponding
-    :class:`.VectorFunctionSpace`.
+    :class:`.FunctionSpace`.
 
     **The kernel code**
 
@@ -188,10 +192,12 @@ def par_loop(kernel, measure, args, **kwargs):
 
     Indirect free variables referencing :class:`.Function`\s are all
     of type `double**` in which the first index is the local node
-    number, while the second index is the vector component. The latter
-    only applies to :class:`.Function`\s over a
-    :class:`.VectorFunctionSpace`, for :class:`.Function`\s over a
-    plain :class:`.FunctionSpace` the second index will always be 0.
+    number, while the second index is the vector (or tensor)
+    component. The latter only applies to :class:`.Function`\s over a
+    :class:`.FunctionSpace` with :attr:`.FunctionSpace.rank` greater
+    than zero (spaces with a VectorElement or TensorElement).  In the
+    case of scalar :class:`FunctionSpace`\s, the second index is
+    always 0.
 
     In a direct :func:`par_loop`, the variables will all be of type
     `double*` with the single index being the vector component.
@@ -202,6 +208,12 @@ def par_loop(kernel, measure, args, **kwargs):
     """
 
     _map = _maps[measure.integral_type()]
+    # Ensure that the dict args passed in are consistently ordered
+    # (sorted by the string key).
+    sorted_args = collections.OrderedDict()
+    for k in sorted(args.iterkeys()):
+        sorted_args[k] = args[k]
+    args = sorted_args
 
     if measure is direct:
         mesh = None
@@ -223,7 +235,13 @@ def par_loop(kernel, measure, args, **kwargs):
         if not mesh:
             raise TypeError("No Functions passed to direct par_loop")
     else:
-        mesh = measure.subdomain_data().function_space().mesh()
+        domains = []
+        for func, _ in args.itervalues():
+            domains.extend(func.ufl_domains())
+        domains = join_domains(domains)
+        # Assume only one domain
+        domain, = domains
+        mesh = domain
 
     op2args = [_form_kernel(kernel, measure, args, **kwargs)]
 

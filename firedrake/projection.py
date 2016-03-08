@@ -1,13 +1,16 @@
+from __future__ import absolute_import
 import ufl
 
-import expression
-import function
-import functionspace
-import solving
-import ufl_expr
+from firedrake import expression
+from firedrake import functionspace
+from firedrake import functionspaceimpl
+from firedrake import solving
+from firedrake import ufl_expr
+from firedrake import function
+import firedrake.variational_solver as vs
 
 
-__all__ = ['project']
+__all__ = ['project', 'Projector']
 
 # Store the solve function to use in a variable so external packages
 # (dolfin-adjoint) can override it.
@@ -37,7 +40,9 @@ def project(v, V, bcs=None, mesh=None,
 
     The ``bcs``, ``mesh`` and ``form_compiler_parameters`` are
     currently ignored."""
-    if isinstance(V, functionspace.FunctionSpaceBase):
+    from firedrake import function
+
+    if isinstance(V, functionspaceimpl.WithGeometry):
         ret = function.Function(V, name=name)
     elif isinstance(V, function.Function):
         ret = V
@@ -63,8 +68,9 @@ def project(v, V, bcs=None, mesh=None,
                                                    deg+1,
                                                    dim=shape[0])
         else:
-            raise NotImplementedError(
-                "Don't know how to project onto tensor-valued function spaces")
+            fs = functionspace.TensorFunctionSpace(V.mesh(), 'DG',
+                                                   deg+1,
+                                                   shape=shape)
         f = function.Function(fs)
         f.interpolate(v)
         v = f
@@ -74,13 +80,14 @@ def project(v, V, bcs=None, mesh=None,
     elif not isinstance(v, ufl.core.expr.Expr):
         raise RuntimeError("Can't only project from expressions and functions, not %r" % type(v))
 
-    if v.shape() != ret.shape():
-        raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' % (v.shape(), ret.shape()))
+    if v.ufl_shape != ret.ufl_shape:
+        raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %
+                           (v.ufl_shape, ret.ufl_shape))
 
     p = ufl_expr.TestFunction(V)
     q = ufl_expr.TrialFunction(V)
-    a = ufl.inner(p, q) * V.mesh()._dx
-    L = ufl.inner(p, v) * V.mesh()._dx
+    a = ufl.inner(p, q) * ufl.dx(domain=V.mesh())
+    L = ufl.inner(p, v) * ufl.dx(domain=V.mesh())
 
     # Default to 1e-8 relative tolerance
     if solver_parameters is None:
@@ -93,3 +100,58 @@ def project(v, V, bcs=None, mesh=None,
            solver_parameters=solver_parameters,
            form_compiler_parameters=form_compiler_parameters)
     return ret
+
+
+class Projector(object):
+    """
+    A projector projects a UFL expression into a function space
+    and places the result in a function from that function space,
+    allowing the solver to be reused. Projection reverts to an assign
+    operation if ``v`` is a :class:`.Function` and belongs to the same
+    function space as ``v_out``.
+
+    :arg v: the :class:`ufl.Expr` or
+         :class:`.Function` to project
+    :arg v_out: :class:`.Function` to put the result in
+    :arg solver_parameters: parameters to pass to the solver used when
+         projecting.
+    """
+
+    def __init__(self, v, v_out, solver_parameters=None):
+
+        if isinstance(v, expression.Expression) or \
+           not isinstance(v, (ufl.core.expr.Expr, function.Function)):
+            raise ValueError("Can only project UFL expression or Functions not '%s'" % type(v))
+
+        self._same_fspace = (isinstance(v, function.Function) and v.function_space() ==
+                             v_out.function_space())
+        self.v = v
+        self.v_out = v_out
+
+        if not self._same_fspace:
+            V = v_out.function_space()
+
+            p = ufl_expr.TestFunction(V)
+            q = ufl_expr.TrialFunction(V)
+
+            a = ufl.inner(p, q)*ufl.dx
+            L = ufl.inner(p, v)*ufl.dx
+
+            problem = vs.LinearVariationalProblem(a, L, v_out)
+
+            if solver_parameters is None:
+                solver_parameters = {}
+
+            solver_parameters.setdefault("ksp_type", "cg")
+
+            self.solver = vs.LinearVariationalSolver(problem,
+                                                     solver_parameters=solver_parameters)
+
+    def project(self):
+        """
+        Apply the projection.
+        """
+        if self._same_fspace:
+            self.v_out.assign(self.v)
+        else:
+            self.solver.solve()

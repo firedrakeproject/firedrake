@@ -3,7 +3,7 @@
 
 # You can set these variables from the command line.
 SPHINXOPTS    =
-SPHINXBUILD   = PYTHONPATH=$(PWD)/../:$(PYTHONPATH) sphinx-build
+SPHINXBUILD   = sphinx-build
 PAPER         =
 BUILDDIR      = build
 
@@ -16,7 +16,7 @@ I18NSPHINXOPTS  = $(PAPEROPT_$(PAPER)) $(SPHINXOPTS) source
 
 .PHONY: help clean html dirhtml singlehtml pickle json htmlhelp qthelp \
 devhelp epub latex latexpdf text man changes linkcheck doctest gettext \
-publish serve
+publish serve scp
 
 help:
 	@echo "Please use \`make <target>' where <target> is one of"
@@ -43,9 +43,15 @@ help:
 
 TARGETS = html dirhtml singlehtml pickle json htmlhelp qthelp devhelp epub latex latexpdf text man changes linkcheck doctest gettext
 
-GENERATED_FILES = source/teamgrid.rst source/obtaining_pyop2.rst source/demos
+GENERATED_FILES = source/teamgrid.rst source/demos
 
 publish: html
+# Note that godaddy don't currently do rsync, unfortunately.
+# The raw IP address is used to circumvent some dns fiddling which
+# Imperial's ICT department are doing.
+	scp -r build/html/* 'o3ce6600@146.255.44.1:html/'
+
+scp:
 # Note that godaddy don't currently do rsync, unfortunately.
 # The raw IP address is used to circumvent some dns fiddling which
 # Imperial's ICT department are doing.
@@ -63,16 +69,11 @@ source/demos: copy_demos
 
 copy_demos:
 	install -d source/demos
-	cp ../demos/*/*.rst ../demos/*/*.bib source/demos
+	cp ../demos/*/*.rst ../demos/*/*.bib ../demos/*/*.geo ../demos/*/*.png source/demos
 	for file in source/demos/*.py.rst; do ../pylit/pylit.py $$file; done
 
 source/teamgrid.rst: source/team.py
 	cd source; python team.py
-
-.PHONY: source/obtaining_pyop2.rst
-
-source/obtaining_pyop2.rst:
-	wget https://raw.github.com/OP2/PyOP2/master/README.rst -O $@
 
 apidoc: $(GENERATED_FILES) copy_demos
 	sphinx-apidoc ../firedrake -o source/ -f -T
@@ -85,7 +86,7 @@ buildhtml: apidoc
 	$(SPHINXBUILD) -b html $(ALLSPHINXOPTS) $(BUILDDIR)/html
 
 html: apidoc buildhtml
-	cp source/demos/*.py $(BUILDDIR)/html/demos
+	cp source/demos/*.py source/demos/*.geo $(BUILDDIR)/html/demos
 	@echo
 	@echo "Build finished. The HTML pages are in $(BUILDDIR)/html."
 

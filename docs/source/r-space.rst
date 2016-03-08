@@ -17,7 +17,7 @@ Representing matrices involving `R`
 -----------------------------------
 
 Instead, we can observe that a dense matrix row (or column) is
-isomorphic to a :class:`~firedrake.types.Function` and model these
+isomorphic to a :class:`~firedrake.function.Function` and model these
 blocks of the matrix accordingly. A non-trivial system
 involving a function over `R` will always be a mixed system. The
 resulting matrix will have four blocks, one a conventional sparse
