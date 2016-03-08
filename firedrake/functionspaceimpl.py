@@ -833,3 +833,62 @@ def ComponentFunctionSpace(parent, component):
     new.parent = parent
     new.no_dats = True
     return new
+
+
+class RealFunctionSpace(FunctionSpace):
+    """:class:`FunctionSpace` based on elements of family "Real". A
+    :class`RealFunctionSpace` only has a single global value for the
+    whole mesh.
+
+    This class should not be directly instantiated by users. Instead,
+    FunctionSpace objects will transform themselves into
+    :class:`RealFunctionSpace` objects as appropriate.
+
+    """
+
+    def __init__(self, mesh, element, name):
+
+        self.name = name
+        self._index = None
+        self._ufl_element = element
+        self.fiat_element = None
+        self._mesh = mesh
+        self.dim = 1
+        self.rank = 0
+
+        self._node_count = 1
+
+        """:class:`RealFunctionSpace` objects have no node set."""
+        self.node_set = None
+        """:class:`RealFunctionSpace` objects have no dof set."""
+        self.dof_dset = None
+
+    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+        """Return a newly allocated :class:`pyop2.Global` representing the
+        data for a :class:`.Function` on this space."""
+        return op2.Global(self.dim, val, valuetype, name)
+
+    def cell_node_map(self, bcs=None):
+        ":class:`RealFunctionSpace` objects have no cell node map."
+        return None
+
+    def interior_facet_node_map(self, bcs=None):
+        ":class:`RealFunctionSpace` objects have no interior facet node map."
+        return None
+
+    def exterior_facet_node_map(self, bcs=None):
+        ":class:`RealFunctionSpace` objects have no exterior facet node map."
+        return None
+
+    def bottom_nodes(self):
+        ":class:`RealFunctionSpace` objects have no bottom nodes."
+        return None
+
+    def top_nodes(self):
+        ":class:`RealFunctionSpace` objects have no bottom nodes."
+        return None
+
+    def exterior_facet_boundary_node_map(self, method):
+        """":class:`RealFunctionSpace` objects have no exterior facet boundary
+        node map."""
+        return None

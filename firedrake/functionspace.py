@@ -126,7 +126,10 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
 
     # Otherwise, build the FunctionSpace.
     topology = mesh.topology
-    new = impl.FunctionSpace(topology, element, name=name)
+    if element.family() == "Real":
+        new = impl.RealFunctionSpace(topology, element, name=name)
+    else:
+        new = impl.FunctionSpace(topology, element, name=name)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:
@@ -254,69 +257,3 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     if mesh is not mesh.topology:
         return impl.WithGeometry(new, mesh)
     return new
-
-
-class RealFunctionSpace(FunctionSpaceBase):
-    """:class:`FunctionSpace` based on elements of family "Real". A
-    :class`RealFunctionSpace` only has a single global value for the
-    whole mesh.
-
-    This class should not be directly instantiated by users. Instead,
-    FunctionSpace objects will transform themselves into
-    :class:`RealFunctionSpace` objects as appropriate.
-
-    """
-
-    def __init__(self, mesh, element, name):
-
-        self.__class__ = RealFunctionSpace
-
-        self.name = name
-        self._index = None
-        self._initialized = True
-        self._ufl_element = element
-        self.fiat_element = None
-        self._mesh = mesh
-        self._dim = 1
-        self.rank = 0
-
-        self._node_count = 1
-
-    def node_set(self):
-        ":class:`RealFunctionSpace` objects have no node set."
-        return None
-
-    @property
-    def dof_dset(self):
-        ":class:`RealFunctionSpace` objects have no dof set."
-        return None
-
-    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
-        """Return a newly allocated :class:`pyop2.Global` representing the
-        data for a :class:`.Function` on this space."""
-        return op2.Global(self._dim, val, valuetype, name)
-
-    def cell_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no cell node map."
-        return None
-
-    def interior_facet_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no interior facet node map."
-        return None
-
-    def exterior_facet_node_map(self, bcs=None):
-        ":class:`RealFunctionSpace` objects have no exterior facet node map."
-        return None
-
-    def bottom_nodes(self):
-        ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def top_nodes(self):
-        ":class:`RealFunctionSpace` objects have no bottom nodes."
-        return None
-
-    def exterior_facet_boundary_node_map(self, method):
-        """":class:`RealFunctionSpace` objects have no exterior facet boundary
-        node map."""
-        return None

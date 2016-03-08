@@ -8,6 +8,7 @@ import tempfile
 import numpy
 import collections
 
+import ufl
 from ufl import Form, as_vector
 from ufl.corealg.map_dag import MultiFunction
 from ufl.algorithms.map_integrands import map_integrand_dags
