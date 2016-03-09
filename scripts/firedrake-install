@@ -7,6 +7,12 @@ import os
 import shutil
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
+from distutils import dir_util
+
+adjoint_deps = {
+    "libadjoint": "git+https://bitbucket.org/dolfin-adjoint/libadjoint.git",
+    "dolfin-adjoint": "git+https://bitbucket.org/dolfin-adjoint/dolfin-adjoint.git"
+}
 
 
 class InstallError(Exception):
@@ -64,6 +70,8 @@ honoured.""",
     parser.add_argument("--sudo", action='store_true',
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
 
+    parser.add_argument("--adjoint", action='store_true',
+                        help="Also install firedrake-adjoint.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--disable-ssh", "--disable_ssh", action="store_true",
@@ -101,6 +109,8 @@ else:
                         help="Do not update script before updating Firedrake.")
     parser.add_argument("--rebuild", action="store_true",
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
+    parser.add_argument("--adjoint", action='store_true', dest="install_adjoint",
+                        help="Also install firedrake-adjoint.")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--clean", action='store_true',
@@ -119,6 +129,8 @@ else:
     args.mpicc = False
     args.disable_ssh = False
     args.show_petsc_configure_options = False
+    args.adjoint = False
+    args.adjoint = args.adjoint or args.install_adjoint
 
 
 # Where are packages installed relative to --root?
@@ -188,20 +200,20 @@ else:
 log = logging.getLogger()
 
 
-def check_call(arguments):
+def check_call(arguments, env=None):
     if args.log:
         try:
-            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
+            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env))
         except subprocess.CalledProcessError as e:
             log.debug(e.output)
             raise
     else:
-        subprocess.check_call(arguments)
+        subprocess.check_call(arguments, env=env)
 
 
-def check_output(args):
+def check_output(args, env=None):
     try:
-        return subprocess.check_output(args, stderr=subprocess.STDOUT)
+        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
     except subprocess.CalledProcessError as e:
         log.debug(e.output)
         raise
@@ -566,6 +578,51 @@ def build_and_install_h5py():
     os.chdir("..")
 
 
+def build_and_install_adjoint():
+
+    for package in adjoint_deps:
+        try:
+            git_update(package, adjoint_deps[package])
+        except OSError as e:
+            if e.errno == 2:
+                log.warn("%s missing, cloning anew.\n" % p)
+                git_clone(adjoint_deps[package])
+            else:
+                raise
+
+    if args.honour_petsc_dir:
+        petsc_dir = os.environ["PETSC_DIR"]
+        petsc_arch = os.environ.get("PETSC_ARCH", "")
+    else:
+        try:
+            petsc_dir = check_output(python +
+                                     ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+
+            petsc_arch = ""
+        except subprocess.CalledProcessError:
+            raise InstallError("Unable to find installed PETSc when building h5py")
+
+    env = dict(os.environ)
+    env["PETSC_ARCH"] = petsc_arch
+    env["PETSC_DIR"] = petsc_dir
+
+    os.chdir("libadjoint")
+    dir_util.mkpath("build")
+
+    os.chdir("build")
+    if "VIRTUAL_ENV" in os.environ:
+        log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
+        check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
+    else:
+        log.info("Configuring libadjoint for global installation")
+        check_call(["cmake", ".."], env=env)
+    log.info("Installing libadjoint.")
+    check_call(["make", "install"])
+    os.chdir("../..")
+
+    install("dolfin-adjoint/")
+
+
 def clean_obsolete_packages():
     dirs = os.listdir(".")
     for package in old_git_packages:
@@ -585,7 +642,7 @@ def build_update_script():
         update_script = f.read()
 
     for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
-                   "mpicc", "disable_ssh", "show_petsc_configure_options"]:
+                   "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
@@ -740,7 +797,10 @@ elif not args.system:
         virtualenv.create_environment("firedrake", site_packages=False)
         # For some reason virtualenv does not always install the latest pip.
         run_pip_install(["-U", "pip"])
-    execfile("firedrake/bin/activate_this.py", dict(__file__='path/to/activate_this.py'))
+    virtual_env_vars = dict(__file__='firedrake/bin/activate_this.py')
+    execfile("firedrake/bin/activate_this.py", virtual_env_vars)
+    # Activating the virtual_env from within Python does not automatically set the environment variable.
+    os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir("firedrake")
 if mode == "install":
@@ -873,6 +933,9 @@ else:
     for p in packages:
         clean(p)
         install(p+"/")
+
+if args.adjoint:
+    build_and_install_adjoint()
 
 os.chdir("../..")
 
