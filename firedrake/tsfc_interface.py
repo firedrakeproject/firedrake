@@ -13,7 +13,7 @@ from ufl import Form, as_vector
 from ufl.corealg.map_dag import MultiFunction
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.constantvalue import Zero
-from firedrake.ufl_expr import Argument
+from firedrake.ufl_expr import Argument, TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
 

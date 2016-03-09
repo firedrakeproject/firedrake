@@ -187,10 +187,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             zero_tensor = lambda: tensor.zero()
 
         def mat(testmap, trialmap, i, j):
-            return tensor[i, j](op2.INC,
-                                (testmap(test.function_space()[i])[op2.i[0]],
-                                 trialmap(trial.function_space()[j])[op2.i[1]]),
-                                flatten=True)
+            m = testmap(test.function_space()[i])
+            n = trialmap(test.function_space()[j])
+            maps = (m[op2.i[0]] if m else None,
+                    n[op2.i[1]] if n else None)
+            return tensor[i, j](op2.INC, maps, flatten=True)
         result = lambda: result_matrix
     elif is_vec:
         test = f.arguments()[0]
