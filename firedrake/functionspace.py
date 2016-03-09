@@ -244,7 +244,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
     for space in spaces:
-        if type(space) is impl.FunctionSpace:
+        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
             continue
         elif type(space) is impl.ProxyFunctionSpace:
             if space.component is not None:
