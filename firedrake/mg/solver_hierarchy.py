@@ -58,7 +58,7 @@ def create_interpolation(dmc, dmf):
     fbcs = fctx._problems[flvl].bcs
 
     if True:
-        return firedrake.prolong_matrix(cfn, ffn).handle, None
+        return firedrake.prolong_matrix(cfn, ffn, cbcs, fbcs).handle, None
     class Interpolation(object):
         def __init__(self, cfn, ffn, cbcs=None, fbcs=None):
             self.cfn = cfn
@@ -118,6 +118,7 @@ def create_injection(dmc, dmf):
     _, flvl = utils.get_level(dmf)
 
     cctx = dmc.getAppCtx()
+    fctx = dmf.getAppCtx()
 
     V_c = _fs_from_dm(dmc)
     V_f = _fs_from_dm(dmf)
@@ -128,9 +129,10 @@ def create_injection(dmc, dmf):
     cfn = firedrake.Function(V_c)
     ffn = firedrake.Function(V_f)
     cbcs = cctx._problems[clvl].bcs
+    fbcs = fctx._problems[flvl].bcs
 
     if True:
-        return firedrake.inject_matrix(ffn, cfn).handle
+        return firedrake.inject_matrix(ffn, cfn, cbcs, fbcs).handle
     class Injection(object):
         def __init__(self, cfn, ffn, cbcs=None):
             self.cfn = cfn

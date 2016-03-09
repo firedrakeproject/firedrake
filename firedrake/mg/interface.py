@@ -42,7 +42,7 @@ def prolong_matrix(coarse, fine, cbcs=None, fbcs=None):
     return mat
 
 
-def restrict_matrix(fine, coarse):
+def restrict_matrix(fine, coarse, cbcs=None, fbcs=None):
     if hasattr(fine, "_restriction"):
         return fine._restriction
     hierarchy, lvl = utils.get_level(coarse.function_space())
@@ -59,9 +59,10 @@ def restrict_matrix(fine, coarse):
                             nest=False)
     mat = op2.Mat(sparsity, np.float64)
 
+    fine_map = hierarchy.cell_node_map(lvl, bcs=fbcs)
     op2.par_loop(hierarchy._restrict_matrix,
                  coarse.cell_set,
-                 mat(op2.WRITE, (coarse.cell_node_map()[op2.i[0]],
+                 mat(op2.WRITE, (coarse.cell_node_map(cbcs)[op2.i[0]],
                                  fine_map[op2.i[1]])))
     mat.assemble()
     mat._force_evaluation()
@@ -69,7 +70,7 @@ def restrict_matrix(fine, coarse):
     return mat
 
 
-def inject_matrix(fine, coarse):
+def inject_matrix(fine, coarse, cbcs=None, fbcs=None):
     # Matrix has nfine rows, ncoarse cols
     if hasattr(fine, "_injection"):
         return fine._injection
@@ -87,10 +88,11 @@ def inject_matrix(fine, coarse):
                             nest=False)
     mat = op2.Mat(sparsity, np.float64)
 
+    fine_map = hierarchy.cell_node_map(lvl, fbcs)
     op2.par_loop(hierarchy._inject_matrix,
                  coarse.cell_set,
                  mat(op2.WRITE, (fine_map[op2.i[1]],
-                                 coarse.cell_node_map()[op2.i[0]])))
+                                 coarse.cell_node_map(cbcs)[op2.i[0]])))
     mat.assemble()
     mat._force_evaluation()
     fine._injection = mat

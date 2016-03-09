@@ -120,7 +120,9 @@ class BaseHierarchy(object):
 
         map_vals, offset = impl.create_cell_node_map(Vc, Vf, c2f, vperm)
 
+        parent = None
         if bcs:
+            parent = self.cell_node_map(level)
             import numpy as np
             nodes = [bc.nodes for bc in bcs]
             if nodes:
@@ -131,8 +133,8 @@ class BaseHierarchy(object):
         map = op2.Map(self._cell_sets[level],
                       Vf.node_set,
                       map_vals.shape[1],
-                      map_vals, offset=offset)
-        self._map_cache[level] = map
+                      map_vals, offset=offset, parent=parent)
+        self._map_cache[key] = map
         return map
 
     def split(self):
