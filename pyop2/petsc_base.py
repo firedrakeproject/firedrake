@@ -52,6 +52,7 @@ import mpi
 from mpi import collective
 import sparsity
 from pyop2 import utils
+from backends import _make_object
 
 
 class DataSet(base.DataSet):
@@ -664,8 +665,6 @@ class Mat(base.Mat, CopyOnWrite):
 
         else:
             raise NotImplementedError("Mixed global matrices still to come.")
-
-        print "foo"
 
         self._handle = mat
         self._version_set_zero()
