@@ -149,6 +149,8 @@ def _solve_varproblem(*args, **kwargs):
     # Solve nonlinear variational problem
     else:
 
+        if eq.rhs != 0:
+            raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters,
@@ -246,29 +248,27 @@ def _extract_args(*args, **kwargs):
 
     # Extract equation
     if not len(args) >= 2:
-        raise RuntimeError("Missing arguments, expecting solve(lhs == rhs, u, \
-                           bcs=bcs), where bcs is optional")
+        raise TypeError("Missing arguments, expecting solve(lhs == rhs, u, bcs=bcs), where bcs is optional")
     if len(args) > 3:
-        raise RuntimeError("Too many arguments, expecting solve(lhs == rhs, \
-                           u, bcs=bcs), where bcs is optional")
+        raise TypeError("Too many arguments, expecting solve(lhs == rhs, u, bcs=bcs), where bcs is optional")
+
+    # Most argument checking happens in NonlinearVariationalProblem,
+    # since otherwise we have to repeat it here and in the direct
+    # constructor.
 
     # Extract equation
-    eq = _extract_eq(args[0])
+    # If we got here, args[0] must be an Equation (via solve call)
+    eq = args[0]
 
     # Extract solution function
-    u = _extract_u(args[1])
+    u = args[1]
 
     # Extract boundary conditions
     bcs = _extract_bcs(args[2] if len(args) > 2 else kwargs.get("bcs"))
 
     # Extract Jacobian
     J = kwargs.get("J", None)
-    if J is not None and not isinstance(J, ufl.Form):
-        raise RuntimeError("Expecting Jacobian J to be a UFL Form")
-
     Jp = kwargs.get("Jp", None)
-    if Jp is not None and not isinstance(Jp, ufl.Form):
-        raise RuntimeError("Expecting PC Jacobian Jp to be a UFL Form")
 
     # Extract functional
     M = kwargs.get("M", None)
@@ -286,25 +286,16 @@ def _extract_args(*args, **kwargs):
         solver_parameters, nullspace, options_prefix, nest
 
 
-def _extract_eq(eq):
-    "Extract and check argument eq"
-    if not isinstance(eq, ufl.classes.Equation):
-        raise RuntimeError("Expecting first argument to be an Equation")
-    return eq
-
-
-def _extract_u(u):
-    "Extract and check argument u"
-    if not isinstance(u, ufl.Coefficient):
-        raise RuntimeError("Expecting second argument to be a Coefficient")
-    return u
-
-
 def _extract_bcs(bcs):
     "Extract and check argument bcs"
+    from firedrake.bcs import DirichletBC
     if bcs is None:
-        return []
+        return ()
     try:
-        return tuple(bcs)
+        bcs = tuple(bcs)
     except TypeError:
-        return (bcs,)
+        bcs = (bcs,)
+    for bc in bcs:
+        if not isinstance(bc, DirichletBC):
+            raise TypeError("Provided boundary condition is a '%s', not a DirichletBC" % type(bc).__name__)
+    return bcs

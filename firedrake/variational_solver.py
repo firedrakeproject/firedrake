@@ -39,19 +39,34 @@ class NonlinearVariationalProblem(object):
                given by ``parameters["matnest"]``.
         """
         from firedrake import solving
-
-        # Extract and check arguments
-        u = solving._extract_u(u)
-        bcs = solving._extract_bcs(bcs)
+        from firedrake import function
 
         # Store input UFL forms and solution Function
         self.F = F
+        self.Jp = Jp
+        self.u = u
+        self.bcs = solving._extract_bcs(bcs)
+
+        # Argument checking
+        if not isinstance(self.F, ufl.Form):
+            raise TypeError("Provided residual is a '%s', not a Form" % type(self.F).__name__)
+        if len(self.F.arguments()) != 1:
+            raise ValueError("Provided residual is not a linear form")
+        if not isinstance(self.u, function.Function):
+            raise TypeError("Provided solution is a '%s', not a Function" % type(self.u).__name__)
+
         # Use the user-provided Jacobian. If none is provided, derive
         # the Jacobian from the residual.
         self.J = J or ufl_expr.derivative(F, u)
-        self.Jp = Jp
-        self.u = u
-        self.bcs = bcs
+
+        if not isinstance(self.J, ufl.Form):
+            raise TypeError("Provided Jacobian is a '%s', not a Form" % type(self.J).__name__)
+        if len(self.J.arguments()) != 2:
+            raise ValueError("Provided Jacobian is not a bilinear form")
+        if self.Jp is not None and not isinstance(self.Jp, ufl.Form):
+            raise TypeError("Provided preconditioner is a '%s', not a Form" % type(self.Jp).__name__)
+        if self.Jp is not None and len(self.Jp.arguments()) != 2:
+            raise ValueError("Provided preconditioner is not a bilinear form")
 
         self._nest = nest
         # Store form compiler parameters
@@ -202,9 +217,14 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  varying fields).  If your Jacobian can change, set
                  this flag to ``False``.
         """
-
         # In the linear case, the Jacobian is the equation LHS.
         J = a
+        # Jacobian is checked in superclass, but let's check L here.
+        if not isinstance(L, ufl.Form):
+            raise TypeError("Provided RHS is a '%s', not a Form" % type(L).__name__)
+        if len(L.arguments()) != 1:
+            raise ValueError("Provided RHS is not a linear form")
+
         F = ufl.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
