@@ -80,4 +80,4 @@ script:
   - cd firedrake
   - make lint
   - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
-  - if [ -n $TEST_ADJOINT ]; then python ../dolfin-adjoint/tests_firedrake/test.py; fi
+  - if [ "x$TEST_ADJOINT" != "x" ]; then python ../dolfin-adjoint/tests_firedrake/test.py; fi
