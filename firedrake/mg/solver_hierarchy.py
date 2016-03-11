@@ -57,6 +57,8 @@ def make_transfer(dmc, dmf, typ=None):
 
     fine_map = hierarchy.cell_node_map(level)
     coarse_map = V_c.cell_node_map()
+    # TODO: Would like to be able to use nest=False,
+    # Also, don't need off-diagonal blocks allocated
     sparsity = op2.Sparsity((V_f.dof_dset,
                              V_c.dof_dset),
                             (fine_map,
@@ -86,7 +88,7 @@ def make_transfer(dmc, dmf, typ=None):
         else:
             kernel = split[i]._inject_matrix
         op2.par_loop(kernel,
-                     V_c.mesh().cell_set,
+                     fine_map.iterset,
                      mat[i, i](op2.WRITE, (fine_map[op2.i[0]],
                                            coarse_map[op2.i[1]])))
     mat.assemble()
