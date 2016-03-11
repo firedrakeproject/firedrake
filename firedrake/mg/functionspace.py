@@ -68,7 +68,6 @@ class BaseHierarchy(object):
             self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
             self._inject_matrix = utils.get_injection_matrix_kernel(element, indices, self.dim)
             self._prolong_matrix = utils.get_prolongation_matrix_kernel(element, indices, self.dim)
-            self._restrict_matrix = utils.get_restriction_matrix_kernel(element, indices, self.dim)
         except:
             pass
 
@@ -79,6 +78,7 @@ class BaseHierarchy(object):
 
         for i, V in enumerate(self[:-1]):
             dm = V._dm
+            # Must only do this once.
             if dm.getAttr("__refined__") is not None:
                 continue
             dm.refine()

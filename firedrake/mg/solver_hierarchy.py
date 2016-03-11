@@ -2,6 +2,9 @@ from __future__ import absolute_import
 
 import weakref
 
+from functools import partial
+from pyop2 import op2
+
 import firedrake
 from firedrake.petsc import PETSc
 import firedrake.solving_utils
@@ -39,122 +42,60 @@ def coarsen_problem(problem):
     return new_problem
 
 
-def create_interpolation(dmc, dmf):
-    _, clvl = utils.get_level(dmc)
-    _, flvl = utils.get_level(dmf)
-
-    cctx = dmc.getAppCtx()
-    fctx = dmf.getAppCtx()
+def make_transfer(dmc, dmf, typ=None):
+    assert typ in ("interpolation", "injection")
+    hierarchy, level = utils.get_level(dmc)
 
     V_c = _fs_from_dm(dmc)
     V_f = _fs_from_dm(dmf)
 
-    nrow = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_f)
-    ncol = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_c)
-
-    cfn = firedrake.Function(V_c)
-    ffn = firedrake.Function(V_f)
-    cbcs = cctx._problems[clvl].bcs
-    fbcs = fctx._problems[flvl].bcs
-
-    if True:
-        return firedrake.prolong_matrix(cfn, ffn, cbcs, fbcs).handle, None
-    class Interpolation(object):
-        def __init__(self, cfn, ffn, cbcs=None, fbcs=None):
-            self.cfn = cfn
-            self.ffn = ffn
-            self.cbcs = cbcs or []
-            self.fbcs = fbcs or []
-
-        def mult(self, mat, x, y, inc=False):
-            with self.cfn.dat.vec as v:
-                x.copy(v)
-            firedrake.prolong(self.cfn, self.ffn)
-            for bc in self.fbcs:
-                bc.zero(self.ffn)
-            with self.ffn.dat.vec_ro as v:
-                if inc:
-                    y.axpy(1.0, v)
-                else:
-                    v.copy(y)
-
-        def multAdd(self, mat, x, y, w):
-            if y.handle == w.handle:
-                self.mult(mat, x, w, inc=True)
-            else:
-                self.mult(mat, x, w)
-                w.axpy(1.0, y)
-
-        def multTranspose(self, mat, x, y, inc=False):
-            with self.ffn.dat.vec as v:
-                x.copy(v)
-            firedrake.restrict(self.ffn, self.cfn)
-            for bc in self.cbcs:
-                bc.zero(self.cfn)
-            with self.cfn.dat.vec_ro as v:
-                if inc:
-                    y.axpy(1.0, v)
-                else:
-                    v.copy(y)
-
-        def multTransposeAdd(self, mat, x, y, w):
-            if y.handle == w.handle:
-                self.multTranspose(mat, x, w, inc=True)
-            else:
-                self.multTranspose(mat, x, w)
-                w.axpy(1.0, y)
-
-    ctx = Interpolation(cfn, ffn, cbcs, fbcs)
-    mat = PETSc.Mat().create()
-    mat.setSizes(((nrow, None), (ncol, None)))
-    mat.setType(mat.Type.PYTHON)
-    mat.setPythonContext(ctx)
-    mat.setUp()
-    return mat, None
-
-
-def create_injection(dmc, dmf):
-    _, clvl = utils.get_level(dmc)
-    _, flvl = utils.get_level(dmf)
-
     cctx = dmc.getAppCtx()
     fctx = dmf.getAppCtx()
 
-    V_c = _fs_from_dm(dmc)
-    V_f = _fs_from_dm(dmf)
+    cbcs = cctx._problems[level].bcs
+    fbcs = fctx._problems[level+1].bcs
 
-    nrow = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_f)
-    ncol = sum(x.dof_dset.size * x.dof_dset.cdim for x in V_c)
+    fine_map = hierarchy.cell_node_map(level)
+    coarse_map = V_c.cell_node_map()
+    sparsity = op2.Sparsity((V_f.dof_dset,
+                             V_c.dof_dset),
+                            (fine_map,
+                             coarse_map),
+                            "%s" % typ,
+                            nest=True)
+    mat = op2.Mat(sparsity, PETSc.ScalarType)
 
-    cfn = firedrake.Function(V_c)
-    ffn = firedrake.Function(V_f)
-    cbcs = cctx._problems[clvl].bcs
-    fbcs = fctx._problems[flvl].bcs
-
-    if True:
-        return firedrake.inject_matrix(ffn, cfn, cbcs, fbcs).handle
-    class Injection(object):
-        def __init__(self, cfn, ffn, cbcs=None):
-            self.cfn = cfn
-            self.ffn = ffn
-            self.cbcs = cbcs or []
-
-        def multTranspose(self, mat, x, y):
-            with self.ffn.dat.vec as v:
-                x.copy(v)
-            firedrake.inject(self.ffn, self.cfn)
-            for bc in self.cbcs:
-                bc.apply(self.cfn)
-            with self.cfn.dat.vec_ro as v:
-                v.copy(y)
-
-    ctx = Injection(cfn, ffn, cbcs)
-    mat = PETSc.Mat().create()
-    mat.setSizes(((nrow, None), (ncol, None)))
-    mat.setType(mat.Type.PYTHON)
-    mat.setPythonContext(ctx)
-    mat.setUp()
-    return mat
+    split = hierarchy.split()
+    for i in range(len(V_f)):
+        if mat.sparsity.shape > (1, 1):
+            fbcs_ = []
+            for bc in fbcs:
+                if bc.function_space().index == i:
+                    fbcs_.append(bc)
+            cbcs_ = []
+            for bc in cbcs:
+                if bc.function_space().index == i:
+                    cbcs_.append(bc)
+        else:
+            fbcs_ = fbcs
+            cbcs_ = cbcs
+        fine_map = split[i].cell_node_map(level, fbcs_)
+        coarse_map = V_c[i].cell_node_map(cbcs_)
+        if typ == "interpolation":
+            kernel = split[i]._prolong_matrix
+        else:
+            kernel = split[i]._inject_matrix
+        op2.par_loop(kernel,
+                     V_c.mesh().cell_set,
+                     mat[i, i](op2.WRITE, (fine_map[op2.i[0]],
+                                           coarse_map[op2.i[1]])))
+    mat.assemble()
+    mat._force_evaluation()
+    mat = mat.handle
+    if typ == "interpolation":
+        return mat, None
+    else:
+        return mat
 
 
 class NLVSHierarchy(object):
@@ -264,8 +205,8 @@ class NLVSHierarchy(object):
         for V in hierarchy[:-1]:
             dm = V._dm
             dm.setAppCtx(weakref.proxy(self.ctx))
-            dm.setCreateInterpolation(create_interpolation)
-            dm.setCreateInjection(create_injection)
+            dm.setCreateInterpolation(partial(make_transfer, typ="interpolation"))
+            dm.setCreateInjection(partial(make_transfer, typ="injection"))
             dm.setCreateMatrix(self.ctx.create_matrix)
 
         self.snes.setFromOptions()
