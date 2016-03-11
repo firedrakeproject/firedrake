@@ -78,11 +78,6 @@ install:
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
 # command to run tests
 script:
-  - cd firedrake/src/firedrake
-  - python setup.py build_ext --inplace
-  - cd ..
-  - pip install firedrake/
-  - cd firedrake
-  - make lint
-  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
-  - if [ "x$TEST_ADJOINT" != "x" ]; then python ../dolfin-adjoint/tests_firedrake/test.py; fi
+  - (cd firedrake/src/firedrake; make lint)
+  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v firedrake/src/firedrake/tests/${t} || rc=$?; done; exit $rc)
+  - if [ "x$TEST_ADJOINT" != "x" ]; then python firedrake/src/dolfin-adjoint/tests_firedrake/test.py; fi
