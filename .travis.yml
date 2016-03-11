@@ -38,6 +38,7 @@ env:
     # The install script expects to see this environment variable
     - CACHE_DIRECTORY=$HOME/cached_dependencies_$TRAVIS_OS_NAME
     - FIREDRAKE_TRAVIS_TESTS=1
+    - PACKAGE_MANAGER="--no-package-manager"
   matrix:
     - PYOP2_BACKEND=none
 matrix:
@@ -47,7 +48,7 @@ matrix:
     - os: osx
       # Only test a few things on OSX until we can cache some of the
       # build dependencies, otherwise we often get timeouts.
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE" PACKAGE_MANAGER=""
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - os: linux
@@ -64,7 +65,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --adjoint --no-package-manager
+  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --adjoint ${PACKAGE_MANAGER}
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update
