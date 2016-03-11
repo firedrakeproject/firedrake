@@ -256,19 +256,17 @@ class NLVSHierarchy(object):
     def solve(self):
         dm = self.snes.getDM()
 
-        nlevel = len(self.ctx._problems)
         dm.setAppCtx(weakref.proxy(self.ctx))
         dm.setCreateMatrix(self.ctx.create_matrix)
-        # FIXME: Need to set this up on the subDMs
-        for i in range(nlevel - 1, 0, -1):
-            dm = dm.coarsen()
-            dm.setAppCtx(weakref.proxy(self.ctx))
 
-        for i in range(nlevel - 1):
+        hierarchy, _ = utils.get_level(dm)
+        # FIXME: Need to set this up on the subDMs
+        for V in hierarchy[:-1]:
+            dm = V._dm
+            dm.setAppCtx(weakref.proxy(self.ctx))
             dm.setCreateInterpolation(create_interpolation)
             dm.setCreateInjection(create_injection)
             dm.setCreateMatrix(self.ctx.create_matrix)
-            dm = dm.refine()
 
         self.snes.setFromOptions()
 

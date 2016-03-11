@@ -77,6 +77,13 @@ class BaseHierarchy(object):
             dm.setCoarsen(coarsen)
             dm.setRefine(refine)
 
+        for i, V in enumerate(self[:-1]):
+            dm = V._dm
+            if dm.getAttr("__refined__") is not None:
+                continue
+            dm.refine()
+            dm.setAttr("__refined__", i)
+
     def __len__(self):
         """Return the size of this function space hierarchy"""
         return len(self._hierarchy)
@@ -261,6 +268,13 @@ class MixedFunctionSpaceHierarchy(object):
             dm = V._dm
             dm.setCoarsen(coarsen)
             dm.setRefine(refine)
+
+        for i, V in enumerate(self[:-1]):
+            dm = V._dm
+            if dm.getAttr("__refined__") is not None:
+                continue
+            dm.refine()
+            dm.setAttr("__refined__", i)
 
     def __mul__(self, other):
         """Create a :class:`MixedFunctionSpaceHierarchy`.
