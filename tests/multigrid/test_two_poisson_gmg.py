@@ -2,60 +2,66 @@ from firedrake import *
 import pytest
 
 
-def run_two_poisson(typ):
-    if typ == "mg":
-        parameters = {"snes_type": "ksponly",
-                      "ksp_type": "preonly",
-                      "pc_type": "mg",
-                      "pc_mg_type": "full",
-                      "mg_levels_ksp_type": "chebyshev",
-                      "mg_levels_ksp_max_it": 2,
-                      "mg_levels_pc_type": "fieldsplit",
-                      "mg_levels_pc_fieldsplit_type": "additive",
-                      "mg_levels_fieldsplit_pc_type": "jacobi",
-                      "mg_coarse_pc_type": "fieldsplit",
-                      "mg_coarse_pc_fieldsplit_type": "additive",
-                      "mg_coarse_fieldsplit_pc_type": "redundant",
-                      "mg_coarse_fieldsplit_redundant_pc_type": "lu",
-                      "mg_coarse_ksp_type": "preonly",
-                      "snes_convergence_test": "skip"}
-    elif typ == "splitmg":
-        parameters = {"snes_type": "ksponly",
-                      "ksp_type": "cg",
-                      "ksp_convergence_test": "skip",
-                      "ksp_max_it": 2,
-                      "pc_type": "fieldsplit",
-                      "pc_fieldsplit_type": "additive",
-                      "fieldsplit_ksp_type": "preonly",
-                      "fieldsplit_pc_type": "mg",
-                      "fieldsplit_mg_levels_ksp_type": "chebyshev",
-                      "fieldsplit_mg_levels_ksp_max_it": 2,
-                      "fieldsplit_mg_levels_pc_type": "jacobi",
-                      "snes_convergence_test": "skip"}
-    elif typ == "fas":
-        parameters = {"snes_type": "fas",
-                      "snes_fas_type": "full",
-                      "fas_coarse_snes_type": "newtonls",
-                      "fas_coarse_ksp_type": "preonly",
-                      "fas_coarse_pc_type": "fieldsplit",
-                      "fas_coarse_pc_fieldsplit_type": "additive",
-                      "fas_coarse_fieldsplit_pc_type": "redundant",
-                      "fas_coarse_fieldsplit_redundant_pc_type": "lu",
-                      "fas_coarse_snes_linesearch_type": "basic",
-                      "fas_levels_snes_type": "newtonls",
-                      "fas_levels_snes_linesearch_type": "basic",
-                      "fas_levels_snes_max_it": 1,
-                      "fas_levels_ksp_type": "chebyshev",
-                      "fas_levels_ksp_max_it": 2,
-                      "fas_levels_pc_type": "fieldsplit",
-                      "fas_levels_pc_fieldsplit_type": "additive",
-                      "fas_levels_fieldsplit_pc_type": "jacobi",
-                      "fas_levels_ksp_convergence_test": "skip",
-                      "snes_max_it": 1,
-                      "snes_convergence_test": "skip"}
+@pytest.fixture(params=["fas",
+                        pytest.mark.xfail(reason="Hierarchy information not propagated to sub-DMs")("splitmg"),
+                        "mg-rediscretise",
+                        pytest.mark.xfail(reason="Interpolation is a Nest")("mg-galerkin")])
+def parameters(request):
+    if request.param == "splitmg":
+        return {"snes_type": "ksponly",
+                "ksp_type": "cg",
+                "ksp_convergence_test": "skip",
+                "ksp_max_it": 2,
+                "pc_type": "fieldsplit",
+                "pc_fieldsplit_type": "additive",
+                "fieldsplit_ksp_type": "preonly",
+                "fieldsplit_pc_type": "mg",
+                "fieldsplit_mg_levels_ksp_type": "chebyshev",
+                "fieldsplit_mg_levels_ksp_max_it": 2,
+                "fieldsplit_mg_levels_pc_type": "jacobi",
+                "snes_convergence_test": "skip"}
+    elif request.param == "fas":
+        return {"snes_type": "fas",
+                "snes_fas_type": "full",
+                "fas_coarse_snes_type": "newtonls",
+                "fas_coarse_ksp_type": "preonly",
+                "fas_coarse_pc_type": "fieldsplit",
+                "fas_coarse_pc_fieldsplit_type": "additive",
+                "fas_coarse_fieldsplit_pc_type": "redundant",
+                "fas_coarse_fieldsplit_redundant_pc_type": "lu",
+                "fas_coarse_snes_linesearch_type": "basic",
+                "fas_levels_snes_type": "newtonls",
+                "fas_levels_snes_linesearch_type": "basic",
+                "fas_levels_snes_max_it": 1,
+                "fas_levels_ksp_type": "chebyshev",
+                "fas_levels_ksp_max_it": 2,
+                "fas_levels_pc_type": "fieldsplit",
+                "fas_levels_pc_fieldsplit_type": "additive",
+                "fas_levels_fieldsplit_pc_type": "jacobi",
+                "fas_levels_ksp_convergence_test": "skip",
+                "snes_max_it": 1,
+                "snes_convergence_test": "skip"}
     else:
-        raise RuntimeError("Unknown parameter set '%s' request", typ)
+        return {"snes_type": "ksponly",
+                "ksp_type": "preonly",
+                "pc_type": "mg",
+                "pc_mg_type": "full",
+                "pc_mg_galerkin": {"mg-rediscretise": False,
+                                   "mg-galerkin": True}[request.param],
+                "mg_levels_ksp_type": "chebyshev",
+                "mg_levels_ksp_max_it": 2,
+                "mg_levels_pc_type": "fieldsplit",
+                "mg_levels_pc_fieldsplit_type": "additive",
+                "mg_levels_fieldsplit_pc_type": "jacobi",
+                "mg_coarse_pc_type": "fieldsplit",
+                "mg_coarse_pc_fieldsplit_type": "additive",
+                "mg_coarse_fieldsplit_pc_type": "redundant",
+                "mg_coarse_fieldsplit_redundant_pc_type": "lu",
+                "mg_coarse_ksp_type": "preonly",
+                "snes_convergence_test": "skip"}
 
+
+def run_two_poisson(parameters):
     mesh = UnitSquareMesh(10, 10)
 
     nlevel = 2
@@ -97,34 +103,14 @@ def run_two_poisson(typ):
     return norm(assemble(exact_P2 - sol_P2)), norm(assemble(exact_P1 - sol_P1))
 
 
-@pytest.mark.parametrize("typ",
-                         ["mg",
-                          pytest.mark.xfail(reason="Hierarchy information not propagated to sub-DMs")("splitmg"),
-                          "fas"])
-def test_two_poisson_gmg(typ):
-    P2, P1 = run_two_poisson(typ)
+def test_two_poisson_gmg(parameters):
+    P2, P1 = run_two_poisson(parameters)
     assert P2 < 4e-6
     assert P1 < 1e-3
 
 
-@pytest.mark.parallel
-def test_two_poisson_gmg_parallel_mg():
-    P2, P1 = run_two_poisson("mg")
-    assert P2 < 4e-6
-    assert P1 < 1e-3
-
-
-@pytest.mark.xfail(reason="Hierarchy information not propagated to sub-DMs")
-@pytest.mark.parallel
-def test_two_poisson_gmg_parallel_splitmg():
-    P2, P1 = run_two_poisson("splitmg")
-    assert P2 < 4e-6
-    assert P1 < 1e-3
-
-
-@pytest.mark.parallel
-def test_two_poisson_gmg_parallel_fas():
-    P2, P1 = run_two_poisson("fas")
+def test_two_poisson_gmg_parallel(parameters):
+    P2, P1 = run_two_poisson(parameters)
     assert P2 < 4e-6
     assert P1 < 1e-3
 

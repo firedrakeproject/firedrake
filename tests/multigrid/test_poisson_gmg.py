@@ -2,59 +2,62 @@ from firedrake import *
 import pytest
 
 
-def run_poisson(typ):
-    if typ == "mg":
-        parameters = {"snes_type": "ksponly",
-                      "ksp_type": "preonly",
-                      "pc_type": "mg",
-                      "pc_mg_type": "full",
-                      "mg_levels_ksp_type": "chebyshev",
-                      "mg_levels_ksp_max_it": 2,
-                      "mg_levels_pc_type": "jacobi",
-                      "snes_convergence_test": "skip"}
-    elif typ == "fas":
-        parameters = {"snes_type": "fas",
-                      "snes_fas_type": "full",
-                      "fas_coarse_snes_type": "newtonls",
-                      "fas_coarse_ksp_type": "preonly",
-                      "fas_coarse_pc_type": "redundant",
-                      "fas_coarse_redundant_pc_type": "lu",
-                      "fas_coarse_snes_linesearch_type": "basic",
-                      "fas_levels_snes_type": "newtonls",
-                      "fas_levels_snes_linesearch_type": "basic",
-                      "fas_levels_snes_max_it": 1,
-                      "fas_levels_ksp_type": "chebyshev",
-                      "fas_levels_ksp_max_it": 2,
-                      "fas_levels_pc_type": "jacobi",
-                      "fas_levels_ksp_convergence_test": "skip",
-                      "snes_max_it": 1,
-                      "snes_convergence_test": "skip"}
-    elif typ == "newtonfas":
-        parameters = {"snes_type": "newtonls",
-                      "ksp_type": "preonly",
-                      "pc_type": "none",
-                      "snes_linesearch_type": "l2",
-                      "snes_max_it": 1,
-                      "snes_convergence_test": "skip",
-                      "npc_snes_type": "fas",
-                      "npc_snes_fas_type": "full",
-                      "npc_fas_coarse_snes_type": "newtonls",
-                      "npc_fas_coarse_ksp_type": "preonly",
-                      "npc_fas_coarse_pc_type": "redundant",
-                      "npc_fas_coarse_redundant_pc_type": "lu",
-                      "npc_fas_coarse_snes_linesearch_type": "basic",
-                      "npc_fas_levels_snes_type": "newtonls",
-                      "npc_fas_levels_snes_linesearch_type": "basic",
-                      "npc_fas_levels_snes_max_it": 1,
-                      "npc_fas_levels_ksp_type": "chebyshev",
-                      "npc_fas_levels_ksp_max_it": 2,
-                      "npc_fas_levels_pc_type": "jacobi",
-                      "npc_fas_levels_ksp_convergence_test": "skip",
-                      "npc_snes_max_it": 1,
-                      "npc_snes_convergence_test": "skip"}
+@pytest.fixture(params=["fas", "newtonfas", "mg-rediscretise", "mg-galerkin"])
+def parameters(request):
+    if request.param == "fas":
+        return {"snes_type": "fas",
+                "snes_fas_type": "full",
+                "fas_coarse_snes_type": "newtonls",
+                "fas_coarse_ksp_type": "preonly",
+                "fas_coarse_pc_type": "redundant",
+                "fas_coarse_redundant_pc_type": "lu",
+                "fas_coarse_snes_linesearch_type": "basic",
+                "fas_levels_snes_type": "newtonls",
+                "fas_levels_snes_linesearch_type": "basic",
+                "fas_levels_snes_max_it": 1,
+                "fas_levels_ksp_type": "chebyshev",
+                "fas_levels_ksp_max_it": 2,
+                "fas_levels_pc_type": "jacobi",
+                "fas_levels_ksp_convergence_test": "skip",
+                "snes_max_it": 1,
+                "snes_convergence_test": "skip"}
+    elif request.param == "newtonfas":
+        return {"snes_type": "newtonls",
+                "ksp_type": "preonly",
+                "pc_type": "none",
+                "snes_linesearch_type": "l2",
+                "snes_max_it": 1,
+                "snes_convergence_test": "skip",
+                "npc_snes_type": "fas",
+                "npc_snes_fas_type": "full",
+                "npc_fas_coarse_snes_type": "newtonls",
+                "npc_fas_coarse_ksp_type": "preonly",
+                "npc_fas_coarse_pc_type": "redundant",
+                "npc_fas_coarse_redundant_pc_type": "lu",
+                "npc_fas_coarse_snes_linesearch_type": "basic",
+                "npc_fas_levels_snes_type": "newtonls",
+                "npc_fas_levels_snes_linesearch_type": "basic",
+                "npc_fas_levels_snes_max_it": 1,
+                "npc_fas_levels_ksp_type": "chebyshev",
+                "npc_fas_levels_ksp_max_it": 2,
+                "npc_fas_levels_pc_type": "jacobi",
+                "npc_fas_levels_ksp_convergence_test": "skip",
+                "npc_snes_max_it": 1,
+                "npc_snes_convergence_test": "skip"}
     else:
-        raise RuntimeError("Unknown parameter set '%s' request", typ)
+        return {"snes_type": "ksponly",
+                "ksp_type": "preonly",
+                "pc_type": "mg",
+                "pc_mg_galerkin": {"mg-rediscretise": False,
+                                   "mg-galerkin": True}[request.param],
+                "pc_mg_type": "full",
+                "mg_levels_ksp_type": "chebyshev",
+                "mg_levels_ksp_max_it": 2,
+                "mg_levels_pc_type": "jacobi",
+                "snes_convergence_test": "skip"}
 
+
+def run_poisson(parameters):
     mesh = UnitSquareMesh(10, 10)
 
     nlevel = 2
@@ -88,25 +91,13 @@ def run_poisson(typ):
     return norm(assemble(exact - u_))
 
 
-@pytest.mark.parametrize("typ",
-                         ["mg", "fas", "newtonfas"])
-def test_poisson_gmg(typ):
-    assert run_poisson(typ) < 4e-6
+def test_poisson_gmg(parameters):
+    assert run_poisson(parameters) < 4e-6
 
 
 @pytest.mark.parallel
-def test_poisson_gmg_parallel_mg():
-    assert run_poisson("mg") < 4e-6
-
-
-@pytest.mark.parallel
-def test_poisson_gmg_parallel_fas():
-    assert run_poisson("fas") < 4e-6
-
-
-@pytest.mark.parallel
-def test_poisson_gmg_parallel_newtonfas():
-    assert run_poisson("newtonfas") < 4e-6
+def test_poisson_gmg_parallel(parameters):
+    assert run_poisson(parameters) < 4e-6
 
 
 if __name__ == "__main__":
