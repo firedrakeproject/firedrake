@@ -1,10 +1,10 @@
 import numpy as np
 import pytest
 from firedrake import *
-from tests.common import *
 
 
-def test_project(mesh):
+def test_project():
+    mesh = UnitSquareMesh(5, 5)
     U = FunctionSpace(mesh, "RT", 1)
     V = FunctionSpace(mesh, "N1curl", 1)
     W = U*V

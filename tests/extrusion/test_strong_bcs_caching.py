@@ -1,11 +1,10 @@
-from tests.common import extmesh
 import numpy as np
 import pytest
 from firedrake import *
 
 
 @pytest.mark.parametrize("method", ["topological", "geometric"])
-def test_extrusion_strong_bcs_caching(method):
+def test_extrusion_strong_bcs_caching(extmesh, method):
     m = extmesh(1, 1, 1)
 
     V = FunctionSpace(m, "CG", 1)

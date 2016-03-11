@@ -1,5 +1,4 @@
 import pytest
-from tests.common import longtest
 from firedrake import *
 import numpy as np
 
@@ -43,7 +42,7 @@ def run_hdiv_l2(MeshClass, refinement, hdiv_space, degree):
     return L2_error_u, h, assemble(u*dx)
 
 
-@longtest
+@pytest.mark.longtest
 @pytest.mark.parametrize(('MeshClass', 'hdiv_space', 'degree', 'refinement', 'conv_order'),
                          [(UnitIcosahedralSphereMesh, 'RT', 1, (1, 4), 0.75),
                           (UnitIcosahedralSphereMesh, 'BDM', 1, (1, 4), 0.8),

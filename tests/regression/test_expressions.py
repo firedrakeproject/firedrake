@@ -8,44 +8,51 @@ import numpy as np
 import ufl  # noqa: used in eval'd expressions
 
 from firedrake import *
-from tests.common import *
 
 
-@pytest.fixture(scope='module', params=['cg1', 'cg1cg1[0]', 'cg1cg1[1]',
-                                        'cg1vcg1[0]', 'cg1dg0[0]', 'cg1dg0[1]',
-                                        'cg2dg1[0]', 'cg2dg1[1]'])
-def sfs(request, cg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
-    """A parametrized fixture for scalar function spaces."""
-    return {'cg1': cg1,
-            'cg1cg1[0]': cg1cg1[0],
-            'cg1cg1[1]': cg1cg1[1],
-            'cg1vcg1[0]': cg1vcg1[0],
-            'cg1dg0[0]': cg1dg0[0],
-            'cg1dg0[1]': cg1dg0[1],
-            'cg2dg1[0]': cg2dg1[0],
-            'cg2dg1[1]': cg2dg1[1]}[request.param]
+@pytest.fixture(scope='module')
+def mesh():
+    return UnitSquareMesh(5, 5)
 
 
-@pytest.fixture(scope='module', params=['vcg1', 'cg1vcg1[1]'])
-def vfs(request, vcg1, cg1vcg1):
-    """A parametrized fixture for vector function spaces."""
-    return {'vcg1': vcg1,
-            'cg1vcg1[1]': cg1vcg1[1]}[request.param]
+@pytest.fixture(scope='module')
+def cg1(mesh):
+    return FunctionSpace(mesh, "CG", 1)
 
 
-@pytest.fixture(scope='module', params=['tcg1'])
-def tfs(request, tcg1):
-    """A parametrized fixture for tensor function spaces."""
-    return {'tcg1': tcg1}[request.param]
+@pytest.fixture(scope='module')
+def cg2(mesh):
+    return FunctionSpace(mesh, "CG", 2)
 
 
-@pytest.fixture(scope='module', params=['cg1cg1', 'cg1vcg1', 'cg1dg0', 'cg2dg1'])
-def mfs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
+@pytest.fixture(scope='module')
+def dg0(mesh):
+    return FunctionSpace(mesh, "DG", 0)
+
+
+@pytest.fixture(scope='module')
+def vcg1(mesh):
+    return VectorFunctionSpace(mesh, "CG", 1)
+
+
+@pytest.fixture(scope='module')
+def tcg1(mesh):
+    return TensorFunctionSpace(mesh, "CG", 1)
+
+
+@pytest.fixture(scope='module', params=['cg1cg1', 'cg1vcg1', 'cg2dg0'])
+def mfs(request, cg1, cg2, vcg1, dg0):
     """A parametrized fixture for mixed function spaces."""
-    return {'cg1cg1': cg1cg1,
-            'cg1vcg1': cg1vcg1,
-            'cg1dg0': cg1dg0,
-            'cg2dg1': cg2dg1}[request.param]
+    return {'cg1cg1': cg1*cg1,
+            'cg1vcg1': cg1*vcg1,
+            'cg2dg0': cg2*dg0}[request.param]
+
+
+@pytest.fixture(scope='module', params=["cg1", "dg0"])
+def sfs(request, cg1, dg0):
+    """A parametrized fixture for scalar function spaces."""
+    return {"cg1": cg1,
+            "dg0": dg0}[request.param]
 
 
 def func_factory(fs):
@@ -62,13 +69,13 @@ def functions(request, sfs):
 
 
 @pytest.fixture()
-def vfunctions(request, vfs):
-    return func_factory(vfs)
+def vfunctions(request, vcg1):
+    return func_factory(vcg1)
 
 
 @pytest.fixture()
-def tfunctions(request, tfs):
-    return func_factory(tfs)
+def tfunctions(request, tcg1):
+    return func_factory(tcg1)
 
 
 @pytest.fixture()

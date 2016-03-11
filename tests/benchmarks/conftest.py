@@ -7,3 +7,21 @@ def benchmark(pytestconfig, request):
     if bench_plugin is not None:
         return bench_plugin.benchmark(request)
     return lambda request: pytest.skip("pytest-benchmark plugin not installed")
+
+
+def pytest_runtest_setup(item):
+    """Ensure that the assembly cache and lazy evaluation are off for tests."""
+    from firedrake import parameters
+    from functools import partial
+
+    def _reset(cache, lazy):
+        parameters["assembly_cache"]["enabled"] = cache
+        parameters["pyop2_options"]["lazy_evaluation"] = lazy
+
+    # Reset to default values after running the test item.
+    item.addfinalizer(partial(_reset,
+                              parameters["assembly_cache"]["enabled"],
+                              parameters["pyop2_options"]["lazy_evaluation"]))
+
+    parameters["assembly_cache"]["enabled"] = False
+    parameters["pyop2_options"]["lazy_evaluation"] = False

@@ -3,13 +3,12 @@ import numpy as np
 import pytest
 
 from firedrake import *
-from tests.common import *
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
                          [(("CG", 1), 1.5), (("CG", 2), 2.6),
                           (("DG", 0), 0.9), (("DG", 1), 1.7)])
-def test_scalar_convergence(testcase, convrate):
+def test_scalar_convergence(extmesh, testcase, convrate):
     family, degree = testcase
     l2err = np.zeros(2)
     for ii in range(len(l2err)):
@@ -43,7 +42,7 @@ def test_scalar_convergence(testcase, convrate):
                           (("N2curl", 2, "DG", 2, "h"), 2.85),
                           (("DG", 1, "CG", 1, "v"), 1.84),
                           (("DG", 2, "CG", 2, "v"), 2.98)])
-def test_hdiv_convergence(testcase, convrate):
+def test_hdiv_convergence(extmesh, testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, orientation = testcase
     l2err = np.zeros(2)
     for ii in range(len(l2err)):
@@ -83,7 +82,7 @@ def test_hdiv_convergence(testcase, convrate):
                           (("N2curl", 2, "CG", 2, "h"), 2.9),
                           (("CG", 1, "DG", 1, "v"), 1.6),
                           (("CG", 2, "DG", 2, "v"), 2.7)])
-def test_hcurl_convergence(testcase, convrate):
+def test_hcurl_convergence(extmesh, testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, orientation = testcase
     l2err = np.zeros(2)
     for ii in range(len(l2err)):

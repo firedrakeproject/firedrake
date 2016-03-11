@@ -1,6 +1,5 @@
 import pytest
 from firedrake import *
-from tests.common import *
 
 
 @pytest.fixture
