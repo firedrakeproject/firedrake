@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import ufl
 import firedrake.function as function
+import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
 from firedrake.petsc import PETSc
 from firedrake.utils import cached_property
@@ -45,6 +46,11 @@ class LinearSolver(object):
             self._opt_prefix = "firedrake_ksp_%d_" % LinearSolver._id
             self._auto_prefix = True
             LinearSolver._id += 1
+
+        if not isinstance(A, matrix.Matrix):
+            raise TypeError("Provided operator is a '%s', not a Matrix" % type(A).__name__)
+        if P is not None and not isinstance(P, matrix.Matrix):
+            raise TypeError("Provided preconditioner is a '%s', not a Matrix" % type(P).__name__)
 
         self.A = A
         self.P = P if P is not None else A
@@ -120,6 +126,11 @@ class LinearSolver(object):
             delattr(self, '_opt_prefix')
 
     def solve(self, x, b):
+        if not isinstance(x, function.Function):
+            raise TypeError("Provided solution is a '%s', not a Function" % type(x).__name__)
+        if not isinstance(b, function.Function):
+            raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
+
         if len(self._W) > 1 and self.nullspace is not None:
             self.nullspace._apply(self._W.dof_dset.field_ises)
         # User may have updated parameters
