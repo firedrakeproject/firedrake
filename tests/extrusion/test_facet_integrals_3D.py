@@ -2,19 +2,21 @@
 import pytest
 
 from firedrake import *
-from tests.common import *
 
 
-@pytest.fixture(scope='module', params=[1, 2])
-def f(request):
-    mesh = extmesh(4, 4, 4)
+@pytest.fixture(scope="module")
+def mesh(extmesh):
+    return extmesh(4, 4, 4)
+
+
+@pytest.fixture(scope="module", params=[1, 2])
+def f(mesh, request):
     fspace = FunctionSpace(mesh, "CG", request.param)
     return Function(fspace)
 
 
-@pytest.fixture(scope='module')
-def RT2():
-    mesh = extmesh(4, 4, 4)
+@pytest.fixture(scope="module")
+def RT2(mesh):
     U1 = FiniteElement("RT", "triangle", 2)
     U2 = FiniteElement("DG", "triangle", 1)
     V0 = FiniteElement("CG", "interval", 2)

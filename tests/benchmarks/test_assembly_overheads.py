@@ -1,9 +1,7 @@
 from firedrake import *
-from tests.common import disable_cache_lazy
 import pytest
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("fresh_form",
                          [False, True],
@@ -31,7 +29,6 @@ def test_assemble_residual(fresh_tensor, fresh_form, benchmark):
     benchmark(lambda: call())
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("fresh_form",
                          [False, True],
@@ -59,7 +56,6 @@ def test_assemble_mass(fresh_tensor, fresh_form, benchmark):
     benchmark(lambda: call())
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("fresh_tensor",
                          [False, True],
@@ -81,7 +77,6 @@ def test_assemble_mass_with_bcs(fresh_tensor, benchmark):
     benchmark(lambda: call())
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("nspaces", range(2, 6))
 @pytest.mark.parametrize("fresh_tensor",
@@ -103,7 +98,6 @@ def test_assemble_mixed_mass(fresh_tensor, nspaces, benchmark):
     benchmark(lambda: call())
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 def test_dat_zero(benchmark):
     m = UnitTriangleMesh()
@@ -112,7 +106,6 @@ def test_dat_zero(benchmark):
     benchmark(lambda: f.dat.zero())
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 def test_assign_zero(benchmark):
     m = UnitTriangleMesh()
@@ -121,7 +114,6 @@ def test_assign_zero(benchmark):
     benchmark(lambda: f.assign(0))
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 def test_assign_function(benchmark):
     m = UnitTriangleMesh()
@@ -131,7 +123,6 @@ def test_assign_function(benchmark):
     benchmark(lambda: f.assign(g))
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("fresh_expr",
                          [False, True],
@@ -149,7 +140,6 @@ def test_assign_complicated(fresh_expr, benchmark):
     benchmark(lambda: f.assign(expr()))
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("val",
                          [lambda V: Constant(0),

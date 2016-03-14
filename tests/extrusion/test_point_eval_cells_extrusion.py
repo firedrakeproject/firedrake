@@ -3,7 +3,6 @@ import numpy as np
 import pytest
 
 from firedrake import *
-from tests.common import longtest
 
 cwd = abspath(dirname(__file__))
 
@@ -23,8 +22,8 @@ def mesh2d(request):
                         ('dg', False),
                         pytest.mark.xfail(('dg', True)),
                         # TODO: generate mesh from .geo file
-                        longtest(('file', '../t11_tria.msh')),
-                        longtest(('file', '../t11_quad.msh'))])
+                        pytest.mark.longtest(('file', '../t11_tria.msh')),
+                        pytest.mark.longtest(('file', '../t11_quad.msh'))])
 def mesh3d(request):
     if request.param[0] == 'cg':
         m = UnitSquareMesh(12, 12, quadrilateral=request.param[1])

@@ -61,6 +61,10 @@ before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
   - pip install -U --user pip
   - pip install -U --user virtualenv
+  # Fail fast on lint errors
+  - pip install -U --user flake8
+  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then export PATH=$PATH:$HOME/Library/Python/2.7/bin; fi
+  - make lint
 install:
   - export CC=mpicc
   - mkdir tmp
@@ -74,11 +78,6 @@ install:
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
 # command to run tests
 script:
-  - cd firedrake/src/firedrake
-  - python setup.py build_ext --inplace
-  - cd ..
-  - pip install firedrake/
-  - cd firedrake
-  - make lint
-  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
-  - if [ "x$TEST_ADJOINT" != "x" ]; then python ../dolfin-adjoint/tests_firedrake/test.py; fi
+  - (cd firedrake/src/firedrake; make lint)
+  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v firedrake/src/firedrake/tests/${t} || rc=$?; done; exit $rc)
+  - if [ "x$TEST_ADJOINT" != "x" ]; then python firedrake/src/dolfin-adjoint/tests_firedrake/test.py; fi

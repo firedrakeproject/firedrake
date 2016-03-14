@@ -3,7 +3,6 @@ import numpy as np
 import pytest
 
 from firedrake import *
-from tests.common import *
 
 
 @pytest.mark.parametrize(('testcase', 'convrate'),
@@ -15,7 +14,7 @@ from tests.common import *
                           (("BDFM", 2, "DG", 0, "h", "DG", 1, (2, 4)), 1.55),
                           (("DG", 0, "CG", 1, "v", "DG", 0, (2, 5)), 0.9),
                           (("DG", 0, "CG", 2, "v", "DG", 1, (2, 5)), 1.9)])
-def test_scalar_convergence(testcase, convrate):
+def test_scalar_convergence(extmesh, testcase, convrate):
     hfamily, hdegree, vfamily, vdegree, ori, altfamily, altdegree, (start, end) = testcase
     l2err = np.zeros(end - start)
     for ii in [i + start for i in range(len(l2err))]:
