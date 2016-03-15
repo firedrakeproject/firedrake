@@ -121,6 +121,7 @@ def handle(ops, push, decref, node):
         # Indexing always inlined
         decref(node.children[0])
     elif isinstance(node, gem.IndexSum):
+        ops.append(impero.Noop(node))
         push(impero.Accumulate(node))
     elif isinstance(node, gem.Node):
         ops.append(impero.Evaluate(node))
