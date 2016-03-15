@@ -82,6 +82,20 @@ class Accumulate(Terminal):
         return free_indices(self.indexsum.children[0])
 
 
+class Noop(Terminal):
+    """No-op terminal. Does not generate code, but wraps a GEM
+    expression to have a loop shape, thus affects loop fusion."""
+
+    __slots__ = ('expression',)
+    __front__ = ('expression',)
+
+    def __init__(self, expression):
+        self.expression = expression
+
+    def loop_shape(self, free_indices):
+        return free_indices(self.expression)
+
+
 class Return(Terminal):
     """Save value of GEM expression into an lvalue. Used to "return"
     values from a kernel."""

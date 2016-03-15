@@ -88,14 +88,10 @@ def collect_temporaries(ops):
         # IndexSum temporaries should be added either at Initialise or
         # at Accumulate.  The difference is only in ordering
         # (numbering).  We chose Accumulate here.
-        if isinstance(op, (imp.Initialise, imp.Return, imp.ReturnAccumulate)):
-            pass
-        elif isinstance(op, imp.Accumulate):
+        if isinstance(op, imp.Accumulate):
             result.append(op.indexsum)
         elif isinstance(op, imp.Evaluate):
             result.append(op.expression)
-        else:
-            raise AssertionError("unhandled operation: %s" % type(op))
     return result
 
 
@@ -117,6 +113,8 @@ def make_loop_tree(ops, get_indices, level=0):
             statements.append(imp.For(first_index[0], inner_block))
         else:
             statements.extend(op_group)
+    # Remove no-op terminals from the tree
+    statements = filter(lambda s: not isinstance(s, imp.Noop), statements)
     return imp.Block(statements)
 
 
@@ -130,7 +128,6 @@ def place_declarations(ops, tree, temporaries, get_indices):
     :arg get_indices: callable mapping from GEM nodes to an ordering
                       of free indices
     """
-
     temporaries_set = set(temporaries)
     assert len(temporaries_set) == len(temporaries)
 
@@ -206,10 +203,8 @@ def place_declarations(ops, tree, temporaries, get_indices):
             e = op.expression
         elif isinstance(op, imp.Initialise):
             e = op.indexsum
-        elif isinstance(op, (imp.Accumulate, imp.Return, imp.ReturnAccumulate)):
-            continue
         else:
-            raise AssertionError("unhandled operation type %s" % type(op))
+            continue
 
         if len(indices[e]) == 0:
             declare[op] = True
@@ -257,6 +252,8 @@ def temp_refcount(temporaries, op):
         recurse(op.expression)
     elif isinstance(op, imp.ReturnAccumulate):
         recurse(op.indexsum.children[0])
+    elif isinstance(op, imp.Noop):
+        pass
     else:
         raise AssertionError("unhandled operation: %s" % type(op))
 
