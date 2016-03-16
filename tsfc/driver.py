@@ -102,7 +102,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
     kernel.coefficient_numbers = tuple(coefficient_numbers)
 
-    nonfem_ = []
+    expressions = []
     quadrature_indices = []
     cell = integral_data.domain.ufl_cell()
     # Map from UFL FiniteElement objects to Index instances.  This is
@@ -130,23 +130,20 @@ def compile_integral(integral_data, form_data, prefix, parameters):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
                              type(quad_rule))
 
-        tabulation_manager = fem.TabulationManager(integral_type, cell,
-                                                   quad_rule.points)
-
         integrand = fem.replace_coordinates(integral.integrand(), coordinates)
-        quadrature_index = gem.Index(name="ip%d" % i)
+        expression, quadrature_index = fem.process(integral_type,
+                                                   cell, quad_rule,
+                                                   integrand,
+                                                   interface,
+                                                   index_cache)
         quadrature_indices.append(quadrature_index)
-        nonfem = fem.process(integral_type, integrand,
-                             tabulation_manager, quad_rule.weights,
-                             quadrature_index, interface.argument_indices(),  # TODO
-                             interface.coefficients, index_cache)  # TODO
         if parameters["unroll_indexsum"]:
-            nonfem = opt.unroll_indexsum(nonfem, max_extent=parameters["unroll_indexsum"])
-        nonfem_.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
-                        for e in nonfem])
+            expression = opt.unroll_indexsum(expression, max_extent=parameters["unroll_indexsum"])
+        expressions.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
+                            for e in expression])
 
     # Sum the expressions that are part of the same restriction
-    nonfem = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*nonfem_))
+    expression = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*expressions))
 
     index_names = zip(interface.argument_indices(), ['j', 'k'])  # TODO
     if len(quadrature_indices) == 1:
@@ -155,7 +152,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body, kernel.oriented = build_kernel_body(interface.return_variables, nonfem,  # TODO
+    body, kernel.oriented = build_kernel_body(interface.return_variables, expression,  # TODO
                                               quadrature_indices + list(interface.argument_indices()),  # TODO
                                               coffee_licm=parameters["coffee_licm"],
                                               index_names=index_names)

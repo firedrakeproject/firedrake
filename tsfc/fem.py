@@ -383,17 +383,15 @@ class TabulationManager(object):
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     """Contains all the context necessary to translate UFL into GEM."""
 
-    def __init__(self, weights, quadrature_index, argument_indices, tabulation_manager,
-                 coefficient_map, index_cache):
+    def __init__(self, tabulation_manager, weights, quadrature_index, interface, index_cache):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
         integral_type = tabulation_manager.integral_type
         self.weights = gem.Literal(weights)
         self.quadrature_index = quadrature_index
-        self.argument_indices = argument_indices
         self.tabulation_manager = tabulation_manager
         self.integral_type = integral_type
-        self.coefficient_map = coefficient_map
+        self.interface = interface
         self.index_cache = index_cache
 
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
@@ -495,7 +493,7 @@ def _(terminal, mt, params):
 
 @translate.register(Argument)  # noqa: Not actually redefinition
 def _(terminal, mt, params):
-    argument_index = params.argument_indices[terminal.number()]
+    argument_index = params.interface.argument_indices()[terminal.number()]
 
     def callback(key):
         table = params.tabulation_manager[key]
@@ -512,7 +510,7 @@ def _(terminal, mt, params):
 
 @translate.register(Coefficient)  # noqa: Not actually redefinition
 def _(terminal, mt, params):
-    kernel_arg = params.coefficient_map[terminal]
+    kernel_arg = params.interface.gem(terminal)
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0
@@ -552,8 +550,7 @@ def replace_coordinates(integrand, coordinate_coefficient):
     return map_expr_dag(ReplaceSpatialCoordinates(coordinate_coefficient), integrand)
 
 
-def process(integral_type, integrand, tabulation_manager, quadrature_weights, quadrature_index,
-            argument_indices, coefficient_map, index_cache):
+def process(integral_type, cell, quadrature_rule, integrand, interface, index_cache):
     # Abs-simplification
     integrand = simplify_abs(integrand)
 
@@ -570,20 +567,22 @@ def process(integral_type, integrand, tabulation_manager, quadrature_weights, qu
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
+    tabulation_manager = TabulationManager(integral_type, cell, quadrature_rule.points)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
 
     if integral_type.startswith("interior_facet"):
         expressions = []
-        for rs in itertools.product(("+", "-"), repeat=len(argument_indices)):
+        for rs in itertools.product(("+", "-"), repeat=len(interface.argument_indices())):
             expressions.append(map_expr_dag(PickRestriction(*rs), integrand))
     else:
         expressions = [integrand]
 
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
-    translator = Translator(quadrature_weights, quadrature_index,
-                            argument_indices, tabulation_manager,
-                            coefficient_map, index_cache)
-    return map_expr_dags(translator, expressions)
+    quadrature_index = gem.Index(name='ip')
+    translator = Translator(tabulation_manager,
+                            quadrature_rule.weights, quadrature_index,
+                            interface, index_cache)
+    return map_expr_dags(translator, expressions), quadrature_index
