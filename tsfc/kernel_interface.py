@@ -12,29 +12,6 @@ from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE
 
 
-class Kernel(object):
-    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
-                 "coefficient_numbers", "__weakref__")
-    """A compiled Kernel object.
-
-    :kwarg ast: The COFFEE ast for the kernel.
-    :kwarg integral_type: The type of integral.
-    :kwarg oriented: Does the kernel require cell_orientations.
-    :kwarg subdomain_id: What is the subdomain id for this kernel.
-    :kwarg coefficient_numbers: A list of which coefficients from the
-        form the kernel needs.
-    """
-    def __init__(self, ast=None, integral_type=None, oriented=False,
-                 subdomain_id=None, coefficient_numbers=()):
-        # Defaults
-        self.ast = ast
-        self.integral_type = integral_type
-        self.oriented = oriented
-        self.subdomain_id = subdomain_id
-        self.coefficient_numbers = coefficient_numbers
-        super(Kernel, self).__init__()
-
-
 class Interface(object):
     def __init__(self, integral_type, arguments):
         self.integral_type = integral_type

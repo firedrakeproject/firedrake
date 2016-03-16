@@ -11,10 +11,11 @@ from __future__ import absolute_import
 import collections
 import itertools
 
+import numpy
 from singledispatch import singledispatch
 
 from tsfc.node import traversal, collect_refcount
-from tsfc import impero as imp
+from tsfc import gem, impero as imp, optimise, scheduling
 
 
 # ImperoC is named tuple for C code generation.
@@ -25,6 +26,89 @@ from tsfc import impero as imp
 #     declare     - Where to declare temporaries to get correct C code
 #     indices     - Indices for declarations and referencing values
 ImperoC = collections.namedtuple('ImperoC', ['tree', 'temporaries', 'declare', 'indices'])
+
+
+class NoopError(Exception):
+    """No operations in the kernel."""
+    pass
+
+
+def compile_gem(return_variables, expressions, prefix_ordering, remove_zeros=False, coffee_licm=False):
+    """Compiles GEM to Impero.
+
+    :arg return_variables: return variables for each root (type: GEM expressions)
+    :arg expressions: multi-root expression DAG (type: GEM expressions)
+    :arg prefix_ordering: outermost loop indices
+    :arg remove_zeros: remove zero assignment to return variables
+    :arg coffee_licm: trust COFFEE to do loop invariant code motion
+    """
+    expressions = optimise.remove_componenttensors(expressions)
+
+    # Remove zeros
+    if remove_zeros:
+        rv = []
+        es = []
+        for var, expr in zip(return_variables, expressions):
+            if not isinstance(expr, gem.Zero):
+                rv.append(var)
+                es.append(expr)
+        return_variables, expressions = rv, es
+
+    # Collect indices in a deterministic order
+    indices = []
+    for node in traversal(expressions):
+        if isinstance(node, gem.Indexed):
+            indices.extend(node.multiindex)
+    # The next two lines remove duplicate elements from the list, but
+    # preserve the ordering, i.e. all elements will appear only once,
+    # in the order of their first occurance in the original list.
+    _, unique_indices = numpy.unique(indices, return_index=True)
+    indices = numpy.asarray(indices)[numpy.sort(unique_indices)]
+
+    # Build ordered index map
+    index_ordering = make_prefix_ordering(indices, prefix_ordering)
+    apply_ordering = make_index_orderer(index_ordering)
+
+    get_indices = lambda expr: apply_ordering(expr.free_indices)
+
+    # Build operation ordering
+    ops = scheduling.emit_operations(zip(return_variables, expressions), get_indices)
+
+    # Empty kernel
+    if len(ops) == 0:
+        raise NoopError()
+
+    # Drop unnecessary temporaries
+    ops = inline_temporaries(expressions, ops, coffee_licm=coffee_licm)
+
+    # Build Impero AST
+    tree = make_loop_tree(ops, get_indices)
+
+    # Collect temporaries
+    temporaries = collect_temporaries(ops)
+
+    # Determine declarations
+    declare, indices = place_declarations(ops, tree, temporaries, get_indices)
+
+    # Prepare ImperoC (Impero AST + other data for code generation)
+    return ImperoC(tree, temporaries, declare, indices)
+
+
+def make_prefix_ordering(indices, prefix_ordering):
+    """Creates an ordering of ``indices`` which starts with those
+    indices in ``prefix_ordering``."""
+    # Need to return deterministically ordered indices
+    return tuple(prefix_ordering) + tuple(k for k in indices if k not in prefix_ordering)
+
+
+def make_index_orderer(index_ordering):
+    """Returns a function which given a set of indices returns those
+    indices in the order as they appear in ``index_ordering``."""
+    idx2pos = {idx: pos for pos, idx in enumerate(index_ordering)}
+
+    def apply_ordering(indices):
+        return tuple(sorted(indices, key=lambda i: idx2pos[i]))
+    return apply_ordering
 
 
 def inline_temporaries(expressions, ops, coffee_licm=False):
@@ -57,27 +141,6 @@ def inline_temporaries(expressions, ops, coffee_licm=False):
 
     # Filter out candidates
     return [op for op in ops if not (isinstance(op, imp.Evaluate) and op.expression in candidates)]
-
-
-def process(ops, get_indices):
-    """Process the scheduling of operations, builds an Impero AST +
-    other data which are directly used for C / COFFEE code generation.
-
-    :arg ops: a list of Impero terminal nodes
-    :arg get_indices: callable mapping from GEM nodes to an ordering
-                      of free indices
-    :returns: ImperoC named tuple
-    """
-    # Build Impero AST
-    tree = make_loop_tree(ops, get_indices)
-
-    # Collect temporaries
-    temporaries = collect_temporaries(ops)
-
-    # Determine declarations
-    declare, indices = place_declarations(ops, tree, temporaries, get_indices)
-
-    return ImperoC(tree, temporaries, declare, indices)
 
 
 def collect_temporaries(ops):

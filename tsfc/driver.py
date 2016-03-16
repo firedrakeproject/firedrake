@@ -3,19 +3,40 @@ from __future__ import absolute_import
 import collections
 import time
 
-import numpy
-
 from ufl.classes import Form
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
 
 from tsfc.quadrature import create_quadrature, QuadratureRule
 
-from tsfc import fem, gem, scheduling as sch, optimise as opt, impero_utils
+from tsfc import fem, gem, optimise as opt, impero_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.node import traversal
-from tsfc.kernel_interface import Kernel, Interface
+from tsfc.kernel_interface import Interface
+
+
+class Kernel(object):
+    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
+                 "coefficient_numbers", "__weakref__")
+    """A compiled Kernel object.
+
+    :kwarg ast: The COFFEE ast for the kernel.
+    :kwarg integral_type: The type of integral.
+    :kwarg oriented: Does the kernel require cell_orientations.
+    :kwarg subdomain_id: What is the subdomain id for this kernel.
+    :kwarg coefficient_numbers: A list of which coefficients from the
+        form the kernel needs.
+    """
+    def __init__(self, ast=None, integral_type=None, oriented=False,
+                 subdomain_id=None, coefficient_numbers=()):
+        # Defaults
+        self.ast = ast
+        self.integral_type = integral_type
+        self.oriented = oriented
+        self.subdomain_id = subdomain_id
+        self.coefficient_numbers = coefficient_numbers
+        super(Kernel, self).__init__()
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -48,9 +69,10 @@ def compile_form(form, prefix="form", parameters=None):
     kernels = []
     for integral_data in fd.integral_data:
         start = time.time()
-        kernel = compile_integral(integral_data, fd, prefix, parameters)
-        if kernel is not None:
-            kernels.append(kernel)
+        try:
+            kernels.append(compile_integral(integral_data, fd, prefix, parameters))
+        except impero_utils.NoopError:
+            pass
         print GREEN % ("compile_integral finished in %g seconds." % (time.time() - start))
 
     print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
@@ -98,11 +120,11 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         # Consider f*v*dx + g*v*ds, the full form contains two
         # coefficients, but each integral only requires one.
         coefficient_numbers.append(form_data.original_coefficient_positions[i])
-        interface.preload(coefficient, "w_%d" % i)  # TODO: Remove!
+        interface.preload(coefficient, "w_%d" % i)
 
     kernel.coefficient_numbers = tuple(coefficient_numbers)
 
-    expressions = []
+    irs = []
     quadrature_indices = []
     cell = integral_data.domain.ufl_cell()
     # Map from UFL FiniteElement objects to Index instances.  This is
@@ -131,20 +153,31 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              type(quad_rule))
 
         integrand = fem.replace_coordinates(integral.integrand(), coordinates)
-        expression, quadrature_index = fem.process(integral_type,
-                                                   cell, quad_rule,
-                                                   integrand,
-                                                   interface,
-                                                   index_cache)
+        ir, quadrature_index = fem.process(integral_type, cell,
+                                           quad_rule, integrand,
+                                           interface, index_cache)
         quadrature_indices.append(quadrature_index)
         if parameters["unroll_indexsum"]:
-            expression = opt.unroll_indexsum(expression, max_extent=parameters["unroll_indexsum"])
-        expressions.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
-                            for e in expression])
+            ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
+        irs.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
+                    for e in ir])
 
     # Sum the expressions that are part of the same restriction
-    expression = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*expressions))
+    ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))
 
+    # Look for cell orientations in the IR
+    kernel.oriented = False
+    for node in traversal(ir):
+        if isinstance(node, gem.Variable) and node.name == "cell_orientations":
+            kernel.oriented = True
+            break
+
+    impero_c = impero_utils.compile_gem(interface.return_variables, ir,  # TODO
+                                        quadrature_indices + list(interface.argument_indices()),  # TODO
+                                        coffee_licm=parameters["coffee_licm"],
+                                        remove_zeros=True)
+
+    # Generate COFFEE
     index_names = zip(interface.argument_indices(), ['j', 'k'])  # TODO
     if len(quadrature_indices) == 1:
         index_names.append((quadrature_indices[0], 'ip'))
@@ -152,64 +185,12 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body, kernel.oriented = build_kernel_body(interface.return_variables, expression,  # TODO
-                                              quadrature_indices + list(interface.argument_indices()),  # TODO
-                                              coffee_licm=parameters["coffee_licm"],
-                                              index_names=index_names)
-    if body is None:
-        return None
+    body = generate_coffee(impero_c, index_names)
+    body.open_scope = False
 
     funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
     kernel.ast = interface.construct_kernel_function(funname, body, kernel.oriented)
     return kernel
-
-
-def build_kernel_body(return_variables, ir, prefix_ordering, coffee_licm=False, index_names=None):
-    ir = opt.remove_componenttensors(ir)
-
-    # Look for cell orientations in the simplified GEM
-    oriented = False
-    for node in traversal(ir):
-        if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-            oriented = True
-            break
-
-    # Collect indices in a deterministic order
-    indices = []
-    for node in traversal(ir):
-        if isinstance(node, gem.Indexed):
-            indices.extend(node.multiindex)
-    # The next two lines remove duplicate elements from the list, but
-    # preserve the ordering, i.e. all elements will appear only once,
-    # in the order of their first occurance in the original list.
-    _, unique_indices = numpy.unique(indices, return_index=True)
-    indices = numpy.asarray(indices)[numpy.sort(unique_indices)]
-
-    # Build ordered index map
-    index_ordering = make_prefix_ordering(indices, prefix_ordering)
-    apply_ordering = make_index_orderer(index_ordering)
-
-    get_indices = lambda expr: apply_ordering(expr.free_indices)
-
-    # Build operation ordering
-    ops = sch.emit_operations(zip(return_variables, ir), get_indices)
-
-    # Zero-simplification occurred
-    if len(ops) == 0:
-        return None, False
-
-    # Drop unnecessary temporaries
-    ops = impero_utils.inline_temporaries(ir, ops, coffee_licm=coffee_licm)
-
-    # Prepare ImperoC (Impero AST + other data for code generation)
-    impero_c = impero_utils.process(ops, get_indices)
-
-    # Generate COFFEE
-    if index_names is None:
-        index_names = {}
-    body = generate_coffee(impero_c, index_names)
-    body.open_scope = False
-    return body, oriented
 
 
 def is_mesh_affine(mesh):
@@ -217,20 +198,3 @@ def is_mesh_affine(mesh):
     affine_cells = ["interval", "triangle", "tetrahedron"]
     degree = mesh.ufl_coordinate_element().degree()
     return mesh.ufl_cell().cellname() in affine_cells and degree == 1
-
-
-def make_prefix_ordering(indices, prefix_ordering):
-    """Creates an ordering of ``indices`` which starts with those
-    indices in ``prefix_ordering``."""
-    # Need to return deterministically ordered indices
-    return tuple(prefix_ordering) + tuple(k for k in indices if k not in prefix_ordering)
-
-
-def make_index_orderer(index_ordering):
-    """Returns a function which given a set of indices returns those
-    indices in the order as they appear in ``index_ordering``."""
-    idx2pos = {idx: pos for pos, idx in enumerate(index_ordering)}
-
-    def apply_ordering(indices):
-        return tuple(sorted(indices, key=lambda i: idx2pos[i]))
-    return apply_ordering

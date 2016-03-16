@@ -1,4 +1,4 @@
-from tsfc import driver, impero_utils, scheduling
+from tsfc import impero_utils
 from tsfc.gem import Index, Indexed, IndexSum, Product, Variable
 
 
@@ -15,12 +15,8 @@ def test_loop_fusion():
     e1 = make_expression(i, j)
     e2 = make_expression(i, i)
 
-    apply_ordering = driver.make_index_orderer((i, j))
-    get_indices = lambda expr: apply_ordering(expr.free_indices)
-
     def gencode(expr):
-        ops = scheduling.emit_operations([(Ri, expr)], get_indices)
-        impero_c = impero_utils.process(ops, get_indices)
+        impero_c = impero_utils.compile_gem([Ri], [expr], (i, j))
         return impero_c.tree
 
     assert len(gencode(e1).children) == len(gencode(e2).children)
