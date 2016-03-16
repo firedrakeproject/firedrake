@@ -243,7 +243,7 @@ for component in components:
         shas[component] = commit.sha
 
     except KeyError:
-        log.warn("No commit specified for %s. No release will be created for this component.")
+        log.warn("No commit specified for %s. No release will be created for this component." % component)
 
 # Now create releases.
 for component in shas:
