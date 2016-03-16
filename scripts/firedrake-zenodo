@@ -167,7 +167,7 @@ if args.release or not args.input_file:
     shas = collect_repo_shas()
 else:
     # Read hashes from file.
-    infile = file(cwd+"/"+args.input_file[0], "r")
+    infile = file(os.path.abspath(args.input_file[0]), "r")
     shas = json.loads(infile.read())
 
 if args.message:
@@ -246,7 +246,7 @@ for component in components:
         log.warn("No commit specified for %s. No release will be created for this component." % component)
 
 # Now create releases.
-for component in shas:
+for component in (set(shas) and set(components)):
     log.info("Releasing %s" % component)
     repo = gh.repository(projects[component], component)
 
