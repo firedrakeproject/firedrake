@@ -235,13 +235,18 @@ tag += "." + str(index + 1)
 for component in components:
     repo = gh.repository(projects[component], component)
 
-    commit = repo.commit(shas[component])
-    if not commit:
-        log.error("Failed to find specified commit for %s" % component)
-    shas[component] = commit.sha
+    try:
+        commit = repo.commit(shas[component])
+        if not commit:
+            log.error("Failed to find specified commit for %s" % component)
+
+        shas[component] = commit.sha
+
+    except KeyError:
+        log.warn("No commit specified for %s. No release will be created for this component.")
 
 # Now create releases.
-for component in components:
+for component in shas:
     log.info("Releasing %s" % component)
     repo = gh.repository(projects[component], component)
 
