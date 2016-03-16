@@ -1,5 +1,7 @@
 from __future__ import absolute_import
 
+import itertools
+
 import numpy
 
 import coffee.base as coffee
@@ -33,12 +35,71 @@ class Kernel(object):
         super(Kernel, self).__init__()
 
 
-def prepare_coefficient(integral_type, coefficient, name, mode=None):
+class Interface(object):
+    def __init__(self, integral_type, arguments):
+        self.integral_type = integral_type
+        self.interior_facet = integral_type.startswith("interior_facet")
+
+        funarg, prepare, expressions, finalise = prepare_arguments(self.interior_facet, arguments)
+
+        self.return_funarg = funarg
+        self.funargs = []
+        self.prepare = prepare
+        self.return_variables = expressions  # TODO
+        self.finalise = finalise
+
+        self.count = itertools.count()
+        self.coefficients = {}
+
+    def argument_indices(self):
+        return filter(lambda i: isinstance(i, gem.Index), self.return_variables[0].multiindex)
+
+    def preload(self, coefficient, name=None, mode=None):
+        # Do not add the same coefficient twice
+        assert coefficient not in self.coefficients
+
+        # Default name with counting
+        if name is None:
+            name = "w_{0}".format(next(self.count))
+
+        funarg, prepare, expression = prepare_coefficient(self.interior_facet, coefficient, name, mode)
+        self.funargs.append(funarg)
+        self.prepare.extend(prepare)
+        self.coefficients[coefficient] = expression
+
+    def gem(self, coefficient):
+        try:
+            return self.coefficients[coefficient]
+        except KeyError:
+            self.preload(coefficient)
+            return self.coefficients[coefficient]
+
+    def construct_kernel_function(self, name, body, oriented):
+        args = [self.return_funarg] + self.funargs
+        if oriented:
+            args.insert(2, coffee.Decl("int *restrict *restrict",
+                                       coffee.Symbol("cell_orientations"),
+                                       qualifiers=["const"]))
+
+        if self.integral_type in ["exterior_facet", "exterior_facet_vert"]:
+            args.append(coffee.Decl("unsigned int",
+                                    coffee.Symbol("facet", rank=(1,)),
+                                    qualifiers=["const"]))
+        elif self.integral_type in ["interior_facet", "interior_facet_vert"]:
+            args.append(coffee.Decl("unsigned int",
+                                    coffee.Symbol("facet", rank=(2,)),
+                                    qualifiers=["const"]))
+
+        body_ = coffee.Block(self.prepare + [body] + self.finalise)
+        return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
+
+
+def prepare_coefficient(interior_facet, coefficient, name, mode=None):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.  Mixed element Coefficients are rearranged here for
     interior facet integrals.
 
-    :arg integral_type: integral type
+    :arg interior_facet: interior facet integral?
     :arg coefficient: UFL Coefficient
     :arg name: unique name to refer to the Coefficient in the kernel
     :arg mode: 'manual_loop' or 'list_tensor'; two ways to deal with
@@ -70,7 +131,7 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
 
     fiat_element = create_element(coefficient.ufl_element())
 
-    if not integral_type.startswith("interior_facet"):
+    if not interior_facet:
         # Simple case
 
         shape = (fiat_element.space_dimension(),)
@@ -172,12 +233,12 @@ def prepare_coefficient(integral_type, coefficient, name, mode=None):
         return funarg, [], expression
 
 
-def prepare_arguments(integral_type, arguments):
+def prepare_arguments(interior_facet, arguments):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
-    :arg integral_type: integral type
+    :arg interior_facet: interior facet integral?
     :arg arguments: UFL Arguments
     :returns: (funarg, prepare, expression, finalise)
          funarg     - :class:`coffee.Decl` function argument
@@ -199,7 +260,7 @@ def prepare_arguments(integral_type, arguments):
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
     indices = tuple(gem.Index(name=name) for i, name in zip(range(len(arguments)), ['j', 'k']))
 
-    if not integral_type.startswith("interior_facet"):
+    if not interior_facet:
         # Not an interior facet integral
         shape = tuple(element.space_dimension() for element in elements)
 
