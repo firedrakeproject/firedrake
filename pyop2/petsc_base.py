@@ -666,7 +666,7 @@ class Mat(base.Mat, CopyOnWrite):
         else:
             raise NotImplementedError("Mixed global matrices still to come.")
 
-        self._handle = mat
+        self.handle = mat
         self._version_set_zero()
 
     def __call__(self, access, path, flatten=False):
@@ -810,22 +810,28 @@ class _GlobalMat(PETSc.Mat):
     """A :class:`PETSc.Mat` with global size 1x1 implemented as a
     :class:`.Global`"""
 
-    def __init__(self):
+    def __init__(self, global_=None):
         super(_GlobalMat, self).__init__()
         self.create()
         self.setSizes(((None, 1), (None, 1)))
         self.setType(self.Type.PYTHON)
-        self.setPythonContext(_make_object("Global", 1))
+        self.setPythonContext(global_ or _make_object("Global", 1))
 
     def zeroEntries(self):
 
         self.getPythonContext().assign(0.0)
 
-        ##globalmat needs
-        ## mat.mult
-        ## mat.multAdd
-        ## mat.multTranspose
-        ## usw. usw.
+    def duplicate(self, copy=True):
+        if copy:
+            return _GlobalMat(self.getPythonContext().duplicate())
+        else:
+            return _GlobalMat()
+
+    # globalmat needs
+    # mat.mult
+    # mat.multAdd
+    # mat.multTranspose
+    # usw. usw.
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
