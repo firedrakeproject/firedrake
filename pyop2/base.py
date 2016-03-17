@@ -1088,6 +1088,63 @@ class DataSet(ObjectCached):
         return dat.dataset == self
 
 
+class GlobalDataSet(DataSet):
+    """A proxy :class:`DataSet` for use in a :class:`Sparsity` where the
+    matrix has :class:`Global` rows or columns."""
+    _globalcount = 0
+
+    def __init__(self, global_):
+        """
+        :param global_: The :class:`Global` on which this object is based."""
+
+        self._global = global_
+
+    @classmethod
+    def _cache_key(cls, *args):
+        return None
+
+    @cached_property
+    def dim(self):
+        """The shape tuple of the values for each element of the set."""
+        return self._global._dim
+
+    @cached_property
+    def cdim(self):
+        """The scalar number of values for each member of the set. This is
+        the product of the dim tuple."""
+        return self._global._cdim
+
+    @cached_property
+    def name(self):
+        """Returns the name of the data set."""
+        return self._global._name
+
+    @cached_property
+    def set(self):
+        """Returns the parent set of the data set."""
+        return None
+
+    @cached_property
+    def size(self):
+        """The number of entries in the Dataset (1)"""
+        return 1
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
+    def __str__(self):
+        return "OP2 GlobalDataSet: %s on Global %s" % \
+            (self._name, self._global)
+
+    def __repr__(self):
+        return "GlobalDataSet(%r)" % (self._global)
+
+
 class MixedDataSet(DataSet, ObjectCached):
     """A container for a bag of :class:`DataSet`\s.
 
@@ -3207,7 +3264,7 @@ class Sparsity(ObjectCached):
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
 
-        if dsets[0] is None or dsets[1] is None:
+        if isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
             # This will cause a trivial memory accounting error (although not a leak).
             self._d_nz = 0
             self._o_nz = 0
@@ -3255,7 +3312,7 @@ class Sparsity(ObjectCached):
             self._o_nnz = tuple(s._o_nnz for s in self)
             self._d_nz = sum(s._d_nz for s in self)
             self._o_nz = sum(s._o_nz for s in self)
-        elif dsets[0] is None or dsets[1] is None:
+        elif isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
             # Where the sparsity maps either from or to a Global, we
             # don't really have any sparsity structure.
             self._blocks = [[self]]

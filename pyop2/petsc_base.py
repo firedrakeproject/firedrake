@@ -598,7 +598,8 @@ class Mat(base.Mat, CopyOnWrite):
     def _init_block(self):
         self._blocks = [[self]]
 
-        if self.sparsity._dsets[0] is None or self.sparsity._dsets[1] is None:
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or
+                isinstance(self.sparsity._dsets[1], GlobalDataSet)):
             self._init_global_block()
             return
 
@@ -657,8 +658,8 @@ class Mat(base.Mat, CopyOnWrite):
         """Initialise this block in the case where the matrix maps either
         to or from a :class:`Global`"""
 
-        if self.sparsity.dsets[0] is None \
-           and self.sparsity.dsets[1] is None:
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) and
+                isinstance(self.sparsity._dsets[1], GlobalDataSet)):
             # In this case both row and column are a Global.
 
             mat = _GlobalMat()
@@ -817,8 +818,10 @@ class _GlobalMat(PETSc.Mat):
         self.setType(self.Type.PYTHON)
         self.setPythonContext(global_ or _make_object("Global", 1))
 
-    def zeroEntries(self):
+    def __getitem__(self, key):
+        return self.getPythonContext().data_ro.reshape(1, 1)[key]
 
+    def zeroEntries(self):
         self.getPythonContext().assign(0.0)
 
     def duplicate(self, copy=True):
