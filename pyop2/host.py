@@ -647,13 +647,39 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                             "ofs": " + %s" % j if j else ""} for j in range(dim)])
 
     def c_buffer_scatter_vec(self, count, i, j, mxofs, buf_name):
-        dim = 1 if self._flatten else self.data.split[i].cdim
+        dim = self.data.split[i].cdim
         return ";\n".join(["*(%(ind)s%(nfofs)s) %(op)s %(name)s[i_0*%(dim)d%(nfofs)s%(mxofs)s]" %
                            {"ind": self.c_kernel_arg(count, i, j),
                             "op": "=" if self.access == WRITE else "+=",
                             "name": buf_name,
                             "dim": dim,
                             "nfofs": " + %d" % o if o else "",
+                            "mxofs": " + %d" % (mxofs[0] * dim) if mxofs else ""}
+                           for o in range(dim)])
+
+    def c_buffer_scatter_offset(self, count, i, j, ofs_name):
+        if self.data.dataset._extruded:
+            return '%(ofs_name)s = %(map_name)s[i_0]' % {
+                'ofs_name': ofs_name,
+                'map_name': 'xtr_%s' % self.c_map_name(0, i),
+            }
+        else:
+            return '%(ofs_name)s = %(map_name)s[i * %(arity)d + i_0] * %(dim)s' % {
+                'ofs_name': ofs_name,
+                'map_name': self.c_map_name(0, i),
+                'arity': self.map.arity,
+                'dim': self.data.split[i].cdim
+            }
+
+    def c_buffer_scatter_vec_flatten(self, count, i, j, mxofs, buf_name, ofs_name, loop_size):
+        dim = self.data.split[i].cdim
+        return ";\n".join(["%(name)s[%(ofs_name)s%(nfofs)s] %(op)s %(buf_name)s[i_0%(buf_ofs)s%(mxofs)s]" %
+                           {"name": self.c_arg_name(),
+                            "op": "=" if self.access == WRITE else "+=",
+                            "buf_name": buf_name,
+                            "ofs_name": ofs_name,
+                            "nfofs": " + %d" % o,
+                            "buf_ofs": " + %d" % (o*loop_size,),
                             "mxofs": " + %d" % (mxofs[0] * dim) if mxofs else ""}
                            for o in range(dim)])
 
@@ -971,22 +997,55 @@ def wrapper_snippets(itspace, args,
     _buf_decl = ";\n".join(_buf_decl.values())
 
     def itset_loop_body(i, j, shape, offsets, is_facet=False):
+        template_scatter = """
+    %(offset_decl)s;
+    %(ofs_itspace_loops)s
+    %(ind)s%(offset)s
+    %(ofs_itspace_loop_close)s
+    %(itspace_loops)s
+    %(ind)s%(buffer_scatter)s;
+    %(itspace_loop_close)s
+"""
         nloops = len(shape)
-        mult = 1
-        if is_facet:
-            mult = 2
-        _itspace_loops = '\n'.join(['  ' * n + itspace_loop(n, e*mult) for n, e in enumerate(shape)])
-        _buf_decl_scatter, _buf_scatter = {}, {}
+        mult = 1 if not is_facet else 2
+        _buf_scatter = {}
         for count, arg in enumerate(args):
             if not (arg._uses_itspace and arg.access in [WRITE, INC]):
                 continue
-            if arg._is_mat and arg._is_mixed:
+            elif (arg._is_mat and arg._is_mixed) or (arg._is_dat and nloops > 1):
                 raise NotImplementedError
-            elif not arg._is_mat:
-                _buf_scatter[arg] = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
-        _buf_decl_scatter = ";\n".join(_buf_decl_scatter.values())
-        _buf_scatter = ";\n".join(_buf_scatter.values())
-        _itspace_loop_close = '\n'.join('  ' * n + '}' for n in range(nloops - 1, -1, -1))
+            elif arg._is_mat:
+                continue
+            elif arg._is_dat and not arg._flatten:
+                shape = shape[0]
+                loop_size = shape*mult
+                _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
+                _scatter_stmts = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
+                _buf_offset, _buf_offset_decl = '', ''
+            elif arg._is_dat:
+                dim, shape = arg.data.split[i].cdim, shape[0]
+                loop_size = shape*mult/dim
+                _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
+                _buf_offset_name = 'offset_%d[%s]' % (count, '%s')
+                _buf_offset_decl = 'int %s' % _buf_offset_name % loop_size
+                _buf_offset_array = _buf_offset_name % 'i_0'
+                _buf_offset = '%s;' % arg.c_buffer_scatter_offset(count, i, j, _buf_offset_array)
+                _scatter_stmts = arg.c_buffer_scatter_vec_flatten(count, i, j, offsets, _buf_name[arg],
+                                                                  _buf_offset_array, loop_size)
+            else:
+                raise NotImplementedError
+            _buf_scatter[arg] = template_scatter % {
+                'ind': '  ' * nloops,
+                'offset_decl': _buf_offset_decl,
+                'offset': _buf_offset,
+                'buffer_scatter': _scatter_stmts,
+                'itspace_loops': indent(_itspace_loops, 2),
+                'itspace_loop_close': indent(_itspace_loop_close, 2),
+                'ofs_itspace_loops': indent(_itspace_loops, 2) if _buf_offset else '',
+                'ofs_itspace_loop_close': indent(_itspace_loop_close, 2) if _buf_offset else ''
+            }
+        scatter = ";\n".join(_buf_scatter.values())
+
         if itspace._extruded:
             _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
                                                        _tmp_name[arg],
@@ -1008,21 +1067,14 @@ def wrapper_snippets(itspace, args,
             _itspace_loop_close = ''
 
         template = """
-    %(itspace_loops)s
-    %(ind)s%(buffer_scatter)s;
-    %(itspace_loop_close)s
+    %(scatter)s
     %(ind)s%(addtos_extruded)s;
     %(addtos)s;
 """
-
         return template % {
             'ind': '  ' * nloops,
-            'itspace_loops': indent(_itspace_loops, 2),
-            'buffer_scatter': _buf_scatter,
-            'itspace_loop_close': indent(_itspace_loop_close, 2),
+            'scatter': scatter,
             'addtos_extruded': indent(_addtos_extruded, 2 + nloops),
-            'apply_offset': indent(_apply_offset, 3),
-            'extr_loop_close': indent(_extr_loop_close, 2),
             'addtos': indent(_addtos, 2),
         }
 

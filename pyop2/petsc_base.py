@@ -51,6 +51,7 @@ from profiling import timed_region
 import mpi
 from mpi import collective
 import sparsity
+from pyop2 import utils
 
 
 if petsc4py_version < '3.4':
@@ -79,13 +80,11 @@ mpi.MPI = MPI
 
 class DataSet(base.DataSet):
 
-    @property
+    @utils.cached_property
     def lgmap(self):
         """A PETSc LGMap mapping process-local indices to global
         indices for this :class:`DataSet`.
         """
-        if hasattr(self, '_lgmap'):
-            return self._lgmap
         lgmap = PETSc.LGMap()
         if MPI.comm.size == 1:
             lgmap.create(indices=np.arange(self.size, dtype=PETSc.IntType),
@@ -93,17 +92,14 @@ class DataSet(base.DataSet):
         else:
             lgmap.create(indices=self.halo.global_to_petsc_numbering,
                          bsize=self.cdim)
-        self._lgmap = lgmap
         return lgmap
 
-    @property
+    @utils.cached_property
     def field_ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
 
         Used when extracting blocks from matrices for solvers."""
-        if hasattr(self, '_field_ises'):
-            return self._field_ises
         ises = []
         nlocal_rows = 0
         for dset in self:
@@ -116,16 +112,13 @@ class DataSet(base.DataSet):
             iset.setBlockSize(dset.cdim)
             ises.append(iset)
             offset += nrows
-        self._field_ises = tuple(ises)
-        return ises
+        return tuple(ises)
 
-    @property
+    @utils.cached_property
     def local_ises(self):
         """A list of PETSc ISes defining the local indices for each set in the DataSet.
 
         Used when extracting blocks from matrices for assembly."""
-        if hasattr(self, '_local_ises'):
-            return self._local_ises
         ises = []
         start = 0
         for dset in self:
@@ -135,25 +128,65 @@ class DataSet(base.DataSet):
             iset.setBlockSize(bs)
             start += n
             ises.append(iset)
-        self._local_ises = tuple(ises)
-        return self._local_ises
+        return tuple(ises)
+
+    @utils.cached_property
+    def layout_vec(self):
+        """A PETSc Vec compatible with the dof layout of this DataSet."""
+        vec = PETSc.Vec().create()
+        size = (self.size * self.cdim, None)
+        vec.setSizes(size, bsize=self.cdim)
+        vec.setUp()
+        return vec
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
 
-    @property
+    @utils.cached_property
+    def layout_vec(self):
+        """A PETSc Vec compatible with the dof layout of this MixedDataSet."""
+        vec = PETSc.Vec().create()
+        # Size of flattened vector is product of size and cdim of each dat
+        size = sum(d.size * d.cdim for d in self)
+        vec.setSizes((size, None))
+        vec.setUp()
+        return vec
+
+    @utils.cached_property
+    def vecscatters(self):
+        """Get the vecscatters from the dof layout of this dataset to a PETSc Vec."""
+        # To be compatible with a MatNest (from a MixedMat) the
+        # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
+        # on P processes is:
+        # (x_0_0, x_1_0, ..., x_k_0, x_0_1, x_1_1, ..., x_k_1, ..., x_k_P)
+        # That is, all the Dats from rank 0, followed by those of
+        # rank 1, ...
+        # Hence the offset into the global Vec is the exclusive
+        # prefix sum of the local size of the mixed dat.
+        size = sum(d.size * d.cdim for d in self)
+        offset = MPI.comm.exscan(size)
+        if offset is None:
+            offset = 0
+        scatters = []
+        for d in self:
+            size = d.size * d.cdim
+            vscat = PETSc.Scatter().create(d.layout_vec, None, self.layout_vec,
+                                           PETSc.IS().createStride(size, offset, 1))
+            offset += size
+            scatters.append(vscat)
+        return tuple(scatters)
+
+    @utils.cached_property
     def lgmap(self):
         """A PETSc LGMap mapping process-local indices to global
         indices for this :class:`MixedDataSet`.
         """
-        if hasattr(self, '_lgmap'):
-            return self._lgmap
-        self._lgmap = PETSc.LGMap()
+        lgmap = PETSc.LGMap()
         if MPI.comm.size == 1:
             size = sum(s.size * s.cdim for s in self)
-            self._lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
-                               bsize=1)
-            return self._lgmap
+            lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
+                         bsize=1)
+            return lgmap
         # Compute local to global maps for a monolithic mixed system
         # from the individual local to global maps for each field.
         # Exposition:
@@ -210,8 +243,8 @@ class MixedDataSet(DataSet, base.MixedDataSet):
             MPI.comm.Allgather(owned_sz, current_offsets[1:])
             all_local_offsets += current_offsets[1:]
             start += s.total_size * s.cdim
-        self._lgmap.create(indices=indices, bsize=1)
-        return self._lgmap
+        lgmap.create(indices=indices, bsize=1)
+        return lgmap
 
 
 class Dat(base.Dat):
@@ -224,11 +257,19 @@ class Dat(base.Dat):
                          or read-write (use :meth:`Dat.data`). Read-write
                          access requires a halo update."""
 
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
         acc = (lambda d: d.data_ro) if readonly else (lambda d: d.data)
         # Getting the Vec needs to ensure we've done all current computation.
-        self._force_evaluation()
+        # If we only want readonly access then there's no need to
+        # force the evaluation of reads from the Dat.
+        self._force_evaluation(read=True, write=not readonly)
         if not hasattr(self, '_vec'):
-            size = (self.dataset.size * self.cdim, None)
+            # Can't duplicate layout_vec of dataset, because we then
+            # carry around extra unnecessary data.
+            # But use getSizes to save an Allreduce in computing the
+            # global size.
+            size = self.dataset.layout_vec.getSizes()
             self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
                                                     bsize=self.cdim)
         # PETSc Vecs have a state counter and cache norm computations
@@ -284,44 +325,25 @@ class MixedDat(base.MixedDat):
            :class:`MixedMat`.  In parallel it is *not* just a
            concatenation of the underlying :class:`Dat`\s."""
 
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
         acc = (lambda d: d.vec_ro) if readonly else (lambda d: d.vec)
-        # Allocate memory for the contiguous vector, create the scatter
-        # contexts and stash them on the object for later reuse
-        if not (hasattr(self, '_vec') and hasattr(self, '_sctxs')):
-            self._vec = PETSc.Vec().create()
-            # Size of flattened vector is product of size and cdim of each dat
-            sz = sum(d.dataset.size * d.dataset.cdim for d in self._dats)
-            self._vec.setSizes((sz, None))
-            self._vec.setUp()
-            self._sctxs = []
-            # To be compatible with a MatNest (from a MixedMat) the
-            # ordering of a MixedDat constructed of Dats (x_0, ..., x_k)
-            # on P processes is:
-            # (x_0_0, x_1_0, ..., x_k_0, x_0_1, x_1_1, ..., x_k_1, ..., x_k_P)
-            # That is, all the Dats from rank 0, followed by those of
-            # rank 1, ...
-            # Hence the offset into the global Vec is the exclusive
-            # prefix sum of the local size of the mixed dat.
-            offset = MPI.comm.exscan(sz)
-            if offset is None:
-                offset = 0
+        # Allocate memory for the contiguous vector
+        if not hasattr(self, '_vec'):
+            # In this case we can just duplicate the layout vec
+            # because we're not placing an array.
+            self._vec = self.dataset.layout_vec.duplicate()
 
-            for d in self._dats:
-                sz = d.dataset.size * d.dataset.cdim
-                with acc(d) as v:
-                    vscat = PETSc.Scatter().create(v, None, self._vec,
-                                                   PETSc.IS().createStride(sz, offset, 1))
-                offset += sz
-                self._sctxs.append(vscat)
+        scatters = self.dataset.vecscatters
         # Do the actual forward scatter to fill the full vector with values
-        for d, vscat in zip(self._dats, self._sctxs):
+        for d, vscat in zip(self, scatters):
             with acc(d) as v:
                 vscat.scatterBegin(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
                 vscat.scatterEnd(v, self._vec, addv=PETSc.InsertMode.INSERT_VALUES)
         yield self._vec
         if not readonly:
             # Reverse scatter to get the values back to their original locations
-            for d, vscat in zip(self._dats, self._sctxs):
+            for d, vscat in zip(self, scatters):
                 with acc(d) as v:
                     vscat.scatterBegin(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
                                        mode=PETSc.ScatterMode.REVERSE)
@@ -397,17 +419,15 @@ class MatBlock(base.Mat):
         colis = cset.local_ises[j]
         self.handle = parent.handle.getLocalSubMatrix(isrow=rowis,
                                                       iscol=colis)
-        self._assembly_state = self._parent.assembly_state
 
     @property
     def assembly_state(self):
         # Track our assembly state only
-        return self._assembly_state
+        return self._parent.assembly_state
 
     @assembly_state.setter
     def assembly_state(self, state):
         # Need to update our state and our parent's
-        self._assembly_state = state
         self._parent.assembly_state = state
 
     def __getitem__(self, idx):
@@ -417,7 +437,9 @@ class MatBlock(base.Mat):
         yield self
 
     def _flush_assembly(self):
-        self.handle.assemble(assembly=PETSc.Mat.AssemblyType.FLUSH)
+        # Need to flush for all blocks
+        for b in self._parent:
+            b.handle.assemble(assembly=PETSc.Mat.AssemblyType.FLUSH)
         self._parent._flush_assembly()
 
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
@@ -480,6 +502,9 @@ class MatBlock(base.Mat):
 
     def __repr__(self):
         return "MatBlock(%r, %r, %r)" % (self._parent, self._i, self._j)
+
+    def __str__(self):
+        return "Block[%s, %s] of %s" % (self._i, self._j, self._parent)
 
 
 class Mat(base.Mat, CopyOnWrite):

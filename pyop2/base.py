@@ -98,8 +98,9 @@ class ExecutionTrace(object):
             computation._run()
         elif configuration['lazy_max_trace_length'] > 0 and \
                 configuration['lazy_max_trace_length'] == len(self._trace):
-            self.evaluate(computation.reads, computation.writes)
-            computation._run()
+            # Garbage collect trace (stop the world)
+            self.evaluate_all()
+            self._trace.append(computation)
         else:
             self._trace.append(computation)
 
@@ -2406,7 +2407,7 @@ class MixedDat(Dat):
         if subset is not None:
             raise NotImplementedError("MixedDat.copy with a Subset is not supported")
         for s, o in zip(self, other):
-            s._copy_parloop(o).enqueue()
+            s.copy(o)
 
     @collective
     def _cow_actual_copy(self, src):
@@ -2738,6 +2739,7 @@ class Global(DataCarrier, _EmptyDataMixin):
         return self._dim
 
     @property
+    @modifies
     def data(self):
         """Data array."""
         _trace.evaluate(set([self]), set())
