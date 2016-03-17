@@ -861,7 +861,7 @@ class RealFunctionSpace(FunctionSpace):
         """:class:`RealFunctionSpace` objects have no node set."""
         self.node_set = None
         """:class:`RealFunctionSpace` objects have no dof set."""
-        self.dof_dset = None
+        self.dof_dset = op2.GlobalDataSet(self.make_dat())
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Global` representing the
