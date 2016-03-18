@@ -1,7 +1,5 @@
 from __future__ import absolute_import
 
-import itertools
-
 import numpy
 
 import coffee.base as coffee
@@ -12,52 +10,95 @@ from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE
 
 
+class Kernel(object):
+    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
+                 "coefficient_numbers", "__weakref__")
+    """A compiled Kernel object.
+
+    :kwarg ast: The COFFEE ast for the kernel.
+    :kwarg integral_type: The type of integral.
+    :kwarg oriented: Does the kernel require cell_orientations.
+    :kwarg subdomain_id: What is the subdomain id for this kernel.
+    :kwarg coefficient_numbers: A list of which coefficients from the
+        form the kernel needs.
+    """
+    def __init__(self, ast=None, integral_type=None, oriented=False,
+                 subdomain_id=None, coefficient_numbers=()):
+        # Defaults
+        self.ast = ast
+        self.integral_type = integral_type
+        self.oriented = oriented
+        self.subdomain_id = subdomain_id
+        self.coefficient_numbers = coefficient_numbers
+        super(Kernel, self).__init__()
+
+
 class Interface(object):
-    def __init__(self, integral_type, arguments):
+    def __init__(self, integral_type, subdomain_id):
+        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id)
+
         self.integral_type = integral_type
         self.interior_facet = integral_type.startswith("interior_facet")
 
-        funarg, prepare, expressions, finalise = prepare_arguments(self.interior_facet, arguments)
+        self.local_tensor = None
+        self.coordinates_arg = None
+        self.coefficient_args = []
 
-        self.return_funarg = funarg
-        self.funargs = []
-        self.prepare = prepare
-        self.return_variables = expressions  # TODO
-        self.finalise = finalise
+        self.prepare = []
+        self.finalise = []
 
-        self.count = itertools.count()
-        self.coefficients = {}
+        self.coefficient_map = {}
 
-    def argument_indices(self):
-        return filter(lambda i: isinstance(i, gem.Index), self.return_variables[0].multiindex)
+    def set_arguments(self, arguments, argument_indices):
+        funarg, prepare, expressions, finalise = prepare_arguments(
+            self.interior_facet, arguments, argument_indices)
 
-    def preload(self, coefficient, name=None, mode=None):
-        # Do not add the same coefficient twice
-        assert coefficient not in self.coefficients
-
-        # Default name with counting
-        if name is None:
-            name = "w_{0}".format(next(self.count))
-
-        funarg, prepare, expression = prepare_coefficient(self.interior_facet, coefficient, name, mode)
-        self.funargs.append(funarg)
+        self.local_tensor = funarg
         self.prepare.extend(prepare)
-        self.coefficients[coefficient] = expression
+        self.finalise.extend(finalise)
 
-    def gem(self, coefficient):
-        try:
-            return self.coefficients[coefficient]
-        except KeyError:
-            self.preload(coefficient)
-            return self.coefficients[coefficient]
+        return expressions
 
-    def construct_kernel_function(self, name, body, oriented):
-        args = [self.return_funarg] + self.funargs
-        if oriented:
-            args.insert(2, coffee.Decl("int *restrict *restrict",
-                                       coffee.Symbol("cell_orientations"),
-                                       qualifiers=["const"]))
+    def set_coordinates(self, coefficient, name, mode=None):
+        funarg, prepare, expression = prepare_coefficient(
+            self.interior_facet, coefficient, name, mode=mode)
+        self.coordinates_arg = funarg
+        self.prepare.extend(prepare)
+        self.coefficient_map[coefficient] = expression
 
+    def set_coefficients(self, integral_data, form_data):
+        coefficient_numbers = []
+        # enabled_coefficients is a boolean array that indicates which
+        # of reduced_coefficients the integral requires.
+        for i in range(len(integral_data.enabled_coefficients)):
+            if integral_data.enabled_coefficients[i]:
+                coefficient = form_data.reduced_coefficients[i]
+                funarg, prepare, expression = prepare_coefficient(
+                    self.interior_facet, coefficient, "w_%d" % i)
+                self.coefficient_args.append(funarg)
+                self.prepare.extend(prepare)
+                self.coefficient_map[coefficient] = expression
+
+                # This is which coefficient in the original form the
+                # current coefficient is.
+                # Consider f*v*dx + g*v*ds, the full form contains two
+                # coefficients, but each integral only requires one.
+                coefficient_numbers.append(form_data.original_coefficient_positions[i])
+        self.kernel.coefficient_numbers = tuple(coefficient_numbers)
+
+    def coefficient_mapper(self):
+        return lambda coefficient: self.coefficient_map[coefficient]
+
+    def require_cell_orientations(self):
+        self.kernel.oriented = True
+
+    def construct_kernel(self, name, body):
+        args = [self.local_tensor, self.coordinates_arg]
+        if self.kernel.oriented:
+            args.append(coffee.Decl("int *restrict *restrict",
+                                    coffee.Symbol("cell_orientations"),
+                                    qualifiers=["const"]))
+        args.extend(self.coefficient_args)
         if self.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             args.append(coffee.Decl("unsigned int",
                                     coffee.Symbol("facet", rank=(1,)),
@@ -67,8 +108,10 @@ class Interface(object):
                                     coffee.Symbol("facet", rank=(2,)),
                                     qualifiers=["const"]))
 
+        body.open_scope = False
         body_ = coffee.Block(self.prepare + [body] + self.finalise)
-        return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
+        self.kernel.ast = coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
+        return self.kernel
 
 
 def prepare_coefficient(interior_facet, coefficient, name, mode=None):
@@ -210,13 +253,14 @@ def prepare_coefficient(interior_facet, coefficient, name, mode=None):
         return funarg, [], expression
 
 
-def prepare_arguments(interior_facet, arguments):
+def prepare_arguments(interior_facet, arguments, indices):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
     :arg interior_facet: interior facet integral?
     :arg arguments: UFL Arguments
+    :arg indices: Argument indices
     :returns: (funarg, prepare, expression, finalise)
          funarg     - :class:`coffee.Decl` function argument
          prepare    - list of COFFEE nodes to be prepended to the
@@ -235,7 +279,6 @@ def prepare_arguments(interior_facet, arguments):
         return funarg, [], [expression], []
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    indices = tuple(gem.Index(name=name) for i, name in zip(range(len(arguments)), ['j', 'k']))
 
     if not interior_facet:
         # Not an interior facet integral

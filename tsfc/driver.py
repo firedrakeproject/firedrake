@@ -13,30 +13,7 @@ from tsfc import fem, gem, optimise as opt, impero_utils, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.node import traversal
-from tsfc.kernel_interface import Interface
-
-
-class Kernel(object):
-    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
-                 "coefficient_numbers", "__weakref__")
-    """A compiled Kernel object.
-
-    :kwarg ast: The COFFEE ast for the kernel.
-    :kwarg integral_type: The type of integral.
-    :kwarg oriented: Does the kernel require cell_orientations.
-    :kwarg subdomain_id: What is the subdomain id for this kernel.
-    :kwarg coefficient_numbers: A list of which coefficients from the
-        form the kernel needs.
-    """
-    def __init__(self, ast=None, integral_type=None, oriented=False,
-                 subdomain_id=None, coefficient_numbers=()):
-        # Defaults
-        self.ast = ast
-        self.integral_type = integral_type
-        self.oriented = oriented
-        self.subdomain_id = subdomain_id
-        self.coefficient_numbers = coefficient_numbers
-        super(Kernel, self).__init__()
+from tsfc.kernel_interface import Interface as KernelInterface
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -95,45 +72,36 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         del parameters["quadrature_rule"]
 
     integral_type = integral_data.integral_type
-    kernel = Kernel(integral_type=integral_type, subdomain_id=integral_data.subdomain_id)
-    interface = Interface(integral_type, form_data.preprocessed_form.arguments())
-
     mesh = integral_data.domain
+    cell = integral_data.domain.ufl_cell()
+    arguments = form_data.preprocessed_form.arguments()
+
+    argument_indices = tuple(gem.Index(name=name) for arg, name in zip(arguments, ['j', 'k']))
+    quadrature_indices = []
+
+    interface = KernelInterface(integral_type, integral_data.subdomain_id)
+    return_variables = interface.set_arguments(arguments, argument_indices)
+
     coordinates = ufl_utils.coordinate_coefficient(mesh)
     if ufl_utils.is_element_affine(mesh.ufl_coordinate_element()):
         # For affine mesh geometries we prefer code generation that
         # composes well with optimisations.
-        interface.preload(coordinates, "coords", mode='list_tensor')
+        interface.set_coordinates(coordinates, "coords", mode='list_tensor')
     else:
         # Otherwise we use the approach that might be faster (?)
-        interface.preload(coordinates, "coords")
+        interface.set_coordinates(coordinates, "coords")
 
-    coefficient_numbers = []
-    # enabled_coefficients is a boolean array that indicates which of
-    # reduced_coefficients the integral requires.
-    for i, on in enumerate(integral_data.enabled_coefficients):
-        if not on:
-            continue
-        coefficient = form_data.reduced_coefficients[i]
-        # This is which coefficient in the original form the current
-        # coefficient is.
-        # Consider f*v*dx + g*v*ds, the full form contains two
-        # coefficients, but each integral only requires one.
-        coefficient_numbers.append(form_data.original_coefficient_positions[i])
-        interface.preload(coefficient, "w_%d" % i)
+    interface.set_coefficients(integral_data, form_data)
 
-    kernel.coefficient_numbers = tuple(coefficient_numbers)
-
-    irs = []
-    quadrature_indices = []
-    cell = integral_data.domain.ufl_cell()
     # Map from UFL FiniteElement objects to Index instances.  This is
     # so we reuse Index instances when evaluating the same coefficient
     # multiple times with the same table.  Occurs, for example, if we
     # have multiple integrals here (and the affine coordinate
     # evaluation can be hoisted).
     index_cache = collections.defaultdict(gem.Index)
-    for i, integral in enumerate(integral_data.integrals):
+
+    irs = []
+    for integral in integral_data.integrals:
         params = {}
         # Record per-integral parameters
         params.update(integral.metadata())
@@ -153,32 +121,38 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              type(quad_rule))
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
-        ir, quadrature_index = fem.process(integral_type, cell,
-                                           quad_rule, integrand,
-                                           interface, index_cache)
-        quadrature_indices.append(quadrature_index)
+        ir = fem.process(integral_type, cell, quad_rule.points,
+                         quad_rule.weights, argument_indices,
+                         integrand, interface.coefficient_mapper(),
+                         index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        irs.append([(gem.IndexSum(e, quadrature_index) if quadrature_index in e.free_indices else e)
-                    for e in ir])
+        ir_ = []
+        for e in ir:
+            quadrature_index = set(e.free_indices) - set(argument_indices)
+            if quadrature_index:
+                quadrature_index, = quadrature_index
+                quadrature_indices.append(quadrature_index)
+                e = gem.IndexSum(e, quadrature_index)
+            ir_.append(e)
+        irs.append(ir_)
 
     # Sum the expressions that are part of the same restriction
     ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))
 
     # Look for cell orientations in the IR
-    kernel.oriented = False
     for node in traversal(ir):
         if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-            kernel.oriented = True
+            interface.require_cell_orientations()
             break
 
-    impero_c = impero_utils.compile_gem(interface.return_variables, ir,  # TODO
-                                        quadrature_indices + list(interface.argument_indices()),  # TODO
+    impero_c = impero_utils.compile_gem(return_variables, ir,
+                                        tuple(quadrature_indices) + argument_indices,
                                         coffee_licm=parameters["coffee_licm"],
                                         remove_zeros=True)
 
     # Generate COFFEE
-    index_names = zip(interface.argument_indices(), ['j', 'k'])  # TODO
+    index_names = [(index, index.name) for index in argument_indices]
     if len(quadrature_indices) == 1:
         index_names.append((quadrature_indices[0], 'ip'))
     else:
@@ -186,8 +160,6 @@ def compile_integral(integral_data, form_data, prefix, parameters):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
     body = generate_coffee(impero_c, index_names)
-    body.open_scope = False
 
-    funname = "%s_%s_integral_%s" % (prefix, integral_type, integral.subdomain_id())
-    kernel.ast = interface.construct_kernel_function(funname, body, kernel.oriented)
-    return kernel
+    kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
+    return interface.construct_kernel(kernel_name, body)
