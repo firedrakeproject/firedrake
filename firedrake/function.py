@@ -413,7 +413,11 @@ class Function(ufl.Coefficient):
         from ufl.algorithms.apply_derivatives import apply_derivatives
         from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
         from ufl.algorithms import extract_arguments, extract_coefficients
-        from tsfc import driver, fem, gem
+        from tsfc import fem, gem, impero_utils, ufl_utils
+        from tsfc.coffee import generate as generate_coffee
+        from tsfc.kernel_interface import (KernelBuilderBase,
+                                           needs_cell_orientations,
+                                           cell_orientations_coffee_arg)
 
         # Imitate the compute_form_data processing pipeline
         #
@@ -430,52 +434,44 @@ class Function(ufl.Coefficient):
         # Replace coordinates (if any)
         if expression.ufl_domain():
             assert fs.mesh() == expression.ufl_domain()
-            expression = fem.replace_coordinates(expression, fs.mesh().coordinates)
+            expression = ufl_utils.replace_coordinates(expression, fs.mesh().coordinates)
 
         if extract_arguments(expression):
             return ValueError("Cannot interpolate UFL expression with Arguments!")
 
-        # Prepare Coefficients
-        arglist = []
-        prepare = []
-        coefficient_map = {}
+        builder = KernelBuilderBase()
+        args = []
 
         coefficients = extract_coefficients(expression)
         for i, coefficient in enumerate(coefficients):
-            funarg, prepare_, variable = driver.prepare_coefficient('cell', coefficient, "w_%d" % i)
-            arglist.append(funarg)
-            prepare.extend(prepare_)
-            coefficient_map[coefficient] = variable
+            args.append(builder.coefficient(coefficient, "w_%d" % i))
 
         point_index = gem.Index(name='p')
-        tabulation_manager = fem.TabulationManager('cell', fs.mesh().ufl_cell(), to_pts)
-        nonfem = fem.process('cell', expression, tabulation_manager,
-                             None, point_index, (), coefficient_map,
-                             collections.defaultdict(gem.Index))
-        assert len(nonfem) == 1 and set(nonfem[0].free_indices) <= set([point_index])
+        ir = fem.process('cell', fs.mesh().ufl_cell(), to_pts, None,
+                         point_index, (), expression,
+                         builder.coefficient_mapper,
+                         collections.defaultdict(gem.Index))
+        assert len(ir) == 1
 
         # Deal with non-scalar expressions
         tensor_indices = ()
         if fs.shape:
             tensor_indices = tuple(gem.Index() for s in fs.shape)
-            nonfem = [gem.Indexed(nonfem[0], tensor_indices)]
+            ir = [gem.Indexed(ir[0], tensor_indices)]
 
         # Build kernel body
         return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
         return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
-        body, oriented = driver.build_kernel_body([return_expr], nonfem, [point_index],
-                                                  index_names={point_index: 'p'})
+        impero_c = impero_utils.compile_gem([return_expr], ir, [point_index])
+        body = generate_coffee(impero_c, index_names={point_index: 'p'})
+
+        oriented = needs_cell_orientations(ir)
         if oriented:
-            decl = ast.Decl("int *restrict *restrict",
-                            ast.Symbol("cell_orientations"),
-                            qualifiers=["const"])
-            arglist.insert(0, decl)
+            args.insert(0, cell_orientations_coffee_arg)
 
         # Build kernel
-        arglist.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
-        kernel_code = ast.FunDecl("void", "expression_kernel", arglist,
-                                  ast.Block(prepare + [body]),
-                                  pred=["static", "inline"])
+        args.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
+        kernel_code = builder.construct_kernel("expression_kernel", args, body)
 
         return op2.Kernel(kernel_code, "expression_kernel"), oriented, coefficients
 
