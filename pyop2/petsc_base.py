@@ -665,7 +665,7 @@ class Mat(base.Mat, CopyOnWrite):
             mat = _GlobalMat()
 
         else:
-            raise NotImplementedError("Mixed global matrices still to come.")
+            mat = _DatMat(self.sparsity)
 
         self.handle = mat
         self._version_set_zero()
@@ -680,9 +680,14 @@ class Mat(base.Mat, CopyOnWrite):
         except TypeError:
             # One of the path entries was not an Arg.
             if path == (None, None):
-                if not hasattr(self, "_global"):
-                    self._init()
+                #if not hasattr(self, "_global"):
+                #    self._init()
                 return _make_object('Arg', data=self.handle.getPythonContext(),
+                                    access=access, flatten=flatten)
+            elif None in path:
+                thispath = path[0] or path[1]
+                return _make_object('Arg', data=self.handle.getPythonContext(),
+                                    map=thispath.map, idx=thispath.idx,
                                     access=access, flatten=flatten)
 
     def __getitem__(self, idx):
@@ -805,6 +810,41 @@ class ParLoop(base.ParLoop):
 
     def log_flops(self):
         PETSc.Log.logFlops(self.num_flops)
+
+
+class _DatMat(PETSc.Mat):
+    """A :class:`PETSc.Mat` with global size nx1 or nx1 implemented as a
+    :class:`.Dat`"""
+
+    def __init__(self, sparsity, dat=None):
+        super(_DatMat, self).__init__()
+        self.create()
+
+        self.sparsity = sparsity
+        if isinstance(sparsity.dsets[0], GlobalDataSet):
+            self.dset = sparsity.dsets[1]
+            self.setSizes(((None, 1), (sparsity._ncols, None)))
+        elif isinstance(sparsity.dsets[1], GlobalDataSet):
+            self.dset = sparsity.dsets[0]
+            self.setSizes(((sparsity._nrows, None), (None, 1)))
+        else:
+            raise ValueError("Not a DatMat")
+
+        self.setType(self.Type.PYTHON)
+        self.setPythonContext(dat or _make_object("Dat", self.dset))
+
+    def __getitem__(self, key):
+        shape = [s[0] if s[0] > 0 else 1 for s in self.sizes]
+        return self.getPythonContext().data_ro.reshape(*shape)[key]
+
+    def zeroEntries(self):
+        self.getPythonContext().assign(0.0)
+
+    def duplicate(self, copy=True):
+        if copy:
+            return _DatMat(self.sparsity, self.getPythonContext().duplicate())
+        else:
+            return _DatMat(self.sparsity)
 
 
 class _GlobalMat(PETSc.Mat):
