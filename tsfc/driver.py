@@ -102,6 +102,36 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     # evaluation can be hoisted).
     index_cache = collections.defaultdict(gem.Index)
 
+    def cellvolume():
+        from ufl import dx
+        form = 1 * dx(domain=mesh)
+        fd = compute_form_data(form,
+                               do_apply_function_pullbacks=True,
+                               do_apply_integral_scaling=True,
+                               do_apply_geometry_lowering=True,
+                               do_apply_restrictions=True,
+                               do_estimate_degrees=True)
+        itg_data, = fd.integral_data
+        integral, = itg_data.integrals
+
+        # Check if the integral has a quad degree attached, otherwise use
+        # the estimated polynomial degree attached by compute_form_data
+        quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
+        quad_rule = create_quadrature(cell, 'cell', quadrature_degree)
+
+        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
+        quadrature_index = gem.Index(name='q')
+        ir = fem.process('cell', cell, quad_rule.points,
+                         quad_rule.weights, quadrature_index, (),
+                         integrand, builder.coefficient_mapper,
+                         index_cache, None)
+        if parameters["unroll_indexsum"]:
+            ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
+        expr, = ir
+        if quadrature_index in expr.free_indices:
+            expr = gem.IndexSum(expr, quadrature_index)
+        return expr
+
     irs = []
     for integral in integral_data.integrals:
         params = {}
@@ -129,7 +159,8 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         ir = fem.process(integral_type, cell, quad_rule.points,
                          quad_rule.weights, quadrature_index,
                          argument_indices, integrand,
-                         builder.coefficient_mapper, index_cache)
+                         builder.coefficient_mapper, index_cache,
+                         cellvolume)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)

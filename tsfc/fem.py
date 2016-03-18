@@ -8,9 +8,9 @@ from singledispatch import singledispatch
 
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, Coefficient, ConstantValue,
-                         FormArgument, GeometricQuantity,
-                         QuadratureWeight)
+from ufl.classes import (Argument, Coefficient, CellVolume,
+                         ConstantValue, FormArgument,
+                         GeometricQuantity, QuadratureWeight)
 
 import gem
 
@@ -195,7 +195,8 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     """Contains all the context necessary to translate UFL into GEM."""
 
     def __init__(self, tabulation_manager, weights, quadrature_index,
-                 argument_indices, coefficient_mapper, index_cache):
+                 argument_indices, coefficient_mapper, index_cache,
+                 cellvolume):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
         integral_type = tabulation_manager.integral_type
@@ -209,6 +210,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         self.index_cache = index_cache
         self.facet_manager = facet_manager
         self.select_facet = facet_manager.select_facet
+        self.cellvolume = cellvolume
 
         if self.integral_type.startswith("interior_facet"):
             self.cell_orientations = gem.Variable("cell_orientations", (2, 1))
@@ -280,6 +282,11 @@ def _(terminal, mt, params):
     return geometric.translate(terminal, mt, params)
 
 
+@translate.register(CellVolume)  # noqa: Not actually redefinition
+def _(terminal, mt, params):
+    return params.cellvolume()
+
+
 @translate.register(Argument)  # noqa: Not actually redefinition
 def _(terminal, mt, params):
     argument_index = params.argument_indices[terminal.number()]
@@ -337,7 +344,8 @@ def _translate_constantvalue(terminal, mt, params):
 
 
 def process(integral_type, cell, points, weights, quadrature_index,
-            argument_indices, integrand, coefficient_mapper, index_cache):
+            argument_indices, integrand, coefficient_mapper,
+            index_cache, cellvolume):
     # Abs-simplification
     integrand = simplify_abs(integrand)
 
@@ -370,5 +378,5 @@ def process(integral_type, cell, points, weights, quadrature_index,
     # lowering finite element specific nodes
     translator = Translator(tabulation_manager, weights,
                             quadrature_index, argument_indices,
-                            coefficient_mapper, index_cache)
+                            coefficient_mapper, index_cache, cellvolume)
     return map_expr_dags(translator, expressions)
