@@ -454,41 +454,48 @@ class MeshTopology(object):
 
     @utils.cached_property
     def exterior_facets(self):
-        if self._plex.getStratumSize("exterior_facets", 1) > 0:
-            # Compute the facet_numbering
+        # If there are no exterior facets on this process, everything
+        # just falls through nicely, so no need to special case.
 
-            # Order exterior facets by OP2 entity class
-            exterior_facets, exterior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "exterior_facets",
-                                           self._facet_ordering)
+        # Compute the facet_numbering
+        # Order exterior facets by OP2 entity class
+        exterior_facets, exterior_facet_classes = \
+            dmplex.get_facets_by_class(self._plex, "exterior_facets",
+                                       self._facet_ordering)
 
-            # Derive attached boundary IDs
-            if self._plex.hasLabel("boundary_ids"):
-                boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
-                for i, facet in enumerate(exterior_facets):
-                    boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
+        # Derive attached boundary IDs
+        if self._plex.hasLabel("boundary_ids"):
+            boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+            for i, facet in enumerate(exterior_facets):
+                boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
 
-                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
-            else:
-                boundary_ids = None
-                unique_ids = None
+            # Determine union of boundary IDs.  All processes must
+            # know the values of all ids, for collective reasons.
+            comm = self._plex.comm.tompi4py()
+            from mpi4py import MPI
 
-            exterior_local_facet_number, exterior_facet_cell = \
-                dmplex.facet_numbering(self._plex, "exterior",
-                                       exterior_facets,
-                                       self._cell_numbering,
-                                       self.cell_closure)
+            def merge_ids(x, y, datatype):
+                return x.union(y)
 
-            return _Facets(self, exterior_facet_classes, "exterior",
-                           exterior_facet_cell, exterior_local_facet_number,
-                           boundary_ids, unique_markers=unique_ids)
+            op = MPI.Op.Create(merge_ids, commute=True)
+
+            local_ids = set(self._plex.getLabelIdIS("boundary_ids").indices)
+            unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
+                                    dtype=np.int32)
+            op.Free()
         else:
-            if self._plex.hasLabel("boundary_ids"):
-                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
-            else:
-                unique_ids = None
-            return _Facets(self, 0, "exterior", None, None,
-                           unique_markers=unique_ids)
+            boundary_ids = None
+            unique_ids = None
+
+        exterior_local_facet_number, exterior_facet_cell = \
+            dmplex.facet_numbering(self._plex, "exterior",
+                                   exterior_facets,
+                                   self._cell_numbering,
+                                   self.cell_closure)
+
+        return _Facets(self, exterior_facet_classes, "exterior",
+                       exterior_facet_cell, exterior_local_facet_number,
+                       boundary_ids, unique_markers=unique_ids)
 
     @utils.cached_property
     def interior_facets(self):
