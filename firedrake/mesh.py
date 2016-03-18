@@ -492,24 +492,23 @@ class MeshTopology(object):
 
     @utils.cached_property
     def interior_facets(self):
-        if self._plex.getStratumSize("interior_facets", 1) > 0:
-            # Compute the facet_numbering
+        # If there are no interior facets on this process, everything
+        # just falls through nicely, so no need to special case.
 
-            # Order interior facets by OP2 entity class
-            interior_facets, interior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "interior_facets",
-                                           self._facet_ordering)
+        # Compute the facet_numbering
+        # Order interior facets by OP2 entity class
+        interior_facets, interior_facet_classes = \
+            dmplex.get_facets_by_class(self._plex, "interior_facets",
+                                       self._facet_ordering)
 
-            interior_local_facet_number, interior_facet_cell = \
-                dmplex.facet_numbering(self._plex, "interior",
-                                       interior_facets,
-                                       self._cell_numbering,
-                                       self.cell_closure)
+        interior_local_facet_number, interior_facet_cell = \
+            dmplex.facet_numbering(self._plex, "interior",
+                                   interior_facets,
+                                   self._cell_numbering,
+                                   self.cell_closure)
 
-            return _Facets(self, interior_facet_classes, "interior",
-                           interior_facet_cell, interior_local_facet_number)
-        else:
-            return _Facets(self, 0, "interior", None, None)
+        return _Facets(self, interior_facet_classes, "interior",
+                       interior_facet_cell, interior_local_facet_number)
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
