@@ -188,7 +188,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         def mat(testmap, trialmap, i, j):
             m = testmap(test.function_space()[i])
-            n = trialmap(test.function_space()[j])
+            n = trialmap(trial.function_space()[j])
             maps = (m[op2.i[0]] if m else None,
                     n[op2.i[1]] if n else None)
             return tensor[i, j](op2.INC, maps, flatten=True)
@@ -239,6 +239,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # assemble it.
     def thunk(bcs):
         zero_tensor()
+
         for indices, (kernel, integral_type, needs_orientations, subdomain_id, coeff_map) in kernels:
             # Find argument space indices
             if is_mat:
