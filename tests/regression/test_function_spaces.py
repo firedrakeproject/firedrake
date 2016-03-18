@@ -1,19 +1,38 @@
 import pytest
 from firedrake import *
-from tests.common import *
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
+def mesh():
+    return UnitSquareMesh(1, 1)
+
+
+@pytest.fixture(scope="module")
 def mesh2():
     return UnitSquareMesh(1, 1)
 
 
-@pytest.fixture(scope='module', params=['cg1cg1', 'cg1vcg1', 'cg1dg0', 'cg2dg1'])
-def fs(request, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
-    return {'cg1cg1': cg1cg1,
-            'cg1vcg1': cg1vcg1,
-            'cg1dg0': cg1dg0,
-            'cg2dg1': cg2dg1}[request.param]
+@pytest.fixture(scope="module")
+def cg1(mesh):
+    return FunctionSpace(mesh, "CG", 1)
+
+
+@pytest.fixture(scope="module")
+def cg2(mesh):
+    return FunctionSpace(mesh, "CG", 2)
+
+
+@pytest.fixture(scope="module")
+def dg0(mesh):
+    return VectorFunctionSpace(mesh, "DG", 0)
+
+
+@pytest.fixture(scope='module', params=['cg1cg1', 'cg1cg2', 'cg1dg0', 'cg2dg0'])
+def fs(request, cg1, cg2, dg0):
+    return {'cg1cg1': cg1*cg1,
+            'cg1cg2': cg1*cg2,
+            'cg1dg0': cg1*dg0,
+            'cg2dg0': cg2*dg0}[request.param]
 
 
 def test_function_space_cached(mesh):

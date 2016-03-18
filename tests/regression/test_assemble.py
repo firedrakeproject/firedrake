@@ -1,31 +1,40 @@
 import pytest
 import numpy as np
 from firedrake import *
-from tests.common import *
 
 
-# FIXME: cg1vcg1 is not supported yet
+@pytest.fixture(scope='module')
+def mesh():
+    return UnitSquareMesh(5, 5)
+
+
 @pytest.fixture(scope='module', params=['cg1', 'vcg1', 'tcg1',
                                         'cg1cg1', 'cg1cg1[0]', 'cg1cg1[1]',
                                         'cg1vcg1[0]', 'cg1vcg1[1]',
                                         'cg1dg0', 'cg1dg0[0]', 'cg1dg0[1]',
                                         'cg2dg1', 'cg2dg1[0]', 'cg2dg1[1]'])
-def fs(request, cg1, vcg1, tcg1, cg1cg1, cg1vcg1, cg1dg0, cg2dg1):
+def fs(request, mesh):
+    cg1 = FunctionSpace(mesh, "CG", 1)
+    cg2 = FunctionSpace(mesh, "CG", 2)
+    vcg1 = VectorFunctionSpace(mesh, "CG", 1)
+    tcg1 = TensorFunctionSpace(mesh, "CG", 1)
+    dg0 = FunctionSpace(mesh, "DG", 0)
+    dg1 = FunctionSpace(mesh, "DG", 1)
     return {'cg1': cg1,
             'vcg1': vcg1,
             'tcg1': tcg1,
-            'cg1cg1': cg1cg1,
-            'cg1cg1[0]': cg1cg1[0],
-            'cg1cg1[1]': cg1cg1[1],
-            'cg1vcg1': cg1vcg1,
-            'cg1vcg1[0]': cg1vcg1[0],
-            'cg1vcg1[1]': cg1vcg1[1],
-            'cg1dg0': cg1dg0,
-            'cg1dg0[0]': cg1dg0[0],
-            'cg1dg0[1]': cg1dg0[1],
-            'cg2dg1': cg2dg1,
-            'cg2dg1[0]': cg2dg1[0],
-            'cg2dg1[1]': cg2dg1[1]}[request.param]
+            'cg1cg1': cg1*cg1,
+            'cg1cg1[0]': (cg1*cg1)[0],
+            'cg1cg1[1]': (cg1*cg1)[1],
+            'cg1vcg1': cg1*vcg1,
+            'cg1vcg1[0]': (cg1*vcg1)[0],
+            'cg1vcg1[1]': (cg1*vcg1)[1],
+            'cg1dg0': cg1*dg0,
+            'cg1dg0[0]': (cg1*dg0)[0],
+            'cg1dg0[1]': (cg1*dg0)[1],
+            'cg2dg1': cg2*dg1,
+            'cg2dg1[0]': (cg2*dg1)[0],
+            'cg2dg1[1]': (cg2*dg1)[1]}[request.param]
 
 
 @pytest.fixture
@@ -71,10 +80,11 @@ def test_zero_form(M, f, one):
     assert abs(zero_form - 0.5 * np.prod(f.shape())) < 1.0e-12
 
 
-def test_assemble_with_tensor(cg1):
-    v = TestFunction(cg1)
+def test_assemble_with_tensor(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    v = TestFunction(V)
     L = v*dx
-    f = Function(cg1)
+    f = Function(V)
     # Assemble a form into f
     f = assemble(L, f)
     # Assemble a different form into f
@@ -83,9 +93,10 @@ def test_assemble_with_tensor(cg1):
     assert np.allclose(f.dat.data, 2*assemble(L).dat.data, rtol=1e-14)
 
 
-def test_assemble_mat_with_tensor(dg0):
-    u = TestFunction(dg0)
-    v = TrialFunction(dg0)
+def test_assemble_mat_with_tensor(mesh):
+    V = FunctionSpace(mesh, "DG", 0)
+    u = TestFunction(V)
+    v = TrialFunction(V)
     a = u*v*dx
     M = assemble(a)
     # Assemble a different form into M

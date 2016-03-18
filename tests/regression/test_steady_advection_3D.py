@@ -60,11 +60,8 @@ def test_3d_near_to_far(mesh, DG0, W):
 
 
 @pytest.mark.parallel
-def test_3d_near_to_far_parallel():
-    m = mesh()
-    dg0 = DG0(m)
-    w = W(m)
-    run_near_to_far(m, dg0, w)
+def test_3d_near_to_far_parallel(mesh, DG0, W):
+    run_near_to_far(mesh, DG0, W)
 
 
 def run_up_to_down(mesh, DG1, W):
@@ -99,11 +96,8 @@ def test_3d_up_to_down(mesh, DG1, W):
 
 
 @pytest.mark.parallel
-def test_3d_up_to_down_parallel():
-    m = mesh()
-    dg1 = DG1(m)
-    w = W(m)
-    run_up_to_down(m, dg1, w)
+def test_3d_up_to_down_parallel(mesh, DG1, W):
+    run_up_to_down(mesh, DG1, W)
 
 
 if __name__ == '__main__':

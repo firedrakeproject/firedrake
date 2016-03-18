@@ -9,18 +9,17 @@ on the other 2, opposite, sides.
 
 import pytest
 from firedrake import *
-from tests.common import *
 
 
 @pytest.fixture(scope='module', params=[False, True])
-def P2(request):
+def P2(extmesh, request):
     quadrilateral = request.param
     mesh = extmesh(4, 4, 4, quadrilateral=quadrilateral)
     return FunctionSpace(mesh, "CG", 2)
 
 
 @pytest.fixture(scope='module')
-def P2_2D():
+def P2_2D(extmesh_2D):
     mesh = extmesh_2D(4, 4)
     return FunctionSpace(mesh, "CG", 2)
 

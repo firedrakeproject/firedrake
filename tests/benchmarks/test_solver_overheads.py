@@ -1,9 +1,7 @@
 from firedrake import *
-from tests.common import disable_cache_lazy
 import pytest
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
@@ -32,7 +30,6 @@ def test_linearsolver(bcs, benchmark):
     benchmark(lambda: solver.solve(f, b))
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
@@ -59,7 +56,6 @@ def test_assembled_solve(bcs, benchmark):
     benchmark(lambda: solve(A, f, b, bcs=bcs))
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
@@ -86,7 +82,6 @@ def test_linearvariationalsolver(bcs, benchmark):
     benchmark(lambda: solver.solve())
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
@@ -109,7 +104,6 @@ def test_nonlinearvariationalsolver(bcs, benchmark):
     benchmark(lambda: solver.solve())
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
@@ -134,7 +128,6 @@ def test_linear_solve(bcs, benchmark):
     benchmark(lambda: solve(a == L, f, bcs=bcs))
 
 
-@disable_cache_lazy
 @pytest.mark.benchmark(warmup=True, disable_gc=True)
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])

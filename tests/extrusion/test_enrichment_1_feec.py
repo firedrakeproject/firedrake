@@ -3,7 +3,6 @@
 import pytest
 
 from firedrake import *
-from tests.common import *
 
 
 @pytest.mark.parametrize(('horiz_complex', 'vert_complex'),
@@ -13,7 +12,7 @@ from tests.common import *
                           ((("CG", 2), ("BDM", 1), ("DG", 0)), (("CG", 1), ("DG", 0))),
                           ((("CG", 3), ("BDM", 2), ("DG", 1)), (("CG", 2), ("DG", 1))),
                           ((("CG", 2, "B", 3), ("BDFM", 2), ("DG", 1)), (("CG", 2), ("DG", 1)))])
-def test_feec(horiz_complex, vert_complex):
+def test_feec(extmesh, horiz_complex, vert_complex):
     U0, U1, U2 = horiz_complex
     V0, V1 = vert_complex
     # U0, U1, U2 is our horizontal complex
@@ -44,7 +43,7 @@ def test_feec(horiz_complex, vert_complex):
                          [((("CG", 1), ("RTCF", 1), ("DQ", 0)), (("CG", 3), ("DG", 2))),
                           ((("CG", 2), ("RTCF", 2), ("DQ", 1)), (("CG", 2), ("DG", 1))),
                           ((("CG", 3), ("RTCF", 3), ("DQ", 2)), (("CG", 1), ("DG", 0)))])
-def test_feec_quadrilateral(horiz_complex, vert_complex):
+def test_feec_quadrilateral(extmesh, horiz_complex, vert_complex):
     U0, U1, U2 = horiz_complex
     V0, V1 = vert_complex
     # U0, U1, U2 is our horizontal complex

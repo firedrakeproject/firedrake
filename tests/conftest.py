@@ -1,18 +1,9 @@
 """Global test configuration."""
 
-# Insert the parent directory into the module path so we can find the common
-# module whichever directory we are calling py.test from.
-#
-# Note that this will ONLY work when tests are run by calling py.test, not when
-# calling them as a module. In that case it is required to have the Firedrake
-# root directory on your PYTYHONPATH to be able to call tests from anywhere.
+import pytest
 import os
-import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
-
 from subprocess import check_call
 from mpi4py import MPI
-from functools import wraps
 
 
 def parallel(item):
@@ -47,29 +38,29 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "parallel(nprocs): mark test to run in parallel on nprocs processors")
-
-
-def check_src_hashes(fn):
-    """Decorator that turns on PyOP2 option to check for source hashes.
-
-    Used in parallel tests."""
-    @wraps(fn)
-    def wrapper(*args, **kwargs):
-        from firedrake.parameters import parameters
-        val = parameters["pyop2_options"]["check_src_hashes"]
-        try:
-            parameters["pyop2_options"]["check_src_hashes"] = True
-            return fn(*args, **kwargs)
-        finally:
-            parameters["pyop2_options"]["check_src_hashes"] = val
-    return wrapper
+    config.addinivalue_line(
+        "markers",
+        "longtest: mark that the test is 'long' (skipped if --short is passed)")
 
 
 def pytest_runtest_setup(item):
+    if item.get_marker("longtest") is not None:
+        if item.config.getoption("--short"):
+            pytest.skip("Skipping long test")
     if item.get_marker("parallel"):
         if MPI.COMM_WORLD.size > 1:
-            # Ensure source hash checking is enabled.
-            item.obj = check_src_hashes(item.obj)
+            # Turn on source hash checking
+            from firedrake import parameters
+            from functools import partial
+
+            def _reset(check):
+                parameters["pyop2_options"]["check_src_hashes"] = check
+
+            # Reset to current value when test is cleaned up
+            item.addfinalizer(partial(_reset,
+                                      parameters["pyop2_options"]["check_src_hashes"]))
+
+            parameters["pyop2_options"]["check_src_hashes"] = True
         else:
             # Blow away function arg in "master" process, to ensure
             # this test isn't run on only one process.

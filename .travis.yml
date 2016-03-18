@@ -38,6 +38,7 @@ env:
     # The install script expects to see this environment variable
     - CACHE_DIRECTORY=$HOME/cached_dependencies_$TRAVIS_OS_NAME
     - FIREDRAKE_TRAVIS_TESTS=1
+    - PACKAGE_MANAGER="--no-package-manager"
   matrix:
     - PYOP2_BACKEND=none
 matrix:
@@ -47,7 +48,7 @@ matrix:
     - os: osx
       # Only test a few things on OSX until we can cache some of the
       # build dependencies, otherwise we often get timeouts.
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE"
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE" PACKAGE_MANAGER=""
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - os: linux
@@ -60,11 +61,15 @@ before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
   - pip install -U --user pip
   - pip install -U --user virtualenv
+  # Fail fast on lint errors
+  - pip install -U --user flake8
+  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then export PATH=$PATH:$HOME/Library/Python/2.7/bin; fi
+  - make lint
 install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --adjoint --package_branch PyOP2 globals_matrices
+  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --adjoint ${PACKAGE_MANAGER} --package_branch PyOP2 globals_matrices
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update
@@ -73,11 +78,6 @@ install:
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
 # command to run tests
 script:
-  - cd firedrake/src/firedrake
-  - python setup.py build_ext --inplace
-  - cd ..
-  - pip install firedrake/
-  - cd firedrake
-  - make lint
-  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v tests/${t} || rc=$?; done; exit $rc)
-  - if [ -n $TEST_ADJOINT ]; then python ../dolfin-adjoint/tests_firedrake/test.py; fi
+  - (cd firedrake/src/firedrake; make lint)
+  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v firedrake/src/firedrake/tests/${t} || rc=$?; done; exit $rc)
+  - if [ "x$TEST_ADJOINT" != "x" ]; then python firedrake/src/dolfin-adjoint/tests_firedrake/test.py; fi

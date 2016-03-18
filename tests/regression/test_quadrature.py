@@ -1,9 +1,9 @@
 import pytest
 from firedrake import *
-from tests.common import *
 
 
-def test_hand_specified_quadrature(mesh):
+def test_hand_specified_quadrature():
+    mesh = UnitSquareMesh(5, 5)
     V = FunctionSpace(mesh, 'CG', 2)
     v = TestFunction(V)
 

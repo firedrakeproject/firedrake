@@ -1,10 +1,10 @@
 import pytest
 import numpy as np
 from firedrake import *
-from tests.common import *
 
 
-def test_constant(cg1):
+def test_constant():
+    cg1 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 1)
     f = interpolate(Constant(1.0), cg1)
     assert np.allclose(1.0, f.dat.data)
 
@@ -23,7 +23,8 @@ def test_function():
     assert np.allclose(g.dat.data, h.dat.data)
 
 
-def test_coordinates(cg2):
+def test_coordinates():
+    cg2 = FunctionSpace(UnitSquareMesh(5, 5), "CG", 2)
     f = interpolate(Expression("x[0]*x[0]"), cg2)
 
     x = SpatialCoordinate(cg2.mesh())
