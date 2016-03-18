@@ -3269,6 +3269,8 @@ class Sparsity(ObjectCached):
             self._d_nz = 0
             self._o_nz = 0
             self._dims = (((1, 1),),)
+            self._nrows = None if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].toset.size
+            self._ncols = None if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].toset.size
         else:
             self.lcomm = self._rmaps[0].comm
             self.rcomm = self._cmaps[0].comm
