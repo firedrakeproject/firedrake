@@ -123,7 +123,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         ir = fem.process(integral_type, cell, quad_rule.points,
                          quad_rule.weights, argument_indices,
-                         integrand, interface.coefficient_mapper(),
+                         integrand, interface.coefficient_mapper,
                          index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])

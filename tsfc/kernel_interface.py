@@ -33,41 +33,61 @@ class Kernel(object):
         super(Kernel, self).__init__()
 
 
-class Interface(object):
-    def __init__(self, integral_type, subdomain_id):
-        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id)
-
-        self.integral_type = integral_type
-        self.interior_facet = integral_type.startswith("interior_facet")
-
-        self.local_tensor = None
-        self.coordinates_arg = None
-        self.coefficient_args = []
+class InterfaceBase(object):
+    def __init__(self, interior_facet=False):
+        assert isinstance(interior_facet, bool)
+        self.interior_facet = interior_facet
 
         self.prepare = []
         self.finalise = []
 
         self.coefficient_map = {}
 
-    def set_arguments(self, arguments, argument_indices):
+    def apply_glue(self, prepare=None, finalise=None):
+        if prepare is not None:
+            self.prepare.extend(prepare)
+        if finalise is not None:
+            self.finalise.extend(finalise)
+
+    def construct_kernel(self, name, args, body):
+        body.open_scope = False
+        body_ = coffee.Block(self.prepare + [body] + self.finalise)
+        return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
+
+    @property
+    def coefficient_mapper(self):
+        return lambda coefficient: self.coefficient_map[coefficient]
+
+    def arguments(self, arguments, indices):
         funarg, prepare, expressions, finalise = prepare_arguments(
-            arguments, argument_indices,
-            interior_facet=self.interior_facet)
+            arguments, indices, interior_facet=self.interior_facet)
+        self.apply_glue(prepare, finalise)
+        return funarg, expressions
 
-        self.local_tensor = funarg
-        self.prepare.extend(prepare)
-        self.finalise.extend(finalise)
-
-        return expressions
-
-    def set_coordinates(self, coefficient, name, mode=None):
+    def coefficient(self, coefficient, name, mode=None):
         funarg, prepare, expression = prepare_coefficient(
             coefficient, name, mode=mode,
             interior_facet=self.interior_facet)
-
-        self.coordinates_arg = funarg
-        self.prepare.extend(prepare)
+        self.apply_glue(prepare)
         self.coefficient_map[coefficient] = expression
+        return funarg
+
+
+class Interface(InterfaceBase):
+    def __init__(self, integral_type, subdomain_id):
+        super(Interface, self).__init__(integral_type.startswith("interior_facet"))
+
+        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id)
+        self.local_tensor = None
+        self.coordinates_arg = None
+        self.coefficient_args = []
+
+    def set_arguments(self, arguments, indices):
+        self.local_tensor, expressions = self.arguments(arguments, indices)
+        return expressions
+
+    def set_coordinates(self, coefficient, name, mode=None):
+        self.coordinates_arg = self.coefficient(coefficient, name, mode)
 
     def set_coefficients(self, integral_data, form_data):
         coefficient_numbers = []
@@ -76,22 +96,14 @@ class Interface(object):
         for i in range(len(integral_data.enabled_coefficients)):
             if integral_data.enabled_coefficients[i]:
                 coefficient = form_data.reduced_coefficients[i]
-                funarg, prepare, expression = prepare_coefficient(
-                    coefficient, "w_%d" % i,
-                    interior_facet=self.interior_facet)
-                self.coefficient_args.append(funarg)
-                self.prepare.extend(prepare)
-                self.coefficient_map[coefficient] = expression
-
+                self.coefficient_args.append(
+                    self.coefficient(coefficient, "w_%d" % i))
                 # This is which coefficient in the original form the
                 # current coefficient is.
                 # Consider f*v*dx + g*v*ds, the full form contains two
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(form_data.original_coefficient_positions[i])
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
-
-    def coefficient_mapper(self):
-        return lambda coefficient: self.coefficient_map[coefficient]
 
     def require_cell_orientations(self):
         self.kernel.oriented = True
@@ -103,18 +115,16 @@ class Interface(object):
                                     coffee.Symbol("cell_orientations"),
                                     qualifiers=["const"]))
         args.extend(self.coefficient_args)
-        if self.integral_type in ["exterior_facet", "exterior_facet_vert"]:
+        if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             args.append(coffee.Decl("unsigned int",
                                     coffee.Symbol("facet", rank=(1,)),
                                     qualifiers=["const"]))
-        elif self.integral_type in ["interior_facet", "interior_facet_vert"]:
+        elif self.kernel.integral_type in ["interior_facet", "interior_facet_vert"]:
             args.append(coffee.Decl("unsigned int",
                                     coffee.Symbol("facet", rank=(2,)),
                                     qualifiers=["const"]))
 
-        body.open_scope = False
-        body_ = coffee.Block(self.prepare + [body] + self.finalise)
-        self.kernel.ast = coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
+        self.kernel.ast = InterfaceBase.construct_kernel(self, name, args, body)
         return self.kernel
 
 
@@ -267,12 +277,13 @@ def prepare_arguments(arguments, indices, interior_facet=False):
     :arg indices: Argument indices
     :arg interior_facet: interior facet integral?
     :returns: (funarg, prepare, expression, finalise)
-         funarg     - :class:`coffee.Decl` function argument
-         prepare    - list of COFFEE nodes to be prepended to the
-                      kernel body
-         expression - GEM expression referring to the argument tensor
-         finalise   - list of COFFEE nodes to be appended to the
-                      kernel body
+         funarg      - :class:`coffee.Decl` function argument
+         prepare     - list of COFFEE nodes to be prepended to the
+                       kernel body
+         expressions - GEM expressions referring to the argument
+                       tensor
+         finalise    - list of COFFEE nodes to be appended to the
+                       kernel body
     """
     from itertools import chain, product
     assert isinstance(interior_facet, bool)
