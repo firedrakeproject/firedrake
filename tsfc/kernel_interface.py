@@ -51,7 +51,8 @@ class Interface(object):
 
     def set_arguments(self, arguments, argument_indices):
         funarg, prepare, expressions, finalise = prepare_arguments(
-            self.interior_facet, arguments, argument_indices)
+            arguments, argument_indices,
+            interior_facet=self.interior_facet)
 
         self.local_tensor = funarg
         self.prepare.extend(prepare)
@@ -61,7 +62,9 @@ class Interface(object):
 
     def set_coordinates(self, coefficient, name, mode=None):
         funarg, prepare, expression = prepare_coefficient(
-            self.interior_facet, coefficient, name, mode=mode)
+            coefficient, name, mode=mode,
+            interior_facet=self.interior_facet)
+
         self.coordinates_arg = funarg
         self.prepare.extend(prepare)
         self.coefficient_map[coefficient] = expression
@@ -74,7 +77,8 @@ class Interface(object):
             if integral_data.enabled_coefficients[i]:
                 coefficient = form_data.reduced_coefficients[i]
                 funarg, prepare, expression = prepare_coefficient(
-                    self.interior_facet, coefficient, "w_%d" % i)
+                    coefficient, "w_%d" % i,
+                    interior_facet=self.interior_facet)
                 self.coefficient_args.append(funarg)
                 self.prepare.extend(prepare)
                 self.coefficient_map[coefficient] = expression
@@ -114,16 +118,16 @@ class Interface(object):
         return self.kernel
 
 
-def prepare_coefficient(interior_facet, coefficient, name, mode=None):
+def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.  Mixed element Coefficients are rearranged here for
     interior facet integrals.
 
-    :arg interior_facet: interior facet integral?
     :arg coefficient: UFL Coefficient
     :arg name: unique name to refer to the Coefficient in the kernel
     :arg mode: 'manual_loop' or 'list_tensor'; two ways to deal with
                interior facet integrals on mixed elements
+    :arg interior_facet: interior facet integral?
     :returns: (funarg, prepare, expression)
          funarg     - :class:`coffee.Decl` function argument
          prepare    - list of COFFEE nodes to be prepended to the
@@ -135,6 +139,7 @@ def prepare_coefficient(interior_facet, coefficient, name, mode=None):
         mode = 'manual_loop'
 
     assert mode in ['manual_loop', 'list_tensor']
+    assert isinstance(interior_facet, bool)
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
@@ -253,14 +258,14 @@ def prepare_coefficient(interior_facet, coefficient, name, mode=None):
         return funarg, [], expression
 
 
-def prepare_arguments(interior_facet, arguments, indices):
+def prepare_arguments(arguments, indices, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
-    :arg interior_facet: interior facet integral?
     :arg arguments: UFL Arguments
     :arg indices: Argument indices
+    :arg interior_facet: interior facet integral?
     :returns: (funarg, prepare, expression, finalise)
          funarg     - :class:`coffee.Decl` function argument
          prepare    - list of COFFEE nodes to be prepended to the
@@ -270,6 +275,7 @@ def prepare_arguments(interior_facet, arguments, indices):
                       kernel body
     """
     from itertools import chain, product
+    assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
         # No arguments
