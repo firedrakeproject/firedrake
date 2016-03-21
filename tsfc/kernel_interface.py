@@ -7,6 +7,7 @@ import coffee.base as coffee
 from tsfc import gem
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
+from tsfc.node import traversal
 from tsfc.coffee import SCALAR_TYPE
 
 
@@ -111,9 +112,7 @@ class Interface(InterfaceBase):
     def construct_kernel(self, name, body):
         args = [self.local_tensor, self.coordinates_arg]
         if self.kernel.oriented:
-            args.append(coffee.Decl("int *restrict *restrict",
-                                    coffee.Symbol("cell_orientations"),
-                                    qualifiers=["const"]))
+            args.append(cell_orientations_coffee_arg)
         args.extend(self.coefficient_args)
         if self.kernel.integral_type in ["exterior_facet", "exterior_facet_vert"]:
             args.append(coffee.Decl("unsigned int",
@@ -381,3 +380,16 @@ def coffee_for(index, extent, body):
                       coffee.Less(index, extent),
                       coffee.Incr(index, 1),
                       body)
+
+
+def needs_cell_orientations(ir):
+    for node in traversal(ir):
+        if isinstance(node, gem.Variable) and node.name == "cell_orientations":
+            return True
+    return False
+
+
+cell_orientations_coffee_arg = coffee.Decl(
+    "int *restrict *restrict",
+    coffee.Symbol("cell_orientations"),
+    qualifiers=["const"])

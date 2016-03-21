@@ -304,7 +304,8 @@ def _(terminal, mt, params):
     return iterate_shape(mt, callback)
 
 
-def process(integral_type, cell, points, weights, argument_indices, integrand, coefficient_mapper, index_cache):
+def process(integral_type, cell, points, weights, quadrature_index,
+            argument_indices, integrand, coefficient_mapper, index_cache):
     # Abs-simplification
     integrand = simplify_abs(integrand)
 
@@ -335,7 +336,6 @@ def process(integral_type, cell, points, weights, argument_indices, integrand, c
 
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
-    quadrature_index = gem.Index(name='ip')
     translator = Translator(tabulation_manager, weights,
                             quadrature_index, argument_indices,
                             coefficient_mapper, index_cache)

@@ -12,8 +12,7 @@ from tsfc.quadrature import create_quadrature, QuadratureRule
 from tsfc import fem, gem, optimise as opt, impero_utils, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
-from tsfc.node import traversal
-from tsfc.kernel_interface import Interface as KernelInterface
+from tsfc.kernel_interface import Interface as KernelInterface, needs_cell_orientations
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -121,30 +120,25 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              type(quad_rule))
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
+        quadrature_index = gem.Index(name='ip')
+        quadrature_indices.append(quadrature_index)
         ir = fem.process(integral_type, cell, quad_rule.points,
-                         quad_rule.weights, argument_indices,
-                         integrand, interface.coefficient_mapper,
-                         index_cache)
+                         quad_rule.weights, quadrature_index,
+                         argument_indices, integrand,
+                         interface.coefficient_mapper, index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        ir_ = []
-        for e in ir:
-            quadrature_index = set(e.free_indices) - set(argument_indices)
-            if quadrature_index:
-                quadrature_index, = quadrature_index
-                quadrature_indices.append(quadrature_index)
-                e = gem.IndexSum(e, quadrature_index)
-            ir_.append(e)
-        irs.append(ir_)
+        irs.append([(gem.IndexSum(expr, quadrature_index)
+                     if quadrature_index in expr.free_indices
+                     else expr)
+                    for expr in ir])
 
     # Sum the expressions that are part of the same restriction
     ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))
 
     # Look for cell orientations in the IR
-    for node in traversal(ir):
-        if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-            interface.require_cell_orientations()
-            break
+    if needs_cell_orientations(ir):
+        interface.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
                                         tuple(quadrature_indices) + argument_indices,
