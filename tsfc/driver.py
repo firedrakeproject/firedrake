@@ -12,7 +12,7 @@ from tsfc.quadrature import create_quadrature, QuadratureRule
 from tsfc import fem, gem, optimise as opt, impero_utils, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
-from tsfc.kernel_interface import Interface as KernelInterface, needs_cell_orientations
+from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -78,19 +78,19 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     argument_indices = tuple(gem.Index(name=name) for arg, name in zip(arguments, ['j', 'k']))
     quadrature_indices = []
 
-    interface = KernelInterface(integral_type, integral_data.subdomain_id)
-    return_variables = interface.set_arguments(arguments, argument_indices)
+    builder = KernelBuilder(integral_type, integral_data.subdomain_id)
+    return_variables = builder.set_arguments(arguments, argument_indices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
     if ufl_utils.is_element_affine(mesh.ufl_coordinate_element()):
         # For affine mesh geometries we prefer code generation that
         # composes well with optimisations.
-        interface.set_coordinates(coordinates, "coords", mode='list_tensor')
+        builder.set_coordinates(coordinates, "coords", mode='list_tensor')
     else:
         # Otherwise we use the approach that might be faster (?)
-        interface.set_coordinates(coordinates, "coords")
+        builder.set_coordinates(coordinates, "coords")
 
-    interface.set_coefficients(integral_data, form_data)
+    builder.set_coefficients(integral_data, form_data)
 
     # Map from UFL FiniteElement objects to Index instances.  This is
     # so we reuse Index instances when evaluating the same coefficient
@@ -125,7 +125,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         ir = fem.process(integral_type, cell, quad_rule.points,
                          quad_rule.weights, quadrature_index,
                          argument_indices, integrand,
-                         interface.coefficient_mapper, index_cache)
+                         builder.coefficient_mapper, index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)
@@ -138,7 +138,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
     # Look for cell orientations in the IR
     if needs_cell_orientations(ir):
-        interface.require_cell_orientations()
+        builder.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
                                         tuple(quadrature_indices) + argument_indices,
@@ -156,4 +156,4 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     body = generate_coffee(impero_c, index_names)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
-    return interface.construct_kernel(kernel_name, body)
+    return builder.construct_kernel(kernel_name, body)
