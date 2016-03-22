@@ -90,7 +90,7 @@ To output the initial conditions, we project them into P1 and pipe
 them into the output file::
 
   outfile = File("burgers.pvd")
-  outfile << project(u, V_out, name="Velocity")
+  outfile.write(project(u, V_out, name="Velocity"))
 
 Finally, we loop over the timesteps solving the equation each time and
 outputting each result::
@@ -101,6 +101,6 @@ outputting each result::
       solve(F == 0, u)
       u_.assign(u)
       t += timestep
-      outfile << project(u, V_out, name="Velocity")
+      outfile.write(project(u, V_out, name="Velocity"))
     
 A python script version of this demo can be found `here <burgers.py>`__.
