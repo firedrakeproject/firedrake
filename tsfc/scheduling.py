@@ -155,11 +155,6 @@ def emit_operations(assignments, get_indices):
     :returns: list of Impero terminals correctly ordered to evaluate
               the assignments
     """
-    # Filter out zeros
-    assignments = [(variable, expression)
-                   for variable, expression in assignments
-                   if not isinstance(expression, gem.Zero)]
-
     # Prepare reference counts
     refcount = collect_refcount([e for v, e in assignments])
 
