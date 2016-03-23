@@ -71,6 +71,7 @@ finite element problems in Firedrake.
    mesh-coordinates
    interpolation
    point-evaluation
+   visualisation
    checkpointing
    petsc-interface
 
