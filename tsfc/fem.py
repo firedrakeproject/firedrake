@@ -9,7 +9,7 @@ from singledispatch import singledispatch
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, CellVolume,
-                         ConstantValue, FormArgument,
+                         ConstantValue, FacetArea, FormArgument,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
@@ -196,7 +196,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
 
     def __init__(self, tabulation_manager, weights, quadrature_index,
                  argument_indices, coefficient_mapper, index_cache,
-                 cellvolume):
+                 cellvolume, facetarea):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
         integral_type = tabulation_manager.integral_type
@@ -211,6 +211,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         self.facet_manager = facet_manager
         self.select_facet = facet_manager.select_facet
         self.cellvolume = cellvolume
+        self.facetarea = facetarea
 
         if self.integral_type.startswith("interior_facet"):
             self.cell_orientations = gem.Variable("cell_orientations", (2, 1))
@@ -287,6 +288,11 @@ def _(terminal, mt, params):
     return params.cellvolume(mt.restriction)
 
 
+@translate.register(FacetArea)
+def translate_facetarea(terminal, mt, params):
+    return params.facetarea()
+
+
 @translate.register(Argument)  # noqa: Not actually redefinition
 def _(terminal, mt, params):
     argument_index = params.argument_indices[terminal.number()]
@@ -345,7 +351,7 @@ def _translate_constantvalue(terminal, mt, params):
 
 def process(integral_type, cell, points, weights, quadrature_index,
             argument_indices, integrand, coefficient_mapper,
-            index_cache, cellvolume):
+            index_cache, cellvolume, facetarea):
     # Abs-simplification
     integrand = simplify_abs(integrand)
 
@@ -378,5 +384,5 @@ def process(integral_type, cell, points, weights, quadrature_index,
     # lowering finite element specific nodes
     translator = Translator(tabulation_manager, weights,
                             quadrature_index, argument_indices,
-                            coefficient_mapper, index_cache, cellvolume)
+                            coefficient_mapper, index_cache, cellvolume, facetarea)
     return map_expr_dags(translator, expressions)

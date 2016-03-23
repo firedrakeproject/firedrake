@@ -11,7 +11,7 @@ from ufl import TensorProductCell
 from ufl.classes import (CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
                          FacetCoordinate, ReferenceCellVolume,
-                         ReferenceNormal)
+                         ReferenceFacetVolume, ReferenceNormal)
 
 import gem
 
@@ -33,6 +33,14 @@ reference_cell_volume = {
     interval_x_interval: 1.0,
     triangle_x_interval: 1.0/2.0,
     quadrilateral_x_interval: 1.0,
+}
+
+
+# Volume of the reference cells of facets
+reference_facet_volume = {
+    interval: 1.0,
+    triangle: 1.0,
+    tetrahedron: 1.0/2.0,
 }
 
 
@@ -153,6 +161,11 @@ def translate_cell_orientation(terminal, mt, params):
 @translate.register(ReferenceCellVolume)
 def translate_reference_cell_volume(terminal, mt, params):
     return gem.Literal(reference_cell_volume[reference_cell(terminal)])
+
+
+@translate.register(ReferenceFacetVolume)
+def translate_reference_facet_volume(terminal, mt, params):
+    return gem.Literal(reference_facet_volume[reference_cell(terminal)])
 
 
 @translate.register(CellFacetJacobian)
