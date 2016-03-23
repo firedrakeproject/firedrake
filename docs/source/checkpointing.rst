@@ -6,10 +6,10 @@
  Checkpointing state
 =====================
 
-In addition to the ability to write field data to vtu files, suitable
-for visualisation in Paraview_, Firedrake has some support for
-checkpointing state to disk.  This enables pausing, and subsequently
-resuming, a simulation at a later time.
+In addition to the ability to :doc:`write field data to vtu files
+<visualisation>`, suitable for visualisation in Paraview_, Firedrake
+has some support for checkpointing state to disk.  This enables
+pausing, and subsequently resuming, a simulation at a later time.
 
 Restrictions on checkpointing
 =============================
