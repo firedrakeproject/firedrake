@@ -86,10 +86,18 @@ is differentiated by the nonlinear solver::
   F = (inner((u - u_)/timestep, v)
        + inner(dot(u,nabla_grad(u)), v) + nu*inner(grad(u), grad(v)))*dx
 
-To output the initial conditions, we project them into P1 and pipe
-them into the output file::
+We now create an object for output visualisation::
 
   outfile = File("burgers.pvd")
+
+Output only supports visualisation of linear fields (either P1, or
+P1DG).  In this example we project to a linear space by hand.  Another
+option is to let the :class:`~.File` object manage the decimation.  It
+supports both interpolation to linears (the default) or projection (by
+passing ``project_output=True`` when creating the :class:`~.File`).
+Outputting data is carried out using the :meth:`~.File.write` method
+of :class:`~.File` objects::
+
   outfile.write(project(u, V_out, name="Velocity"))
 
 Finally, we loop over the timesteps solving the equation each time and
