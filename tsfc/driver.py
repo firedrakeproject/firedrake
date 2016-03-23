@@ -102,7 +102,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     # evaluation can be hoisted).
     index_cache = collections.defaultdict(gem.Index)
 
-    def cellvolume():
+    def cellvolume(restriction):
         from ufl import dx
         form = 1 * dx(domain=mesh)
         fd = compute_form_data(form,
@@ -121,9 +121,15 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
+        if integral_type.startswith("interior_facet"):
+            def coefficient_mapper(coefficient):
+                return gem.partial_indexed(builder.coefficient_mapper(coefficient), ({'+': 0, '-': 1}[restriction],))
+        else:
+            assert restriction is None
+            coefficient_mapper = builder.coefficient_mapper
         ir = fem.process('cell', cell, quad_rule.points,
                          quad_rule.weights, quadrature_index, (),
-                         integrand, builder.coefficient_mapper,
+                         integrand, coefficient_mapper,
                          index_cache, None)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])

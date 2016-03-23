@@ -284,7 +284,7 @@ def _(terminal, mt, params):
 
 @translate.register(CellVolume)  # noqa: Not actually redefinition
 def _(terminal, mt, params):
-    return params.cellvolume()
+    return params.cellvolume(mt.restriction)
 
 
 @translate.register(Argument)  # noqa: Not actually redefinition
