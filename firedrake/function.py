@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 import numpy as np
-import FIAT
 import ufl
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
@@ -10,7 +9,6 @@ import coffee.base as ast
 from pyop2 import op2
 from pyop2.logger import warning
 
-from firedrake import expression as expression_t
 from firedrake import functionspaceimpl
 from firedrake import utils
 from firedrake import vector
@@ -21,21 +19,10 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'interpolate', 'PointNotInDomainError']
+__all__ = ['Function', 'PointNotInDomainError']
 
 
 valuetype = np.float64
-
-
-def interpolate(expr, V):
-    """Interpolate an expression onto a new function in V.
-
-    :arg expr: an :class:`.Expression`.
-    :arg V: the :class:`.FunctionSpace` to interpolate into.
-
-    Returns a new :class:`.Function` in the space ``V``.
-    """
-    return Function(V).interpolate(expr)
 
 
 class _CFunction(ctypes.Structure):
@@ -303,281 +290,8 @@ class Function(ufl.Coefficient):
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
-        assert isinstance(expression, ufl.classes.Expr)
-
-        # Make sure we have an expression of the right length i.e. a value for
-        # each component in the value shape of each function space
-        dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
-                for fs in self.function_space()]
-        if np.prod(expression.ufl_shape, dtype=int) != sum(dims):
-            raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), np.prod(expression.ufl_shape, dtype=int)))
-
-        fs = self.function_space()
-        if not isinstance(expression, expression_t.Expression):
-            if len(fs) > 1:
-                raise NotImplementedError(
-                    "UFL expressions for mixed functions are not yet supported.")
-            self._interpolate(fs, self.dat, expression, subset)
-        elif hasattr(expression, 'eval'):
-            if len(fs) > 1:
-                raise NotImplementedError(
-                    "Python expressions for mixed functions are not yet supported.")
-            self._interpolate(fs, self.dat, expression, subset)
-        else:
-            # Slice the expression and pass in the right number of values for
-            # each component function space of this function
-            d = 0
-            for fs, dat, dim in zip(self.function_space(), self.dat, dims):
-                idx = d if fs.rank == 0 else slice(d, d+dim)
-                if fs.rank == 0:
-                    code = expression.code[idx]
-                else:
-                    # Reshape so the sub-expression we build has the right shape.
-                    code = expression.code[idx].reshape(fs.ufl_element().value_shape())
-                self._interpolate(fs, dat,
-                                  expression_t.Expression(code,
-                                                          **expression._kwargs),
-                                  subset)
-                d += dim
-        return self
-
-    @utils.known_pyop2_safe
-    def _interpolate(self, fs, dat, expression, subset):
-        """Interpolate expression onto a :class:`FunctionSpace`.
-
-        :param fs: :class:`.FunctionSpace`
-        :param dat: :class:`pyop2.Dat`
-        :param expression: :class:`.Expression`
-        """
-        to_element = fs.fiat_element
-        to_pts = []
-
-        # TODO very soon: look at the mapping associated with the UFL element;
-        # this needs to be "identity" (updated from "affine")
-        if to_element.mapping()[0] != "affine":
-            raise NotImplementedError("Can only interpolate onto elements \
-                with affine mapping. Try projecting instead")
-
-        for dual in to_element.dual_basis():
-            if not isinstance(dual, FIAT.functional.PointEvaluation):
-                raise NotImplementedError("Can only interpolate onto point \
-                    evaluation operators. Try projecting instead")
-            to_pts.append(dual.pt_dict.keys()[0])
-
-        if len(expression.ufl_shape) != len(fs.ufl_element().value_shape()):
-            raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                               % (len(expression.ufl_shape), len(fs.ufl_element().value_shape())))
-
-        if expression.ufl_shape != fs.ufl_element().value_shape():
-            raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (expression.ufl_shape, fs.ufl_element().value_shape()))
-
-        coords = fs.mesh().coordinates
-
-        if not isinstance(expression, expression_t.Expression):
-            kernel, oriented, coefficients = self._interpolate_ufl_expression(expression, to_pts, to_element, fs)
-            args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]])]
-            if oriented:
-                co = fs.mesh().cell_orientations()
-                args.append(co.dat(op2.READ, co.cell_node_map(), flatten=True))
-            for coefficient in coefficients:
-                args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=True))
-        elif hasattr(expression, "eval"):
-            kernel = self._interpolate_python_kernel(expression,
-                                                     to_pts, to_element, fs, coords)
-            args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()),
-                    coords.dat(op2.READ, coords.cell_node_map())]
-        elif expression.code is not None:
-            kernel = self._interpolate_c_kernel(expression,
-                                                to_pts, to_element, fs, coords)
-            args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                    coords.dat(op2.READ, coords.cell_node_map())]
-        else:
-            raise RuntimeError(
-                "Attempting to evaluate an Expression which has no value.")
-
-        if isinstance(expression, expression_t.Expression):
-            for _, arg in expression._user_args:
-                args.append(arg(op2.READ))
-
-        op2.par_loop(*args)
-
-    def _interpolate_ufl_expression(self, expression, to_pts, to_element, fs):
-        import collections
-        from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
-        from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
-        from ufl.algorithms.apply_derivatives import apply_derivatives
-        from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
-        from ufl.algorithms import extract_arguments, extract_coefficients
-        from tsfc import fem, gem, impero_utils, ufl_utils
-        from tsfc.coffee import generate as generate_coffee
-        from tsfc.kernel_interface import (KernelBuilderBase,
-                                           needs_cell_orientations,
-                                           cell_orientations_coffee_arg)
-
-        # Imitate the compute_form_data processing pipeline
-        #
-        # Unfortunately, we cannot call compute_form_data here, since
-        # we only have an expression, not a form
-        expression = apply_algebra_lowering(expression)
-        expression = apply_derivatives(expression)
-        expression = apply_function_pullbacks(expression)
-        expression = apply_geometry_lowering(expression)
-        expression = apply_derivatives(expression)
-        expression = apply_geometry_lowering(expression)
-        expression = apply_derivatives(expression)
-
-        # Replace coordinates (if any)
-        if expression.ufl_domain():
-            assert fs.mesh() == expression.ufl_domain()
-            expression = ufl_utils.replace_coordinates(expression, fs.mesh().coordinates)
-
-        if extract_arguments(expression):
-            return ValueError("Cannot interpolate UFL expression with Arguments!")
-
-        builder = KernelBuilderBase()
-        args = []
-
-        coefficients = extract_coefficients(expression)
-        for i, coefficient in enumerate(coefficients):
-            args.append(builder.coefficient(coefficient, "w_%d" % i))
-
-        point_index = gem.Index(name='p')
-        ir = fem.process('cell', fs.mesh().ufl_cell(), to_pts, None,
-                         point_index, (), expression,
-                         builder.coefficient_mapper,
-                         collections.defaultdict(gem.Index))
-        assert len(ir) == 1
-
-        # Deal with non-scalar expressions
-        tensor_indices = ()
-        if fs.shape:
-            tensor_indices = tuple(gem.Index() for s in fs.shape)
-            ir = [gem.Indexed(ir[0], tensor_indices)]
-
-        # Build kernel body
-        return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
-        return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
-        impero_c = impero_utils.compile_gem([return_expr], ir, [point_index])
-        body = generate_coffee(impero_c, index_names={point_index: 'p'})
-
-        oriented = needs_cell_orientations(ir)
-        if oriented:
-            args.insert(0, cell_orientations_coffee_arg)
-
-        # Build kernel
-        args.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
-        kernel_code = builder.construct_kernel("expression_kernel", args, body)
-
-        return op2.Kernel(kernel_code, "expression_kernel"), oriented, coefficients
-
-    def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
-        """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the
-        function provided."""
-
-        coords_space = coords.function_space()
-        coords_element = coords_space.fiat_element
-
-        X_remap = coords_element.tabulate(0, to_pts).values()[0]
-
-        # The par_loop will just pass us arguments, since it doesn't
-        # know about keyword args at all so unpack into a dict that we
-        # can pass to the user's eval method.
-        def kernel(output, x, *args):
-            kwargs = {}
-            for (slot, _), arg in zip(expression._user_args, args):
-                kwargs[slot] = arg
-            X = np.dot(X_remap.T, x)
-
-            for i in range(len(output)):
-                # Pass a slice for the scalar case but just the
-                # current vector in the VFS case. This ensures the
-                # eval method has a Dolfin compatible API.
-                expression.eval(output[i:i+1, ...] if np.rank(output) == 1 else output[i, ...],
-                                X[i:i+1, ...] if np.rank(X) == 1 else X[i, ...], **kwargs)
-
-        return kernel
-
-    def _interpolate_c_kernel(self, expression, to_pts, to_element, fs, coords):
-        """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
-
-        coords_space = coords.function_space()
-        coords_element = coords_space.fiat_element
-
-        names = {v[0] for v in expression._user_args}
-
-        X = coords_element.tabulate(0, to_pts).values()[0]
-
-        # Produce C array notation of X.
-        X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
-
-        A = utils.unique_name("A", names)
-        X = utils.unique_name("X", names)
-        x_ = utils.unique_name("x_", names)
-        k = utils.unique_name("k", names)
-        d = utils.unique_name("d", names)
-        i_ = utils.unique_name("i", names)
-        # x is a reserved name.
-        x = "x"
-        if "x" in names:
-            raise ValueError("cannot use 'x' as a user-defined Expression variable")
-        ass_exp = [ast.Assign(ast.Symbol(A, (k,), ((len(expression.code), i),)),
-                              ast.FlatBlock("%s" % code))
-                   for i, code in enumerate(expression.code)]
-        vals = {
-            "X": X,
-            "x": x,
-            "x_": x_,
-            "k": k,
-            "d": d,
-            "i": i_,
-            "x_array": X_str,
-            "dim": coords_space.dim,
-            "xndof": coords_element.space_dimension(),
-            # FS will always either be a functionspace or
-            # vectorfunctionspace, so just accessing dim here is safe
-            # (we don't need to go through ufl_element.value_shape())
-            "nfdof": to_element.space_dimension() * np.prod(fs.dim, dtype=int),
-            "ndof": to_element.space_dimension(),
-            "assign_dim": np.prod(expression.value_shape(), dtype=int)
-        }
-        init = ast.FlatBlock("""
-const double %(X)s[%(ndof)d][%(xndof)d] = %(x_array)s;
-
-double %(x)s[%(dim)d];
-const double pi = 3.141592653589793;
-
-""" % vals)
-        block = ast.FlatBlock("""
-for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
-  %(x)s[%(d)s] = 0;
-  for (unsigned int %(i)s=0; %(i)s < %(xndof)d; %(i)s++) {
-        %(x)s[%(d)s] += %(X)s[%(k)s][%(i)s] * %(x_)s[%(i)s][%(d)s];
-  };
-};
-
-""" % vals)
-        loop = ast.c_for(k, "%(ndof)d" % vals, ast.Block([block] + ass_exp,
-                                                         open_scope=True))
-        user_args = []
-        user_init = []
-        for _, arg in expression._user_args:
-            if arg.shape == (1, ):
-                user_args.append(ast.Decl("double *", "%s_" % arg.name))
-                user_init.append(ast.FlatBlock("const double %s = *%s_;" %
-                                               (arg.name, arg.name)))
-            else:
-                user_args.append(ast.Decl("double *", arg.name))
-        kernel_code = ast.FunDecl("void", "expression_kernel",
-                                  [ast.Decl("double", ast.Symbol(A, (int("%(nfdof)d" % vals),))),
-                                   ast.Decl("double**", x_)] + user_args,
-                                  ast.Block(user_init + [init, loop],
-                                            open_scope=False))
-        return op2.Kernel(kernel_code, "expression_kernel")
+        from firedrake import interpolation
+        return interpolation.interpolate(expression, self, subset=subset)
 
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
