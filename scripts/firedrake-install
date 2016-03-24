@@ -92,6 +92,8 @@ honoured.""",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc")
+    parser.add_argument("--slepc", action="store_true",
+                        help="Install SLEPc along with PETSc")
 
     if travis:
         parser.add_argument("--write-cache", action="store_true",
@@ -578,6 +580,31 @@ def build_and_install_h5py():
     os.chdir("..")
 
 
+def build_and_install_slepc():
+
+    try:
+        petsc_dir = check_output(python + ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+        petsc_arch = ""
+    except subprocess.CalledProcessError:
+        raise InstallError("Unable to find installed PETSc when building SLEPc")
+
+    env = dict(os.environ)
+    env["PETSC_ARCH"] = petsc_arch
+    env["PETSC_DIR"] = petsc_dir
+
+    git_clone("git+https://bitbucket.org/slepc/slepc.git")
+    os.chdir("slepc")
+    log.info("Installing SLEPc.")
+    os.chdir("../")
+    install("slepc/")
+
+    git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+    os.chdir("slepc4py")
+    log.info("Installing slepc4py.")
+    os.chdir("../")
+    install("slepc4py/")
+
+
 def build_and_install_adjoint():
 
     for package in adjoint_deps:
@@ -936,6 +963,8 @@ else:
 
 if args.adjoint:
     build_and_install_adjoint()
+if args.slepc:
+    build_and_install_slepc()
 
 os.chdir("../..")
 
