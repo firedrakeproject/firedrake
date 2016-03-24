@@ -90,6 +90,12 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
+        :kwarg pre_jacobian_callback: A user-defined function that will
+               be called immediately before Jacobian assembly. This can
+               be used, for example, to update a coefficient function
+               that has a complicated dependence on the unknown solution.
+        :kwarg pre_function_callback: As above, but called immediately
+               before residual assembly
 
         Example usage of the ``solver_parameters`` option: to set the
         nonlinear solver type to just use a linear solver, use
@@ -105,6 +111,20 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
 
             {'snes_monitor': True}
 
+        To use the ``pre_jacobian_callback`` or ``pre_function_callback``
+        functionality, the user-defined function must accept the current
+        solution as a petsc4py Vec. Example usage is given below:
+
+        .. code-block:: python
+
+            def update_diffusivity(current_solution):
+                with cursol.dat.vec as v:
+                    current_solution.copy(v)
+                solve(trial*test*dx == dot(grad(cursol), grad(test))*dx, diffusivity)
+
+            solver = NonlinearVariationalSolver(problem,
+                                                pre_jacobian_callback=update_diffusivity)
+
         """
         assert isinstance(problem, NonlinearVariationalProblem)
 
@@ -115,6 +135,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         nullspace_T = kwargs.get("transpose_nullspace")
         near_nullspace = kwargs.get("near_nullspace")
         options_prefix = kwargs.get("options_prefix")
+        pre_j_callback = kwargs.get("pre_jacobian_callback")
+        pre_f_callback = kwargs.get("pre_function_callback")
 
         super(NonlinearVariationalSolver, self).__init__(parameters, options_prefix)
 
@@ -129,7 +151,9 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
-                                         appctx=appctx)
+                                         appctx=appctx,
+                                         pre_jacobian_callback=pre_j_callback,
+                                         pre_function_callback=pre_f_callback)
 
         # No preconditioner by default for matrix-free
         if (problem.Jp is not None and pmatfree) or matfree:
