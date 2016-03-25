@@ -49,7 +49,7 @@ touch $LOGGER
 # Note: the first run is on a tiny mesh; to be interpreted as a ``warm-up'' run, to populate the cache
 $FIREDRAKE/scripts/firedrake-clean
 
-for poly in 1
+for poly in 3
 do
     OUT_FILE=$WORK"/output_"$PBS_JOBNAME"_p"$poly".txt"
     echo "Polynomial order "$poly >> $LOGGER
@@ -60,13 +60,14 @@ do
         echo "    Running "$MESH >> $LOGGER
         echo "        Untiled ..." >> $LOGGER
         mpiexec python $EXECUTABLE --poly-order $poly $MESH $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        mpiexec python $EXECUTABLE --poly-order $poly $MESH $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
         for p in "metis" "chunk"
         do
-            for sm in 4 2 8
+            for sm in 4 8 2
             do
                 for ts in 40 70 150 300
                 do
-                    echo "        Tiled (pm="$p", ts="$ts") ..." >> $LOGGER
+                    echo "        Tiled (pm="$p", ts="$ts", sm="$sm") ..." >> $LOGGER
                     mpiexec python $EXECUTABLE --poly-order $poly $MESH $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --split-mode $sm $TILE_OPTS 1>> $OUT_FILE 2>> $OUT_FILE
                 done
             done
