@@ -81,12 +81,32 @@ def output_time(start, end, **kwargs):
         tot = round(end - start, 3)
         print "Time stepping: ", tot, "s"
 
+    # Find if a multi-node execution
+    is_multinode = False
+    platformname = platform.node().split('.')[0]
+    if MPI.comm.rank in range(1, num_procs):
+        MPI.comm.isend(platformname, dest=0)
+    elif MPI.comm.rank == 0:
+        all_platform_names = [None]*num_procs
+        all_platform_names[0] = platformname
+        for i in range(1, num_procs):
+            all_platform_names[i] = MPI.comm.recv(source=i)
+        if any(i != platformname for i in all_platform_names):
+            is_multinode = True
+        if is_multinode:
+            cluster_island = platformname.split('-')
+            platformname = "%s_%s" % (cluster_island[0], cluster_island[1])
+
     # Find the total mesh size
     ndofs = 0
     if fs:
         total_dofs = np.zeros(1, dtype=int)
         MPI.comm.Allreduce(np.array([fs.dof_dset.size], dtype=int), total_dofs)
         ndofs = total_dofs
+
+    # Adjust the tile size
+    if nloops == 0:
+        tile_size = 0
 
     # Print to file
     def num(s):
