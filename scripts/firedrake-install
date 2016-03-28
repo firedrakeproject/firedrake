@@ -37,9 +37,9 @@ class FiredrakeConfiguration(dict):
             for o in self._persistent_options:
                 self["options"][o] = args.__dict__[o]
 
-        _persistent_options = ["developer", "sudo", "system", "package_manager",
-                               "minimal_petsc", "mpicc", "disable_ssh",
-                               "show_petsc_configure_options", "adjoint"]
+    _persistent_options = ["developer", "sudo", "system", "package_manager",
+                           "minimal_petsc", "mpicc", "disable_ssh",
+                           "show_petsc_configure_options", "adjoint"]
 
 
 if os.path.basename(__file__) == "firedrake-install":
@@ -307,7 +307,7 @@ def git_url(plain_url, protocol):
 
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
-    if name == "petsc" and options["honour_petsc_dir"]:
+    if name == "petsc" and args.honour_petsc_dir:
         log.info("Using existing petsc installation\n")
         return name
     log.info("Cloning %s\n" % name)
@@ -586,7 +586,7 @@ def build_and_install_h5py():
 
     os.chdir("h5py-2.5.0")
 
-    if options["honour_petsc_dir"]:
+    if args.honour_petsc_dir:
         petsc_dir = os.environ["PETSC_DIR"]
         petsc_arch = os.environ.get("PETSC_ARCH", "")
     else:
@@ -624,7 +624,7 @@ def build_and_install_adjoint():
             else:
                 raise
 
-    if options["honour_petsc_dir"]:
+    if args.honour_petsc_dir:
         petsc_dir = os.environ["PETSC_DIR"]
         petsc_arch = os.environ.get("PETSC_ARCH", "")
     else:
@@ -712,7 +712,7 @@ if args.rebuild_script:
     sys.exit(0)
 
 
-if "PETSC_DIR" in os.environ and not options["honour_petsc_dir"]:
+if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
 --honour-petsc-dir option.
@@ -856,14 +856,14 @@ if mode == "install":
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]
 
-    if options["honour_petsc_dir"]:
+    if args.honour_petsc_dir:
         packages.remove("petsc")
 
     # Force Cython to install first to work around pip dependency issues.
     run_pip_install(["Cython>=0.22"])
 
     # Need to install petsc first in order to resolve hdf5 dependency.
-    if not options["honour_petsc_dir"]:
+    if not args.honour_petsc_dir:
         pipinstall.append("--no-deps")
         packages.remove("petsc")
         install("petsc/")
@@ -914,7 +914,7 @@ else:
     packages += ["firedrake"]
 
     # update packages.
-    if not options["honour_petsc_dir"]:
+    if not args.honour_petsc_dir:
         petsc_changed = git_update("petsc", deps["petsc"])
     else:
         petsc_changed = False
@@ -947,7 +947,7 @@ else:
     pipinstall.append("--no-deps")
 
     # Only rebuild petsc if it has changed.
-    if not options["honour_petsc_dir"] and (args.rebuild or petsc_changed):
+    if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
         clean("petsc/")
         install("petsc/")
     if args.rebuild or petsc_changed or petsc4py_changed:
