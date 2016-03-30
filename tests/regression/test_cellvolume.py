@@ -3,10 +3,7 @@ import numpy as np
 from firedrake import *
 
 
-@pytest.fixture(params=["interval",
-                        "triangle",
-                        pytest.mark.xfail(reason="CellVolume transformation not in UFL")("quadrilateral"),
-                        "tetrahedron"])
+@pytest.fixture(params=["interval", "triangle", "quadrilateral", "tetrahedron"])
 def cell(request):
     return request.param
 
