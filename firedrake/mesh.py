@@ -173,7 +173,7 @@ def _from_exodus(filename):
     """Read an Exodus .e or .exo file from `filename`"""
     plex = PETSc.DMPlex().createExodusFromFile(filename)
 
-    boundary_ids = dmplex.getLabelIdIS("Face Sets").getIndices()
+    boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
     plex.createLabel("boundary_ids")
     for bid in boundary_ids:
         faces = plex.getStratumIS("Face Sets", bid).getIndices()
