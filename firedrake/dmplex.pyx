@@ -535,14 +535,14 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
     fStart, fEnd = plex.getHeightStratum(1)
     plex.createLabel(ext_label)
-    CHKERR(DMPlexGetLabel(plex.dm, ext_label, &lbl_ext))
+    CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
     CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
 
     # Mark boundaries as exterior_facets
     if label_boundary:
         plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
-    CHKERR(DMPlexGetLabel(plex.dm, int_label, &lbl_int))
+    CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
     CHKERR(DMLabelCreateIndex(lbl_int, fStart, fEnd))
 
     for facet in range(fStart, fEnd):
@@ -612,10 +612,10 @@ def mark_entity_classes(PETSc.DM plex, s_depth=1):
     plex.createLabel("op2_exec_halo")
     plex.createLabel("op2_non_exec_halo")
 
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &lbl_core))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
+    CHKERR(DMGetLabel(plex.dm, "op2_core", &lbl_core))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
+    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
 
     CHKERR(DMLabelCreateIndex(lbl_core, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_non_core, pStart, pEnd))
@@ -865,7 +865,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     label_chr = <char*>label
     dim = plex.getDimension()
     fStart, fEnd = plex.getHeightStratum(1)
-    CHKERR(DMPlexGetLabel(plex.dm, label, &lbl_facets))
+    CHKERR(DMGetLabel(plex.dm, label, &lbl_facets))
     CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=np.int32)
@@ -877,7 +877,7 @@ def get_facets_by_class(PETSc.DM plex, label,
                                   "op2_non_core",
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
-        CHKERR(DMPlexGetLabel(plex.dm, op2class, &lbl_class))
+        CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
         nclass = plex.getStratumSize(op2class, s)
         if nclass > 0:
             for f in ordering:
@@ -911,10 +911,10 @@ def cell_renumbering(PETSc.DM plex, s_depth=1,
     CHKERR(PetscBTCreate(cEnd - cStart, &seen))
 
     # Get label pointers and label-specific array indices
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &labels[1]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
+    CHKERR(DMGetLabel(plex.dm, "op2_core", &labels[0]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &labels[1]))
+    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
 
     # We need to enforces the order in which the sub-regions are
     # looped over when we determine the plex reordering in order to
@@ -999,10 +999,10 @@ def plex_renumbering(PETSc.DM plex,
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
 
     # Get label pointers and label-specific array indices
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &labels[1]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
+    CHKERR(DMGetLabel(plex.dm, "op2_core", &labels[0]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &labels[1]))
+    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
     lidx = np.zeros((4, s_depth), dtype=np.int32)
     for s in range(s_depth):
         lidx[1, s] = sum(entity_classes[s, :, 0])
@@ -2062,7 +2062,7 @@ def mark_partitioning(PETSc.DM plex,
         PetscInt c, cStart, cEnd
         DMLabel lbl_part
     plex.createLabel("metis_partitioning")
-    CHKERR(DMPlexGetLabel(plex.dm, "metis_partitioning", &lbl_part))
+    CHKERR(DMGetLabel(plex.dm, "metis_partitioning", &lbl_part))
     cStart, cEnd = plex.getHeightStratum(0)
     for c in range(cStart, cEnd):
         CHKERR(DMLabelSetValue(lbl_part, c, partitioning[c-cStart]))
@@ -2075,7 +2075,7 @@ def get_partitioning(PETSc.DM plex, PETSc.Section numbering):
         PetscInt p, pStart, pEnd, dof, offset, part
         DMLabel lbl_part
         np.ndarray[PetscInt, ndim=1, mode="c"] partitioning
-    CHKERR(DMPlexGetLabel(plex.dm, "metis_partitioning", &lbl_part))
+    CHKERR(DMGetLabel(plex.dm, "metis_partitioning", &lbl_part))
     pStart, pEnd = numbering.getChart()
     partitioning = np.empty(numbering.getStorageSize(), dtype=PETSc.IntType)
     for p in range(pStart, pEnd):
@@ -2098,7 +2098,7 @@ def filter_cell_partitioning(PETSc.DM plex,
         np.ndarray[PetscInt, ndim=1, mode="c"] cell_partitioning
         DMLabel lbl_part
         PetscBool has_point
-    CHKERR(DMPlexGetLabel(plex.dm, "metis_partitioning", &lbl_part))
+    CHKERR(DMGetLabel(plex.dm, "metis_partitioning", &lbl_part))
     cStart, cEnd = plex.getHeightStratum(0)
     cell_partitioning = np.empty(cEnd - cStart, dtype=PETSc.IntType)
     for l in sorted(plex.getLabelIdIS("metis_partitioning").indices):

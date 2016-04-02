@@ -31,13 +31,11 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexGetAdjacency(PETSc.PetscDM,PetscInt,PetscInt *,PetscInt *[])
+    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
+cdef extern from "petscdmlabel.h":
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
-    int DMPlexGetLabel(PETSc.PetscDM,char[],DMLabel*)
-    int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
-    int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
-    int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
     int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
     int DMLabelStratumHasPoint(DMLabel, PetscInt, PetscInt, PetscBool*)
@@ -45,7 +43,8 @@ cdef extern from "petscdmplex.h":
     int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
-    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
+cdef extern from "petscdm.h":
+    int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
 
     int DMPlexCreatePartitionerGraph(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt**,PetscInt**)
     # int PetscPartitionerPartition_Chaco(PETSc.PetscPartitioner,PETSc.PetscDM dm,PetscInt,PetscInt,PetscInt[],PetscInt[],PETSc.PetscSection,PETSc.PetscIS*)
