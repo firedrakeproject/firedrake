@@ -48,8 +48,8 @@ cdef extern from "petscdmplex.h":
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
     int DMPlexCreatePartitionerGraph(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt**,PetscInt**)
-    int PetscPartitionerPartition_Chaco(PETSc.PetscPartitioner,PETSc.PetscDM dm,PetscInt,PetscInt,PetscInt[],PetscInt[],PETSc.PetscSection,PETSc.PetscIS*)
-    int PetscPartitionerPartition_ParMetis(PETSc.PetscPartitioner,PETSc.PetscDM dm,PetscInt,PetscInt,PetscInt[],PetscInt[],PETSc.PetscSection,PETSc.PetscIS*)
+    # int PetscPartitionerPartition_Chaco(PETSc.PetscPartitioner,PETSc.PetscDM dm,PetscInt,PetscInt,PetscInt[],PetscInt[],PETSc.PetscSection,PETSc.PetscIS*)
+    # int PetscPartitionerPartition_ParMetis(PETSc.PetscPartitioner,PETSc.PetscDM dm,PetscInt,PetscInt,PetscInt[],PetscInt[],PETSc.PetscSection,PETSc.PetscIS*)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)

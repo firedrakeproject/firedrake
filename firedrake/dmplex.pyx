@@ -2041,16 +2041,16 @@ def partition_locally(PETSc.DM plex, PETSc.Partitioner partitioner, npart):
         PETSc.IS partition = PETSc.IS()
 
     CHKERR(DMPlexCreatePartitionerGraph(plex.dm, 0, &numcells, &start, &adjacency))
-    if partitioner.getType() == "chaco":
-        CHKERR(PetscPartitionerPartition_Chaco(partitioner.part, plex.dm, <PetscInt>npart,
-                                               numcells, start, adjacency,
-                                               partsec.sec, &partition.iset))
-    elif partitioner.getType() == "parmetis":
-        CHKERR(PetscPartitionerPartition_ParMetis(partitioner.part, plex.dm, <PetscInt>npart,
-                                                  numcells, start, adjacency,
-                                                  partsec.sec, &partition.iset))
-    else:
-        raise RuntimeError("Unknown partitioning type")
+    # if partitioner.getType() == "chaco":
+    #     CHKERR(PetscPartitionerPartition_Chaco(partitioner.part, plex.dm, <PetscInt>npart,
+    #                                            numcells, start, adjacency,
+    #                                            partsec.sec, &partition.iset))
+    # elif partitioner.getType() == "parmetis":
+    #     CHKERR(PetscPartitionerPartition_ParMetis(partitioner.part, plex.dm, <PetscInt>npart,
+    #                                               numcells, start, adjacency,
+    #                                               partsec.sec, &partition.iset))
+    # else:
+    raise RuntimeError("Unknown partitioning type")
     return partition.indices
 
 
