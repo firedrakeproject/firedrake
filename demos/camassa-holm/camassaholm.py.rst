@@ -174,8 +174,8 @@ storing ``u``. ::
 
   T = 100.0
   ufile = File('u.pvd')
-  ufile << u1
   t = 0.0
+  ufile.write(u1, time=t)
 
 We also initialise a dump counter so we only dump every 10 timesteps. ::
 
@@ -206,7 +206,7 @@ Finally, we check if it is time to dump the data. ::
      dumpn += 1
      if dumpn == ndump:
         dumpn -= ndump
-        ufile << u1
+        ufile.write(u1, time=t)
 
 This solution leads to emergent peakons (peaked solitons); the left
 peakon is travelling faster than the right peakon, so they collide and

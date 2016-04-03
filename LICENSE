@@ -13,10 +13,9 @@ License along with Firedrake. If not, see <http://www.gnu.org/licenses/>.
 
 Included packages:
 
-Firedrake includes two third-party packages:
+Firedrake includes one third-party package:
 
-- evtk (in source directory evtk)
 - pylit (in source directory pylit)
 
-Please see, respectively, evtk/LICENSE and pylit/README.rst for their
-respective licenses.
+Please see pylit/README.rst for its license.
+

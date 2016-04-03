@@ -106,15 +106,15 @@ The function space chosen consists of degree 2 continuous Lagrange polynomials, 
 
   V = FunctionSpace(mesh,"CG",2)
 
-  eta0 = Function(V)
-  phi0 = Function(V)
-  eta1 = Function(V)
-  phi1 = Function(V)
+  eta0 = Function(V, name="eta")
+  phi0 = Function(V, name="phi")
+  eta1 = Function(V, name="eta_next")
+  phi1 = Function(V, name="phi_next")
   q1 = Function(V)
   phi_h = Function(V)
   q_h = Function(V)
-  ex_eta = Function(V)
-  ex_phi = Function(V)
+  ex_eta = Function(V, name="exact_eta")
+  ex_phi = Function(V, name="exact_phi")
 
   q = TrialFunction(V)
   v = TestFunction(V)
@@ -161,18 +161,6 @@ and finally the second half-step (explicit this time) for the equation of :math:
   q_problem = LinearVariationalProblem(aq,Lq,q1)
   q_solver = LinearVariationalSolver(q_problem)
 
-For visualisation reasons, we print the results in files::
-
-  phi_file = File('phi.pvd')
-  eta_file = File('eta.pvd')
-  phi_exact = File('phi_ex.pvd')
-  eta_exact = File('eta_ex.pvd')
-
-  phi_file << phi0
-  eta_file << eta0
-  phi_exact << phi0
-  eta_exact << eta0
-
 What is left before iterating over all time steps, is to find the initial energy :math:`E_0`, used later to evaluate the energy difference :math:`\left|E-E_0\right|/E_0`::
 
   t = 0
@@ -187,6 +175,22 @@ and define the exact solutions, which need to be updated at every time-step::
   expr_phi = Expression("2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t-epsilon*c*t/6.0))+1)",
                         t=t, c=1.0, epsilon=epsilon, mu=mu, x0=0.5*Lx)
 
+Since we will interpolate these values again and again, we use an
+:class:`~.Interpolator` whose :meth:`~.Interpolator.interpolate`
+method we can call to perform the interpolation. ::
+
+  eta_interpolator = Interpolator(expr_eta, ex_eta)
+  phi_interpolator = Interpolator(expr_phi, ex_phi)
+  phi_interpolator.interpolate()
+  eta_interpolator.interpolate()
+
+For visualisation, we save the computed and exact solutions to
+an output file.  Note that the visualised data will be interpolated
+from piecewise quadratic functions to piecewise linears::
+
+  output = File('output.pvd')
+  output.write(phi0, eta0, ex_phi, ex_eta, time=t)
+
 We are now ready to enter the main time iteration loop::
 
   while(t < T):
@@ -196,8 +200,8 @@ We are now ready to enter the main time iteration loop::
         expr_eta.t = t
         expr_phi.t = t
 
-        ex_phi.interpolate(expr_phi)
-        ex_eta.interpolate(expr_eta)
+        eta_interpolator.interpolate()
+        phi_interpolator.interpolate()
 
         phi_solver_h.solve()
         q_solver_h.solve()
@@ -208,16 +212,13 @@ We are now ready to enter the main time iteration loop::
         eta0.assign(eta1)
         phi0.assign(phi1)
 
-        phi_file << phi0
-        eta_file << eta0
-        phi_exact << ex_phi
-        eta_exact << ex_eta
+        output.write(phi0, eta0, ex_phi, ex_eta, time=t)
 
         E = assemble( (0.5*eta1**2 + 0.5*(1+epsilon*eta1)*abs(grad(phi1))**2
                      + mu*(inner(grad(q1),grad(phi1)) - 0.75*q1**2))*dx )
 
 
-The output files can be visualised using `paraview <http://www.paraview.org/>`__.
+The output can be visualised using `paraview <http://www.paraview.org/>`__.
 
 A python script version of this demo can be found `here <benney_luke.py>`__.
 

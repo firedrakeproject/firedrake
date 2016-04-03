@@ -8,7 +8,6 @@
 *.pvtu
 *.so
 *.vtu
-/evtk/cevtk.c
 /firedrake/dmplex.c
 /firedrake/spatialindex.cpp
 /firedrake/hdf5interface.c

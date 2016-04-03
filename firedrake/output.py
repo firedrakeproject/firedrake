@@ -1,562 +1,502 @@
 from __future__ import absolute_import
-from evtk import hl
-from evtk.vtk import _get_byte_order
-from evtk.hl import _requiresLargeVTKFileSize
-from ufl import Cell, TensorProductCell
-import numpy as np
+
+import collections
+import itertools
+import numpy
 import os
-
-from pyop2.logger import warning, RED
-from pyop2.mpi import MPI
-
-import firedrake.functionspace as fs
-import firedrake.projection as projection
+import ufl
+import weakref
 
 
-__all__ = ['File']
+__all__ = ("File", )
 
 
-# Dictionary used to translate the cellname of firedrake
-# to the celltype of evtk module.
-_cells = {}
-_cells[Cell("interval")] = hl.VtkLine
-_cells[Cell("interval", 2)] = hl.VtkLine
-_cells[Cell("interval", 3)] = hl.VtkLine
-_cells[Cell("triangle")] = hl.VtkTriangle
-_cells[Cell("triangle", 3)] = hl.VtkTriangle
-_cells[Cell("quadrilateral")] = hl.VtkQuad
-_cells[Cell("quadrilateral", 3)] = hl.VtkQuad
-_cells[Cell("tetrahedron")] = hl.VtkTetra
-_cells[TensorProductCell(Cell("interval"), Cell("interval"))] = hl.VtkQuad
-_cells[TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3)] = hl.VtkQuad
-_cells[TensorProductCell(Cell("triangle"), Cell("interval"))] = hl.VtkWedge
-_cells[TensorProductCell(Cell("quadrilateral"), Cell("interval"))] = hl.VtkHexahedron
+VTK_INTERVAL = 3
+VTK_TRIANGLE = 5
+VTK_QUADRILATERAL = 9
+VTK_TETRAHEDRON = 10
+VTK_HEXAHEDRON = 12
+VTK_WEDGE = 13
 
-_points_per_cell = {}
-_points_per_cell[Cell("interval")] = 2
-_points_per_cell[Cell("interval", 2)] = 2
-_points_per_cell[Cell("interval", 3)] = 2
-_points_per_cell[Cell("triangle")] = 3
-_points_per_cell[Cell("triangle", 3)] = 3
-_points_per_cell[Cell("quadrilateral")] = 4
-_points_per_cell[Cell("quadrilateral", 3)] = 4
-_points_per_cell[Cell("tetrahedron")] = 4
-_points_per_cell[TensorProductCell(Cell("interval"), Cell("interval"))] = 4
-_points_per_cell[TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3)] = 4
-_points_per_cell[TensorProductCell(Cell("triangle"), Cell("interval"))] = 6
-_points_per_cell[TensorProductCell(Cell("quadrilateral"), Cell("interval"))] = 8
+cells = {
+    ufl.Cell("interval"): VTK_INTERVAL,
+    ufl.Cell("triangle"): VTK_TRIANGLE,
+    ufl.Cell("quadrilateral"): VTK_QUADRILATERAL,
+    ufl.TensorProductCell(ufl.Cell("interval"),
+                          ufl.Cell("interval")): VTK_QUADRILATERAL,
+    ufl.Cell("tetrahedron"): VTK_TETRAHEDRON,
+    ufl.TensorProductCell(ufl.Cell("triangle"),
+                          ufl.Cell("interval")): VTK_WEDGE,
+    ufl.TensorProductCell(ufl.Cell("quadrilateral"),
+                          ufl.Cell("interval")): VTK_HEXAHEDRON
+}
+
+
+OFunction = collections.namedtuple("OFunction", ["array", "name", "function"])
+
+
+def is_cg(V):
+    """Is the provided space continuous?
+
+    :arg V: A FunctionSpace.
+    """
+    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    entity_dofs = V.fiat_element.entity_dofs()
+    # If there are as many dofs on vertices as there are vertices,
+    # assume a continuous space.
+    try:
+        return sum(map(len, entity_dofs[0].values())) == nvertex
+    except KeyError:
+        return sum(map(len, entity_dofs[(0, 0)].values())) == nvertex
+
+
+def is_dg(V):
+    """Is the provided space fully discontinuous?
+
+    :arg V: A FunctionSpace.
+    """
+    return V.fiat_element.entity_dofs() == V.fiat_element.entity_closure_dofs()
+
+
+def is_linear(V):
+    """Is the provided space linear?
+
+    :arg V: A FunctionSpace.
+    """
+    nvertex = V.ufl_domain().ufl_cell().num_vertices()
+    return V.fiat_element.space_dimension() == nvertex
+
+
+def get_topology(coordinates):
+    """Get the topology for VTU output.
+
+    :arg coordinates: The coordinates defining the mesh.
+    :returns: A tuple of ``(connectivity, offsets, types)``
+        :class:`OFunction`\s.
+    """
+    V = coordinates.function_space()
+    mesh = V.ufl_domain().topology
+    cell = mesh.ufl_cell()
+    values = V.cell_node_map().values.astype("int32")
+    # Non-simplex cells need reordering
+    # Connectivity of bottom cell in extruded mesh
+    if cells[cell] == VTK_QUADRILATERAL:
+        # Quad is
+        #
+        # 1--3    3--2
+        # |  | -> |  |
+        # 0--2    0--1
+        values = values[:, [0, 2, 3, 1]]
+    elif cells[cell] == VTK_WEDGE:
+        # Wedge is
+        #
+        #    5          5
+        #   /|\        /|\
+        #  / | \      / | \
+        # 1----3     3----4
+        # |  4 | ->  |  2 |
+        # | /\ |     | /\ |
+        # |/  \|     |/  \|
+        # 0----2     0----1
+        values = values[:, [0, 2, 4, 1, 3, 5]]
+    elif cells[cell] == VTK_HEXAHEDRON:
+        # Hexahedron is
+        #
+        #   5----7      7----6
+        #  /|   /|     /|   /|
+        # 4----6 | -> 4----5 |
+        # | 1--|-3    | 3--|-2
+        # |/   |/     |/   |/
+        # 0----2      0----1
+        values = values[:, [0, 2, 3, 1, 4, 6, 7, 5]]
+    elif cells.get(cell) is None:
+        # Never reached, but let's be safe.
+        raise ValueError("Unhandled cell type %r" % cell)
+
+    # Repeat up the column
+    if mesh.layers is None:
+        cell_layers = 1
+    else:
+        cell_layers = mesh.layers - 1
+
+    connectivity = numpy.repeat(values, cell_layers, axis=0)
+
+    if is_cg(V):
+        scale = 1
+    else:
+        scale = cell.num_vertices()
+
+    offsets = numpy.arange(cell_layers) * scale
+
+    # Add offsets going up the column
+    num_cells = mesh.cell_set.size
+    connectivity += numpy.tile(offsets.reshape(-1, 1), (num_cells, 1))
+
+    num_cells *= cell_layers
+
+    connectivity = connectivity.flatten()
+
+    offsets = numpy.arange(start=cell.num_vertices(),
+                           stop=cell.num_vertices() * (num_cells + 1),
+                           step=cell.num_vertices(),
+                           dtype="int32")
+    cell_types = numpy.full(num_cells, cells[cell], dtype="uint8")
+    return (OFunction(connectivity, "connectivity", None),
+            OFunction(offsets, "offsets", None),
+            OFunction(cell_types, "types", None))
+
+
+def get_byte_order(dtype):
+    import sys
+    native = {"little": "LittleEndian", "big": "BigEndian"}[sys.byteorder]
+    return {"=": native,
+            "|": "LittleEndian",
+            "<": "LittleEndian",
+            ">": "BigEndian"}[dtype.byteorder]
+
+
+def write_array(f, ofunction):
+    array = ofunction.array
+    numpy.uint32(array.nbytes).tofile(f)
+    if get_byte_order(array.dtype) == "BigEndian":
+        array = array.byteswap()
+    array.tofile(f)
+
+
+def write_array_descriptor(f, ofunction, offset=None, parallel=False):
+    array, name, _ = ofunction
+    shape = array.shape[1:]
+    ncmp = {0: "",
+            1: "3",
+            2: "9"}[len(shape)]
+    typ = {numpy.dtype("float32"): "Float32",
+           numpy.dtype("float64"): "Float64",
+           numpy.dtype("int32"): "Int32",
+           numpy.dtype("int64"): "Int64",
+           numpy.dtype("uint8"): "UInt8"}[array.dtype]
+    if parallel:
+        f.write('<PDataArray Name="%s" type="%s" '
+                'NumberOfComponents="%s" />' % (name, typ, ncmp))
+    else:
+        if offset is None:
+            raise ValueError("Must provide offset")
+        f.write('<DataArray Name="%s" type="%s" '
+                'NumberOfComponents="%s" '
+                'format="appended" '
+                'offset="%d" />\n' % (name, typ, ncmp, offset))
+    return 4 + array.nbytes     # 4 is for the array size (uint32)
+
+
+def get_vtu_name(basename, comm):
+    if comm.size == 1:
+        return "%s.vtu" % basename
+    else:
+        return "%s_%s.vtu" % (basename, comm.rank)
+
+
+def get_pvtu_name(basename, comm):
+    return "%s.pvtu" % basename
+
+
+def get_array(function):
+    shape = function.ufl_shape
+    array = function.dat.data_ro
+    if len(shape) == 0:
+        pass
+    elif len(shape) == 1:
+        # Vectors must be padded to three components
+        reshape = (-1, ) + shape
+        if shape != (3, ):
+            array = numpy.pad(array.reshape(reshape), ((0, 0), (0, 3 - shape[0])),
+                              mode="constant")
+    elif len(shape) == 2:
+        # Tensors must be padded to 3x3.
+        reshape = (-1, ) + shape
+        if shape != (3, 3):
+            array = numpy.pad(array.reshape(reshape), ((0, 0), (0, 3 - shape[0]), (0, 3 - shape[1])),
+                              mode="constant")
+    else:
+        raise ValueError("Can't write data with shape %s" % (shape, ))
+    return array
 
 
 class File(object):
+    _header = ('<?xml version="1.0" ?>\n'
+               '<VTKFile type="Collection" version="0.1" '
+               'byte_order="LittleEndian">\n'
+               '<Collection>\n')
+    _footer = ('</Collection>\n'
+               '</VTKFile>\n')
 
-    """A pvd file object to which :class:`~.Function`\s can be output.
-    Parallel output is handled automatically.
+    def __init__(self, filename, project_output=False, comm=None):
+        """Create an object for outputting data for visualisation.
 
-    File output is achieved using the left shift operator:
+        This produces output in VTU format, suitable for visualisation
+        with Paraview or other VTK-capable visualisation packages.
 
-    .. code-block:: python
 
-      a = Function(...)
-      f = File("foo.pvd")
-      f << a
+        :arg filename: The name of the output file (must end in
+            ``.pvd``).
+        :kwarg project_output: Should the output be projected to
+            linears?  Default is to use interpolation.
+        :kwarg comm: The MPI communicator to use.
 
-    .. note::
+        .. note::
 
-       A single :class:`File` object only supports output in a single
-       function space.  The supported function spaces for output are
-       CG1 or DG1; any functions which do not live in these spaces
-       will automatically be projected to one or the other as
-       appropriate.  The selection of which space is used for output
-       in this :class:`File` depends on both the continuity of the
-       coordinate field and the continuity of the output function.
-       The logic for selecting the output space is as follows:
+           Visualisation is only possible for linear fields (either
+           continuous or discontinuous).  All other fields are first
+           either projected or interpolated to linear before storing
+           for visualisation purposes.
+        """
+        filename = os.path.abspath(filename)
+        basename, ext = os.path.splitext(filename)
+        if ext not in (".pvd", ):
+            raise ValueError("Only output to PVD is supported")
 
-       * If the both the coordinate field and the output function are
-         in :math:`H^1`, the output will be in CG1.
-       * Otherwise, both the coordinate field and the output function
-         will be in DG1.
+        if comm is None:
+            from pyop2.mpi import MPI
+            comm = MPI.comm
 
-    """
-
-    def __init__(self, filename):
-        # Ensure output directory exists
-        outdir = os.path.dirname(os.path.abspath(filename))
-        if MPI.comm.rank == 0:
+        if comm.rank == 0:
+            outdir = os.path.dirname(os.path.abspath(filename))
             if not os.path.exists(outdir):
                 os.makedirs(outdir)
-        MPI.comm.barrier()
-        # Parallel
-        if MPI.comm.size > 1:
-            new_file = os.path.splitext(os.path.abspath(filename))[0]
-            # If the rank of process is 0, then create PVD file that can create
-            # PVTU file and VTU file.
-            if MPI.comm.rank == 0:
-                self._file = _PVDFile(new_file)
-            # Else, create VTU file.
-            elif os.path.splitext(filename)[1] == ".pvd":
-                self._file = _VTUFile(new_file)
+        comm.barrier()
+
+        self.comm = comm
+        self.filename = filename
+        self.basename = basename
+        self.counter = itertools.count()
+        self.timestep = itertools.count()
+        self.project = project_output
+
+        if self.comm.rank == 0:
+            with open(self.filename, "wb") as f:
+                f.write(self._header)
+                f.write(self._footer)
+
+        self._fnames = None
+        self._topology = None
+        self._output_functions = weakref.WeakKeyDictionary()
+        self._mappers = weakref.WeakKeyDictionary()
+
+    def _prepare_output(self, function, cg):
+        from firedrake import FunctionSpace, VectorFunctionSpace, \
+            TensorFunctionSpace, Function, Projector, Interpolator
+
+        name = function.name()
+
+        # Need to project/interpolate?
+        # If space is linear and continuity of output space matches
+        # continuity of current space, then we can just use the
+        # input function.
+        if is_linear(function.function_space()) and \
+           is_dg(function.function_space()) == (not cg) and \
+           is_cg(function.function_space()) == cg:
+            return OFunction(array=get_array(function),
+                             name=name, function=function)
+
+        # OK, let's go and do it.
+        if cg:
+            family = "Lagrange"
+        else:
+            family = "Discontinuous Lagrange"
+
+        output = self._output_functions.get(function)
+        if output is None:
+            # Build appropriate space for output function.
+            shape = function.ufl_shape
+            if len(shape) == 0:
+                V = FunctionSpace(function.ufl_domain(), family, 1)
+            elif len(shape) == 1:
+                if numpy.prod(shape) > 3:
+                    raise ValueError("Can't write vectors with more than 3 components")
+                V = VectorFunctionSpace(function.ufl_domain(), family, 1,
+                                        dim=shape[0])
+            elif len(shape) == 2:
+                if numpy.prod(shape) > 9:
+                    raise ValueError("Can't write tensors with more than 9 components")
+                V = TensorFunctionSpace(function.ufl_domain(), family, 1,
+                                        shape=shape)
             else:
-                raise ValueError("On parallel writing, the filename written must be vtu file.")
+                raise ValueError("Unsupported shape %s" % (shape, ))
+            output = Function(V)
+            self._output_functions[function] = output
+
+        if self.project:
+            projector = self._mappers.get(function)
+            if projector is None:
+                projector = Projector(function, output)
+                self._mappers[function] = projector
+            projector.project()
         else:
-            new_file = os.path.splitext(os.path.abspath(filename))[0]
-            if os.path.splitext(filename)[1] == ".vtu":
-                self._file = _VTUFile(new_file)
-            elif os.path.splitext(filename)[1] == ".pvd":
-                self._file = _PVDFile(new_file)
-            else:
-                raise ValueError("File name is wrong. It must be either vtu file or pvd file.")
+            interpolator = self._mappers.get(function)
+            if interpolator is None:
+                interpolator = Interpolator(function, output)
+                self._mappers[function] = interpolator
+            interpolator.interpolate()
 
-    def __lshift__(self, data):
-        self._file << data
+        return OFunction(array=get_array(output), name=name, function=output)
 
+    def _write_vtu(self, *functions):
+        from firedrake.function import Function
+        for f in functions:
+            if not isinstance(f, Function):
+                raise ValueError("Can only output Functions, not %r" % type(f))
+        meshes = tuple(f.ufl_domain() for f in functions)
+        if not all(m == meshes[0] for m in meshes):
+            raise ValueError("All functions must be on same mesh")
 
-class _VTUFile(object):
+        mesh = meshes[0]
+        cell = mesh.topology.ufl_cell()
+        if cell not in cells:
+            raise ValueError("Unhandled cell type %r" % cell)
 
-    """Class that represents a VTU file."""
+        num_cells = mesh.cell_set.size
+        if mesh.layers is not None:
+            num_cells *= mesh.layers - 1
 
-    def __init__(self, filename, warnings=None):
-        # _filename : full path to the file without extension.
-        self._filename = filename
-        if warnings:
-            self._warnings = warnings
+        if self._fnames is not None:
+            if tuple(f.name() for f in functions) != self._fnames:
+                raise ValueError("Writing different set of functions")
         else:
-            self._warnings = [None, None]
-        if MPI.parallel:
-            self._time_step = -1
-            # If _generate_time, _time_step would be incremented by
-            # one everytime.
-            self._generate_time = False
+            self._fnames = tuple(f.name() for f in functions)
 
-    def __lshift__(self, data):
-        """It allows file << function syntax for writing data out to disk.
+        continuous = all(is_cg(f.function_space()) for f in functions) and \
+            is_cg(mesh.coordinates.function_space())
 
-        In the case of parallel, it would also accept (function, timestep)
-        tuple as an argument. If only function is given, then the timestep
-        will be automatically generated."""
-        # If parallel, it needs to keep track of its timestep.
-        if MPI.parallel:
-            # if statements to keep the consistency of how to update the
-            # timestep.
-            if isinstance(data, tuple):
-                if self._time_step == -1 or not self._generate_time:
-                    function = data[0]
-                    self._time_step = data[1]
-                else:
-                    raise TypeError("Expected function, got tuple.")
-            else:
-                if self._time_step != -1 and not self._generate_time:
-                    raise TypeError("Expected tuple, got function.")
-                function = data
-                self._time_step += 1
-                self._generate_time = True
-        else:
-            function = data
+        coordinates = self._prepare_output(mesh.coordinates, continuous)
 
-        def is_family1(e, family):
-            import ufl.finiteelement.hdivcurl as hc
-            import ufl.finiteelement.mixedelement as me
-            if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
-                return False
-            if isinstance(e, (me.VectorElement, me.TensorElement)):
-                e = e.sub_elements()[0]
-            if e.family() == 'TensorProductElement':
-                if e.degree() == (1, 1):
-                    if e._A.family() == family \
-                       and e._B.family() == family:
-                        return True
-            elif e.family() == family and e.degree() == 1:
-                return True
-            return False
+        functions = tuple(self._prepare_output(f, continuous)
+                          for f in functions)
 
-        def is_cgN(e):
-            import ufl.finiteelement.hdivcurl as hc
-            import ufl.finiteelement.mixedelement as me
-            if isinstance(e, (hc.HDivElement, hc.HCurlElement)):
-                return False
-            if isinstance(e, (me.VectorElement, me.TensorElement)):
-                e = e.sub_elements()[0]
-            if e.family() == 'TensorProductElement':
-                if e._A.family() in ('Lagrange', 'Q') \
-                   and e._B.family() == 'Lagrange':
-                    return True
-            elif e.family() in ('Lagrange', 'Q'):
-                return True
-            return False
+        if self._topology is None:
+            self._topology = get_topology(coordinates.function)
 
-        mesh = function.function_space().mesh()
-        e = function.function_space().ufl_element()
+        basename = "%s_%s" % (self.basename, next(self.counter))
 
-        if len(e.value_shape()) > 1:
-            raise RuntimeError("Can't output tensor valued functions")
+        vtu = self._write_single_vtu(basename, coordinates, *functions)
 
-        ce = mesh.coordinates.function_space().ufl_element()
+        if self.comm.size > 1:
+            vtu = self._write_single_pvtu(basename, coordinates, *functions)
 
-        coords_p1 = is_family1(ce, 'Lagrange') or is_family1(ce, 'Q')
-        coords_p1dg = is_family1(ce, 'Discontinuous Lagrange') or is_family1(ce, 'DQ')
-        coords_cgN = is_cgN(ce)
-        function_p1 = is_family1(e, 'Lagrange') or is_family1(e, 'Q')
-        function_p1dg = is_family1(e, 'Discontinuous Lagrange') or is_family1(e, 'DQ')
-        function_cgN = is_cgN(e)
+        return vtu
 
-        project_coords = False
-        project_function = False
-        discontinuous = False
-        # We either output in P1 or P1dg.
-        if coords_cgN and function_cgN:
-            family = 'CG'
-            project_coords = not coords_p1
-            project_function = not function_p1
-        else:
-            family = 'DG'
-            project_coords = not coords_p1dg
-            project_function = not function_p1dg
-            discontinuous = True
+    def _write_single_vtu(self, basename,
+                          coordinates,
+                          *functions):
+        connectivity, offsets, types = self._topology
+        num_points = coordinates.array.shape[0]
+        num_cells = types.array.shape[0]
+        fname = get_vtu_name(basename, self.comm)
+        with open(fname, "wb") as f:
+            # Running offset for appended data
+            offset = 0
+            f.write('<?xml version="1.0" ?>\n')
+            f.write('<VTKFile type="UnstructuredGrid" version="0.1" '
+                    'byte_order="LittleEndian" '
+                    'header_type="UInt32">\n')
+            f.write('<UnstructuredGrid>\n')
 
-        if project_function:
-            if len(e.value_shape()) == 0:
-                Vo = fs.FunctionSpace(mesh, family, 1)
-            elif len(e.value_shape()) == 1:
-                Vo = fs.VectorFunctionSpace(mesh, family, 1, dim=e.value_shape()[0])
-            else:
-                # Never reached
-                Vo = None
-            if not self._warnings[0]:
-                warning(RED % "*** Projecting output function to %s1", family)
-                self._warnings[0] = True
-            output = projection.project(function, Vo, name=function.name())
-        else:
-            output = function
-            Vo = output.function_space()
-        if project_coords:
-            Vc = fs.VectorFunctionSpace(mesh, family, 1, dim=mesh.coordinates.function_space().dim)
-            if not self._warnings[1]:
-                warning(RED % "*** Projecting coordinates to %s1", family)
-                self._warnings[1] = True
-            coordinates = projection.project(mesh.coordinates, Vc, name=mesh.coordinates.name())
-        else:
-            coordinates = mesh.coordinates
-            Vc = coordinates.function_space()
+            f.write('<Piece NumberOfPoints="%d" '
+                    'NumberOfCells="%d">\n' % (num_points, num_cells))
+            f.write('<Points>\n')
+            # Vertex coordinates
+            offset += write_array_descriptor(f, coordinates, offset=offset)
+            f.write('</Points>\n')
 
-        num_points = Vo.node_count
+            f.write('<Cells>\n')
+            offset += write_array_descriptor(f, connectivity, offset=offset)
+            offset += write_array_descriptor(f, offsets, offset=offset)
+            offset += write_array_descriptor(f, types, offset=offset)
+            f.write('</Cells>\n')
 
-        layers = mesh.layers - 1 if mesh.layers else 1
-        num_cells = mesh.num_cells() * layers
+            f.write('<PointData>\n')
+            for function in functions:
+                offset += write_array_descriptor(f, function, offset=offset)
+            f.write('</PointData>\n')
 
-        if not isinstance(e.cell(), TensorProductCell) and e.cell().cellname() != "quadrilateral":
-            connectivity = Vc.cell_node_map().values_with_halo.flatten()
-        else:
-            # Connectivity of bottom cell in extruded mesh
-            base = Vc.cell_node_map().values_with_halo
-            if _cells[mesh.ufl_cell()] == hl.VtkQuad:
-                # Quad is
-                #
-                # 1--3
-                # |  |
-                # 0--2
-                #
-                # needs to be
-                #
-                # 3--2
-                # |  |
-                # 0--1
-                base = base[:, [0, 2, 3, 1]]
-                points_per_cell = 4
-            elif _cells[mesh.ufl_cell()] == hl.VtkWedge:
-                # Wedge is
-                #
-                #    5
-                #   /|\
-                #  / | \
-                # 1----3
-                # |  4 |
-                # | /\ |
-                # |/  \|
-                # 0----2
-                #
-                # needs to be
-                #
-                #    5
-                #   /|\
-                #  / | \
-                # 3----4
-                # |  2 |
-                # | /\ |
-                # |/  \|
-                # 0----1
-                #
-                base = base[:, [0, 2, 4, 1, 3, 5]]
-                points_per_cell = 6
-            elif _cells[mesh.ufl_cell()] == hl.VtkHexahedron:
-                # Hexahedron is
-                #
-                #   5----7
-                #  /|   /|
-                # 4----6 |
-                # | 1--|-3
-                # |/   |/
-                # 0----2
-                #
-                # needs to be
-                #
-                #   7----6
-                #  /|   /|
-                # 4----5 |
-                # | 3--|-2
-                # |/   |/
-                # 0----1
-                #
-                base = base[:, [0, 2, 3, 1, 4, 6, 7, 5]]
-                points_per_cell = 8
-            # Repeat up the column
-            connectivity_temp = np.repeat(base, layers, axis=0)
+            f.write('</Piece>\n')
+            f.write('</UnstructuredGrid>\n')
 
-            if discontinuous:
-                scale = points_per_cell
-            else:
-                scale = 1
-            offsets = np.arange(layers) * scale
+            f.write('<AppendedData encoding="raw">\n')
+            # Appended data must start with "_", separating whitespace
+            # from data
+            f.write('_')
+            write_array(f, coordinates)
+            write_array(f, connectivity)
+            write_array(f, offsets)
+            write_array(f, types)
+            for function in functions:
+                write_array(f, function)
+            f.write('\n</AppendedData>\n')
 
-            # Add offsets going up the column
-            connectivity_temp += np.tile(offsets.reshape(-1, 1), (mesh.num_cells(), 1))
+            f.write('</VTKFile>\n')
+        return fname
 
-            connectivity = connectivity_temp.flatten()
+    def _write_single_pvtu(self, basename,
+                           coordinates,
+                           *functions):
+        connectivity, offsets, types = self._topology
+        fname = get_pvtu_name(basename, self.comm)
+        with open(fname, "wb") as f:
+            f.write('<?xml version="1.0" ?>\n')
+            f.write('<VTKFile type="UnstructuredGrid" version="0.1" '
+                    'byte_order="LittleEndian">\n')
+            f.write('<PUnstructuredGrid>\n')
 
-        if output.function_space().rank == 1:
-            tmp = output.dat.data_ro_with_halos
-            vdata = [None]*3
-            if output.dat.dim[0] == 1:
-                vdata[0] = tmp.flatten()
-            else:
-                for i in range(output.dat.dim[0]):
-                    vdata[i] = tmp[:, i].flatten()
-            for i in range(output.dat.dim[0], 3):
-                vdata[i] = np.zeros_like(vdata[0])
-            data = tuple(vdata)
-            # only for checking large file size
-            flat_data = {function.name(): tmp.flatten()}
-        else:
-            data = output.dat.data_ro_with_halos.flatten()
-            flat_data = {function.name(): data}
+            f.write('<PPoints>\n')
+            # Vertex coordinates
+            write_array_descriptor(f, coordinates, parallel=True)
+            f.write('</PPoints>\n')
 
-        coordinates = self._fd_to_evtk_coord(coordinates.dat.data_ro_with_halos)
+            f.write('<PCells>\n')
+            write_array_descriptor(f, connectivity, parallel=True)
+            write_array_descriptor(f, offsets, parallel=True)
+            write_array_descriptor(f, types, parallel=True)
+            f.write('</PCells>\n')
 
-        cell_types = np.empty(num_cells, dtype="uint8")
+            f.write('<PPointData>\n')
+            for function in functions:
+                write_array_descriptor(f, function, parallel=True)
+            f.write('</PPointData>\n')
 
-        # Assume that all cells are of same shape.
-        cell_types[:] = _cells[mesh.ufl_cell()].tid
-        p_c = _points_per_cell[mesh.ufl_cell()]
+            for rank in range(self.comm.size):
+                f.write('<Piece Source="%s" />\n' % (get_vtu_name(basename, rank)))
 
-        # This tells which are the last nodes of each cell.
-        offsets = np.arange(start=p_c, stop=p_c * (num_cells + 1), step=p_c,
-                            dtype='int32')
-        large_file_flag = _requiresLargeVTKFileSize("VtkUnstructuredGrid",
-                                                    numPoints=num_points,
-                                                    numCells=num_cells,
-                                                    pointData=flat_data,
-                                                    cellData=None)
-        new_name = self._filename
+            f.write('</PUnstructuredGrid>\n')
+            f.write('</VTKFile>\n')
+        return fname
 
-        # When vtu file makes part of a parallel process, aggregated by a
-        # pvtu file, the output is : filename_timestep_rank.vtu
-        if MPI.parallel:
-            new_name += "_" + str(self._time_step) + "_" + str(MPI.comm.rank)
+    def write(self, *functions, **kwargs):
+        """Write functions to this :class:`File`.
 
-        self._writer = hl.VtkFile(
-            new_name, hl.VtkUnstructuredGrid, large_file_flag)
+        :arg functions: list of functions to write.
+        :kwarg time: optional timestep value.
 
-        self._writer.openGrid()
+        You may save more than one function to the same file.
+        However, all calls to :meth:`write` must use the same set of
+        functions.
+        """
+        time = kwargs.get("time", None)
+        vtu = self._write_vtu(*functions)
+        if time is None:
+            time = next(self.timestep)
 
-        self._writer.openPiece(ncells=num_cells, npoints=num_points)
+        # Write into collection as relative path, so we can move
+        # things around.
+        vtu = os.path.relpath(vtu, os.path.dirname(self.basename))
+        if self.comm.rank == 0:
+            with open(self.filename, "r+b") as f:
+                # Seek backwards from end to beginning of footer
+                f.seek(-len(self._footer), 2)
+                # Write new dataset name
+                f.write('<DataSet timestep="%s" '
+                        'file="%s" />\n' % (time, vtu))
+                # And add footer again, so that the file is valid
+                f.write(self._footer)
 
-        # openElement allows the stuff in side of the tag <arg></arg>
-        # to be editted.
-        self._writer.openElement("Points")
-        # addData adds the DataArray in the tag <arg1>
-        self._writer.addData("Points", coordinates)
-
-        self._writer.closeElement("Points")
-        self._writer.openElement("Cells")
-        self._writer.addData("connectivity", connectivity)
-        self._writer.addData("offsets", offsets)
-        self._writer.addData("types", cell_types)
-        self._writer.closeElement("Cells")
-
-        self._writer.openData("Point", scalars=function.name())
-        self._writer.addData(function.name(), data)
-        self._writer.closeData("Point")
-        self._writer.closePiece()
-        self._writer.closeGrid()
-
-        # Create the AppendedData
-        self._writer.appendData(coordinates)
-        self._writer.appendData(connectivity)
-        self._writer.appendData(offsets)
-        self._writer.appendData(cell_types)
-        self._writer.appendData(data)
-        self._writer.save()
-
-    def _fd_to_evtk_coord(self, fdcoord):
-        """In firedrake function, the coordinates are represented by the
-        array."""
-        if len(fdcoord.shape) == 1:
-            # 1D case.
-            return (fdcoord,
-                    np.zeros(fdcoord.shape[0]),
-                    np.zeros(fdcoord.shape[0]))
-        if len(fdcoord[0]) == 3:
-            return (fdcoord[:, 0].ravel(),
-                    fdcoord[:, 1].ravel(),
-                    fdcoord[:, 2].ravel())
-        else:
-            return (fdcoord[:, 0].ravel(),
-                    fdcoord[:, 1].ravel(),
-                    np.zeros(fdcoord.shape[0]))
-
-
-class _PVTUFile(object):
-
-    """Class that represents PVTU file."""
-
-    def __init__(self, filename):
-        # filename is full path to the file without the extension.
-        # eg: /home/dir/dir1/filename
-        self._filename = filename
-        self._writer = PVTUWriter(self._filename)
-
-    def __del__(self):
-        self._writer.save()
-
-    def _update(self, function):
-        """Add all the vtu to be added to pvtu file."""
-        for i in xrange(0, MPI.comm.size):
-            new_vtk_name = os.path.splitext(
-                self._filename)[0] + "_" + str(i) + ".vtu"
-            self._writer.addFile(new_vtk_name, function)
-
-
-class PVTUWriter(object):
-
-    """Class that is responsible for writing the PVTU file."""
-
-    def __init__(self, filename):
-        self.xml = hl.XmlWriter(filename + ".pvtu")
-        self.root = os.path.dirname(filename)
-        self.xml.openElement("VTKFile")
-        self.xml.addAttributes(type="PUnstructuredGrid", version="0.1",
-                               byte_order=_get_byte_order())
-        self.xml.openElement("PUnstructuredGrid")
-        self._initialised = False
-
-    def save(self):
-        """Close up the File by completing the tag."""
-        self.xml.closeElement("PUnstructuredGrid")
-        self.xml.closeElement("VTKFile")
-
-    def addFile(self, filepath, function):
-        """Add VTU files to the PVTU file given in the filepath. For now, the
-        attributes in vtu is assumed e.g. connectivity, offsets."""
-
-        # I think I can improve this part by creating PVTU file
-        # from VTU file, passing the dictionary of
-        # {attribute_name : (data type, number of components)}
-        # but for now it is quite pointless since writing vtu
-        # is not dynamic either.
-
-        assert filepath[-4:] == ".vtu"
-        if not self._initialised:
-
-            self.xml.openElement("PPointData")
-            if len(function.ufl_shape) == 1:
-                self.addData("Float64", function.name(), num_of_components=3)
-            elif len(function.ufl_shape) == 0:
-                self.addData("Float64", function.name(), num_of_components=1)
-            else:
-                raise RuntimeError("Don't know how to write data with shape %s\n",
-                                   function.ufl_shape)
-            self.xml.closeElement("PPointData")
-            self.xml.openElement("PCellData")
-            self.addData("Int32", "connectivity")
-            self.addData("Int32", "offsets")
-            self.addData("UInt8", "types")
-            self.xml.closeElement("PCellData")
-            self.xml.openElement("PPoints")
-            self.addData("Float64", "Points", 3)
-            self.xml.closeElement("PPoints")
-            self._initialised = True
-        vtu_name = os.path.relpath(filepath, start=self.root)
-        self.xml.stream.write('<Piece Source="%s"/>\n' % vtu_name)
-
-    def addData(self, dtype, name, num_of_components=1):
-        """Adds data array description of PDataArray. The header is as follows:
-        <PDataArray type="dtype" Name="name"
-        NumberOfComponents=num_of_components/>"""
-        self.xml.openElement("PDataArray")
-        self.xml.addAttributes(type=dtype, Name=name,
-                               NumberOfComponents=num_of_components)
-        self.xml.closeElement("PDataArray")
-
-
-class _PVDFile(object):
-
-    """Class that represents PVD file."""
-
-    def __init__(self, filename):
-        # Full path to the file without extension.
-        self._filename = filename
-        self._writer = hl.VtkGroup(self._filename)
-        self._warnings = [False, False]
-        # Keep the index of child file
-        # (parallel -> pvtu, else vtu)
-        self._child_index = 0
-        self._time_step = -1
-        # _generate_time -> This file does not accept (function, time) tuple
-        #                   for __lshift__, and it generates the integer
-        #                   time step by itself instead.
-        self._generate_time = False
-
-    def __lshift__(self, data):
-        if isinstance(data, tuple):
-            if self._time_step == -1 or not self._generate_time:
-                self._time_step = data[1]
-                self._update_PVD(data[0])
-            else:
-                raise TypeError(
-                    "You cannot start setting the time by giving a tuple.")
-        else:
-            if self._time_step == -1:
-                self._generate_time = True
-            if self._generate_time:
-                self._time_step += 1
-                self._update_PVD(data)
-            else:
-                raise TypeError("You need to provide time stamp")
-
-    def __del__(self):
-        self._writer.save()
-
-    def _update_PVD(self, function):
-        """Update a pvd file.
-
-        * In parallel: create a vtu file and update it with the function given.
-          Then it will create a pvtu file that includes all the vtu file
-          produced in the parallel writing.
-        * In serial: a VTU file is created and is added to PVD file."""
-        if not MPI.parallel:
-            new_vtk_name = self._filename + "_" + str(self._child_index)
-            new_vtk = _VTUFile(new_vtk_name, warnings=self._warnings)
-
-            new_vtk << function
-            self._writer.addFile(new_vtk_name + ".vtu", self._time_step)
-            self._child_index += 1
-
-        else:
-            new_pvtu_name = self._filename + "_" + str(self._time_step)
-            new_vtk = _VTUFile(self._filename, warnings=self._warnings)
-            new_pvtu = _PVTUFile(new_pvtu_name)
-            # The new_vtk object has its timestep initialised to -1 each time,
-            # so we need to provide the timestep ourselves here otherwise
-            # the VTU of timestep 0 (belonging to the process with rank 0)
-            # will be over-written each time _update_PVD is called.
-            new_vtk << (function, self._time_step)
-            new_pvtu._update(function)
-            self._writer.addFile(new_pvtu_name + ".pvtu", self._time_step)
+    def __lshift__(self, arg):
+        from pyop2.logger import warning, RED
+        warning(RED % "The << syntax is deprecated, use File.write")
+        self.write(arg)

@@ -30,7 +30,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     if not test_mode:
         print "The error is ", res
         file = File("bt-bcs.pvd")
-        file << u
+        file.write(u)
 
     return res
 
