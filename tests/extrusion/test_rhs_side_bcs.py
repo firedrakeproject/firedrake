@@ -24,21 +24,19 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     v.interpolate(Expression("x[0] < 0.05 ? 10.0 : x[0] > 0.95 ? 42.0 : 0.0"))
     res = sqrt(assemble(dot(u - v, u - v) * dx))
 
-    u1 = Function(V)
+    u1 = Function(V, name="computed")
     bcs1 = [DirichletBC(V, 10, 3),
             DirichletBC(V, 42, 4)]
     for bc in bcs1:
         bc.apply(u1)
-    v1 = Function(V)
+    v1 = Function(V, name="expected")
     v1.interpolate(Expression("x[1] < 0.05 ? 10.0 : x[1] > 0.95 ? 42.0 : 0.0"))
     res1 = sqrt(assemble(dot(u1 - v1, u1 - v1) * dx))
 
     if not test_mode:
         print "The error is ", res1
-        file = File("side-bcs-computed.pvd")
-        file << u1
-        file = File("side-bcs-expected.pvd")
-        file << v1
+        file = File("side-bcs.pvd")
+        file.write(u1, v1)
 
     return (res, res1)
 

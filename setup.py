@@ -43,14 +43,12 @@ try:
     spatialindex_sources = ["firedrake/spatialindex.pyx"]
     h5iface_sources = ["firedrake/hdf5interface.pyx"]
     mg_sources = ["firedrake/mg/impl.pyx"]
-    evtk_sources = ['evtk/cevtk.pyx']
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
     spatialindex_sources = ["firedrake/spatialindex.cpp"]
     h5iface_sources = ["firedrake/hdf5interface.c"]
     mg_sources = ["firedrake/mg/impl.c"]
-    evtk_sources = ['evtk/cevtk.c']
 
 if 'CC' not in env:
     env['CC'] = "mpicc"
@@ -71,7 +69,7 @@ setup(name='firedrake',
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=["firedrake", "evtk", "firedrake.mg"],
+      packages=["firedrake", "firedrake.mg"],
       package_data={"firedrake": ["firedrake_geometry.h",
                                   "evaluate.h",
                                   "locate.cpp"]},
@@ -101,6 +99,4 @@ setup(name='firedrake',
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
-                   Extension('evtk.cevtk', evtk_sources,
-                             include_dirs=[np.get_include()])])
+                             ["-Wl,-rpath,%s/lib" % sys.prefix])])

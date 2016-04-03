@@ -142,7 +142,7 @@ Lastly we write the component of the solution corresponding to the primal
 variable on the DG space to a file in VTK format for later inspection with a
 visualisation tool such as `ParaView <http://www.paraview.org/>`__ ::
 
-  File("poisson_mixed.pvd") << u
+  File("poisson_mixed.pvd").write(u)
 
 This demo is based on the corresponding `DOLFIN mixed Poisson demo
 <http://fenicsproject.org/documentation/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__

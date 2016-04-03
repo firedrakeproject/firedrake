@@ -186,7 +186,7 @@ and output the solution to a file. ::
 
   u, sigma = w.split()
   u_solv.solve()
-  File("u.pvd") << u
+  File("u.pvd").write(u)
 
 An image of the solution is shown below.
 
