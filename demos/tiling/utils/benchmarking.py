@@ -3,6 +3,7 @@ import os
 import re
 import argparse
 from collections import defaultdict
+import platform
 
 # (fancy) plotting stuff
 import numpy as np
