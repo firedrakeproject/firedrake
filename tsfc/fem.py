@@ -6,7 +6,6 @@ import itertools
 import numpy
 from singledispatch import singledispatch
 
-import ufl
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
@@ -235,11 +234,6 @@ def iterate_shape(mt, callback):
         return result[0]
 
 
-def zero_tracking_literal(table, ufl_element):
-    track_zeros = isinstance(ufl_element, (ufl.EnrichedElement, ufl.MixedElement))
-    return gem.Literal(table, track_zeros)
-
-
 @singledispatch
 def translate(terminal, mt, params):
     """Translates modified terminals into GEM.
@@ -270,9 +264,9 @@ def _(terminal, mt, params):
         table = params.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            row = zero_tracking_literal(table, key[0])
+            row = gem.Literal(table)
         else:
-            table = params.select_facet(zero_tracking_literal(table, key[0]), mt.restriction)
+            table = params.select_facet(gem.Literal(table), mt.restriction)
             row = gem.partial_indexed(table, (params.quadrature_index,))
         return gem.Indexed(row, (argument_index,))
 
@@ -293,7 +287,7 @@ def _(terminal, mt, params):
         table = params.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            row = zero_tracking_literal(table, key[0])
+            row = gem.Literal(table)
             if numpy.count_nonzero(table) <= 2:
                 assert row.shape == ka.shape
                 return reduce(gem.Sum,
@@ -301,7 +295,7 @@ def _(terminal, mt, params):
                                for i in range(row.shape[0])],
                               gem.Zero())
         else:
-            table = params.select_facet(zero_tracking_literal(table, key[0]), mt.restriction)
+            table = params.select_facet(gem.Literal(table), mt.restriction)
             row = gem.partial_indexed(table, (params.quadrature_index,))
 
         r = params.index_cache[terminal.ufl_element()]
