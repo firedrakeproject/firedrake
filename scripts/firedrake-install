@@ -112,7 +112,7 @@ else:
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--adjoint", action='store_true', dest="install_adjoint",
                         help="Also install firedrake-adjoint.")
-    parser.add_argument("--slepc", action="store_true",
+    parser.add_argument("--slepc", action="store_true", dest="install_slepc",
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
@@ -134,6 +134,8 @@ else:
     args.show_petsc_configure_options = False
     args.adjoint = False
     args.adjoint = args.adjoint or args.install_adjoint
+    args.slepc = False
+    args.slepc = args.slepc or args.install_slepc
 
 
 # Where are packages installed relative to --root?
@@ -485,7 +487,7 @@ if travis:
 
 def install(package):
     log.info("Installing %s" % package)
-    if travis and travis_cache_dir and package in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
+    if travis and travis_cache_dir and package in ["petsc/", "petsc4py/"]:
         # Try installing from travis cache
         src_dir = os.path.abspath(package)
         dest_dir = sitepackages
