@@ -3,16 +3,15 @@ import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 
-
 def topetsc(A):
     return A.M.handle
 
-
-def test_import():
-    from slepc4py import SLEPc
-
-
 def test_laplace_physical_ev(parallel=False):
+    try:
+        from slepc4py import SLEPc
+    except ImportError:
+        pytest.skip(msg="SLEPc unavailable, skipping eigenvalue test")
+
     from slepc4py import SLEPc
 
     mesh = UnitSquareMesh(64, 64)
@@ -45,10 +44,6 @@ def test_laplace_physical_ev(parallel=False):
     st.setType('sinvert')
     kspE = st.getKSP()
     kspE.setType('fgmres')
-    pc = kspE.getPC()
-    pc.setType('lu')
-    if parallel:
-        pc.setFactorSolverPackage('mumps')
     E.setDimensions(5, PETSc.DECIDE)
     E.solve()
 
