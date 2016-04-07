@@ -69,9 +69,10 @@ honoured.""",
                        help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
     parser.add_argument("--sudo", action='store_true',
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
-
     parser.add_argument("--adjoint", action='store_true',
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slepc", action="store_true",
+                        help="Install SLEPc along with PETSc")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--disable-ssh", "--disable_ssh", action="store_true",
@@ -111,6 +112,8 @@ else:
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--adjoint", action='store_true', dest="install_adjoint",
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slepc", action="store_true",
+                        help="Install SLEPc along with PETSc")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--clean", action='store_true',
@@ -482,7 +485,7 @@ if travis:
 
 def install(package):
     log.info("Installing %s" % package)
-    if travis and travis_cache_dir and package in ["petsc/", "petsc4py/"]:
+    if travis and travis_cache_dir and package in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
         # Try installing from travis cache
         src_dir = os.path.abspath(package)
         dest_dir = sitepackages
@@ -491,7 +494,7 @@ def install(package):
             log.info("Installed %s from travis cache %s\n" % (package, travis_cache_dir))
             return
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
-    if args.developer and package not in ["petsc/", "petsc4py/"]:
+    if args.developer and package not in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
         run_pip_install(["--ignore-installed", package])
@@ -576,6 +579,26 @@ def build_and_install_h5py():
     else:
         os.environ["CC"] = oldcc
     os.chdir("..")
+
+
+def build_and_install_slepc():
+    try:
+        petsc_dir = check_output(python + ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+        petsc_arch = ""
+    except subprocess.CalledProcessError:
+        raise InstallError("Unable to find installed PETSc when building SLEPc")
+
+    env = dict(os.environ)
+    env["PETSC_ARCH"] = petsc_arch
+    env["PETSC_DIR"] = petsc_dir
+
+    git_clone("git+https://bitbucket.org/slepc/slepc.git")
+    log.info("Installing SLEPc.")
+    install("slepc/")
+
+    git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+    log.info("Installing slepc4py.")
+    install("slepc4py/")
 
 
 def build_and_install_adjoint():
@@ -936,6 +959,8 @@ else:
 
 if args.adjoint:
     build_and_install_adjoint()
+if args.slepc:
+    build_and_install_slepc()
 
 os.chdir("../..")
 
