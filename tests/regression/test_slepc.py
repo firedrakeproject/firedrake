@@ -3,22 +3,25 @@ import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 
+
 def topetsc(A):
     return A.M.handle
+
 
 def test_import():
     from slepc4py import SLEPc
 
-def test_laplace_physical_ev():
+
+def test_laplace_physical_ev(parallel=False):
     from slepc4py import SLEPc
 
     mesh = UnitSquareMesh(64, 64)
     V = FunctionSpace(mesh, 'CG', 1)
-    
+
     u = TrialFunction(V)
     v = TestFunction(V)
-    
-    bc = DirichletBC(V, Constant(0.0), (1,2,3,4))
+
+    bc = DirichletBC(V, Constant(0.0), (1, 2, 3, 4))
 
     # We just need the Stiffness and Mass matrix
     a = inner(grad(u), grad(v))*dx
@@ -26,7 +29,7 @@ def test_laplace_physical_ev():
 
     A = topetsc(assemble(a, bcs=[bc]))
     M = topetsc(assemble(m, bcs=[bc]))
-    
+
     # This shifts the "1.0" Eigenvalues out of the spectrum
     # of interest (which is around 0.0 in this case).
     vals = np.repeat(1E8, len(bc.nodes))
@@ -35,7 +38,8 @@ def test_laplace_physical_ev():
                         vals.reshape(-1, 1))
     A.assemble()
 
-    E = SLEPc.EPS(); E.create()
+    E = SLEPc.EPS()
+    E.create()
     E.setOperators(A, M)
     st = E.getST()
     st.setType('sinvert')
@@ -43,6 +47,8 @@ def test_laplace_physical_ev():
     kspE.setType('fgmres')
     pc = kspE.getPC()
     pc.setType('lu')
+    if parallel:
+        pc.setFactorSolverPackage('mumps')
     E.setDimensions(5, PETSc.DECIDE)
     E.solve()
 
@@ -63,6 +69,11 @@ def test_laplace_physical_ev():
                          1**2 * np.pi**2 + 2**2 * np.pi**2])
 
     assert np.allclose(ev_exact, np.array(ev)[:3], atol=1e-1)
+
+
+@pytest.mark.parallel
+def test_laplace_parallel():
+    test_laplace_physical_ev(parallel=True)
 
 if __name__ == '__main__':
     import os
