@@ -3,16 +3,16 @@ import numpy as np
 from firedrake import *
 from firedrake.petsc import PETSc
 
+
 def topetsc(A):
     return A.M.handle
+
 
 def test_laplace_physical_ev(parallel=False):
     try:
         from slepc4py import SLEPc
     except ImportError:
         pytest.skip(msg="SLEPc unavailable, skipping eigenvalue test")
-
-    from slepc4py import SLEPc
 
     mesh = UnitSquareMesh(64, 64)
     V = FunctionSpace(mesh, 'CG', 1)
