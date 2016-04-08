@@ -11,8 +11,9 @@ from ufl.classes import (Argument, ReferenceValue, Zero)
 from ufl.classes import (Abs, CellOrientation, Expr, FloatValue,
                          Division, Product, ScalarValue, Sqrt)
 
+from gem.node import MemoizerArg
+
 from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
-from tsfc.node import MemoizerArg
 
 
 def is_element_affine(ufl_element):

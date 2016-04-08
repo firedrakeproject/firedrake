@@ -7,12 +7,13 @@ from ufl.classes import Form
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
 
-from tsfc.quadrature import create_quadrature, QuadratureRule
+from gem import gem, optimise as opt, impero_utils
 
-from tsfc import fem, gem, optimise as opt, impero_utils, ufl_utils
+from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
+from tsfc.quadrature import create_quadrature, QuadratureRule
 
 
 def compile_form(form, prefix="form", parameters=None):

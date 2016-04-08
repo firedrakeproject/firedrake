@@ -12,9 +12,10 @@ from ufl.classes import (CellEdgeVectors, CellFacetJacobian,
                          CellOrientation, ReferenceCellVolume,
                          ReferenceNormal)
 
+from gem import gem
+
 from tsfc.constants import NUMPY_TYPE
 from tsfc.fiatinterface import as_fiat_cell
-from tsfc import gem
 
 
 interval_x_interval = TensorProductCell(interval, interval)

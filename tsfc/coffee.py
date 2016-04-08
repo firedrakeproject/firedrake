@@ -13,7 +13,8 @@ from singledispatch import singledispatch
 
 import coffee.base as coffee
 
-from tsfc import gem, impero as imp
+from gem import gem, impero as imp
+
 from tsfc.constants import SCALAR_TYPE, PRECISION
 
 
