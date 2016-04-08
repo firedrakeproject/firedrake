@@ -7,7 +7,9 @@ from ufl.classes import Form
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
 
-from gem import gem, optimise as opt, impero_utils
+import gem
+import gem.optimise as opt
+import gem.impero_utils as impero_utils
 
 from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee

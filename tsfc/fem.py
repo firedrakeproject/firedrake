@@ -11,7 +11,7 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
                          GeometricQuantity, QuadratureWeight)
 
-from gem import gem
+import gem
 
 from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, as_fiat_cell

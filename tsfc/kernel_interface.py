@@ -4,7 +4,7 @@ import numpy
 
 import coffee.base as coffee
 
-from gem import gem
+import gem
 from gem.node import traversal
 
 from tsfc.fiatinterface import create_element
