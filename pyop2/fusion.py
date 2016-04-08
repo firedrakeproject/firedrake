@@ -89,7 +89,7 @@ by lazy evaluation."""
 class Arg(sequential.Arg):
 
     @staticmethod
-    def specialize(args, gtl_map, loop_id):
+    def specialize(args, gtl_map, loop_id, use_glb_maps):
         """Given an iterator of :class:`sequential.Arg` objects return an iterator
         of :class:`fusion.Arg` objects.
 
@@ -97,6 +97,7 @@ class Arg(sequential.Arg):
              (accepted: list, tuple) of :class:`sequential.Arg` objects.
         :arg gtl_map: a dict associating global map names to local map names.
         :arg loop_id: the position of the loop using ``args`` in the loop chain
+        :arg use_glb_maps: shold global or local maps be used when generating code?
         """
 
         def convert(arg, gtl_map, loop_id):
@@ -113,6 +114,7 @@ class Arg(sequential.Arg):
             _arg.position = arg.position
             _arg.indirect_position = arg.indirect_position
             _arg._c_local_maps = c_local_maps
+            _arg._use_glb_maps = use_glb_maps
             return _arg
 
         try:
@@ -150,13 +152,14 @@ class Arg(sequential.Arg):
                         fa.access = RW
         return filtered_args
 
-    def c_arg_bindto(self, arg):
+    @property
+    def c_arg_bindto(self):
         """Assign this Arg's c_pointer to ``arg``."""
-        if self.ctype != arg.ctype:
-            raise RuntimeError("Cannot bind arguments having mismatching types")
-        return "%s* %s = %s" % (self.ctype, self.c_arg_name(), arg.c_arg_name())
+        return "%s* %s = %s" % (self.ctype, self.c_arg_name(), self.ref_arg.c_arg_name())
 
     def c_ind_data(self, idx, i, j=0, is_top=False, layers=1, offset=None):
+        if self._use_glb_maps:
+            return super(Arg, self).c_ind_data(idx, i, j, is_top, offset, flatten)
         return "%(name)s + (%(map_name)s[n * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
@@ -169,7 +172,10 @@ class Arg(sequential.Arg):
              'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
 
     def c_map_name(self, i, j):
-        return self._c_local_maps[i][j]
+        if self._use_glb_maps:
+            return self.ref_arg.c_map_name(i, j)
+        else:
+            return self._c_local_maps[i][j]
 
     def c_global_reduction_name(self, count=None):
         return "%(name)s_l%(count)d[0]" % {
@@ -373,9 +379,10 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
     @classmethod
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         insp_name = kwargs['insp_name']
+        use_glb_maps = kwargs['use_glb_maps']
+        key = (insp_name, use_glb_maps)
         if insp_name != lazy_trace_name:
-            return (insp_name,)
-        key = (insp_name,)
+            return key
         all_kernels = kwargs['all_kernels']
         all_itspaces = kwargs['all_itspaces']
         all_args = kwargs['all_args']
@@ -390,6 +397,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         self._all_itspaces = kwargs.pop('all_itspaces')
         self._all_args = kwargs.pop('all_args')
         self._executor = kwargs.pop('executor')
+        self._use_glb_maps = kwargs.pop('use_glb_maps')
         super(JITModule, self).__init__(kernel, itspace, *args, **kwargs)
 
     def set_argtypes(self, iterset, *args):
@@ -447,8 +455,6 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
     def generate_code(self):
         indent = lambda t, i: ('\n' + '  ' * i).join(t.split('\n'))
 
-        args_dict = dict(zip([a.data for a in self._args], self._args))
-
         # 1) Construct the wrapper arguments
         code_dict = {}
         code_dict['wrapper_name'] = 'wrap_executor'
@@ -471,15 +477,23 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                                                          self._all_itspaces,
                                                          self._all_args)):
             # ... bind the Executor's arguments to this kernel's arguments
-            binding = OrderedDict(zip(args, [args_dict[a.data] for a in args]))
-            if len(binding) != len(args):
-                raise RuntimeError("Tiling code gen failed due to args mismatching")
-            binding = ';\n'.join([a0.c_arg_bindto(a1) for a0, a1 in binding.items()])
+            binding = []
+            for a1 in args:
+                for a2 in self._args:
+                    if a1.data is a2.data and a1.map is a2.map:
+                        a1.ref_arg = a2
+                        break
+                binding.append(a1.c_arg_bindto)
+            binding = ";\n".join(binding)
 
             # ... obtain the /code_dict/ as if it were not part of an Executor,
             # since bits of code generation can be reused
             loop_code_dict = sequential.JITModule(kernel, it_space, *args, delay=True)
             loop_code_dict = loop_code_dict.generate_code()
+
+            # ... does the scatter use global or local maps ?
+            if self._use_glb_maps:
+                loop_code_dict['index_expr'] = '%s[n]' % self._executor.gtl_maps[i]['DIRECT']
 
             # ... build the subset indirection array, if necessary
             _ssind_arg, _ssind_decl = '', ''
@@ -534,6 +548,7 @@ class ParLoop(sequential.ParLoop):
         self._insp_name = kwargs.get('insp_name')
         self._inspection = kwargs.get('inspection')
         self._executor = kwargs.get('executor')
+        self._use_glb_maps = kwargs.get('use_glb_maps')
 
         # Global reductions are obviously forbidden when tiling; however, the user
         # might have bypassed this condition because sure about safety. Therefore,
@@ -604,7 +619,8 @@ class ParLoop(sequential.ParLoop):
             'all_itspaces': self._all_itspaces,
             'all_args': self._all_args,
             'executor': self._executor,
-            'insp_name': self._insp_name
+            'insp_name': self._insp_name,
+            'use_glb_maps': self._use_glb_maps
         }
         fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
         arglist = self.prepare_arglist(None, *self.args)
@@ -743,19 +759,22 @@ class TilingSchedule(Schedule):
     """Schedule an iterator of :class:`ParLoop` objects applying tiling on top
     of hard fusion and soft fusion."""
 
-    def __init__(self, insp_name, kernel, schedule, inspection, executor):
+    def __init__(self, insp_name, kernel, schedule, inspection, executor, **options):
         self._insp_name = insp_name
         self._schedule = schedule
         self._inspection = inspection
         self._executor = executor
         self._kernel = kernel
+        self._use_glb_maps = options.get('use_glb_maps', False)
 
     def __call__(self, loop_chain):
         loop_chain = self._schedule(loop_chain)
         # Track the individual kernels, and the args of each kernel
         all_itspaces = tuple(loop.it_space for loop in loop_chain)
-        all_args = tuple((Arg.specialize(loop.args, gtl_map, i) for i, (loop, gtl_map)
-                         in enumerate(zip(loop_chain, self._executor.gtl_maps))))
+        all_args = []
+        for i, (loop, gtl_map) in enumerate(zip(loop_chain, self._executor.gtl_maps)):
+            all_args.append(Arg.specialize(loop.args, gtl_map, i, self._use_glb_maps))
+        all_args = tuple(all_args)
         # Data for the actual ParLoop
         it_space = IterationSpace(all_itspaces)
         args = Arg.filter_args([loop.args for loop in loop_chain]).values()
@@ -772,6 +791,7 @@ class TilingSchedule(Schedule):
             'reduced_globals': reduced_globals,
             'inc_args': inc_args,
             'insp_name': self._insp_name,
+            'use_glb_maps': self._use_glb_maps,
             'inspection': self._inspection,
             'executor': self._executor
         }
@@ -794,7 +814,7 @@ class Inspector(Cached):
         key = (name,)
         if name != lazy_trace_name:
             # Special case: the Inspector comes from a user-defined /loop_chain/
-            key += (options['mode'], options['tile_size'])
+            key += (options['mode'], options['tile_size'], options['use_glb_maps'])
             key += (loop_chain[0].kernel.cache_key,)
             return key
         # Inspector extracted from lazy evaluation trace
@@ -1429,7 +1449,8 @@ class Inspector(Cached):
         executor = slope.Executor(inspector)
 
         kernel = Kernel(tuple(loop.kernel for loop in self._loop_chain))
-        self._schedule = TilingSchedule(self._name, kernel, self._schedule, inspection, executor)
+        self._schedule = TilingSchedule(self._name, kernel, self._schedule, inspection,
+                                        executor, **self._options)
 
     @property
     def mode(self):
@@ -1487,6 +1508,7 @@ def fuse(name, loop_chain, **kwargs):
     options = {
         'log': kwargs.get('log', False),
         'mode': kwargs.get('mode', 'hard'),
+        'use_glb_maps': kwargs.get('use_glb_maps', False),
         'tile_size': kwargs.get('tile_size', 1),
         'extra_halo': kwargs.get('extra_halo', False)
     }
@@ -1582,11 +1604,14 @@ def loop_chain(name, **kwargs):
             of the special object ``LoopChainTag`` in the trace, thus creating a
             specific inspector for each slice.
         * log (default=False): output inspector and loop chain info to a file
+        * use_glb_maps (default=False): when tiling, use the global maps provided by
+            PyOP2, rather than the ones constructed by SLOPE.
     """
     assert name != lazy_trace_name, "Loop chain name must differ from %s" % lazy_trace_name
 
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
+    kwargs.setdefault('use_glb_maps', False)
     split_mode = kwargs.pop('split_mode', 0)
 
     # Get a snapshot of the trace before new par loops are added within this
