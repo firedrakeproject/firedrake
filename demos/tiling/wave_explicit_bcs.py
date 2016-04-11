@@ -24,6 +24,7 @@ def run(args):
     output = args.output
     mode = args.fusion_mode
     part_mode = args.part_mode
+    glb_maps = args.glb_maps
     extra_halo = args.extra_halo
     debug_mode = args.debug
 
@@ -108,6 +109,7 @@ def run(args):
                 partitioning=part_mode,
                 tile_size=tile_size,
                 extra_halo=extra_halo,
+                glb_maps=glb_maps,
                 poly_order=1,
                 domain=os.path.splitext(os.path.basename(mesh.name))[0])
 

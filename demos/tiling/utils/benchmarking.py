@@ -47,6 +47,7 @@ def output_time(start, end, **kwargs):
     partitioning = kwargs.get('partitioning', 'chunk')
     extra_halo = 'yes' if kwargs.get('extra_halo', False) else 'no'
     split_mode = kwargs.get('split_mode', None)
+    glb_maps = 'yes' if kwargs.get('glb_maps', False) else 'no'
     poly_order = kwargs.get('poly_order', -1)
     domain = kwargs.get('domain', 'default_domain')
     backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
@@ -136,12 +137,11 @@ def output_time(start, end, **kwargs):
             # back to the file (overwriting existing content)
             with open(filename, "r+") as f:
                 lines = [line.split(':') for line in f if line.strip()][1:]
-                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0])
-                         for i in lines]
-                lines += [(tot, nloops, tile_size, partitioning, extra_halo)]
+                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0], i[5].split()[0]) for i in lines]
+                lines += [(tot, nloops, tile_size, partitioning, extra_halo, glb_maps)]
                 lines.sort(key=lambda x: x[0])
-                prepend = "time   : nloops : tilesize : partitioning : extrahalo\n"
-                lines = prepend + "\n".join(["%s :   %s    :   %s   :    %s     :    %s" % i for i in lines]) + "\n"
+                prepend = "time   : nloops : tilesize : partitioning : extrahalo : glbmaps\n"
+                lines = prepend + "\n".join(["%s :   %s    :   %s   :    %s     :    %s     :    %s" % i for i in lines]) + "\n"
                 f.seek(0)
                 f.write(lines)
                 f.truncate()

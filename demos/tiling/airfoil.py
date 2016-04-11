@@ -20,6 +20,7 @@ def main(args):
     num_unroll = args.num_unroll
     tile_size = args.tile_size
     part_mode = args.part_mode
+    glb_maps = args.glb_maps
     mesh_file = args.mesh_file
     debug_mode = args.debug
 
@@ -144,6 +145,7 @@ def main(args):
                 partitioning=part_mode,
                 tile_size=tile_size,
                 extra_halo=extra_halo,
+                glb_maps=glb_maps,
                 poly_order=1,
                 domain=mesh_file)
 
