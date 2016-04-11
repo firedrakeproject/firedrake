@@ -148,7 +148,6 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
                                         tuple(quadrature_indices) + argument_indices,
-                                        coffee_licm=parameters["coffee_licm"],
                                         remove_zeros=True)
 
     # Generate COFFEE
