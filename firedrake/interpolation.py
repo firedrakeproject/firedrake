@@ -199,7 +199,8 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
     from ufl.algorithms.apply_derivatives import apply_derivatives
     from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
     from ufl.algorithms import extract_arguments, extract_coefficients
-    from tsfc import fem, gem, impero_utils, ufl_utils
+    from gem import gem, impero_utils
+    from tsfc import fem, ufl_utils
     from tsfc.coffee import generate as generate_coffee
     from tsfc.kernel_interface import (KernelBuilderBase,
                                        needs_cell_orientations,
