@@ -11,11 +11,12 @@ from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, FormArgument,
                          GeometricQuantity, QuadratureWeight)
 
+import gem
+
 from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, as_fiat_cell
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc import compat
-from tsfc import gem
 from tsfc import ufl2gem
 from tsfc import geometric
 from tsfc.ufl_utils import (CollectModifiedTerminals,

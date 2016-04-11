@@ -1,5 +1,5 @@
-from tsfc import impero_utils
-from tsfc.gem import Index, Indexed, IndexSum, Product, Variable
+from gem import impero_utils
+from gem.gem import Index, Indexed, IndexSum, Product, Variable
 
 
 def test_loop_fusion():

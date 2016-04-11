@@ -6,11 +6,11 @@ import collections
 import numpy
 import ufl
 
-from tsfc.gem import (Literal, Zero, Sum, Product, Division, Power,
-                      MathFunction, MinValue, MaxValue, Comparison,
-                      LogicalNot, LogicalAnd, LogicalOr, Conditional,
-                      Index, Indexed, ComponentTensor, IndexSum,
-                      ListTensor)
+from gem import (Literal, Zero, Sum, Product, Division, Power,
+                 MathFunction, MinValue, MaxValue, Comparison,
+                 LogicalNot, LogicalAnd, LogicalOr, Conditional,
+                 Index, Indexed, ComponentTensor, IndexSum,
+                 ListTensor)
 
 
 class Mixin(object):

@@ -4,10 +4,11 @@ import numpy
 
 import coffee.base as coffee
 
-from tsfc import gem
+import gem
+from gem.node import traversal
+
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
-from tsfc.node import traversal
 from tsfc.coffee import SCALAR_TYPE
 
 
