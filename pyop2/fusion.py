@@ -133,7 +133,7 @@ class Arg(sequential.Arg):
         filtered_args = OrderedDict()
         for args in loop_args:
             for a in args:
-                fa = filtered_args.setdefault(a.data, a)
+                fa = filtered_args.setdefault((a.data, a.map), a)
                 if a.access != fa.access:
                     if READ in [a.access, fa.access]:
                         # If a READ and some sort of write (MIN, MAX, RW, WRITE,
@@ -905,7 +905,8 @@ class Inspector(Cached):
         binding = OrderedDict(zip(fused_loop_args, fused_kernel_args))
         new_fused_kernel_args, args_maps = [], []
         for fused_loop_arg, fused_kernel_arg in binding.items():
-            unique_fused_loop_arg = unique_fused_loop_args[fused_loop_arg.data]
+            key = (fused_loop_arg.data, fused_loop_arg.map)
+            unique_fused_loop_arg = unique_fused_loop_args[key]
             if fused_loop_arg is unique_fused_loop_arg:
                 new_fused_kernel_args.append(fused_kernel_arg)
                 continue
