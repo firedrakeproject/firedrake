@@ -6,8 +6,8 @@ import collections
 import numpy
 import ufl
 
-from gem import (Literal, Zero, Sum, Product, Division, Power,
-                 MathFunction, MinValue, MaxValue, Comparison,
+from gem import (Literal, Zero, Identity, Sum, Product, Division,
+                 Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
                  ListTensor)
@@ -28,7 +28,7 @@ class Mixin(object):
         return Literal(o.value())
 
     def identity(self, o):
-        return Literal(numpy.eye(*o.ufl_shape))
+        return Identity(o._dim)
 
     def zero(self, o):
         return Zero(o.ufl_shape)
