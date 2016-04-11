@@ -13,8 +13,7 @@ from singledispatch import singledispatch
 
 import coffee.base as coffee
 
-import gem
-import gem.impero as imp
+from gem import gem, impero as imp
 
 from tsfc.constants import SCALAR_TYPE, PRECISION
 
@@ -150,7 +149,7 @@ def statement_evaluate(leaf, parameters):
                 coffee_sym = _coffee_symbol(_ref_symbol(expr, parameters), rank=multiindex)
                 ops.append(coffee.Assign(coffee_sym, expression(value, parameters)))
             return coffee.Block(ops, open_scope=False)
-    elif isinstance(expr, gem.Literal):
+    elif isinstance(expr, gem.Constant):
         assert parameters.declare[leaf]
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
@@ -256,8 +255,7 @@ def _expression_conditional(expr, parameters):
     return coffee.Ternary(*[expression(c, parameters) for c in expr.children])
 
 
-@_expression.register(gem.Literal)
-@_expression.register(gem.Zero)
+@_expression.register(gem.Constant)
 def _expression_scalar(expr, parameters):
     assert not expr.shape
     if isnan(expr.value):
