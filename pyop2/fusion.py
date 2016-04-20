@@ -122,36 +122,6 @@ class Arg(sequential.Arg):
         except TypeError:
             return convert(args, gtl_map, loop_id)
 
-    @staticmethod
-    def filter_args(loop_args):
-        """Given an iterator of :class:`Arg` tuples, each tuple representing the
-        args in a loop of the chain, create a 'flattened' iterator of ``Args``
-        in which: 1) there are no duplicates; 2) access modes are 'adjusted'
-        if the same :class:`Dat` is accessed through multiple ``Args``.
-
-        For example, if a ``Dat`` appears twice with access modes ``WRITE`` and
-        ``READ``, a single ``Arg`` with access mode ``RW`` will be present in the
-        returned iterator."""
-        filtered_args = OrderedDict()
-        for args in loop_args:
-            for a in args:
-                fa = filtered_args.setdefault((a.data, a.map), a)
-                if a.access != fa.access:
-                    if READ in [a.access, fa.access]:
-                        # If a READ and some sort of write (MIN, MAX, RW, WRITE,
-                        # INC), then the access mode becomes RW
-                        fa.access = RW
-                    elif WRITE in [a.access, fa.access]:
-                        # Can't be a READ, so just stick to WRITE regardless of what
-                        # the other access mode is
-                        fa.access = WRITE
-                    else:
-                        # Neither READ nor WRITE, so access modes are some
-                        # combinations of RW, INC, MIN, MAX. For simplicity,
-                        # just make it RW.
-                        fa.access = RW
-        return filtered_args
-
     @property
     def c_arg_bindto(self):
         """Assign this Arg's c_pointer to ``arg``."""
@@ -641,6 +611,82 @@ class ParLoop(sequential.ParLoop):
             self.update_arg_data_state()
 
 
+# Utility classes
+
+class Filter(object):
+
+    """A utility class for filtering arguments originating from a set of
+    parallel loops. Arguments are filtered based on the data they contain
+    as well as the map used for accessing the data."""
+
+    def _key(self, arg):
+        return (arg.data, arg.map)
+
+    def loop_args(self, loops):
+        loop_args = [loop.args for loop in loops]
+        filtered_args = OrderedDict()
+        for args in loop_args:
+            for a in args:
+                fa = filtered_args.setdefault(self._key(a), a)
+                if a.access != fa.access:
+                    if READ in [a.access, fa.access]:
+                        # If a READ and some sort of write (MIN, MAX, RW, WRITE,
+                        # INC), then the access mode becomes RW
+                        fa.access = RW
+                    elif WRITE in [a.access, fa.access]:
+                        # Can't be a READ, so just stick to WRITE regardless of what
+                        # the other access mode is
+                        fa.access = WRITE
+                    else:
+                        # Neither READ nor WRITE, so access modes are some
+                        # combinations of RW, INC, MIN, MAX. For simplicity,
+                        # just make it RW.
+                        fa.access = RW
+        return filtered_args
+
+    def kernel_args(self, loops, fundecl):
+        """Eliminate redundant arguments in the kernel signature."""
+        loop_args = list(flatten([l.args for l in loops]))
+        unique_loop_args = self.loop_args(loops)
+        kernel_args = fundecl.args
+        binding = OrderedDict(zip(loop_args, kernel_args))
+        new_kernel_args, args_maps = [], []
+        for loop_arg, kernel_arg in binding.items():
+            key = self._key(loop_arg)
+            unique_loop_arg = unique_loop_args[key]
+            if loop_arg is unique_loop_arg:
+                new_kernel_args.append(kernel_arg)
+                continue
+            tobind_kernel_arg = binding[unique_loop_arg]
+            if tobind_kernel_arg.is_const:
+                # Need to remove the /const/ qualifier from the C declaration
+                # if the same argument is written to, somewhere, in the kernel.
+                # Otherwise, /const/ must be appended, if not present already,
+                # to the alias' qualifiers
+                if loop_arg._is_written:
+                    tobind_kernel_arg.qual.remove('const')
+                elif 'const' not in kernel_arg.qual:
+                    kernel_arg.qual.append('const')
+            # Update the /binding/, since might be useful for the caller
+            binding[loop_arg] = tobind_kernel_arg
+            # Aliases may be created instead of changing symbol names
+            if kernel_arg.sym.symbol == tobind_kernel_arg.sym.symbol:
+                continue
+            alias = ast_make_alias(dcopy(kernel_arg), dcopy(tobind_kernel_arg))
+            args_maps.append(alias)
+        fundecl.children[0].children = args_maps + fundecl.children[0].children
+        fundecl.args = new_kernel_args
+        return binding
+
+
+class WeakFilter(Filter):
+
+    """Filter arguments based on the data they contain."""
+
+    def _key(self, arg):
+        return arg.data
+
+
 # An Inspector produces one of the following Schedules
 
 class Schedule(object):
@@ -665,6 +711,9 @@ class Schedule(object):
         A sequence of  :class:`fusion.ParLoop` objects would then be returned.
         """
         raise NotImplementedError("Subclass must implement ``__call__`` method")
+
+    def _filter(self, loops):
+        return Filter().loop_args(loops).values()
 
 
 class PlainSchedule(Schedule):
@@ -696,8 +745,7 @@ class FusionSchedule(Schedule):
             # the iteration region must correspond to that of the /base/ loop
             iterregion = loop_chain[loop_indices[0]].iteration_region
             iterset = loop_chain[loop_indices[0]].it_space.iterset
-            loops = [loop_chain[i] for i in loop_indices]
-            args = Arg.filter_args([loop.args for loop in loops]).values()
+            args = self._filter([loop_chain[i] for i in loop_indices])
             # Create any ParLoop additional arguments
             extra_args = [Dat(*d)(*a) for d, a in extra_args] if extra_args else []
             args += extra_args
@@ -753,6 +801,9 @@ class HardFusionSchedule(FusionSchedule):
             loop_chain = self._schedule(loop_chain)
         return super(HardFusionSchedule, self).__call__(loop_chain)
 
+    def _filter(self, loops):
+        return WeakFilter().loop_args(loops).values()
+
 
 class TilingSchedule(Schedule):
 
@@ -777,7 +828,7 @@ class TilingSchedule(Schedule):
         all_args = tuple(all_args)
         # Data for the actual ParLoop
         it_space = IterationSpace(all_itspaces)
-        args = Arg.filter_args([loop.args for loop in loop_chain]).values()
+        args = self._filter(loop_chain)
         reduced_globals = [loop._reduced_globals for loop in loop_chain]
         read_args = set(flatten([loop.reads for loop in loop_chain]))
         written_args = set(flatten([loop.writes for loop in loop_chain]))
@@ -917,41 +968,6 @@ class Inspector(Cached):
             return True
         return False
 
-    def _filter_kernel_args(self, loops, fundecl):
-        """Eliminate redundant arguments in the fused kernel signature."""
-        fused_loop_args = list(flatten([l.args for l in loops]))
-        unique_fused_loop_args = Arg.filter_args([l.args for l in loops])
-        fused_kernel_args = fundecl.args
-        binding = OrderedDict(zip(fused_loop_args, fused_kernel_args))
-        new_fused_kernel_args, args_maps = [], []
-        for fused_loop_arg, fused_kernel_arg in binding.items():
-            key = (fused_loop_arg.data, fused_loop_arg.map)
-            unique_fused_loop_arg = unique_fused_loop_args[key]
-            if fused_loop_arg is unique_fused_loop_arg:
-                new_fused_kernel_args.append(fused_kernel_arg)
-                continue
-            tobind_fused_kernel_arg = binding[unique_fused_loop_arg]
-            if tobind_fused_kernel_arg.is_const:
-                # Need to remove the /const/ qualifier from the C declaration
-                # if the same argument is written to, somewhere, in the fused
-                # kernel. Otherwise, /const/ must be appended, if not present
-                # already, to the alias' qualifiers
-                if fused_loop_arg._is_written:
-                    tobind_fused_kernel_arg.qual.remove('const')
-                elif 'const' not in fused_kernel_arg.qual:
-                    fused_kernel_arg.qual.append('const')
-            # Update the /binding/, since might be useful for the caller
-            binding[fused_loop_arg] = tobind_fused_kernel_arg
-            # Aliases may be created instead of changing symbol names
-            if fused_kernel_arg.sym.symbol == tobind_fused_kernel_arg.sym.symbol:
-                continue
-            alias = ast_make_alias(dcopy(fused_kernel_arg),
-                                   dcopy(tobind_fused_kernel_arg))
-            args_maps.append(alias)
-        fundecl.children[0].children = args_maps + fundecl.children[0].children
-        fundecl.args = new_fused_kernel_args
-        return binding
-
     def _soft_fuse(self):
         """Fuse consecutive loops over the same iteration set by concatenating
         kernel bodies and creating new :class:`ParLoop` objects representing
@@ -1005,7 +1021,7 @@ class Inspector(Cached):
                      ast.FlatBlock("\n\n// Begin of fused kernel\n\n"),
                      ast.Block(fuse_fundecl.children[0].children, open_scope=True)])
             # Eliminate redundancies in the /fused/ kernel signature
-            self._filter_kernel_args(loops, base_fundecl)
+            Filter().kernel_args(loops, base_fundecl)
             # Naming convention
             fused_ast = base_ast
             return Kernel(kernels, fused_ast, loop_chain_index)
@@ -1140,15 +1156,16 @@ class Inspector(Cached):
             # sake of performance, but also for correctness of padding, since hard
             # fusion changes the signature of /fuse/ (in particular, the buffers that
             # are provided for computation on iteration spaces)
+            finder = FindInstances((ast.FunDecl, ast.PreprocessNode))
             base, fuse = base_loop.kernel, fuse_loop.kernel
             base_ast = dcopy(base._original_ast) if base._code else dcopy(base._ast)
             retval = FindInstances.default_retval()
-            base_info = FindInstances((ast.FunDecl, ast.PreprocessNode)).visit(base_ast, ret=retval)
+            base_info = finder.visit(base_ast, ret=retval)
             base_headers = base_info[ast.PreprocessNode]
             base_fundecl = base_info[ast.FunDecl]
             fuse_ast = dcopy(fuse._original_ast) if fuse._code else dcopy(fuse._ast)
             retval = FindInstances.default_retval()
-            fuse_info = FindInstances((ast.FunDecl, ast.PreprocessNode)).visit(fuse_ast, ret=retval)
+            fuse_info = finder.visit(fuse_ast, ret=retval)
             fuse_headers = fuse_info[ast.PreprocessNode]
             fuse_fundecl = fuse_info[ast.FunDecl]
             retval = SymbolReferences.default_retval()
@@ -1168,7 +1185,7 @@ class Inspector(Cached):
 
             # 1B) Filter out duplicate arguments, and append extra arguments to
             # the function declaration
-            binding = self._filter_kernel_args([base_loop, fuse_loop], fusion_fundecl)
+            binding = WeakFilter().kernel_args([base_loop, fuse_loop], fusion_fundecl)
             fusion_fundecl.args += [ast.Decl('int**', ast.Symbol('executed'))]
 
             # 1C) Create /fusion/ body
