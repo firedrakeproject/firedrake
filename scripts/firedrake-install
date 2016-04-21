@@ -912,8 +912,8 @@ else:
                 raise
 
     # update dependencies.
-    pip_requirements("PyOP2")
-    pip_requirements("firedrake")
+    for p in packages:
+        pip_requirements(p)
     pipinstall.append("--no-deps")
 
     # Only rebuild petsc if it has changed.
