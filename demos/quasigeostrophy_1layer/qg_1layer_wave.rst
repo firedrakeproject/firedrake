@@ -95,6 +95,8 @@ for :math:`q^{(1)}` and then :math:`q^{(2)}` and then these are used to
 compute the numerical approximation to the PV at the new time
 :math:`q^{n+1)}`.
 
+Below is a copy of the code that solves the QG model for the case of a freely propagating Rossby wave.
+
 .. code-block:: python
 
   from firedrake import *
