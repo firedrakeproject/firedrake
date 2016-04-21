@@ -750,7 +750,8 @@ elif osname == "Linux":
                         "mercurial",
                         "openmpi-bin",
                         "python-dev",
-                        "python-pip"]
+                        "python-pip",
+                        "zlib1g-dev"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
@@ -768,6 +769,7 @@ elif osname == "Linux":
         log.info("* pip and the Python headers")
         log.info("* CMake")
         log.info("* libspatialindex and headers")
+        log.info("* zlib")
 
 else:
     log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
