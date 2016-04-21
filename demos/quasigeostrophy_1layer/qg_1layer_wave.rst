@@ -108,85 +108,85 @@ compute the numerical approximation to the PV at the new time
   Vcg = FunctionSpace(mesh,"CG",1)               # CG elements for Streamfunction
   Vu  = VectorFunctionSpace(mesh,"DG",1)          # DG elements for velocity
 
-# Intial Conditions for PV
-q0 = Function(Vdg).interpolate(Expression("0.1*sin(x[0])*sin(x[1])"))
+  # Intial Conditions for PV
+  q0 = Function(Vdg).interpolate(Expression("0.1*sin(x[0])*sin(x[1])"))
 
-dq1 = Function(Vdg)       # PV fields for different time steps
-qh  = Function(Vdg)
-q1  = Function(Vdg)
+  dq1 = Function(Vdg)       # PV fields for different time steps
+  qh  = Function(Vdg)
+  q1  = Function(Vdg)
 
-psi0 = Function(Vcg)      # Streamfunctions for different time steps
-psi1 = Function(Vcg)
+  psi0 = Function(Vcg)      # Streamfunctions for different time steps
+  psi1 = Function(Vcg)
 
-# Physical parameters
-F    = Constant(1.0)         # Rotational Froude number
-beta = Constant(0.1)      # beta plane coefficient
-Dt   = 0.1                  # Time step
-dt   = Constant(Dt)
+  # Physical parameters
+  F    = Constant(1.0)         # Rotational Froude number
+  beta = Constant(0.1)      # beta plane coefficient  
+  Dt   = 0.1                  # Time step
+  dt   = Constant(Dt)
 
-# Set up PV inversion
-psi = TrialFunction(Vcg)  # Test function
-phi = TestFunction(Vcg)   # Trial function
+  # Set up PV inversion
+  psi = TrialFunction(Vcg)  # Test function
+  phi = TestFunction(Vcg)   # Trial function
 
-# Build the weak form for the inversion
-Apsi = (inner(grad(psi),grad(phi)) + F*psi*phi)*dx
-Lpsi = -q1*phi*dx
+  # Build the weak form for the inversion
+  Apsi = (inner(grad(psi),grad(phi)) + F*psi*phi)*dx
+  Lpsi = -q1*phi*dx
 
-# Impose Dirichlet Boundary Conditions on the streamfunction
-bc1 = [DirichletBC(Vcg, 0., 1),
-       DirichletBC(Vcg, 0., 2)]
+  # Impose Dirichlet Boundary Conditions on the streamfunction
+  bc1 = [DirichletBC(Vcg, 0., 1),
+         DirichletBC(Vcg, 0., 2)]
 
-# Set up Elliptic inverter
-psi_problem = LinearVariationalProblem(Apsi,Lpsi,psi0,bcs=bc1)
-psi_solver = LinearVariationalSolver(psi_problem,
-                                     solver_parameters={
-        'ksp_type':'cg',
-        'pc_type':'sor'
-        })
+  # Set up Elliptic inverter
+  psi_problem = LinearVariationalProblem(Apsi,Lpsi,psi0,bcs=bc1)
+  psi_solver = LinearVariationalSolver(psi_problem,
+                                       solver_parameters={
+          'ksp_type':'cg',
+          'pc_type':'sor'
+          })
 
-# Make a gradperp operator
-gradperp = lambda u: as_vector((-u.dx(1), u.dx(0)))
+  # Make a gradperp operator
+  gradperp = lambda u: as_vector((-u.dx(1), u.dx(0)))
 
-# Set up Strong Stability Preserving Runge Kutta 3 (SSPRK3) method
+  # Set up Strong Stability Preserving Runge Kutta 3 (SSPRK3) method
 
-# Mesh-related functions
-n = FacetNormal(mesh)
+  # Mesh-related functions
+  n = FacetNormal(mesh)
 
-# Set up upwinding type method: ( dot(v, n) + |dot(v, n)| )/2.0
-un = 0.5*(dot(gradperp(psi0), n) + abs(dot(gradperp(psi0), n)))
+  # Set up upwinding type method: ( dot(v, n) + |dot(v, n)| )/2.0
+  un = 0.5*(dot(gradperp(psi0), n) + abs(dot(gradperp(psi0), n)))
 
-# advection equation
-q = TrialFunction(Vdg)
-p = TestFunction(Vdg)
-a_mass = p*q*dx
-a_int  = (dot(grad(p), -gradperp(psi0)*q) + beta*p*psi0.dx(0))*dx
-a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')) )*dS
-arhs   = a_mass - dt*(a_int + a_flux)
+  # advection equation
+  q = TrialFunction(Vdg)
+  p = TestFunction(Vdg)
+  a_mass = p*q*dx
+  a_int  = (dot(grad(p), -gradperp(psi0)*q) + beta*p*psi0.dx(0))*dx
+  a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')) )*dS
+  arhs   = a_mass - dt*(a_int + a_flux)
 
-q_problem = LinearVariationalProblem(a_mass, action(arhs,q1), dq1)
-q_solver  = LinearVariationalSolver(q_problem, 
-                                    solver_parameters={
-        'ksp_type':'cg',
-        'pc_type':'sor'
-        })
+  q_problem = LinearVariationalProblem(a_mass, action(arhs,q1), dq1)
+  q_solver  = LinearVariationalSolver(q_problem, 
+                                      solver_parameters={
+          'ksp_type':'cg',
+          'pc_type':'sor'
+          })
 
 
-qfile = File("q.pvd")
-qfile << q0
-psifile = File("psi.pvd")
-psifile << psi0
-vfile = File("v.pvd")
-v = Function(Vu).project(gradperp(psi0))
-vfile << v
+  qfile = File("q.pvd")
+  qfile << q0
+  psifile = File("psi.pvd")
+  psifile << psi0
+  vfile = File("v.pvd")
+  v = Function(Vu).project(gradperp(psi0))
+  vfile << v
 
-t = 0.
-T = 500.
-dumpfreq = 10
-tdump = 0
+  t = 0.
+  T = 500.
+  dumpfreq = 10
+  tdump = 0
 
-v0 = Function(Vu)
+  v0 = Function(Vu)
 
-while(t < (T-Dt/2)):
+  while(t < (T-Dt/2)):
 
     # Compute the streamfunction for the known value of q0
     q1.assign(q0)
