@@ -97,16 +97,16 @@ compute the numerical approximation to the PV at the new time
 
 .. code-block:: python
 
-from firedrake import *
+  from firedrake import *
 
-Lx   = 2.*pi                                     # Zonal length
-Ly   = 2.*pi                                     # Meridonal length
-n0   = 50                                        # Spatial resolution
-mesh = PeriodicRectangleMesh(n0, n0, Lx, Ly,  direction="x", quadrilateral=True, reorder=None)
+  Lx   = 2.*pi                                     # Zonal length
+  Ly   = 2.*pi                                     # Meridonal length
+  n0   = 50                                        # Spatial resolution
+  mesh = PeriodicRectangleMesh(n0, n0, Lx, Ly,  direction="x", quadrilateral=True, reorder=None)
 
-Vdg = FunctionSpace(mesh,"DG",1)               # DG elements for Potential Vorticity (PV)
-Vcg = FunctionSpace(mesh,"CG",1)               # CG elements for Streamfunction
-Vu  = VectorFunctionSpace(mesh,"DG",1)          # DG elements for velocity
+  Vdg = FunctionSpace(mesh,"DG",1)               # DG elements for Potential Vorticity (PV)
+  Vcg = FunctionSpace(mesh,"CG",1)               # CG elements for Streamfunction
+  Vu  = VectorFunctionSpace(mesh,"DG",1)          # DG elements for velocity
 
 # Intial Conditions for PV
 q0 = Function(Vdg).interpolate(Expression("0.1*sin(x[0])*sin(x[1])"))
