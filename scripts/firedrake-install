@@ -50,11 +50,8 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The default install creates a virtualenv in ./firedrake and installs
-inside that virtualenv.  Optionally, a global installation using the
-default Python package location may be specified by passing the
---global option.  We recommend using the default virtualenv
-installation mode.
+The install creates a virtualenv in ./firedrake and installs inside
+that virtualenv.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -63,8 +60,6 @@ honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--global", action='store_true', dest="system",
-                       help="Install to the default global location on the current platform.")
     group.add_argument("--developer", action='store_true',
                        help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
     parser.add_argument("--sudo", action='store_true',
@@ -123,7 +118,6 @@ else:
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
 
     args = parser.parse_args()
-    args.system = False
     args.developer = False
     args.sudo = False
     args.package_manager = False
@@ -148,22 +142,17 @@ path_extension = ""
 old_git_packages = ["instant", "ffc"]
 
 python = ["python"]
-if args.sudo and args.system:
-    sudopip = ["sudo", "pip"]
-    pyinstall = ["sudo", "python", "setup.py", "install"]
-else:
-    sudopip = ["pip"]
-    pyinstall = ["python", "setup.py", "install"]
+sudopip = ["pip"]
+pyinstall = ["python", "setup.py", "install"]
 
 pipinstall = sudopip + ["install"]
-if not args.system:
-    # virtualenv install
-    # Use the pip from the virtualenv
-    sudopip = [os.getcwd() + "/firedrake/bin/pip"]
-    pipinstall = sudopip + ["install"]
-    python = [os.getcwd() + "/firedrake/bin/python"]
-    pyinstall = python + ["setup.py", "install"]
-    sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
+# virtualenv install
+# Use the pip from the virtualenv
+sudopip = [os.getcwd() + "/firedrake/bin/pip"]
+pipinstall = sudopip + ["install"]
+python = [os.getcwd() + "/firedrake/bin/python"]
+pyinstall = python + ["setup.py", "install"]
+sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 
@@ -635,12 +624,8 @@ def build_and_install_adjoint():
     dir_util.mkpath("build")
 
     os.chdir("build")
-    if "VIRTUAL_ENV" in os.environ:
-        log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
-        check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
-    else:
-        log.info("Configuring libadjoint for global installation")
-        check_call(["cmake", ".."], env=env)
+    log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
+    check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
     log.info("Installing libadjoint.")
     check_call(["make", "install"])
     os.chdir("../..")
@@ -666,7 +651,7 @@ def build_update_script():
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
-    for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
+    for switch in ["developer", "sudo", "package_manager", "minimal_petsc",
                    "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
@@ -800,34 +785,25 @@ else:
     log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
 
-if args.system and mode == "install":
-    log.info("Creating firedrake directory structure.")
+if mode == "install":
     try:
-        os.mkdir("firedrake")
-    except OSError:
-        log.error("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.")
-        raise
-
-elif not args.system:
-    if mode == "install":
-        try:
-            import virtualenv
-        except:
-            log.info("Installing virtualenv.")
-            # sys.real_prefix exists if we are already in the virtualenv
-            if hasattr(sys, "real_prefix"):
-                check_call(["pip", "install", "virtualenv"])
-            else:
-                check_call(["pip", "install", "--user", "virtualenv"])
-            quit("Virtual env installed. Please run firedrake-%s again." % mode)
-        log.info("Creating firedrake virtualenv.")
-        virtualenv.create_environment("firedrake", site_packages=False)
-        # For some reason virtualenv does not always install the latest pip.
-        run_pip_install(["-U", "pip"])
-    virtual_env_vars = dict(__file__='firedrake/bin/activate_this.py')
-    execfile("firedrake/bin/activate_this.py", virtual_env_vars)
-    # Activating the virtual_env from within Python does not automatically set the environment variable.
-    os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
+        import virtualenv
+    except:
+        log.info("Installing virtualenv.")
+        # sys.real_prefix exists if we are already in the virtualenv
+        if hasattr(sys, "real_prefix"):
+            check_call(["pip", "install", "virtualenv"])
+        else:
+            check_call(["pip", "install", "--user", "virtualenv"])
+        quit("Virtual env installed. Please run firedrake-%s again." % mode)
+    log.info("Creating firedrake virtualenv.")
+    virtualenv.create_environment("firedrake", site_packages=False)
+    # For some reason virtualenv does not always install the latest pip.
+    run_pip_install(["-U", "pip"])
+virtual_env_vars = dict(__file__='firedrake/bin/activate_this.py')
+execfile("firedrake/bin/activate_this.py", virtual_env_vars)
+# Activating the virtual_env from within Python does not automatically set the environment variable.
+os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir("firedrake")
 if mode == "install":
@@ -972,11 +948,10 @@ log.info("Successfully installed Firedrake.\n")
 
 log.info("To upgrade firedrake, run firedrake/bin/firedrake-update")
 
-if not args.system:
-    log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
-    log.info("  . firedrake/bin/activate\n")
-    log.info("The virtualenv can be deactivated by running:\n")
-    log.info("  deactivate")
+log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
+log.info("  . firedrake/bin/activate\n")
+log.info("The virtualenv can be deactivated by running:\n")
+log.info("  deactivate")
 
 
 if travis:
