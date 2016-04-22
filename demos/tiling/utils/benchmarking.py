@@ -33,6 +33,7 @@ def parser(**kwargs):
     p.add_argument('-d', '--debug', help='debug mode (defaults to False)', default=False)
     p.add_argument('-y', '--poly-order', type=int, help='the method\'s order in space', default=2)
     p.add_argument('-g', '--glb-maps', help='use global maps (defaults to False)', default=False)
+    p.add_argument('-c', '--coloring', help='(default, sequential, rand, omp)', default='default')
     for opt, default in kwargs.iteritems():
         p.add_argument("--%s" % opt, default=default)
     return p.parse_args()
