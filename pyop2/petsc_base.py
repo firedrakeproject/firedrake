@@ -95,6 +95,16 @@ class DataSet(base.DataSet):
         return lgmap
 
     @utils.cached_property
+    def unblocked_lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet` with a block size of 1.
+        """
+        indices = self.lgmap.indices
+        lgmap = PETSc.LGMap().create(indices=indices,
+                                     bsize=1, comm=self.lgmap.comm)
+        return lgmap
+
+    @utils.cached_property
     def field_ises(self):
         """A list of PETSc ISes defining the global indices for each set in
         the DataSet.
@@ -245,6 +255,13 @@ class MixedDataSet(DataSet, base.MixedDataSet):
             start += s.total_size * s.cdim
         lgmap.create(indices=indices, bsize=1)
         return lgmap
+
+    @utils.cached_property
+    def unblocked_lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet` with a block size of 1.
+        """
+        return self.lgmap
 
 
 class Dat(base.Dat):
@@ -534,11 +551,19 @@ class Mat(base.Mat, CopyOnWrite):
 
     def _init_monolithic(self):
         mat = PETSc.Mat()
+        rset, cset = self.sparsity.dsets
+        if rset.cdim != 1:
+            rlgmap = rset.unblocked_lgmap
+        else:
+            rlgmap = rset.lgmap
+        if cset.cdim != 1:
+            clgmap = cset.unblocked_lgmap
+        else:
+            clgmap = cset.lgmap
         mat.createAIJ(size=((self.nrows, None), (self.ncols, None)),
                       nnz=(self.sparsity.nnz, self.sparsity.onnz),
                       bsize=1)
-        rset, cset = self.sparsity.dsets
-        mat.setLGMap(rmap=rset.lgmap, cmap=cset.lgmap)
+        mat.setLGMap(rmap=rlgmap, cmap=clgmap)
         self.handle = mat
         self._blocks = []
         rows, cols = self.sparsity.shape
