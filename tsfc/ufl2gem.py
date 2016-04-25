@@ -3,7 +3,6 @@
 from __future__ import absolute_import
 
 import collections
-import numpy
 import ufl
 
 from gem import (Literal, Zero, Identity, Sum, Product, Division,
@@ -101,36 +100,7 @@ class Mixin(object):
         return Indexed(aggregate, index)
 
     def list_tensor(self, o, *ops):
-        # UFL and GEM have a few semantical differences when it comes
-        # to ListTensor.  In UFL, a ListTensor increases the rank by
-        # one with respect to its constituents.  So to build a matrix
-        # from scalars, one must build a ListTensor of ListTensors in
-        # UFL, while a GEM ListTensor can directly construct rank two
-        # tensor from scalars because it has an explicitly specified
-        # shape.
-        nesting = [isinstance(op, ListTensor) for op in ops]
-        if all(nesting):
-            # ListTensor of ListTensors in UFL, build a ListTensor of
-            # higher rank in GEM.
-            return ListTensor(numpy.array([op.array for op in ops]))
-        elif len(o.ufl_shape) > 1:
-            # On the other hand, TSFC only builds ListTensors from
-            # scalars, while the constituents of a UFL ListTensor can
-            # be non-scalar despite not being ListTensors themselves
-            # (e.g. ComponentTensor, Zero).
-            #
-            # In this case we currently break up the tensor-valued
-            # constituents into scalars by generating fixed indices to
-            # access to every single element.
-            children = []
-            for op in ops:
-                child = numpy.zeros(o.ufl_shape[1:], dtype=object)
-                for multiindex in numpy.ndindex(child.shape):
-                    child[multiindex] = Indexed(op, multiindex)
-                children.append(child)
-            return ListTensor(numpy.array(children))
-        else:
-            return ListTensor(numpy.array(ops))
+        return ListTensor(ops)
 
     def component_tensor(self, o, expression, index):
         return ComponentTensor(expression, index)
