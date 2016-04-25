@@ -3,6 +3,7 @@ cimport mpi4py.MPI as MPI
 
 cdef extern from "petsc.h":
    ctypedef long PetscInt
+#   ctypedef double PetscReal
    ctypedef enum PetscBool:
        PETSC_TRUE, PETSC_FALSE
    ctypedef enum PetscCopyMode:
@@ -28,6 +29,10 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
+
+#    int DMAdap_Plex(PETSc.PetscDM, MPI.Comm, PetscReal*, PETSc.PetscDM*)
+    int DMPlexAdap(PETSc.PetscDM, PETSc.PetscVec, PETSc.PetscDM*);
+    int DMCoarsen_Plex(PETSc.PetscDM, MPI.Comm, PETSc.PetscDM*)
 
 cdef extern from "petscdmlabel.h":
     struct _n_DMLabel
