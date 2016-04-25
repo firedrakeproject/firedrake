@@ -1,5 +1,7 @@
 from __future__ import absolute_import
 
+import operator
+
 import numpy
 
 import coffee.base as coffee
@@ -7,7 +9,7 @@ import coffee.base as coffee
 import gem
 from gem.node import traversal
 
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_element
 from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE
 
@@ -233,27 +235,27 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
 
         return funarg, [], expression
 
-    fiat_element = create_element(coefficient.ufl_element())
+    finat_element = create_element(coefficient.ufl_element())
 
     if not interior_facet:
         # Simple case
 
-        shape = (fiat_element.space_dimension(),)
-        funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+        shape = finat_element.index_shape
+        funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=tuple(reversed(shape))),
                              qualifiers=["const"])
 
-        i = gem.Index()
+        alpha = tuple(gem.Index() for d in shape)
         expression = gem.ComponentTensor(
-            gem.Indexed(gem.Variable(name, shape + (1,)),
-                        (i, 0)),
-            (i,))
+            gem.Indexed(gem.Variable(name, tuple(reversed(shape)) + (1,)),
+                        tuple(reversed(alpha)) + (0,)),
+            alpha)
 
         return funarg, [], expression
 
-    if not isinstance(fiat_element, MixedElement):
+    if not isinstance(finat_element, MixedElement):
         # Interior facet integral
 
-        shape = (2, fiat_element.space_dimension())
+        shape = (2,) + finat_element.index_shape
 
         funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
                              qualifiers=["const"])
@@ -267,6 +269,7 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
 
         return funarg, [], expression
 
+    assert False, "Deal with FInAT + mixed + interior facet later."
     # Interior facet integral + mixed / vector element
 
     # Here we need to reorder the coefficient values.
@@ -286,7 +289,7 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         # to reorder the values.  A whole E[n]{+,-} block is copied by
         # a single loop.
         name_ = name + "_"
-        shape = (2, fiat_element.space_dimension())
+        shape = (2,) + fiat_element.index_shape
 
         funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
                              qualifiers=["const"])
@@ -368,7 +371,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
 
     if not interior_facet:
         # Not an interior facet integral
-        shape = tuple(element.space_dimension() for element in elements)
+        shape = reduce(operator.add, [element.index_shape for element in elements], ())
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
         expression = gem.Indexed(gem.Variable("A", shape), indices)
@@ -379,7 +382,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
         # Interior facet integral, but no vector (mixed) arguments
         shape = []
         for element in elements:
-            shape += [2, element.space_dimension()]
+            shape += [2] + list(element.index_shape)
         shape = tuple(shape)
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
@@ -392,6 +395,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
 
         return funarg, [], expressions, []
 
+    assert False, "Deal with FInAT + vector argument + interior facet later."
     # Interior facet integral + vector (mixed) argument(s)
     shape = tuple(element.space_dimension() for element in elements)
     funarg_shape = tuple(s * 2 for s in shape)

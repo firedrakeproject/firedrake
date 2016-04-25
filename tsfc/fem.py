@@ -14,61 +14,18 @@ from ufl.classes import (Argument, Coefficient, FormArgument,
 import gem
 
 from tsfc.constants import PRECISION
-from tsfc.fiatinterface import create_element, as_fiat_cell
+from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc import compat
 from tsfc import ufl2gem
 from tsfc import geometric
 from tsfc.ufl_utils import (CollectModifiedTerminals,
                             ModifiedTerminalMixin, PickRestriction,
-                            spanning_degree, simplify_abs)
+                            simplify_abs)
 
 
 # FFC uses one less digits for rounding than for printing
 epsilon = eval("1e-%d" % (PRECISION - 1))
-
-
-def _tabulate(ufl_element, order, points):
-    """Ask FIAT to tabulate ``points`` up to order ``order``, then
-    rearranges the result into a series of ``(c, D, table)`` tuples,
-    where:
-
-    c: component index (for vector-valued and tensor-valued elements)
-    D: derivative tuple (e.g. (1, 2) means d/dx d^2/dy^2)
-    table: tabulation matrix for the given component and derivative.
-           shape: len(points) x space_dimension
-
-    :arg ufl_element: element to tabulate
-    :arg order: FIAT gives all derivatives up to this order
-    :arg points: points to tabulate the element on
-    """
-    element = create_element(ufl_element)
-    phi = element.space_dimension()
-    C = ufl_element.reference_value_size() - len(ufl_element.symmetry())
-    q = len(points)
-    for D, fiat_table in element.tabulate(order, points).iteritems():
-        reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
-        for c, table in enumerate(reordered_table):
-            yield c, D, table
-
-
-def tabulate(ufl_element, order, points):
-    """Same as the above, but also applies FFC rounding and recognises
-    cellwise constantness.  Cellwise constantness is determined
-    symbolically, but we also check the numerics to be safe."""
-    for c, D, table in _tabulate(ufl_element, order, points):
-        # Copied from FFC (ffc/quadrature/quadratureutils.py)
-        table[abs(table) < epsilon] = 0
-        table[abs(table - 1.0) < epsilon] = 1.0
-        table[abs(table + 1.0) < epsilon] = -1.0
-        table[abs(table - 0.5) < epsilon] = 0.5
-        table[abs(table + 0.5) < epsilon] = -0.5
-
-        if spanning_degree(ufl_element) <= sum(D):
-            assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
-            table = table[0]
-
-        yield c, D, table
 
 
 def make_tabulator(points):
@@ -146,14 +103,15 @@ class TabulationManager(object):
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     """Contains all the context necessary to translate UFL into GEM."""
 
-    def __init__(self, tabulation_manager, weights, quadrature_index,
+    def __init__(self, tabulation_manager, quad_rule, quadrature_index,
                  argument_indices, coefficient_mapper, index_cache):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
         integral_type = tabulation_manager.integral_type
         self.integral_type = integral_type
         self.tabulation_manager = tabulation_manager
-        self.weights = gem.Literal(weights)
+        self.quad_rule = quad_rule
+        self.weights = gem.Literal(quad_rule.weights)
         self.quadrature_index = quadrature_index
         self.argument_indices = argument_indices
         self.coefficient_mapper = coefficient_mapper
@@ -260,17 +218,14 @@ def _(terminal, mt, params):
 def _(terminal, mt, params):
     argument_index = params.argument_indices[terminal.number()]
 
-    def callback(key):
-        table = params.tabulation_manager[key]
-        if len(table.shape) == 1:
-            # Cellwise constant
-            row = gem.Literal(table)
-        else:
-            table = params.select_facet(gem.Literal(table), mt.restriction)
-            row = gem.partial_indexed(table, (params.quadrature_index,))
-        return gem.Indexed(row, (argument_index,))
-
-    return iterate_shape(mt, callback)
+    element = create_element(terminal.ufl_element())
+    M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+    vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
+    result = gem.Indexed(M, (params.quadrature_index, argument_index) + vi)
+    if vi:
+        return gem.ComponentTensor(result, vi)
+    else:
+        return result
 
 
 @translate.register(Coefficient)  # noqa: Not actually redefinition
@@ -283,29 +238,21 @@ def _(terminal, mt, params):
 
     ka = gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[mt.restriction])
 
-    def callback(key):
-        table = params.tabulation_manager[key]
-        if len(table.shape) == 1:
-            # Cellwise constant
-            row = gem.Literal(table)
-            if numpy.count_nonzero(table) <= 2:
-                assert row.shape == ka.shape
-                return reduce(gem.Sum,
-                              [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(ka, (i,)))
-                               for i in range(row.shape[0])],
-                              gem.Zero())
-        else:
-            table = params.select_facet(gem.Literal(table), mt.restriction)
-            row = gem.partial_indexed(table, (params.quadrature_index,))
-
-        r = params.index_cache[terminal.ufl_element()]
-        return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)),
-                                        gem.Indexed(ka, (r,))), r)
-
-    return iterate_shape(mt, callback)
+    element = create_element(terminal.ufl_element())
+    M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+    alpha = element.get_indices()
+    vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
+    result = gem.Product(gem.Indexed(M, (params.quadrature_index,) + alpha + vi),
+                         gem.Indexed(ka, alpha))
+    for i in alpha:
+        result = gem.IndexSum(result, i)
+    if vi:
+        return gem.ComponentTensor(result, vi)
+    else:
+        return result
 
 
-def process(integral_type, cell, points, weights, quadrature_index,
+def process(integral_type, cell, quad_rule, quadrature_index,
             argument_indices, integrand, coefficient_mapper, index_cache):
     # Abs-simplification
     integrand = simplify_abs(integrand)
@@ -323,10 +270,11 @@ def process(integral_type, cell, points, weights, quadrature_index,
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(integral_type, cell, points)
+    tabulation_manager = TabulationManager(integral_type, cell, quad_rule.points)  # TODO
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
-            tabulation_manager.tabulate(ufl_element, max_deriv)
+            pass  # TODO
+            # tabulation_manager.tabulate(ufl_element, max_deriv)
 
     if integral_type.startswith("interior_facet"):
         expressions = []
@@ -337,7 +285,7 @@ def process(integral_type, cell, points, weights, quadrature_index,
 
     # Translate UFL to Einstein's notation,
     # lowering finite element specific nodes
-    translator = Translator(tabulation_manager, weights,
+    translator = Translator(tabulation_manager, quad_rule,
                             quadrature_index, argument_indices,
                             coefficient_mapper, index_cache)
     return map_expr_dags(translator, expressions)

@@ -11,11 +11,13 @@ import gem
 import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
+from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
+
 from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
-from tsfc.quadrature import create_quadrature, QuadratureRule
+from tsfc.quadrature import create_quadrature
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -114,9 +116,12 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         # the estimated polynomial degree attached by compute_form_data
         quadrature_degree = params.get("quadrature_degree",
                                        params["estimated_polynomial_degree"])
-        quad_rule = params.get("quadrature_rule",
-                               create_quadrature(cell, integral_type,
-                                                 quadrature_degree))
+        try:
+            quad_rule = params["quadrature_rule"]
+        except KeyError:
+            quad_rule = create_quadrature(cell, integral_type, quadrature_degree)
+            quad_rule = QuadratureRule(cell, quad_rule.points, quad_rule.weights)
+            quad_rule.__class__ = CollapsedGaussJacobiQuadrature
 
         if not isinstance(quad_rule, QuadratureRule):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
@@ -125,10 +130,10 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='ip')
         quadrature_indices.append(quadrature_index)
-        ir = fem.process(integral_type, cell, quad_rule.points,
-                         quad_rule.weights, quadrature_index,
-                         argument_indices, integrand,
-                         builder.coefficient_mapper, index_cache)
+        ir = fem.process(integral_type, cell, quad_rule,
+                         quadrature_index, argument_indices,
+                         integrand, builder.coefficient_mapper,
+                         index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)
