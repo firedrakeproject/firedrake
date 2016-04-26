@@ -33,7 +33,8 @@ def parser(**kwargs):
     p.add_argument('-d', '--debug', help='debug mode (defaults to False)', default=False)
     p.add_argument('-y', '--poly-order', type=int, help='the method\'s order in space', default=2)
     p.add_argument('-g', '--glb-maps', help='use global maps (defaults to False)', default=False)
-    p.add_argument('-c', '--coloring', help='(default, sequential, rand, omp)', default='default')
+    p.add_argument('-r', '--prefetch', help='use software prefetching', default=False)
+    p.add_argument('-c', '--coloring', help='(default, rand, omp)', default='default')
     for opt, default in kwargs.iteritems():
         p.add_argument("--%s" % opt, default=default)
     return p.parse_args()
@@ -51,6 +52,8 @@ def output_time(start, end, **kwargs):
     glb_maps = 'yes' if kwargs.get('glb_maps', False) else 'no'
     poly_order = kwargs.get('poly_order', -1)
     domain = kwargs.get('domain', 'default_domain')
+    coloring = kwargs.get('coloring', 'default')
+    prefetch = 'yes' if kwargs.get('prefetch', False) else 'no'
     backend = os.environ.get("SLOPE_BACKEND", "SEQUENTIAL")
 
     # Where do I store the output ?
@@ -138,11 +141,11 @@ def output_time(start, end, **kwargs):
             # back to the file (overwriting existing content)
             with open(filename, "r+") as f:
                 lines = [line.split(':') for line in f if line.strip()][1:]
-                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0], i[5].split()[0]) for i in lines]
-                lines += [(tot, nloops, tile_size, partitioning, extra_halo, glb_maps)]
+                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0], i[5].split()[0],  i[6].split()[0],  i[7].split()[0]) for i in lines]
+                lines += [(tot, nloops, tile_size, partitioning, extra_halo, glb_maps, coloring, prefetch)]
                 lines.sort(key=lambda x: x[0])
-                prepend = "time   : nloops : tilesize : partitioning : extrahalo : glbmaps\n"
-                lines = prepend + "\n".join(["%s :   %s    :   %s   :    %s     :    %s     :    %s" % i for i in lines]) + "\n"
+                prepend = "time   : nloops : tilesize : partitioning : extrahalo : glbmaps : coloring : prefetch\n"
+                lines = prepend + "\n".join(["%s :   %s    :   %s   :    %s     :    %s     :    %s    :    %s    :    %s" % i for i in lines]) + "\n"
                 f.seek(0)
                 f.write(lines)
                 f.truncate()
