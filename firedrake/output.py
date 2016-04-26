@@ -200,7 +200,10 @@ def get_pvtu_name(basename):
 
 def get_array(function):
     shape = function.ufl_shape
-    array = function.dat.data_ro
+    # Despite not writing connectivity data in the halo, we need to
+    # write data arrays in the halo because the cell node map for
+    # owned cells can index into ghost data.
+    array = function.dat.data_ro_with_halos
     if len(shape) == 0:
         pass
     elif len(shape) == 1:
