@@ -127,12 +127,13 @@ class Arg(sequential.Arg):
         """Assign this Arg's c_pointer to ``arg``."""
         return "%s* %s = %s" % (self.ctype, self.c_arg_name(), self.ref_arg.c_arg_name())
 
-    def c_ind_data(self, idx, i, j=0, is_top=False, layers=1, offset=None):
+    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None, var=None):
         if self._use_glb_maps:
-            return super(Arg, self).c_ind_data(idx, i, j, is_top, offset, flatten)
-        return "%(name)s + (%(map_name)s[n * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
+            return super(Arg, self).c_ind_data(idx, i, j, is_top, offset)
+        return "%(name)s + (%(map_name)s[%(var)s * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
+             'var': var if var else 'n',
              'arity': self.map.split[i].arity,
              'idx': idx,
              'top': ' + start_layer' if is_top else '',
@@ -146,6 +147,26 @@ class Arg(sequential.Arg):
             return self.ref_arg.c_map_name(i, j)
         else:
             return self._c_local_maps[i][j]
+
+    def c_map_entry(self, var):
+        maps = []
+        for idx in range(self.map.arity):
+            maps.append("%(map_name)s[%(var)s * %(arity)d + %(idx)d]" % {
+                'map_name': self.c_map_name(0, 0),
+                'var': var,
+                'arity': self.map.arity,
+                'idx': idx
+            })
+        return maps
+
+    def c_vec_entry(self, var, only_base=False):
+        vecs = []
+        for idx in range(self.map.arity):
+            for k in range(self.data.cdim):
+                vecs.append(self.c_ind_data(idx, 0, k, var=var))
+                if only_base:
+                    break
+        return vecs
 
     def c_global_reduction_name(self, count=None):
         return "%(name)s_l%(count)d[0]" % {
@@ -335,7 +356,9 @@ void %(wrapper_name)s(%(executor_arg)s,
 %(tile_init)s;
 for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
   int i = %(tile_iter)s;
+  %(prefetch_maps)s;
   %(vec_inits)s;
+  %(prefetch_vecs)s;
   %(buffer_decl)s;
   %(buffer_gather)s
   %(kernel_name)s(%(kernel_args)s);
@@ -349,8 +372,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
     @classmethod
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         insp_name = kwargs['insp_name']
-        use_glb_maps = kwargs['use_glb_maps']
-        key = (insp_name, use_glb_maps)
+        key = (insp_name, kwargs['use_glb_maps'], kwargs['use_prefetch'])
         if insp_name != lazy_trace_name:
             return key
         all_kernels = kwargs['all_kernels']
@@ -368,6 +390,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         self._all_args = kwargs.pop('all_args')
         self._executor = kwargs.pop('executor')
         self._use_glb_maps = kwargs.pop('use_glb_maps')
+        self._use_prefetch = kwargs.pop('use_prefetch')
         super(JITModule, self).__init__(kernel, itspace, *args, **kwargs)
 
     def set_argtypes(self, iterset, *args):
@@ -404,6 +427,8 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         slope_dir = os.environ['SLOPE_DIR']
         self._kernel._name = 'executor'
         self._kernel._headers.extend(slope.Executor.meta['headers'])
+        if self._use_prefetch:
+            self._kernel._headers.extend(['#include "xmmintrin.h"'])
         self._kernel._include_dirs.extend(['%s/%s' % (slope_dir,
                                                       slope.get_include_dir())])
         self._libraries += ['-L%s/%s' % (slope_dir, slope.get_lib_dir()),
@@ -464,6 +489,27 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             # ... does the scatter use global or local maps ?
             if self._use_glb_maps:
                 loop_code_dict['index_expr'] = '%s[n]' % self._executor.gtl_maps[i]['DIRECT']
+                prefetch_var = 'int p = %s[n + %d]'  % (self._executor.gtl_maps[i]['DIRECT'],
+                                                        self._use_prefetch)
+            else:
+                prefetch_var = 'int p = n + %d' % self._use_prefetch
+
+            # ... add prefetch intrinsics, if requested
+            prefetch_maps, prefetch_vecs = '', ''
+            if self._use_prefetch:
+                prefetch = lambda addr: '_mm_prefetch ((char*)(%s), _MM_HINT_T0)' % addr
+                prefetch_maps = [a.c_map_entry('p') for a in args if a._is_indirect]
+                # can save some instructions since prefetching targets chunks of 32 bytes
+                prefetch_maps = flatten([j for j in pm if pm.index(j) % 2 == 0]
+                                        for pm in prefetch_maps)
+                prefetch_maps = list(OrderedDict.fromkeys(prefetch_maps))
+                prefetch_maps = ';\n'.join([prefetch_var] +
+                                           [prefetch('&(%s)' % pm) for pm in prefetch_maps])
+                prefetch_vecs = flatten(a.c_vec_entry('p', True) for a in args
+                                        if a._is_indirect)
+                prefetch_vecs = ';\n'.join([prefetch(pv) for pv in prefetch_vecs])
+            loop_code_dict['prefetch_maps'] = prefetch_maps
+            loop_code_dict['prefetch_vecs'] = prefetch_vecs
 
             # ... build the subset indirection array, if necessary
             _ssind_arg, _ssind_decl = '', ''
@@ -517,8 +563,10 @@ class ParLoop(sequential.ParLoop):
         self._all_args = kwargs.get('all_args', [args])
         self._insp_name = kwargs.get('insp_name')
         self._inspection = kwargs.get('inspection')
+        # Executor related stuff
         self._executor = kwargs.get('executor')
         self._use_glb_maps = kwargs.get('use_glb_maps')
+        self._use_prefetch = kwargs.get('use_prefetch')
 
         # Global reductions are obviously forbidden when tiling; however, the user
         # might have bypassed this condition because sure about safety. Therefore,
@@ -590,7 +638,8 @@ class ParLoop(sequential.ParLoop):
             'all_args': self._all_args,
             'executor': self._executor,
             'insp_name': self._insp_name,
-            'use_glb_maps': self._use_glb_maps
+            'use_glb_maps': self._use_glb_maps,
+            'use_prefetch': self._use_prefetch
         }
         fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
         arglist = self.prepare_arglist(None, *self.args)
@@ -817,6 +866,7 @@ class TilingSchedule(Schedule):
         self._executor = executor
         self._kernel = kernel
         self._use_glb_maps = options.get('use_glb_maps', False)
+        self._use_prefetch = options.get('use_prefetch', 0)
 
     def __call__(self, loop_chain):
         loop_chain = self._schedule(loop_chain)
@@ -843,6 +893,7 @@ class TilingSchedule(Schedule):
             'inc_args': inc_args,
             'insp_name': self._insp_name,
             'use_glb_maps': self._use_glb_maps,
+            'use_prefetch': self._use_prefetch,
             'inspection': self._inspection,
             'executor': self._executor
         }
@@ -866,7 +917,7 @@ class Inspector(Cached):
         if name != lazy_trace_name:
             # Special case: the Inspector comes from a user-defined /loop_chain/
             key += (options['mode'], options['tile_size'],
-                    options['use_glb_maps'], options['coloring'])
+                    options['use_glb_maps'], options['use_prefetch'], options['coloring'])
             key += (loop_chain[0].kernel.cache_key,)
             return key
         # Inspector extracted from lazy evaluation trace
@@ -1340,6 +1391,7 @@ class Inspector(Cached):
         tile_size = self._options.get('tile_size', 1)
         extra_halo = self._options.get('extra_halo', False)
         coloring = self._options.get('coloring', 'default')
+        use_prefetch = self._options.get('use_prefetch', 0)
         log = self._options.get('log', False)
 
         # The SLOPE inspector, which needs be populated with sets, maps,
@@ -1413,6 +1465,9 @@ class Inspector(Cached):
 
         # Set a tile coloring strategy
         inspector.set_coloring(coloring)
+
+        # Inform about the prefetch distance that needs be guaranteed
+        inspector.set_prefetch_halo(use_prefetch)
 
         # Generate the C code
         src = inspector.generate_code()
@@ -1531,6 +1586,7 @@ def fuse(name, loop_chain, **kwargs):
         'log': kwargs.get('log', False),
         'mode': kwargs.get('mode', 'hard'),
         'use_glb_maps': kwargs.get('use_glb_maps', False),
+        'use_prefetch': kwargs.get('use_prefetch', 0),
         'tile_size': kwargs.get('tile_size', 1),
         'extra_halo': kwargs.get('extra_halo', False),
         'coloring': kwargs.get('coloring', 'default')
@@ -1614,8 +1670,8 @@ def loop_chain(name, **kwargs):
     :arg name: identifier of the loop chain
     :arg kwargs:
         * mode (default='tile'): the fusion/tiling mode (accepted: soft, hard,
-            tile, only_tile)
-        * tile_size: (default=1) suggest a starting average tile size
+            tile, only_tile).
+        * tile_size: (default=1) suggest a starting average tile size.
         * num_unroll (default=1): in a time stepping loop, the length of the loop
             chain is given by ``num_loops * num_unroll``, where ``num_loops`` is the
             number of loops per time loop iteration. Therefore, setting this value
@@ -1633,16 +1689,18 @@ def loop_chain(name, **kwargs):
             Possible values are default, rand, omp; these are documented in detail
             in the documentation of the SLOPE library.
         * explicit (default=None): a tuple (a, b) indicating that only the subchain
-            [a, b] should be inspected. Takes precedence over /split_mode/
-        * log (default=False): output inspector and loop chain info to a file
+            [a, b] should be inspected. Takes precedence over /split_mode/.
+        * log (default=False): output inspector and loop chain info to a file.
         * use_glb_maps (default=False): when tiling, use the global maps provided by
             PyOP2, rather than the ones constructed by SLOPE.
+        * use_prefetch (default=False): when tiling, try to prefetch the next iteration.
     """
     assert name != lazy_trace_name, "Loop chain name must differ from %s" % lazy_trace_name
 
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
     kwargs.setdefault('use_glb_maps', False)
+    kwargs.setdefault('use_prefetch', 0)
     kwargs.setdefault('coloring', 'default')
     split_mode = kwargs.pop('split_mode', 0)
     explicit = kwargs.pop('explicit', None)
