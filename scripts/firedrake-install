@@ -572,6 +572,22 @@ def build_and_install_h5py():
     os.chdir("..")
 
 
+def build_and_install_glpsol():
+    log.info("Installing GLPK\n")
+    if os.path.exists("glpk"):
+        glpk_changed = git_update("glpk")
+    else:
+        git_clone("git+https://github.com/firedrakeproject/glpk.git")
+        glpk_changed = True
+
+    if glpk_changed:
+        os.chdir("glpk")
+        check_call(["./configure", "--disable-shared", "--disable-static"])
+        check_call(["make"])
+        check_call(["cp", "examples/glpsol", os.environ["VIRTUAL_ENV"] + "/bin/"])
+        os.chdir("..")
+
+
 def build_and_install_slepc():
     try:
         petsc_dir = check_output(python + ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
@@ -843,6 +859,7 @@ if mode == "install":
         pip_requirements(p)
 
     build_and_install_h5py()
+    build_and_install_glpsol()
     pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
@@ -912,8 +929,8 @@ else:
                 raise
 
     # update dependencies.
-    pip_requirements("PyOP2")
-    pip_requirements("firedrake")
+    for p in packages:
+        pip_requirements(p)
     pipinstall.append("--no-deps")
 
     # Only rebuild petsc if it has changed.
@@ -926,6 +943,7 @@ else:
 
     # Always rebuild h5py.
     build_and_install_h5py()
+    build_and_install_glpsol()
 
     try:
         packages.remove("PyOP2")
