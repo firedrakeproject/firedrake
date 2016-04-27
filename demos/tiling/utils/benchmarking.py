@@ -144,8 +144,9 @@ def output_time(start, end, **kwargs):
                 lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0], i[5].split()[0],  i[6].split()[0],  i[7].split()[0]) for i in lines]
                 lines += [(tot, nloops, tile_size, partitioning, extra_halo, glb_maps, coloring, prefetch)]
                 lines.sort(key=lambda x: x[0])
-                prepend = "time   : nloops : tilesize : partitioning : extrahalo : glbmaps : coloring : prefetch\n"
-                lines = prepend + "\n".join(["%s :   %s    :   %s   :    %s     :    %s     :    %s    :    %s    :    %s" % i for i in lines]) + "\n"
+                template = "| " + "%12s | " * 8
+                prepend = template % ('time', 'nloops', 'tilesize', 'partitioning', 'extrahalo', 'glbmaps', 'coloring', 'prefetch')
+                lines = "\n".join([prepend, '-'*121] + [template % i for i in lines]) + "\n"
                 f.seek(0)
                 f.write(lines)
                 f.truncate()
