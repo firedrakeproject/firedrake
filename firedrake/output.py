@@ -200,7 +200,10 @@ def get_pvtu_name(basename):
 
 def get_array(function):
     shape = function.ufl_shape
-    array = function.dat.data_ro
+    # Despite not writing connectivity data in the halo, we need to
+    # write data arrays in the halo because the cell node map for
+    # owned cells can index into ghost data.
+    array = function.dat.data_ro_with_halos
     if len(shape) == 0:
         pass
     elif len(shape) == 1:
@@ -441,7 +444,7 @@ class File(object):
         fname = get_pvtu_name(basename)
         with open(fname, "wb") as f:
             f.write('<?xml version="1.0" ?>\n')
-            f.write('<VTKFile type="UnstructuredGrid" version="0.1" '
+            f.write('<VTKFile type="PUnstructuredGrid" version="0.1" '
                     'byte_order="LittleEndian">\n')
             f.write('<PUnstructuredGrid>\n')
 
@@ -463,8 +466,10 @@ class File(object):
 
             size = self.comm.size
             for rank in range(size):
-                f.write('<Piece Source="%s" />\n' % (get_vtu_name(basename, rank,
-                                                                  size)))
+                # need a relative path so files can be moved around:
+                vtu_name = os.path.relpath(get_vtu_name(basename, rank, size),
+                                           os.path.dirname(self.basename))
+                f.write('<Piece Source="%s" />\n' % vtu_name)
 
             f.write('</PUnstructuredGrid>\n')
             f.write('</VTKFile>\n')
