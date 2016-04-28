@@ -69,7 +69,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint ${PACKAGE_MANAGER}
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint ${PACKAGE_MANAGER}
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update

@@ -161,7 +161,7 @@ if args.minimal_petsc:
     # If you change these minimal PETSc options, you will have to
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5"""
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre"""
 else:
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
 
@@ -936,6 +936,7 @@ else:
     # Only rebuild petsc if it has changed.
     if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
         clean("petsc/")
+        log.info("Depending on your platform, PETSc may take an hour or more to build!")
         install("petsc/")
     if args.rebuild or petsc_changed or petsc4py_changed:
         clean("petsc4py/")
