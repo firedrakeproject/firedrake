@@ -1998,5 +1998,5 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
 def petscAdap(PETSc.DM plex, PETSc.Vec metric):
     cdef PETSc.DM newplex;
     newplex = PETSc.DMPlex().create()
-    CHKERR(DMPlexAdap(plex.dm, metric.vec, <PETSc.PetscDM*>&(newplex.dm)))
+    CHKERR(DMPlexAdapt(plex.dm, metric.vec, "boundary_ids", <PETSc.PetscDM*>&(newplex.dm)))
     return newplex

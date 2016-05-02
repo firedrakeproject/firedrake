@@ -1244,23 +1244,20 @@ def SubDomainData(geometric_expr):
 
 
 def adapt(mesh,metric):
+    
     entity_dofs = np.zeros(mesh._topological_dimension+1, dtype=np.int32)
     entity_dofs[0] = mesh.geometric_dimension()
     coordSection = mesh._plex.createSection([1], entity_dofs, perm=mesh.topology._plex_renumbering)
-#    print "dmplex:"
-#    mesh.topology._plex.view()
+    
     dmCoords = mesh.topology._plex.getCoordinateDM()
-#    print "dmCoords before update:"
-#    dmCoords.getDefaultSection().view()
-#    print "mesh coordinates:"
-#    mesh.coordinates.view()
     dmCoords.setDefaultSection(coordSection)    
 #    dmCoords.setDefaultSection(mesh.coordinates.function_space()._dm.getDefaultSection())
-#    print "dmCoords after update:"
-#    dmCoords.getDefaultSection().view()
+
     with mesh.coordinates.dat.vec_ro as coords:
         mesh.topology._plex.setCoordinatesLocal(coords)
     with metric.dat.vec_ro as vec:
         newplex = dmplex.petscAdap(mesh.topology._plex, vec)
+
     newmesh = Mesh(newplex)
+
     return newmesh
