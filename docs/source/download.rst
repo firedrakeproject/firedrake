@@ -210,6 +210,17 @@ Otherwise, use the appropriate values of ``PETSC_DIR`` and ``PETSC_ARCH``.
    It is not necessary that h5py be built with MPI support, although
    Firedrake supports both options.
 
+libspatialindex
+~~~~~~~~~~~~~~~
+
+libspatialindex_ is utilised during point evaluations.  This version
+is known to work with Firedrake:
+
+- https://github.com/firedrakeproject/libspatialindex
+
+Firedrake will find libspatialindex installations in ``sys.prefix``
+and in the standard paths.
+
 Further dependencies
 ~~~~~~~~~~~~~~~~~~~~
 
