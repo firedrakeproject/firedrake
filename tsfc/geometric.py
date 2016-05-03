@@ -159,7 +159,7 @@ def _(terminal, mt, params):
     table = cell_facet_jacobian[reference_cell(terminal)]
     table = strip_table(table, params.integral_type)
     table = table.reshape(table.shape[:1] + terminal.ufl_shape)
-    return gem.partial_indexed(gem.Literal(table), (params.facet[mt.restriction],))
+    return params.select_facet(gem.Literal(table), mt.restriction)
 
 
 @translate.register(ReferenceNormal)  # noqa
@@ -167,7 +167,7 @@ def _(terminal, mt, params):
     table = reference_normal[reference_cell(terminal)]
     table = strip_table(table, params.integral_type)
     table = table.reshape(table.shape[:1] + terminal.ufl_shape)
-    return gem.partial_indexed(gem.Literal(table), (params.facet[mt.restriction],))
+    return params.select_facet(gem.Literal(table), mt.restriction)
 
 
 @translate.register(CellEdgeVectors)  # noqa
