@@ -239,7 +239,8 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         # Simple case
 
         shape = (fiat_element.space_dimension(),)
-        funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+                             pointers=[("restrict",)],
                              qualifiers=["const"])
 
         i = gem.Index()
@@ -255,7 +256,8 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
 
         shape = (2, fiat_element.space_dimension())
 
-        funarg = coffee.Decl("%s *restrict" % SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+                             pointers=[("restrict",)],
                              qualifiers=["const"])
         expression = gem.Variable(name, shape + (1,))
 
@@ -288,7 +290,8 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         name_ = name + "_"
         shape = (2, fiat_element.space_dimension())
 
-        funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name_),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name_),
+                             pointers=[("restrict",), ("restrict",)],
                              qualifiers=["const"])
         prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
         expression = gem.Variable(name, shape)
@@ -314,7 +317,8 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         # In this case we generate a gem.ListTensor to do the
         # reordering.  Every single element in a E[n]{+,-} block is
         # referenced separately.
-        funarg = coffee.Decl("%s *restrict *restrict" % SCALAR_TYPE, coffee.Symbol(name),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                             pointers=[("restrict",), ("restrict",)],
                              qualifiers=["const"])
 
         variable = gem.Variable(name, (2 * fiat_element.space_dimension(), 1))
@@ -461,8 +465,7 @@ def needs_cell_orientations(ir):
     return False
 
 
-cell_orientations_coffee_arg = coffee.Decl(
-    "int *restrict *restrict",
-    coffee.Symbol("cell_orientations"),
-    qualifiers=["const"])
+cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
+                                           pointers=[("restrict",), ("restrict",)],
+                                           qualifiers=["const"])
 """COFFEE function argument for cell orientations"""
