@@ -83,9 +83,8 @@ Firedrake and all its dependencies.
 
 .. note::
 
-   If you installed firedrake in a virtualenv_ (the default
-   installation mode), you should activate the virtualenv_ before
-   running `firedrake-update`.
+   You should activate the virtualenv_ before running
+   `firedrake-update`.
 
 Cleaning disk caches after upgrade
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -96,8 +95,7 @@ compiled modules. To do this run::
 
   firedrake-clean
 
-If you installed to a virtualenv, you will need to activate the
-virtualenv first.
+You will need to activate the virtualenv first.
 
 Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
