@@ -8,8 +8,9 @@ from singledispatch import singledispatch
 
 from ufl import interval, triangle, quadrilateral, tetrahedron
 from ufl import TensorProductCell
-from ufl.classes import (CellEdgeVectors, CellFacetJacobian,
-                         CellOrientation, ReferenceCellVolume,
+from ufl.classes import (CellCoordinate, CellEdgeVectors,
+                         CellFacetJacobian, CellOrientation,
+                         FacetCoordinate, ReferenceCellVolume,
                          ReferenceNormal)
 
 import gem
@@ -181,3 +182,20 @@ def translate_cell_edge_vectors(terminal, mt, params):
     vecs = vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(NUMPY_TYPE)
     assert vecs.shape == terminal.ufl_shape
     return gem.Literal(vecs)
+
+
+@translate.register(CellCoordinate)
+def translate_cell_coordinate(terminal, mt, params):
+    points = params.tabulation_manager.points
+    if params.integral_type != 'cell':
+        points = list(params.facet_manager.facet_transform(points))
+    return gem.partial_indexed(params.select_facet(gem.Literal(points),
+                                                   mt.restriction),
+                               (params.quadrature_index,))
+
+
+@translate.register(FacetCoordinate)
+def translate_facet_coordinate(terminal, mt, params):
+    assert params.integral_type != 'cell'
+    points = params.tabulation_manager.points
+    return gem.partial_indexed(gem.Literal(points), (params.quadrature_index,))
