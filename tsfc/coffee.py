@@ -22,16 +22,23 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names):
+def generate(impero_c, index_names, roots=(), argument_indices=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
+    :arg roots: list of expression DAG roots for attaching
+        #pragma coffee expression
+    :arg argument_indices: argument indices for attaching
+        #pragma coffee linear loop
+        to the argument loops
     :returns: COFFEE function body
     """
     parameters = Bunch()
     parameters.declare = impero_c.declare
     parameters.indices = impero_c.indices
+    parameters.roots = roots
+    parameters.argument_indices = argument_indices
 
     parameters.names = {}
     for i, temp in enumerate(impero_c.temporaries):
@@ -74,6 +81,15 @@ def _ref_symbol(expr, parameters):
     return _coffee_symbol(parameters.names[expr], rank=tuple(rank))
 
 
+def _root_pragma(expr, parameters):
+    """Decides whether to annonate the expression with
+    #pragma coffee expression"""
+    if expr in parameters.roots:
+        return "#pragma coffee expression"
+    else:
+        return None
+
+
 @singledispatch
 def statement(tree, parameters):
     """Translates an Impero (sub)tree into a COFFEE AST corresponding
@@ -97,6 +113,10 @@ def statement_block(tree, parameters):
 
 @statement.register(imp.For)
 def statement_for(tree, parameters):
+    if tree.index in parameters.argument_indices:
+        pragma = "#pragma coffee linear loop"
+    else:
+        pragma = None
     extent = tree.index.extent
     assert extent
     i = _coffee_symbol(parameters.index_names[tree.index])
@@ -104,7 +124,8 @@ def statement_for(tree, parameters):
     return coffee.For(coffee.Decl("int", i, init=0),
                       coffee.Less(i, extent),
                       coffee.Incr(i, 1),
-                      statement(tree.children[0], parameters))
+                      statement(tree.children[0], parameters),
+                      pragma=pragma)
 
 
 @statement.register(imp.Initialise)
@@ -117,20 +138,26 @@ def statement_initialise(leaf, parameters):
 
 @statement.register(imp.Accumulate)
 def statement_accumulate(leaf, parameters):
+    pragma = _root_pragma(leaf.indexsum, parameters)
     return coffee.Incr(_ref_symbol(leaf.indexsum, parameters),
-                       expression(leaf.indexsum.children[0], parameters))
+                       expression(leaf.indexsum.children[0], parameters),
+                       pragma=pragma)
 
 
 @statement.register(imp.Return)
 def statement_return(leaf, parameters):
+    pragma = _root_pragma(leaf.expression, parameters)
     return coffee.Incr(expression(leaf.variable, parameters),
-                       expression(leaf.expression, parameters))
+                       expression(leaf.expression, parameters),
+                       pragma=pragma)
 
 
 @statement.register(imp.ReturnAccumulate)
 def statement_returnaccumulate(leaf, parameters):
+    pragma = _root_pragma(leaf.indexsum, parameters)
     return coffee.Incr(expression(leaf.variable, parameters),
-                       expression(leaf.indexsum.children[0], parameters))
+                       expression(leaf.indexsum.children[0], parameters),
+                       pragma=pragma)
 
 
 @statement.register(imp.Evaluate)
@@ -151,9 +178,15 @@ def statement_evaluate(leaf, parameters):
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, gem.Constant):
         assert parameters.declare[leaf]
+        # Take all axes except the last one
+        axes = tuple(range(len(expr.array.shape) - 1))
+        nz_indices, = expr.array.any(axis=axes).nonzero()
+        nz_bounds = tuple([(i, 0)] for i in expr.array.shape[:-1])
+        nz_bounds += ([(max(nz_indices) - min(nz_indices) + 1, min(nz_indices))],)
+        init = coffee.SparseArrayInit(expr.array, PRECISION, nz_bounds)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
-                           coffee.ArrayInit(expr.array, precision=PRECISION),
+                           init,
                            qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
