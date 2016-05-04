@@ -1985,3 +1985,18 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
         CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
                                <const void *>buf.data,
                                <void *>buf.data))
+
+
+
+#def petscAdap(PETSc.DM plex, np.ndarray[np.float64_t, ndim=2, mode="c"] metric):
+#    cdef PETSc.DM newplex;
+#    newplex = PETSc.DMPlex().create()
+#    CHKERR(DMAdap_Plex(plex.dm, MPI.COMM_WORLD, <PetscReal *>metric.data, <PETSc.PetscDM*>&(newplex.dm)))
+#    return newplex
+
+
+def petscAdap(PETSc.DM plex, PETSc.Vec metric):
+    cdef PETSc.DM newplex;
+    newplex = PETSc.DMPlex().create()
+    CHKERR(DMPlexAdapt(plex.dm, metric.vec, "boundary_ids", <PETSc.PetscDM*>&(newplex.dm)))
+    return newplex
