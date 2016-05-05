@@ -20,7 +20,7 @@ def parser(**kwargs):
     p = argparse.ArgumentParser(description='Run a Firedrake program using loop tiling')
     p.add_argument('-n', '--num-unroll', type=int, help='time loop unroll factor', default=1)
     p.add_argument('-s', '--split-mode', type=int, help='split chain on tags', default=0)
-    p.add_argument('-z', '--split-explicit', help='split chain given bounds [a, b]', default=None)
+    p.add_argument('-z', '--explicit-mode', type=int, help='split chain as [(f, l, ts), ...]', default=-1)
     p.add_argument('-t', '--tile-size', type=int, help='initial average tile size', default=5)
     p.add_argument('-e', '--fusion-mode', help='(soft, hard, tile, only_tile)', default='tile')
     p.add_argument('-p', '--part-mode', help='(chunk, metis)', default='chunk')
@@ -49,6 +49,7 @@ def output_time(start, end, **kwargs):
     partitioning = kwargs.get('partitioning', 'chunk')
     extra_halo = 'yes' if kwargs.get('extra_halo', False) else 'no'
     split_mode = kwargs.get('split_mode', None)
+    explicit_mode = kwargs.get('explicit_mode', None)
     glb_maps = 'yes' if kwargs.get('glb_maps', False) else 'no'
     poly_order = kwargs.get('poly_order', -1)
     domain = kwargs.get('domain', 'default_domain')
@@ -127,7 +128,9 @@ def output_time(start, end, **kwargs):
     if MPI.comm.rank == 0 and tofile:
         name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
         for mode in modes:
-            if split_mode and nloops > 0:
+            if explicit_mode and nloops > 0:
+                nloops = "explicit%d" % explicit_mode
+            elif split_mode and nloops > 0:
                 nloops = "split%d" % split_mode
             filename = os.path.join(output_dir, "times", name, "poly_%d" % poly_order, domain,
                                     "ndofs_%d" % ndofs, mode, "np%d_nt%d.txt" % (num_procs, num_threads))
@@ -140,8 +143,8 @@ def output_time(start, end, **kwargs):
             # everything based on <execution time, #loops tiled>, write
             # back to the file (overwriting existing content)
             with open(filename, "r+") as f:
-                lines = [line.split(':') for line in f if line.strip()][1:]
-                lines = [(num(i[0]), num(i[1]), num(i[2]), i[3].split()[0], i[4].split()[0], i[5].split()[0],  i[6].split()[0],  i[7].split()[0]) for i in lines]
+                lines = [line.split('|') for line in f if line.strip()][2:]
+                lines = [(num(i[1]), num(i[2]), num(i[3]), num(i[4]), num(i[5]),  num(i[6]),  num(i[7]), num(i[8])) for i in lines]
                 lines += [(tot, nloops, tile_size, partitioning, extra_halo, glb_maps, coloring, prefetch)]
                 lines.sort(key=lambda x: x[0])
                 template = "| " + "%12s | " * 8
