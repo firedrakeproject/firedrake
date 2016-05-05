@@ -1705,8 +1705,11 @@ def loop_chain(name, **kwargs):
             should be changed only if totally confident with what is going on.
             Possible values are default, rand, omp; these are documented in detail
             in the documentation of the SLOPE library.
-        * explicit (default=None): a tuple (a, b) indicating that only the subchain
-            [a, b] should be inspected. Takes precedence over /split_mode/.
+        * explicit (default=None): an iterator of 3-tuples (f, l, ts), each 3-tuple
+            indicating a sub-sequence of loops to be inspected. ``f`` and ``l``
+            represent, respectively, the first and last loop index of the sequence;
+            ``ts`` is the tile size for the sequence. This option takes precedence
+            over /split_mode/.
         * log (default=False): output inspector and loop chain info to a file.
         * use_glb_maps (default=False): when tiling, use the global maps provided by
             PyOP2, rather than the ones constructed by SLOPE.
@@ -1757,10 +1760,10 @@ def loop_chain(name, **kwargs):
         extracted_sub_traces.append(sub_trace)
     extracted_trace = [i for i in extracted_trace if i not in tags]
 
-    # Three possibilities: ...
+    # Four possibilities: ...
     if num_unroll < 1:
         # 1) ... No tiling requested, but the openmp backend was set. So we still
-        # omp-ize the loops going through SLOPE
+        # omp-ize the loops through SLOPE
         if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
             block_size = tile_size    # This is rather a 'block' size (no tiling)
             options = {'mode': 'only_omp',
@@ -1770,14 +1773,21 @@ def loop_chain(name, **kwargs):
             trace[bottom:] = list(flatten(new_trace))
             _trace.evaluate_all()
     elif explicit:
-        lb, ub = explicit
-        pre = extracted_trace[:lb]
-        inspected = fuse(name, extracted_trace[lb:ub+1], **kwargs)
-        post = extracted_trace[ub+1:]
-        trace[bottom:] = pre + inspected + post
+        # 2) ... Tile over subsets of loops in the loop chain, as specified
+        # by the user through the /explicit/ list [subset1, subset2, ...]
+        prev_last = 0
+        transformed = []
+        for i, (first, last, tile_size) in enumerate(explicit):
+            sub_name = "%s_sub%d" % (name, i)
+            kwargs['tile_size'] = tile_size
+            transformed.extend(extracted_trace[prev_last:first])
+            transformed.extend(fuse(sub_name, extracted_trace[first:last+1], **kwargs))
+            prev_last = last + 1
+        transformed.extend(extracted_trace[prev_last:])
+        trace[bottom:] = transformed
         _trace.evaluate_all()
     elif split_mode > 0:
-        # 2) ... Tile over subsets of loops in the loop chain. The subsets have
+        # 3) ... Tile over subsets of loops in the loop chain. The subsets have
         # been identified by the user through /sub_loop_chain/ or /loop_chain_tag/
         new_trace = []
         for i, sub_loop_chain in enumerate(extracted_sub_traces):
@@ -1786,14 +1796,13 @@ def loop_chain(name, **kwargs):
         trace[bottom:] = list(flatten(new_trace))
         _trace.evaluate_all()
     else:
-        # 3) ... Tile over the entire loop chain, possibly unrolled as by user
+        # 4) ... Tile over the entire loop chain, possibly unrolled as by user
         # request of a factor = /num_unroll/
         total_loop_chain = loop_chain.unrolled_loop_chain + extracted_trace
         if len(total_loop_chain) / len(extracted_trace) == num_unroll:
             bottom = trace.index(total_loop_chain[0])
             trace[bottom:] = fuse(name, total_loop_chain, **kwargs)
             loop_chain.unrolled_loop_chain = []
-            # We force the evaluation of the trace, because this frees resources
             _trace.evaluate_all()
         else:
             loop_chain.unrolled_loop_chain.extend(extracted_trace)
