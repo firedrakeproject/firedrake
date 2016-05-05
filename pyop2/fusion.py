@@ -1378,6 +1378,7 @@ class Inspector(Cached):
         coloring = self._options.get('coloring', 'default')
         use_prefetch = self._options.get('use_prefetch', 0)
         log = self._options.get('log', False)
+        rank = MPI.comm.rank
 
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
@@ -1433,7 +1434,7 @@ class Inspector(Cached):
         arguments.extend([inspector.set_tile_size(tile_size)])
 
         # Tell SLOPE the rank of the MPI process
-        arguments.extend([inspector.set_mpi_rank(MPI.comm.rank)])
+        arguments.extend([inspector.set_mpi_rank(rank)])
 
         # Get type and value of additional arguments that SLOPE can exploit
         arguments.extend(inspector.add_extra_info())
@@ -1475,36 +1476,67 @@ class Inspector(Cached):
                                argtypes, rettype, compiler)
         inspection = fun(*argvalues)
 
-        # Log the inspector output, if necessary
-        if log:
-            filename = os.path.join("logging",
-                                    "lc_%s_rank%d.txt" % (self._name, MPI.comm.rank))
+        # Log the inspector output
+        if log and rank == 0:
+            filename = os.path.join("log", "%s.txt" % self._name)
+            summary = os.path.join("log", "summary.txt")
             if not os.path.exists(os.path.dirname(filename)):
                 os.makedirs(os.path.dirname(filename))
-            with open(filename, 'w') as f:
-                f.write('iteration set - memory footprint (KB) - megaflops\n')
-                f.write('-------------------------------------------------------\n')
-                tot_mem_footprint, tot_flops = {}, 0
+            with open(filename, 'w') as f, open(summary, 'a') as s:
+                # Estimate tile footprint
+                template = '| %25s | %22s | %-11s |\n'
+                f.write('*** Tile footprint ***\n')
+                f.write(template % ('iteration set', 'memory footprint (KB)', 'megaflops'))
+                f.write('-' * 68 + '\n')
+                tot_footprint, tot_flops = 0, 0
                 for loop in self._loop_chain:
-                    loop_flops = loop.num_flops/(1000*1000)
-                    loop_mem_footprint = 0
+                    flops, footprint = loop.num_flops/(1000*1000), 0
                     for arg in loop.args:
                         dat_size = arg.data.nbytes
-                        map_size = len(arg.map.values_with_halo)*4 if arg.map else 0
+                        map_size = 0 if arg._is_direct else arg.map.values_with_halo.nbytes
                         tot_dat_size = (dat_size + map_size)/1000
-                        loop_mem_footprint += tot_dat_size
-                        tot_mem_footprint[arg.data] = tot_dat_size
-                    f.write("%s - %d - %d\n" %
-                            (loop.it_space.name, loop_mem_footprint, loop_flops))
-                    tot_flops += loop_flops
-                tot_mem_footprint = sum(tot_mem_footprint.values())
-                f.write("** Summary: %d KB moved, %d Megaflops performed\n" %
-                        (tot_mem_footprint, tot_flops))
+                        footprint += tot_dat_size
+                    tot_footprint += footprint
+                    f.write(template % (loop.it_space.name, str(footprint), str(flops)))
+                    tot_flops += flops
+                f.write('** Summary: %d KBytes moved, %d Megaflops performed\n' %
+                        (tot_footprint, tot_flops))
                 probSeed = 0 if MPI.parallel else len(self._loop_chain) / 2
                 probNtiles = self._loop_chain[probSeed].it_space.exec_size / tile_size or 1
-                f.write("** KB/tile: %d" % (tot_mem_footprint/probNtiles))
-                f.write("  (Estimated: %d tiles)\n" % probNtiles)
-                f.write('-------------------------------------------------------\n\n')
+                f.write('** KB/tile: %d' % (tot_footprint/probNtiles))
+                f.write('  (Estimated: %d tiles)\n' % probNtiles)
+                f.write('-' * 68 + '\n')
+
+                # Estimate data reuse
+                template = '| %40s | %5s | %-70s |\n'
+                f.write('*** Data reuse ***\n')
+                f.write(template % ('field', 'type', 'loops'))
+                f.write('-' * 125 + '\n')
+                reuse = OrderedDict()
+                for i, loop in enumerate(self._loop_chain):
+                    for arg in loop.args:
+                        values = reuse.setdefault(arg.data, [])
+                        if i not in values:
+                            values.append(i)
+                        if arg._is_indirect:
+                            values = reuse.setdefault(arg.map, [])
+                            if i not in values:
+                                values.append(i)
+                for field, positions in reuse.items():
+                    reused_in = ', '.join('%d' % j for j in positions)
+                    field_type = 'map' if isinstance(field, Map) else 'data'
+                    f.write(template % (field.name, field_type, reused_in))
+                ideal_reuse = 0
+                for field, positions in reuse.items():
+                    size = field.values_with_halo.nbytes if isinstance(field, Map) \
+                        else field.nbytes
+                    # First position needs be cut away as it's the first touch
+                    ideal_reuse += (size/1000)*len(positions[1:])
+                out = '** Ideal reuse (i.e., no tile growth): %d / %d KBytes (%f %%)\n' % \
+                    (ideal_reuse, tot_footprint, float(ideal_reuse)*100/tot_footprint)
+                f.write(out)
+                f.write('-' * 125 + '\n')
+                s.write(out)
 
         # Finally, get the Executor representation, to be used at executor
         # code generation time
