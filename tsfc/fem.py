@@ -91,29 +91,9 @@ class TabulationManager(object):
         self.integral_type = integral_type
         self.points = points
 
-        self.tabulators = []
+        self.facet_manager = FacetManager(integral_type, cell)
+        self.tabulators = map(make_tabulator, self.facet_manager.facet_transform(points))
         self.tables = {}
-
-        if integral_type == 'cell':
-            self.tabulators.append(make_tabulator(points))
-
-        elif integral_type in ['exterior_facet', 'interior_facet']:
-            for entity in range(cell.num_facets()):
-                t = as_fiat_cell(cell).get_facet_transform(entity)
-                self.tabulators.append(make_tabulator(numpy.asarray(map(t, points))))
-
-        elif integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
-            for entity in range(2):  # top and bottom
-                t = as_fiat_cell(cell).get_horiz_facet_transform(entity)
-                self.tabulators.append(make_tabulator(numpy.asarray(map(t, points))))
-
-        elif integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
-            for entity in range(cell.sub_cells()[0].num_facets()):  # "base cell" facets
-                t = as_fiat_cell(cell).get_vert_facet_transform(entity)
-                self.tabulators.append(make_tabulator(numpy.asarray(map(t, points))))
-
-        else:
-            raise NotImplementedError("integral type %s not supported" % integral_type)
 
     def tabulate(self, ufl_element, max_deriv):
         """Prepare the tabulations of a finite element up to a given
@@ -143,21 +123,17 @@ class TabulationManager(object):
         return self.tables[key]
 
 
-class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
-    """Contains all the context necessary to translate UFL into GEM."""
+class FacetManager(object):
+    """Collection of utilities for facet integrals."""
 
-    def __init__(self, tabulation_manager, weights, quadrature_index,
-                 argument_indices, coefficient_mapper, index_cache):
-        MultiFunction.__init__(self)
-        ufl2gem.Mixin.__init__(self)
-        integral_type = tabulation_manager.integral_type
+    def __init__(self, integral_type, ufl_cell):
+        """Constructs a FacetManager.
+
+        :arg integral_type: integral type
+        :arg ufl_cell: UFL cell
+        """
         self.integral_type = integral_type
-        self.tabulation_manager = tabulation_manager
-        self.weights = gem.Literal(weights)
-        self.quadrature_index = quadrature_index
-        self.argument_indices = argument_indices
-        self.coefficient_mapper = coefficient_mapper
-        self.index_cache = index_cache
+        self.ufl_cell = ufl_cell
 
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
             self.facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
@@ -173,10 +149,32 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         else:
             self.facet = None
 
-        if self.integral_type.startswith("interior_facet"):
-            self.cell_orientations = gem.Variable("cell_orientations", (2, 1))
+    def facet_transform(self, points):
+        """Generator function that transforms points in integration cell
+        coordinates to cell coordinates for each facet.
+
+        :arg points: points in integration cell coordinates
+        """
+        if self.integral_type == 'cell':
+            yield points
+
+        elif self.integral_type in ['exterior_facet', 'interior_facet']:
+            for entity in range(self.ufl_cell.num_facets()):
+                t = as_fiat_cell(self.ufl_cell).get_facet_transform(entity)
+                yield numpy.asarray(map(t, points))
+
+        elif self.integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
+            for entity in range(2):  # top and bottom
+                t = as_fiat_cell(self.ufl_cell).get_horiz_facet_transform(entity)
+                yield numpy.asarray(map(t, points))
+
+        elif self.integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
+            for entity in range(self.ufl_cell.sub_cells()[0].num_facets()):  # "base cell" facets
+                t = as_fiat_cell(self.ufl_cell).get_vert_facet_transform(entity)
+                yield numpy.asarray(map(t, points))
+
         else:
-            self.cell_orientations = gem.Variable("cell_orientations", (1, 1))
+            raise NotImplementedError("integral type %s not supported" % self.integral_type)
 
     def select_facet(self, tensor, restriction):
         """Applies facet selection on a GEM tensor if necessary.
@@ -190,6 +188,31 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         else:
             f = self.facet[restriction]
             return gem.partial_indexed(tensor, (f,))
+
+
+class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
+    """Contains all the context necessary to translate UFL into GEM."""
+
+    def __init__(self, tabulation_manager, weights, quadrature_index,
+                 argument_indices, coefficient_mapper, index_cache):
+        MultiFunction.__init__(self)
+        ufl2gem.Mixin.__init__(self)
+        integral_type = tabulation_manager.integral_type
+        facet_manager = tabulation_manager.facet_manager
+        self.integral_type = integral_type
+        self.tabulation_manager = tabulation_manager
+        self.weights = gem.Literal(weights)
+        self.quadrature_index = quadrature_index
+        self.argument_indices = argument_indices
+        self.coefficient_mapper = coefficient_mapper
+        self.index_cache = index_cache
+        self.facet_manager = facet_manager
+        self.select_facet = facet_manager.select_facet
+
+        if self.integral_type.startswith("interior_facet"):
+            self.cell_orientations = gem.Variable("cell_orientations", (2, 1))
+        else:
+            self.cell_orientations = gem.Variable("cell_orientations", (1, 1))
 
     def modified_terminal(self, o):
         """Overrides the modified terminal handler from

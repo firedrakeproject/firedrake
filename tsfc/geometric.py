@@ -8,8 +8,9 @@ from singledispatch import singledispatch
 
 from ufl import interval, triangle, quadrilateral, tetrahedron
 from ufl import TensorProductCell
-from ufl.classes import (CellEdgeVectors, CellFacetJacobian,
-                         CellOrientation, ReferenceCellVolume,
+from ufl.classes import (CellCoordinate, CellEdgeVectors,
+                         CellFacetJacobian, CellOrientation,
+                         FacetCoordinate, ReferenceCellVolume,
                          ReferenceNormal)
 
 import gem
@@ -137,8 +138,8 @@ def translate(terminal, mt, params):
     raise AssertionError("Cannot handle geometric quantity type: %s" % type(terminal))
 
 
-@translate.register(CellOrientation)  # noqa
-def _(terminal, mt, params):
+@translate.register(CellOrientation)
+def translate_cell_orientation(terminal, mt, params):
     cell_orientations = params.cell_orientations
     f = {None: 0, '+': 0, '-': 1}[mt.restriction]
     co_int = gem.Indexed(cell_orientations, (f, 0))
@@ -149,29 +150,29 @@ def _(terminal, mt, params):
                                            gem.Literal(nan)))
 
 
-@translate.register(ReferenceCellVolume)  # noqa
-def _(terminal, mt, params):
+@translate.register(ReferenceCellVolume)
+def translate_reference_cell_volume(terminal, mt, params):
     return gem.Literal(reference_cell_volume[reference_cell(terminal)])
 
 
-@translate.register(CellFacetJacobian)  # noqa
-def _(terminal, mt, params):
+@translate.register(CellFacetJacobian)
+def translate_cell_facet_jacobian(terminal, mt, params):
     table = cell_facet_jacobian[reference_cell(terminal)]
     table = strip_table(table, params.integral_type)
     table = table.reshape(table.shape[:1] + terminal.ufl_shape)
-    return gem.partial_indexed(gem.Literal(table), (params.facet[mt.restriction],))
+    return params.select_facet(gem.Literal(table), mt.restriction)
 
 
-@translate.register(ReferenceNormal)  # noqa
-def _(terminal, mt, params):
+@translate.register(ReferenceNormal)
+def translate_reference_normal(terminal, mt, params):
     table = reference_normal[reference_cell(terminal)]
     table = strip_table(table, params.integral_type)
     table = table.reshape(table.shape[:1] + terminal.ufl_shape)
-    return gem.partial_indexed(gem.Literal(table), (params.facet[mt.restriction],))
+    return params.select_facet(gem.Literal(table), mt.restriction)
 
 
-@translate.register(CellEdgeVectors)  # noqa
-def _(terminal, mt, params):
+@translate.register(CellEdgeVectors)
+def translate_cell_edge_vectors(terminal, mt, params):
     from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
     fiat_cell = as_fiat_cell(terminal.ufl_domain().ufl_cell())
     if isinstance(fiat_cell, fiat_TensorProductCell):
@@ -181,3 +182,20 @@ def _(terminal, mt, params):
     vecs = vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(NUMPY_TYPE)
     assert vecs.shape == terminal.ufl_shape
     return gem.Literal(vecs)
+
+
+@translate.register(CellCoordinate)
+def translate_cell_coordinate(terminal, mt, params):
+    points = params.tabulation_manager.points
+    if params.integral_type != 'cell':
+        points = list(params.facet_manager.facet_transform(points))
+    return gem.partial_indexed(params.select_facet(gem.Literal(points),
+                                                   mt.restriction),
+                               (params.quadrature_index,))
+
+
+@translate.register(FacetCoordinate)
+def translate_facet_coordinate(terminal, mt, params):
+    assert params.integral_type != 'cell'
+    points = params.tabulation_manager.points
+    return gem.partial_indexed(gem.Literal(points), (params.quadrature_index,))
