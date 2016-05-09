@@ -152,8 +152,9 @@ class ParLoop(host.ParLoop):
 
     @collective
     def _compute(self, part, fun, *arglist):
-        with timed_region("ParLoop kernel"):
+        with timed_region("ParLoopCKernel"):
             fun(part.offset, part.offset + part.size, *arglist)
+            self.log_flops()
 
 
 def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrapper_name=None):
