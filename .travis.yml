@@ -37,6 +37,7 @@ before_install:
        --allow-external petsc --allow-unverified petsc \
        --allow-external petsc4py  --allow-unverified petsc4py \
        < requirements-git.txt"
+  - pip install pulp
 install: "python setup.py develop"
 # command to run tests
 script:
