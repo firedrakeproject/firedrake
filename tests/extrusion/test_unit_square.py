@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from firedrake import *
 import pyop2 as op2
-from pyop2.profiling import *
 
 
 def integrate_unit_square(family, degree):
