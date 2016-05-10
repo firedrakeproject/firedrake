@@ -12,6 +12,7 @@ from ufl import classes
 
 import coffee.base as ast
 from pyop2 import op2
+from pyop2.profiling import timed_function
 
 from firedrake import constant
 from firedrake import function
@@ -581,6 +582,7 @@ def evaluate_expression(expr, subset=None):
         result._expression_cache[key] = vals
 
 
+@timed_function("AssembleExpression")
 def assemble_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
     into a new :class:`.Function`."""

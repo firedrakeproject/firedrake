@@ -161,7 +161,7 @@ class DirichletBC(object):
 
         return op2.Subset(self._function_space.node_set, self.nodes)
 
-    @timed_function('DirichletBC apply')
+    @timed_function('ApplyBC')
     def apply(self, r, u=None):
         """Apply this boundary condition to ``r``.
 

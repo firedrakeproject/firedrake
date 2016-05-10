@@ -8,7 +8,7 @@ from collections import defaultdict
 
 from pyop2 import op2
 from pyop2.logger import info_red
-from pyop2.profiling import timed_function, timed_region, profile
+from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
 
 import coffee.base as ast
@@ -290,6 +290,7 @@ def _from_cell_list(dim, cells, coords, comm=None):
 class MeshTopology(object):
     """A representation of mesh topology."""
 
+    @timed_function("CreateMesh")
     def __init__(self, plex, name, reorder, distribute):
         """Half-initialise a mesh topology.
 
@@ -312,9 +313,8 @@ class MeshTopology(object):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        with timed_region("Mesh: label facets"):
-            label_boundary = (op2.MPI.comm.size == 1) or distribute
-            dmplex.label_facets(plex, label_boundary=label_boundary)
+        label_boundary = (op2.MPI.comm.size == 1) or distribute
+        dmplex.label_facets(plex, label_boundary=label_boundary)
 
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1 and distribute:
@@ -349,14 +349,13 @@ class MeshTopology(object):
             self._did_reordering = bool(reorder)
 
             # Mark OP2 entities and derive the resulting Plex renumbering
-            with timed_region("Mesh: renumbering"):
+            with timed_region("Mesh: numbering"):
                 dmplex.mark_entity_classes(self._plex)
                 self._entity_classes = dmplex.get_entity_classes(self._plex)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
                                                                  reordering)
 
-            with timed_region("Mesh: cell numbering"):
                 # Derive a cell numbering from the Plex renumbering
                 entity_dofs = np.zeros(dim+1, dtype=np.int32)
                 entity_dofs[-1] = 1
@@ -375,6 +374,7 @@ class MeshTopology(object):
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
 
+    @timed_function("CreateMesh")
     def init(self):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
@@ -1003,8 +1003,7 @@ def make_mesh_from_coordinates(coordinates):
     return mesh
 
 
-@timed_function("Build mesh")
-@profile
+@timed_function("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
@@ -1098,16 +1097,15 @@ def Mesh(meshfile, **kwargs):
         # Finish the initialisation of mesh topology
         self.topology.init()
 
-        with timed_region("Mesh: coordinate field"):
-            coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
-                                                               dim=geometric_dim)
+        coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
+                                                           dim=geometric_dim)
 
-            coordinates_data = dmplex.reordered_coords(plex, coordinates_fs._dm.getDefaultSection(),
-                                                       (self.num_vertices(), geometric_dim))
+        coordinates_data = dmplex.reordered_coords(plex, coordinates_fs._dm.getDefaultSection(),
+                                                   (self.num_vertices(), geometric_dim))
 
-            coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                          val=coordinates_data,
-                                                          name="Coordinates")
+        coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                      val=coordinates_data,
+                                                      name="Coordinates")
 
         self.__init__(coordinates)
 
@@ -1115,8 +1113,7 @@ def Mesh(meshfile, **kwargs):
     return mesh
 
 
-@timed_function("Build extruded mesh")
-@profile
+@timed_function("CreateExtMesh")
 def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
     """Build an extruded mesh from an input mesh
 
