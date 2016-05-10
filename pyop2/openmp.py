@@ -47,7 +47,6 @@ from host import Kernel  # noqa: for inheritance
 from logger import warning
 import plan as _plan
 from petsc_base import *
-from profiling import lineprof
 from utils import *
 
 # hard coded value to max openmp threads
@@ -282,7 +281,6 @@ class ParLoop(device.ParLoop, host.ParLoop):
                          direct=self.is_direct, iterate=self.iteration_region)
 
     @collective
-    @lineprof
     def _compute(self, part, fun, *arglist):
         if part.size > 0:
             # TODO: compute partition size
@@ -293,7 +291,7 @@ class ParLoop(device.ParLoop, host.ParLoop):
             boffset = 0
             for c in range(plan.ncolors):
                 nblocks = plan.ncolblk[c]
-                with timed_region("ParLoop kernel"):
+                with timed_region("ParLoopCKernel"):
                     fun(boffset, nblocks, blkmap, offset, nelems, *arglist)
                 boffset += nblocks
 

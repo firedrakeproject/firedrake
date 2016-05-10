@@ -44,7 +44,7 @@ import compilation
 import host
 from backends import _make_object
 from caching import Cached
-from profiling import lineprof, timed_region, profile
+from profiling import timed_region
 from logger import warning, info as log_info
 from mpi import collective
 from configuration import configuration
@@ -413,7 +413,6 @@ class ParLoop(host.ParLoop):
         self._executor = kwargs.get('executor')
 
     @collective
-    @profile
     def compute(self):
         """Execute the kernel over all members of the iteration space."""
         arglist = self.prepare_arglist(None, *self.args)
@@ -446,7 +445,6 @@ class ParLoop(host.ParLoop):
         return arglist
 
     @collective
-    @lineprof
     def _compute(self, *arglist):
         kwargs = {
             'all_args': self._all_args,

@@ -43,7 +43,6 @@ from configuration import configuration
 import device as op2
 from device import *
 import plan
-from profiling import lineprof, Timer
 from utils import verify_reshape
 
 
@@ -783,13 +782,8 @@ class JITModule(base.JITModule):
         del self._config
         return self._fun
 
-    @timed_function("ParLoop kernel")
     def __call__(self, grid, block, stream, *args, **kwargs):
-        if configuration["profiling"]:
-            t_ = self.compile().prepared_timed_call(grid, block, *args, **kwargs)()
-            Timer("CUDA kernel").add(t_)
-        else:
-            self.compile().prepared_async_call(grid, block, stream, *args, **kwargs)
+        self.compile().prepared_async_call(grid, block, stream, *args, **kwargs)
 
 
 class ParLoop(op2.ParLoop):
@@ -823,7 +817,6 @@ class ParLoop(op2.ParLoop):
                     'WARPSIZE': 32}
 
     @collective
-    @lineprof
     def _compute(self, part, fun, *arglist):
         if part.size == 0:
             # Return before plan call if no computation should occur

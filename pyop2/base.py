@@ -167,8 +167,9 @@ class ExecutionTrace(object):
         if configuration['loop_fusion']:
             from fusion import fuse
             to_run = fuse('from_trace', to_run, 0)
-        for comp in to_run:
-            comp._run()
+        with timed_region("Trace: eval"):
+            for comp in to_run:
+                comp._run()
 
 
 _trace = ExecutionTrace()
@@ -3318,7 +3319,7 @@ class Sparsity(ObjectCached):
             self._d_nz = sum(s._d_nz for s in self)
             self._o_nz = sum(s._o_nz for s in self)
         else:
-            with timed_region("Build sparsity"):
+            with timed_region("CreateSparsity"):
                 build_sparsity(self, parallel=MPI.parallel, block=self._block_sparse)
             self._blocks = [[self]]
             self._nested = False
@@ -4110,22 +4111,22 @@ class ParLoop(LazyComputation):
     @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
-        self.halo_exchange_begin()
-        iterset = self.iterset
-        arglist = self.prepare_arglist(iterset, *self.args)
-        fun = self._jitmodule
-        self._compute(iterset.core_part, fun, *arglist)
-        self.halo_exchange_end()
-        self._compute(iterset.owned_part, fun, *arglist)
-        self.reduction_begin()
-        if self._only_local:
-            self.reverse_halo_exchange_begin()
-            self.reverse_halo_exchange_end()
-        if self.needs_exec_halo:
-            self._compute(iterset.exec_part, fun, *arglist)
-        self.reduction_end()
-        self.update_arg_data_state()
-        self.log_flops()
+        with timed_region("ParLoopExecute"):
+            self.halo_exchange_begin()
+            iterset = self.iterset
+            arglist = self.prepare_arglist(iterset, *self.args)
+            fun = self._jitmodule
+            self._compute(iterset.core_part, fun, *arglist)
+            self.halo_exchange_end()
+            self._compute(iterset.owned_part, fun, *arglist)
+            self.reduction_begin()
+            if self._only_local:
+                self.reverse_halo_exchange_begin()
+                self.reverse_halo_exchange_end()
+            if self.needs_exec_halo:
+                self._compute(iterset.exec_part, fun, *arglist)
+            self.reduction_end()
+            self.update_arg_data_state()
 
     @collective
     def _compute(self, part, fun, *arglist):
@@ -4139,7 +4140,6 @@ class ParLoop(LazyComputation):
         raise RuntimeError("Must select a backend")
 
     @collective
-    @timed_function('ParLoop halo exchange begin')
     def halo_exchange_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
@@ -4148,7 +4148,6 @@ class ParLoop(LazyComputation):
             arg.halo_exchange_begin(update_inc=self._only_local)
 
     @collective
-    @timed_function('ParLoop halo exchange end')
     def halo_exchange_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
@@ -4157,7 +4156,6 @@ class ParLoop(LazyComputation):
             arg.halo_exchange_end(update_inc=self._only_local)
 
     @collective
-    @timed_function('ParLoop reverse halo exchange begin')
     def reverse_halo_exchange_begin(self):
         """Start reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
@@ -4167,7 +4165,6 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_begin(reverse=True)
 
     @collective
-    @timed_function('ParLoop reverse halo exchange end')
     def reverse_halo_exchange_end(self):
         """Finish reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
@@ -4177,14 +4174,14 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_end(reverse=True)
 
     @collective
-    @timed_function('ParLoop reduction begin')
+    @timed_function("ParLoopReductionBegin")
     def reduction_begin(self):
         """Start reductions"""
         for arg in self.global_reduction_args:
             arg.reduction_begin()
 
     @collective
-    @timed_function('ParLoop reduction end')
+    @timed_function("ParLoopReductionEnd")
     def reduction_end(self):
         """End reductions"""
         for arg in self.global_reduction_args:

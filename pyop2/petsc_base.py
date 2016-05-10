@@ -580,7 +580,7 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
         # Put zeros in all the places we might eventually put a value.
-        with timed_region("Zero initial matrix"):
+        with timed_region("MatZeroInitial"):
             for i in range(rows):
                 for j in range(cols):
                     sparsity.fill_with_zeros(self[i, j].handle,
@@ -648,7 +648,7 @@ class Mat(base.Mat, CopyOnWrite):
         mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
 
         # Put zeros in all the places we might eventually put a value.
-        with timed_region("Zero initial matrix"):
+        with timed_region("MatZeroInitial"):
             sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps)
 
         # Now we've filled up our matrix, so the sparsity is
@@ -847,10 +847,9 @@ class Solver(base.Solver, PETSc.KSP):
                 debug("%3d KSP Residual norm %14.12e" % (its, norm))
             self.setMonitor(monitor)
         # Not using super here since the MRO would call base.Solver.solve
-        with timed_region("PETSc Krylov solver"):
-            with b.vec_ro as bv:
-                with x.vec as xv:
-                    PETSc.KSP.solve(self, bv, xv)
+        with b.vec_ro as bv:
+            with x.vec as xv:
+                PETSc.KSP.solve(self, bv, xv)
         if self.parameters['plot_convergence']:
             self.cancelMonitor()
             try:
