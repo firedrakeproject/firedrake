@@ -2,13 +2,14 @@ from __future__ import absolute_import
 import numpy as np
 import ctypes
 import os
+import sys
 import ufl
 import weakref
 from collections import defaultdict
 
 from pyop2 import op2
 from pyop2.logger import info_red
-from pyop2.profiling import timed_function, timed_region, profile
+from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
 
 import coffee.base as ast
@@ -290,6 +291,7 @@ def _from_cell_list(dim, cells, coords, comm=None):
 class MeshTopology(object):
     """A representation of mesh topology."""
 
+    @timed_function("CreateMesh")
     def __init__(self, plex, name, reorder, distribute):
         """Half-initialise a mesh topology.
 
@@ -312,9 +314,8 @@ class MeshTopology(object):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        with timed_region("Mesh: label facets"):
-            label_boundary = (op2.MPI.comm.size == 1) or distribute
-            dmplex.label_facets(plex, label_boundary=label_boundary)
+        label_boundary = (op2.MPI.comm.size == 1) or distribute
+        dmplex.label_facets(plex, label_boundary=label_boundary)
 
         # Distribute the dm to all ranks
         if op2.MPI.comm.size > 1 and distribute:
@@ -349,14 +350,13 @@ class MeshTopology(object):
             self._did_reordering = bool(reorder)
 
             # Mark OP2 entities and derive the resulting Plex renumbering
-            with timed_region("Mesh: renumbering"):
+            with timed_region("Mesh: numbering"):
                 dmplex.mark_entity_classes(self._plex)
                 self._entity_classes = dmplex.get_entity_classes(self._plex)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
                                                                  reordering)
 
-            with timed_region("Mesh: cell numbering"):
                 # Derive a cell numbering from the Plex renumbering
                 entity_dofs = np.zeros(dim+1, dtype=np.int32)
                 entity_dofs[-1] = 1
@@ -375,6 +375,7 @@ class MeshTopology(object):
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
 
+    @timed_function("CreateMesh")
     def init(self):
         """Finish the initialisation of the mesh."""
         if hasattr(self, '_callback'):
@@ -454,62 +455,68 @@ class MeshTopology(object):
 
     @utils.cached_property
     def exterior_facets(self):
-        if self._plex.getStratumSize("exterior_facets", 1) > 0:
-            # Compute the facet_numbering
+        # If there are no exterior facets on this process, everything
+        # just falls through nicely, so no need to special case.
 
-            # Order exterior facets by OP2 entity class
-            exterior_facets, exterior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "exterior_facets",
-                                           self._facet_ordering)
+        # Compute the facet_numbering
+        # Order exterior facets by OP2 entity class
+        exterior_facets, exterior_facet_classes = \
+            dmplex.get_facets_by_class(self._plex, "exterior_facets",
+                                       self._facet_ordering)
 
-            # Derive attached boundary IDs
-            if self._plex.hasLabel("boundary_ids"):
-                boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
-                for i, facet in enumerate(exterior_facets):
-                    boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
+        # Derive attached boundary IDs
+        if self._plex.hasLabel("boundary_ids"):
+            boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+            for i, facet in enumerate(exterior_facets):
+                boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
 
-                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
-            else:
-                boundary_ids = None
-                unique_ids = None
+            # Determine union of boundary IDs.  All processes must
+            # know the values of all ids, for collective reasons.
+            comm = self._plex.comm.tompi4py()
+            from mpi4py import MPI
 
-            exterior_local_facet_number, exterior_facet_cell = \
-                dmplex.facet_numbering(self._plex, "exterior",
-                                       exterior_facets,
-                                       self._cell_numbering,
-                                       self.cell_closure)
+            def merge_ids(x, y, datatype):
+                return x.union(y)
 
-            return _Facets(self, exterior_facet_classes, "exterior",
-                           exterior_facet_cell, exterior_local_facet_number,
-                           boundary_ids, unique_markers=unique_ids)
+            op = MPI.Op.Create(merge_ids, commute=True)
+
+            local_ids = set(self._plex.getLabelIdIS("boundary_ids").indices)
+            unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
+                                    dtype=np.int32)
+            op.Free()
         else:
-            if self._plex.hasLabel("boundary_ids"):
-                unique_ids = np.sort(self._plex.getLabelIdIS("boundary_ids").indices)
-            else:
-                unique_ids = None
-            return _Facets(self, 0, "exterior", None, None,
-                           unique_markers=unique_ids)
+            boundary_ids = None
+            unique_ids = None
+
+        exterior_local_facet_number, exterior_facet_cell = \
+            dmplex.facet_numbering(self._plex, "exterior",
+                                   exterior_facets,
+                                   self._cell_numbering,
+                                   self.cell_closure)
+
+        return _Facets(self, exterior_facet_classes, "exterior",
+                       exterior_facet_cell, exterior_local_facet_number,
+                       boundary_ids, unique_markers=unique_ids)
 
     @utils.cached_property
     def interior_facets(self):
-        if self._plex.getStratumSize("interior_facets", 1) > 0:
-            # Compute the facet_numbering
+        # If there are no interior facets on this process, everything
+        # just falls through nicely, so no need to special case.
 
-            # Order interior facets by OP2 entity class
-            interior_facets, interior_facet_classes = \
-                dmplex.get_facets_by_class(self._plex, "interior_facets",
-                                           self._facet_ordering)
+        # Compute the facet_numbering
+        # Order interior facets by OP2 entity class
+        interior_facets, interior_facet_classes = \
+            dmplex.get_facets_by_class(self._plex, "interior_facets",
+                                       self._facet_ordering)
 
-            interior_local_facet_number, interior_facet_cell = \
-                dmplex.facet_numbering(self._plex, "interior",
-                                       interior_facets,
-                                       self._cell_numbering,
-                                       self.cell_closure)
+        interior_local_facet_number, interior_facet_cell = \
+            dmplex.facet_numbering(self._plex, "interior",
+                                   interior_facets,
+                                   self._cell_numbering,
+                                   self.cell_closure)
 
-            return _Facets(self, interior_facet_classes, "interior",
-                           interior_facet_cell, interior_local_facet_number)
-        else:
-            return _Facets(self, 0, "interior", None, None)
+        return _Facets(self, interior_facet_classes, "interior",
+                       interior_facet_cell, interior_local_facet_number)
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
@@ -882,8 +889,11 @@ extern "C" int locator(struct Function *f, double *x)
 """ % dict(geometric_dimension=self.geometric_dimension())
 
         locator = compilation.load(src, "cpp", "locator",
-                                   cppargs=["-I%s" % os.path.dirname(__file__)],
-                                   ldargs=["-lspatialindex"])
+                                   cppargs=["-I%s" % os.path.dirname(__file__),
+                                            "-I%s/include" % sys.prefix],
+                                   ldargs=["-L%s/lib" % sys.prefix,
+                                           "-lspatialindex",
+                                           "-Wl,-rpath,%s/lib" % sys.prefix])
 
         locator.argtypes = [ctypes.POINTER(function._CFunction),
                             ctypes.POINTER(ctypes.c_double)]
@@ -997,8 +1007,7 @@ def make_mesh_from_coordinates(coordinates):
     return mesh
 
 
-@timed_function("Build mesh")
-@profile
+@timed_function("CreateMesh")
 def Mesh(meshfile, **kwargs):
     """Construct a mesh object.
 
@@ -1092,16 +1101,15 @@ def Mesh(meshfile, **kwargs):
         # Finish the initialisation of mesh topology
         self.topology.init()
 
-        with timed_region("Mesh: coordinate field"):
-            coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
-                                                               dim=geometric_dim)
+        coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
+                                                           dim=geometric_dim)
 
-            coordinates_data = dmplex.reordered_coords(plex, coordinates_fs._dm.getDefaultSection(),
-                                                       (self.num_vertices(), geometric_dim))
+        coordinates_data = dmplex.reordered_coords(plex, coordinates_fs._dm.getDefaultSection(),
+                                                   (self.num_vertices(), geometric_dim))
 
-            coordinates = function.CoordinatelessFunction(coordinates_fs,
-                                                          val=coordinates_data,
-                                                          name="Coordinates")
+        coordinates = function.CoordinatelessFunction(coordinates_fs,
+                                                      val=coordinates_data,
+                                                      name="Coordinates")
 
         self.__init__(coordinates)
 
@@ -1109,8 +1117,7 @@ def Mesh(meshfile, **kwargs):
     return mesh
 
 
-@timed_function("Build extruded mesh")
-@profile
+@timed_function("CreateExtMesh")
 def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kernel=None, gdim=None):
     """Build an extruded mesh from an input mesh
 

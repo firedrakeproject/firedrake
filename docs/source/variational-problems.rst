@@ -97,7 +97,7 @@ use:
 
 .. code-block:: python
    
-   sphere_mesh = Mesh('sphere_mesh.node', 3)
+   sphere_mesh = Mesh('sphere_mesh.node', dim=3)
 
 Firedrake provides utility meshes for the surfaces of spheres immersed
 in 3D that are approximated using an `icosahedral mesh`_.  You can

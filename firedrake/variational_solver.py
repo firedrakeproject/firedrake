@@ -2,7 +2,6 @@ from __future__ import absolute_import
 import weakref
 import ufl
 
-from pyop2.profiling import timed_function, profile
 
 from firedrake import solving_utils
 from firedrake import ufl_expr
@@ -169,8 +168,6 @@ class NonlinearVariationalSolver(object):
         self._parameters = val
         solving_utils.update_parameters(self, self.snes)
 
-    @timed_function("SNES solver execution")
-    @profile
     def solve(self):
         dm = self.snes.getDM()
         dm.setAppCtx(weakref.proxy(self._ctx))

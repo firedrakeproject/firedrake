@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import numpy as np
+import sys
 import ufl
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
@@ -562,5 +563,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += ["-lspatialindex"]
-    return compilation.load(src, "cpp", c_name, cppargs=["-I%s" % path.dirname(__file__)], ldargs=ldargs)
+    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex", "-Wl,-rpath,%s/lib" % sys.prefix]
+    return compilation.load(src, "cpp", c_name,
+                            cppargs=["-I%s" % path.dirname(__file__),
+                                     "-I%s/include" % sys.prefix],
+                            ldargs=ldargs)

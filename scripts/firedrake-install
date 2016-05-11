@@ -50,11 +50,8 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The default install creates a virtualenv in ./firedrake and installs
-inside that virtualenv.  Optionally, a global installation using the
-default Python package location may be specified by passing the
---global option.  We recommend using the default virtualenv
-installation mode.
+The install creates a virtualenv in ./firedrake and installs inside
+that virtualenv.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -63,15 +60,14 @@ honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--global", action='store_true', dest="system",
-                       help="Install to the default global location on the current platform.")
     group.add_argument("--developer", action='store_true',
                        help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
     parser.add_argument("--sudo", action='store_true',
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
-
     parser.add_argument("--adjoint", action='store_true',
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slepc", action="store_true",
+                        help="Install SLEPc along with PETSc")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--disable-ssh", "--disable_ssh", action="store_true",
@@ -111,6 +107,8 @@ else:
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--adjoint", action='store_true', dest="install_adjoint",
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slepc", action="store_true", dest="install_slepc",
+                        help="Install SLEPc along with PETSc")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
     parser.add_argument("--clean", action='store_true',
@@ -120,7 +118,6 @@ else:
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
 
     args = parser.parse_args()
-    args.system = False
     args.developer = False
     args.sudo = False
     args.package_manager = False
@@ -131,6 +128,8 @@ else:
     args.show_petsc_configure_options = False
     args.adjoint = False
     args.adjoint = args.adjoint or args.install_adjoint
+    args.slepc = False
+    args.slepc = args.slepc or args.install_slepc
 
 
 # Where are packages installed relative to --root?
@@ -143,22 +142,17 @@ path_extension = ""
 old_git_packages = ["instant", "ffc"]
 
 python = ["python"]
-if args.sudo and args.system:
-    sudopip = ["sudo", "pip"]
-    pyinstall = ["sudo", "python", "setup.py", "install"]
-else:
-    sudopip = ["pip"]
-    pyinstall = ["python", "setup.py", "install"]
+sudopip = ["pip"]
+pyinstall = ["python", "setup.py", "install"]
 
 pipinstall = sudopip + ["install"]
-if not args.system:
-    # virtualenv install
-    # Use the pip from the virtualenv
-    sudopip = [os.getcwd() + "/firedrake/bin/pip"]
-    pipinstall = sudopip + ["install"]
-    python = [os.getcwd() + "/firedrake/bin/python"]
-    pyinstall = python + ["setup.py", "install"]
-    sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
+# virtualenv install
+# Use the pip from the virtualenv
+sudopip = [os.getcwd() + "/firedrake/bin/pip"]
+pipinstall = sudopip + ["install"]
+python = [os.getcwd() + "/firedrake/bin/python"]
+pyinstall = python + ["setup.py", "install"]
+sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 
@@ -167,7 +161,7 @@ if args.minimal_petsc:
     # If you change these minimal PETSc options, you will have to
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5"""
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre"""
 else:
     petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
 
@@ -491,7 +485,7 @@ def install(package):
             log.info("Installed %s from travis cache %s\n" % (package, travis_cache_dir))
             return
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
-    if args.developer and package not in ["petsc/", "petsc4py/"]:
+    if args.developer and package not in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
         run_pip_install(["--ignore-installed", package])
@@ -578,6 +572,66 @@ def build_and_install_h5py():
     os.chdir("..")
 
 
+def build_and_install_glpsol():
+    log.info("Installing GLPK\n")
+    if os.path.exists("glpk"):
+        glpk_changed = git_update("glpk")
+    else:
+        git_clone("git+https://github.com/firedrakeproject/glpk.git")
+        glpk_changed = True
+
+    if glpk_changed:
+        os.chdir("glpk")
+        check_call(["./configure", "--disable-shared", "--disable-static"])
+        check_call(["make"])
+        check_call(["cp", "examples/glpsol", os.environ["VIRTUAL_ENV"] + "/bin/"])
+        os.chdir("..")
+
+
+def build_and_install_libspatialindex():
+    log.info("Installing libspatialindex\n")
+    if os.path.exists("libspatialindex"):
+        libspatialindex_changed = git_update("libspatialindex")
+    else:
+        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
+        libspatialindex_changed = True
+
+    if libspatialindex_changed:
+        os.chdir("libspatialindex")
+        # Clean source directory
+        check_call(["git", "reset", "--hard"])
+        check_call(["git", "clean", "-f", "-x", "-d"])
+        # Patch Makefile.am to skip building test
+        check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
+        # Build and install
+        check_call(["./autogen.sh"])
+        check_call(["./configure", "--prefix=" + sys.prefix,
+                    "--enable-shared", "--disable-static"])
+        check_call(["make"])
+        check_call(["make", "install"])
+        os.chdir("..")
+
+
+def build_and_install_slepc():
+    try:
+        petsc_dir = check_output(python + ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+        petsc_arch = ""
+    except subprocess.CalledProcessError:
+        raise InstallError("Unable to find installed PETSc when building SLEPc")
+
+    env = dict(os.environ)
+    env["PETSC_ARCH"] = petsc_arch
+    env["PETSC_DIR"] = petsc_dir
+
+    git_clone("git+https://bitbucket.org/slepc/slepc.git")
+    log.info("Installing SLEPc.")
+    install("slepc/")
+
+    git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+    log.info("Installing slepc4py.")
+    install("slepc4py/")
+
+
 def build_and_install_adjoint():
 
     for package in adjoint_deps:
@@ -610,12 +664,8 @@ def build_and_install_adjoint():
     dir_util.mkpath("build")
 
     os.chdir("build")
-    if "VIRTUAL_ENV" in os.environ:
-        log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
-        check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
-    else:
-        log.info("Configuring libadjoint for global installation")
-        check_call(["cmake", ".."], env=env)
+    log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
+    check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
     log.info("Installing libadjoint.")
     check_call(["make", "install"])
     os.chdir("../..")
@@ -641,7 +691,7 @@ def build_update_script():
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
-    for switch in ["developer", "sudo", "system", "package_manager", "minimal_petsc",
+    for switch in ["developer", "sudo", "package_manager", "minimal_petsc",
                    "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
@@ -727,7 +777,6 @@ if osname == "Darwin":
         brew_install("openmpi")
         brew_install("python")
         brew_install("cmake")
-        brew_install("spatialindex")
 
     else:
         log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -746,11 +795,11 @@ elif osname == "Linux":
                         "libblas-dev",
                         "liblapack-dev",
                         "libopenmpi-dev",
-                        "libspatialindex-dev",
                         "mercurial",
                         "openmpi-bin",
                         "python-dev",
-                        "python-pip"]
+                        "python-pip",
+                        "zlib1g-dev"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
         if missing_packages:
@@ -767,40 +816,31 @@ elif osname == "Linux":
         log.info("* Python version 2.7")
         log.info("* pip and the Python headers")
         log.info("* CMake")
-        log.info("* libspatialindex and headers")
+        log.info("* zlib")
 
 else:
     log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
 
-if args.system and mode == "install":
-    log.info("Creating firedrake directory structure.")
+if mode == "install":
     try:
-        os.mkdir("firedrake")
-    except OSError:
-        log.error("Failed to create firedrake directory. If there is a stale firedrake directory in the current directory, please remove it and try again.")
-        raise
-
-elif not args.system:
-    if mode == "install":
-        try:
-            import virtualenv
-        except:
-            log.info("Installing virtualenv.")
-            # sys.real_prefix exists if we are already in the virtualenv
-            if hasattr(sys, "real_prefix"):
-                check_call(["pip", "install", "virtualenv"])
-            else:
-                check_call(["pip", "install", "--user", "virtualenv"])
-            quit("Virtual env installed. Please run firedrake-%s again." % mode)
-        log.info("Creating firedrake virtualenv.")
-        virtualenv.create_environment("firedrake", site_packages=False)
-        # For some reason virtualenv does not always install the latest pip.
-        run_pip_install(["-U", "pip"])
-    virtual_env_vars = dict(__file__='firedrake/bin/activate_this.py')
-    execfile("firedrake/bin/activate_this.py", virtual_env_vars)
-    # Activating the virtual_env from within Python does not automatically set the environment variable.
-    os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
+        import virtualenv
+    except:
+        log.info("Installing virtualenv.")
+        # sys.real_prefix exists if we are already in the virtualenv
+        if hasattr(sys, "real_prefix"):
+            check_call(["pip", "install", "virtualenv"])
+        else:
+            check_call(["pip", "install", "--user", "virtualenv"])
+        quit("Virtual env installed. Please run firedrake-%s again." % mode)
+    log.info("Creating firedrake virtualenv.")
+    virtualenv.create_environment("firedrake", site_packages=False)
+    # For some reason virtualenv does not always install the latest pip.
+    run_pip_install(["-U", "pip"])
+virtual_env_vars = dict(__file__='firedrake/bin/activate_this.py')
+execfile("firedrake/bin/activate_this.py", virtual_env_vars)
+# Activating the virtual_env from within Python does not automatically set the environment variable.
+os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir("firedrake")
 if mode == "install":
@@ -840,6 +880,8 @@ if mode == "install":
         pip_requirements(p)
 
     build_and_install_h5py()
+    build_and_install_glpsol()
+    build_and_install_libspatialindex()
     pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
@@ -909,13 +951,14 @@ else:
                 raise
 
     # update dependencies.
-    pip_requirements("PyOP2")
-    pip_requirements("firedrake")
+    for p in packages:
+        pip_requirements(p)
     pipinstall.append("--no-deps")
 
     # Only rebuild petsc if it has changed.
     if not args.honour_petsc_dir and (args.rebuild or petsc_changed):
         clean("petsc/")
+        log.info("Depending on your platform, PETSc may take an hour or more to build!")
         install("petsc/")
     if args.rebuild or petsc_changed or petsc4py_changed:
         clean("petsc4py/")
@@ -923,6 +966,8 @@ else:
 
     # Always rebuild h5py.
     build_and_install_h5py()
+    build_and_install_glpsol()
+    build_and_install_libspatialindex()
 
     try:
         packages.remove("PyOP2")
@@ -936,6 +981,8 @@ else:
 
 if args.adjoint:
     build_and_install_adjoint()
+if args.slepc:
+    build_and_install_slepc()
 
 os.chdir("../..")
 
@@ -943,11 +990,10 @@ log.info("Successfully installed Firedrake.\n")
 
 log.info("To upgrade firedrake, run firedrake/bin/firedrake-update")
 
-if not args.system:
-    log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
-    log.info("  . firedrake/bin/activate\n")
-    log.info("The virtualenv can be deactivated by running:\n")
-    log.info("  deactivate")
+log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
+log.info("  . firedrake/bin/activate\n")
+log.info("The virtualenv can be deactivated by running:\n")
+log.info("  deactivate")
 
 
 if travis:

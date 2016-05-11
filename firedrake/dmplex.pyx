@@ -17,7 +17,7 @@ np.import_array()
 cdef extern from "mpi-compat.h":
     pass
 
-include "dmplex.pxi"
+include "dmplexinc.pxi"
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -535,14 +535,14 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
     fStart, fEnd = plex.getHeightStratum(1)
     plex.createLabel(ext_label)
-    CHKERR(DMPlexGetLabel(plex.dm, ext_label, &lbl_ext))
+    CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
     CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
 
     # Mark boundaries as exterior_facets
     if label_boundary:
         plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
-    CHKERR(DMPlexGetLabel(plex.dm, int_label, &lbl_int))
+    CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
     CHKERR(DMLabelCreateIndex(lbl_int, fStart, fEnd))
 
     for facet in range(fStart, fEnd):
@@ -619,10 +619,10 @@ def mark_entity_classes(PETSc.DM plex):
     plex.createLabel("op2_exec_halo")
     plex.createLabel("op2_non_exec_halo")
 
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &lbl_core))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
+    CHKERR(DMGetLabel(plex.dm, "op2_core", &lbl_core))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
+    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
 
     CHKERR(DMLabelCreateIndex(lbl_core, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_non_core, pStart, pEnd))
@@ -837,7 +837,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     label_chr = <char*>label
     dim = plex.getDimension()
     fStart, fEnd = plex.getHeightStratum(1)
-    CHKERR(DMPlexGetLabel(plex.dm, label, &lbl_facets))
+    CHKERR(DMGetLabel(plex.dm, label, &lbl_facets))
     CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=np.int32)
@@ -848,7 +848,7 @@ def get_facets_by_class(PETSc.DM plex, label,
                                   "op2_non_core",
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
-        CHKERR(DMPlexGetLabel(plex.dm, op2class, &lbl_class))
+        CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
         nclass = plex.getStratumSize(op2class, 1)
         if nclass > 0:
             for o in range(ordering.shape[0]):
@@ -932,6 +932,7 @@ def plex_renumbering(PETSc.DM plex,
     """
     cdef:
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
+        PetscInt pStart, pEnd, cell
         np.ndarray[np.int32_t, ndim=1, mode="c"] lidx, ncells
         PetscInt *facets = NULL
         PetscInt *closure = NULL
@@ -951,10 +952,10 @@ def plex_renumbering(PETSc.DM plex,
     ncells = np.zeros(4, dtype=np.int32)
 
     # Get label pointers and label-specific array indices
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &labels[1]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
+    CHKERR(DMGetLabel(plex.dm, "op2_core", &labels[0]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &labels[1]))
+    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
     lidx = np.zeros(4, dtype=np.int32)
     lidx[1] = sum(entity_classes[:, 0])
     lidx[2] = sum(entity_classes[:, 1])
@@ -1860,13 +1861,15 @@ def exchange_cell_orientations(
         CHKERR(PetscFree(new_values))
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     """Build an array of global numbers for local dofs
 
     :arg lsec: Section describing local dof layout and numbers.
     :arg gsec: Section describing global dof layout and numbers."""
     cdef:
-        PetscInt p, pStart, pEnd, dof, loff, goff
+        PetscInt c, p, pStart, pEnd, dof, loff, goff
         np.ndarray[PetscInt, ndim=1, mode="c"] val
 
     val = np.empty(lsec.getStorageSize(), dtype=PETSc.IntType)

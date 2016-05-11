@@ -78,7 +78,7 @@ def project(v, V, bcs=None, mesh=None,
         if v.function_space().mesh() != ret.function_space().mesh():
             raise RuntimeError("Can't project between mismatching meshes")
     elif not isinstance(v, ufl.core.expr.Expr):
-        raise RuntimeError("Can't only project from expressions and functions, not %r" % type(v))
+        raise RuntimeError("Can only project from expressions and functions, not %r" % type(v))
 
     if v.ufl_shape != ret.ufl_shape:
         raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %

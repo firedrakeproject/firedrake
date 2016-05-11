@@ -23,7 +23,6 @@ addons:
         - libblas-dev
         - liblapack-dev
         - gfortran
-        - libspatialindex-dev
         - gmsh
 os:
     - linux
@@ -69,7 +68,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - PETSC_CONFIGURE_OPTIONS="--download-hypre" ../scripts/firedrake-install --disable-ssh --minimal-petsc --adjoint ${PACKAGE_MANAGER} --package_branch PyOP2 globals_matrices
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint ${PACKAGE_MANAGER} --package_branch PyOP2 globals_matrices
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update

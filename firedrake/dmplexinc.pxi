@@ -27,19 +27,19 @@ cdef extern from "petscdmplex.h":
 
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
+    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
+cdef extern from "petscdmlabel.h":
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
-    int DMPlexGetLabel(PETSc.PetscDM,char[],DMLabel*)
-    int DMPlexGetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt*)
-    int DMPlexSetLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
-    int DMPlexClearLabelValue(PETSc.PetscDM,char[],PetscInt,PetscInt)
     int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
     int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
+    int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
-    int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
+cdef extern from "petscdm.h":
+    int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
 
 cdef extern from "petscis.h":
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
