@@ -301,12 +301,16 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         for element in fiat_element.elements():
             space_dim = element.space_dimension()
 
-            loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, coffee.Sum(offset, i))),
-                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset, i), 0)))
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, "i"),
+                                                    offset=((1, 0), (1, offset))),
+                                      coffee.Symbol(name_, rank=("i", 0),
+                                                    offset=((1, 2 * offset), (1, 0))))
             prepare.append(coffee_for(i, space_dim, loop_body))
 
-            loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, coffee.Sum(offset, i))),
-                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset + space_dim, i), 0)))
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, "i"),
+                                                    offset=((1, 0), (1, offset))),
+                                      coffee.Symbol(name_, rank=("i", 0),
+                                                    offset=((1, 2 * offset + space_dim), (1, 0))))
             prepare.append(coffee_for(i, space_dim, loop_body))
 
             offset += space_dim
