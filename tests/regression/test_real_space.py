@@ -51,6 +51,23 @@ def test_real_nonsquare_two_form_assembly():
                                    m2.M.values[0, :])
 
 
+def test_real_mixed_one_form_assembly():
+    mesh = UnitIntervalMesh(3)
+    rfs = FunctionSpace(mesh, "Real", 0)
+    cgfs = FunctionSpace(mesh, "CG", 1)
+
+    mfs = cgfs*rfs
+    v, q = TestFunctions(mfs)
+
+    A = assemble(v*dx + q*dx)
+
+    qq = TestFunction(rfs)
+
+    AA = assemble(qq*dx)
+
+    np.testing.assert_almost_equal(A.dat.data[1],
+                                   AA.dat.data)
+
 # def test_real_mixed_two_form_assembly():
 #     mesh = UnitIntervalMesh(3)
 #     rfs = FunctionSpace(mesh, "Real", 0)

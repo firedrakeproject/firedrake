@@ -801,8 +801,13 @@ def IndexedFunctionSpace(index, space, parent):
     :returns: A new :class:`ProxyFunctionSpace` with index and parent
         set.
     """
-    new = ProxyFunctionSpace(space.mesh(), space.ufl_element(),
-                             name=space.name)
+
+    if space.ufl_element().family() == "Real":
+        new = RealFunctionSpace(space.mesh(), space.ufl_element(),
+                                name=space.name)
+    else:
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(),
+                                 name=space.name)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
