@@ -167,7 +167,7 @@ def _interpolator(V, dat, expr, subset):
             raise ValueError("UFL expression has incorrect shape for interpolation.")
         ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords)
         kernel = op2.Kernel(ast, ast.name)
-        flatten = True
+        flatten = False
         indexed = True
     elif hasattr(expr, "eval"):
         kernel, oriented, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
