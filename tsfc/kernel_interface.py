@@ -246,21 +246,26 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
 
         return funarg, [], expression
 
+    import ufl
+    pyop2_scalar = not isinstance(coefficient.ufl_element(), (ufl.VectorElement, ufl.TensorElement))
     finat_element = create_element(coefficient.ufl_element())
 
     if not interior_facet:
         # Simple case
 
         shape = finat_element.index_shape
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=tuple(reversed(shape))),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=(shape if pyop2_scalar else shape[:-1])),
                              pointers=[("restrict",)],
                              qualifiers=["const"])
 
-        alpha = tuple(gem.Index() for d in shape)
-        expression = gem.ComponentTensor(
-            gem.Indexed(gem.Variable(name, tuple(reversed(shape)) + (1,)),
-                        tuple(reversed(alpha)) + (0,)),
-            alpha)
+        if pyop2_scalar:
+            alpha = tuple(gem.Index() for d in shape)
+            expression = gem.ComponentTensor(
+                gem.Indexed(gem.Variable(name, shape + (1,)),
+                            alpha + (0,)),
+                alpha)
+        else:
+            expression = gem.Variable(name, shape)
 
         return funarg, [], expression
 
