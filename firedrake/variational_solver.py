@@ -160,7 +160,10 @@ class NonlinearVariationalSolver(object):
 
     @property
     def parameters(self):
-        return self._parameters
+        try:
+            return self._parameters
+        except AttributeError:
+            return {}
 
     @parameters.setter
     def parameters(self, val):
