@@ -23,6 +23,7 @@
 from __future__ import print_function  # used in some debugging
 
 from ufl.classes import (ReferenceValue, ReferenceGrad,
+                         NegativeRestricted, PositiveRestricted,
                          Restricted, FacetAvg, CellAvg)
 
 
@@ -161,3 +162,27 @@ def analyse_modified_terminal(expr):
         raise ValueError("Local derivatives of non-local value?")
 
     return mt
+
+
+def construct_modified_terminal(mt, terminal):
+    """Construct a modified terminal given terminal modifiers from an
+    analysed modified terminal and a terminal."""
+    expr = terminal
+
+    if mt.reference_value:
+        expr = ReferenceValue(expr)
+
+    for n in range(mt.local_derivatives):
+        expr = ReferenceGrad(expr)
+
+    if mt.averaged == "cell":
+        expr = CellAvg(expr)
+    elif mt.averaged == "facet":
+        expr = FacetAvg(expr)
+
+    if mt.restriction == '+':
+        expr = PositiveRestricted(expr)
+    elif mt.restriction == '-':
+        expr = NegativeRestricted(expr)
+
+    return expr

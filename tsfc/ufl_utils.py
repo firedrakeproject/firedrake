@@ -2,18 +2,23 @@
 
 from __future__ import absolute_import
 
+import numpy
 from singledispatch import singledispatch
 
 import ufl
+from ufl import indices, as_tensor
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, ReferenceValue, Zero)
-from ufl.classes import (Abs, CellOrientation, Expr, FloatValue,
-                         Division, Product, ScalarValue, Sqrt)
+from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
+                         ComponentTensor, Expr, FloatValue, Division,
+                         MixedElement, MultiIndex, Product,
+                         ReferenceValue, ScalarValue, Sqrt, Zero)
 
 from gem.node import MemoizerArg
 
-from tsfc.modified_terminals import is_modified_terminal, analyse_modified_terminal
+from tsfc.modified_terminals import (is_modified_terminal,
+                                     analyse_modified_terminal,
+                                     construct_modified_terminal)
 
 
 def is_element_affine(ufl_element):
@@ -22,7 +27,7 @@ def is_element_affine(ufl_element):
     return ufl_element.cell().cellname() in affine_cells and ufl_element.degree() == 1
 
 
-class ReplaceSpatialCoordinates(MultiFunction):
+class SpatialCoordinateReplacer(MultiFunction):
     """Replace SpatialCoordinate nodes with the ReferenceValue of a
     Coefficient.  Assumes that the coordinate element only needs
     affine mapping.
@@ -45,7 +50,7 @@ class ReplaceSpatialCoordinates(MultiFunction):
 
 def replace_coordinates(integrand, coordinate_coefficient):
     """Replace SpatialCoordinate nodes with Coefficients."""
-    return map_expr_dag(ReplaceSpatialCoordinates(coordinate_coefficient), integrand)
+    return map_expr_dag(SpatialCoordinateReplacer(coordinate_coefficient), integrand)
 
 
 def coordinate_coefficient(domain):
@@ -86,6 +91,51 @@ class ModifiedTerminalMixin(object):
     reference_value = _modified_terminal
 
     terminal = _modified_terminal
+
+
+class CoefficientSplitter(MultiFunction, ModifiedTerminalMixin):
+    def __init__(self, split):
+        MultiFunction.__init__(self)
+        self._split = split
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def modified_terminal(self, o):
+        mt = analyse_modified_terminal(o)
+        terminal = mt.terminal
+
+        if not isinstance(terminal, Coefficient):
+            # Only split coefficients
+            return o
+
+        if type(terminal.ufl_element()) != MixedElement:
+            # Only split mixed coefficients
+            return o
+
+        # Reference value expected
+        assert mt.reference_value
+
+        # Derivative indices
+        beta = indices(mt.local_derivatives)
+
+        components = []
+        for subcoeff in self._split[terminal]:
+            # Apply terminal modifiers onto the subcoefficient
+            component = construct_modified_terminal(mt, subcoeff)
+            # Collect components of the subcoefficient
+            for alpha in numpy.ndindex(subcoeff.ufl_element().reference_value_shape()):
+                # New modified terminal: component[alpha + beta]
+                components.append(component[alpha + beta])
+        # Repack derivative indices to shape
+        c, = indices(1)
+        return ComponentTensor(as_tensor(components)[c], MultiIndex((c,) + beta))
+
+
+def split_coefficients(expression, split):
+    """Split mixed coefficients, so mixed elements need not be
+    implemented."""
+    splitter = CoefficientSplitter(split)
+    return map_expr_dag(splitter, expression)
 
 
 class CollectModifiedTerminals(MultiFunction, ModifiedTerminalMixin):

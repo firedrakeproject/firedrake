@@ -127,6 +127,7 @@ class KernelBuilder(KernelBuilderBase):
         self.local_tensor = None
         self.coordinates_arg = None
         self.coefficient_args = []
+        self.coefficient_split = {}
 
     def set_arguments(self, arguments, indices):
         """Process arguments.
@@ -153,19 +154,29 @@ class KernelBuilder(KernelBuilderBase):
         :arg integral_data: UFL integral data
         :arg form_data: UFL form data
         """
+        from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
+        coefficients = []
         coefficient_numbers = []
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
         for i in range(len(integral_data.enabled_coefficients)):
             if integral_data.enabled_coefficients[i]:
                 coefficient = form_data.reduced_coefficients[i]
-                self.coefficient_args.append(
-                    self.coefficient(coefficient, "w_%d" % i))
+                if type(coefficient.ufl_element()) == ufl_MixedElement:
+                    split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
+                             for element in coefficient.ufl_element().sub_elements()]
+                    coefficients.extend(split)
+                    self.coefficient_split[coefficient] = split
+                else:
+                    coefficients.append(coefficient)
                 # This is which coefficient in the original form the
                 # current coefficient is.
                 # Consider f*v*dx + g*v*ds, the full form contains two
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(form_data.original_coefficient_positions[i])
+        for i, coefficient in enumerate(coefficients):
+            self.coefficient_args.append(
+                self.coefficient(coefficient, "w_%d" % i))
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     def require_cell_orientations(self):
@@ -304,12 +315,16 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         for element in fiat_element.elements():
             space_dim = element.space_dimension()
 
-            loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, coffee.Sum(offset, i))),
-                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset, i), 0)))
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(0, "i"),
+                                                    offset=((1, 0), (1, offset))),
+                                      coffee.Symbol(name_, rank=("i", 0),
+                                                    offset=((1, 2 * offset), (1, 0))))
             prepare.append(coffee_for(i, space_dim, loop_body))
 
-            loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, coffee.Sum(offset, i))),
-                                      coffee.Symbol(name_, rank=(coffee.Sum(2 * offset + space_dim, i), 0)))
+            loop_body = coffee.Assign(coffee.Symbol(name, rank=(1, "i"),
+                                                    offset=((1, 0), (1, offset))),
+                                      coffee.Symbol(name_, rank=("i", 0),
+                                                    offset=((1, 2 * offset + space_dim), (1, 0))))
             prepare.append(coffee_for(i, space_dim, loop_body))
 
             offset += space_dim
