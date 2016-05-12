@@ -38,8 +38,11 @@ __all__ = ("create_element", "supported_elements", "as_fiat_cell")
 
 supported_elements = {
     # These all map directly to FInAT elements
+    "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
+    "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Discontinuous Lagrange": finat.DiscontinuousLagrange,
     "Lagrange": finat.Lagrange,
+    "Raviart-Thomas": finat.RaviartThomas,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FIAT-equivalent constructors.  If the value is ``None``, the UFL
