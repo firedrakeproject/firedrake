@@ -90,13 +90,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     return_variables = builder.set_arguments(arguments, argument_indices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
-    if ufl_utils.is_element_affine(mesh.ufl_coordinate_element()):
-        # For affine mesh geometries we prefer code generation that
-        # composes well with optimisations.
-        builder.set_coordinates(coordinates, "coords", mode='list_tensor')
-    else:
-        # Otherwise we use the approach that might be faster (?)
-        builder.set_coordinates(coordinates, "coords")
+    builder.set_coordinates(coordinates, "coords")
 
     builder.set_coefficients(integral_data, form_data)
 

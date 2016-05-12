@@ -85,7 +85,7 @@ def _(element, vector_is_mixed):
 # MixedElement case
 @convert.register(ufl.MixedElement)  # noqa
 def _(element, vector_is_mixed):
-    raise NotImplementedError("MixedElement not implemented in FInAT yet.")
+    raise ValueError("FInAT does not implement generic mixed element.")
 
 
 # VectorElement case

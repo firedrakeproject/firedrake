@@ -21,12 +21,6 @@ from tsfc.modified_terminals import (is_modified_terminal,
                                      construct_modified_terminal)
 
 
-def is_element_affine(ufl_element):
-    """Tells if a UFL element is affine."""
-    affine_cells = ["interval", "triangle", "tetrahedron"]
-    return ufl_element.cell().cellname() in affine_cells and ufl_element.degree() == 1
-
-
 class SpatialCoordinateReplacer(MultiFunction):
     """Replace SpatialCoordinate nodes with the ReferenceValue of a
     Coefficient.  Assumes that the coordinate element only needs
