@@ -123,6 +123,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              type(quad_rule))
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
+        integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
         quadrature_index = gem.Index(name='ip')
         quadrature_indices.append(quadrature_index)
         ir = fem.process(integral_type, cell, quad_rule.points,
