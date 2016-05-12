@@ -138,28 +138,6 @@ def split_coefficients(expression, split):
     return map_expr_dag(splitter, expression)
 
 
-class CollectModifiedTerminals(MultiFunction, ModifiedTerminalMixin):
-    """Collect the modified terminals in a UFL expression.
-
-    :arg return_list: modified terminals will be appended to this list
-    """
-    def __init__(self, return_list):
-        MultiFunction.__init__(self)
-        self.return_list = return_list
-
-    def expr(self, o, *ops):
-        pass  # operands visited
-
-    def indexed(self, o, *ops):
-        pass  # not a terminal modifier
-
-    def multi_index(self, o):
-        pass  # ignore
-
-    def modified_terminal(self, o):
-        self.return_list.append(o)
-
-
 class PickRestriction(MultiFunction, ModifiedTerminalMixin):
     """Pick out parts of an expression with specified restrictions on
     the arguments.
