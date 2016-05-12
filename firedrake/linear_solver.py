@@ -15,7 +15,8 @@ class LinearSolver(object):
     _id = 0
 
     def __init__(self, A, P=None, solver_parameters=None,
-                 nullspace=None, options_prefix=None):
+                 nullspace=None, transpose_nullspace=None,
+                 options_prefix=None):
         """A linear solver for assembled systems (Ax = b).
 
         :arg A: a :class:`~.Matrix` (the operator).
@@ -26,6 +27,8 @@ class LinearSolver(object):
         :kwarg nullspace: an optional :class:`~.VectorSpaceBasis` (or
             :class:`~.MixedVectorSpaceBasis` spanning the null space
             of the operator.
+        :kwarg transpose_nullspace: as for the nullspace, but used to
+               make the right hand side consistent.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
@@ -81,7 +84,14 @@ class LinearSolver(object):
             nullspace._apply(self.A._M)
             if P is not None:
                 nullspace._apply(self.P._M)
+
+        if transpose_nullspace is not None:
+            transpose_nullspace._apply(self.A._M, transpose=True)
+            if P is not None:
+                transpose_nullspace._apply(self.P._M, transpose=True)
+
         self.nullspace = nullspace
+        self.transpose_nullspace = transpose_nullspace
         self._W = W
         # Operator setting must come after null space has been
         # applied
@@ -133,6 +143,8 @@ class LinearSolver(object):
 
         if len(self._W) > 1 and self.nullspace is not None:
             self.nullspace._apply(self._W.dof_dset.field_ises)
+        if len(self._W) > 1 and self.transpose_nullspace is not None:
+            self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True)
         # User may have updated parameters
         solving_utils.update_parameters(self, self.ksp)
         if self.A.has_bcs:
