@@ -244,7 +244,7 @@ def _(terminal, mt, params):
     element = create_element(terminal.ufl_element())
     M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    result = gem.Indexed(M, (params.quadrature_index, argument_index) + vi)
+    result = gem.Indexed(M, (params.quadrature_index,) + argument_index + vi)
     if vi:
         return gem.ComponentTensor(result, vi)
     else:

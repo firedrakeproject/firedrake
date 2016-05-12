@@ -16,6 +16,7 @@ from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
 from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
+from tsfc.finatinterface import create_element
 from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
 from tsfc.quadrature import create_quadrature
 
@@ -80,7 +81,9 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
 
-    argument_indices = tuple(gem.Index(name=name) for arg, name in zip(arguments, ['j', 'k']))
+    argument_indices = tuple(tuple(gem.Index(extent=e)
+                                   for e in create_element(arg.ufl_element()).index_shape)
+                             for arg in arguments)
     quadrature_indices = []
 
     builder = KernelBuilder(integral_type, integral_data.subdomain_id)
@@ -158,7 +161,9 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                                         remove_zeros=True)
 
     # Generate COFFEE
-    index_names = [(index, index.name) for index in argument_indices]
+    index_names = [(si, name + str(n))
+                   for index, name in zip(argument_indices, ['j', 'k'])
+                   for n, si in enumerate(index)]
     if len(quadrature_indices) == 1:
         index_names.append((quadrature_indices[0], 'ip'))
     else:

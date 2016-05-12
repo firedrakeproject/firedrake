@@ -398,7 +398,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
         shape = reduce(operator.add, [element.index_shape for element in elements], ())
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
-        expression = gem.Indexed(gem.Variable("A", shape), indices)
+        expression = gem.Indexed(gem.Variable("A", shape), tuple(chain(*indices)))
 
         return funarg, [], [expression], []
 
