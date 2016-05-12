@@ -68,6 +68,7 @@ def test_real_mixed_one_form_assembly():
     np.testing.assert_almost_equal(A.dat.data[1],
                                    AA.dat.data)
 
+
 def test_real_mixed_two_form_assembly():
     mesh = UnitIntervalMesh(3)
     rfs = FunctionSpace(mesh, "Real", 0)

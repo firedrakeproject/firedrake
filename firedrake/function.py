@@ -5,8 +5,6 @@ import ufl
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 
-import coffee.base as ast
-
 from pyop2 import op2
 from pyop2.logger import warning
 
@@ -65,7 +63,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._label = "a function"
         self._split = None
 
-        if isinstance(val, (op2.Dat, op2.DatView)):
+        if isinstance(val, (op2.Dat, op2.DatView, op2.Global)):
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
