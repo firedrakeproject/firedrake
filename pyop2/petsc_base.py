@@ -135,6 +135,65 @@ class DataSet(base.DataSet):
         return dm
 
 
+class GlobalDataSet(base.GlobalDataSet):
+
+    @utils.cached_property
+    def lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet`.
+        """
+        lgmap = PETSc.LGMap()
+        lgmap.create(indices=np.arange(1, dtype=PETSc.IntType),
+                     bsize=self.cdim)
+        return lgmap
+
+    @utils.cached_property
+    def unblocked_lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet` with a block size of 1.
+        """
+        indices = self.lgmap.indices
+        lgmap = PETSc.LGMap().create(indices=indices,
+                                     bsize=1, comm=self.lgmap.comm)
+        return lgmap
+
+    @utils.cached_property
+    def field_ises(self):
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers."""
+        ises = []
+        nlocal_rows = 0
+        for dset in self:
+            nlocal_rows += dset.size * dset.cdim
+        offset = mpi.MPI.comm.scan(nlocal_rows)
+        offset -= nlocal_rows
+        for dset in self:
+            nrows = dset.size * dset.cdim
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1)
+            iset.setBlockSize(dset.cdim)
+            ises.append(iset)
+            offset += nrows
+        return tuple(ises)
+
+    @utils.cached_property
+    def local_ises(self):
+        """A list of PETSc ISes defining the local indices for each set in the DataSet.
+
+        Used when extracting blocks from matrices for assembly."""
+        raise NotImplementedError
+
+    @utils.cached_property
+    def layout_vec(self):
+        """A PETSc Vec compatible with the dof layout of this DataSet."""
+        vec = PETSc.Vec().create()
+        size = (self.size * self.cdim, None)
+        vec.setSizes(size, bsize=self.cdim)
+        vec.setUp()
+        return vec
+
+
 class MixedDataSet(DataSet, base.MixedDataSet):
 
     @utils.cached_property

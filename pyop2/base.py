@@ -2769,6 +2769,10 @@ class Global(DataCarrier, _EmptyDataMixin):
         return "Global(%r, %r, %r, %r)" % (self._dim, self._data,
                                            self._data.dtype, self._name)
 
+    @cached_property
+    def dataset(self):
+        return _make_object('GlobalDataSet', self)
+
     @property
     def _argtype(self):
         """Ctypes argtype for this :class:`Global`"""
@@ -2845,8 +2849,14 @@ class Global(DataCarrier, _EmptyDataMixin):
         return type(self)(self.dim, data=np.copy(self.data_ro),
                           dtype=self.dtype, name=self.name)
 
+    @collective
+    def copy(self, other, subset=None):
+        """Copy the data in this :class:`Global` into another.
 
-# FIXME: Part of kernel API, but must be declared before Map for the validation.
+        :arg other: The destination :class:`Global`
+        :arg subset: A :class:`Subset` of elements to copy (optional)"""
+
+        other.data = np.copy(self.data_ro)
 
 
 class IterationIndex(object):
