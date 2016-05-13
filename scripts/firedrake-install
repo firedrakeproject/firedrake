@@ -593,7 +593,7 @@ def build_and_install_libspatialindex():
     if os.path.exists("libspatialindex"):
         libspatialindex_changed = git_update("libspatialindex")
     else:
-        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
+        git_clone("git+https://github.com/firedrakeproject/libspatialindex.git@firedrake-dist")
         libspatialindex_changed = True
 
     if libspatialindex_changed:
@@ -604,9 +604,9 @@ def build_and_install_libspatialindex():
         # Patch Makefile.am to skip building test
         check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
         # Build and install
-        check_call(["./autogen.sh"])
         check_call(["./configure", "--prefix=" + sys.prefix,
-                    "--enable-shared", "--disable-static"])
+                    "--enable-shared", "--disable-static",
+                    "--disable-maintainer-mode"])
         check_call(["make"])
         check_call(["make", "install"])
         os.chdir("..")
