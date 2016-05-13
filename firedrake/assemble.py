@@ -344,7 +344,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 args.append(o.dat(op2.READ, get_map(o), flatten=True))
             for n in coeff_map:
                 c = coefficients[n]
-                args.append(c.dat(op2.READ, get_map(c), flatten=True))
+                for c_ in c.split():
+                    args.append(c_.dat(op2.READ, get_map(c_), flatten=True))
 
             args.extend(extra_args)
             try:

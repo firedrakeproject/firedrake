@@ -249,8 +249,9 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
         """
+        parameters = {}
+        parameters.update(kwargs.get("solver_parameters", {}))
+        parameters.setdefault('snes_type', 'ksponly')
+        parameters.setdefault('ksp_rtol', 1.0e-7)
+        kwargs["solver_parameters"] = parameters
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
-
-        self.parameters.setdefault('snes_type', 'ksponly')
-        self.parameters.setdefault('ksp_rtol', 1.0e-7)
-        solving_utils.update_parameters(self, self.snes)
