@@ -425,6 +425,63 @@ class MixedDat(base.MixedDat):
         return self.vecscatter()
 
 
+class Global(base.Global):
+
+    @contextmanager
+    def vec_context(self, readonly=True):
+        """A context manager for a :class:`PETSc.Vec` from a :class:`Global`.
+
+        :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
+                         or read-write (use :meth:`Dat.data`). Read-write
+                         access requires a halo update."""
+
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
+        acc = (lambda d: d.data_ro) if readonly else (lambda d: d.data)
+        # Getting the Vec needs to ensure we've done all current computation.
+        # If we only want readonly access then there's no need to
+        # force the evaluation of reads from the Dat.
+        self._force_evaluation(read=True, write=not readonly)
+        if not hasattr(self, '_vec'):
+            # Can't duplicate layout_vec of dataset, because we then
+            # carry around extra unnecessary data.
+            # But use getSizes to save an Allreduce in computing the
+            # global size.
+            size = self.dataset.layout_vec.getSizes()
+            if MPI.comm.rank == 0:
+                self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
+                                                        bsize=self.cdim)
+            else:
+                self._vec = PETSc.Vec().createWithArray(np.empty(0, dtype=self.dtype),
+                                                        size=size,
+                                                        bsize=self.cdim)
+        # PETSc Vecs have a state counter and cache norm computations
+        # to return immediately if the state counter is unchanged.
+        # Since we've updated the data behind their back, we need to
+        # change that state counter.
+        self._vec.stateIncrease()
+        yield self._vec
+        if not readonly:
+            MPI.comm.Bcast(acc(self), 0)
+
+    @property
+    @modifies
+    @collective
+    def vec(self):
+        """Context manager for a PETSc Vec appropriate for this Dat.
+
+        You're allowed to modify the data you get back from this view."""
+        return self.vec_context(readonly=False)
+
+    @property
+    @collective
+    def vec_ro(self):
+        """Context manager for a PETSc Vec appropriate for this Dat.
+
+        You're not allowed to modify the data you get back from this view."""
+        return self.vec_context()
+
+
 class SparsityBlock(base.Sparsity):
     """A proxy class for a block in a monolithic :class:`.Sparsity`.
 
@@ -871,61 +928,75 @@ class ParLoop(base.ParLoop):
         PETSc.Log.logFlops(self.num_flops)
 
 
-class _DatMat(PETSc.Mat):
+def _DatMat(sparsity, dat=None):
     """A :class:`PETSc.Mat` with global size nx1 or nx1 implemented as a
     :class:`.Dat`"""
+    if isinstance(sparsity.dsets[0], GlobalDataSet):
+        sizes = ((None, 1), (sparsity._ncols, None))
+    elif isinstance(sparsity.dsets[1], GlobalDataSet):
+        sizes = ((sparsity._nrows, None), (None, 1))
+    else:
+        raise ValueError("Not a DatMat")
 
-    def __init__(self, sparsity, dat=None):
-        super(_DatMat, self).__init__()
-        self.create()
+    A = PETSc.Mat().createPython(sizes)
+    A.setPythonContext(_DatMatPayload(sparsity, dat))
+    A.setUp()
+    return A
 
-        self.sparsity = sparsity
+
+class _DatMatPayload(object):
+
+    def __init__(self, sparsity, dat=None, dset=None):
         if isinstance(sparsity.dsets[0], GlobalDataSet):
             self.dset = sparsity.dsets[1]
-            self.setSizes(((None, 1), (sparsity._ncols, None)))
+            self.sizes = ((None, 1), (sparsity._ncols, None))
         elif isinstance(sparsity.dsets[1], GlobalDataSet):
             self.dset = sparsity.dsets[0]
-            self.setSizes(((sparsity._nrows, None), (None, 1)))
+            self.sizes = ((sparsity._nrows, None), (None, 1))
         else:
             raise ValueError("Not a DatMat")
 
-        self.setType(self.Type.PYTHON)
-        self.setPythonContext(dat or _make_object("Dat", self.dset))
+        self.sparsity = sparsity
+        self.dat = dat or _make_object("Dat", self.dset)
+        self.dset = dset
 
     def __getitem__(self, key):
         shape = [s[0] if s[0] > 0 else 1 for s in self.sizes]
-        return self.getPythonContext().data_ro.reshape(*shape)[key]
+        return self.dat.data_ro.reshape(*shape)[key]
 
-    def zeroEntries(self):
-        self.getPythonContext().assign(0.0)
+    def zeroEntries(self, mat):
+        self.dat.data[...] = 0.0
 
     def duplicate(self, copy=True):
         if copy:
-            return _DatMat(self.sparsity, self.getPythonContext().duplicate())
+            return _DatMat(self.sparsity, self.dat.duplicate())
         else:
             return _DatMat(self.sparsity)
 
 
-class _GlobalMat(PETSc.Mat):
+def _GlobalMat(global_=None):
     """A :class:`PETSc.Mat` with global size 1x1 implemented as a
     :class:`.Global`"""
+    A = PETSc.Mat().createPython(((None, 1), (None, 1)))
+    A.setPythonContext(_GlobalMatPayload(global_))
+    A.setUp()
+    return A
+
+
+class _GlobalMatPayload(object):
 
     def __init__(self, global_=None):
-        super(_GlobalMat, self).__init__()
-        self.create()
-        self.setSizes(((None, 1), (None, 1)))
-        self.setType(self.Type.PYTHON)
-        self.setPythonContext(global_ or _make_object("Global", 1))
+        self.payload = global_ or _make_object("Global", 1)
 
     def __getitem__(self, key):
-        return self.getPythonContext().data_ro.reshape(1, 1)[key]
+        return self.payload.data_ro.reshape(1, 1)[key]
 
-    def zeroEntries(self):
-        self.getPythonContext().assign(0.0)
+    def zeroEntries(self, mat):
+        self.payload.data[...] = 0.0
 
     def duplicate(self, copy=True):
         if copy:
-            return _GlobalMat(self.getPythonContext().duplicate())
+            return _GlobalMat(self.payload.duplicate())
         else:
             return _GlobalMat()
 

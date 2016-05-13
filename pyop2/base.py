@@ -2858,6 +2858,22 @@ class Global(DataCarrier, _EmptyDataMixin):
 
         other.data = np.copy(self.data_ro)
 
+    @collective
+    def zero(self):
+        self.data[...] = 0
+
+    @collective
+    def halo_exchange_begin(self):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
+    @collective
+    def halo_exchange_end(self):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
 
 class IterationIndex(object):
 
@@ -3298,7 +3314,7 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def offset(self):
         """Vertical offsets."""
-        return tuple(m.offset for m in self._maps)
+        return tuple(0 if m is None else m.offset for m in self._maps)
 
     def __iter__(self):
         """Yield all :class:`Map`\s when iterated over."""

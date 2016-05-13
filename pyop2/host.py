@@ -94,17 +94,23 @@ class Arg(base.Arg):
                              for i in range(len(self.data))])
         if self._is_indirect or self._is_mat:
             for i, map in enumerate(as_tuple(self.map, Map)):
-                for j, m in enumerate(map):
-                    val += ", int *%s" % self.c_map_name(i, j)
+                if map is not None:
+                    for j, m in enumerate(map):
+                        val += ", int *%s" % self.c_map_name(i, j)
         return val
 
     def c_vec_dec(self, is_facet=False):
         facet_mult = 2 if is_facet else 1
         cdim = self.data.cdim if self._flatten else 1
-        return "%(type)s *%(vec_name)s[%(arity)s];\n" % \
-            {'type': self.ctype,
-             'vec_name': self.c_vec_name(),
-             'arity': self.map.arity * cdim * facet_mult}
+        if self.map is not None:
+            return "%(type)s *%(vec_name)s[%(arity)s];\n" % \
+                {'type': self.ctype,
+                 'vec_name': self.c_vec_name(),
+                 'arity': self.map.arity * cdim * facet_mult}
+        else:
+            return "%(type)s *%(vec_name)s;\n" % \
+                {'type': self.ctype,
+                 'vec_name': self.c_vec_name()}
 
     def c_wrapper_dec(self):
         val = ""
