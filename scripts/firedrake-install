@@ -873,6 +873,7 @@ if mode == "install":
     if not args.honour_petsc_dir:
         pipinstall.append("--no-deps")
         packages.remove("petsc")
+        log.info("Depending on your platform, PETSc may take an hour or more to build!")
         install("petsc/")
         pipinstall.pop()
 
