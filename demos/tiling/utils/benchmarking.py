@@ -8,12 +8,13 @@ import platform
 # (fancy) plotting stuff
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontProperties
 import brewer2mpl
 import matplotlib.ticker as ticker
 
-from pyop2.mpi import MPI
-from pyop2.profiling import summary
-from pyop2.utils import flatten
+#from pyop2.mpi import MPI
+#from pyop2.profiling import summary
+#from pyop2.utils import flatten
 
 
 def parser(**kwargs):
@@ -132,6 +133,10 @@ def output_time(start, end, **kwargs):
                 nloops = "explicit%d" % explicit_mode
             elif split_mode and nloops > 0:
                 nloops = "split%d" % split_mode
+            elif nloops > 0:
+                nloops = "loops%d" % nloops
+            elif nloops == 0:
+                nloops = "untiled"
             filename = os.path.join(output_dir, "times", name, "poly_%d" % poly_order, domain,
                                     "ndofs_%d" % ndofs, mode, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
@@ -175,10 +180,46 @@ def plot():
             return "%d mpi x %d omp" % (num_procs, num_threads)
 
     def avg(values):
-        return sum(values) / len(values)
+        if values:
+            return sum(values) / len(values)
+        else:
+            return 0
 
+    def flatten(x):
+        return [i for l in x for i in l]
+
+    def createdir(base_directory, name, mesh, poly, plot_directory):
+        directory = os.path.join(base_directory, name, mesh, "poly%d" % poly, plot_directory)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        return directory
+
+    def setlayout(ax, ncol=4):
+        # Hide the right and top spines
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        # Only show ticks on the left and bottom spines
+        ax.yaxis.set_ticks_position('left')
+        ax.xaxis.set_ticks_position('bottom')
+        # Adjust spines location
+        ax.spines['left'].set_smart_bounds(True)
+        ax.spines['bottom'].set_smart_bounds(True)
+        # Set margins to avoid markers are cut off
+        ax.margins(y=.1, x=.1)
+        # In case I wanted to change the default position of the axes
+        box = ax.get_position()
+        ax.set_position([box.x0, box.y0, box.width, box.height])
+        # Set font family of tick labels
+        # TODO
+        # Small font size in legend
+        legend_font = FontProperties()
+        legend_font.set_size('small')
+        ax.legend(loc='upper center', bbox_to_anchor=(0., 1.02, 1., .102), prop=legend_font,
+                  frameon=False, ncol=ncol)
+
+    # Set up
     base_directory = "plots"
-    y_runtimes_x_threads = defaultdict(list)
+    y_runtimes_x_cores = defaultdict(list)
     y_runtimes_x_tilesize = defaultdict(list)
     y_runtimes_x_modeloop = {}
 
@@ -187,72 +228,73 @@ def plot():
     for problem, experiments in toplot:
         # Get info out of the problem name
         info = problem.split('/')
-        name, mesh, mode = info[1], info[2], info[3]
+        name, poly, mesh, ndofs, mode = info[1:6]
+        # Format
+        poly = int(poly.split('_')[-1])
         for experiment in experiments:
             num_procs, num_threads = re.findall(r'\d+', experiment)
             num_procs, num_threads = int(num_procs), int(num_threads)
-            num_cores = num_procs * num_threads
             with open(os.path.join(problem, experiment), 'r') as f:
                 # Recall that lines are already sorted based on runtime
-                lines = [line.split(':') for line in f if line.strip()][1:]
-                lines = [[float(i[0]), int(i[1]), int(i[2])] for i in lines]
-                # 1) Structure for runtimes (taking averages, if possible)
-                fastest = lines[0]
-                fastest_lines = [i[0] for i in lines if i[1] == fastest[1] and i[2] == fastest[2]]
-                y_runtimes_x_threads[(name, mesh)].append((mode, num_cores, avg(fastest_lines)))
+                lines = [line.split('|') for line in f if line.strip()][2:]
+                lines = [[float(i[1]), i[2].strip(), int(i[3]), i[4].strip(), i[5].strip(),
+                          i[6].strip(), i[7].strip(), i[8].strip()] for i in lines]
+                # 1) Structure for runtimes
+                for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
+                    y_runtimes_x_cores[(name, poly, mesh, nloops)].append((mode, num_procs, num_threads, runtime))
                 # 2) Structure to plot by tile size
-                for runtime, nloops, tile_size in lines:
-                    key = (name, mesh, nloops, num_procs, num_threads)
+                for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
+                    key = (name, poly, mesh, nloops, num_procs, num_threads)
                     val = (tile_size, runtime)
                     if val not in y_runtimes_x_tilesize[key]:
                         y_runtimes_x_tilesize[key].append(val)
                 # 3) Structure to plot by mode
                 fastest_notiled = avg([i[0] for i in lines if i[1] == 0])
                 fastest_tiled = defaultdict(list)
-                for runtime, nloops, tile_size in lines:
+                for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
                     fastest_tiled[(nloops, tile_size)].append(runtime)
                 fastest_tiled = min(avg(i) for i in fastest_tiled.values())
-                y_runtimes_x_modeloop[(name, mesh, mode)] = (fastest_notiled, fastest_tiled)
+                y_runtimes_x_modeloop[(name, poly, mesh, mode)] = (fastest_notiled, fastest_tiled)
 
     # Now we can plot !
 
     # Fancy colors (all colorbrewer scales: http://bl.ocks.org/mbostock/5577023)
-    set2 = brewer2mpl.get_map('Set2', 'qualitative', 8).mpl_colors
+    set2 = brewer2mpl.get_map('Paired', 'qualitative', 4).hex_colors
 
     # 1) Plot by number of processes/threads
-    plot_directory = "by_threads"
-    for (name, mesh), instance in y_runtimes_x_threads.items():
+    for (name, poly, mesh, nloops), instance in y_runtimes_x_cores.items():
+        directory = createdir(base_directory, name, mesh, poly, "scalability")
         # Start crafting the plot ...
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
-        ax.set_title("%s_%s" % (name, mesh))
         # ... Each line in the plot represents a mode
         runtime_by_mode = defaultdict(list)
-        for mode, num_cores, avg in instance:
+        for mode, num_procs, num_threads, avg in instance:
+            num_cores = num_procs * num_threads
             runtime_by_mode[mode].append((num_cores, avg))
         # ... Add the various lines
         for i, (mode, values) in enumerate(runtime_by_mode.items()):
             x, y = zip(*values)
             ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=mode)
-        ax.legend()
+        # ... Set the axes
+        ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
+        ax.set_xlabel(r'Number of cores', fontsize=11, color='black')
+        # ... Set common layout stuff
+        setlayout(ax)
         # ... The x axis represent number of procs, so needs be integer
         ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
         # ... Finally, output to a file
-        directory = os.path.join(base_directory, name, plot_directory)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        plt.tight_layout()
-        fig.savefig(os.path.join(directory, "%s.pdf" % mesh))
+        fig.savefig(os.path.join(directory, "%s.pdf" % nloops), bbox_inches='tight')
 
     # 2) Plot by tile size
-    plot_directory = "by_tilesize"
     colors = defaultdict(int)
-    for (name, mesh, nloops, num_procs, num_threads), instance in y_runtimes_x_tilesize.items():
+    for (name, poly, mesh, nloops, num_procs, num_threads), instance in y_runtimes_x_tilesize.items():
+        directory = createdir(base_directory, name, mesh, poly, "loopchain")
+        num_cores = num_procs * num_threads
         # Start crafting the plot ...
-        plot_id = "%s_%s_nloops%d" % (name, mesh, nloops)
+        plot_id = "%s_%s_poly%d_%s" % (name, mesh, poly, nloops)
         fig = plt.figure(plot_id)
         ax = fig.add_subplot(1, 1, 1)
-        ax.set_title(plot_id)
         # What's the next color that I should use ?
         colors[plot_id] += 1
         # ... Add a line for this <num_procs, num_threads> instance
@@ -262,40 +304,32 @@ def plot():
         ax.set_xticklabels(tile_size)
         ax.plot(tile_size, runtime, '-', linewidth=2, marker='o', color=set2[colors[plot_id]],
                 label=mode_as_str(num_procs, num_threads))
-        ax.legend()
+        # ... Set common layout stuff
+        setlayout(ax)
         # ... Finally, output to a file
-        directory = os.path.join(base_directory, name, plot_directory)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        plt.tight_layout()
-        fig.savefig(os.path.join(directory, "%s_nloops%d.pdf" % (mesh, nloops)))
+        fig.savefig(os.path.join(directory, "num_cores%d.pdf" % num_cores))
 
     # 3) Plot by mode
     modes = ['sequential', 'openmp', 'mpi', 'mpi_openmp']
     y_runtimes_x_modeloop = sorted(y_runtimes_x_modeloop.items(),
-                                   key=lambda i: (i[0][0], i[0][1], modes.index(i[0][2])))
+                                   key=lambda i: (i[0][0], i[0][1], i[0][2], modes.index(i[0][3])))
     width = 0.3
-    plot_directory = "by_mode"
     offsets, labels = [], []
-    for (name, mesh, mode), values in y_runtimes_x_modeloop:
+    for (name, poly, mesh, mode), values in y_runtimes_x_modeloop:
+        directory = createdir(base_directory, name, mesh, poly, "mode")
         # Start crafting the plot ...
-        plot_id = "%s_%s_bymode" % (name, mesh)
+        plot_id = "%s_%s_poly%d_mode" % (name, mesh, poly)
         fig = plt.figure(plot_id)
         ax = fig.add_subplot(1, 1, 1)
-        ax.set_title("%s_%s" % (name, mesh))
         location = modes.index(mode)
         labels.append((mode, "%s_tiled" % mode))
         offsets.append((location*width*4 + width/2, location*width*4 + width + width/2))
         ax.set_xticks(list(flatten(offsets)))
         ax.set_xticklabels(list(flatten(labels)), rotation=45)
         ax.bar(offsets[-1], values, width, color=set2[location], label=labels[-1])
-        ax.legend()
+        setlayout(ax)
         # ... Finally, output to a file
-        directory = os.path.join(base_directory, name, plot_directory)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        plt.tight_layout()
-        fig.savefig(os.path.join(directory, "%s.pdf" % mesh))
+        fig.savefig(os.path.join(directory, "best_by_mode.pdf"))
 
 
 if __name__ == '__main__':
