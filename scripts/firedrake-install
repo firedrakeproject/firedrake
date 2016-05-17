@@ -776,7 +776,10 @@ if osname == "Darwin":
         brew_install("gcc")
         brew_install("openmpi")
         brew_install("python")
+        brew_install("autoconf")
+        brew_install("automake")
         brew_install("cmake")
+        brew_install("libtool")
 
     else:
         log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -789,12 +792,15 @@ elif osname == "Linux":
         check_call(["apt-get", "--version"])
 
         apt_packages = ["build-essential",
+                        "autoconf",
+                        "automake",
                         "cmake",
                         "gfortran",
                         "git-core",
                         "libblas-dev",
                         "liblapack-dev",
                         "libopenmpi-dev",
+                        "libtool",
                         "mercurial",
                         "openmpi-bin",
                         "python-dev",
@@ -815,6 +821,7 @@ elif osname == "Linux":
         log.info("* Git, Mercurial")
         log.info("* Python version 2.7")
         log.info("* pip and the Python headers")
+        log.info("* autoconf, automake, libtool")
         log.info("* CMake")
         log.info("* zlib")
 
