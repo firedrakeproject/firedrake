@@ -12,8 +12,8 @@ from matplotlib.font_manager import FontProperties
 import brewer2mpl
 import matplotlib.ticker as ticker
 
-from pyop2.mpi import MPI
-from pyop2.profiling import summary
+#from pyop2.mpi import MPI
+#from pyop2.profiling import summary
 
 
 def parser(**kwargs):
@@ -187,8 +187,9 @@ def plot():
     def flatten(x):
         return [i for l in x for i in l]
 
-    def createdir(base_directory, name, mesh, poly, plot_directory):
-        directory = os.path.join(base_directory, name, mesh, "poly%d" % poly, plot_directory)
+    def createdir(base, name, mesh, poly, plot, part="", nloops="", tile_size=""):
+        poly = "poly%d" % poly
+        directory = os.path.join(base, name, mesh, poly, plot, part, nloops, tile_size)
         if not os.path.exists(directory):
             os.makedirs(directory)
         return directory
@@ -217,7 +218,7 @@ def plot():
                   frameon=False, ncol=ncol)
 
     # Set up
-    base_directory = "plots"
+    base = "plots"
     y_runtimes_x_cores = defaultdict(list)
     y_runtimes_x_tilesize = defaultdict(list)
     y_runtimes_x_modeloop = {}
@@ -230,30 +231,37 @@ def plot():
         name, poly, mesh, ndofs, mode = info[1:6]
         # Format
         poly = int(poly.split('_')[-1])
+        mesh = "%s_%s" % (mesh, ndofs)
         for experiment in experiments:
             num_procs, num_threads = re.findall(r'\d+', experiment)
             num_procs, num_threads = int(num_procs), int(num_threads)
+            num_cores = num_procs * num_threads 
             with open(os.path.join(problem, experiment), 'r') as f:
                 # Recall that lines are already sorted based on runtime
                 lines = [line.split('|') for line in f if line.strip()][2:]
                 lines = [[float(i[1]), i[2].strip(), int(i[3]), i[4].strip(), i[5].strip(),
                           i[6].strip(), i[7].strip(), i[8].strip()] for i in lines]
-                # 1) Structure for runtimes
                 for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
-                    y_runtimes_x_cores[(name, poly, mesh, nloops)].append((mode, num_procs, num_threads, runtime))
-                # 2) Structure to plot by tile size
-                for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
-                    key = (name, poly, mesh, nloops, num_procs, num_threads)
-                    val = (tile_size, runtime)
-                    if val not in y_runtimes_x_tilesize[key]:
-                        y_runtimes_x_tilesize[key].append(val)
-                # 3) Structure to plot by mode
-                fastest_notiled = avg([i[0] for i in lines if i[1] == 0])
-                fastest_tiled = defaultdict(list)
-                for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
-                    fastest_tiled[(nloops, tile_size)].append(runtime)
-                fastest_tiled = min(avg(i) for i in fastest_tiled.values())
-                y_runtimes_x_modeloop[(name, poly, mesh, mode)] = (fastest_notiled, fastest_tiled)
+                    # 1) Structure for scalability
+                    # TODO: maybe put nloops IN the graph ???
+                    key = (name, poly, mesh, part, nloops)
+                    val = (mode, num_cores, runtime)
+                    y_runtimes_x_cores[key].append(val)
+
+                    # 2) Structure for tiled versions
+                    key = (name, poly, mesh, mode)
+                    val = (part, nloops, runtime)
+                    y_runtimes_x_tilesize[key].append(val)
+
+                    # 3) Structure for modes
+                    key = (name, poly, mesh, mode)
+                    fastest_notiled = avg([i[0] for i in lines if i[1] == 0])
+                    fastest_tiled = defaultdict(list)
+                    for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
+                        fastest_tiled[(nloops, tile_size)].append(runtime)
+                    fastest_tiled = min(avg(i) for i in fastest_tiled.values())
+                    val = (fastest_notiled, fastest_tiled)
+                    y_runtimes_x_modeloop[key] = val
 
     # Now we can plot !
 
@@ -261,16 +269,17 @@ def plot():
     set2 = brewer2mpl.get_map('Paired', 'qualitative', 4).hex_colors
 
     # 1) Plot by number of processes/threads
-    for (name, poly, mesh, nloops), instance in y_runtimes_x_cores.items():
-        directory = createdir(base_directory, name, mesh, poly, "scalability")
+    # ... "To show how the best tiled variant scales"
+    # ... Each line in the plot represents a mode, while the X axis is
+    # the number of cores
+    for (name, poly, mesh, part, nloops), val in y_runtimes_x_cores.items():
+        directory = createdir(base, name, mesh, poly, "scalability")
+        runtime_by_mode = defaultdict(list)
+        for mode, num_cores, runtime in val:
+            runtime_by_mode[mode].append((num_cores, runtime))
         # Start crafting the plot ...
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
-        # ... Each line in the plot represents a mode
-        runtime_by_mode = defaultdict(list)
-        for mode, num_procs, num_threads, avg in instance:
-            num_cores = num_procs * num_threads
-            runtime_by_mode[mode].append((num_cores, avg))
         # ... Add the various lines
         for i, (mode, values) in enumerate(runtime_by_mode.items()):
             x, y = zip(*values)
@@ -286,49 +295,51 @@ def plot():
         fig.savefig(os.path.join(directory, "%s.pdf" % nloops), bbox_inches='tight')
 
     # 2) Plot by tile size
-    colors = defaultdict(int)
-    for (name, poly, mesh, nloops, num_procs, num_threads), instance in y_runtimes_x_tilesize.items():
-        directory = createdir(base_directory, name, mesh, poly, "loopchain")
-        num_cores = num_procs * num_threads
-        # Start crafting the plot ...
-        plot_id = "%s_%s_poly%d_%s" % (name, mesh, poly, nloops)
-        fig = plt.figure(plot_id)
-        ax = fig.add_subplot(1, 1, 1)
-        # What's the next color that I should use ?
-        colors[plot_id] += 1
-        # ... Add a line for this <num_procs, num_threads> instance
-        tile_size, runtime = zip(*sorted(instance))
-        ax.set_xlim([0, tile_size[-1]+50])
-        ax.set_xticks(tile_size)
-        ax.set_xticklabels(tile_size)
-        ax.plot(tile_size, runtime, '-', linewidth=2, marker='o', color=set2[colors[plot_id]],
-                label=mode_as_str(num_procs, num_threads))
-        # ... Set common layout stuff
-        setlayout(ax)
-        # ... Finally, output to a file
-        fig.savefig(os.path.join(directory, "num_cores%d.pdf" % num_cores))
+    # ... "To show the search for the best tiled variant"
+    # ... Each line in the plot represents a <part, nloops>, while the X axis
+    # is the percentage increase in tile size
+    #colors = defaultdict(int)
+    #for (name, poly, mesh, mode), val in y_runtimes_x_tilesize.items():
+    #    directory = createdir(base, name, mesh, poly, "loopchain")
+    #    runtime_by_part_nloops = defaultdict(list)
+    #    for part, nloops, runtime in val:
+    #        runtime_by_part_nloops[(part, nloops)].
+    #    # Start crafting the plot ...
+    #    fig = plt.figure()
+    #    ax = fig.add_subplot(1, 1, 1)
+    #    # ... Add a line for each <part, nloops>
+    #    tile_size, runtime = zip(*sorted(val))
+    #    ax.set_xlim([0, tile_size[-1]+50])
+    #    ax.set_xticks(tile_size)
+    #    ax.set_xticklabels(tile_size)
+    #    ax.plot(tile_size, runtime, '-', linewidth=2, marker='o', color=set2[colors[plot_id]], label=nloops)
+    #    # ... Set common layout stuff
+    #    setlayout(ax)
+    #    # ... Finally, output to a file
+    #    fig.savefig(os.path.join(directory, "%s.pdf" % mode))
 
     # 3) Plot by mode
-    modes = ['sequential', 'openmp', 'mpi', 'mpi_openmp']
-    y_runtimes_x_modeloop = sorted(y_runtimes_x_modeloop.items(),
-                                   key=lambda i: (i[0][0], i[0][1], i[0][2], modes.index(i[0][3])))
-    width = 0.3
-    offsets, labels = [], []
-    for (name, poly, mesh, mode), values in y_runtimes_x_modeloop:
-        directory = createdir(base_directory, name, mesh, poly, "mode")
-        # Start crafting the plot ...
-        plot_id = "%s_%s_poly%d_mode" % (name, mesh, poly)
-        fig = plt.figure(plot_id)
-        ax = fig.add_subplot(1, 1, 1)
-        location = modes.index(mode)
-        labels.append((mode, "%s_tiled" % mode))
-        offsets.append((location*width*4 + width/2, location*width*4 + width + width/2))
-        ax.set_xticks(list(flatten(offsets)))
-        ax.set_xticklabels(list(flatten(labels)), rotation=45)
-        ax.bar(offsets[-1], values, width, color=set2[location], label=labels[-1])
-        setlayout(ax)
-        # ... Finally, output to a file
-        fig.savefig(os.path.join(directory, "best_by_mode.pdf"))
+    # ... "To compare different modes, of both tiled and non-tiled"
+    #modes = ['sequential', 'openmp', 'mpi', 'mpi_openmp']
+    #y_runtimes_x_modeloop = sorted(y_runtimes_x_modeloop.items(),
+    #                               key=lambda i: (i[0][0], i[0][1], i[0][2], i[0][3], modes.index(i[0][-1])))
+    #width = 0.3
+    #offsets, labels = [], []
+    #for (name, poly, mesh, mode), values in y_runtimes_x_modeloop:
+    #    directory = createdir(base, name, mesh, poly, "mode")
+    #    # Start crafting the plot ...
+    #    plot_id = "%s_%s_poly%d_mode" % (name, mesh, poly)
+    #    fig = plt.figure(plot_id)
+    #    ax = fig.add_subplot(1, 1, 1)
+    #    location = modes.index(mode)
+    #    labels.append((mode, "%s_tiled" % mode))
+    #    offsets.append((location*width*4 + width/2, location*width*4 + width + width/2))
+    #    ax.set_xticks(list(flatten(offsets)))
+    #    ax.set_xticklabels(list(flatten(labels)), rotation=45)
+    #    ax.bar(offsets[-1], values, width, color=set2[location], label=labels[-1])
+    #    setlayout(ax)
+    #    # ... Finally, output to a file
+    #    fig.savefig(os.path.join(directory, "best_by_mode.pdf"))
 
 
 if __name__ == '__main__':
