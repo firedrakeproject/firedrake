@@ -617,31 +617,26 @@ class ParLoop(sequential.ParLoop):
     @collective
     def compute(self):
         """Execute the kernel over all members of the iteration space."""
-        kwargs = {
-            'all_kernels': self._all_kernels,
-            'all_itspaces': self._all_itspaces,
-            'all_args': self._all_args,
-            'executor': self._executor,
-            'insp_name': self._insp_name,
-            'use_glb_maps': self._use_glb_maps,
-            'use_prefetch': self._use_prefetch
-        }
-        fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
-        arglist = self.prepare_arglist(None, *self.args)
-
         with timed_region("ParLoopChain: executor (%s)" % self._insp_name):
             self.halo_exchange_begin()
-            with timed_region("ParLoopChain: executor - core (%s)" % self._insp_name):
-                fun(*(arglist + [0]))
+            kwargs = {
+                'all_kernels': self._all_kernels,
+                'all_itspaces': self._all_itspaces,
+                'all_args': self._all_args,
+                'executor': self._executor,
+                'insp_name': self._insp_name,
+                'use_glb_maps': self._use_glb_maps,
+                'use_prefetch': self._use_prefetch
+            }
+            fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
+            arglist = self.prepare_arglist(None, *self.args)
+            fun(*(arglist + [0]))
             self.halo_exchange_end()
-            with timed_region("ParLoopChain: executor - exec (%s)" % self._insp_name):
-                fun(*(arglist + [1]))
-
+            fun(*(arglist + [1]))
             # Only meaningful if the user is enforcing tiling in presence of
             # global reductions
             self.reduction_begin()
             self.reduction_end()
-
             self.update_arg_data_state()
 
 
