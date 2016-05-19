@@ -798,11 +798,12 @@ class Mat(base.Mat, CopyOnWrite):
             if path == (None, None):
                 #if not hasattr(self, "_global"):
                 #    self._init()
-                return _make_object('Arg', data=self.handle.getPythonContext(),
+                return _make_object('Arg',
+                                    data=self.handle.getPythonContext().global_,
                                     access=access, flatten=flatten)
             elif None in path:
                 thispath = path[0] or path[1]
-                return _make_object('Arg', data=self.handle.getPythonContext(),
+                return _make_object('Arg', data=self.handle.getPythonContext().dat,
                                     map=thispath.map, idx=thispath.idx,
                                     access=access, flatten=flatten)
 
@@ -986,17 +987,26 @@ def _GlobalMat(global_=None):
 class _GlobalMatPayload(object):
 
     def __init__(self, global_=None):
-        self.payload = global_ or _make_object("Global", 1)
+        self.global_ = global_ or _make_object("Global", 1)
 
     def __getitem__(self, key):
-        return self.payload.data_ro.reshape(1, 1)[key]
+        return self.global_.data_ro.reshape(1, 1)[key]
 
     def zeroEntries(self, mat):
-        self.payload.data[...] = 0.0
+        self.global_.data[...] = 0.0
+
+    def getDiagonal(self, mat, result=None):
+        if result is None:
+            result = self.global_.dataset.layout_vec.duplicate()
+        if result.comm.rank == 0:
+            result.array[...] = self.global_.data_ro
+        else:
+            result.array[...]
+        return result
 
     def duplicate(self, copy=True):
         if copy:
-            return _GlobalMat(self.payload.duplicate())
+            return _GlobalMat(self.global_.duplicate())
         else:
             return _GlobalMat()
 
