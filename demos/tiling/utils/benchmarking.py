@@ -67,15 +67,15 @@ def output_time(start, end, **kwargs):
     num_procs = MPI.comm.size
     num_threads = int(os.environ.get("OMP_NUM_THREADS", 1)) if backend == 'OMP' else 1
 
-    # So what execution /mode/ is this?
+    # What execution mode is this?
     if num_procs == 1 and num_threads == 1:
-        modes = ['sequential', 'openmp', 'mpi', 'mpi_openmp']
+        versions = ['sequential', 'openmp', 'mpi', 'mpi_openmp']
     elif num_procs == 1 and num_threads > 1:
-        modes = ['openmp']
+        versions = ['openmp']
     elif num_procs > 1 and num_threads == 1:
-        modes = ['mpi']
+        versions = ['mpi']
     else:
-        modes = ['mpi_openmp']
+        versions = ['mpi_openmp']
 
     # Find the total execution time
     if MPI.comm.rank in range(1, num_procs):
@@ -112,9 +112,17 @@ def output_time(start, end, **kwargs):
         MPI.comm.Allreduce(np.array([fs.dof_dset.size], dtype=int), total_dofs)
         ndofs = total_dofs
 
-    # Adjust the tile size
+    # Adjust /tile_size/ and /version/ based on the problem that was actually run
+    assert nloops >= 0
     if nloops == 0:
         tile_size = 0
+        mode = "untiled"
+    elif explicit_mode:
+        mode = "explicit%d" % explicit_mode
+    elif split_mode:
+        mode = "split%d" % split_mode
+    else:
+        mode = "loops%d" % nloops
 
     # Print to file
     def num(s):
@@ -127,17 +135,9 @@ def output_time(start, end, **kwargs):
                 return s.replace(' ', '')
     if MPI.comm.rank == 0 and tofile:
         name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
-        for mode in modes:
-            if explicit_mode and nloops > 0:
-                nloops = "explicit%d" % explicit_mode
-            elif split_mode and nloops > 0:
-                nloops = "split%d" % split_mode
-            elif nloops > 0:
-                nloops = "loops%d" % nloops
-            elif nloops == 0:
-                nloops = "untiled"
+        for version in versions:
             filename = os.path.join(output_dir, "times", name, "poly_%d" % poly_order, domain,
-                                    "ndofs_%d" % ndofs, mode, "np%d_nt%d.txt" % (num_procs, num_threads))
+                                    "ndofs_%d" % ndofs, version, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
             if not os.path.exists(os.path.dirname(filename)):
                 os.makedirs(os.path.dirname(filename))
@@ -149,10 +149,10 @@ def output_time(start, end, **kwargs):
             with open(filename, "r+") as f:
                 lines = [line.split('|') for line in f if line.strip()][2:]
                 lines = [(num(i[1]), num(i[2]), num(i[3]), num(i[4]), num(i[5]),  num(i[6]),  num(i[7]), num(i[8])) for i in lines]
-                lines += [(tot, nloops, tile_size, partitioning, extra_halo, glb_maps, coloring, prefetch)]
+                lines += [(tot, mode, tile_size, partitioning, extra_halo, glb_maps, coloring, prefetch)]
                 lines.sort(key=lambda x: x[0])
                 template = "| " + "%12s | " * 8
-                prepend = template % ('time', 'nloops', 'tilesize', 'partitioning', 'extrahalo', 'glbmaps', 'coloring', 'prefetch')
+                prepend = template % ('time', 'mode', 'tilesize', 'partitioning', 'extrahalo', 'glbmaps', 'coloring', 'prefetch')
                 lines = "\n".join([prepend, '-'*121] + [template % i for i in lines]) + "\n"
                 f.seek(0)
                 f.write(lines)
@@ -168,7 +168,7 @@ def output_time(start, end, **kwargs):
 
 def plot():
 
-    def mode_as_str(num_procs, num_threads):
+    def version_as_str(num_procs, num_threads):
         if num_procs == 1 and num_threads == 1:
             return "sequential"
         elif num_procs == 1:
@@ -187,9 +187,9 @@ def plot():
     def flatten(x):
         return [i for l in x for i in l]
 
-    def createdir(base, name, mesh, poly, plot, part="", nloops="", tile_size=""):
+    def createdir(base, name, mesh, poly, plot, part="", mode="", tile_size=""):
         poly = "poly%d" % poly
-        directory = os.path.join(base, name, mesh, poly, plot, part, nloops, tile_size)
+        directory = os.path.join(base, name, mesh, poly, plot, part, mode, tile_size)
         if not os.path.exists(directory):
             os.makedirs(directory)
         return directory
@@ -219,16 +219,15 @@ def plot():
 
     # Set up
     base = "plots"
-    y_runtimes_x_cores = defaultdict(list)
-    y_runtimes_x_tilesize = defaultdict(list)
-    y_runtimes_x_modeloop = {}
+    y_runtimes_x_cores = defaultdict(dict)
+    y_runtimes_x_tilesize = defaultdict(dict)
 
     # Structure data into suitable data structures
     toplot = [(i[0], i[2]) for i in os.walk("times/") if not i[1]]
     for problem, experiments in toplot:
         # Get info out of the problem name
         info = problem.split('/')
-        name, poly, mesh, ndofs, mode = info[1:6]
+        name, poly, mesh, ndofs, version = info[1:6]
         # Format
         poly = int(poly.split('_')[-1])
         mesh = "%s_%s" % (mesh, ndofs)
@@ -241,105 +240,71 @@ def plot():
                 lines = [line.split('|') for line in f if line.strip()][2:]
                 lines = [[float(i[1]), i[2].strip(), int(i[3]), i[4].strip(), i[5].strip(),
                           i[6].strip(), i[7].strip(), i[8].strip()] for i in lines]
-                for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
+                for runtime, mode, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
+
                     # 1) Structure for scalability
-                    # TODO: maybe put nloops IN the graph ???
-                    key = (name, poly, mesh, part, nloops)
-                    val = (mode, num_cores, runtime)
-                    y_runtimes_x_cores[key].append(val)
+                    key = (name, poly, mesh, "scalability")
+                    plot_line = "%s-%s-%s" % (version, part, mode)
+                    x_y_val = (num_cores, runtime)
+                    vals = y_runtimes_x_cores[key].setdefault(plot_line, [])
+                    vals.append(x_y_val)
+                    vals.sort(key=lambda i: i[0])
 
                     # 2) Structure for tiled versions
-                    key = (name, poly, mesh, mode)
-                    val = (part, nloops, runtime)
-                    y_runtimes_x_tilesize[key].append(val)
-
-                    # 3) Structure for modes
-                    key = (name, poly, mesh, mode)
-                    fastest_notiled = avg([i[0] for i in lines if i[1] == 0])
-                    fastest_tiled = defaultdict(list)
-                    for runtime, nloops, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
-                        fastest_tiled[(nloops, tile_size)].append(runtime)
-                    fastest_tiled = min(avg(i) for i in fastest_tiled.values())
-                    val = (fastest_notiled, fastest_tiled)
-                    y_runtimes_x_modeloop[key] = val
+                    # if "explicit" in mode ...; tile_size is actually the tile increase factor
+                    key = (name, poly, mesh, version)
+                    plot_line = "%s-%s" % (part, mode)
+                    x_y_val = (tile_size, runtime)
+                    vals = y_runtimes_x_tilesize[key].setdefault(plot_line, [])
+                    vals.append(x_y_val)
+                    vals.sort(key=lambda i: i[0])
 
     # Now we can plot !
 
     # Fancy colors (all colorbrewer scales: http://bl.ocks.org/mbostock/5577023)
-    set2 = brewer2mpl.get_map('Paired', 'qualitative', 4).hex_colors
+    set2 = brewer2mpl.get_map('Paired', 'qualitative', 12).hex_colors
 
     # 1) Plot by number of processes/threads
     # ... "To show how the best tiled variant scales"
-    # ... Each line in the plot represents a mode, while the X axis is
+    # ... Each line in the plot represents a <version, mode>, while the X axis is
     # the number of cores
-    for (name, poly, mesh, part, nloops), val in y_runtimes_x_cores.items():
+    for (name, poly, mesh, filename), plot_lines in y_runtimes_x_cores.items():
         directory = createdir(base, name, mesh, poly, "scalability")
-        runtime_by_mode = defaultdict(list)
-        for mode, num_cores, runtime in val:
-            runtime_by_mode[mode].append((num_cores, runtime))
-        # Start crafting the plot ...
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
-        # ... Add the various lines
-        for i, (mode, values) in enumerate(runtime_by_mode.items()):
-            x, y = zip(*values)
-            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=mode)
-        # ... Set the axes
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Number of cores', fontsize=11, color='black')
+        # ... Add a line for each <version, part, mode>
+        for i, (plot_line, x_y_vals) in enumerate(plot_lines.items()):
+            x, y = zip(*x_y_vals)
+            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line)
         # ... Set common layout stuff
         setlayout(ax)
-        # ... The x axis represent number of procs, so needs be integer
+        # ... The x axis represents number of procs, so needs be integer
         ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
         # ... Finally, output to a file
-        fig.savefig(os.path.join(directory, "%s.pdf" % nloops), bbox_inches='tight')
+        fig.savefig(os.path.join(directory, "%s.pdf" % filename), bbox_inches='tight')
 
     # 2) Plot by tile size
     # ... "To show the search for the best tiled variant"
-    # ... Each line in the plot represents a <part, nloops>, while the X axis
+    # ... Each line in the plot represents a <part, mode>, while the X axis
     # is the percentage increase in tile size
-    #colors = defaultdict(int)
-    #for (name, poly, mesh, mode), val in y_runtimes_x_tilesize.items():
-    #    directory = createdir(base, name, mesh, poly, "loopchain")
-    #    runtime_by_part_nloops = defaultdict(list)
-    #    for part, nloops, runtime in val:
-    #        runtime_by_part_nloops[(part, nloops)].
-    #    # Start crafting the plot ...
-    #    fig = plt.figure()
-    #    ax = fig.add_subplot(1, 1, 1)
-    #    # ... Add a line for each <part, nloops>
-    #    tile_size, runtime = zip(*sorted(val))
-    #    ax.set_xlim([0, tile_size[-1]+50])
-    #    ax.set_xticks(tile_size)
-    #    ax.set_xticklabels(tile_size)
-    #    ax.plot(tile_size, runtime, '-', linewidth=2, marker='o', color=set2[colors[plot_id]], label=nloops)
-    #    # ... Set common layout stuff
-    #    setlayout(ax)
-    #    # ... Finally, output to a file
-    #    fig.savefig(os.path.join(directory, "%s.pdf" % mode))
-
-    # 3) Plot by mode
-    # ... "To compare different modes, of both tiled and non-tiled"
-    #modes = ['sequential', 'openmp', 'mpi', 'mpi_openmp']
-    #y_runtimes_x_modeloop = sorted(y_runtimes_x_modeloop.items(),
-    #                               key=lambda i: (i[0][0], i[0][1], i[0][2], i[0][3], modes.index(i[0][-1])))
-    #width = 0.3
-    #offsets, labels = [], []
-    #for (name, poly, mesh, mode), values in y_runtimes_x_modeloop:
-    #    directory = createdir(base, name, mesh, poly, "mode")
-    #    # Start crafting the plot ...
-    #    plot_id = "%s_%s_poly%d_mode" % (name, mesh, poly)
-    #    fig = plt.figure(plot_id)
-    #    ax = fig.add_subplot(1, 1, 1)
-    #    location = modes.index(mode)
-    #    labels.append((mode, "%s_tiled" % mode))
-    #    offsets.append((location*width*4 + width/2, location*width*4 + width + width/2))
-    #    ax.set_xticks(list(flatten(offsets)))
-    #    ax.set_xticklabels(list(flatten(labels)), rotation=45)
-    #    ax.bar(offsets[-1], values, width, color=set2[location], label=labels[-1])
-    #    setlayout(ax)
-    #    # ... Finally, output to a file
-    #    fig.savefig(os.path.join(directory, "best_by_mode.pdf"))
+    for (name, poly, mesh, version), plot_lines in y_runtimes_x_tilesize.items():
+        directory = createdir(base, name, mesh, poly, "searchforoptimum")
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, 1)
+        ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
+        ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black')
+        # ... Add a line for each <part, mode>
+        for i, (plot_line, x_y_vals) in enumerate(plot_lines.items()):
+            x, y = zip(*x_y_vals)
+            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line)
+        # ... Set common layout stuff
+        setlayout(ax)
+        # ... The x axis represents increase factors, so needs be integer
+        ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
+        # ... Finally, output to a file
+        fig.savefig(os.path.join(directory, "%s.pdf" % version))
 
 
 if __name__ == '__main__':
