@@ -968,6 +968,23 @@ class _DatMatPayload(object):
     def zeroEntries(self, mat):
         self.dat.data[...] = 0.0
 
+    def mult(self, mat, x, y):
+        with self.dat.vec as v:
+            if self.sizes[0][0] is None:
+                # Row matrix
+                out = v.dot(x)
+                if y.comm.rank == 0:
+                    y.array[0] = out
+                else:
+                    y.array[...]
+            else:
+                # Column matrix
+                if x.sizes[1] == 1:
+                    v.copy(y)
+                    return y.scale(x.getArray())
+                else:
+                    return v.pointwiseMult(x, y)
+
     def duplicate(self, copy=True):
         if copy:
             return _DatMat(self.sparsity, self.dat.duplicate())
@@ -1004,17 +1021,18 @@ class _GlobalMatPayload(object):
             result.array[...]
         return result
 
+    def mult(self, mat, x, result):
+        if result.comm.rank == 0:
+            result.array[...] = self.global_.data_ro * x.array
+        else:
+            result.array[...]
+
     def duplicate(self, copy=True):
         if copy:
             return _GlobalMat(self.global_.duplicate())
         else:
             return _GlobalMat()
 
-    # globalmat needs
-    # mat.mult
-    # mat.multAdd
-    # mat.multTranspose
-    # usw. usw.
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
