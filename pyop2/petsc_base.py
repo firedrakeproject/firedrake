@@ -981,7 +981,11 @@ class _DatMatPayload(object):
                 # Column matrix
                 if x.sizes[1] == 1:
                     v.copy(y)
-                    return y.scale(x.getArray())
+                    a = np.zeros(1)
+                    if x.comm.rank == 0:
+                        a[0] = x.getArray()
+                        raise ValueError
+                    return y.scale()
                 else:
                     return v.pointwiseMult(x, y)
 
