@@ -310,6 +310,8 @@ class MeshTopology(object):
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
+        # Cell subsets for integration over subregions
+        self._subsets = {}
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
@@ -593,6 +595,17 @@ class MeshTopology(object):
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "%s_cells" % self.name)
+
+    def cell_subset(self, subdomain_id):
+        """Return a subset over cells with the given subdomain_id."""
+        try:
+            return self._subsets[subdomain_id]
+        except KeyError:
+            indices = dmplex.get_cell_markers(self._plex,
+                                              self._cell_numbering,
+                                              subdomain_id)
+            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
+            return self._subsets[subdomain_id]
 
 
 class ExtrudedMeshTopology(MeshTopology):

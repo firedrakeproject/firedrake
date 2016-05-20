@@ -278,6 +278,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             if integral_type == "cell":
                 itspace = sdata or m.cell_set
 
+                if subdomain_id is not None:
+                    assert sdata is None
+                    # Integration over a cell subdomain
+                    itspace = m.cell_subset(subdomain_id)
+
                 def get_map(x, bcs=None, decoration=None):
                     return x.cell_node_map(bcs)
 
