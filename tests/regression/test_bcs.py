@@ -345,7 +345,7 @@ def test_mixed_bcs():
     u, p = TrialFunctions(W)
     v, q = TestFunctions(W)
 
-    bc = DirichletBC(W.sub(1), 0.0, (1, 2, 3, 4))
+    bc = DirichletBC(W.sub(1), 0.0, "on_boundary")
 
     A = assemble(inner(u, v)*dx, bcs=bc)
 
