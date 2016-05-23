@@ -40,17 +40,36 @@ class Vector(object):
             self.dat *= a.dat
         except AttributeError:
             self.dat *= a
+        return self
 
     def __mul__(self, other):
-        """Scale self by other"""
+        """Scalar multiplication by other."""
+        return self.copy()._scale(other)
+
+    def __imul__(self, other):
+        """In place scalar multiplication by other."""
         return self._scale(other)
 
+    def __rmul__(self, other):
+        """Reverse scalar multiplication by other."""
+        return self.__mul__(other)
+
     def __add__(self, other):
+        """Add other to self"""
+        sum = self.copy()
+        try:
+            sum.dat += other.dat
+        except AttributeError:
+            sum += other
+        return sum
+
+    def __iadd__(self, other):
         """Add other to self"""
         try:
             self.dat += other.dat
         except AttributeError:
-            self.dat += other
+            self += other
+        return self
 
     def apply(self, action):
         """Finalise vector assembly. This is not actually required in
@@ -61,6 +80,10 @@ class Vector(object):
         """Return a copy of the process local data as a numpy array"""
         with self.dat.vec_ro as v:
             return np.copy(v.array)
+
+    def copy(self):
+        """Return a copy of this vector."""
+        return Vector(op2.Dat(self.dat))
 
     def get_local(self):
         """Return a copy of the process local data as a numpy array"""
@@ -83,6 +106,11 @@ class Vector(object):
 
         with self.dat.vec_ro as v:
             return v.getOwnershipRange()
+
+    def max(self):
+        """Return the maximum entry in the vector."""
+        with self.dat.vec_ro as v:
+            return v.max()[1]
 
     def size(self):
         """Return the global size of the data"""
