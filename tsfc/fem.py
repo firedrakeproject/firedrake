@@ -146,7 +146,16 @@ def _(terminal, mt, params):
     argument_index = params.argument_indices[terminal.number()]
 
     element = create_element(terminal.ufl_element())
-    M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+    if params.integral_type == 'cell':
+        M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+    else:
+        from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
+        Ms = []
+        for points in params.facet_manager.facet_transform(params.quad_rule.points):
+            quad_rule = QuadratureRule(params.facet_manager.ufl_cell, points, params.quad_rule.weights)
+            quad_rule.__class__ = CollapsedGaussJacobiQuadrature
+            Ms.append(element.basis_evaluation(quad_rule, derivative=mt.local_derivatives))
+        M = params.facet_manager.select_facet(gem.ListTensor(Ms), mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     result = gem.Indexed(M, (params.quadrature_index,) + argument_index + vi)
     if vi:
@@ -166,7 +175,17 @@ def _(terminal, mt, params):
     ka = gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[mt.restriction])
 
     element = create_element(terminal.ufl_element())
-    M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+    if params.integral_type == 'cell':
+        M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+    else:
+        from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
+        Ms = []
+        for points in params.facet_manager.facet_transform(params.quad_rule.points):
+            quad_rule = QuadratureRule(params.facet_manager.ufl_cell, points, params.quad_rule.weights)
+            quad_rule.__class__ = CollapsedGaussJacobiQuadrature
+            Ms.append(element.basis_evaluation(quad_rule, derivative=mt.local_derivatives))
+        M = params.facet_manager.select_facet(gem.ListTensor(Ms), mt.restriction)
+
     alpha = element.get_indices()
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     result = gem.Product(gem.Indexed(M, (params.quadrature_index,) + alpha + vi),
