@@ -52,6 +52,11 @@ class Vector(object):
         except AttributeError:
             self.dat += other
 
+    def apply(self, action):
+        """Finalise vector assembly. This is not actually required in
+        Firedrake but is provided for Dolfin compatibility."""
+        pass
+
     def array(self):
         """Return a copy of the process local data as a numpy array"""
         with self.dat.vec_ro as v:
@@ -71,6 +76,13 @@ class Vector(object):
     def local_size(self):
         """Return the size of the process local data (without ghost points)"""
         return self.dat.dataset.size
+
+    def local_range(self):
+        """Return the global indices of the start and end of the local part of
+        this vector."""
+
+        with self.dat.vec_ro as v:
+            return v.getOwnershipRange()
 
     def size(self):
         """Return the global size of the data"""
