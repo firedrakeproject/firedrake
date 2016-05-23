@@ -374,6 +374,8 @@ class MeshTopology(object):
                                                            perm=self._plex_renumbering)
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
+        # HACK HACK HACK !!!!!
+        self.comm = op2.MPI.comm
 
     @timed_function("CreateMesh")
     def init(self):
