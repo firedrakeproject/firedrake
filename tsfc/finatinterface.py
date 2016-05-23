@@ -59,6 +59,15 @@ def as_fiat_cell(cell):
     return FIAT.ufc_cell(cell)
 
 
+def fiat_compat(element, vector_is_mixed):
+    from tsfc.fiatinterface import convert
+    from finat.fiat_elements import ScalarFiatElement
+    cell = as_fiat_cell(element.cell())
+    finat_element = ScalarFiatElement(cell, element.degree())
+    finat_element._fiat_element = convert(element, vector_is_mixed=vector_is_mixed)
+    return finat_element
+
+
 @singledispatch
 def convert(element, vector_is_mixed):
     """Handler for converting UFL elements to FIAT elements.
@@ -71,15 +80,18 @@ def convert(element, vector_is_mixed):
     :func:`create_element`."""
     if element.family() in supported_elements:
         raise ValueError("Element %s supported, but no handler provided" % element)
-    raise ValueError("Unsupported element type %s" % type(element))
+    return fiat_compat(element, vector_is_mixed)
 
 
 # Base finite elements first
 @convert.register(ufl.FiniteElement)  # noqa
 def _(element, vector_is_mixed):
     cell = as_fiat_cell(element.cell())
-    lmbda = supported_elements[element.family()]
-    return lmbda(cell, element.degree())
+    lmbda = supported_elements.get(element.family())
+    if lmbda:
+        return lmbda(cell, element.degree())
+    else:
+        return fiat_compat(element, vector_is_mixed)
 
 
 # MixedElement case
