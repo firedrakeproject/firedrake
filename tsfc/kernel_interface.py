@@ -235,16 +235,17 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
     # Interior facet integral
     shape = (2,) + finat_element.index_shape
 
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=(shape if pyop2_scalar else shape[:-1])),
                          pointers=[("restrict",)],
                          qualifiers=["const"])
-    expression = gem.Variable(name, shape + (1,))
-
-    f, i = gem.Index(), gem.Index()
-    expression = gem.ComponentTensor(
-        gem.Indexed(gem.Variable(name, shape + (1,)),
-                    (f, i, 0)),
-        (f, i,))
+    if pyop2_scalar:
+        alpha = tuple(gem.Index() for d in shape)
+        expression = gem.ComponentTensor(
+            gem.Indexed(gem.Variable(name, shape + (1,)),
+                        alpha + (0,)),
+            alpha)
+    else:
+        expression = gem.Variable(name, shape)
 
     return funarg, expression
 
@@ -293,8 +294,8 @@ def prepare_arguments(arguments, indices, interior_facet=False):
     varexp = gem.Variable("A", shape)
 
     expressions = []
-    for restrictions in product((0, 1), repeat=len(arguments)):
-        is_ = tuple(chain(*zip(restrictions, indices)))
+    for restrictions in product(((0,), (1,)), repeat=len(arguments)):
+        is_ = tuple(chain(*chain(*zip(restrictions, indices))))
         expressions.append(gem.Indexed(varexp, is_))
 
     return funarg, expressions
