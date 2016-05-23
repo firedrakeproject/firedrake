@@ -21,81 +21,12 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'RectangleMesh', 'SquareMesh', 'UnitSquareMesh',
            'PeriodicRectangleMesh', 'PeriodicSquareMesh',
            'PeriodicUnitSquareMesh',
-           'CircleMesh', 'UnitCircleMesh',
            'CircleManifoldMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
            'TorusMesh', 'CylinderMesh']
-
-
-_cachedir = os.path.join(tempfile.gettempdir(),
-                         'firedrake-mesh-cache-uid%d' % os.getuid())
-
-
-def _ensure_cachedir():
-    if MPI.comm.rank == 0 and not os.path.exists(_cachedir):
-        os.makedirs(_cachedir)
-
-_ensure_cachedir()
-
-
-def _clear_cachedir():
-    if MPI.comm.rank == 0 and os.path.exists(_cachedir):
-        rmtree(_cachedir, ignore_errors=True)
-        _ensure_cachedir()
-
-
-def _msh_exists(name):
-    f = os.path.join(_cachedir, name)
-    return os.path.exists(f + '.msh')
-
-
-def _build_msh_file(input, output, dimension):
-    try:
-        # Must occur after mpi4py import due to:
-        # 1) MPI initialisation issues
-        # 2) LD_PRELOAD issues
-        import gmshpy
-        gmshpy.Msg.SetVerbosity(-1)
-        # We've got the gmsh python interface available, so
-        # use that, rather than spawning the gmsh binary.
-        m = gmshpy.GModel()
-        m.readGEO(input)
-        m.mesh(dimension)
-        m.writeMSH(output + ".msh")
-        return
-    except ImportError:
-        raise RuntimeError('Creation of gmsh meshes requires gmshpy')
-
-
-def _get_msh_file(source, name, dimension, meshed=False):
-    """Given a source code, name and dimension  of the mesh,
-    returns the name of the file that contains necessary information to build
-    a mesh class. The mesh class would call _from_file method on this file
-    to contruct itself.
-    """
-
-    if MPI.comm.rank == 0:
-        input = os.path.join(_cachedir, name + '.geo')
-        if not meshed:
-            if not os.path.exists(input):
-                with open(input, 'w') as f:
-                    f.write(source)
-
-        output = os.path.join(_cachedir, name)
-
-        if not _msh_exists(name):
-            if meshed:
-                with file(output + '.msh', 'w') as f:
-                    f.write(source)
-            else:
-                _build_msh_file(input, output, dimension)
-        MPI.comm.bcast(output, root=0)
-    else:
-        output = MPI.comm.bcast(None, root=0)
-    return output + '.msh'
 
 
 def IntervalMesh(ncells, length_or_left, right=None):
@@ -442,39 +373,6 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None, quadrilateral
     """
     return PeriodicSquareMesh(nx, ny, 1.0, direction=direction,
                               reorder=reorder, quadrilateral=quadrilateral)
-
-
-def CircleMesh(radius, resolution, reorder=None):
-    """Generate a structured triangular mesh of a circle.
-
-    :arg radius: The radius of the circle.
-    :arg resolution: The number of cells lying along the radius and
-         the arc of the quadrant.
-    :kwarg reorder: (optional), should the mesh be reordered?
-    """
-    source = """
-    lc = %g;
-    Point(1) = {0, -0.5, 0, lc};
-    Point(2) = {0, 0.5, 0, lc};
-    Line(1) = {1, 2};
-    surface[] = Extrude{{0, 0, %g},{0, 0, 0}, 0.9999 * Pi}{
-    Line{1};Layers{%d};
-    };
-    Physical Surface(2) = { surface[1] };
-    """ % (0.5 / resolution, radius, resolution * 4)
-
-    output = _get_msh_file(source, "circle_%g_%d" % (radius, resolution), 2)
-    return mesh.Mesh(output, reorder=reorder)
-
-
-def UnitCircleMesh(resolution, reorder=None):
-    """Generate a structured triangular mesh of a unit circle.
-
-    :arg resolution: The number of cells lying along the radius and
-         the arc of the quadrant.
-    :kwarg reorder: (optional), should the mesh be reordered?
-    """
-    return CircleMesh(1.0, resolution, reorder=reorder)
 
 
 def CircleManifoldMesh(ncells, radius=1):
