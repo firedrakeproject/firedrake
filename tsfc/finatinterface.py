@@ -61,9 +61,9 @@ def as_fiat_cell(cell):
 
 def fiat_compat(element, vector_is_mixed):
     from tsfc.fiatinterface import convert
-    from finat.fiat_elements import ScalarFiatElement
+    from finat.fiat_elements import FiatElementBase
     cell = as_fiat_cell(element.cell())
-    finat_element = ScalarFiatElement(cell, element.degree())
+    finat_element = FiatElementBase(cell, element.degree())
     finat_element._fiat_element = convert(element, vector_is_mixed=vector_is_mixed)
     return finat_element
 
