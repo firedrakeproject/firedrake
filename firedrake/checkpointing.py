@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 from firedrake.petsc import PETSc
-from firedrake import op2
+from pyop2.mpi import COMM_WORLD
 from firedrake import hdf5interface as h5i
 import firedrake
 import numpy as np
@@ -51,7 +51,7 @@ class DumbCheckpoint(object):
     """
     def __init__(self, basename, single_file=True,
                  mode=FILE_UPDATE, comm=None):
-        self.comm = comm or op2.MPI.comm
+        self.comm = comm or COMM_WORLD
         self.mode = mode
 
         self._single = single_file

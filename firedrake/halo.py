@@ -1,5 +1,4 @@
 from __future__ import absolute_import
-from pyop2 import op2
 from pyop2.utils import maybe_setflags
 from mpi4py import MPI
 
@@ -48,6 +47,7 @@ class Halo(object):
         gsec = dm.getDefaultGlobalSection()
         dm.createDefaultSF(lsec, gsec)
         sf = dm.getDefaultSF()
+
         # The full SF is designed for GlobalToLocal or LocalToGlobal
         # where the input and output buffers are different.  So on the
         # local rank, it copies data from input to output.  However,
@@ -56,17 +56,13 @@ class Halo(object):
         # this, prune the SF to remove all the roots that reference
         # the local rank.
         self.sf = dmplex.prune_sf(sf)
+        self.comm = self.sf.comm.tompi4py()
         self.sf.setFromOptions()
         if self.sf.getType() != self.sf.Type.BASIC:
             raise RuntimeError("Windowed SFs expose bugs in OpenMPI (use -sf_type basic)")
-        if op2.MPI.comm.size == 1:
+        if self.comm.size == 1:
             self._gnn2unn = None
         self._gnn2unn = dmplex.make_global_numbering(lsec, gsec)
-
-    @property
-    def comm(self):
-        """The communicator for this halo."""
-        return self.sf.comm
 
     def begin(self, dat, reverse=False):
         """Begin a halo exchange.

@@ -257,8 +257,8 @@ class File(object):
             raise ValueError("Only output to PVD is supported")
 
         if comm is None:
-            from pyop2.mpi import MPI
-            comm = MPI.comm
+            from pyop2.mpi import COMM_WORLD
+            comm = COMM_WORLD
 
         if comm.rank == 0:
             outdir = os.path.dirname(os.path.abspath(filename))

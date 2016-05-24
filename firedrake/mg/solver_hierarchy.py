@@ -103,7 +103,7 @@ def create_interpolation(dmc, dmf):
                 w.axpy(1.0, y)
 
     ctx = Interpolation(cfn, ffn, cbcs, fbcs)
-    mat = PETSc.Mat().create()
+    mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes(((nrow, None), (ncol, None)))
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
@@ -143,7 +143,7 @@ def create_injection(dmc, dmf):
                 v.copy(y)
 
     ctx = Injection(cfn, ffn, cbcs)
-    mat = PETSc.Mat().create()
+    mat = PETSc.Mat().create(comm=dmc.comm)
     mat.setSizes(((nrow, None), (ncol, None)))
     mat.setType(mat.Type.PYTHON)
     mat.setPythonContext(ctx)
@@ -211,7 +211,7 @@ class NLVSHierarchy(object):
 
         if nullspace is not None or tnullspace is not None:
             raise NotImplementedError("Coarsening nullspaces not yet implemented")
-        snes = PETSc.SNES().create()
+        snes = PETSc.SNES().create(comm=problems[-1].dm.comm)
 
         snes.setDM(problems[-1].dm)
         self.problems = problems

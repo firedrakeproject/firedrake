@@ -54,12 +54,12 @@ class Constant(ufl.Coefficient):
     def __init__(self, value, domain=None):
         # Init also called in mesh constructor, but constant can be built without mesh
         utils._init()
-        self.dat, rank, shape = _globalify(value)
 
         cell = None
         if domain is not None:
             domain = ufl.as_domain(domain)
             cell = domain.ufl_cell()
+        self.dat, rank, shape = _globalify(value)
         if rank == 0:
             e = ufl.FiniteElement("Real", cell, 0)
         elif rank == 1:
