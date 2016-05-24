@@ -40,7 +40,7 @@ required to implement backend-specific features.
 """
 
 from contextlib import contextmanager
-from petsc4py import PETSc, __version__ as petsc4py_version
+from petsc4py import PETSc
 import numpy as np
 
 import base
@@ -54,30 +54,6 @@ import sparsity
 from pyop2 import utils
 
 
-if petsc4py_version < '3.4':
-    raise RuntimeError("Incompatible petsc4py version %s. At least version 3.4 is required."
-                       % petsc4py_version)
-
-
-class MPIConfig(mpi.MPIConfig):
-
-    def __init__(self):
-        super(MPIConfig, self).__init__()
-        PETSc.Sys.setDefaultComm(self.comm)
-
-    @mpi.MPIConfig.comm.setter
-    @collective
-    def comm(self, comm):
-        """Set the MPI communicator for parallel communication."""
-        self.COMM = mpi._check_comm(comm)
-        # PETSc objects also need to be built on the same communicator.
-        PETSc.Sys.setDefaultComm(self.comm)
-
-MPI = MPIConfig()
-# Override MPI configuration
-mpi.MPI = MPI
-
-
 class DataSet(base.DataSet):
 
     @utils.cached_property
@@ -86,12 +62,12 @@ class DataSet(base.DataSet):
         indices for this :class:`DataSet`.
         """
         lgmap = PETSc.LGMap()
-        if MPI.comm.size == 1:
+        if self.comm.size == 1:
             lgmap.create(indices=np.arange(self.size, dtype=PETSc.IntType),
-                         bsize=self.cdim)
+                         bsize=self.cdim, comm=self.comm)
         else:
             lgmap.create(indices=self.halo.global_to_petsc_numbering,
-                         bsize=self.cdim)
+                         bsize=self.cdim, comm=self.comm)
         return lgmap
 
     @utils.cached_property
@@ -114,11 +90,12 @@ class DataSet(base.DataSet):
         nlocal_rows = 0
         for dset in self:
             nlocal_rows += dset.size * dset.cdim
-        offset = mpi.MPI.comm.scan(nlocal_rows)
+        offset = self.comm.scan(nlocal_rows)
         offset -= nlocal_rows
         for dset in self:
             nrows = dset.size * dset.cdim
-            iset = PETSc.IS().createStride(nrows, first=offset, step=1)
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+                                           comm=self.comm)
             iset.setBlockSize(dset.cdim)
             ises.append(iset)
             offset += nrows
@@ -134,7 +111,8 @@ class DataSet(base.DataSet):
         for dset in self:
             bs = dset.cdim
             n = dset.total_size*bs
-            iset = PETSc.IS().createStride(n, first=start, step=1)
+            iset = PETSc.IS().createStride(n, first=start, step=1,
+                                           comm=mpi.COMM_SELF)
             iset.setBlockSize(bs)
             start += n
             ises.append(iset)
@@ -143,7 +121,7 @@ class DataSet(base.DataSet):
     @utils.cached_property
     def layout_vec(self):
         """A PETSc Vec compatible with the dof layout of this DataSet."""
-        vec = PETSc.Vec().create()
+        vec = PETSc.Vec().create(comm=self.comm)
         size = (self.size * self.cdim, None)
         vec.setSizes(size, bsize=self.cdim)
         vec.setUp()
@@ -155,7 +133,7 @@ class MixedDataSet(DataSet, base.MixedDataSet):
     @utils.cached_property
     def layout_vec(self):
         """A PETSc Vec compatible with the dof layout of this MixedDataSet."""
-        vec = PETSc.Vec().create()
+        vec = PETSc.Vec().create(comm=self.comm)
         # Size of flattened vector is product of size and cdim of each dat
         size = sum(d.size * d.cdim for d in self)
         vec.setSizes((size, None))
@@ -174,14 +152,15 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         # Hence the offset into the global Vec is the exclusive
         # prefix sum of the local size of the mixed dat.
         size = sum(d.size * d.cdim for d in self)
-        offset = MPI.comm.exscan(size)
+        offset = self.comm.exscan(size)
         if offset is None:
             offset = 0
         scatters = []
         for d in self:
             size = d.size * d.cdim
             vscat = PETSc.Scatter().create(d.layout_vec, None, self.layout_vec,
-                                           PETSc.IS().createStride(size, offset, 1))
+                                           PETSc.IS().createStride(size, offset, 1,
+                                                                   comm=d.comm))
             offset += size
             scatters.append(vscat)
         return tuple(scatters)
@@ -192,10 +171,10 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         indices for this :class:`MixedDataSet`.
         """
         lgmap = PETSc.LGMap()
-        if MPI.comm.size == 1:
+        if self.comm.size == 1:
             size = sum(s.size * s.cdim for s in self)
             lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
-                         bsize=1)
+                         bsize=1, comm=self.comm)
             return lgmap
         # Compute local to global maps for a monolithic mixed system
         # from the individual local to global maps for each field.
@@ -224,20 +203,20 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         indices = np.full(idx_size, -1, dtype=PETSc.IntType)
         owned_sz = np.array([sum(s.size * s.cdim for s in self)], dtype=PETSc.IntType)
         field_offset = np.empty_like(owned_sz)
-        MPI.comm.Scan(owned_sz, field_offset)
+        self.comm.Scan(owned_sz, field_offset)
         field_offset -= owned_sz
 
-        all_field_offsets = np.empty(MPI.comm.size, dtype=PETSc.IntType)
-        MPI.comm.Allgather(field_offset, all_field_offsets)
+        all_field_offsets = np.empty(self.comm.size, dtype=PETSc.IntType)
+        self.comm.Allgather(field_offset, all_field_offsets)
 
         start = 0
-        all_local_offsets = np.zeros(MPI.comm.size, dtype=PETSc.IntType)
-        current_offsets = np.zeros(MPI.comm.size + 1, dtype=PETSc.IntType)
+        all_local_offsets = np.zeros(self.comm.size, dtype=PETSc.IntType)
+        current_offsets = np.zeros(self.comm.size + 1, dtype=PETSc.IntType)
         for s in self:
             idx = indices[start:start + s.total_size * s.cdim]
             owned_sz[0] = s.size * s.cdim
-            MPI.comm.Scan(owned_sz, field_offset)
-            MPI.comm.Allgather(field_offset, current_offsets[1:])
+            self.comm.Scan(owned_sz, field_offset)
+            self.comm.Allgather(field_offset, current_offsets[1:])
             # Find the ranks each entry in the l2g belongs to
             l2g = s.halo.global_to_petsc_numbering
             # If cdim > 1, we need to unroll the node numbering to dof
@@ -250,10 +229,10 @@ class MixedDataSet(DataSet, base.MixedDataSet):
             tmp_indices = np.searchsorted(current_offsets, l2g, side="right") - 1
             idx[:] = l2g[:] - current_offsets[tmp_indices] + \
                 all_field_offsets[tmp_indices] + all_local_offsets[tmp_indices]
-            MPI.comm.Allgather(owned_sz, current_offsets[1:])
+            self.comm.Allgather(owned_sz, current_offsets[1:])
             all_local_offsets += current_offsets[1:]
             start += s.total_size * s.cdim
-        lgmap.create(indices=indices, bsize=1)
+        lgmap.create(indices=indices, bsize=1, comm=self.comm)
         return lgmap
 
     @utils.cached_property
@@ -288,7 +267,8 @@ class Dat(base.Dat):
             # global size.
             size = self.dataset.layout_vec.getSizes()
             self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
-                                                    bsize=self.cdim)
+                                                    bsize=self.cdim,
+                                                    comm=self.comm)
         # PETSc Vecs have a state counter and cache norm computations
         # to return immediately if the state counter is unchanged.
         # Since we've updated the data behind their back, we need to
@@ -314,13 +294,6 @@ class Dat(base.Dat):
 
         You're not allowed to modify the data you get back from this view."""
         return self.vec_context()
-
-    @collective
-    def dump(self, filename):
-        """Dump the vector to file ``filename`` in PETSc binary format."""
-        base._trace.evaluate(set([self]), set())
-        vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
-        self.vec.view(vwr)
 
 
 class MixedDat(base.MixedDat):
@@ -406,6 +379,10 @@ class SparsityBlock(base.Sparsity):
         self._parent = parent
         self._dims = tuple([tuple([parent.dims[i][j]])])
         self._blocks = [[self]]
+        self.lcomm = self.dsets[0].comm
+        self.rcomm = self.dsets[1].comm
+        # TODO: think about lcomm != rcomm
+        self.comm = self.lcomm
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
@@ -436,6 +413,7 @@ class MatBlock(base.Mat):
         colis = cset.local_ises[j]
         self.handle = parent.handle.getLocalSubMatrix(isrow=rowis,
                                                       iscol=colis)
+        self.comm = parent.comm
 
     @property
     def assembly_state(self):
@@ -562,7 +540,8 @@ class Mat(base.Mat, CopyOnWrite):
             clgmap = cset.lgmap
         mat.createAIJ(size=((self.nrows, None), (self.ncols, None)),
                       nnz=(self.sparsity.nnz, self.sparsity.onnz),
-                      bsize=1)
+                      bsize=1,
+                      comm=self.comm)
         mat.setLGMap(rmap=rlgmap, cmap=clgmap)
         self.handle = mat
         self._blocks = []
@@ -604,7 +583,8 @@ class Mat(base.Mat, CopyOnWrite):
             self._blocks.append(row)
         # PETSc Mat.createNest wants a flattened list of Mats
         mat.createNest([[m.handle for m in row_] for row_ in self._blocks],
-                       isrows=rset.field_ises, iscols=cset.field_ises)
+                       isrows=rset.field_ises, iscols=cset.field_ises,
+                       comm=self.comm)
         self.handle = mat
 
     def _init_block(self):
@@ -627,7 +607,8 @@ class Mat(base.Mat, CopyOnWrite):
         create(size=((self.nrows, None),
                      (self.ncols, None)),
                nnz=(self.sparsity.nnz, self.sparsity.onnz),
-               bsize=(rdim, cdim))
+               bsize=(rdim, cdim),
+               comm=self.comm)
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
         # Do not stash entries destined for other processors, just drop them
         # (we take care of those in the halo)
@@ -673,13 +654,6 @@ class Mat(base.Mat, CopyOnWrite):
         for row in self.blocks:
             for s in row:
                 yield s
-
-    @collective
-    def dump(self, filename):
-        """Dump the matrix to file ``filename`` in PETSc binary format."""
-        base._trace.evaluate(set([self]), set())
-        vwr = PETSc.Viewer().createBinary(filename, PETSc.Viewer.Mode.WRITE)
-        self.handle.view(vwr)
 
     @zeroes
     @collective

@@ -711,6 +711,7 @@ class JITModule(base.JITModule):
         # Return early if we were in the cache.
         if self._initialized:
             return
+        self.comm = itspace.comm
         self._kernel = kernel
         self._fun = None
         self._itspace = itspace
@@ -826,7 +827,8 @@ class JITModule(base.JITModule):
                                      ldargs=ldargs,
                                      argtypes=self._argtypes,
                                      restype=None,
-                                     compiler=compiler.get('name'))
+                                     compiler=compiler.get('name'),
+                                     comm=self.comm)
         # Blow away everything we don't need any more
         del self._args
         del self._kernel

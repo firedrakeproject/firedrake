@@ -33,9 +33,43 @@
 
 """PyOP2 MPI communicator."""
 
-from decorator import decorator
-from mpi4py import MPI as _MPI
-from utils import trim
+from __future__ import absolute_import
+from petsc4py import PETSc
+from mpi4py import MPI  # noqa
+from .utils import trim
+
+
+COMM_WORLD = PETSc.COMM_WORLD.tompi4py()
+
+COMM_SELF = PETSc.COMM_SELF.tompi4py()
+
+
+def dup_comm(comm):
+    """Duplicate a communicator for internal use.
+
+    :arg comm: An mpi4py or petsc4py Comm object.
+
+    :returns: A tuple of `(mpi4py.Comm, petsc4py.Comm)`.
+
+    .. warning::
+
+       This uses ``PetscCommDuplicate`` to create an internal
+       communicator.  The petsc4py Comm thus returned will be
+       collected (and ``MPI_Comm_free``d) when it goes out of scope.
+       But the mpi4py comm is just a pointer at the underlying MPI
+       handle.  So you need to hold on to both return values to ensure
+       things work.  The collection of the petsc4py instance ensures
+       the handles are all cleaned up."""
+    if comm is None:
+        comm = COMM_WORLD
+    if isinstance(comm, MPI.Comm):
+        comm = PETSc.Comm(comm)
+    elif not isinstance(comm, PETSc.Comm):
+        raise TypeError("Can't dup a %r" % type(comm))
+
+    dcomm = comm.duplicate()
+    comm = dcomm.tompi4py()
+    return comm, dcomm
 
 
 def collective(fn):
@@ -47,56 +81,20 @@ def collective(fn):
     return fn
 
 
-def _check_comm(comm):
-    if isinstance(comm, int):
-        # If it's come from Fluidity where an MPI_Comm is just an integer.
-        return _MPI.Comm.f2py(comm)
-    try:
-        return comm if isinstance(comm, _MPI.Comm) else comm.tompi4py()
-    except AttributeError:
-        raise TypeError("MPI communicator must be of type mpi4py.MPI.Comm")
-
-
-class MPIConfig(object):
-
-    def __init__(self):
-        self.COMM = _MPI.COMM_WORLD
-
-    @property
-    def parallel(self):
-        """Are we running in parallel?"""
-        return self.comm.size > 1
-
-    @property
-    def comm(self):
-        """The MPI Communicator used by PyOP2."""
-        return self.COMM
-
-    @comm.setter
-    @collective
-    def comm(self, comm):
-        """Set the MPI communicator for parallel communication.
-
-        .. note:: The communicator must be of type :py:class:`mpi4py.MPI.Comm`
-        or implement a method :py:meth:`tompi4py` to be converted to one."""
-        self.COMM = _check_comm(comm)
-
-    def rank_zero(self, f):
-        """Decorator for executing a function only on MPI rank zero."""
-        def wrapper(f, *args, **kwargs):
-            if self.comm.rank == 0:
-                return f(*args, **kwargs)
-        return decorator(wrapper, f)
-
-MPI = MPIConfig()
-
 # Install an exception hook to MPI Abort if an exception isn't caught
 # see: https://groups.google.com/d/msg/mpi4py/me2TFzHmmsQ/sSF99LE0t9QJ
-if MPI.parallel:
+if COMM_WORLD.size > 1:
     import sys
     except_hook = sys.excepthook
 
     def mpi_excepthook(typ, value, traceback):
         except_hook(typ, value, traceback)
-        MPI.comm.Abort(1)
+        COMM_WORLD.Abort(1)
     sys.excepthook = mpi_excepthook
+
+import logging
+logger = logging.getLogger("pyop2")
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter(('[%d] ' % COMM_WORLD.rank) +
+                                       '%(name)s:%(levelname)s %(message)s'))
+logger.addHandler(handler)

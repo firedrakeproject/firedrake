@@ -32,8 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-from mpi import MPI, collective
-from mpi4py import MPI as _MPI
+from mpi import MPI, collective, COMM_WORLD
 import subprocess
 import sys
 import ctypes
@@ -50,7 +49,7 @@ def _check_hashes(x, y, datatype):
     return False
 
 
-_check_op = _MPI.Op.Create(_check_hashes, commute=True)
+_check_op = MPI.Op.Create(_check_hashes, commute=True)
 
 
 class Compiler(object):
@@ -65,14 +64,17 @@ class Compiler(object):
     :arg ldargs: A list of arguments to the linker (optional).
     :arg cpp: Should we try and use the C++ compiler instead of the C
         compiler?.
+    :kwarg comm: Optional communicator to compile the code on (only
+        rank 0 compiles code) (defaults to COMM_WORLD).
     """
     def __init__(self, cc, ld=None, cppargs=[], ldargs=[],
-                 cpp=False):
+                 cpp=False, comm=None):
         ccenv = 'CXX' if cpp else 'CC'
         self._cc = os.environ.get(ccenv, cc)
         self._ld = os.environ.get('LDSHARED', ld)
         self._cppargs = cppargs
         self._ldargs = ldargs
+        self.comm = comm or COMM_WORLD
 
     @collective
     def get_so(self, src, extension):
@@ -104,25 +106,25 @@ class Compiler(object):
         tmpname = os.path.join(cachedir, "%s_p%d.so.tmp" % (basename, pid))
 
         if configuration['check_src_hashes'] or configuration['debug']:
-            matching = MPI.comm.allreduce(basename, op=_check_op)
+            matching = self.comm.allreduce(basename, op=_check_op)
             if matching != basename:
                 # Dump all src code to disk for debugging
                 output = os.path.join(cachedir, "mismatching-kernels")
-                srcfile = os.path.join(output, "src-rank%d.c" % MPI.comm.rank)
-                if MPI.comm.rank == 0:
+                srcfile = os.path.join(output, "src-rank%d.c" % self.comm.rank)
+                if self.comm.rank == 0:
                     if not os.path.exists(output):
                         os.makedirs(output)
-                MPI.comm.barrier()
+                self.comm.barrier()
                 with open(srcfile, "w") as f:
                     f.write(src)
-                MPI.comm.barrier()
+                self.comm.barrier()
                 raise CompilationError("Generated code differs across ranks (see output in %s)" % output)
         try:
             # Are we in the cache?
             return ctypes.CDLL(soname)
         except OSError:
             # No, let's go ahead and build
-            if MPI.comm.rank == 0:
+            if self.comm.rank == 0:
                 # No need to do this on all ranks
                 if not os.path.exists(cachedir):
                     os.makedirs(cachedir)
@@ -194,7 +196,7 @@ Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                     # Atomically ensure soname exists
                     os.rename(tmpname, soname)
             # Wait for compilation to complete
-            MPI.comm.barrier()
+            self.comm.barrier()
             # Load resulting library
             return ctypes.CDLL(soname)
 
@@ -206,9 +208,13 @@ class MacCompiler(Compiler):
          (optional).
     :arg ldargs: A list of arguments to pass to the linker (optional).
 
-    :arg cpp: Are we actually using the C++ compiler?"""
+    :arg cpp: Are we actually using the C++ compiler?
 
-    def __init__(self, cppargs=[], ldargs=[], cpp=False):
+    :kwarg comm: Optional communicator to compile the code on (only
+        rank 0 compiles code) (defaults to COMM_WORLD).
+    """
+
+    def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
         opt_flags = ['-march=native', '-O3']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
@@ -223,7 +229,8 @@ class MacCompiler(Compiler):
         super(MacCompiler, self).__init__(cc,
                                           cppargs=cppargs,
                                           ldargs=ldargs,
-                                          cpp=cpp)
+                                          cpp=cpp,
+                                          comm=comm)
 
 
 class LinuxCompiler(Compiler):
@@ -232,8 +239,10 @@ class LinuxCompiler(Compiler):
     :arg cppargs: A list of arguments to pass to the C compiler
          (optional).
     :arg ldargs: A list of arguments to pass to the linker (optional).
-    :arg cpp: Are we actually using the C++ compiler?"""
-    def __init__(self, cppargs=[], ldargs=[], cpp=False):
+    :arg cpp: Are we actually using the C++ compiler?
+    :kwarg comm: Optional communicator to compile the code on (only
+    rank 0 compiles code) (defaults to COMM_WORLD)."""
+    def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
         # GCC 4.8.2 produces bad code with -fivopts (which O3 does by default).
         # gcc.gnu.org/bugzilla/show_bug.cgi?id=61068
         # This is the default in Ubuntu 14.04 so work around this
@@ -249,7 +258,7 @@ class LinuxCompiler(Compiler):
         cppargs = stdargs + ['-fPIC', '-Wall'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
         super(LinuxCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
-                                            cpp=cpp)
+                                            cpp=cpp, comm=comm)
 
 
 class LinuxIntelCompiler(Compiler):
@@ -258,8 +267,11 @@ class LinuxIntelCompiler(Compiler):
     :arg cppargs: A list of arguments to pass to the C compiler
          (optional).
     :arg ldargs: A list of arguments to pass to the linker (optional).
-    :arg cpp: Are we actually using the C++ compiler?"""
-    def __init__(self, cppargs=[], ldargs=[], cpp=False):
+    :arg cpp: Are we actually using the C++ compiler?
+    :kwarg comm: Optional communicator to compile the code on (only
+        rank 0 compiles code) (defaults to COMM_WORLD).
+    """
+    def __init__(self, cppargs=[], ldargs=[], cpp=False, comm=None):
         opt_flags = ['-O3', '-xHost']
         if configuration['debug']:
             opt_flags = ['-O0', '-g']
@@ -271,11 +283,12 @@ class LinuxIntelCompiler(Compiler):
         cppargs = stdargs + ['-fPIC', '-no-multibyte-chars'] + opt_flags + cppargs
         ldargs = ['-shared'] + ldargs
         super(LinuxIntelCompiler, self).__init__(cc, cppargs=cppargs, ldargs=ldargs,
-                                                 cpp=cpp)
+                                                 cpp=cpp, comm=comm)
 
 
 @collective
-def load(src, extension, fn_name, cppargs=[], ldargs=[], argtypes=None, restype=None, compiler=None):
+def load(src, extension, fn_name, cppargs=[], ldargs=[],
+         argtypes=None, restype=None, compiler=None, comm=None):
     """Build a shared library and return a function pointer from it.
 
     :arg src: A string containing the source to build
@@ -288,16 +301,19 @@ def load(src, extension, fn_name, cppargs=[], ldargs=[], argtypes=None, restype=
          for ``void``).
     :arg restype: The return type of the function (optional, pass
          ``None`` for ``void``).
-    :arg compiler: The name of the C compiler (intel, ``None`` for default)."""
+    :arg compiler: The name of the C compiler (intel, ``None`` for default).
+    :kwarg comm: Optional communicator to compile the code on (only
+        rank 0 compiles code) (defaults to COMM_WORLD).
+    """
     platform = sys.platform
     cpp = extension == "cpp"
     if platform.find('linux') == 0:
         if compiler == 'intel':
-            compiler = LinuxIntelCompiler(cppargs, ldargs, cpp=cpp)
+            compiler = LinuxIntelCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
         else:
-            compiler = LinuxCompiler(cppargs, ldargs, cpp=cpp)
+            compiler = LinuxCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
     elif platform.find('darwin') == 0:
-        compiler = MacCompiler(cppargs, ldargs, cpp=cpp)
+        compiler = MacCompiler(cppargs, ldargs, cpp=cpp, comm=comm)
     else:
         raise CompilationError("Don't know what compiler to use for platform '%s'" %
                                platform)

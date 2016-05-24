@@ -720,6 +720,7 @@ class JITModule(base.JITModule):
         if self._initialized:
             return
         self._parloop = kwargs.get('parloop')
+        self.comm = itspace_extents.comm
         self._kernel = self._parloop._kernel
         self._config = kwargs.get('config')
         self._initialized = True
