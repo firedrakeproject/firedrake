@@ -5,9 +5,42 @@ from mpi4py import MPI
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
+from firedrake.matrix import Matrix
 
 
-__all__ = ['Vector']
+__all__ = ['Vector', 'as_backend_type']
+
+
+class VectorShim(object):
+    """Compatibility layer to enable Dolfin-style as_backend_type to work."""
+    def __init__(self, vec):
+        self._vec = vec
+
+    def vec(self):
+        with self._vec.dat.vec as v:
+            return v
+
+
+class MatrixShim(object):
+    """Compatibility layer to enable Dolfin-style as_backend_type to work."""
+    def __init__(self, mat):
+        self._mat = mat
+
+    def mat(self):
+        return self._mat.M.handle
+
+
+def as_backend_type(tensor):
+    """Compatibility operation for Dolfin's backend switching
+    operations. This is for Dolfin compatibility only. There is no reason
+    for Firedrake users to ever call this."""
+
+    if isinstance(tensor, Vector):
+        return VectorShim(tensor)
+    elif isinstance(tensor, Matrix):
+        return MatrixShim(tensor)
+    else:
+        raise TypeError("Unknown tensor type %s" % type(tensor))
 
 
 class Vector(object):
