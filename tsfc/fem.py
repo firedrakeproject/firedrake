@@ -44,7 +44,7 @@ def _tabulate(ufl_element, order, points):
     """
     element = create_element(ufl_element)
     phi = element.space_dimension()
-    C = ufl_element.reference_value_size() - len(ufl_element.symmetry())
+    C = ufl_element.reference_value_size()
     q = len(points)
     for D, fiat_table in element.tabulate(order, points).iteritems():
         reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
