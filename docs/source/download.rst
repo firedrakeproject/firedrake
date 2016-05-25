@@ -152,6 +152,7 @@ We list here the required homebrew_ packages:
 - automake
 - libtool
 - cmake
+- glpk (science tap)
 
 Ubuntu
 ------
@@ -164,6 +165,7 @@ On Ubuntu, the following apt packages are required:
 - cmake
 - gfortran
 - git-core
+- glpk-utils
 - libblas-dev
 - liblapack-dev
 - libopenmpi-dev
