@@ -1245,13 +1245,31 @@ def SubDomainData(geometric_expr):
 
 def adapt(mesh,metric):
     
-    entity_dofs = np.zeros(mesh._topological_dimension+1, dtype=np.int32)
+    dim = mesh._topological_dimension
+    entity_dofs = np.zeros(dim+1, dtype=np.int32)
     entity_dofs[0] = mesh.geometric_dimension()
     coordSection = mesh._plex.createSection([1], entity_dofs, perm=mesh.topology._plex_renumbering)
+    
+    plex = mesh._plex
+    vStart, vEnd = plex.getDepthStratum(0)
+    nbrVer = vEnd - vStart
+#    print  "DEBUG  vStart: %d  vEnd: %d" % (vStart, vEnd)
+#    coordSection.view()
     
     dmCoords = mesh.topology._plex.getCoordinateDM()
     dmCoords.setDefaultSection(coordSection)    
 #    dmCoords.setDefaultSection(mesh.coordinates.function_space()._dm.getDefaultSection())
+
+    #### TEMPORARY (?) HACK   to sort the metric in the right order
+    
+    met = np.ndarray(shape=metric.dat.data.shape, dtype=metric.dat.data.dtype, order='C');
+    for iVer in range(nbrVer):
+        off = coordSection.getOffset(iVer+vStart)/dim
+#        print "DEBUG  iVer: %d  off: %d   nbrVer: %d" %(iVer, off, nbrVer)
+        met[iVer] = metric.dat.data[off]
+    for iVer in range(nbrVer):
+        metric.dat.data[iVer] = met[iVer]
+#    metric.dat.data.data = met.data
 
     with mesh.coordinates.dat.vec_ro as coords:
         mesh.topology._plex.setCoordinatesLocal(coords)
