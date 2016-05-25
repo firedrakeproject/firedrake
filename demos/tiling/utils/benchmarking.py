@@ -12,8 +12,8 @@ from matplotlib.font_manager import FontProperties
 import brewer2mpl
 import matplotlib.ticker as ticker
 
-#from pyop2.mpi import MPI
-#from pyop2.profiling import summary
+from pyop2.mpi import MPI
+from pyop2.profiling import summary
 
 
 def parser(**kwargs):
