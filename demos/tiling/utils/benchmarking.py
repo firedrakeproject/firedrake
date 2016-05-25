@@ -20,7 +20,7 @@ def parser(**kwargs):
     p = argparse.ArgumentParser(description='Run a Firedrake program using loop tiling')
     p.add_argument('-n', '--num-unroll', type=int, help='time loop unroll factor', default=1)
     p.add_argument('-s', '--split-mode', type=int, help='split chain on tags', default=0)
-    p.add_argument('-z', '--explicit-mode', type=int, help='split chain as [(f, l, ts), ...]', default=-1)
+    p.add_argument('-z', '--explicit-mode', type=int, help='split chain as [(f, l, ts), ...]', default=0)
     p.add_argument('-t', '--tile-size', type=int, help='initial average tile size', default=5)
     p.add_argument('-e', '--fusion-mode', help='(soft, hard, tile, only_tile)', default='tile')
     p.add_argument('-p', '--part-mode', help='(chunk, metis)', default='chunk')
