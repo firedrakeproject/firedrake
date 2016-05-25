@@ -80,6 +80,7 @@ finite element problems in Firedrake.
    visualisation
    checkpointing
    petsc-interface
+   parallelism
 
 Advanced tutorials
 ==================
