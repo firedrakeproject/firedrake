@@ -42,7 +42,7 @@ do
                 for ts in ${!ts_p}
                 do
                     echo "        Tiled (pm="$p", ts="$ts", em="$em") ..."
-                    mpirun -np 4 --bind-to-core python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPT 1>> $output_file 2>> $output_file
+                    mpirun -np 4 --bind-to-core python wave_elastic.py --poly-order $poly $MESH $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS 1>> $output_file 2>> $output_file
                 done
             done
         done
