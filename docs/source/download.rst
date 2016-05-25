@@ -83,9 +83,8 @@ Firedrake and all its dependencies.
 
 .. note::
 
-   If you installed firedrake in a virtualenv_ (the default
-   installation mode), you should activate the virtualenv_ before
-   running `firedrake-update`.
+   You should activate the virtualenv_ before running
+   `firedrake-update`.
 
 Cleaning disk caches after upgrade
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -96,8 +95,7 @@ compiled modules. To do this run::
 
   firedrake-clean
 
-If you installed to a virtualenv, you will need to activate the
-virtualenv first.
+You will need to activate the virtualenv first.
 
 Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -150,8 +148,10 @@ We list here the required homebrew_ packages:
 
 - openmpi (or mpich)
 - python
+- autoconf
+- automake
+- libtool
 - cmake
-- spatialindex
 
 Ubuntu
 ------
@@ -159,13 +159,15 @@ Ubuntu
 On Ubuntu, the following apt packages are required:
 
 - build-essential
+- autoconf
+- automake
 - cmake
 - gfortran
 - git-core
 - libblas-dev
 - liblapack-dev
 - libopenmpi-dev
-- libspatialindex-dev
+- libtool
 - mercurial
 - openmpi-bin
 - python-dev
@@ -213,6 +215,17 @@ Otherwise, use the appropriate values of ``PETSC_DIR`` and ``PETSC_ARCH``.
 
    It is not necessary that h5py be built with MPI support, although
    Firedrake supports both options.
+
+libspatialindex
+~~~~~~~~~~~~~~~
+
+libspatialindex_ is utilised during point evaluations.  This version
+is known to work with Firedrake:
+
+- https://github.com/firedrakeproject/libspatialindex
+
+Firedrake will find libspatialindex installations in ``sys.prefix``
+and in the standard paths.
 
 Further dependencies
 ~~~~~~~~~~~~~~~~~~~~

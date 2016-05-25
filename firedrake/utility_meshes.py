@@ -5,7 +5,6 @@ import tempfile
 from shutil import rmtree
 
 from pyop2.mpi import MPI
-from pyop2.profiling import profile
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ
@@ -99,7 +98,6 @@ def _get_msh_file(source, name, dimension, meshed=False):
     return output + '.msh'
 
 
-@profile
 def IntervalMesh(ncells, length_or_left, right=None):
     """
     Generate a uniform mesh of an interval.
@@ -157,7 +155,6 @@ def UnitIntervalMesh(ncells):
     return IntervalMesh(ncells, length_or_left=1.0)
 
 
-@profile
 def PeriodicIntervalMesh(ncells, length):
     """Generate a periodic mesh of an interval.
 
@@ -209,7 +206,6 @@ def UnitTriangleMesh():
     return mesh.Mesh(plex, reorder=False)
 
 
-@profile
 def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
     """Generate a rectangular mesh
 
@@ -308,7 +304,6 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False):
     return SquareMesh(nx, ny, 1, reorder=reorder, quadrilateral=quadrilateral)
 
 
-@profile
 def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
                           quadrilateral=False, reorder=None):
     """Generate a periodic rectangular mesh
@@ -449,7 +444,6 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None, quadrilateral
                               reorder=reorder, quadrilateral=quadrilateral)
 
 
-@profile
 def CircleMesh(radius, resolution, reorder=None):
     """Generate a structured triangular mesh of a circle.
 
@@ -483,7 +477,6 @@ def UnitCircleMesh(resolution, reorder=None):
     return CircleMesh(1.0, resolution, reorder=reorder)
 
 
-@profile
 def CircleManifoldMesh(ncells, radius=1):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
@@ -515,7 +508,6 @@ def UnitTetrahedronMesh():
     return mesh.Mesh(plex, reorder=False)
 
 
-@profile
 def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None):
     """Generate a mesh of a 3D box.
 
@@ -611,7 +603,6 @@ def UnitCubeMesh(nx, ny, nz, reorder=None):
     return CubeMesh(nx, ny, nz, 1, reorder=reorder)
 
 
-@profile
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
     """Generate an icosahedral approximation to the surface of the
     sphere.
@@ -828,7 +819,6 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     return cells, coords
 
 
-@profile
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
                     reorder=None, use_dmplex_refinement=False):
     """Generate an cubed approximation to the surface of the
@@ -907,7 +897,6 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None):
                            degree=degree, reorder=reorder)
 
 
-@profile
 def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
     """Generate a toroidal mesh
 
@@ -945,7 +934,6 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
     return m
 
 
-@profile
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
                  quadrilateral=False, reorder=None):
     """Generates a cylinder mesh.

@@ -23,13 +23,11 @@ __all__ = ["solve"]
 import ufl
 
 from pyop2.logger import progress, INFO
-from pyop2.profiling import profile
 
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
 
 
-@profile
 def solve(*args, **kwargs):
     """Solve linear system Ax = b or variational problem a == L or F == 0.
 
