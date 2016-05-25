@@ -8,10 +8,6 @@ import platform
 import math
 
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.font_manager import FontProperties
-import brewer2mpl
-import matplotlib.ticker as ticker
 
 from pyop2.mpi import MPI
 from pyop2.profiling import summary, Timer
@@ -195,6 +191,7 @@ def plot():
     import matplotlib.pyplot as plt
     import brewer2mpl
     import matplotlib.ticker as ticker
+    from matplotlib.font_manager import FontProperties
 
     def version_as_str(num_procs, num_threads):
         if num_procs == 1 and num_threads == 1:

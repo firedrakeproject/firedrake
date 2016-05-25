@@ -61,7 +61,7 @@ declare -a part_p2=("chunk")
 declare -a part_p3=("chunk" "metis")
 declare -a part_p4=("metis")
 
-for poly in 1 2 3 4
+for poly in 1 2
 do
     OUT_FILE=$WORK"/output_"$PBS_JOBNAME"_p"$poly".txt"
     rm -f $OUT_FILE
