@@ -2,7 +2,10 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+benchmark = pytest.mark.benchmark(warmup=True, disable_gc=True, warmup_iterations=1)
+
+
+@benchmark
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
 def test_linearsolver(bcs, benchmark):
@@ -30,7 +33,7 @@ def test_linearsolver(bcs, benchmark):
     benchmark(lambda: solver.solve(f, b))
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
 def test_assembled_solve(bcs, benchmark):
@@ -56,7 +59,7 @@ def test_assembled_solve(bcs, benchmark):
     benchmark(lambda: solve(A, f, b, bcs=bcs))
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
 def test_linearvariationalsolver(bcs, benchmark):
@@ -82,7 +85,7 @@ def test_linearvariationalsolver(bcs, benchmark):
     benchmark(lambda: solver.solve())
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
 def test_nonlinearvariationalsolver(bcs, benchmark):
@@ -104,7 +107,7 @@ def test_nonlinearvariationalsolver(bcs, benchmark):
     benchmark(lambda: solver.solve())
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
 def test_linear_solve(bcs, benchmark):
@@ -128,7 +131,7 @@ def test_linear_solve(bcs, benchmark):
     benchmark(lambda: solve(a == L, f, bcs=bcs))
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("bcs", [False, True],
                          ids=["no bcs", "bcs"])
 def test_nonlinear_solve(bcs, benchmark):
