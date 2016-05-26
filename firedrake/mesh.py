@@ -98,6 +98,8 @@ class _Facets(object):
         facets, or for a particular numbered subdomain.'''
 
         # ufl.Measure doesn't have enums for these any more :(
+        # FIXME: This is WRONG in the case of 1*(ds + ds(1))
+        # "otherwise" is "everywhere" - set(explicit subdomain ids)
         if subdomain_id in ["everywhere", "otherwise"]:
             if integral_type == "exterior_facet_bottom":
                 return (op2.ON_BOTTOM, self.bottom_set)
@@ -598,6 +600,10 @@ class MeshTopology(object):
 
     def cell_subset(self, subdomain_id):
         """Return a subset over cells with the given subdomain_id."""
+        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
+        # "otherwise" is "everywhere" - set(explicit subdomain ids)
+        if subdomain_id in ["everywhere", "otherwise"]:
+            return self.cell_set
         try:
             return self._subsets[subdomain_id]
         except KeyError:
@@ -653,6 +659,10 @@ class ExtrudedMeshTopology(MeshTopology):
 
     def cell_subset(self, subdomain_id):
         """Return a subset over cells with the given subdomain_id."""
+        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
+        # "otherwise" is "everywhere" - set(explicit subdomain ids)
+        if subdomain_id in ["everywhere", "otherwise"]:
+            return self.cell_set
         try:
             return self._subsets[subdomain_id]
         except KeyError:
