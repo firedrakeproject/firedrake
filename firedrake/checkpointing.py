@@ -130,11 +130,15 @@ class DumbCheckpoint(object):
             self._fidx += 1
         else:
             name = "%s.h5" % name
-        if self.mode == FILE_READ:
-            import os
-            if not os.path.exists(name):
-                raise IOError("File '%s' does not exist, cannot be opened for reading" % name)
-        self._vwr = PETSc.ViewerHDF5().create(name, mode=self.mode,
+
+        import os
+        exists = os.path.exists(name)
+        if self.mode == FILE_READ and not exists:
+            raise IOError("File '%s' does not exist, cannot be opened for reading" % name)
+        mode = self.mode
+        if mode == FILE_UPDATE and not exists:
+            mode = FILE_CREATE
+        self._vwr = PETSc.ViewerHDF5().create(name, mode=mode,
                                               comm=self.comm)
         if self.mode == FILE_READ:
             nprocs = self.read_attribute("/", "nprocs")
