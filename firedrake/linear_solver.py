@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import ufl
 import firedrake.function as function
+import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
 from firedrake.petsc import PETSc
@@ -136,8 +137,8 @@ class LinearSolver(object):
             delattr(self, '_opt_prefix')
 
     def solve(self, x, b):
-        if not isinstance(x, function.Function):
-            raise TypeError("Provided solution is a '%s', not a Function" % type(x).__name__)
+        if not isinstance(x, (function.Function, vector.Vector)):
+            raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
         if not isinstance(b, function.Function):
             raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
 
