@@ -637,6 +637,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
         self._entity_classes = mesh._entity_classes
+        self._subsets = {}
 
     @property
     def name(self):
@@ -649,6 +650,18 @@ class ExtrudedMeshTopology(MeshTopology):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         return self._base_mesh.cell_closure
+
+    def cell_subset(self, subdomain_id):
+        """Return a subset over cells with the given subdomain_id."""
+        try:
+            return self._subsets[subdomain_id]
+        except KeyError:
+            base = self._base_mesh
+            indices = dmplex.get_cell_markers(base._plex,
+                                              base._cell_numbering,
+                                              subdomain_id)
+            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
+            return self._subsets[subdomain_id]
 
     @utils.cached_property
     def exterior_facets(self):
