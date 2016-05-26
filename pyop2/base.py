@@ -562,7 +562,7 @@ class Set(object):
     @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, size=None, name=None, halo=None, comm=None):
-        self.comm, self._pcomm = dup_comm(comm)
+        self.comm = dup_comm(comm)
         if type(size) is int:
             size = [size] * 4
         size = as_tuple(size, int, 4)
@@ -1257,7 +1257,7 @@ class Halo(object):
         for i, a in self._receives.iteritems():
             self._receives[i] = np.asarray(a)
         self._global_to_petsc_numbering = gnn2unn
-        self.comm, self._pcomm = dup_comm(comm)
+        self.comm = dup_comm(comm)
         rank = self.comm.rank
 
         assert rank not in self._sends, \
