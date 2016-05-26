@@ -77,7 +77,7 @@ def test_firedrake_helmholtz_scalar_convergence_on_quadrilaterals(testcase, conv
 
 
 def run_firedrake_helmholtz_on_quadrilateral_mesh_from_file():
-    meshfile = join(cwd, "unitsquare_unstructured_quadrilaterals.msh")
+    meshfile = join(cwd, "..", "meshes", "unitsquare_unstructured_quadrilaterals.msh")
     assert helmholtz(None, mesh=Mesh(meshfile))[0] <= 0.01
 
 

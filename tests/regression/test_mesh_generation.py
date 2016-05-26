@@ -217,7 +217,8 @@ def test_mesh_reordering_defaults_on():
 
 def run_mesh_validation():
     from os.path import abspath, dirname, join
-    meshfile = join(abspath(dirname(__file__)), "broken_rogue_point.msh")
+    meshfile = join(abspath(dirname(__file__)), "..", "meshes",
+                    "broken_rogue_point.msh")
     with pytest.raises(ValueError):
         # Reading a mesh with points not reachable from cell closures
         # should raise ValueError
