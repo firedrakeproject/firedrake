@@ -216,7 +216,7 @@ class MixedVectorSpaceBasis(object):
         if self._nullspace is None:
             self._build_monolithic_basis()
         if transpose:
-            matrix.handle.setTransposeNullspace(self._nullspace)
+            matrix.handle.setTransposeNullSpace(self._nullspace)
         else:
             matrix.handle.setNullSpace(self._nullspace)
 
