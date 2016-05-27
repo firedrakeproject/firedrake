@@ -157,6 +157,9 @@ def free_comms():
         refcount = c.Get_attr(refcount_keyval)
         for _ in range(refcount[0]):
             free_comm(c, remove=False)
+    map(MPI.Comm.Free_keyval, [refcount_keyval,
+                               innercomm_keyval,
+                               outercomm_keyval])
 
 
 def collective(fn):
