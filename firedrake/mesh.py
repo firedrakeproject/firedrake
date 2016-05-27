@@ -98,6 +98,8 @@ class _Facets(object):
         facets, or for a particular numbered subdomain.'''
 
         # ufl.Measure doesn't have enums for these any more :(
+        # FIXME: This is WRONG in the case of 1*(ds + ds(1))
+        # "otherwise" is "everywhere" - set(explicit subdomain ids)
         if subdomain_id in ["everywhere", "otherwise"]:
             if integral_type == "exterior_facet_bottom":
                 return (op2.ON_BOTTOM, self.bottom_set)
@@ -310,6 +312,8 @@ class MeshTopology(object):
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
+        # Cell subsets for integration over subregions
+        self._subsets = {}
         # Mark exterior and interior facets
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
@@ -594,6 +598,21 @@ class MeshTopology(object):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "%s_cells" % self.name)
 
+    def cell_subset(self, subdomain_id):
+        """Return a subset over cells with the given subdomain_id."""
+        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
+        # "otherwise" is "everywhere" - set(explicit subdomain ids)
+        if subdomain_id in ["everywhere", "otherwise"]:
+            return self.cell_set
+        try:
+            return self._subsets[subdomain_id]
+        except KeyError:
+            indices = dmplex.get_cell_markers(self._plex,
+                                              self._cell_numbering,
+                                              subdomain_id)
+            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
+            return self._subsets[subdomain_id]
+
 
 class ExtrudedMeshTopology(MeshTopology):
     """Representation of an extruded mesh topology."""
@@ -624,6 +643,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
         self._entity_classes = mesh._entity_classes
+        self._subsets = {}
 
     @property
     def name(self):
@@ -636,6 +656,22 @@ class ExtrudedMeshTopology(MeshTopology):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         return self._base_mesh.cell_closure
+
+    def cell_subset(self, subdomain_id):
+        """Return a subset over cells with the given subdomain_id."""
+        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
+        # "otherwise" is "everywhere" - set(explicit subdomain ids)
+        if subdomain_id in ["everywhere", "otherwise"]:
+            return self.cell_set
+        try:
+            return self._subsets[subdomain_id]
+        except KeyError:
+            base = self._base_mesh
+            indices = dmplex.get_cell_markers(base._plex,
+                                              base._cell_numbering,
+                                              subdomain_id)
+            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
+            return self._subsets[subdomain_id]
 
     @utils.cached_property
     def exterior_facets(self):

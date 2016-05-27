@@ -795,6 +795,40 @@ def get_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
+                     subdomain_id):
+    """Get the cells marked by a given subdomain_id.
+
+    :arg plex: The DM for the mesh topology
+    :arg cell_numbering: Section mapping plex cell points to firedrake cell indices.
+    :arg subdomain_id: The subdomain_id to look for.
+
+    :raises ValueError: if the subdomain_id is not valid.
+    :returns: A numpy array (possibly empty) of the cell ids.
+    """
+    cdef:
+        PetscInt i, cEnd, offset, c
+        np.ndarray[np.int32_t, ndim=1, mode="c"] cells
+        np.ndarray[PetscInt, ndim=1, mode="c"] indices
+
+    if not plex.hasLabel("Cell Sets"):
+        return np.empty(0, dtype=np.int32)
+    vals = plex.getLabelIdIS("Cell Sets").indices
+    if subdomain_id not in vals:
+        raise ValueError("Invalid subdomain_id %d not in %s" % (subdomain_id, vals))
+
+    indices = plex.getStratumIS("Cell Sets", subdomain_id).indices
+    cells = np.empty(indices.shape[0], dtype=np.int32)
+    cEnd = indices.shape[0]
+    for i in range(cEnd):
+        c = indices[i]
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
+        cells[i] = offset
+    return cells
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
     """Builds a list of all facets ordered according to the given numbering.
 

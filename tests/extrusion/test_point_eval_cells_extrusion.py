@@ -22,15 +22,15 @@ def mesh2d(request):
                         ('dg', False),
                         pytest.mark.xfail(('dg', True)),
                         # TODO: generate mesh from .geo file
-                        pytest.mark.longtest(('file', '../t11_tria.msh')),
-                        pytest.mark.longtest(('file', '../t11_quad.msh'))])
+                        pytest.mark.longtest(('file', 't11_tria.msh')),
+                        pytest.mark.longtest(('file', 't11_quad.msh'))])
 def mesh3d(request):
     if request.param[0] == 'cg':
         m = UnitSquareMesh(12, 12, quadrilateral=request.param[1])
     elif request.param[0] == 'dg':
         m = PeriodicUnitSquareMesh(12, 12, quadrilateral=request.param[1])
     elif request.param[0] == 'file':
-        meshfile = join(cwd, request.param[1])
+        meshfile = join(cwd, '..', 'meshes', request.param[1])
         m = Mesh(meshfile)
     return ExtrudedMesh(m, 12)
 
