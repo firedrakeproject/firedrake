@@ -36,7 +36,7 @@ import weakref
 from collections import defaultdict
 
 from pyop2.logger import debug, warning
-from pyop2.mpi import COMM_WORLD, MPI
+from pyop2.mpi import COMM_WORLD, MPI, dup_comm, free_comm
 
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
@@ -46,7 +46,9 @@ try:
     import psutil
     memory = np.array([psutil.virtual_memory().total/psutil.cpu_count()])
     if COMM_WORLD.size > 1:
-        COMM_WORLD.Allreduce(MPI.IN_PLACE, memory, MPI.MIN)
+        comm = dup_comm(COMM_WORLD)
+        comm.Allreduce(MPI.IN_PLACE, memory, MPI.MIN)
+        free_comm(comm)
 except (ImportError, AttributeError):
     memory = None
 

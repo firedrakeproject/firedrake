@@ -8,7 +8,7 @@ import weakref
 from collections import defaultdict
 
 from pyop2 import op2
-from pyop2.mpi import COMM_WORLD
+from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.logger import info_red
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
@@ -177,12 +177,11 @@ def _from_gmsh(filename, comm=None):
     return gmsh_plex
 
 
-def _from_exodus(filename, comm=None):
+def _from_exodus(filename, comm):
     """Read an Exodus .e or .exo file from `filename`.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+
+    :arg comm: communicator to build the mesh on.
     """
-    comm = comm or COMM_WORLD
     plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
 
     boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
@@ -195,22 +194,26 @@ def _from_exodus(filename, comm=None):
     return plex
 
 
-def _from_cgns(filename, comm=None):
+def _from_cgns(filename, comm):
     """Read a CGNS .cgns file from `filename`.
-    :kwarg comm: Optional communicator to build the mesh on (defaults to
-        COMM_WORLD).
+
+    :arg comm: communicator to build the mesh on.
     """
-    comm = comm or COMM_WORLD
     plex = PETSc.DMPlex().createCGNSFromFile(filename, comm=comm)
 
     # TODO: Add boundary IDs
     return plex
 
 
-def _from_triangle(filename, dim, comm=None):
-    """Read a set of triangle mesh files from `filename`"""
+def _from_triangle(filename, dim, comm):
+    """Read a set of triangle mesh files from `filename`.
+
+    :arg dim: The embedding dimension.
+    :arg comm: communicator to build the mesh on.
+    """
     basename, ext = os.path.splitext(filename)
 
+    comm = dup_comm(comm)
     if comm.rank == 0:
         try:
             facetfile = open(basename+".face")
@@ -267,38 +270,40 @@ def _from_triangle(filename, dim, comm=None):
                 join = plex.getJoin(vertices)
                 plex.setLabelValue("boundary_ids", join[0], bid)
 
+    free_comm(comm)
     return plex
 
 
-def _from_cell_list(dim, cells, coords, comm=None):
+def _from_cell_list(dim, cells, coords, comm):
     """
     Create a DMPlex from a list of cells and coords.
 
     :arg dim: The topological dimension of the mesh
     :arg cells: The vertices of each cell
     :arg coords: The coordinates of each vertex
-    :arg comm: An optional MPI communicator to build the plex on
-         (defaults to ``COMM_WORLD``)
+    :arg comm: communicator to build the mesh on.
     """
-    comm = comm or COMM_WORLD
+    comm = dup_comm(comm)
     if comm.rank == 0:
         cells = np.asarray(cells, dtype=PETSc.IntType)
         coords = np.asarray(coords, dtype=float)
         comm.bcast(cells.shape, root=0)
         comm.bcast(coords.shape, root=0)
         # Provide the actual data on rank 0.
-        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-
-    cell_shape = list(comm.bcast(None, root=0))
-    coord_shape = list(comm.bcast(None, root=0))
-    cell_shape[0] = 0
-    coord_shape[0] = 0
-    # Provide empty plex on other ranks
-    # A subsequent call to plex.distribute() takes care of parallel partitioning
-    return PETSc.DMPlex().createFromCellList(dim,
-                                             np.zeros(cell_shape, dtype=PETSc.IntType),
-                                             np.zeros(coord_shape, dtype=float),
-                                             comm=comm)
+        plex = PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
+    else:
+        cell_shape = list(comm.bcast(None, root=0))
+        coord_shape = list(comm.bcast(None, root=0))
+        cell_shape[0] = 0
+        coord_shape[0] = 0
+        # Provide empty plex on other ranks
+        # A subsequent call to plex.distribute() takes care of parallel partitioning
+        plex = PETSc.DMPlex().createFromCellList(dim,
+                                                 np.zeros(cell_shape, dtype=PETSc.IntType),
+                                                 np.zeros(coord_shape, dtype=float),
+                                                 comm=comm)
+    free_comm(comm)
+    return plex
 
 
 class MeshTopology(object):
@@ -319,7 +324,7 @@ class MeshTopology(object):
 
         self._plex = plex
         self.name = name
-        self.comm = plex.comm.tompi4py()
+        self.comm = dup_comm(plex.comm.tompi4py())
 
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
@@ -1124,18 +1129,18 @@ def Mesh(meshfile, **kwargs):
         name = "plexmesh"
         plex = meshfile
     else:
-        comm = kwargs.get("comm", op2.MPI.COMM_WORLD)
+        comm = kwargs.get("comm", COMM_WORLD)
         name = meshfile
         basename, ext = os.path.splitext(meshfile)
 
         if ext.lower() in ['.e', '.exo']:
-            plex = _from_exodus(meshfile, comm=comm)
+            plex = _from_exodus(meshfile, comm)
         elif ext.lower() == '.cgns':
-            plex = _from_cgns(meshfile, comm=comm)
+            plex = _from_cgns(meshfile, comm)
         elif ext.lower() == '.msh':
-            plex = _from_gmsh(meshfile, comm=comm)
+            plex = _from_gmsh(meshfile, comm)
         elif ext.lower() == '.node':
-            plex = _from_triangle(meshfile, geometric_dim, comm=comm)
+            plex = _from_triangle(meshfile, geometric_dim, comm)
         else:
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))

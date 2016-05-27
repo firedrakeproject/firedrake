@@ -29,7 +29,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'TorusMesh', 'CylinderMesh']
 
 
-def IntervalMesh(ncells, length_or_left, right=None, comm=None):
+def IntervalMesh(ncells, length_or_left, right=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of an interval.
 
@@ -59,7 +59,7 @@ def IntervalMesh(ncells, length_or_left, right=None, comm=None):
     coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
-    plex = mesh._from_cell_list(1, cells, coords, comm=comm)
+    plex = mesh._from_cell_list(1, cells, coords, comm)
     # Apply boundary IDs
     plex.createLabel("boundary_ids")
     coordinates = plex.getCoordinates()
@@ -75,7 +75,7 @@ def IntervalMesh(ncells, length_or_left, right=None, comm=None):
     return mesh.Mesh(plex, reorder=False)
 
 
-def UnitIntervalMesh(ncells, comm=None):
+def UnitIntervalMesh(ncells, comm=COMM_WORLD):
     """
     Generate a uniform mesh of the interval [0,1].
 
@@ -90,7 +90,7 @@ def UnitIntervalMesh(ncells, comm=None):
     return IntervalMesh(ncells, length_or_left=1.0, comm=comm)
 
 
-def PeriodicIntervalMesh(ncells, length, comm=None):
+def PeriodicIntervalMesh(ncells, length, comm=COMM_WORLD):
     """Generate a periodic mesh of an interval.
 
     :arg ncells: The number of cells over the interval.
@@ -128,7 +128,7 @@ cells are not currently supported")
     return mesh.Mesh(new_coordinates)
 
 
-def PeriodicUnitIntervalMesh(ncells, comm=None):
+def PeriodicUnitIntervalMesh(ncells, comm=COMM_WORLD):
     """Generate a periodic mesh of the unit interval
 
     :arg ncells: The number of cells in the interval.
@@ -138,7 +138,7 @@ def PeriodicUnitIntervalMesh(ncells, comm=None):
     return PeriodicIntervalMesh(ncells, length=1.0, comm=comm)
 
 
-def UnitTriangleMesh(comm=None):
+def UnitTriangleMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference triangle
 
     :kwarg comm: Optional communicator to build the mesh on (defaults to
@@ -146,11 +146,11 @@ def UnitTriangleMesh(comm=None):
     """
     coords = [[0., 0.], [1., 0.], [0., 1.]]
     cells = [[0, 1, 2]]
-    plex = mesh._from_cell_list(2, cells, coords, comm=comm)
+    plex = mesh._from_cell_list(2, cells, coords, comm)
     return mesh.Mesh(plex, reorder=False)
 
 
-def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=None):
+def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_WORLD):
     """Generate a rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -181,7 +181,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=None):
         cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
         cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
 
-        plex = mesh._from_cell_list(2, cells, coords, comm=comm)
+        plex = mesh._from_cell_list(2, cells, coords, comm)
     else:
         boundary = PETSc.DMPlex().create(comm)
         boundary.setDimension(1)
@@ -213,7 +213,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=None):
     return mesh.Mesh(plex, reorder=reorder)
 
 
-def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, comm=None):
+def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, comm=COMM_WORLD):
     """Generate a square mesh
 
     :arg nx: The number of cells in the x direction
@@ -236,7 +236,7 @@ def SquareMesh(nx, ny, L, reorder=None, quadrilateral=False, comm=None):
                          comm=comm)
 
 
-def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, comm=None):
+def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, comm=COMM_WORLD):
     """Generate a unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -259,7 +259,7 @@ def UnitSquareMesh(nx, ny, reorder=None, quadrilateral=False, comm=None):
 
 
 def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
-                          quadrilateral=False, reorder=None, comm=None):
+                          quadrilateral=False, reorder=None, comm=COMM_WORLD):
     """Generate a periodic rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -355,7 +355,7 @@ for(int i=0; i<new_coords.dofs; i++) {
 
 
 def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder=None,
-                       comm=None):
+                       comm=COMM_WORLD):
     """Generate a periodic square mesh
 
     :arg nx: The number of cells in the x direction
@@ -384,7 +384,7 @@ def PeriodicSquareMesh(nx, ny, L, direction="both", quadrilateral=False, reorder
 
 
 def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
-                           quadrilateral=False, comm=None):
+                           quadrilateral=False, comm=COMM_WORLD):
     """Generate a periodic unit square mesh
 
     :arg nx: The number of cells in the x direction
@@ -411,7 +411,7 @@ def PeriodicUnitSquareMesh(nx, ny, direction="both", reorder=None,
                               comm=comm)
 
 
-def CircleManifoldMesh(ncells, radius=1, comm=None):
+def CircleManifoldMesh(ncells, radius=1, comm=COMM_WORLD):
     """Generated a 1D mesh of the circle, immersed in 2D.
 
     :arg ncells: number of cells the circle should be
@@ -430,13 +430,13 @@ def CircleManifoldMesh(ncells, radius=1, comm=None):
     cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
 
-    plex = mesh._from_cell_list(1, cells, vertices, comm=comm)
+    plex = mesh._from_cell_list(1, cells, vertices, comm)
     m = mesh.Mesh(plex, dim=2, reorder=False)
     m._circle_manifold = radius
     return m
 
 
-def UnitTetrahedronMesh(comm=None):
+def UnitTetrahedronMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference tetrahedron.
 
     :kwarg comm: Optional communicator to build the mesh on (defaults to
@@ -444,11 +444,11 @@ def UnitTetrahedronMesh(comm=None):
     """
     coords = [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.]]
     cells = [[0, 1, 2, 3]]
-    plex = mesh._from_cell_list(3, cells, coords, comm=comm)
+    plex = mesh._from_cell_list(3, cells, coords, comm)
     return mesh.Mesh(plex, reorder=False)
 
 
-def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=None):
+def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=COMM_WORLD):
     """Generate a mesh of a 3D box.
 
     :arg nx: The number of cells in the x direction
@@ -504,7 +504,7 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=None):
     return mesh.Mesh(plex, reorder=reorder)
 
 
-def CubeMesh(nx, ny, nz, L, reorder=None, comm=None):
+def CubeMesh(nx, ny, nz, L, reorder=None, comm=COMM_WORLD):
     """Generate a mesh of a cube
 
     :arg nx: The number of cells in the x direction
@@ -527,7 +527,7 @@ def CubeMesh(nx, ny, nz, L, reorder=None, comm=None):
     return BoxMesh(nx, ny, nz, L, L, L, reorder=reorder, comm=comm)
 
 
-def UnitCubeMesh(nx, ny, nz, reorder=None, comm=None):
+def UnitCubeMesh(nx, ny, nz, reorder=None, comm=COMM_WORLD):
     """Generate a mesh of a unit cube
 
     :arg nx: The number of cells in the x direction
@@ -550,7 +550,7 @@ def UnitCubeMesh(nx, ny, nz, reorder=None, comm=None):
 
 
 def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
-                          comm=None):
+                          comm=COMM_WORLD):
     """Generate an icosahedral approximation to the surface of the
     sphere.
 
@@ -609,7 +609,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
                       [8, 6, 7],
                       [9, 8, 1]], dtype=np.int32)
 
-    plex = mesh._from_cell_list(2, faces, vertices, comm=comm)
+    plex = mesh._from_cell_list(2, faces, vertices, comm)
     plex.setRefinementUniform(True)
     for i in range(refinement_level):
         plex = plex.refine()
@@ -629,7 +629,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
 
 
 def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
-                              comm=None):
+                              comm=COMM_WORLD):
     """Generate an icosahedral approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is an
@@ -774,7 +774,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
                     reorder=None, use_dmplex_refinement=False,
-                    comm=None):
+                    comm=COMM_WORLD):
     """Generate an cubed approximation to the surface of the
     sphere.
 
@@ -813,7 +813,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
                           [0, 2, 6, 4],
                           [1, 3, 7, 5]], dtype=np.int32)
 
-        plex = mesh._from_cell_list(2, faces, vertices, comm=comm)
+        plex = mesh._from_cell_list(2, faces, vertices, comm)
         plex.setRefinementUniform(True)
         for i in range(refinement_level):
             plex = plex.refine()
@@ -825,7 +825,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         coords *= scale
     else:
         cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-        plex = mesh._from_cell_list(2, cells, coords, comm=comm)
+        plex = mesh._from_cell_list(2, cells, coords, comm)
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
 
@@ -839,7 +839,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     return m
 
 
-def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None, comm=None):
+def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None, comm=COMM_WORLD):
     """Generate a cubed approximation to the unit sphere.
 
     :kwarg refinement_level: optional number of refinements (0 is a cube).
@@ -853,7 +853,7 @@ def UnitCubedSphereMesh(refinement_level=0, degree=1, reorder=None, comm=None):
                            degree=degree, reorder=reorder, comm=comm)
 
 
-def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None, comm=None):
+def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None, comm=COMM_WORLD):
     """Generate a toroidal mesh
 
     :arg nR: The number of cells in the major direction (min 3)
@@ -887,13 +887,13 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None, comm=None):
         # two cells per cell above...
         cells = cells[:, [0, 1, 3, 1, 2, 3]].reshape(-1, 3)
 
-    plex = mesh._from_cell_list(2, cells, vertices, comm=comm)
+    plex = mesh._from_cell_list(2, cells, vertices, comm)
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     return m
 
 
 def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
-                 quadrilateral=False, reorder=None, comm=None):
+                 quadrilateral=False, reorder=None, comm=COMM_WORLD):
     """Generates a cylinder mesh.
 
     :arg nr: number of cells the cylinder circumference should be
@@ -946,7 +946,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
-    plex = mesh._from_cell_list(2, cells, vertices, comm=comm)
+    plex = mesh._from_cell_list(2, cells, vertices, comm)
 
     plex.createLabel("boundary_ids")
     plex.markBoundaryFaces("boundary_faces")
@@ -972,7 +972,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     return m
 
 
-def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False, reorder=None, comm=None):
+def PartiallyPeriodicRectangleMesh(nx, ny, Lx, Ly, direction="x", quadrilateral=False, reorder=None, comm=COMM_WORLD):
     """Generates RectangleMesh that is periodic in the x or y direction.
 
     :arg nx: The number of cells in the x direction
