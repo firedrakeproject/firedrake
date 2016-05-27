@@ -42,13 +42,64 @@ from .utils import trim
 
 __all__ = ("COMM_WORLD", "COMM_SELF", "MPI", "dup_comm")
 
+# These are user-level communicators, we never send any messages on
+# them inside PyOP2.
 COMM_WORLD = PETSc.COMM_WORLD.tompi4py()
 
 COMM_SELF = PETSc.COMM_SELF.tompi4py()
 
+# Exposition:
+#
+# To avoid PyOP2 library messages interfering with messages that the
+# user might send on communicators, we duplicate any communicator
+# passed in to PyOP2 and send our messages on this internal
+# communicator.  This is equivalent to the way PETSc does things.
+#
+# To avoid unnecessarily duplicating communicators that we've already
+# seen, we store information on both the inner and the outer
+# communicator using MPI attributes, including a refcount.
+#
+# The references are as follows:
+#
+#     .-----------.       .------------.
+#     |           |--->---|            |       .----------.
+#     | User-Comm |       | PyOP2-Comm |--->---| Refcount |
+#     |           |---<---|            |       '----------'
+#     '-----------'       '------------'
+#
+# When we're asked to duplicate a communicator, we first check if it
+# has a refcount (therefore it's a PyOP2 comm).  In which case we
+# increment the refcount and return it.
+#
+# If it's not a PyOP2 comm, we check if it has an embedded PyOP2 comm,
+# pull that out, increment the refcount and return it.
+#
+# If we've never seen this communicator before, we MPI_Comm_dup it,
+# and set up the references with an initial refcount of 1.
+#
+# This is all handled in dup_comm.
+#
+# The matching free_comm is used to decrement the refcount on a
+# duplicated communicator, eventually calling MPI_Comm_free when that
+# refcount hits 0.  This is necessary since a design decision in
+# mpi4py means that the user is responsible for calling MPI_Comm_free
+# on any dupped communicators (rather than relying on the garbage collector).
+#
+# Finally, since it's difficult to know when all these communicators
+# go out of scope, we register an atexit handler to clean up any
+# outstanding duplicated communicators.
+
 
 def delcomm_outer(comm, keyval, icomm):
-    """Deleter for internal communicator, removes reference to outer comm."""
+    """Deleter for internal communicator, removes reference to outer comm.
+
+    :arg comm: Outer communicator.
+    :arg keyval: The MPI keyval, should be ``innercomm_keyval``.
+    :arg icomm: The inner communicator, should have a reference to
+        ``comm`.
+    """
+    if keyval != innercomm_keyval:
+        raise ValueError("Unexpected keyval")
     ocomm = icomm.Get_attr(outercomm_keyval)
     if ocomm is None:
         raise ValueError("Inner comm does not have expected reference to outer comm")
