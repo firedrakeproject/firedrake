@@ -4,6 +4,7 @@ import re
 import argparse
 from collections import defaultdict
 import platform
+import math
 
 # (fancy) plotting stuff
 import numpy as np
@@ -184,6 +185,9 @@ def plot():
         else:
             return 0
 
+    def roundup(x, ceil):
+        return int(math.ceil(x / float(ceil))) * ceil
+
     def flatten(x):
         return [i for l in x for i in l]
 
@@ -194,7 +198,7 @@ def plot():
             os.makedirs(directory)
         return directory
 
-    def setlayout(ax, ncol=4):
+    def setlayout(ax, ncol=5, xlim=None):
         # Hide the right and top spines
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
@@ -202,18 +206,25 @@ def plot():
         ax.yaxis.set_ticks_position('left')
         ax.xaxis.set_ticks_position('bottom')
         # Adjust spines location
-        ax.spines['left'].set_smart_bounds(True)
-        ax.spines['bottom'].set_smart_bounds(True)
+        ax.spines['left'].set_position(('outward', 12))  # outward by 10 points
+        ax.spines['bottom'].set_position(('outward', 12))  # outward by 10 points
         # Set margins to avoid markers are cut off
         ax.margins(y=.1, x=.1)
+        # Set axes limits
+        ylim = ax.get_ylim()
+        y_ceil = roundup(ylim[1], 100)
+        if y_ceil > max(ax.get_yticks()):
+            ax.set_ylim((0.0, y_ceil))
+        else:
+            ax.set_ylim((0.0, ylim[1]))
+        ax.set_ylim((0.0, max(ax.get_yticks())))
+        ax.set_xlim(xlim or ax.get_xlim())
         # In case I wanted to change the default position of the axes
         box = ax.get_position()
         ax.set_position([box.x0, box.y0, box.width, box.height])
-        # Set font family of tick labels
-        # TODO
         # Small font size in legend
         legend_font = FontProperties()
-        legend_font.set_size('small')
+        legend_font.set_size('x-small')
         ax.legend(loc='upper center', bbox_to_anchor=(0., 1.02, 1., .102), prop=legend_font,
                   frameon=False, ncol=ncol)
 
@@ -245,18 +256,19 @@ def plot():
                     # 1) Structure for scalability
                     key = (name, poly, mesh, "scalability")
                     plot_line = "%s-%s-%s" % (version, part, mode)
-                    x_y_val = (num_cores, runtime)
                     vals = y_runtimes_x_cores[key].setdefault(plot_line, [])
-                    vals.append(x_y_val)
+                    old_x_y_vals = [i for i in vals if i[0] == num_cores]
+                    for i in old_x_y_vals:
+                        vals.remove(i)
+                    vals.append(min(old_x_y_vals + [(num_cores, runtime)], key=lambda i: i[1]))
                     vals.sort(key=lambda i: i[0])
 
                     # 2) Structure for tiled versions
                     # if "explicit" in mode ...; tile_size is actually the tile increase factor
                     key = (name, poly, mesh, version)
                     plot_line = "%s-%s" % (part, mode)
-                    x_y_val = (tile_size, runtime)
                     vals = y_runtimes_x_tilesize[key].setdefault(plot_line, [])
-                    vals.append(x_y_val)
+                    vals.append((tile_size, runtime))
                     vals.sort(key=lambda i: i[0])
 
     # Now we can plot !
@@ -273,13 +285,13 @@ def plot():
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
-        ax.set_xlabel(r'Number of cores', fontsize=11, color='black')
+        ax.set_xlabel(r'Number of cores', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <version, part, mode>
         for i, (plot_line, x_y_vals) in enumerate(plot_lines.items()):
             x, y = zip(*x_y_vals)
-            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line)
+            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line, clip_on=False)
         # ... Set common layout stuff
-        setlayout(ax)
+        setlayout(ax, xlim=(1, max(x)))
         # ... The x axis represents number of procs, so needs be integer
         ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
         # ... Finally, output to a file
@@ -294,17 +306,17 @@ def plot():
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
-        ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black')
+        ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <part, mode>
         for i, (plot_line, x_y_vals) in enumerate(plot_lines.items()):
             x, y = zip(*x_y_vals)
-            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line)
+            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line, clip_on=False)
         # ... Set common layout stuff
-        setlayout(ax)
+        setlayout(ax, xlim=(0, max(x)))
         # ... The x axis represents increase factors, so needs be integer
         ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
         # ... Finally, output to a file
-        fig.savefig(os.path.join(directory, "%s.pdf" % version))
+        fig.savefig(os.path.join(directory, "%s.pdf" % version), bbox_inches='tight')
 
 
 if __name__ == '__main__':
