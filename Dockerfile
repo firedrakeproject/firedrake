@@ -34,7 +34,7 @@ USER firedrake
 
 # Build using firedrake install; this is run twice, the second following an
 # exit with error after virtualenv has been installed
-RUN /firedrake/firedrake-install --minimal-petsc --disable-ssh || /firedrake/firedrake-install --minimal-petsc --disable-ssh
+RUN /firedrake/firedrake-install ${FIREDRAKE_INSTALL_FLAGS} || /firedrake/firedrake-install ${FIREDRAKE_INSTALL_FLAGS}
 
 # Set environment as it would be after activating the virtualenv
 ENV PATH "/firedrake/firedrake/bin:$PATH"
