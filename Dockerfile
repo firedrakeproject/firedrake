@@ -17,6 +17,9 @@ RUN mkdir /firedrake
 COPY scripts/firedrake-install /firedrake
 WORKDIR /firedrake
 
+# Firedrake install script doesn't use apt-get -y ; fix at system level
+RUN echo "APT::Get::Assume-Yes \"True\";" >> /etc/apt/apt.conf.d/50assumeyes
+
 # Update the image, and install required base packages for firedrake-install
 RUN apt-get update
 RUN apt-get dist-upgrade
