@@ -198,7 +198,10 @@ def plot():
             os.makedirs(directory)
         return directory
 
-    def setlayout(ax, ncol=5, xlim=None):
+    def sort_on_mode(x):
+        return sorted(x.items(), key=lambda i: ('untiled' not in i[0], i[0]))
+
+    def setlayout(ax, ncol=5, xlim=None, ylim_zero=True):
         # Hide the right and top spines
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
@@ -212,12 +215,13 @@ def plot():
         ax.margins(y=.1, x=.1)
         # Set axes limits
         ylim = ax.get_ylim()
+        y_floor = 0.0 if ylim_zero else ylim[0]
         y_ceil = roundup(ylim[1], 100)
         if y_ceil > max(ax.get_yticks()):
-            ax.set_ylim((0.0, y_ceil))
+            ax.set_ylim((y_floor, y_ceil))
         else:
-            ax.set_ylim((0.0, ylim[1]))
-        ax.set_ylim((0.0, max(ax.get_yticks())))
+            ax.set_ylim((y_floor, ylim[1]))
+        ax.set_ylim((min(ax.get_yticks()), max(ax.get_yticks())))
         ax.set_xlim(xlim or ax.get_xlim())
         # In case I wanted to change the default position of the axes
         box = ax.get_position()
@@ -255,7 +259,8 @@ def plot():
 
                     # 1) Structure for scalability
                     key = (name, poly, mesh, "scalability")
-                    plot_line = "%s-%s-%s" % (version, part, mode)
+                    plot_line = "%s-%s-%s" % (version, part, mode) if mode != "untiled" else \
+                        "%s-%s" % (version, mode)
                     vals = y_runtimes_x_cores[key].setdefault(plot_line, [])
                     old_x_y_vals = [i for i in vals if i[0] == num_cores]
                     for i in old_x_y_vals:
@@ -266,7 +271,7 @@ def plot():
                     # 2) Structure for tiled versions
                     # if "explicit" in mode ...; tile_size is actually the tile increase factor
                     key = (name, poly, mesh, version)
-                    plot_line = "%s-%s" % (part, mode)
+                    plot_line = "%s-%s" % (part, mode) if mode != "untiled" else mode
                     vals = y_runtimes_x_tilesize[key].setdefault(plot_line, [])
                     vals.append((tile_size, runtime))
                     vals.sort(key=lambda i: i[0])
@@ -287,11 +292,13 @@ def plot():
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Number of cores', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <version, part, mode>
-        for i, (plot_line, x_y_vals) in enumerate(plot_lines.items()):
+        max_cores = 0
+        for i, (plot_line, x_y_vals) in enumerate(sort_on_mode(plot_lines)):
             x, y = zip(*x_y_vals)
+            max_cores = max(max_cores, max(x))
             ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line, clip_on=False)
         # ... Set common layout stuff
-        setlayout(ax, xlim=(1, max(x)))
+        setlayout(ax, xlim=(1, max_cores))
         # ... The x axis represents number of procs, so needs be integer
         ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
         # ... Finally, output to a file
@@ -308,11 +315,13 @@ def plot():
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <part, mode>
-        for i, (plot_line, x_y_vals) in enumerate(plot_lines.items()):
+        max_tile_size = 0
+        for i, (plot_line, x_y_vals) in enumerate(sort_on_mode(plot_lines)):
             x, y = zip(*x_y_vals)
+            max_tile_size = max(max_tile_size, max(x))
             ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line, clip_on=False)
         # ... Set common layout stuff
-        setlayout(ax, xlim=(0, max(x)))
+        setlayout(ax, xlim=(0, max_tile_size), ylim_zero=False)
         # ... The x axis represents increase factors, so needs be integer
         ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
         # ... Finally, output to a file
