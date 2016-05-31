@@ -118,9 +118,11 @@ def IntervalMesh(ncells, length_or_left, right=None):
     else:
         left = length_or_left
 
+    if ncells <= 0 or ncells % 1:
+        raise ValueError("Number of cells must be a postive integer")
     length = right - left
     if length < 0:
-        raise RuntimeError("Requested mesh has negative length")
+        raise ValueError("Requested mesh has negative length")
     dx = float(length) / ncells
     # This ensures the rightmost point is actually present.
     coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
@@ -223,6 +225,11 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None):
     * 3: plane y == 0
     * 4: plane y == Ly
     """
+
+    for n in (nx, ny):
+        if n <= 0 or n % 1:
+            raise ValueError("Number of cells must be a postive integer")
+
     if quadrilateral:
         dx = float(Lx) / nx
         dy = float(Ly) / ny
@@ -528,6 +535,10 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None):
     * 5: plane z == 0
     * 6: plane z == Lz
     """
+    for n in (nx, ny, nz):
+        if n <= 0 or n % 1:
+            raise ValueError("Number of cells must be a postive integer")
+
     # Create mesh from DMPlex
     boundary = PETSc.DMPlex().create(MPI.comm)
     boundary.setDimension(2)
@@ -621,6 +632,9 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None):
         to 1: flat triangles)
     :kwarg reorder: (optional), should the mesh be reordered?
     """
+    if refinement_level < 0 or refinement_level % 1:
+            raise RuntimeError("Number of refinements must be a non-negative integer")
+
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
     from math import sqrt
@@ -832,6 +846,9 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg use_dmplex_refinement: (optional), use dmplex to apply
         the refinement.
     """
+    if refinement_level < 0 or refinement_level % 1:
+            raise RuntimeError("Number of refinements must be a non-negative integer")
+
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
 
@@ -907,8 +924,13 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None):
     :kwarg quadrilateral: (optional), creates quadrilateral mesh, defaults to False
     :kwarg reorder: (optional), should the mesh be reordered
     """
+
     if nR < 3 or nr < 3:
         raise ValueError("Must have at least 3 cells in each direction")
+
+    for n in (nR, nr):
+        if n % 1:
+            raise RuntimeError("Number of cells must be an integer")
 
     # gives an array [[0, 0], [0, 1], ..., [1, 0], [1, 1], ...]
     idx_temp = np.asarray(np.meshgrid(np.arange(nR), np.arange(nr))).swapaxes(0, 2).reshape(-1, 2)
