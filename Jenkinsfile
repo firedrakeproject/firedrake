@@ -12,7 +12,7 @@ import java.util.UUID;
 String build_hash = UUID.randomUUID().toString();
 
 stage "Building"
-node {
+node('firedrake-build') {
   env.BUILD_ID = build_hash;
   /** Get the source as specified by Jenkins following the build initialisation; there
    *  may be a bug here where it gets the *latest* revision as opposed to the one which
@@ -28,7 +28,7 @@ stage "Testing"
 
 parallel (
     "stream 1" : { 
-                     node { 
+                     node('firedrake-test') { 
                            env.BUILD_ID = build_hash;
                            sh '''
                            docker run --env PYOP2_BACKEND='sequential' -a stdout -t tmbgreaves/firedrakebuilds:$BUILD_ID bash -c 'py.test --color=no -v firedrake/src/firedrake/tests/'
@@ -36,7 +36,7 @@ parallel (
                        } 
                    },
     "stream 2" : { 
-                     node { 
+                     node('firedrake-test') { 
                            env.BUILD_ID = build_hash;
                            sh '''
                            docker run --env OMP_NUM_THREADS='2' --env PYOP2_BACKEND='openmp' -a stdout -t tmbgreaves/firedrakebuilds:$BUILD_ID bash -c 'py.test --color=no -v firedrake/src/firedrake/tests/'
