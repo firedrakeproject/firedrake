@@ -7,6 +7,9 @@ ENV FIREDRAKE_UID 1000
 ENV FIREDRAKE_GID 1000
 ENV FIREDRAKE_HOME /firedrake
 
+# Optionally, pass in flags to be passed to firedrake-install
+ARG FIREDRAKE_INSTALL_FLAGS
+
 # Jenkins checks out the relevant files for testing and makes them the 
 # context for this container build; we want them all in the working
 # directory of the container.
@@ -34,7 +37,7 @@ USER firedrake
 
 # Build using firedrake install; this is run twice, the second following an
 # exit with error after virtualenv has been installed
-RUN /firedrake/firedrake-install ${FIREDRAKE_INSTALL_FLAGS} || /firedrake/firedrake-install ${FIREDRAKE_INSTALL_FLAGS}
+RUN /firedrake/firedrake-install $FIREDRAKE_INSTALL_FLAGS || /firedrake/firedrake-install $FIREDRAKE_INSTALL_FLAGS
 
 # Set environment as it would be after activating the virtualenv
 ENV PATH "/firedrake/firedrake/bin:$PATH"
