@@ -10,8 +10,9 @@ ENV FIREDRAKE_HOME /firedrake
 # Jenkins checks out the relevant files for testing and makes them the 
 # context for this container build; we want them all in the working
 # directory of the container.
-ADD . /firedrake
-WORKDIR /firedrake
+RUN mkdir -p /firedrake/firedrake
+ADD . /firedrake/firedrake-src
+WORKDIR /firedrake/firedrake
 
 # Firedrake install script doesn't use apt-get -y ; fix at system level
 RUN echo "APT::Get::Assume-Yes \"True\";" >> /etc/apt/apt.conf.d/50assumeyes
@@ -33,7 +34,7 @@ USER firedrake
 
 # Build using firedrake install; this is run twice, the second following an
 # exit with error after virtualenv has been installed
-RUN scripts/firedrake-install || scripts/firedrake-install
+RUN /firedrake/firedrake-src/scripts/firedrake-install || /firedrake/firedrake-src/scripts/firedrake-install
 
 # Set environment as it would be after activating the virtualenv
 ENV PATH "/firedrake/firedrake/bin:$PATH"
