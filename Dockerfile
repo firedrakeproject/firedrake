@@ -10,9 +10,9 @@ ENV FIREDRAKE_HOME /firedrake
 # Jenkins checks out the relevant files for testing and makes them the 
 # context for this container build; we want them all in the working
 # directory of the container.
-RUN mkdir -p /firedrake/firedrake
+RUN mkdir /firedrake
 ADD . /firedrake/firedrake-src
-WORKDIR /firedrake/firedrake
+WORKDIR /firedrake
 
 # Firedrake install script doesn't use apt-get -y ; fix at system level
 RUN echo "APT::Get::Assume-Yes \"True\";" >> /etc/apt/apt.conf.d/50assumeyes
@@ -42,4 +42,3 @@ ENV VIRTUAL_ENV "/firedrake/firedrake"
 
 # Install pytest-xdist for later testing
 RUN pip install pytest-xdist
-
