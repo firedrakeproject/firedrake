@@ -18,9 +18,9 @@ COPY scripts/firedrake-install /firedrake
 WORKDIR /firedrake
 
 # Update the image, and install required base packages for firedrake-install
-RUN apt-get update
-RUN apt-get dist-upgrade
-RUN apt-get install sudo python-minimal
+RUN apt-get -y update
+RUN apt-get -y dist-upgrade
+RUN apt-get -y install sudo python-minimal
 
 # Add the Firedrake user for the build, with sudo access and ownership of the
 # added repo contents which make up the build source
