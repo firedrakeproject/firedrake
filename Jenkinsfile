@@ -20,7 +20,7 @@ node('firedrake-build') {
   checkout scm;
     /** Build the docker image, using the Dockerfile in the repo and using HUDSON_COOKIE
    *  as a consistent and unique identifier for this build                               **/
-  sh 'docker build --build-arg FIREDRAKE_INSTALL_FLAGS=\\"--minimal-petsc --disable-ssh\\" tmbgreaves/firedrakebuilds:$BUILD_ID .'
+  sh 'docker build --build-arg FIREDRAKE_INSTALL_FLAGS=\\\\"--minimal-petsc --disable-ssh\\\\" tmbgreaves/firedrakebuilds:$BUILD_ID .'
   sh 'docker push tmbgreaves/firedrakebuilds:$BUILD_ID'
 }
 
