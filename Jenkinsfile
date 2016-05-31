@@ -31,7 +31,7 @@ parallel (
                      node('firedrake-test') { 
                            env.BUILD_ID = build_hash;
                            sh '''
-                           docker run --env PYOP2_BACKEND='sequential' -a stdout -t tmbgreaves/firedrakebuilds:$BUILD_ID bash -c 'py.test -n auto --color=no -v firedrake/src/firedrake/tests/'
+                           docker run --env PYOP2_BACKEND='sequential' -a stdout -t tmbgreaves/firedrakebuilds:$BUILD_ID bash -c 'pip install pytest-xdist && py.test -n auto --color=no -v firedrake/src/firedrake/tests/'
                            ''';
                        } 
                    },
@@ -39,7 +39,7 @@ parallel (
                      node('firedrake-test') { 
                            env.BUILD_ID = build_hash;
                            sh '''
-                           docker run --env OMP_NUM_THREADS='2' --env PYOP2_BACKEND='openmp' -a stdout -t tmbgreaves/firedrakebuilds:$BUILD_ID bash -c 'py.test -n auto --color=no -v firedrake/src/firedrake/tests/'
+                           docker run --env OMP_NUM_THREADS='2' --env PYOP2_BACKEND='openmp' -a stdout -t tmbgreaves/firedrakebuilds:$BUILD_ID bash -c 'pip install pytest-xdist && py.test -n auto --color=no -v firedrake/src/firedrake/tests/'
                            ''';
                        } 
                    }
