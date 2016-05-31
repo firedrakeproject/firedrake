@@ -242,7 +242,11 @@ def apt_check(name):
 
 def apt_install(names):
     log.info("Installing missing packages: %s." % ", ".join(names))
-    subprocess.check_call(["sudo", "apt-get", "install"] + names)
+    if sys.stdin.isatty():
+        subprocess.check_call(["sudo", "apt-get", "install"] + names)
+    else: 
+        log.info("Non-interactive stdin detected; installing without prompts")
+        subprocess.check_call(["sudo", "apt-get", "-y", "install"] + names)
 
 
 def split_requirements_url(url):
