@@ -39,6 +39,3 @@ RUN /firedrake/firedrake-install || /firedrake/firedrake-install
 # Set environment as it would be after activating the virtualenv
 ENV PATH "/firedrake/firedrake/bin:$PATH"
 ENV VIRTUAL_ENV "/firedrake/firedrake"
-
-# Install pytest-xdist for later testing
-RUN pip install pytest-xdist
