@@ -20,8 +20,7 @@ node('firedrake-build') {
   checkout scm;
     /** Build the docker image, using the Dockerfile in the repo and using HUDSON_COOKIE
    *  as a consistent and unique identifier for this build                               **/
-  def build_cmd = $/docker build --build-arg FIREDRAKE_INSTALL_FLAGS=\"--package-branch firedrake master\" tmbgreaves/firedrakebuilds:$$BUILD_ID ./$
-  sh build_cmd
+  sh $/docker build --build-arg FIREDRAKE_INSTALL_FLAGS=\"--package-branch firedrake master\" -t tmbgreaves/firedrakebuilds:$$BUILD_ID ./$
   sh 'docker push tmbgreaves/firedrakebuilds:$BUILD_ID';
 }
 
