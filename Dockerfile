@@ -11,7 +11,7 @@ ENV FIREDRAKE_HOME /firedrake
 # context for this container build; we want them all in the working
 # directory of the container.
 RUN mkdir /firedrake
-ADD . /firedrake/firedrake-src
+COPY scripts/firedrake-install /firedrake
 WORKDIR /firedrake
 
 # Firedrake install script doesn't use apt-get -y ; fix at system level
@@ -34,7 +34,7 @@ USER firedrake
 
 # Build using firedrake install; this is run twice, the second following an
 # exit with error after virtualenv has been installed
-RUN /firedrake/firedrake-src/scripts/firedrake-install || /firedrake/firedrake-src/scripts/firedrake-install
+RUN /firedrake/firedrake-install || /firedrake/firedrake-install
 
 # Set environment as it would be after activating the virtualenv
 ENV PATH "/firedrake/firedrake/bin:$PATH"
