@@ -1,9 +1,6 @@
 # Dpckerfile to build Firedrake via firedrake-install
 
-# Allow override of the Ubuntu version
-ARG UBUNTU_VERSION='xenial'
-
-FROM ubuntu:$UBUNTU_VERSION
+FROM ubuntu:xenial
 MAINTAINER Tim Greaves <tim.greaves@imperial.ac.uk>
 
 # Tweak user information to match your runtime environment, if desired
