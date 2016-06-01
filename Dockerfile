@@ -4,8 +4,8 @@ FROM ubuntu:xenial
 MAINTAINER Tim Greaves <tim.greaves@imperial.ac.uk>
 
 # Tweak user information to match your runtime environment, if desired
-ARG FIREDRAKE_UID='1000'
-ARG FIREDRAKE_GID='1000'
+ARG FIREDRAKE_UID='1001'
+ARG FIREDRAKE_GID='1001'
 ARG FIREDRAKE_HOME='/firedrake'
 
 # Offer the option of overriding where firedrake-install is picked up from
