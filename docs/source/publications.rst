@@ -31,7 +31,7 @@ when using quadrilateral meshes, please also cite :cite:`Homolya2016`.
 If your work relies on the kernel-level performance optimisations that
 Firedrake performs using `COFFEE
 <http://github.com/coneoproject/COFFEE>`_, please cite the
-COFFEE paper :cite:`Luporini2015`.
+COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2016`.
 
 .. bibliography:: _static/bibliography.bib
 
