@@ -46,7 +46,7 @@ from mpi import collective
 from configuration import configuration
 from utils import as_tuple, strip
 
-import coffee.plan
+import coffee.system
 from coffee.plan import ASTKernel
 
 
@@ -621,8 +621,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False, init=True):
         buf_type = self.data.ctype
         dim = len(size)
-        compiler = coffee.plan.compiler
-        isa = coffee.plan.isa
+        compiler = coffee.system.compiler
+        isa = coffee.system.isa
         align = compiler['align'](isa["alignment"]) if compiler and size[-1] % isa["dp_reg"] == 0 else ""
         init_expr = " = " + "{" * dim + "0.0" + "}" * dim if self.access in [WRITE, INC] else ""
         if not init:
@@ -735,7 +735,7 @@ class JITModule(base.JITModule):
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
 
-        compiler = coffee.plan.compiler
+        compiler = coffee.system.compiler
         externc_open = '' if not self._kernel._cpp else 'extern "C" {'
         externc_close = '' if not self._kernel._cpp else '}'
         headers = "\n".join([compiler.get('vect_header', "")])
@@ -786,7 +786,7 @@ class JITModule(base.JITModule):
                    ["-I%s" % d for d in self._kernel._include_dirs] + \
                    ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
         if compiler:
-            cppargs += [compiler[coffee.plan.isa['inst_set']]]
+            cppargs += [compiler[coffee.system.isa['inst_set']]]
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
