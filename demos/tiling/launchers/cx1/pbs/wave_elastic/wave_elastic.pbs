@@ -13,9 +13,11 @@ TILING=$FIREDRAKE/demos/tiling
 EXECUTABLE=$TILING/wave_elastic.py
 MESHES=$WORK/meshes/wave_elastic
 
+NODENAME=`cat $PBS_NODEFILE`
+NODENAME="$( cut -d '.' -f 1 <<< "$NODENAME" )"
 
 echo ------------------------------------------------------
-echo -n 'Job is running on node '; cat $PBS_NODEFILE
+echo -n 'Job is running on node '; echo $NODENAME
 cat /proc/cpuinfo | grep "model name" | uniq
 echo ------------------------------------------------------
 echo PBS: qsub is running on $PBS_O_HOST
@@ -39,9 +41,9 @@ export OMP_NUM_THREADS=1
 export SLOPE_BACKEND=SEQUENTIAL
 
 OPTS="--output 10000 --flatten True --nocache True"
-TILE_OPTS="--extra-halo 1 --fusion-mode only_tile --glb-maps True --coloring default"
+TILE_OPTS="--fusion-mode only_tile --coloring default"
 
-LOGGER=$WORK"/logger_"$PBS_JOBNAME".txt"
+LOGGER=$WORK"/logger_"$PBS_JOBNAME"_"$NODENAME".txt"
 rm -f $LOGGER
 touch $LOGGER
 
@@ -50,7 +52,8 @@ touch $LOGGER
 $FIREDRAKE/scripts/firedrake-clean
 
 # Tile sizes for each poly order
-declare -a ts_p1=(150 230 310 400)
+#declare -a ts_p1=(100 150 230 310 400)
+declare -a ts_p1=(230 270 310 350)
 declare -a ts_p2=(70 140 200 300)
 declare -a ts_p3=(40 70 100)
 declare -a ts_p4=(30 60 90)
@@ -58,35 +61,90 @@ declare -a ts_p4=(30 60 90)
 # Partition modes for each poly order
 declare -a part_p1=("chunk")
 declare -a part_p2=("chunk")
-declare -a part_p3=("chunk" "metis")
-declare -a part_p4=("metis")
+declare -a part_p3=("chunk")
+declare -a part_p4=("chunk")
 
+# Extra options for each mode
+declare -a opts_em1=("--glb-maps True")
+declare -a opts_em2=("--glb-maps True")
+declare -a opts_em3=("--glb-maps True")
+declare -a opts_em4=("--glb-maps True")
+declare -a opts_em5=("--glb-maps True")
+declare -a opts_em6=("--glb-maps True" "--glb-maps True --extra-halo 1")
+declare -a opts_em7=("--glb-maps True")
+declare -a opts_em8=("--glb-maps True")
+
+# Meshes for each poly order
+declare -a mesh_p1=("--mesh-size (300.0,150.0,0.5)" "--mesh-file $MESHES/domain_h060.msh --h 0.6")
+declare -a mesh_p2=("--mesh-size (300.0,150.0,0.6)" "--mesh-file $MESHES/domain_h080.msh --h 0.8")
+declare -a mesh_p3=("--mesh-size (300.0,150.0,1.0)" "--mesh-file $MESHES/domain_h100.msh --h 1.0")
+declare -a mesh_p4=("--mesh-size (300.0,150.0,1.2)" "--mesh-file $MESHES/domain_h125.msh --h 1.25")
+
+# Populate cache
 for poly in 1 2
 do
-    OUT_FILE=$WORK"/output_"$PBS_JOBNAME"_p"$poly".txt"
+    OUT_FILE=$TMPDIR"/output_populator_"$PBS_JOBNAME"_"$NODENAME"_p"$poly".txt"
+    rm -f $OUT_FILE
+    touch $OUT_FILE
+    echo "Populate polynomial order "$poly >> $LOGGER
+    mesh="--mesh-size (300.0,150.0,1.0)"
+    echo "    Populate "$mesh >> $LOGGER
+    echo "        Populate Untiled ..." >> $LOGGER
+    mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 --time_max 0.1 1>> $OUT_FILE 2>> $OUT_FILE
+    part_p="part_p$poly[*]"
+    for p in ${!part_p}
+    do
+        for em in 3 4 5 6 8
+        do
+            opts="opts_em$em[@]"
+            opts_em=( "${!opts}" )
+            for opt in "${opts_em[@]}"
+            do
+                ts=100000
+                echo "        Populate Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
+                mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt --time_max 0.1 1>> $OUT_FILE 2>> $OUT_FILE
+            done
+        done
+    done
+    mv $OUT_FILE $WORK/
+done
+
+# Run actual experiments
+for poly in 1 2
+do
+    OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_"$NODENAME"_p"$poly".txt"
     rm -f $OUT_FILE
     touch $OUT_FILE
     echo "Polynomial order "$poly >> $LOGGER
-    for MESH in "--mesh-size (300.0,150.0,0.6)" "--mesh-file "$MESHES"/domain_h060.msh --h 0.60"
+    mesh_p="mesh_p$poly[@]"
+    meshes=( "${!mesh_p}" )
+    for mesh in "${meshes[@]}"
     do
-        echo "    Running "$MESH >> $LOGGER
+        echo "    Running "$mesh >> $LOGGER
         echo "        Untiled ..." >> $LOGGER
-        mpiexec python $EXECUTABLE --poly-order $poly $MESH $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        mpiexec python $EXECUTABLE --poly-order $poly $MESH $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
         part_p="part_p$poly[*]"
         for p in ${!part_p}
         do
-            for em in 2 3 4 5
+            for em in 3 4 5 6 8
             do
-                ts_p="ts_p$poly[*]"
-                for ts in ${!ts_p}
+                opts="opts_em$em[@]"
+                opts_em=( "${!opts}" )
+                for opt in "${opts_em[@]}"
                 do
-                    echo "        Tiled (pm="$p", ts="$ts", em="$em") ..."
-                    mpiexec python $EXECUTABLE --poly-order $poly $MESH $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS 1>> $OUT_FILE 2>> $OUT_FILE
+                    ts_p="ts_p$poly[*]"
+                    for ts in ${!ts_p}
+                    do
+                        echo "        Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
+                        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt 1>> $OUT_FILE 2>> $OUT_FILE
+                    done
                 done
             done
         done
     done
+    mv $OUT_FILE $WORK/
 done
 
 rm $LOGGER
