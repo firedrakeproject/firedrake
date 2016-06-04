@@ -779,10 +779,8 @@ class Mat(base.Mat, CopyOnWrite):
             # In this case both row and column are a Global.
 
             mat = _GlobalMat()
-
         else:
             mat = _DatMat(self.sparsity)
-
         self.handle = mat
         self._version_set_zero()
 
@@ -920,7 +918,12 @@ class Mat(base.Mat, CopyOnWrite):
         if self.nrows * self.ncols > 1000000:
             raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
                              "Are you sure you wanted to do this?")
-        return self.handle[:, :]
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or
+           isinstance(self.sparsity._dsets[1], GlobalDataSet)):
+
+            return self.handle.getPythonContext()[:, :]
+        else:
+            return self.handle[:, :]
 
 
 class ParLoop(base.ParLoop):
@@ -989,7 +992,7 @@ class _DatMatPayload(object):
                 else:
                     return v.pointwiseMult(x, y)
 
-    def duplicate(self, copy=True):
+    def duplicate(self, mat, copy=True):
         if copy:
             return _DatMat(self.sparsity, self.dat.duplicate())
         else:
@@ -1031,12 +1034,11 @@ class _GlobalMatPayload(object):
         else:
             result.array[...]
 
-    def duplicate(self, copy=True):
+    def duplicate(self, mat, copy=True):
         if copy:
             return _GlobalMat(self.global_.duplicate())
         else:
             return _GlobalMat()
-
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential
