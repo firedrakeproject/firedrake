@@ -80,8 +80,13 @@ declare -a mesh_p2=("--mesh-size (300.0,150.0,0.6)" "--mesh-file $MESHES/domain_
 declare -a mesh_p3=("--mesh-size (300.0,150.0,1.0)" "--mesh-file $MESHES/domain_h100.msh --h 1.0")
 declare -a mesh_p4=("--mesh-size (300.0,150.0,1.2)" "--mesh-file $MESHES/domain_h125.msh --h 1.25")
 
+# Should I run a specific poly order, as provided as input, or the hard-coded ones?
+if [ -z "$polys" ]; then
+    polys=(1 2 3 4)
+fi
+
 # Populate cache
-for poly in 1 2
+for poly in ${polys[@]}
 do
     OUT_FILE=$TMPDIR"/output_populator_"$PBS_JOBNAME"_"$NODENAME"_p"$poly".txt"
     rm -f $OUT_FILE
@@ -110,7 +115,7 @@ do
 done
 
 # Run actual experiments
-for poly in 1 2
+for poly in ${polys[@]}
 do
     OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_"$NODENAME"_p"$poly".txt"
     rm -f $OUT_FILE
