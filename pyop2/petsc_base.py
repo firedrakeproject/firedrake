@@ -987,8 +987,8 @@ class _DatMatPayload(object):
                     a = np.zeros(1)
                     if x.comm.rank == 0:
                         a[0] = x.getArray()
-                        raise ValueError
-                    return y.scale()
+                    x.comm.tompi4py().bcast(a)
+                    return y.scale(a)
                 else:
                     return v.pointwiseMult(x, y)
 
