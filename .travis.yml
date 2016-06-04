@@ -75,6 +75,7 @@ install:
   # Having activated the virtualenv, attempt to save cached dependencies
   # This saves PETSc and petsc4py to speed up building
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
+  - if [ "x$TEST_ADJOINT" != "x" ]; then pip install scipy; fi
 # command to run tests
 script:
   - (cd firedrake/src/firedrake; make lint)

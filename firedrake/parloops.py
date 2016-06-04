@@ -39,7 +39,7 @@ over degrees of freedom."""
 _maps = {
     'cell': {
         'nodes': lambda x: x.cell_node_map(),
-        'itspace': lambda mesh, measure: mesh.cell_set
+        'itspace': lambda mesh, measure: mesh.cell_subset(measure.subdomain_id())
     },
     'interior_facet': {
         'nodes': lambda x: x.interior_facet_node_map(),

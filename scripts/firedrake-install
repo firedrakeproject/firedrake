@@ -242,7 +242,11 @@ def apt_check(name):
 
 def apt_install(names):
     log.info("Installing missing packages: %s." % ", ".join(names))
-    subprocess.check_call(["sudo", "apt-get", "install"] + names)
+    if sys.stdin.isatty():
+        subprocess.check_call(["sudo", "apt-get", "install"] + names)
+    else: 
+        log.info("Non-interactive stdin detected; installing without prompts")
+        subprocess.check_call(["sudo", "apt-get", "-y", "install"] + names)
 
 
 def split_requirements_url(url):
@@ -776,7 +780,10 @@ if osname == "Darwin":
         brew_install("gcc")
         brew_install("openmpi")
         brew_install("python")
+        brew_install("autoconf")
+        brew_install("automake")
         brew_install("cmake")
+        brew_install("libtool")
 
     else:
         log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -789,12 +796,15 @@ elif osname == "Linux":
         check_call(["apt-get", "--version"])
 
         apt_packages = ["build-essential",
+                        "autoconf",
+                        "automake",
                         "cmake",
                         "gfortran",
                         "git-core",
                         "libblas-dev",
                         "liblapack-dev",
                         "libopenmpi-dev",
+                        "libtool",
                         "mercurial",
                         "openmpi-bin",
                         "python-dev",
@@ -815,6 +825,7 @@ elif osname == "Linux":
         log.info("* Git, Mercurial")
         log.info("* Python version 2.7")
         log.info("* pip and the Python headers")
+        log.info("* autoconf, automake, libtool")
         log.info("* CMake")
         log.info("* zlib")
 
@@ -873,6 +884,7 @@ if mode == "install":
     if not args.honour_petsc_dir:
         pipinstall.append("--no-deps")
         packages.remove("petsc")
+        log.info("Depending on your platform, PETSc may take an hour or more to build!")
         install("petsc/")
         pipinstall.pop()
 

@@ -148,7 +148,11 @@ We list here the required homebrew_ packages:
 
 - openmpi (or mpich)
 - python
+- autoconf
+- automake
+- libtool
 - cmake
+- glpk (science tap)
 
 Ubuntu
 ------
@@ -156,12 +160,16 @@ Ubuntu
 On Ubuntu, the following apt packages are required:
 
 - build-essential
+- autoconf
+- automake
 - cmake
 - gfortran
 - git-core
+- glpk-utils
 - libblas-dev
 - liblapack-dev
 - libopenmpi-dev
+- libtool
 - mercurial
 - openmpi-bin
 - python-dev

@@ -162,6 +162,23 @@ def test_cg_max_field_extruded(f_extruded):
                            3./4, 3./4, 3./4]).all()
 
 
+@pytest.mark.parametrize("subdomain", [1, 2])
+def test_cell_subdomain(subdomain):
+    from os.path import abspath, dirname, join
+    mesh = Mesh(join(abspath(dirname(__file__)), "..",
+                     "meshes", "cell-sets.msh"))
+
+    V = FunctionSpace(mesh, "DG", 0)
+    expect = interpolate(as_ufl(1), V, subset=mesh.cell_subset(subdomain))
+
+    f = Function(V)
+    par_loop("""
+    for (int i=0; i<f.dofs; i++) f[i][0] = 1.0;
+    """, dx(subdomain), {'f': (f, WRITE)})
+
+    assert np.allclose(f.dat.data, expect.dat.data)
+
+
 def test_walk_facets_rt():
     m = UnitSquareMesh(3, 3)
     V = FunctionSpace(m, 'RT', 1)

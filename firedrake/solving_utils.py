@@ -74,9 +74,10 @@ def _extract_kwargs(**kwargs):
     # Make sure we don't stomp on a dict the user has passed in.
     parameters = parameters.copy() if parameters is not None else {}
     nullspace = kwargs.get('nullspace', None)
+    tnullspace = kwargs.get('transpose_nullspace', None)
     options_prefix = kwargs.get('options_prefix', None)
 
-    return parameters, nullspace, options_prefix
+    return parameters, nullspace, tnullspace, options_prefix
 
 
 class _SNESContext(object):
@@ -135,14 +136,14 @@ class _SNESContext(object):
         snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
                          P=self._pjacs[-1]._M.handle)
 
-    def set_nullspace(self, nullspace, ises=None):
+    def set_nullspace(self, nullspace, ises=None, transpose=False):
         if nullspace is None:
             return
-        nullspace._apply(self._jacs[-1]._M)
+        nullspace._apply(self._jacs[-1]._M, transpose=transpose)
         if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M)
+            nullspace._apply(self._pjacs[-1]._M, transpose=transpose)
         if ises is not None:
-            nullspace._apply(ises)
+            nullspace._apply(ises, transpose=transpose)
 
     def __len__(self):
         return len(self._problems)

@@ -28,8 +28,9 @@ class DirichletBC(object):
         pointwise evaluated at the nodes of
         ``V``. :class:`.Expression`\s are projected onto ``V`` if it
         does not support pointwise evaluation.
-    :arg sub_domain: the integer id of the boundary region over which the
-        boundary condition should be applied. In the case of extrusion
+    :arg sub_domain: the integer id(s) of the boundary region over which the
+        boundary condition should be applied. The string "on_boundary" may be used
+        to indicate all of the boundaries of the domain. In the case of extrusion
         the ``top`` and ``bottom`` strings are used to flag the bcs application on
         the top and bottom boundaries of the extruded mesh respectively.
     :arg method: the method for determining boundary nodes. The default is
@@ -52,7 +53,11 @@ class DirichletBC(object):
         self._original_val = g
         self.function_arg = g
         self._original_arg = self.function_arg
-        self.sub_domain = sub_domain
+        if sub_domain == "on_boundary":
+            self.sub_domain = \
+                map(int, V.mesh().topology.exterior_facets.unique_markers)
+        else:
+            self.sub_domain = sub_domain
         self._currently_zeroed = False
         if method not in ["topological", "geometric"]:
             raise ValueError("Unknown boundary condition method %s" % method)

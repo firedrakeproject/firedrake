@@ -183,7 +183,7 @@ class NLVSHierarchy(object):
         """
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__
-        parameters, nullspace, options_prefix \
+        parameters, nullspace, tnullspace, options_prefix \
             = firedrake.solving_utils._extract_kwargs(**kwargs)
 
         if options_prefix is not None:
@@ -209,8 +209,8 @@ class NLVSHierarchy(object):
             problems = problem
         ctx = firedrake.solving_utils._SNESContext(problems)
 
-        if nullspace is not None:
-            raise NotImplementedError("Coarsening nullspaces no yet implemented")
+        if nullspace is not None or tnullspace is not None:
+            raise NotImplementedError("Coarsening nullspaces not yet implemented")
         snes = PETSc.SNES().create()
 
         snes.setDM(problems[-1].dm)

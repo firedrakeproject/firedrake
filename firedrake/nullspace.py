@@ -82,15 +82,21 @@ class VectorSpaceBasis(object):
                     return False
         return True
 
-    def _apply(self, matrix):
+    def _apply(self, matrix, transpose=False):
         """Set this VectorSpaceBasis as a nullspace for a matrix
 
         :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
              be set.
+        :kwarg transpose: Should this be set as the transpose
+             nullspace instead?  Used to orthogonalize the right hand
+             side wrt the provided nullspace.
         """
         if not isinstance(matrix, op2.Mat):
             return
-        matrix.handle.setNullSpace(self.nullspace)
+        if transpose:
+            matrix.handle.setTransposeNullSpace(self.nullspace)
+        else:
+            matrix.handle.setNullSpace(self.nullspace)
 
     def __iter__(self):
         """Yield self when iterated over"""
@@ -192,12 +198,16 @@ class MixedVectorSpaceBasis(object):
         self._nullspace = PETSc.NullSpace().create(constant=False,
                                                    vectors=self._petsc_vecs)
 
-    def _apply_monolithic(self, matrix):
+    def _apply_monolithic(self, matrix, transpose=False):
         """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
         matrix.
 
         :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
              be set.
+
+        :kwarg transpose: Should this be set as the transpose
+             nullspace instead?  Used to orthogonalize the right hand
+             side wrt the provided nullspace.
 
         Note, this only hangs the nullspace on the Mat, you should
         normally be using :meth:`_apply` which also hangs the
@@ -205,20 +215,29 @@ class MixedVectorSpaceBasis(object):
         complements."""
         if self._nullspace is None:
             self._build_monolithic_basis()
-        matrix.handle.setNullSpace(self._nullspace)
+        if transpose:
+            matrix.handle.setTransposeNullSpace(self._nullspace)
+        else:
+            matrix.handle.setNullSpace(self._nullspace)
 
-    def _apply(self, matrix_or_ises):
+    def _apply(self, matrix_or_ises, transpose=False):
         """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
         :arg matrix_or_ises: either a :class:`pyop2.op2.Mat` to set a
              nullspace on, or else a list of PETSc ISes to compose a
              nullspace with.
+        :kwarg transpose: Should this be set as the transpose
+             nullspace instead?  Used to orthogonalize the right hand
+             side wrt the provided nullspace.
 
         .. note::
 
            If you're using a Schur complement preconditioner you
            should both call :meth:`_apply` on the matrix, and the ises
            defining the splits.
+
+           If transpose is ``True``, nothing happens in the IS case,
+           since PETSc does not provide the ability to set anything.
         """
         if isinstance(matrix_or_ises, op2.Mat):
             matrix = matrix_or_ises
@@ -229,9 +248,12 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
                                    (rows, cols, len(self)))
             # Hang the expanded nullspace on the big matrix
-            self._apply_monolithic(matrix)
+            self._apply_monolithic(matrix, transpose=transpose)
             return
         ises = matrix_or_ises
+        if transpose:
+            # PETSc doesn't give us anything here
+            return
         for i, basis in enumerate(self):
             if not isinstance(basis, VectorSpaceBasis):
                 continue

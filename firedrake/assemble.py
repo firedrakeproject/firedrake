@@ -279,7 +279,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # Decoration for applying to matrix maps in extruded case
             decoration = None
             if integral_type == "cell":
-                itspace = sdata or m.cell_set
+                itspace = sdata or m.cell_subset(subdomain_id)
+
+                if subdomain_id not in ["otherwise", "everywhere"] and \
+                   sdata is not None:
+                    raise ValueError("Cannot use subdomain data and subdomain_id")
 
                 def get_map(x, bcs=None, decoration=None):
                     return x.cell_node_map(bcs)
