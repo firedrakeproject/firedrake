@@ -2,7 +2,7 @@ cimport numpy as np
 import ctypes
 from libc.stdint cimport uintptr_t
 
-include "spatialindex.pxi"
+include "spatialindexinc.pxi"
 
 cdef class SpatialIndex(object):
     """Python class for holding a native spatial index object."""
