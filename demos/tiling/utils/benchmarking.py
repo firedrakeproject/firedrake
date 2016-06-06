@@ -90,7 +90,7 @@ def output_time(start, end, **kwargs):
         tot = round(end - start, 3)
         print "Time stepping: ", tot, "s"
 
-    # Find if a multi-node execution
+    # Determine if a multi-node execution
     is_multinode = False
     platformname = platform.node().split('.')[0]
     if MPI.comm.rank in range(1, num_procs):
@@ -138,7 +138,7 @@ def output_time(start, end, **kwargs):
         name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
         for version in versions:
             filename = os.path.join(output_dir, "times", name, "poly_%d" % poly_order, domain,
-                                    "ndofs_%d" % ndofs, version, "np%d_nt%d.txt" % (num_procs, num_threads))
+                                    "ndofs_%d" % ndofs, version, platformname, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
             if not os.path.exists(os.path.dirname(filename)):
                 os.makedirs(os.path.dirname(filename))
@@ -163,7 +163,9 @@ def output_time(start, end, **kwargs):
         print "Num procs:", num_procs
         for i in range(num_procs):
             if MPI.comm.rank == i:
+                print "PRINTING SUMMARY FOR RANK", i
                 summary()
+                sys.stdout.flush()
             MPI.comm.barrier()
 
 
@@ -242,7 +244,7 @@ def plot():
     for problem, experiments in toplot:
         # Get info out of the problem name
         info = problem.split('/')
-        name, poly, mesh, ndofs, version = info[1:6]
+        name, poly, mesh, ndofs, version, platformname = info[1:7]
         # Format
         poly = int(poly.split('_')[-1])
         mesh = "%s_%s" % (mesh, ndofs)
