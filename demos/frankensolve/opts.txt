@@ -1,0 +1,4 @@
+-ksp_type cg
+-ksp_monitor_true_residual
+-pc_type none
+# Unpreconditioned, matrix-free CG

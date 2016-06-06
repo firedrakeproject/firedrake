@@ -1,0 +1,6 @@
+-ksp_type preonly
+-pc_type python
+-pc_python_type assembled.Assembled
+-assembled_ksp_type preonly
+-assembled_pc_type lu
+# Force assembly and direct solution in the preconditioner
