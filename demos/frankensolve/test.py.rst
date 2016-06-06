@@ -3,6 +3,7 @@ In a UFL matrix and get the same answer as if we use the
 assembled matrix.::
 
   from firedrake import *
+
   from firedrake.frankensolve import UFLMatrix
 
   M = UnitSquareMesh(100, 100)
