@@ -1,0 +1,8 @@
+-ksp_type cg
+-ksp_monitor_true_residual
+-pc_type python
+-pc_python_type assembled.Assembled
+-assembled_ksp_type preonly
+-assembled_pc_type hypre
+# Do matvec with unassembled matrix, but use AMG on an assembled matrix
+# as a preconditioner.  Not sure you'd ever want to, but who am I to say...

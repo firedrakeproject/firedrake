@@ -1,0 +1,7 @@
+-ksp_type preonly
+-pc_type python
+-pc_python_type assembled.Assembled
+-assembled_ksp_type cg
+-assembled_ksp_monitor_true_residual
+-assembled_pc_type hypre
+# Do CG with AMG preconditioning on an *assembled matrix*
