@@ -204,11 +204,11 @@ def translate_cell_coordinate(terminal, mt, params):
         points = list(params.facet_manager.facet_transform(points))
     return gem.partial_indexed(params.select_facet(gem.Literal(points),
                                                    mt.restriction),
-                               (params.quadrature_index,))
+                               (params.point_index,))
 
 
 @translate.register(FacetCoordinate)
 def translate_facet_coordinate(terminal, mt, params):
     assert params.integral_type != 'cell'
     points = params.tabulation_manager.points
-    return gem.partial_indexed(gem.Literal(points), (params.quadrature_index,))
+    return gem.partial_indexed(gem.Literal(points), (params.point_index,))

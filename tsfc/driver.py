@@ -117,7 +117,6 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         # Check if the integral has a quad degree attached, otherwise use
         # the estimated polynomial degree attached by compute_form_data
         quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
-        quad_rule = create_quadrature(cell, 'cell', quadrature_degree)
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
@@ -127,10 +126,12 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         else:
             assert restriction is None
             coefficient_mapper = builder.coefficient_mapper
-        ir = fem.process('cell', cell, quad_rule.points,
-                         quad_rule.weights, quadrature_index, (),
-                         integrand, coefficient_mapper,
-                         index_cache, None, None)
+        ir = fem.compile_ufl(integrand,
+                             cell=cell,
+                             quadrature_degree=quadrature_degree,
+                             point_index=quadrature_index,
+                             coefficient_mapper=coefficient_mapper,
+                             index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
@@ -154,14 +155,16 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         # Check if the integral has a quad degree attached, otherwise use
         # the estimated polynomial degree attached by compute_form_data
         quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
-        quad_rule = create_quadrature(cell, integral_type, quadrature_degree)
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
-        ir = fem.process(integral_type, cell, quad_rule.points,
-                         quad_rule.weights, quadrature_index, (),
-                         integrand, builder.coefficient_mapper,
-                         index_cache, None, None)
+        ir = fem.compile_ufl(integrand,
+                             integral_type=integral_type,
+                             cell=cell,
+                             quadrature_degree=quadrature_degree,
+                             point_index=quadrature_index,
+                             coefficient_mapper=builder.coefficient_mapper,
+                             index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
@@ -193,11 +196,16 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
         quadrature_index = gem.Index(name='ip')
         quadrature_indices.append(quadrature_index)
-        ir = fem.process(integral_type, cell, quad_rule.points,
-                         quad_rule.weights, quadrature_index,
-                         argument_indices, integrand,
-                         builder.coefficient_mapper, index_cache,
-                         cellvolume, facetarea)
+        ir = fem.compile_ufl(integrand,
+                             integral_type=integral_type,
+                             cell=cell,
+                             quadrature_rule=quad_rule,
+                             point_index=quadrature_index,
+                             argument_indices=argument_indices,
+                             coefficient_mapper=builder.coefficient_mapper,
+                             index_cache=index_cache,
+                             cellvolume=cellvolume,
+                             facetarea=facetarea)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)
