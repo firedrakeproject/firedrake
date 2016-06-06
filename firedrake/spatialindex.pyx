@@ -1,5 +1,6 @@
 cimport numpy as np
 import ctypes
+import cython
 from libc.stdint cimport uintptr_t
 
 include "spatialindexinc.pxi"
@@ -50,6 +51,8 @@ cdef class SpatialIndex(object):
         return ctypes.c_void_p(<uintptr_t> self.index)
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
                  np.ndarray[np.float64_t, ndim=2, mode="c"] regions_hi):
     """Builds a spatial index from a set of maximum bounding regions (MBRs).
