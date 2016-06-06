@@ -51,32 +51,28 @@ touch $LOGGER
 # Note: the first run is on a tiny mesh; to be interpreted as a ``warm-up'' run, to populate the cache
 $FIREDRAKE/scripts/firedrake-clean
 
-# Tile sizes for each poly order
-#declare -a ts_p1=(100 150 230 310 400)
-declare -a ts_p1=(140 250 320 400)
-declare -a ts_p2=(70 140 200 300)
-declare -a ts_p3=(45 60 75)
-declare -a ts_p4=(30 60 90)
-
-# Partition modes for each poly order
-declare -a part_p1=("chunk")
-declare -a part_p2=("chunk")
-declare -a part_p3=("chunk" "metis")
-declare -a part_p4=("chunk")
-
 # Extra options for each mode
 declare -a opts_em1=("" "--glb-maps True")
 declare -a opts_em2=("" "--glb-maps True")
 declare -a opts_em3=("" "--glb-maps True")
-declare -a opts_em4=("" "--glb-maps True")
-declare -a opts_em5=("" "--glb-maps True")
+declare -a opts_em4=("" "--extra-halo 1" "--glb-maps True" "--glb-maps True --extra-halo 1")
+declare -a opts_em5=("" "--extra-halo 1" "--glb-maps True" "--glb-maps True --extra-halo 1")
 declare -a opts_em6=("" "--extra-halo 1" "--glb-maps True" "--glb-maps True --extra-halo 1")
-declare -a opts_em7=("" "--glb-maps True")
-declare -a opts_em8=("" "--glb-maps True")
 
 # Should I run a specific poly order, as provided in input, or the hard-coded ones?
 if [ -z "$polys" ]; then
     polys=(1 2 3 4)
+fi
+
+# Should I run a specific partition mode, as provided in input, or the hard-coded ones?
+if [ "$part" -eq 0 ]; then
+    declare -a part_all=("chunk")
+elif [ "$part" -eq 1 ]; then
+    declare -a part_all=("metis")
+elif [ "$part" -eq 2 ]; then
+    declare -a part_all=("chunk" "metis")
+else
+    declare -a part_all=("chunk")
 fi
 
 # Should I run a specific mesh, as provided in input, or the hard-coded ones?
@@ -92,6 +88,21 @@ else
     declare -a mesh_p4=("--mesh-size (300.0,150.0,$mesh)")
 fi
 
+# Should I run a specific mode, varying tiles and partmode, or the hard-coded ones?
+if [ -z "$fixmode" ]; then
+    # Default execution and partition modes, as well as tile sizes, for each poly order
+    declare -a em_all=(1 2 3 4 5 6)
+    declare -a ts_p1=(140 250 320 400)
+    declare -a ts_p2=(70 140 200 300)
+    declare -a ts_p3=(45 60 75)
+    declare -a ts_p4=(20 45 70)
+else
+    declare -a em_all=(5)
+    declare -a ts_p1=(50 100 150 200 250 300 350 400 450 500 550 600 650 700 750 800 850 900 950 1000)
+    declare -a ts_p2=(40 70 100 130 160 190 220 250 280 310 340 370 400 430 460 490 520 550 580 610)
+    declare -a ts_p3=(20 40 60 80 100 120 140 160 180 200 220 240 260 280 300 320 340 360 380 400)
+    declare -a ts_p4=(10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200)
+fi
 
 # Populate cache
 for poly in ${polys[@]}
@@ -104,10 +115,9 @@ do
     echo "    Populate "$mesh >> $LOGGER
     echo "        Populate Untiled ..." >> $LOGGER
     mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 --time_max 0.1 1>> $OUT_FILE 2>> $OUT_FILE
-    part_p="part_p$poly[*]"
-    for p in ${!part_p}
+    for p in ${part_all[@]}
     do
-        for em in 3 4 5 6 8
+        for em in ${em_all[@]}
         do
             opts="opts_em$em[@]"
             opts_em=( "${!opts}" )
@@ -138,10 +148,9 @@ do
         mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
         mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
         mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        part_p="part_p$poly[*]"
-        for p in ${!part_p}
+        for p in ${part_all[@]}
         do
-            for em in 3 4 5 6 8
+            for em in ${em_all[@]}
             do
                 opts="opts_em$em[@]"
                 opts_em=( "${!opts}" )

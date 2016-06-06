@@ -16,12 +16,24 @@ if [ "$1" == "singlenode" ]; then
     qsub -v polys=2 -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
     qsub -v polys=3 -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
     qsub -v polys=4 -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
+elif [ "$1" == 'testsuite' ]; then
+    echo "Executing the main test suite"
+    for poly in 1 2 3 4; do
+        for h in 0.6 0.8; do
+            for part in 0 1; do
+                echo "Scheduling <poly=$poly,h=$h,part=$part> on ***Ivy Bridge (20 cores, defaultqueue)***"
+                qsub -v polys=$poly,mesh=$h,part=$part -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
+                echo "Scheduling <poly=$poly,h=$h,part=$part> on ***Haswell (20 cores, pqcdt)***"
+                qsub -v polys=$poly,mesh=$h,part=$part -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic.pbs
+            done
+        done
+    done
 elif [ "$1" == "meshes" ]; then
     declare -a spacing=(0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5)
     echo "Executing single node experiments: Ivy Bridge (20 cores, defaultqueue)"
     for h in ${spacing[@]}
     do
-        echo "Executing p=1 and h=$h"
+        echo "Scheduling p=1 and h=$h"
         qsub -v polys=1,mesh=$h -l walltime=48:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
     done
 elif [ "$1" == "highp" ]; then
