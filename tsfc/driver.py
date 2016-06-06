@@ -3,7 +3,7 @@ from __future__ import absolute_import
 import collections
 import time
 
-from ufl.classes import Form
+from ufl.classes import Form, CellVolume, FacetArea
 from ufl.algorithms import compute_form_data
 from ufl.log import GREEN
 
@@ -42,6 +42,7 @@ def compile_form(form, prefix="form", parameters=None):
                            do_apply_integral_scaling=True,
                            do_apply_geometry_lowering=True,
                            do_apply_restrictions=True,
+                           preserve_geometry_types=(CellVolume, FacetArea),
                            do_estimate_degrees=True)
     print GREEN % ("compute_form_data finished in %g seconds." % (time.time() - cpu_time))
 
