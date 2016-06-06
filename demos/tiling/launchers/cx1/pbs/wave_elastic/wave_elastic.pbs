@@ -53,37 +53,45 @@ $FIREDRAKE/scripts/firedrake-clean
 
 # Tile sizes for each poly order
 #declare -a ts_p1=(100 150 230 310 400)
-declare -a ts_p1=(230 270 310 350)
+declare -a ts_p1=(140 250 320 400)
 declare -a ts_p2=(70 140 200 300)
-declare -a ts_p3=(40 70 100)
+declare -a ts_p3=(45 60 75)
 declare -a ts_p4=(30 60 90)
 
 # Partition modes for each poly order
 declare -a part_p1=("chunk")
 declare -a part_p2=("chunk")
-declare -a part_p3=("chunk")
+declare -a part_p3=("chunk" "metis")
 declare -a part_p4=("chunk")
 
 # Extra options for each mode
-declare -a opts_em1=("--glb-maps True")
-declare -a opts_em2=("--glb-maps True")
-declare -a opts_em3=("--glb-maps True")
-declare -a opts_em4=("--glb-maps True")
-declare -a opts_em5=("--glb-maps True")
-declare -a opts_em6=("--glb-maps True" "--glb-maps True --extra-halo 1")
-declare -a opts_em7=("--glb-maps True")
-declare -a opts_em8=("--glb-maps True")
+declare -a opts_em1=("" "--glb-maps True")
+declare -a opts_em2=("" "--glb-maps True")
+declare -a opts_em3=("" "--glb-maps True")
+declare -a opts_em4=("" "--glb-maps True")
+declare -a opts_em5=("" "--glb-maps True")
+declare -a opts_em6=("" "--extra-halo 1" "--glb-maps True" "--glb-maps True --extra-halo 1")
+declare -a opts_em7=("" "--glb-maps True")
+declare -a opts_em8=("" "--glb-maps True")
 
-# Meshes for each poly order
-declare -a mesh_p1=("--mesh-size (300.0,150.0,0.5)" "--mesh-file $MESHES/domain_h060.msh --h 0.6")
-declare -a mesh_p2=("--mesh-size (300.0,150.0,0.6)" "--mesh-file $MESHES/domain_h080.msh --h 0.8")
-declare -a mesh_p3=("--mesh-size (300.0,150.0,1.0)" "--mesh-file $MESHES/domain_h100.msh --h 1.0")
-declare -a mesh_p4=("--mesh-size (300.0,150.0,1.2)" "--mesh-file $MESHES/domain_h125.msh --h 1.25")
-
-# Should I run a specific poly order, as provided as input, or the hard-coded ones?
+# Should I run a specific poly order, as provided in input, or the hard-coded ones?
 if [ -z "$polys" ]; then
     polys=(1 2 3 4)
 fi
+
+# Should I run a specific mesh, as provided in input, or the hard-coded ones?
+if [ -z "$mesh" ]; then
+    declare -a mesh_p1=("--mesh-size (300.0,150.0,0.5)" "--mesh-file $MESHES/domain_h060.msh --h 0.6")
+    declare -a mesh_p2=("--mesh-size (300.0,150.0,0.6)" "--mesh-file $MESHES/domain_h080.msh --h 0.8")
+    declare -a mesh_p3=("--mesh-size (300.0,150.0,1.0)" "--mesh-file $MESHES/domain_h100.msh --h 1.0")
+    declare -a mesh_p4=("--mesh-size (300.0,150.0,1.2)" "--mesh-file $MESHES/domain_h125.msh --h 1.25")
+else
+    declare -a mesh_p1=("--mesh-size (300.0,150.0,$mesh)")
+    declare -a mesh_p2=("--mesh-size (300.0,150.0,$mesh)")
+    declare -a mesh_p3=("--mesh-size (300.0,150.0,$mesh)")
+    declare -a mesh_p4=("--mesh-size (300.0,150.0,$mesh)")
+fi
+
 
 # Populate cache
 for poly in ${polys[@]}
