@@ -29,6 +29,7 @@ import numpy
 from collections import defaultdict
 from operator import add
 from functools import partial
+from FIAT.hdiv_trace import TraceError
 
 
 class MixedElement(object):
@@ -76,7 +77,7 @@ class MixedElement(object):
     def num_components(self):
         return self.value_shape()[0]
 
-    def tabulate(self, order, points):
+    def tabulate(self, order, points, entity):
         """Tabulate a mixed element by appropriately splatting
         together the tabulation of the individual elements.
         """
@@ -95,7 +96,10 @@ class MixedElement(object):
         crange = numpy.cumsum(sub_cmps)
 
         for i, e in enumerate(self.elements()):
-            table = e.tabulate(order, points)
+            try:
+                table = e.tabulate(order, points, entity)
+            except TraceError as TE:
+                table = TE.zeros
 
             for d, tab in table.items():
                 try:

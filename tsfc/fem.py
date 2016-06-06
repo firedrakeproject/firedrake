@@ -11,10 +11,9 @@ from singledispatch import singledispatch
 
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, Coefficient, CellVolume,
-                         FacetArea, FormArgument,
-                         GeometricQuantity, QuadratureWeight)
-
+from ufl.classes import (Argument, Coefficient, CellVolume, ConstantValue,
+                         FacetArea, FormArgument, GeometricQuantity,
+                         QuadratureWeight)
 import gem
 from gem.utils import cached_property
 
@@ -26,9 +25,10 @@ from tsfc.parameters import PARAMETERS
 from tsfc.ufl_utils import (CollectModifiedTerminals,
                             ModifiedTerminalMixin, PickRestriction,
                             spanning_degree, simplify_abs)
+from FIAT.hdiv_trace import TraceError
 
 
-def _tabulate(ufl_element, order, points):
+def _tabulate(ufl_element, order, points, entity):
     """Ask FIAT to tabulate ``points`` up to order ``order``, then
     rearranges the result into a series of ``(c, D, table)`` tuples,
     where:
@@ -41,23 +41,35 @@ def _tabulate(ufl_element, order, points):
     :arg ufl_element: element to tabulate
     :arg order: FIAT gives all derivatives up to this order
     :arg points: points to tabulate the element on
+    :arg entity: particular entity to tabulate on
     """
     element = create_element(ufl_element)
     phi = element.space_dimension()
     C = ufl_element.reference_value_size()
     q = len(points)
-    for D, fiat_table in iteritems(element.tabulate(order, points)):
-        reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
-        for c, table in enumerate(reordered_table):
-            yield c, D, table
+    try:
+        for D, fiat_table in iteritems(element.tabulate(order, points, entity)):
+            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
+            for c, table in enumerate(reordered_table):
+                yield c, D, table
+    except TraceError as TE:
+        # import sys
+        # shape = (q, phi)
+        # TODO: Incorporate a proper Failure Table into the tabulation manager.
+        # Currently we are returned appropriately sized zeros arrays for gradient
+        # tabulations on trace element.
+        # gemTable = gem.Failure(shape, sys.exc_info())
+        for D, fiat_table in TE.zeros.iteritems():
+            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
+            for c, table in enumerate(reordered_table):
+                yield c, D, table
 
 
-def tabulate(ufl_element, order, points, epsilon):
-    """Same as the above, but also applies FFC rounding with
-    threshold epsilon and recognises cellwise constantness.
-    Cellwise constantness is determined symbolically, but we
-    also check the numerics to be safe."""
-    for c, D, table in _tabulate(ufl_element, order, points):
+def tabulate(ufl_element, order, points, entity, epsilon):
+    """Same as the above, but also applies FFC rounding and recognises
+    cellwise constantness.  Cellwise constantness is determined
+    symbolically, but we also check the numerics to be safe."""
+    for c, D, table in _tabulate(ufl_element, order, points, entity):
         # Copied from FFC (ffc/quadrature/quadratureutils.py)
         table[abs(table) < epsilon] = 0
         table[abs(table - 1.0) < epsilon] = 1.0
@@ -65,33 +77,34 @@ def tabulate(ufl_element, order, points, epsilon):
         table[abs(table - 0.5) < epsilon] = 0.5
         table[abs(table + 0.5) < epsilon] = -0.5
 
-        if spanning_degree(ufl_element) <= sum(D):
+        if spanning_degree(ufl_element) <= sum(D) and ufl_element.family() != "HDiv Trace":
             assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
             table = table[0]
 
         yield c, D, table
 
 
-def make_tabulator(points, epsilon):
-    """Creates a tabulator for an array of points with rounding
-    parameter epsilon."""
-    return lambda elem, order: tabulate(elem, order, points, epsilon)
+def make_tabulator(points, entity):
+    """Creates a tabulator for an array of points for a given entity."""
+    return lambda elem, order: tabulate(elem, order, points, entity, epsilon)
 
 
 class TabulationManager(object):
     """Manages the generation of tabulation matrices for the different
     integral types."""
 
-    def __init__(self, entity_points, epsilon):
+    def __init__(self, points, entity_dim, entity_ids, epsilon):
         """Constructs a TabulationManager.
 
-        :arg entity_points: An array of points in cell coordinates for
-                            each integration entity, i.e. an iterable
-                            of arrays of points.
+        :arg points: points on the integration entity (e.g. points on an
+                     interval or facet integrals on a simplex)
+        :arg entity_dim: the integration dimension of the quadrature rule
+        :arg entity_id: list of ids for each entity with dimension `entity_dim`
         :arg epsilon: precision for rounding FE tables to 0, +-1/2, +-1
         """
         epsilons = itertools.repeat(epsilon, len(entity_points))
-        self.tabulators = list(map(make_tabulator, entity_points, epsilons))
+        self.tabulators = [make_tabulator(points, (entity_dim, entity_id), epsilons)
+                           for entity_id in entity_ids]
         self.tables = {}
 
     def tabulate(self, ufl_element, max_deriv):
@@ -377,7 +390,7 @@ def compile_ufl(expression, interior_facet=False, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(context.entity_points, context.epsilon)
+    tabulation_manager = TabulationManager(context.entity_points, context.integration_dim, context.entity_ids, context.epsilon)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
