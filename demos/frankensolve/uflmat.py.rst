@@ -4,6 +4,7 @@ How the sausage is made, where sausage == matrix-free action::
   class UFLMatrix(object):
       def __init__(self, a, bcs=[], fc_params = {}, extra={}):
           from firedrake import function
+	  from ufl import action
 
 We just stuff pointers to the bilinear form (Jacobian), boundary
 conditions, form compiler parameters, and anything extra that user
@@ -31,19 +32,22 @@ knows how to set itself up.  This could be done better?::
           with self._y.dat.vec_ro as yy:
               self.col_sizes = yy.getSizes()
 
+We will stash the UFL business for the action so we don't have to reconstruct
+it at each matrix-vector product.::
+
+          self.action = action(self.a, self._x)
 	      
 This defins how the PETSc matrix applies itself to a vector.  In our
 case, it's just assembling a 1-form and applying boundary conditions.::
   
       def mult(self, mat, X, Y):
           from firedrake.assemble import assemble
-          from ufl import action
           
           with self._x.dat.vec as v:
               if v != X:
                   X.copy(v)
 
-          assemble(action(self.a, self._x), self._y,
+          assemble(self.action, self._y,
                    form_compiler_parameters = self.fc_params)
   
           for bc in self.bcs:
