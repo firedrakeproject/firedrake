@@ -54,6 +54,32 @@ def test_unit_cube():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
+def test_one_element_mesh():
+    mesh = PeriodicRectangleMesh(10, 1, Lx=1.0, Ly=1.0)
+    V = FunctionSpace(mesh, "CG", 1)
+    Vdg = FunctionSpace(mesh, "DG", 1)
+    r = Function(Vdg)
+    u = Function(V)
+
+    # Checking that if interpolate a double periodic function
+    # to DG then projecting to CG returns the same function
+    r.interpolate(Expression("sin(2*pi*x[0])"))
+    u.project(r)
+    assert(abs(assemble((u-r)*(u-r)*dx)) < 1.0e-4)
+
+    # Checking that if interpolate an x-periodic function
+    # to DG then projecting to CG does not return the same function
+    r.interpolate(Expression("x[1]"))
+    u.project(r)
+    assert(abs(assemble((u-0.5)*(u-0.5)*dx)) < 1.0e-4)
+
+    # Checking that if interpolate an x-periodic function
+    # to DG then projecting to CG does not return the same function
+    r.interpolate(Expression("x[0]"))
+    u.project(r)
+    assert(abs(assemble((u-r)*(u-r)*dx)) > 1.0e-2)
+
+
 def test_box():
     assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
 
