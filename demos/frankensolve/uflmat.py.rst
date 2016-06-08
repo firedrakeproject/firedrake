@@ -1,5 +1,6 @@
 How the sausage is made, where sausage == matrix-free action::
 
+  from firedrake.petsc import PETSc
 
   class UFLMatrix(object):
       def __init__(self, a, bcs=[], state=None, fc_params = {}, extra={}):
@@ -17,7 +18,7 @@ allows us to insert the current linearization state.::
           self.bcs = bcs
           self.fc_params = fc_params
           self.extra = extra
-	  sefl.newton_state = state
+	  self.newton_state = state
 
 This creates some functions for the source and target of 1-form assembly::
   
@@ -66,9 +67,11 @@ extraction for our custom matrix type.  Note that we are splitting UFL
 and index sets rather than an assembled matrix, keeping matrix
 assembly deferred as long as possible.::
   
-      def getSubMatrix(self, mat, row_is, col_is):
+      def getSubMatrix(self, mat, row_is, col_is, target=None):
           from utils import find_sub_block
 
+	  assert target is None
+	  
 These are the sets of ISes of which the the row and column space consist.::
 
 	  row_ises = self._y.function_space().dof_dset.field_ises
@@ -89,7 +92,7 @@ a PETSc matrix::
 	  submat.setType("python")
 	  submat.setSizes((submat_ufl.row_sizes, submat_ufl.col_sizes))
 	  submat.setPythonContext(submat_ufl)
-	  returm submat
+	  return submat
   
 And now for the sub matrix class.::
 
