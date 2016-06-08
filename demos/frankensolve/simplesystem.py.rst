@@ -1,6 +1,7 @@
 Let's test a simple case of field splitting.::
 
   from firedrake import *
+  import nlvs
   M = UnitSquareMesh(10, 10)
   V = FunctionSpace(M, "CG", 1)
   W = FunctionSpace(M, "CG", 2)
@@ -22,4 +23,8 @@ Let's test a simple case of field splitting.::
 
   solver.solve()
 
-  File("dumbmixed.pvd").write(u01)
+  u00, u10 = u01.split()
+  File("u0.pvd").write(u00)
+  File("u1.pvd").write(u10)
+  
+
