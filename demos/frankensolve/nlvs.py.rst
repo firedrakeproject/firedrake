@@ -45,7 +45,8 @@ implements the overloaded operations and set it as the "Python
 context" of a Python matrix type.::
   
           jac_ufl = UFLMatrix(problem.J, bcs=problem.bcs,
-                                fc_params=problem.form_compiler_parameters)
+	                      state=self._x,
+                              fc_params=problem.form_compiler_parameters)
 
           jac = PETSc.Mat().create()
           jac.setType("python")
@@ -55,6 +56,7 @@ context" of a Python matrix type.::
 
   	  if problem.Jp is not None:
               pjac_ufl = UFLMatrix(problem.Jp, bcs=problem.bcs,
+	                           state=self._x,
                                    fc_params=problem.form_compiler_parameters)
 
               pjac = PETSc.Mat().create()
