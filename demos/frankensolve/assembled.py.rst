@@ -16,7 +16,7 @@ type.  Instead, it is a class that gets instantiated by PETSc and then
 stuffed inside of a PC object.  When the PETSc PC type is "Python",
 PETSc forwards its calls to methods implemented inside of this.::
   
-  class Assembled(object):
+  class AssembledPC(object):
 
 This plays the role of a construcor, it is called when the enclosing
 KSP context is set up.  In it, we just assemble into a firedrake

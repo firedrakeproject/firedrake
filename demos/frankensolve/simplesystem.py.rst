@@ -34,4 +34,3 @@ Let's test a simple case of field splitting.::
   File("u0.pvd").write(u00)
   File("u1.pvd").write(u10)
   
-
