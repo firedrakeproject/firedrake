@@ -72,7 +72,6 @@ class Configuration(dict):
         "backend": ("PYOP2_BACKEND", str, "sequential"),
         "compiler": ("PYOP2_BACKEND_COMPILER", str, "gnu"),
         "simd_isa": ("PYOP2_SIMD_ISA", str, "sse"),
-        "blas": ("PYOP2_BLAS", str, ""),
         "debug": ("PYOP2_DEBUG", int, 0),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),

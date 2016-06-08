@@ -45,7 +45,7 @@ from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
-from coffee.plan import init_coffee
+from coffee.system import coffee_init
 from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
@@ -112,8 +112,7 @@ def init(**kwargs):
         global MPI
         MPI = backends._BackendSelector._backend.MPI  # noqa: backend override
 
-    init_coffee(configuration['simd_isa'], configuration['compiler'],
-                configuration['blas'])
+    coffee_init(compiler=configuration['compiler'], isa=configuration['simd_isa'])
 
 
 @atexit.register

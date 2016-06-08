@@ -46,7 +46,7 @@ from mpi import collective
 from configuration import configuration
 from utils import as_tuple, strip
 
-import coffee.plan
+import coffee.system
 from coffee.plan import ASTKernel
 
 
@@ -58,7 +58,6 @@ class Kernel(base.Kernel):
         self._original_ast = dcopy(ast)
         ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(self._opts)
-        self._applied_blas = ast_handler.blas
         return ast_handler.gencode()
 
 
@@ -242,7 +241,7 @@ class Arg(base.Arg):
         return ";\n".join(val)
 
     def c_addto(self, i, j, buf_name, tmp_name, tmp_decl,
-                extruded=None, is_facet=False, applied_blas=False):
+                extruded=None, is_facet=False):
         maps = as_tuple(self.map, Map)
         nrows = maps[0].split[i].arity
         ncols = maps[1].split[j].arity
@@ -265,10 +264,7 @@ class Arg(base.Arg):
         if self.data._is_vector_field:
             addto = 'MatSetValuesBlockedLocal'
             if self._flatten:
-                if applied_blas:
-                    idx = "[(%%(ridx)s)*%d + (%%(cidx)s)]" % rdim
-                else:
-                    idx = "[%(ridx)s][%(cidx)s]"
+                idx = "[%(ridx)s][%(cidx)s]"
                 ret = []
                 idx_l = idx % {'ridx': "%d*j + k" % rbs,
                                'cidx': "%d*l + m" % cbs}
@@ -625,8 +621,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
     def c_buffer_decl(self, size, idx, buf_name, is_facet=False, init=True):
         buf_type = self.data.ctype
         dim = len(size)
-        compiler = coffee.plan.compiler
-        isa = coffee.plan.isa
+        compiler = coffee.system.compiler
+        isa = coffee.system.isa
         align = compiler['align'](isa["alignment"]) if compiler and size[-1] % isa["dp_reg"] == 0 else ""
         init_expr = " = " + "{" * dim + "0.0" + "}" * dim if self.access in [WRITE, INC] else ""
         if not init:
@@ -739,36 +735,23 @@ class JITModule(base.JITModule):
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
 
-        compiler = coffee.plan.compiler
-        blas = coffee.plan.blas
-        blas_header, blas_namespace, externc_open, externc_close = ("", "", "", "")
-        if self._kernel._applied_blas:
-            blas_header = blas.get('header')
-            blas_namespace = blas.get('namespace', '')
-            if blas['name'] == 'eigen':
-                externc_open = 'extern "C" {'
-                externc_close = '}'
-        if self._kernel._cpp:
-            externc_open = 'extern "C" {'
-            externc_close = '}'
-        headers = "\n".join([compiler.get('vect_header', ""), blas_header])
+        compiler = coffee.system.compiler
+        externc_open = '' if not self._kernel._cpp else 'extern "C" {'
+        externc_close = '' if not self._kernel._cpp else '}'
+        headers = "\n".join([compiler.get('vect_header', "")])
         if any(arg._is_soa for arg in self._args):
             kernel_code = """
             #define OP2_STRIDE(a, idx) a[idx]
             %(header)s
-            %(namespace)s
             %(code)s
             #undef OP2_STRIDE
             """ % {'code': self._kernel.code(),
-                   'namespace': blas_namespace,
                    'header': headers}
         else:
             kernel_code = """
             %(header)s
-            %(namespace)s
             %(code)s
             """ % {'code': self._kernel.code(),
-                   'namespace': blas_namespace,
                    'header': headers}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
@@ -803,18 +786,10 @@ class JITModule(base.JITModule):
                    ["-I%s" % d for d in self._kernel._include_dirs] + \
                    ["-I%s" % os.path.abspath(os.path.dirname(__file__))]
         if compiler:
-            cppargs += [compiler[coffee.plan.isa['inst_set']]]
+            cppargs += [compiler[coffee.system.isa['inst_set']]]
         ldargs = ["-L%s/lib" % d for d in get_petsc_dir()] + \
                  ["-Wl,-rpath,%s/lib" % d for d in get_petsc_dir()] + \
                  ["-lpetsc", "-lm"] + self._libraries
-        if self._kernel._applied_blas:
-            blas_dir = blas['dir']
-            if blas_dir:
-                cppargs += ["-I%s/include" % blas_dir]
-                ldargs += ["-L%s/lib" % blas_dir]
-            ldargs += blas['link']
-            if blas['name'] == 'eigen':
-                extension = "cpp"
         ldargs += self._kernel._ldargs
 
         if self._kernel._cpp:
@@ -839,14 +814,13 @@ class JITModule(base.JITModule):
                                     kernel_name=self._kernel._name,
                                     user_code=self._kernel._user_code,
                                     wrapper_name=self._wrapper_name,
-                                    iteration_region=self._iteration_region,
-                                    applied_blas=self._kernel._applied_blas)
+                                    iteration_region=self._iteration_region)
         return snippets
 
 
 def wrapper_snippets(itspace, args,
                      kernel_name=None, wrapper_name=None, user_code=None,
-                     iteration_region=ALL, applied_blas=False):
+                     iteration_region=ALL):
     """Generates code snippets for the wrapper,
     ready to be into a template.
 
@@ -858,7 +832,6 @@ def wrapper_snippets(itspace, args,
     :param wrapper_name: Wrapper function name (forwarded)
     :param iteration_region: Iteration region, this is specified when
                              creating a :class:`ParLoop`.
-    :param applied_blas: COFFEE sometimes sets this true.
 
     :return: dict containing the code snippets
     """
@@ -978,9 +951,6 @@ def wrapper_snippets(itspace, args,
             else:
                 _buf_size = [sum(_buf_size)]
                 _loop_size = _buf_size
-        else:
-            if applied_blas:
-                _buf_size = [reduce(lambda x, y: x*y, _buf_size)]
         _buf_decl[arg] = arg.c_buffer_decl(_buf_size, count, _buf_name[arg], is_facet=is_facet)
         _tmp_decl[arg] = arg.c_buffer_decl(_buf_size, count, _tmp_name[arg], is_facet=is_facet,
                                            init=False)
@@ -1048,16 +1018,14 @@ def wrapper_snippets(itspace, args,
             _addtos_extruded = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
                                                        _tmp_name[arg],
                                                        _tmp_decl[arg],
-                                                       "xtr_", is_facet=is_facet,
-                                                       applied_blas=applied_blas)
+                                                       "xtr_", is_facet=is_facet)
                                            for arg in args if arg._is_mat])
             _addtos = ""
         else:
             _addtos_extruded = ""
             _addtos = ';\n'.join([arg.c_addto(i, j, _buf_name[arg],
                                               _tmp_name[arg],
-                                              _tmp_decl[arg],
-                                              applied_blas=applied_blas)
+                                              _tmp_decl[arg])
                                   for count, arg in enumerate(args) if arg._is_mat])
 
         if not _buf_scatter:

@@ -3824,7 +3824,6 @@ class Kernel(Cached):
         Kernel._globalcount += 1
         # Record used optimisations
         self._opts = opts
-        self._applied_blas = False
         self._include_dirs = include_dirs
         self._ldargs = ldargs if ldargs is not None else []
         self._headers = headers
