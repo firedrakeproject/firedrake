@@ -563,8 +563,8 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex", "-Wl,-rpath,%s/lib" % sys.prefix]
-    return compilation.load(src, "cpp", c_name,
+    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
+    return compilation.load(src, "c", c_name,
                             cppargs=["-I%s" % path.dirname(__file__),
                                      "-I%s/include" % sys.prefix],
                             ldargs=ldargs)
