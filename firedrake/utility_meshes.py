@@ -8,10 +8,10 @@ from pyop2.mpi import MPI
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ
-from firedrake import mesh
+from firedrake import mesh, Mesh
 from firedrake import expression
 from firedrake import function
-from firedrake import functionspace
+from firedrake import functionspace, SpatialCoordinate
 from firedrake.petsc import PETSc
 
 
@@ -200,6 +200,110 @@ def PeriodicUnitIntervalMesh(ncells):
     return PeriodicIntervalMesh(ncells, length=1.0)
 
 
+def OneElementThickMesh(ncells, Lx, Ly):
+    """
+    Generate a rectangular mesh in the domain with corners [0,0]
+    and [Lx, Ly] with ncells, that is periodic in the x-direction.
+
+    :arg ncells: The number of cells in the mesh.
+    :arg Lx: The width of the domain in the x-direction.
+    :arg Ly: The width of the domain in the y-direction.
+    """
+
+    left = np.arange(ncells, dtype='int32')
+    right = np.roll(left, -1)
+    cells = np.array([left, left, right, right]).T
+    X = np.arange(1.0*ncells)/ncells*Lx
+    Y = 0.*X
+    coords = np.array([X, Y]).T
+
+    # a line of coordinates, with a looped topology
+    plex = PETSc.DMPlex().createFromCellList(2, cells, coords)
+    mesh = Mesh(plex)
+    mesh.topology.init()
+    cell_numbering = mesh._cell_numbering
+    cell_closure = np.zeros((ncells, 9), dtype=int)
+
+    for e in range(ncells):
+        tc = plex.getTransitiveClosure(e)
+        # get the row for this cell
+        row = cell_numbering.getOffset(e)
+
+        # run some checks
+        assert(tc[0][0] == e)
+        assert(len(tc[0]) == 7)
+        edge_range = plex.getHeightStratum(1)
+        assert(all(tc[0][1:5] >= edge_range[0]))
+        assert(all(tc[0][1:5] < edge_range[1]))
+        vertex_range = plex.getHeightStratum(2)
+        assert(all(tc[0][5:] >= vertex_range[0]))
+        assert(all(tc[0][5:] < vertex_range[1]))
+
+        # enter the cell number
+        cell_closure[row][8] = e
+
+        # Get a list of unique edges
+        edge_set = list(set(tc[0][1:5]))
+
+        # Add in the edges
+        for i in range(3):
+            # count up how many times each edge is repeated
+            repeats = list(tc[0][1:5]).count(edge_set[i])
+            if repeats == 2:
+                # we have a y-periodic edge
+                cell_closure[row][6] = edge_set[i]
+                cell_closure[row][7] = edge_set[i]
+            elif repeats == 1:
+                # need to check if it is a right edge, or a left edge
+                support = plex.getSupport(edge_set[i])
+
+        if(e == 0):
+            # special case for left hand cell
+            if(ncells-1 in support):
+                # we are on left hand edge
+                cell_closure[row][4] = edge_set[i]
+            else:
+                # we are on right hand edge
+                cell_closure[row][5] = edge_set[i]
+        else:
+            if(e-1 in support):
+                # we are on left hand edge
+                cell_closure[row][4] = edge_set[i]
+            else:
+                # we are on right hand edge
+                cell_closure[row][5] = edge_set[i]
+
+        # Add in the vertices
+        vertices = tc[0][5:]
+        v1 = min(vertices)
+        v2 = max(vertices)
+        if(v2 != v1 + 1):
+            swap = v2
+            v2 = v1
+            v1 = swap
+        cell_closure[row][0] = v1
+        cell_closure[row][1] = v1
+        cell_closure[row][2] = v2
+        cell_closure[row][3] = v2
+
+    mesh.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
+
+    mesh.init()
+
+    Vc = VectorFunctionSpace(mesh, 'DQ', 1)
+    fc = Function(Vc).interpolate(SpatialCoordinate(mesh))
+
+    mash = Mesh(fc)
+    topverts = Vc.cell_node_list[:, 1::2].reshape((2*ncells,))
+    mash.coordinates.dat.data[topverts, 1] = Ly
+
+    last_cell = cell_numbering.getOffset(ncells-1)
+    last_cell_nodes = Vc.cell_node_list[last_cell, :]
+    mash.coordinates.dat.data[last_cell_nodes[2:], 0] = Lx
+
+    return mash
+
+
 def UnitTriangleMesh():
     """Generate a mesh of the reference triangle"""
     coords = [[0., 0.], [1., 0.], [0., 1.]]
@@ -334,6 +438,9 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     * 1: plane x == 0
     * 2: plane x == Lx
     """
+
+    if direction == "both" and ny == 1:
+        return OneElementThickMesh(nx, Lx, Ly)
 
     if direction not in ("both", "x", "y"):
         raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)
