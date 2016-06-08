@@ -3,6 +3,7 @@ Let's test a simple case of field splitting.::
   from firedrake import *
   from firedrake.frankensolve import FrankenSolver
   M = UnitSquareMesh(3, 3)
+
   V = FunctionSpace(M, "CG", 1)
   W = FunctionSpace(M, "CG", 2)
   Z = V*W
