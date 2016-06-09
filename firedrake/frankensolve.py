@@ -79,7 +79,6 @@ class UFLMatrix(object):
 
         for bc in self.row_bcs:
             bc.apply(self._y)
-
         with self._y.dat.vec_ro as v:
             v.copy(Y)
 
@@ -121,6 +120,7 @@ class UFLMatrix(object):
 
 
 # And now for the sub matrix class.::
+
 class UFLSubMatrix(UFLMatrix):
     def __init__(self, A, row_inds, col_inds):
         from firedrake import DirichletBC
@@ -227,7 +227,6 @@ class SNESContext(object):
         self.F = ufl.replace(problem.F, {problem.u: self._x})
         self._F = function.Function(self.F.arguments()[0].function_space())
 
-
 # The petsc4py idiom is that we will create a Python object that
 # implements the overloaded operations and set it as the "Python
 # context" of a Python matrix type.::
@@ -242,8 +241,8 @@ class SNESContext(object):
         else:
             self._pjac = self._jac
 
-# This is the function that PETSc will use as a callback to evaluate the residual.::
 
+# This is the function that PETSc will use as a callback to evaluate the residual.::
     def form_function(self, snes, X, F):
         """Form the residual for this problem
 
@@ -267,6 +266,7 @@ class SNESContext(object):
             v.copy(F)
 
         return
+
 
 # And ditto for the form_jacobian.  Except that note we *don't* need to
 # reassemble the Jacobians because they are matrix-free.  Updating the
@@ -426,6 +426,7 @@ class FrankenSolver(object):
             self.snes.solve(None, v)
 
         solving_utils.check_snes_convergence(self.snes)
+
 
 # Now, currently there is not much available as far as matrix-free
 # preconditioners in Firedrake, although Lawrence & Rob are working on
