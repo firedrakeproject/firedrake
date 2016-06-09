@@ -32,6 +32,7 @@ from firedrake.checkpointing import *
 from firedrake.citations import *
 from firedrake.constant import *
 from firedrake.expression import *
+from firedrake.frankensolve import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *
@@ -58,6 +59,7 @@ from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa
 
 from firedrake.logging import *
+
 # Set default log level
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)
