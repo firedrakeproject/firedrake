@@ -21,7 +21,6 @@ This is for testing submatrix extraction and making sure everything works.::
 
   A = ufl2petscmat(a, bcs=bcs)
   
-
   dofs0 = W.sub(0).dof_dset.field_ises[0]
 
   A00 = A.getSubMatrix(dofs0, dofs0)
