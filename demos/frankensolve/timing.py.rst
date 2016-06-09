@@ -38,21 +38,7 @@ This times the assembly + BCs of the Firedrake fully assembled matrix.::
 This times the creation of a PETSc matrix & UFLMatrix creation as its PETSc context.::
 
   t1 = time.time()
-<<<<<<< HEAD
   A_ufl = ufl2petscmat(a, bcs=bcs)
-=======
-  A_ufl = PETSc.Mat().create()
-  with x.dat.vec_ro as xx:
-      xxsz = xx.getSizes()
-
-  with y0.dat.vec_ro as yy:
-      yysz = yy.getSizes()
-  A_ufl.setSizes((yysz, xxsz))
-
-  A_ufl.setType(PETSc.Mat.Type.PYTHON)
-  A_ufl.setPythonContext(UFLMatrix(a, bcs=bcs))
-
->>>>>>> Demo showing how matrix-free can be done, with a fallback of assembling matrices inside a custom PC
   t_assembleMF = time.time() - t1
 
 Now we time the matvecs of the two.::

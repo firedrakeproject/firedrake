@@ -62,6 +62,7 @@ from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa
 
 from firedrake.logging import *
+
 # Set default log level
 set_log_level(WARNING)
 set_log_handlers(comm=COMM_WORLD)

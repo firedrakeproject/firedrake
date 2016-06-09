@@ -23,12 +23,7 @@ Let's get started::
 
 The following two modules include the new bits that implement our magic::
   
-<<<<<<< HEAD
   from firedrake.frankensolve import FrankenSolver
-=======
-  from uflmat import UFLMatrix
-  import nlvs
->>>>>>> Demo showing how matrix-free can be done, with a fallback of assembling matrices inside a custom PC
 
 This is firedrake boilerplate that we all know and love::
   
