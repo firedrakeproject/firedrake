@@ -3,7 +3,7 @@ In a UFL matrix and get the same answer as if we use the
 assembled matrix.::
 
   from firedrake import *
-  from uflmat import UFLMatrix
+  from firedrake.frankensolve import UFLMatrix
 
   M = UnitSquareMesh(100, 100)
   V = FunctionSpace(M, "CG", 1)

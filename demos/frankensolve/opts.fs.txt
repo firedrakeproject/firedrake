@@ -1,0 +1,16 @@
+-ksp_type fgmres
+-ksp_converged_reason
+-ksp_monitor_true_residual
+-pc_type fieldsplit
+-pc_fieldsplit_type additive
+-pc_fieldsplit_0_fields 0
+-pc_fieldsplit_1_fields 1
+-fieldsplit_0_ksp_type gmres
+-fieldsplit_0_ksp_monitor_true_residual
+-fieldsplit_0_pc_type none
+-fieldsplit_0_ksp_converged_reason
+-fieldsplit_1_ksp_type gmres
+-fieldsplit_1_ksp_monitor_true_residual
+-fieldsplit_1_pc_type none
+-fieldsplit_1_ksp_converged_reason
+-options_left
