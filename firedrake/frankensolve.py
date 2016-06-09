@@ -61,7 +61,7 @@ class UFLMatrix(object):
 
         self.action = action(self.a, self._x)
 
-# This defins how the PETSc matrix applies itself to a vector.  In our
+# This defines how the PETSc matrix applies itself to a vector.  In our
 # case, it's just assembling a 1-form and applying boundary conditions.::
 
     def mult(self, mat, X, Y):
@@ -162,13 +162,6 @@ class UFLSubMatrix(UFLMatrix):
 
         self.row_bcs = row_bcs
         self.col_bcs = col_bcs
-
-# The multiplication should just inherit, no?  But we need to be careful
-# when we extract submatrices.  Let's make sure one level works for now
-# and disable submatrices of submatrices.::
-
-    def getSubMatrix(self, mat, row_is, col_is):
-        1/0
 
     def mult(self, mat, X, Y):
         from firedrake.assemble import assemble
