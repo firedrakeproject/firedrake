@@ -55,7 +55,10 @@ case, it's just assembling a 1-form and applying boundary conditions.::
                    form_compiler_parameters = self.fc_params)
   
           for bc in self.bcs:
-              bc.apply(self._y)
+	      try:
+                  bc.apply(self._y)
+              except:
+	          pass
 
           with self._y.dat.vec_ro as v:
               v.copy(Y)
