@@ -44,7 +44,7 @@ it at each matrix-vector product.::
 This defins how the PETSc matrix applies itself to a vector.  In our
 case, it's just assembling a 1-form and applying boundary conditions.::
   
-      def mult(self, X, Y):
+      def mult(self, mat, X, Y):
           from firedrake.assemble import assemble
           
           with self._x.dat.vec as v:
