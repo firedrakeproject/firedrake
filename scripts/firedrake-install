@@ -280,7 +280,7 @@ def git_clone(url):
     try:
         if args.disable_ssh:
             raise Exception
-        check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "git")])
+        check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "ssh")])
         log.info("Successfully cloned %s branch %s." % (name, branch))
     except:
         if not args.disable_ssh:
