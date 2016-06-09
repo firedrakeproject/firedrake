@@ -5,19 +5,19 @@ information will be needed, but that for high order and on a coarse mesh,
 we have a small constant multiple for the matvec and win big on the assembly costs.::
 
   from firedrake import *
-  from uflmat import UFLMatrix
+  from firedrake.frankensolve import UFLMatrix
   from firedrake.petsc import PETSc
   import time
 
-  M = UnitCubeMesh(32, 32, 32)
-  V = FunctionSpace(M, "CG", 3)
+  M = UnitCubeMesh(16, 16, 16)
+  V = FunctionSpace(M, "CG", 1)
   W = V
 
   v = TrialFunction(V)
   w = TestFunction(W)
   f = Function(W)
 
-  a = f*inner(grad(v), grad(w)) * dx
+  a = inner(grad(v), grad(w)) * dx
 
   bcs = [DirichletBC(V, Constant(0.0), (1,2,3,4))] 
 

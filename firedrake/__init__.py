@@ -32,6 +32,7 @@ from firedrake.checkpointing import *
 from firedrake.citations import *
 from firedrake.constant import *
 from firedrake.expression import *
+from firedrake.frankensolve import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *

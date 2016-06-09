@@ -1,7 +1,7 @@
 Let's test a simple case of field splitting.::
 
   from firedrake import *
-  import nlvs
+  from firedrake.frankensolve import FrankenSolver
   M = UnitSquareMesh(3, 3)
   V = FunctionSpace(M, "CG", 1)
   W = FunctionSpace(M, "CG", 2)
@@ -13,17 +13,20 @@ Let's test a simple case of field splitting.::
   u0, u1 = split(uu)
   v0, v1 = split(vv)
 
-  a = inner(grad(u0), grad(v0)) * dx + inner(grad(u1), grad(v1))*dx
-  L = v0*dx+v1*dx
+  ff = Function(Z)
+  ff.split()[0].interpolate(Expression("sin(pi*x[0])*sin(pi*x[1])"))
+  ff.split()[1].interpolate(Expression("sin(2*pi*x[0])*sin(3*pi*x[1])"))
+  
+  a = inner(grad(u0), grad(v0))*dx +u0*v0*dx + inner(grad(u1), grad(v1))*dx + u1*v1*dx
+  L = inner(ff,vv)*dx
  
-  bcs = [DirichletBC(Z.sub(0), Constant(0), (1,2,3,4)),
-         DirichletBC(Z.sub(1), Constant(0), (1,2,3,4)),]
+  bcs=[]
 
   uu0 = Function(Z)
 
   prob = LinearVariationalProblem(a, L, uu0, bcs=bcs)
   
-  solver = nlvs.NonlinearVariationalSolver(prob, options_prefix='')
+  solver = FrankenSolver(prob, options_prefix='')
 
   solver.solve()
 

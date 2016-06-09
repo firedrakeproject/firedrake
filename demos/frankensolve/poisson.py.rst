@@ -23,8 +23,7 @@ Let's get started::
 
 The following two modules include the new bits that implement our magic::
   
-  from uflmat import UFLMatrix
-  import nlvs
+  from firedrake.frankensolve import FrankenSolver
 
 This is firedrake boilerplate that we all know and love::
   
@@ -47,7 +46,7 @@ This is firedrake boilerplate that we all know and love::
 Now, note that this is the new variational solver in the present
 director and not the standard Firedrake one::
   
-  solver = nlvs.NonlinearVariationalSolver(prob, options_prefix='')
+  solver = FrankenSolver(prob, options_prefix='')
 
   solver.solve()
 
