@@ -104,10 +104,20 @@ And now for the sub matrix class.::
           from utils import ExtractSubBlock
           self.parent = A
 	  asub, = ExtractSubBlock(row_inds, col_inds).split(A.a)
+          bcs = A.bcs
+          new_bcs = []
+          W = asub.arguments()[0].function_space()
+          for bc in bcs:
+              for i, r in enumerate(row_inds):
+                  if bc.function_space().index == r:
+                      nbc = DirichletBC(W.sub(i), bc.function_arg,
+                                        bc.subdomain_id,
+                                        method=bc.method)
+                      new_bcs.append(nbc)
 	  self.a = asub
 	  
           UFLMatrix.__init__(self, asub,
-	                     bcs=A.bcs,
+	                     bcs=new_bcs,
 			     state=A.newton_state,
 			     fc_params=A.fc_params,
 			     extra=A.extra)
