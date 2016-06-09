@@ -1,4 +1,6 @@
--ksp_type cg
+-snes_monitor
+-ksp_type gmres
 -ksp_monitor_true_residual
 -pc_type none
+-options_left
 # Unpreconditioned, matrix-free CG
