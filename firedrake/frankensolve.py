@@ -1,14 +1,21 @@
-# How the sausage is made, where sausage == matrix-free action::
-
 from firedrake.petsc import PETSc
 from firedrake import solving_utils
 from firedrake.variational_solver import NonlinearVariationalProblem
 from firedrake.petsc import PETSc
 import weakref
 
+__all__ = ["UFLMatrix", "AssembledPC", "FrankenSolver", "ufl2petscmat"]
+
+def ufl2petscmat(a, bcs=[], state=None, fc_params={}, extra={}):
+    mat_ufl = UFLMatrix(a, bcs=bcs, state=state, fc_params=fc_params, extra=extra)
+    mat = PETSc.Mat().create()
+    mat.setType("python")
+    mat.setSizes((mat_ufl.row_sizes, mat_ufl.col_sizes))
+    mat.setPythonContext(mat_ufl)
+    return mat    
 
 class UFLMatrix(object):
-    def __init__(self, a, bcs=[], state=None, fc_params = {}, extra={}):
+    def __init__(self, a, bcs=[], state=None, fc_params={}, extra={}):
         from firedrake import function
         from ufl import action
 
@@ -98,6 +105,7 @@ class UFLMatrix(object):
         submat.setType("python")
         submat.setSizes((submat_ufl.row_sizes, submat_ufl.col_sizes))
         submat.setPythonContext(submat_ufl)
+
         return submat
 
 # And now for the sub matrix class.::
@@ -170,27 +178,14 @@ class SNESContext(object):
 # The petsc4py idiom is that we will create a Python object that
 # implements the overloaded operations and set it as the "Python
 # context" of a Python matrix type.::
+        self._jac = ufl2petscmat(problem.J, bcs=problem.bcs, state=self._x,
+                                    fc_params=problem.form_compiler_parameters,
+                                    extra=extra_args)
   
-        jac_ufl = UFLMatrix(problem.J, bcs=problem.bcs,
-                            state=self._x,
-                            fc_params=problem.form_compiler_parameters)
-
-        jac = PETSc.Mat().create()
-        jac.setType("python")
-        jac.setSizes((jac_ufl.row_sizes, jac_ufl.col_sizes))
-        jac.setPythonContext(jac_ufl)
-        self._jac = jac
-
         if problem.Jp is not None:
-            pjac_ufl = UFLMatrix(problem.Jp, bcs=problem.bcs,
-                                 state=self._x,
-                                 fc_params=problem.form_compiler_parameters)
-
-            pjac = PETSc.Mat().create()
-            pjac.setType("python")
-            pjac.setSizes((pjac_ufl.row_sizes, pjac_ufl.col_sizes))
-            pjac.setPythonContext(pjac_ufl)
-            self._pjac = pjac
+            self._pjac = ufl2petscmat(problem.Jp, bcs=problem.bcs, state=self._x,
+                                      fc_params=problem.form_compiler_parameters,
+                                      extra=extra_args)            
         else:
             self._pjac = self._jac
 
@@ -407,6 +402,7 @@ class AssembledPC(object):
 # support customized field splits.::
   
     def setUp(self, pc):
+        from firedrake.assemble import assemble
         _, P = pc.getOperators()
         P_ufl = P.getPythonContext()
         P_fd = assemble(P_ufl.a, bcs=P_ufl.bcs,
