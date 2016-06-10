@@ -112,7 +112,7 @@ def output_time(start, end, **kwargs):
         tile_size = 0
         mode = "untiled"
     elif explicit_mode:
-        mode = "explicit%d" % explicit_mode
+        mode = "fs%d" % explicit_mode
     elif split_mode:
         mode = "split%d" % split_mode
     else:
@@ -186,9 +186,9 @@ def plot():
     def flatten(x):
         return [i for l in x for i in l]
 
-    def createdir(base, name, domain, poly, plot, part="", mode="", tile_size=""):
+    def createdir(base, name, platformname, mesh, poly, plot, part="", mode="", tile_size=""):
         poly = "poly%s" % str(poly)
-        directory = os.path.join(base, name, poly, domain, plot, part, mode, tile_size)
+        directory = os.path.join(base, name, platformname, poly, mesh, plot, part, mode, tile_size)
         if not os.path.exists(directory):
             os.makedirs(directory)
         return directory
@@ -265,7 +265,7 @@ def plot():
                 for runtime, mode, tile_size, part, extra_halo, glbmaps, coloring, prefetch in lines:
 
                     # 1) Structure for scalability
-                    key = (name, poly, mesh, "scalability")
+                    key = (name, platformname, poly, mesh, "scalability")
                     plot_line = "%s-%s" % (version, mode)
                     vals = y_runtimes_x_cores[key].setdefault(plot_line, [])
                     take_min(vals, (num_cores, runtime))
@@ -273,15 +273,15 @@ def plot():
                     # 2) Structure for tiled versions. Note:
                     # - tile_size is actually the tile increase factor
                     # - we take the min amongst the following optimizations: prefetch, glbmaps, coloring
-                    key = (name, poly, mesh, version)
+                    key = (name, platformname, poly, mesh, version)
                     plot_subline = y_runtimes_x_tilesize[key].setdefault(mode, {})
                     vals = plot_subline.setdefault(part if mode != 'untiled' else '', [])
                     take_min(vals, (tile_size, runtime))
 
-                    # 2) Structure for GRID tiled versions. Note:
+                    # 3) Structure for GRID tiled versions. Note:
                     # - tile_size is actually the tile increase factor
                     # - we take the min amongst the following optimizations: prefetch, glbmaps, coloring
-                    key = (name, mesh, version)
+                    key = (name, platformname, mesh, version)
                     poly_plot_subline = grid_y_runtimes_x_tilesize[key].setdefault(poly, {})
                     plot_subline = poly_plot_subline.setdefault(mode, {})
                     vals = plot_subline.setdefault(part if mode != 'untiled' else '', [])
@@ -305,8 +305,8 @@ def plot():
     # ... "To show how the best tiled variant scales"
     # ... Each line in the plot represents a <version, mode>, while the X axis is
     # the number of cores
-    for (name, poly, mesh, filename), plot_lines in y_runtimes_x_cores.items():
-        directory = createdir(base, name, mesh, poly, "scalability")
+    for (name, platformname, poly, mesh, filename), plot_lines in y_runtimes_x_cores.items():
+        directory = createdir(base, name, platformname, mesh, poly, "scalability")
         ax = fig.add_subplot(1, 1, 1)
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Number of cores', fontsize=11, color='black', labelpad=10.0)
@@ -334,8 +334,8 @@ def plot():
     # ... "To show the search for the best tiled variant"
     # ... Each line in the plot represents a <part, mode>, while the X axis
     # is the percentage increase in tile size
-    for (name, poly, mesh, version), plot_line_groups in y_runtimes_x_tilesize.items():
-        directory = createdir(base, name, mesh, poly, "searchforoptimum")
+    for (name, platformname, poly, mesh, version), plot_line_groups in y_runtimes_x_tilesize.items():
+        directory = createdir(base, name, platformname, mesh, poly, "searchforoptimum")
         ax = fig.add_subplot(1, 1, 1)
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
@@ -366,8 +366,8 @@ def plot():
     # ... Each sub-plot represents a polynomial order
     # ... Each line in a sub-plot represents a <part, mode>, while the X axis
     # is the percentage increase in tile size
-    for (name, mesh, version), poly_plot_line_groups in grid_y_runtimes_x_tilesize.items():
-        directory = createdir(base, name, mesh, "-all", "searchforoptimum")
+    for (name, platformname, mesh, version), poly_plot_line_groups in grid_y_runtimes_x_tilesize.items():
+        directory = createdir(base, name, platformname, "", "-all", "searchforoptimum")
         fig, axes = plt.subplots(ncols=2, nrows=2)
         #axes[0][0].set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         #axes[1][0].set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
@@ -394,10 +394,9 @@ def plot():
         fig.text(0.02, 0.60, r'Execution time (s)', rotation='vertical', fontsize=12)
         fig.text(0.46, -0.01, r'Tile size $\iota$', fontsize=12)
         # ... Add a global legend
-        fig.legend(*ax.get_legend_handles_labels(), loc='upper center', ncol=7, prop=legend_font,
-                   frameon=False)
+        fig.legend(*ax.get_legend_handles_labels(), loc='upper center', ncol=7, prop=legend_font, frameon=False)
         # ... Finally, output to a file
-        fig.savefig(os.path.join(directory, "grid_%s.pdf" % version), bbox_inches='tight')
+        fig.savefig(os.path.join(directory, "grid_%s_%s_%s.pdf" % (platformname, mesh, version)), bbox_inches='tight')
         fig.clear()
 
 
