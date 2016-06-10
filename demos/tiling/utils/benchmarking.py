@@ -194,7 +194,7 @@ def plot():
         return [i for l in x for i in l]
 
     def createdir(base, name, mesh, poly, plot, part="", mode="", tile_size=""):
-        poly = "poly%d" % poly
+        poly = "poly%s" % str(poly)
         directory = os.path.join(base, name, poly, mesh, plot, part, mode, tile_size)
         if not os.path.exists(directory):
             os.makedirs(directory)
@@ -215,7 +215,7 @@ def plot():
         vals.append(min(old_vals + [new_val], key=lambda i: i[y]))
         vals.sort(key=lambda i: i[x])
 
-    def setlayout(ax, xvalues, ncol=7, xlim=None, ylim_zero=True):
+    def setlayout(ax, xvalues, xlim=None, ylim_zero=True):
         # Hide the right and top spines
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
@@ -230,7 +230,7 @@ def plot():
         # Set axes limits
         ylim = ax.get_ylim()
         y_floor = 0.0 if ylim_zero else ylim[0]
-        y_ceil = roundup(ylim[1], 100)
+        y_ceil = roundup(ylim[1], 100 if ylim[1] - y_floor > 100 else 10)
         if y_ceil > max(ax.get_yticks()):
             ax.set_ylim((y_floor, y_ceil))
         else:
@@ -240,27 +240,26 @@ def plot():
         # Set proper ticks (points in the spines) and their labels
         ax.set_xticks(xvalues)
         ax.set_xticklabels(xvalues)
+        # Set ticks font size
+        ax.tick_params(axis='both', which='both', labelsize=9)
         # In case I wanted to change the default position of the axes
         box = ax.get_position()
         ax.set_position([box.x0, box.y0, box.width, box.height])
-        # Small font size in legend
-        legend_font = FontProperties(size='xx-small')
-        ax.legend(loc='upper center', bbox_to_anchor=(0., 1.02, 1., .102), prop=legend_font,
-                  frameon=False, ncol=ncol, borderaxespad=-1.2)
 
     # Set up
     base = "plots"
     y_runtimes_x_cores = defaultdict(dict)
     y_runtimes_x_tilesize = defaultdict(dict)
+    grid_y_runtimes_x_tilesize = defaultdict(dict)
 
     # Structure data into suitable data structures
     toplot = [(i[0], i[2]) for i in os.walk("times/") if not i[1]]
     for problem, experiments in toplot:
         # Get info out of the problem name
-        name, poly, mesh, ndofs, version, platformname = problem.split('/')[1:7]
+        name, poly, mesh, spacing, version, platformname = problem.split('/')[1:7]
         # Format
         poly = int(poly.split('_')[-1])
-        mesh = "%s_%s" % (mesh, ndofs)
+        mesh = "%s_%s" % (mesh, spacing)
         for experiment in experiments:
             num_procs, num_threads = re.findall(r'\d+', experiment)
             num_procs, num_threads = int(num_procs), int(num_threads)
@@ -282,8 +281,16 @@ def plot():
                     # - tile_size is actually the tile increase factor
                     # - we take the min amongst the following optimizations: prefetch, glbmaps, coloring
                     key = (name, poly, mesh, version)
-                    plot_line_group = mode
-                    plot_subline = y_runtimes_x_tilesize[key].setdefault(plot_line_group, {})
+                    plot_subline = y_runtimes_x_tilesize[key].setdefault(mode, {})
+                    vals = plot_subline.setdefault(part if mode != 'untiled' else '', [])
+                    take_min(vals, (tile_size, runtime))
+
+                    # 2) Structure for GRID tiled versions. Note:
+                    # - tile_size is actually the tile increase factor
+                    # - we take the min amongst the following optimizations: prefetch, glbmaps, coloring
+                    key = (name, mesh, version)
+                    poly_plot_subline = grid_y_runtimes_x_tilesize[key].setdefault(poly, {})
+                    plot_subline = poly_plot_subline.setdefault(mode, {})
                     vals = plot_subline.setdefault(part if mode != 'untiled' else '', [])
                     take_min(vals, (tile_size, runtime))
 
@@ -297,6 +304,9 @@ def plot():
     markeredgewidth = 5
     linestyles = ['-', '--']
     linewidth = 2
+    legend_font = FontProperties(size='xx-small')
+
+    fig = plt.figure()
 
     # 1) Plot by number of processes/threads
     # ... "To show how the best tiled variant scales"
@@ -304,7 +314,6 @@ def plot():
     # the number of cores
     for (name, poly, mesh, filename), plot_lines in y_runtimes_x_cores.items():
         directory = createdir(base, name, mesh, poly, "scalability")
-        fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Number of cores', fontsize=11, color='black', labelpad=10.0)
@@ -321,8 +330,12 @@ def plot():
                     clip_on=False)
         # ... Set common layout stuff
         setlayout(ax, xvalues, xlim=(1, max_cores))
+        # ... Add the legend
+        ax.legend(loc='upper center', bbox_to_anchor=(0., 1.02, 1., .102), prop=legend_font,
+                  frameon=False, ncol=7, borderaxespad=-1.2)
         # ... Finally, output to a file
         fig.savefig(os.path.join(directory, "%s.pdf" % filename), bbox_inches='tight')
+        fig.clear()
 
     # 2) Plot by tile size
     # ... "To show the search for the best tiled variant"
@@ -330,7 +343,6 @@ def plot():
     # is the percentage increase in tile size
     for (name, poly, mesh, version), plot_line_groups in y_runtimes_x_tilesize.items():
         directory = createdir(base, name, mesh, poly, "searchforoptimum")
-        fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
@@ -349,8 +361,51 @@ def plot():
                         clip_on=False)
         # ... Set common layout stuff
         setlayout(ax, xvalues, xlim=(0, max_tile_size), ylim_zero=False)
+        # ... Add the legend
+        ax.legend(loc='upper center', bbox_to_anchor=(0., 1.02, 1., .102), prop=legend_font,
+                  frameon=False, ncol=7, borderaxespad=-1.2)
         # ... Finally, output to a file
         fig.savefig(os.path.join(directory, "%s.pdf" % version), bbox_inches='tight')
+        fig.clear()
+
+    # 3) GRID: Plot by tile size
+    # ... "To show the search for the best tiled variant"
+    # ... Each sub-plot represents a polynomial order
+    # ... Each line in a sub-plot represents a <part, mode>, while the X axis
+    # is the percentage increase in tile size
+    for (name, mesh, version), poly_plot_line_groups in grid_y_runtimes_x_tilesize.items():
+        directory = createdir(base, name, mesh, "-all", "searchforoptimum")
+        fig, axes = plt.subplots(ncols=2, nrows=2)
+        #axes[0][0].set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
+        #axes[1][0].set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
+        #axes[1][0].set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
+        #axes[1][1].set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
+        for ax, (poly, plot_line_groups) in zip(axes.ravel(), sorted(poly_plot_line_groups.items())):
+            # ... Add a line for each <part, mode>
+            max_tile_size, xvalues = 0, (0,)
+            for i, (plot_line_group, plot_sublines) in enumerate(sort_on_mode(plot_line_groups)):
+                for ls, m, (mode, x_y_vals) in zip(linestyles, markers, sorted(plot_sublines.items())):
+                    label = '%s-%s' % (plot_line_group, mode) if plot_line_group != 'untiled' else 'untiled'
+                    x, y = zip(*x_y_vals)
+                    max_tile_size, xvalues = record(x, max_tile_size, xvalues, plot_line_group)
+                    ax.plot(x, y,
+                            ls=ls, lw=linewidth,
+                            marker=m, ms=markersize, mew=markeredgewidth, mec=set2[i],
+                            color=set2[i],
+                            label=label,
+                            clip_on=False)
+            # ... Set common layout stuff
+            setlayout(ax, xvalues, xlim=(0, max_tile_size), ylim_zero=False)
+        # ... Adjust the global layout
+        fig.subplots_adjust(hspace=.4, wspace=.4)
+        fig.text(0.02, 0.60, r'Execution time (s)', rotation='vertical', fontsize=12)
+        fig.text(0.46, -0.01, r'Tile size $\iota$', fontsize=12)
+        # ... Add a global legend
+        fig.legend(*ax.get_legend_handles_labels(), loc='upper center', ncol=7, prop=legend_font,
+                   frameon=False)
+        # ... Finally, output to a file
+        fig.savefig(os.path.join(directory, "grid_%s.pdf" % version), bbox_inches='tight')
+        fig.clear()
 
 
 if __name__ == '__main__':
