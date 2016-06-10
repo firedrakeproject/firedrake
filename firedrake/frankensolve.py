@@ -486,20 +486,19 @@ class ExtractSubBlock(MultiFunction):
         indices = self.blocks[o.number()]
         if len(indices) == 1:
             W = V_is[indices[0]]
+            a = (Argument(W, o.number(), part=o.part()), )
         else:
             W = MixedFunctionSpace([V_is[i] for i in indices])
-
-        a = Argument(W, o.number(), part=o.part())
+            a = split(Argument(W, o.number(), part=o.part()))
         args = []
-        a_ = split(a)
         for i in range(len(V_is)):
             if i in indices:
                 c = indices.index(i)
-                a__ = a_[c]
-                if len(a__.ufl_shape) == 0:
-                    args += [a__]
+                a_ = a[c]
+                if len(a_.ufl_shape) == 0:
+                    args += [a_]
                 else:
-                    args += [a__[j] for j in numpy.ndindex(a__.ufl_shape)]
+                    args += [a_[j] for j in numpy.ndindex(a_.ufl_shape)]
             else:
                 args += [Zero() for j in numpy.ndindex(V_is[i].ufl_element().value_shape())]
         return as_vector(args)
