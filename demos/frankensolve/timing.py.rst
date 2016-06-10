@@ -5,7 +5,7 @@ information will be needed, but that for high order and on a coarse mesh,
 we have a small constant multiple for the matvec and win big on the assembly costs.::
 
   from firedrake import *
-  from firedrake.frankensolve import UFLMatrix
+  from firedrake.frankensolve import ufl2petscmat
   from firedrake.petsc import PETSc
   import time
 
@@ -38,18 +38,7 @@ This times the assembly + BCs of the Firedrake fully assembled matrix.::
 This times the creation of a PETSc matrix & UFLMatrix creation as its PETSc context.::
 
   t1 = time.time()
-  A_ufl = PETSc.Mat().create()
-  with x.dat.vec_ro as xx:
-      xxsz = xx.getSizes()
-
-  with y0.dat.vec_ro as yy:
-      yysz = yy.getSizes()
-  A_ufl.setSizes((yysz, xxsz))
-
-  A_ufl.setType(PETSc.Mat.Type.PYTHON)
-  A_ufl.setPythonContext(UFLMatrix(a, bcs=bcs))
-
-  t_assembleMF = time.time() - t1
+  A_ufl = ufl2petscmat(a, bcs=bcs)
 
 Now we time the matvecs of the two.::
 
