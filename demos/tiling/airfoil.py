@@ -135,12 +135,9 @@ def main(args):
     end = time()
 
     # Print runtime summary
-    class FakeFunctionSpace():
-        def __init__(self, dof_dset):
-            self.dof_dset = dof_dset
     output_time(start, end,
                 tofile=True,
-                fs=FakeFunctionSpace(nodes),
+                meshid='airfoilmesh',
                 nloops=loop_chain_length * num_unroll,
                 partitioning=part_mode,
                 tile_size=tile_size,

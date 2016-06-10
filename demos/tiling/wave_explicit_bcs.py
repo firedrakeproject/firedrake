@@ -104,7 +104,7 @@ def run(args):
     output_time(start, end,
                 verbose=verbose,
                 tofile=True,
-                fs=V,
+                meshid=mesh_size,
                 nloops=loop_chain_length * num_unroll,
                 partitioning=part_mode,
                 tile_size=tile_size,

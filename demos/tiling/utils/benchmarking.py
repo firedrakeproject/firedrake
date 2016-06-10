@@ -44,7 +44,7 @@ def parser(**kwargs):
 def output_time(start, end, **kwargs):
     verbose = kwargs.get('verbose', False)
     tofile = kwargs.get('tofile', False)
-    fs = kwargs.get('fs', None)
+    meshid = kwargs.get('meshid', 'default_mesh')
     nloops = kwargs.get('nloops', 0)
     tile_size = kwargs.get('tile_size', 0)
     partitioning = kwargs.get('partitioning', 'chunk')
@@ -106,13 +106,6 @@ def output_time(start, end, **kwargs):
             cluster_island = platformname.split('-')
             platformname = "%s_%s" % (cluster_island[0], cluster_island[1])
 
-    # Find the total mesh size
-    ndofs = 0
-    if fs:
-        total_dofs = np.zeros(1, dtype=int)
-        MPI.comm.Allreduce(np.array([fs.dof_dset.size], dtype=int), total_dofs)
-        ndofs = total_dofs
-
     # Adjust /tile_size/ and /version/ based on the problem that was actually run
     assert nloops >= 0
     if nloops == 0:
@@ -138,7 +131,7 @@ def output_time(start, end, **kwargs):
         name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
         for version in versions:
             filename = os.path.join(output_dir, "times", name, "poly_%d" % poly_order, domain,
-                                    "ndofs_%d" % ndofs, version, platformname, "np%d_nt%d.txt" % (num_procs, num_threads))
+                                    meshid, version, platformname, "np%d_nt%d.txt" % (num_procs, num_threads))
             # Create directory and file (if not exist)
             if not os.path.exists(os.path.dirname(filename)):
                 os.makedirs(os.path.dirname(filename))
@@ -193,9 +186,9 @@ def plot():
     def flatten(x):
         return [i for l in x for i in l]
 
-    def createdir(base, name, mesh, poly, plot, part="", mode="", tile_size=""):
+    def createdir(base, name, domain, poly, plot, part="", mode="", tile_size=""):
         poly = "poly%s" % str(poly)
-        directory = os.path.join(base, name, poly, mesh, plot, part, mode, tile_size)
+        directory = os.path.join(base, name, poly, domain, plot, part, mode, tile_size)
         if not os.path.exists(directory):
             os.makedirs(directory)
         return directory
@@ -256,10 +249,10 @@ def plot():
     toplot = [(i[0], i[2]) for i in os.walk("times/") if not i[1]]
     for problem, experiments in toplot:
         # Get info out of the problem name
-        name, poly, mesh, spacing, version, platformname = problem.split('/')[1:7]
+        name, poly, domain, meshid, version, platformname = problem.split('/')[1:7]
         # Format
         poly = int(poly.split('_')[-1])
-        mesh = "%s_%s" % (mesh, spacing)
+        mesh = "%s_%s" % (domain, meshid)
         for experiment in experiments:
             num_procs, num_threads = re.findall(r'\d+', experiment)
             num_procs, num_threads = int(num_procs), int(num_threads)
