@@ -195,15 +195,27 @@ def plot():
 
     def createdir(base, name, mesh, poly, plot, part="", mode="", tile_size=""):
         poly = "poly%d" % poly
-        directory = os.path.join(base, name, mesh, poly, plot, part, mode, tile_size)
+        directory = os.path.join(base, name, poly, mesh, plot, part, mode, tile_size)
         if not os.path.exists(directory):
             os.makedirs(directory)
         return directory
 
     def sort_on_mode(x):
-        return sorted(x.items(), key=lambda i: ('untiled' not in i[0], i[0]))
+        return sorted(x.items(), key=lambda i: ('untiled' in i[0], i[0]))
 
-    def setlayout(ax, ncol=5, xlim=None, ylim_zero=True):
+    def record(xvalues, max_x, all_xvalues, key):
+        max_x = max(max_x, max(xvalues))
+        all_xvalues += tuple(i for i in xvalues if i not in all_xvalues)
+        return max_x, all_xvalues
+
+    def take_min(vals, new_val, x=0, y=1):
+        old_vals = [i for i in vals if i[x] == new_val[x]]
+        for i in old_vals:
+            vals.remove(i)
+        vals.append(min(old_vals + [new_val], key=lambda i: i[y]))
+        vals.sort(key=lambda i: i[x])
+
+    def setlayout(ax, xvalues, ncol=7, xlim=None, ylim_zero=True):
         # Hide the right and top spines
         ax.spines['right'].set_visible(False)
         ax.spines['top'].set_visible(False)
@@ -225,14 +237,16 @@ def plot():
             ax.set_ylim((y_floor, ylim[1]))
         ax.set_ylim((min(ax.get_yticks()), max(ax.get_yticks())))
         ax.set_xlim(xlim or ax.get_xlim())
+        # Set proper ticks (points in the spines) and their labels
+        ax.set_xticks(xvalues)
+        ax.set_xticklabels(xvalues)
         # In case I wanted to change the default position of the axes
         box = ax.get_position()
         ax.set_position([box.x0, box.y0, box.width, box.height])
         # Small font size in legend
-        legend_font = FontProperties()
-        legend_font.set_size('x-small')
+        legend_font = FontProperties(size='xx-small')
         ax.legend(loc='upper center', bbox_to_anchor=(0., 1.02, 1., .102), prop=legend_font,
-                  frameon=False, ncol=ncol)
+                  frameon=False, ncol=ncol, borderaxespad=-1.2)
 
     # Set up
     base = "plots"
@@ -243,8 +257,7 @@ def plot():
     toplot = [(i[0], i[2]) for i in os.walk("times/") if not i[1]]
     for problem, experiments in toplot:
         # Get info out of the problem name
-        info = problem.split('/')
-        name, poly, mesh, ndofs, version, platformname = info[1:7]
+        name, poly, mesh, ndofs, version, platformname = problem.split('/')[1:7]
         # Format
         poly = int(poly.split('_')[-1])
         mesh = "%s_%s" % (mesh, ndofs)
@@ -261,27 +274,29 @@ def plot():
 
                     # 1) Structure for scalability
                     key = (name, poly, mesh, "scalability")
-                    plot_line = "%s-%s-%s" % (version, part, mode) if mode != "untiled" else \
-                        "%s-%s" % (version, mode)
+                    plot_line = "%s-%s" % (version, mode)
                     vals = y_runtimes_x_cores[key].setdefault(plot_line, [])
-                    old_x_y_vals = [i for i in vals if i[0] == num_cores]
-                    for i in old_x_y_vals:
-                        vals.remove(i)
-                    vals.append(min(old_x_y_vals + [(num_cores, runtime)], key=lambda i: i[1]))
-                    vals.sort(key=lambda i: i[0])
+                    take_min(vals, (num_cores, runtime))
 
-                    # 2) Structure for tiled versions
-                    # if "explicit" in mode ...; tile_size is actually the tile increase factor
+                    # 2) Structure for tiled versions. Note:
+                    # - tile_size is actually the tile increase factor
+                    # - we take the min amongst the following optimizations: prefetch, glbmaps, coloring
                     key = (name, poly, mesh, version)
-                    plot_line = "%s-%s" % (part, mode) if mode != "untiled" else mode
-                    vals = y_runtimes_x_tilesize[key].setdefault(plot_line, [])
-                    vals.append((tile_size, runtime))
-                    vals.sort(key=lambda i: i[0])
+                    plot_line_group = mode
+                    plot_subline = y_runtimes_x_tilesize[key].setdefault(plot_line_group, {})
+                    vals = plot_subline.setdefault(part if mode != 'untiled' else '', [])
+                    take_min(vals, (tile_size, runtime))
 
     # Now we can plot !
 
     # Fancy colors (all colorbrewer scales: http://bl.ocks.org/mbostock/5577023)
     set2 = brewer2mpl.get_map('Paired', 'qualitative', 12).hex_colors
+
+    markers = ['o', 'x']
+    markersize = 3
+    markeredgewidth = 5
+    linestyles = ['-', '--']
+    linewidth = 2
 
     # 1) Plot by number of processes/threads
     # ... "To show how the best tiled variant scales"
@@ -294,15 +309,18 @@ def plot():
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Number of cores', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <version, part, mode>
-        max_cores = 0
+        max_cores, xvalues = 0, (1,)
         for i, (plot_line, x_y_vals) in enumerate(sort_on_mode(plot_lines)):
             x, y = zip(*x_y_vals)
-            max_cores = max(max_cores, max(x))
-            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line, clip_on=False)
+            max_cores, xvalues = record(x, max_cores, xvalues, plot_line)
+            ax.plot(x, y,
+                    ls=linestyles[0], lw=linewidth,
+                    marker=markers[0], ms=markersize, mew=markeredgewidth, mec=set2[i],
+                    color=set2[i],
+                    label=plot_line,
+                    clip_on=False)
         # ... Set common layout stuff
-        setlayout(ax, xlim=(1, max_cores))
-        # ... The x axis represents number of procs, so needs be integer
-        ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
+        setlayout(ax, xvalues, xlim=(1, max_cores))
         # ... Finally, output to a file
         fig.savefig(os.path.join(directory, "%s.pdf" % filename), bbox_inches='tight')
 
@@ -310,22 +328,27 @@ def plot():
     # ... "To show the search for the best tiled variant"
     # ... Each line in the plot represents a <part, mode>, while the X axis
     # is the percentage increase in tile size
-    for (name, poly, mesh, version), plot_lines in y_runtimes_x_tilesize.items():
+    for (name, poly, mesh, version), plot_line_groups in y_runtimes_x_tilesize.items():
         directory = createdir(base, name, mesh, poly, "searchforoptimum")
         fig = plt.figure()
         ax = fig.add_subplot(1, 1, 1)
         ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <part, mode>
-        max_tile_size = 0
-        for i, (plot_line, x_y_vals) in enumerate(sort_on_mode(plot_lines)):
-            x, y = zip(*x_y_vals)
-            max_tile_size = max(max_tile_size, max(x))
-            ax.plot(x, y, '-', linewidth=2, marker='o', color=set2[i], label=plot_line, clip_on=False)
+        max_tile_size, xvalues = 0, (0,)
+        for i, (plot_line_group, plot_sublines) in enumerate(sort_on_mode(plot_line_groups)):
+            for ls, m, (mode, x_y_vals) in zip(linestyles, markers, sorted(plot_sublines.items())):
+                label = '%s-%s' % (plot_line_group, mode) if plot_line_group != 'untiled' else 'untiled'
+                x, y = zip(*x_y_vals)
+                max_tile_size, xvalues = record(x, max_tile_size, xvalues, plot_line_group)
+                ax.plot(x, y,
+                        ls=ls, lw=linewidth,
+                        marker=m, ms=markersize, mew=markeredgewidth, mec=set2[i],
+                        color=set2[i],
+                        label=label,
+                        clip_on=False)
         # ... Set common layout stuff
-        setlayout(ax, xlim=(0, max_tile_size), ylim_zero=False)
-        # ... The x axis represents increase factors, so needs be integer
-        ax.get_xaxis().set_major_locator(ticker.MaxNLocator(integer=True))
+        setlayout(ax, xvalues, xlim=(0, max_tile_size), ylim_zero=False)
         # ... Finally, output to a file
         fig.savefig(os.path.join(directory, "%s.pdf" % version), bbox_inches='tight')
 
