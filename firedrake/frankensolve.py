@@ -1,10 +1,19 @@
 from firedrake.petsc import PETSc
 from firedrake import solving_utils
 from firedrake.variational_solver import NonlinearVariationalProblem
-from firedrake.petsc import PETSc
+from ufl import Form, as_vector
+from ufl.corealg.map_dag import MultiFunction
+from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.constantvalue import Zero
+from firedrake.ufl_expr import Argument
+import numpy
+import collections
+
+
 import weakref
 
 __all__ = ["UFLMatrix", "AssembledPC", "FrankenSolver", "ufl2petscmat"]
+
 
 def ufl2petscmat(a, bcs=[], state=None, fc_params={}, extra={}):
     mat_ufl = UFLMatrix(a, bcs=bcs, state=state, fc_params=fc_params, extra=extra)
@@ -12,7 +21,8 @@ def ufl2petscmat(a, bcs=[], state=None, fc_params={}, extra={}):
     mat.setType("python")
     mat.setSizes((mat_ufl.row_sizes, mat_ufl.col_sizes))
     mat.setPythonContext(mat_ufl)
-    return mat    
+    return mat
+
 
 class UFLMatrix(object):
     def __init__(self, a, bcs=[], state=None, fc_params={}, extra={}):
@@ -25,24 +35,20 @@ class UFLMatrix(object):
 # physical parameters that aren't directly visible from UFL.  Since this
 # will typically be embedded in nonlinear loop, the `state` variable
 # allows us to insert the current linearization state.::
-  
+
         self.a = a
         self.bcs = bcs
         self.fc_params = fc_params
         self.extra = extra
         self.newton_state = state
 
-# This creates some functions for the source and target of 1-form assembly::
-  
-        # from test space
+        # create functions from test and trial space to help with 1-form assembly
         self._x = function.Function(a.arguments()[1].function_space())
-
-        # from trial space
         self._y = function.Function(a.arguments()[0].function_space())
 
 # We need to get the local and global sizes from these so the Python matrix
 # knows how to set itself up.  This could be done better?::
-  
+
         with self._x.dat.vec_ro as xx:
             self.row_sizes = xx.getSizes()
         with self._y.dat.vec_ro as yy:
@@ -52,19 +58,19 @@ class UFLMatrix(object):
 # it at each matrix-vector product.::
 
         self.action = action(self.a, self._x)
-            
+
 # This defins how the PETSc matrix applies itself to a vector.  In our
 # case, it's just assembling a 1-form and applying boundary conditions.::
-  
+
     def mult(self, mat, X, Y):
         from firedrake.assemble import assemble
-        
+
         with self._x.dat.vec as v:
             if v != X:
                 X.copy(v)
 
         assemble(self.action, self._y,
-                 form_compiler_parameters = self.fc_params)
+                 form_compiler_parameters=self.fc_params)
 
         for bc in self.bcs:
             try:
@@ -81,10 +87,10 @@ class UFLMatrix(object):
 # extraction for our custom matrix type.  Note that we are splitting UFL
 # and index sets rather than an assembled matrix, keeping matrix
 # assembly deferred as long as possible.::
-  
+
     def getSubMatrix(self, mat, row_is, col_is, target=None):
         assert target is None
-        
+
 # These are the sets of ISes of which the the row and column space consist.::
 
         row_ises = self._y.function_space().dof_dset.field_ises
@@ -108,16 +114,16 @@ class UFLMatrix(object):
 
         return submat
 
-# And now for the sub matrix class.::
 
+# And now for the sub matrix class.::
 class UFLSubMatrix(UFLMatrix):
     def __init__(self, A, row_inds, col_inds):
         from firedrake import DirichletBC
         self.parent = A
         asub, = ExtractSubBlock(row_inds, col_inds).split(A.a)
-        bcs = A.bcs
+#        bcs = A.bcs
         new_bcs = []
-        W = asub.arguments()[0].function_space()
+#        W = asub.arguments()[0].function_space()
 #        for bc in bcs:
 #            for i, r in enumerate(row_inds):
 #                if bc.function_space().index == r:
@@ -126,7 +132,7 @@ class UFLSubMatrix(UFLMatrix):
 #                                      method=bc.method)
 #                    new_bcs.append(nbc)
 #        self.a = asub
-        
+
         UFLMatrix.__init__(self, asub,
                            bcs=new_bcs,
                            state=A.newton_state,
@@ -140,7 +146,7 @@ class UFLSubMatrix(UFLMatrix):
     def getSubMatrix(self, mat, row_is, col_is):
         1/0
 
-        
+
 # This file includes the modified nonlinear variational solver that
 # doesn't assemble directly into Firedrake matrices.  Instead, it
 # creates a "Python" PETSc matrix that retains pointers to the UFL
@@ -148,11 +154,9 @@ class UFLSubMatrix(UFLMatrix):
 # (assembly of the action of a bilinear form) plus boundary conditions.
 # Here, we document the highlights of what we've changed::
 
-
-
 # This class is created inside our solver.  It is used to set up PETSc's
 # nonlinear solver via various callbacks.::
-  
+
 class SNESContext(object):
     """
     Context holding information for SNES callbacks.
@@ -160,37 +164,36 @@ class SNESContext(object):
     :arg problem: a :class:`NonlinearVariationalProblem`.
 
     The idea here is that the SNES holds a shell DM which contains
-    the field split information as "user context".  
+    the field split information as "user context".
     """
     def __init__(self, problem, extra_args={}):
-        import ufl, ufl.classes
+        import ufl
+        import ufl.classes
         from firedrake import function
 
         self.problem = problem
-      
-        fcparams = problem.form_compiler_parameters
 
         self._x = function.Function(problem.u)
         self.F = ufl.replace(problem.F, {problem.u: self._x})
         self._F = function.Function(self.F.arguments()[0].function_space())
-      
+
 
 # The petsc4py idiom is that we will create a Python object that
 # implements the overloaded operations and set it as the "Python
 # context" of a Python matrix type.::
         self._jac = ufl2petscmat(problem.J, bcs=problem.bcs, state=self._x,
-                                    fc_params=problem.form_compiler_parameters,
-                                    extra=extra_args)
-  
+                                 fc_params=problem.form_compiler_parameters,
+                                 extra=extra_args)
+
         if problem.Jp is not None:
             self._pjac = ufl2petscmat(problem.Jp, bcs=problem.bcs, state=self._x,
                                       fc_params=problem.form_compiler_parameters,
-                                      extra=extra_args)            
+                                      extra=extra_args)
         else:
             self._pjac = self._jac
 
 # This is the function that PETSc will use as a callback to evaluate the residual.::
-              
+
     def form_function(self, snes, X, F):
         """Form the residual for this problem
 
@@ -199,16 +202,13 @@ class SNESContext(object):
         :arg F: the residual at X (a Vec)
         """
         from firedrake import assemble
-        dm = snes.getDM()
-        ctx = dm.getAppCtx()
-      
+
         with self._x.dat.vec as v:
             if v != X:
                 X.copy(v)
 
         assemble(self.F, self._F,
                  form_compiler_parameters=self.problem.form_compiler_parameters)
-      
 
         for bc in self.problem.bcs:
             bc.zero(self._F)
@@ -222,7 +222,6 @@ class SNESContext(object):
 # reassemble the Jacobians because they are matrix-free.  Updating the
 # current state will propogate a coefficient into the UFL form so that
 # when they are applied next, they will have the new state.::
-  
     def form_jacobian(self, snes, X, J, P):
         """Form the Jacobian for this problem
 
@@ -231,12 +230,11 @@ class SNESContext(object):
         :arg J: the Jacobian (a Mat)
         :arg P: the preconditioner matrix (a Mat)
         """
-        prob = self.problem
         with self._x.dat.vec as v:
             X.copy(v)
 
 # These functions just set up the PETSc SNES callbacks.::
-  
+
     def set_function(self, snes):
         """Set the residual evaluation callback function for PETSc"""
         with self._F.dat.vec as v:
@@ -244,7 +242,7 @@ class SNESContext(object):
         return
 
     def set_jacobian(self, snes):
-        """Set the residual evaluation callback function for PETSc"""        
+        """Set the residual evaluation callback function for PETSc"""
         snes.setJacobian(self.form_jacobian, J=self._jac, P=self._pjac)
 
     def set_nullspace(self, nullspace, ises=None):
@@ -262,10 +260,12 @@ class SNESContext(object):
 # there in case some kind of user-defined preconditioner will need more
 # information, such as problem parameters, that are not visible from the
 # UFL.::
-        
+
+
 class FrankenSolver(object):
     """Solves a :class:`NonlinearVariationalProblem`."""
     _id = 0
+
     def __init__(self, problem, extra_args={}, **kwargs):
         """
         :arg problem: A :class:`NonlinearVariationalProblem` to solve.
@@ -298,7 +298,7 @@ class FrankenSolver(object):
           """
 
         parameters, nullspace, tnullspace, options_prefix = solving_utils._extract_kwargs(** kwargs)
-      
+
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__
         if options_prefix is not None:
@@ -312,21 +312,19 @@ class FrankenSolver(object):
 
         assert isinstance(problem, NonlinearVariationalProblem)
 
-
         # Allow command-line arguments to override dict parameters
         opts = PETSc.Options()
         for k, v in opts.getAll().iteritems():
             if k.startswith(self._opt_prefix):
                 parameters[k[len(self._opt_prefix):]] = v
 
- 
         ctx = SNESContext(problem, extra_args)
 
         self.snes = PETSc.SNES().create()
         self.snes.setOptionsPrefix(self._opt_prefix)
 
         parameters.setdefault('pc_type', 'none')
-               
+
         self._problem = problem
 
         self._ctx = ctx
@@ -360,7 +358,6 @@ class FrankenSolver(object):
     def solve(self):
         dm = self.snes.getDM()
         dm.setAppCtx(weakref.proxy(self._ctx))
-        #dm.setCreateMatrix(self._ctx.create_matrix)
 
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
@@ -374,8 +371,6 @@ class FrankenSolver(object):
             self.snes.solve(None, v)
 
         solving_utils.check_snes_convergence(self.snes)
-
-
 
 # Now, currently there is not much available as far as matrix-free
 # preconditioners in Firedrake, although Lawrence & Rob are working on
@@ -391,16 +386,8 @@ class FrankenSolver(object):
 # type.  Instead, it is a class that gets instantiated by PETSc and then
 # stuffed inside of a PC object.  When the PETSc PC type is "Python",
 # PETSc forwards its calls to methods implemented inside of this.::
-  
-class AssembledPC(object):
 
-# This plays the role of a construcor, it is called when the enclosing
-# KSP context is set up.  In it, we just assemble into a firedrake
-# matrix, with nesting turned off.  We assume that if somebody wants an
-# algebraic matrix, they want to do something to it that requires
-# non-nested storage.  Later, we will extend the UFL matrix type to
-# support customized field splits.::
-  
+class AssembledPC(object):
     def setUp(self, pc):
         from firedrake.assemble import assemble
         _, P = pc.getOperators()
@@ -412,7 +399,6 @@ class AssembledPC(object):
 
 # Internally, we just set up a KSP object that the user can configure
 # however from the PETSc command line.::
-  
         ksp = PETSc.KSP().create()
         ksp.setOptionsPrefix(optpre+"assembled_")
         ksp.setOperators(Pmat, Pmat)
@@ -421,18 +407,10 @@ class AssembledPC(object):
         self.ksp = ksp
 
 # Applying this preconditioner is relatively easy.::
-  
     def apply(self, pc, x, y):
         ksp = self.ksp
         ksp.solve(x, y)
-      
-from ufl import Form, as_vector
-from ufl.corealg.map_dag import MultiFunction
-from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.constantvalue import Zero
-from firedrake.ufl_expr import Argument
-import numpy
-import collections
+
 
 def find_sub_block(iset, ises):
     found = []
@@ -459,77 +437,68 @@ def find_sub_block(iset, ises):
         return None
     return found
 
+
 class ExtractSubBlock(MultiFunction):
 
-   """Extract a sub-block from a form.
+    """Extract a sub-block from a form.
 
-   :arg test_indices: The indices of the test function to extract.
-   :arg trial_indices: THe indices of the trial function to extract.
-   """
+    :arg test_indices: The indices of the test function to extract.
+    :arg trial_indices: THe indices of the trial function to extract.
+    """
 
-   def __init__(self, test_indices=(), trial_indices=()):
-       self.blocks = {0: test_indices,
-                      1: trial_indices}
-       super(ExtractSubBlock, self).__init__()
+    def __init__(self, test_indices=(), trial_indices=()):
+        self.blocks = {0: test_indices,
+                       1: trial_indices}
+        super(ExtractSubBlock, self).__init__()
 
-   def split(self, form):
-       """Split the form.
+    def split(self, form):
+        """Split the form.
 
-       :arg form: the form to split.
-       """
-       args = form.arguments()
-       if len(args) == 0:
-           raise ValueError
-       if all(len(a.function_space()) == 1 for a in args):
-           assert (len(idx) == 1 for idx in self.blocks.values())
-           assert (idx[0] == 0 for idx in self.blocks.values())
-           return (form, )
-       f = map_integrand_dags(self, form)
-       if len(f.integrals()) == 0:
-           return ()
-       return (f, )
+        :arg form: the form to split.
+        """
+        args = form.arguments()
+        if len(args) == 0:
+            raise ValueError
+        if all(len(a.function_space()) == 1 for a in args):
+            assert (len(idx) == 1 for idx in self.blocks.values())
+            assert (idx[0] == 0 for idx in self.blocks.values())
+            return (form, )
+        f = map_integrand_dags(self, form)
+        if len(f.integrals()) == 0:
+            return ()
+        return (f, )
 
-   expr = MultiFunction.reuse_if_untouched
+    expr = MultiFunction.reuse_if_untouched
 
-   def multi_index(self, o):
-       return o
+    def multi_index(self, o):
+        return o
 
-   def argument(self, o):
-       from ufl import split
-       V = o.function_space()
-       if len(V) == 1:
-           # Not on a mixed space, just return ourselves.
-           return o
+    def argument(self, o):
+        from ufl import split
+        from firedrake import MixedFunctionSpace
+        V = o.function_space()
+        if len(V) == 1:
+            # Not on a mixed space, just return ourselves.
+            return o
 
-       V_is = V.split()
-       indices = self.blocks[o.number()]
-       if len(indices) == 1:
-           W = V_is[indices[0]]
-       else:
-           W = MixedFunctionSpace([V_is[i] for i in indices])
+        V_is = V.split()
+        indices = self.blocks[o.number()]
+        if len(indices) == 1:
+            W = V_is[indices[0]]
+        else:
+            W = MixedFunctionSpace([V_is[i] for i in indices])
 
-       a = Argument(W, o.number(), part=o.part())
-       args = []
-       a_ = split(a)
-       for i in range(len(V_is)):
-           if i in indices:
-               c = indices.index(i)
-               a__ = a_[c]
-               if len(a__.ufl_shape) == 0:
-                   args += [a__]
-               else:
-                   args += [a__[j] for j in numpy.ndindex(a__.ufl_shape)]
-           else:
-               args += [Zero() for j in numpy.ndindex(V_is[i].ufl_element().value_shape())]
-       return as_vector(args)
- 
-
-
-
-
-
-
-
-      
-      
-      
+        a = Argument(W, o.number(), part=o.part())
+        args = []
+        a_ = split(a)
+        for i in range(len(V_is)):
+            if i in indices:
+                c = indices.index(i)
+                a__ = a_[c]
+                if len(a__.ufl_shape) == 0:
+                    args += [a__]
+                else:
+                    args += [a__[j] for j in numpy.ndindex(a__.ufl_shape)]
+            else:
+                args += [Zero() for j in numpy.ndindex(V_is[i].ufl_element().value_shape())]
+        return as_vector(args)
