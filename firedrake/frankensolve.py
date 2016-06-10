@@ -120,7 +120,6 @@ class UFLMatrix(object):
 
 
 # And now for the sub matrix class.::
-
 class UFLSubMatrix(UFLMatrix):
     def __init__(self, A, row_inds, col_inds):
         from firedrake import DirichletBC
@@ -240,7 +239,6 @@ class UFLSubMatrix(UFLMatrix):
             v.copy(Y)
 
         return
-
 
 # This file includes the modified nonlinear variational solver that
 # doesn't assemble directly into Firedrake matrices.  Instead, it
