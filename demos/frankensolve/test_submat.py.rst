@@ -2,10 +2,10 @@ This is for testing submatrix extraction and making sure everything works.::
   
   from firedrake import *
   from firedrake.petsc import PETSc
-  from uflmat import UFLMatrix
 
-  M = UnitSquareMesh(2, 2)
+  M = UnitSquareMesh(3, 3)
   V = FunctionSpace(M, "CG", 1)
+  
   W=V*V
 
   u0, u1 = TrialFunctions(W)
@@ -19,11 +19,8 @@ This is for testing submatrix extraction and making sure everything works.::
 
   bcs = [DirichletBC(V, Constant(0.0), (1,2,3,4))]
 
-  A_uflmat = UFLMatrix(a, bcs=bcs)
-  A = PETSc.Mat().create()
-  A.setType("python")
-  A.setSizes(A_uflmat.row_sizes, A_uflmat.col_sizes)
-  A.setPythonContext(A_uflmat)
+  A = ufl2petscmat(a, bcs=bcs)
+  
 
   dofs0 = W.sub(0).dof_dset.field_ises[0]
 
