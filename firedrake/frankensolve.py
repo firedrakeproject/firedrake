@@ -397,19 +397,20 @@ class AssembledPC(object):
         Pmat = P_fd.M.handle
         optpre = pc.getOptionsPrefix()
 
-# Internally, we just set up a KSP object that the user can configure
-# however from the PETSc command line.::
-        ksp = PETSc.KSP().create()
-        ksp.setOptionsPrefix(optpre+"assembled_")
-        ksp.setOperators(Pmat, Pmat)
-        ksp.setUp()
-        ksp.setFromOptions()
-        self.ksp = ksp
+# Internally, we just set up a PC object that the user can configure
+# however from the PETSc command line.  Since PC allows the user to specify
+# a KSP, we can do iterative by -assembled_pc_type ksp.::
+
+        pc = PETSc.PC().create()
+        pc.setOptionsPrefix(optpre+"assembled_")
+        pc.setOperators(Pmat, Pmat)
+        pc.setUp()
+        pc.setFromOptions()
+        self.pc = pc
 
 # Applying this preconditioner is relatively easy.::
     def apply(self, pc, x, y):
-        ksp = self.ksp
-        ksp.solve(x, y)
+        self.pc.apply(x, y)
 
 
 def find_sub_block(iset, ises):
