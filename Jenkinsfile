@@ -31,11 +31,11 @@ node('firedrake-build') {
   def check_pr = $/git ls-remote origin | grep ^$$LOCAL_COMMIT_SHA | grep refs/pull | awk -F/ '{print $$3}' > local_pr_num/$;
   sh check_pr;
   env.LOCAL_PR = readFile('local_pr_num').trim();
-  def get_merge_sha = $/git ls-remote origin | grep $$LOCAL_PR/merge$$ | awk '{print $$1}' > local_merge_sha/$;
+  def get_merge_sha = $/git ls-remote origin | grep $$LOCAL_PR/merge$$ | awk -F/ '{if ($$3 ~ /^[0-9]+$$/) {print $$3;} else {print "null";} }' > local_merge_sha/$;
   sh get_merge_sha;
   def local_merge_sha = readFile('local_merge_sha').trim();
   env.LOCAL_MERGE_SHA = local_merge_sha;
-  if ( local_merge_sha.isInteger() ) {
+  if ( local_merge_sha != 'null' ) {
     String build_merge_hash = UUID.randomUUID().toString();
     env.BUILD_MERGE_ID = build_merge_hash;
     def build_merge_cmd = $/docker build --build-arg FIREDRAKE_BUILD_SHA=$$LOCAL_MERGE_SHA --build-arg FIREDRAKE_INSTALL_FLAGS="--minimal-petsc --disable-ssh --package-branch firedrake master" -t tmbgreaves/firedrakebuilds:$$BUILD_MERGE_ID ./$;
