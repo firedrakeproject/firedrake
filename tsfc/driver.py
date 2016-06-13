@@ -15,6 +15,7 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
+from tsfc.logging import logger
 from tsfc.quadrature import create_quadrature, QuadratureRule
 
 
@@ -44,7 +45,7 @@ def compile_form(form, prefix="form", parameters=None):
                            do_apply_restrictions=True,
                            preserve_geometry_types=(CellVolume, FacetArea),
                            do_estimate_degrees=True)
-    print GREEN % ("compute_form_data finished in %g seconds." % (time.time() - cpu_time))
+    logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     kernels = []
     for integral_data in fd.integral_data:
@@ -53,9 +54,9 @@ def compile_form(form, prefix="form", parameters=None):
             kernels.append(compile_integral(integral_data, fd, prefix, parameters))
         except impero_utils.NoopError:
             pass
-        print GREEN % ("compile_integral finished in %g seconds." % (time.time() - start))
+        logger.info(GREEN % "compile_integral finished in %g seconds.", time.time() - start)
 
-    print GREEN % ("TSFC finished in %g seconds." % (time.time() - cpu_time))
+    logger.info(GREEN % "TSFC finished in %g seconds.", time.time() - cpu_time)
     return kernels
 
 
