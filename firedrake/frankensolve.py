@@ -21,6 +21,7 @@ def ufl2petscmat(a, bcs=[], state=None, fc_params={}, extra={}):
     mat.setType("python")
     mat.setSizes((mat_ufl.row_sizes, mat_ufl.col_sizes))
     mat.setPythonContext(mat_ufl)
+    mat.setUp()
     return mat
 
 
@@ -43,16 +44,16 @@ class UFLMatrix(object):
         self.newton_state = state
 
         # create functions from test and trial space to help with 1-form assembly
-        self._x = function.Function(a.arguments()[1].function_space())
         self._y = function.Function(a.arguments()[0].function_space())
+        self._x = function.Function(a.arguments()[1].function_space())
 
 # We need to get the local and global sizes from these so the Python matrix
 # knows how to set itself up.  This could be done better?::
 
         with self._x.dat.vec_ro as xx:
-            self.row_sizes = xx.getSizes()
+            self.col_sizes = xx.getSizes()
         with self._y.dat.vec_ro as yy:
-            self.col_sizes = yy.getSizes()
+            self.row_sizes = yy.getSizes()
 
 # We will stash the UFL business for the action so we don't have to reconstruct
 # it at each matrix-vector product.::
@@ -89,7 +90,10 @@ class UFLMatrix(object):
 # assembly deferred as long as possible.::
 
     def getSubMatrix(self, mat, row_is, col_is, target=None):
-        assert target is None
+        if target is not None:
+            # Repeat call, just return the matrix, since we don't
+            # actually assemble in here.
+            return target
 
 # These are the sets of ISes of which the the row and column space consist.::
 
@@ -111,7 +115,7 @@ class UFLMatrix(object):
         submat.setType("python")
         submat.setSizes((submat_ufl.row_sizes, submat_ufl.col_sizes))
         submat.setPythonContext(submat_ufl)
-
+        submat.setUp()
         return submat
 
 
@@ -232,6 +236,8 @@ class SNESContext(object):
         """
         with self._x.dat.vec as v:
             X.copy(v)
+        J.assemble()
+        P.assemble()
 
 # These functions just set up the PETSc SNES callbacks.::
 
@@ -249,9 +255,12 @@ class SNESContext(object):
         """Set the nullspace for PETSc"""
         if nullspace is None:
             return
-        nullspace._apply(self._jacs[-1]._M)
-        if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M)
+        nsp = nullspace._nullspace
+        if nsp is None:
+            nullspace._build_monolithic_basis()
+            nsp = nullspace._nullspace
+        self._jac.setNullSpace(nsp)
+        self._pjac.setNullSpace(nsp)
         if ises is not None:
             nullspace._apply(ises)
 
