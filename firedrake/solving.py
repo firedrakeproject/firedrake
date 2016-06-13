@@ -22,8 +22,6 @@ __all__ = ["solve"]
 
 import ufl
 
-from pyop2.logger import progress, INFO
-
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
 
@@ -145,8 +143,7 @@ def _solve_varproblem(*args, **kwargs):
                                             nullspace=nullspace,
                                             transpose_nullspace=nullspace_T,
                                             options_prefix=options_prefix)
-        with progress(INFO, 'Solving linear variational problem'):
-            solver.solve()
+        solver.solve()
 
     # Solve nonlinear variational problem
     else:
@@ -163,8 +160,7 @@ def _solve_varproblem(*args, **kwargs):
                                                nullspace=nullspace,
                                                transpose_nullspace=nullspace_T,
                                                options_prefix=options_prefix)
-        with progress(INFO, 'Solving nonlinear variational problem'):
-            solver.solve()
+        solver.solve()
 
 
 def _la_solve(A, x, b, **kwargs):

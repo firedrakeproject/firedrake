@@ -35,9 +35,9 @@ import numpy as np
 import weakref
 from collections import defaultdict
 
-from pyop2.logger import debug, warning
 from pyop2.mpi import COMM_WORLD, MPI, dup_comm, free_comm
 
+from firedrake.logging import debug, warning
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
