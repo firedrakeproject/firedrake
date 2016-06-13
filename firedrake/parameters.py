@@ -63,9 +63,6 @@ parameters.add(Parameters("assembly_cache",
 parameters.add(Parameters("coffee",
                           O2=True))
 
-# Spew citation for coffee paper if user modifies coffee options.
-parameters["coffee"].set_update_function(lambda k, v: Citations().register("Luporini2015"))
-
 # Default to the values of PyOP2 configuration dictionary
 pyop2_opts = Parameters("pyop2_options",
                         **configuration)
