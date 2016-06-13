@@ -42,7 +42,6 @@ node('firedrake-build') {
     sh build_merge_cmd;
     sh 'docker push tmbgreaves/firedrakebuilds:$BUILD__MERGE_ID';
   }
-  **/
 }
 /**
 stage "Testing"
