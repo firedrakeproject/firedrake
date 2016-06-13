@@ -28,15 +28,15 @@ node('firedrake-build') {
   sh 'docker push tmbgreaves/firedrakebuilds:$BUILD_ID';**/
   /** See if the SHA for this build is also the SHA for a pull request; if it is, repeat
    *  the build for the merged pull request  **/
-  def check_pr = $/git ls-remote origin | grep ^$$LOCAL_COMMIT_SHA | grep refs/pull | awk -F/ '{print $$3}' > local_pr_num/$;
+  def check_pr = $/git ls-remote origin | grep ^$$LOCAL_COMMIT_SHA | grep refs/pull | awk -F/ awk -F/ '{if ($$3 ~ /^[0-9]+$$/) {print $$3;} else {print "null";} } > local_pr_num/$;
   sh check_pr;
   env.LOCAL_PR = readFile('local_pr_num').trim();
-  def get_merge_sha = $/git ls-remote origin | grep $$LOCAL_PR/merge$$ | awk -F/ '{if ($$3 ~ /^[0-9]+$$/) {print $$3;} else {print "null";} }'/$;
-  sh get_merge_sha;
-  /**def local_merge_sha = readFile('local_merge_sha').trim();
-  env.LOCAL_MERGE_SHA = local_merge_sha;
-  if ( local_merge_sha != 'null' ) {
+  if ( env.LOCAL_PR != 'null' ) {
+    def get_merge_sha = $/git ls-remote origin | grep $$LOCAL_PR/merge$$ | awk -F/ '{print $1}'/$;
+    sh get_merge_sha;
+    def local_merge_sha = readFile('local_merge_sha').trim();
     String build_merge_hash = UUID.randomUUID().toString();
+    env.LOCAL_MERGE_SHA = local_merge_sha;
     env.BUILD_MERGE_ID = build_merge_hash;
     def build_merge_cmd = $/docker build --build-arg FIREDRAKE_BUILD_SHA=$$LOCAL_MERGE_SHA --build-arg FIREDRAKE_INSTALL_FLAGS="--minimal-petsc --disable-ssh --package-branch firedrake master" -t tmbgreaves/firedrakebuilds:$$BUILD_MERGE_ID ./$;
     sh build_merge_cmd;
