@@ -35,7 +35,7 @@ node('firedrake-build') {
   sh get_merge_sha;
   def local_merge_sha = readFile('local_merge_sha').trim();
   env.LOCAL_MERGE_SHA = local_merge_sha;
-  if ( local_merge_sha != null ) {
+  if ( assert local_merge_sha.isInteger() ) {
     String build_merge_hash = UUID.randomUUID().toString();
     env.BUILD_MERGE_ID = build_merge_hash;
     def build_merge_cmd = $/docker build --build-arg FIREDRAKE_BUILD_SHA=$$LOCAL_MERGE_SHA --build-arg FIREDRAKE_INSTALL_FLAGS="--minimal-petsc --disable-ssh --package-branch firedrake master" -t tmbgreaves/firedrakebuilds:$$BUILD_MERGE_ID ./$;
