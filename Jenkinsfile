@@ -35,6 +35,7 @@ node('firedrake-build') {
   sh get_merge_sha;
   def local_merge_sha = readFile('local_merge_sha').trim();
   env.LOCAL_MERGE_SHA = local_merge_sha;
+  sh "echo $LOCAL_MERGE_SHA"
   if ( local_merge_sha != 'null' ) {
     String build_merge_hash = UUID.randomUUID().toString();
     env.BUILD_MERGE_ID = build_merge_hash;
