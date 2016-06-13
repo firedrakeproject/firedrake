@@ -2,6 +2,7 @@ import sys
 import os
 import re
 import argparse
+import platform
 from collections import defaultdict
 import platform
 import math
