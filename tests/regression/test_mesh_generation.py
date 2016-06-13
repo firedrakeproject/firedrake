@@ -30,7 +30,7 @@ def test_interval_three_arg():
 
 
 def test_interval_negative_length():
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         IntervalMesh(10, 2, 1)
 
 
