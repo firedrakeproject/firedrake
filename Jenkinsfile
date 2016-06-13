@@ -27,7 +27,7 @@ node('firedrake-build') {
   /**sh build_cmd;
   sh 'docker push tmbgreaves/firedrakebuilds:$BUILD_ID';**/
   /** See if the SHA for this build is also the SHA for a pull request; if it is, repeat
-   *  the build for the merged pull request **/
+   *  the build for the merged pull request  **/
   def check_pr = $/git ls-remote origin | grep ^$$LOCAL_COMMIT_SHA | grep refs/pull | awk -F/ '{print $$3}' > local_pr_num/$;
   sh check_pr;
   env.LOCAL_PR = readFile('local_pr_num').trim();
