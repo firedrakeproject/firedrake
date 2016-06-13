@@ -8,15 +8,16 @@ from singledispatch import singledispatch
 
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, Coefficient, ConstantValue,
-                         FormArgument, GeometricQuantity,
-                         QuadratureWeight)
+from ufl.classes import (Argument, Coefficient, CellVolume,
+                         ConstantValue, FacetArea, FormArgument,
+                         GeometricQuantity, QuadratureWeight)
 
 import gem
 
 from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, as_fiat_cell
 from tsfc.modified_terminals import analyse_modified_terminal
+from tsfc.quadrature import create_quadrature
 from tsfc import compat
 from tsfc import ufl2gem
 from tsfc import geometric
@@ -191,35 +192,90 @@ class FacetManager(object):
             return gem.partial_indexed(tensor, (f,))
 
 
+# FIXME: copy-paste from PyOP2
+class cached_property(object):
+    """A read-only @property that is only evaluated once. The value is cached
+    on the object itself rather than the function or class; this should prevent
+    memory leakage."""
+    def __init__(self, fget, doc=None):
+        self.fget = fget
+        self.__doc__ = doc or fget.__doc__
+        self.__name__ = fget.__name__
+        self.__module__ = fget.__module__
+
+    def __get__(self, obj, cls):
+        if obj is None:
+            return self
+        obj.__dict__[self.__name__] = result = self.fget(obj)
+        return result
+
+
+class Parameters(object):
+    keywords = ('integral_type',
+                'cell',
+                'quadrature_degree',
+                'quadrature_rule',
+                'points',
+                'weights',
+                'point_index',
+                'argument_indices',
+                'coefficient_mapper',
+                'cellvolume',
+                'facetarea',
+                'index_cache')
+
+    def __init__(self, **kwargs):
+        invalid_keywords = set(kwargs.keys()) - set(Parameters.keywords)
+        if invalid_keywords:
+            raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
+        self.__dict__.update(kwargs)
+
+    # Defaults
+    integral_type = 'cell'
+
+    @cached_property
+    def quadrature_rule(self):
+        return create_quadrature(self.cell,
+                                 self.integral_type,
+                                 self.quadrature_degree)
+
+    @cached_property
+    def points(self):
+        return self.quadrature_rule.points
+
+    @cached_property
+    def weights(self):
+        return self.quadrature_rule.weights
+
+    argument_indices = ()
+
+    @cached_property
+    def index_cache(self):
+        return collections.defaultdict(gem.Index)
+
+
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     """Contains all the context necessary to translate UFL into GEM."""
 
-    def __init__(self, tabulation_manager, weights, quadrature_index,
-                 argument_indices, coefficient_mapper, index_cache):
+    def __init__(self, tabulation_manager, parameters):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
-        integral_type = tabulation_manager.integral_type
-        facet_manager = tabulation_manager.facet_manager
-        self.integral_type = integral_type
-        self.tabulation_manager = tabulation_manager
-        self.weights = gem.Literal(weights)
-        self.quadrature_index = quadrature_index
-        self.argument_indices = argument_indices
-        self.coefficient_mapper = coefficient_mapper
-        self.index_cache = index_cache
-        self.facet_manager = facet_manager
-        self.select_facet = facet_manager.select_facet
 
-        if self.integral_type.startswith("interior_facet"):
-            self.cell_orientations = gem.Variable("cell_orientations", (2, 1))
+        if parameters.integral_type.startswith("interior_facet"):
+            parameters.cell_orientations = gem.Variable("cell_orientations", (2, 1))
         else:
-            self.cell_orientations = gem.Variable("cell_orientations", (1, 1))
+            parameters.cell_orientations = gem.Variable("cell_orientations", (1, 1))
+
+        parameters.tabulation_manager = tabulation_manager
+        parameters.facet_manager = tabulation_manager.facet_manager
+        parameters.select_facet = tabulation_manager.facet_manager.select_facet
+        self.parameters = parameters
 
     def modified_terminal(self, o):
         """Overrides the modified terminal handler from
         :class:`ModifiedTerminalMixin`."""
         mt = analyse_modified_terminal(o)
-        return translate(mt.terminal, mt, self)
+        return translate(mt.terminal, mt, self.parameters)
 
 
 def iterate_shape(mt, callback):
@@ -270,18 +326,28 @@ def translate(terminal, mt, params):
     raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
 
 
-@translate.register(QuadratureWeight)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
-    return gem.Indexed(params.weights, (params.quadrature_index,))
+@translate.register(QuadratureWeight)
+def translate_quadratureweight(terminal, mt, params):
+    return gem.Indexed(gem.Literal(params.weights), (params.point_index,))
 
 
-@translate.register(GeometricQuantity)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
+@translate.register(GeometricQuantity)
+def translate_geometricquantity(terminal, mt, params):
     return geometric.translate(terminal, mt, params)
 
 
-@translate.register(Argument)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
+@translate.register(CellVolume)
+def translate_cellvolume(terminal, mt, params):
+    return params.cellvolume(mt.restriction)
+
+
+@translate.register(FacetArea)
+def translate_facetarea(terminal, mt, params):
+    return params.facetarea()
+
+
+@translate.register(Argument)
+def translate_argument(terminal, mt, params):
     argument_index = params.argument_indices[terminal.number()]
 
     def callback(key):
@@ -291,14 +357,14 @@ def _(terminal, mt, params):
             row = gem.Literal(table)
         else:
             table = params.select_facet(gem.Literal(table), mt.restriction)
-            row = gem.partial_indexed(table, (params.quadrature_index,))
+            row = gem.partial_indexed(table, (params.point_index,))
         return gem.Indexed(row, (argument_index,))
 
     return iterate_shape(mt, callback)
 
 
-@translate.register(Coefficient)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
+@translate.register(Coefficient)
+def translate_coefficient(terminal, mt, params):
     kernel_arg = params.coefficient_mapper(terminal)
 
     if terminal.ufl_element().family() == 'Real':
@@ -320,7 +386,7 @@ def _(terminal, mt, params):
                               gem.Zero())
         else:
             table = params.select_facet(gem.Literal(table), mt.restriction)
-            row = gem.partial_indexed(table, (params.quadrature_index,))
+            row = gem.partial_indexed(table, (params.point_index,))
 
         r = params.index_cache[terminal.ufl_element()]
         return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)),
@@ -336,14 +402,15 @@ def _translate_constantvalue(terminal, mt, params):
     return params(terminal)
 
 
-def process(integral_type, cell, points, weights, quadrature_index,
-            argument_indices, integrand, coefficient_mapper, index_cache):
+def compile_ufl(expression, **kwargs):
+    params = Parameters(**kwargs)
+
     # Abs-simplification
-    integrand = simplify_abs(integrand)
+    expression = simplify_abs(expression)
 
     # Collect modified terminals
     modified_terminals = []
-    map_expr_dag(CollectModifiedTerminals(modified_terminals), integrand)
+    map_expr_dag(CollectModifiedTerminals(modified_terminals), expression)
 
     # Collect maximal derivatives that needs tabulation
     max_derivs = collections.defaultdict(int)
@@ -354,21 +421,18 @@ def process(integral_type, cell, points, weights, quadrature_index,
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(integral_type, cell, points)
+    tabulation_manager = TabulationManager(params.integral_type, params.cell, params.points)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
 
-    if integral_type.startswith("interior_facet"):
+    if params.integral_type.startswith("interior_facet"):
         expressions = []
-        for rs in itertools.product(("+", "-"), repeat=len(argument_indices)):
-            expressions.append(map_expr_dag(PickRestriction(*rs), integrand))
+        for rs in itertools.product(("+", "-"), repeat=len(params.argument_indices)):
+            expressions.append(map_expr_dag(PickRestriction(*rs), expression))
     else:
-        expressions = [integrand]
+        expressions = [expression]
 
-    # Translate UFL to Einstein's notation,
-    # lowering finite element specific nodes
-    translator = Translator(tabulation_manager, weights,
-                            quadrature_index, argument_indices,
-                            coefficient_mapper, index_cache)
+    # Translate UFL to GEM, lowering finite element specific nodes
+    translator = Translator(tabulation_manager, params)
     return map_expr_dags(translator, expressions)

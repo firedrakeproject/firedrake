@@ -37,24 +37,6 @@ def test_select_degree(cell, degree, itype):
 
 
 @pytest.mark.parametrize("degree",
-                         [(1, 1), (2, 2)])
-@pytest.mark.parametrize("itype",
-                         ["interior_facet", "exterior_facet"])
-def test_select_degree_facet_quad(degree, itype):
-    selected = q.select_degree(degree, ufl.quadrilateral, itype)
-    assert selected == degree[0]
-
-
-@pytest.mark.parametrize("degree",
-                         [(1, 2), (2,)])
-@pytest.mark.parametrize("itype",
-                         ["interior_facet", "exterior_facet"])
-def test_select_invalid_degree_facet_quad(degree, itype):
-    with pytest.raises(ValueError):
-        q.select_degree(degree, ufl.quadrilateral, itype)
-
-
-@pytest.mark.parametrize("degree",
                          [(1, 2), (2, 3)])
 @pytest.mark.parametrize("itype",
                          ["interior_facet_horiz", "exterior_facet_top",
