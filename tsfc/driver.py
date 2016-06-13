@@ -103,6 +103,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     # evaluation can be hoisted).
     index_cache = collections.defaultdict(gem.Index)
 
+    # TODO: refactor this!
     def cellvolume(restriction):
         from ufl import dx
         form = 1 * dx(domain=mesh)
@@ -140,6 +141,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
             expr = gem.IndexSum(expr, quadrature_index)
         return expr
 
+    # TODO: refactor this!
     def facetarea():
         from ufl import Measure
         assert integral_type != 'cell'

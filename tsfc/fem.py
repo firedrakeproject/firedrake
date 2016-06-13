@@ -192,6 +192,7 @@ class FacetManager(object):
             return gem.partial_indexed(tensor, (f,))
 
 
+# FIXME: copy-paste from PyOP2
 class cached_property(object):
     """A read-only @property that is only evaluated once. The value is cached
     on the object itself rather than the function or class; this should prevent
