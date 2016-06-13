@@ -31,11 +31,10 @@ node('firedrake-build') {
   def check_pr = $/git ls-remote origin | grep ^$$LOCAL_COMMIT_SHA | grep refs/pull | awk -F/ '{print $$3}' > local_pr_num/$;
   sh check_pr;
   env.LOCAL_PR = readFile('local_pr_num').trim();
-  def get_merge_sha = $/git ls-remote origin | grep $$LOCAL_PR/merge$$ | awk -F/ '{if ($$3 ~ /^[0-9]+$$/) {print $$3;} else {print "null";} }' > local_merge_sha/$;
+  def get_merge_sha = $/git ls-remote origin | grep $$LOCAL_PR/merge$$ | awk -F/ '{if ($$3 ~ /^[0-9]+$$/) {print $$3;} else {print "null";} }'/$;
   sh get_merge_sha;
-  def local_merge_sha = readFile('local_merge_sha').trim();
+  /**def local_merge_sha = readFile('local_merge_sha').trim();
   env.LOCAL_MERGE_SHA = local_merge_sha;
-  //sh "echo $LOCAL_MERGE_SHA"
   if ( local_merge_sha != 'null' ) {
     String build_merge_hash = UUID.randomUUID().toString();
     env.BUILD_MERGE_ID = build_merge_hash;
@@ -43,6 +42,7 @@ node('firedrake-build') {
     sh build_merge_cmd;
     sh 'docker push tmbgreaves/firedrakebuilds:$BUILD__MERGE_ID';
   }
+  **/
 }
 /**
 stage "Testing"
