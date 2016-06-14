@@ -215,6 +215,32 @@ class UFLSubMatrix(UFLMatrix):
 
         return
 
+    def mult(self, mat, X, Y):
+        from firedrake.assemble import assemble
+
+        with self._x.dat.vec as v:
+            if v != X:
+                X.copy(v)
+
+        for bc in self.col_bcs:
+            bc.zero(self._x)
+
+        assemble(self.action, self._y,
+                 form_compiler_parameters=self.fc_params)
+
+        for bc in self.row_bcs:
+            print bc.function_space() == self._y.function_space()
+            try:
+                bc.apply(self._y)
+            except:
+                print "very naughty"
+                1/0
+
+        with self._y.dat.vec_ro as v:
+            v.copy(Y)
+
+        return
+
 
 # This file includes the modified nonlinear variational solver that
 # doesn't assemble directly into Firedrake matrices.  Instead, it
@@ -576,4 +602,3 @@ class ExtractSubBlock(MultiFunction):
             else:
                 args += [Zero() for j in numpy.ndindex(V_is[i].ufl_element().value_shape())]
         return as_vector(args)
-
