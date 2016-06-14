@@ -147,7 +147,7 @@ Citations().add("Luporini2016", """
 }
 """)
 
-Citations().add("Luporini2016", """
+Citations().add("Bercea2016", """
 @article{Bercea2016,
   author    = {Gheorghe{-}Teodor Bercea and
                Andrew T. T. McRae and
