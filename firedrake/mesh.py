@@ -645,6 +645,7 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         from firedrake.citations import Citations
         Citations().register("McRae2014")
+        Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
 
