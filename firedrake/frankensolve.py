@@ -36,9 +36,10 @@ class UFLMatrix(object):
 # physical parameters that aren't directly visible from UFL.  Since this
 # will typically be embedded in nonlinear loop, the `state` variable
 # allows us to insert the current linearization state.::
-
-        self.a = a
         self.bcs = bcs
+        self.a = a
+        self.row_bcs = bcs
+        self.col_bcs = bcs
         self.fc_params = fc_params
         self.extra = extra
         self.newton_state = state
@@ -70,14 +71,14 @@ class UFLMatrix(object):
             if v != X:
                 X.copy(v)
 
+        for bc in self.col_bcs:
+            bc.zero(self._x)
+
         assemble(self.action, self._y,
                  form_compiler_parameters=self.fc_params)
 
-        for bc in self.bcs:
-            try:
-                bc.apply(self._y)
-            except:
-                pass
+        for bc in self.row_bcs:
+            bc.apply(self._y)
 
         with self._y.dat.vec_ro as v:
             v.copy(Y)
@@ -125,23 +126,42 @@ class UFLSubMatrix(UFLMatrix):
         from firedrake import DirichletBC
         self.parent = A
         asub, = ExtractSubBlock(row_inds, col_inds).split(A.a)
-#        bcs = A.bcs
-        new_bcs = []
-#        W = asub.arguments()[0].function_space()
-#        for bc in bcs:
-#            for i, r in enumerate(row_inds):
-#                if bc.function_space().index == r:
-#                    nbc = DirichletBC(W.sub(i), bc.function_arg,
-#                                      bc.subdomain_id,
-#                                      method=bc.method)
-#                    new_bcs.append(nbc)
-#        self.a = asub
+
+        W = A.a.arguments()[0].function_space()
+        row_bcs = []
+        col_bcs = []
+
+        for bc in A.bcs:
+            for r in row_inds:
+                if bc.function_space().index == r:
+                    nbc = DirichletBC(W.sub(r),
+                                      bc.function_arg,
+                                      bc.sub_domain,
+                                      method=bc.method)
+                    row_bcs.append(nbc)
+
+        for bc in A.bcs:
+            for c in col_inds:
+                if bc.function_space().index == c:
+                    nbc = DirichletBC(W.sub(c),
+                                      bc.function_arg,
+                                      bc.sub_domain,
+                                      method=bc.method)
+                    col_bcs.append(nbc)
+
+        if row_inds == col_inds:
+            bcs = row_bcs
+        else:
+            bcs = []
 
         UFLMatrix.__init__(self, asub,
-                           bcs=new_bcs,
+                           bcs=bcs,
                            state=A.newton_state,
                            fc_params=A.fc_params,
                            extra=A.extra)
+
+        self.row_bcs = row_bcs
+        self.col_bcs = col_bcs
 
 # The multiplication should just inherit, no?  But we need to be careful
 # when we extract submatrices.  Let's make sure one level works for now
@@ -149,6 +169,32 @@ class UFLSubMatrix(UFLMatrix):
 
     def getSubMatrix(self, mat, row_is, col_is):
         1/0
+
+    def mult(self, mat, X, Y):
+        from firedrake.assemble import assemble
+
+        with self._x.dat.vec as v:
+            if v != X:
+                X.copy(v)
+
+        for bc in self.col_bcs:
+            bc.zero(self._x)
+
+        assemble(self.action, self._y,
+                 form_compiler_parameters=self.fc_params)
+
+        for bc in self.row_bcs:
+            print bc.function_space() == self._y.function_space()
+            try:
+                bc.apply(self._y)
+            except:
+                print "very naughty"
+                1/0
+
+        with self._y.dat.vec_ro as v:
+            v.copy(Y)
+
+        return
 
 
 # This file includes the modified nonlinear variational solver that
