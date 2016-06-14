@@ -1,4 +1,6 @@
--ksp_type fgmres
+-snes_monitor
+-snes_converged_reason
+-ksp_type gmres
 -ksp_converged_reason
 -ksp_monitor_true_residual
 -pc_type fieldsplit
