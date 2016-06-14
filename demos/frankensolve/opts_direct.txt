@@ -1,3 +1,4 @@
+-snes_monitor
 -ksp_type preonly
 -pc_type python
 -pc_python_type firedrake.AssembledPC
