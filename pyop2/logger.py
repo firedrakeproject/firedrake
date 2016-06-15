@@ -35,7 +35,6 @@
 
 from contextlib import contextmanager
 import logging
-from mpi import MPI
 
 # Define colors
 RED = "\033[1;37;31m%s\033[0m"
@@ -43,10 +42,6 @@ BLUE = "\033[1;37;34m%s\033[0m"
 GREEN = "\033[1;37;32m%s\033[0m"
 
 logger = logging.getLogger('pyop2')
-_ch = logging.StreamHandler()
-_ch.setFormatter(logging.Formatter(('[%d] ' % MPI.comm.rank if MPI.parallel else '') +
-                                   '%(name)s:%(levelname)s %(message)s'))
-logger.addHandler(_ch)
 
 debug = logger.debug
 info = logger.info

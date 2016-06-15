@@ -42,7 +42,7 @@ from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL
 from base import DatView
 from configuration import configuration
 from logger import debug, info, warning, error, critical, set_log_level
-from mpi import MPI, collective
+from mpi import MPI, COMM_WORLD, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 from coffee.system import coffee_init
@@ -107,10 +107,6 @@ def init(**kwargs):
             raise
 
         backends._BackendSelector._backend._setup()
-        if 'comm' in kwargs:
-            backends._BackendSelector._backend.MPI.comm = kwargs['comm']
-        global MPI
-        MPI = backends._BackendSelector._backend.MPI  # noqa: backend override
 
     coffee_init(compiler=configuration['compiler'], isa=configuration['simd_isa'])
 
@@ -119,7 +115,7 @@ def init(**kwargs):
 @collective
 def exit():
     """Exit OP2 and clean up"""
-    if configuration['print_cache_size'] and MPI.comm.rank == 0:
+    if configuration['print_cache_size'] and COMM_WORLD.rank == 0:
         from caching import report_cache, Cached, ObjectCached
         print '**** PyOP2 cache sizes at exit ****'
         report_cache(typ=ObjectCached)
