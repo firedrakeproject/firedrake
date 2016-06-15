@@ -304,9 +304,9 @@ def OneElementThickMesh(ncells, Lx, Ly):
     local_facet_dat = mesh.topology.interior_facets.local_facet_dat
     local_facet_number = mesh.topology.interior_facets.local_facet_number
     for i in range(local_facet_dat.shape[0]):
-        if all(local_facet_dat.data[i,:] == np.array([3,3])):
-            local_facet_dat.data[i,:] = [2,3]
-            local_facet_number[i,:] = [2,3]
+        if all(local_facet_dat.data[i, :] == np.array([3, 3])):
+            local_facet_dat.data[i, :] = [2, 3]
+            local_facet_number[i, :] = [2, 3]
 
     return mash
 
