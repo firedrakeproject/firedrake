@@ -59,6 +59,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         ufl.Coefficient.__init__(self, function_space.ufl_element())
 
+        self.comm = function_space.comm
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
@@ -66,6 +67,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._split = None
 
         if isinstance(val, (op2.Dat, op2.DatView)):
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
@@ -431,11 +433,6 @@ class Function(ufl.Coefficient):
     def at(self, arg, *args, **kwargs):
         """Evaluate function at points."""
         from mpi4py import MPI
-        halo = self.dof_dset.halo
-        if isinstance(halo, tuple):
-            # mixed function space
-            halo = halo[0]
-        comm = halo.comm.tompi4py()
 
         if args:
             arg = (arg,) + args
@@ -462,9 +459,9 @@ class Function(ufl.Coefficient):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = comm.bcast(arg, root=0)
+        root_arg = self.comm.bcast(arg, root=0)
         same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = comm.allreduce(int(not same_arg), op=MPI.SUM)
+        diff_arg = self.comm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 
@@ -508,7 +505,7 @@ class Function(ufl.Coefficient):
             else:
                 return np.allclose(a, b)
 
-        all_results = comm.allgather(l_result)
+        all_results = self.comm.allgather(l_result)
         g_result = [None] * len(points)
         for results in all_results:
             for i, result in results:
@@ -567,4 +564,5 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     return compilation.load(src, "c", c_name,
                             cppargs=["-I%s" % path.dirname(__file__),
                                      "-I%s/include" % sys.prefix],
-                            ldargs=ldargs)
+                            ldargs=ldargs,
+                            comm=function.comm)

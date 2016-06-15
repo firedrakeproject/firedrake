@@ -278,6 +278,8 @@ class FunctionSpace(object):
                                     name="%s_nodes_dset" % self.name)
         """A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
+
+        self.comm = self.node_set.comm
         self.fiat_element = fiat_element
         self.extruded = sdata.extruded
         self.offset = sdata.offset
@@ -310,7 +312,7 @@ class FunctionSpace(object):
     @utils.cached_property
     def _dm(self):
         """A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = PETSc.DMShell().create()
+        dm = PETSc.DMShell().create(comm=self.comm)
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setPointSF(self.mesh()._plex.getPointSF())
         dm.setDefaultSection(self._shared_data.global_numbering)
@@ -524,6 +526,7 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = spaces[0].mesh()
+        self.comm = self.node_set.comm
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -693,7 +696,7 @@ class MixedFunctionSpace(object):
     @utils.cached_property
     def _dm(self):
         """A PETSc DM describing the data layout for fieldsplit solvers."""
-        dm = PETSc.DMShell().create()
+        dm = PETSc.DMShell().create(comm=self.comm)
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setCreateFieldDecomposition(self.create_field_decomp)
         dm.setCreateSubDM(self.create_subdm)
@@ -724,7 +727,8 @@ class MixedFunctionSpace(object):
             subspace = MixedFunctionSpace([W[f] for f in fields])
             # Index set mapping from W into subspace.
             iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
-                                                               for f in fields]))
+                                                               for f in fields]),
+                                            comm=W.comm)
             # Keep hold of strong reference to created subspace (given we
             # only hold a weakref in the shell DM), and so we can
             # reuse it later.

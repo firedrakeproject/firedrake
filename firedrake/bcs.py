@@ -52,6 +52,7 @@ class DirichletBC(object):
         # function and then throws the expression away.
         self._original_val = g
         self.function_arg = g
+        self.comm = V.comm
         self._original_arg = self.function_arg
         if sub_domain == "on_boundary":
             self.sub_domain = \
