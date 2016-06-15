@@ -301,6 +301,11 @@ def OneElementThickMesh(ncells, Lx, Ly):
     last_cell_nodes = Vc.cell_node_list[last_cell, :]
     mash.coordinates.dat.data[last_cell_nodes[2:], 0] = Lx
 
+    facet_cell = mesh.topology.interior_facets.facet_cell
+    for i in range(facet_cell.shape[0]):
+        if facet_cell.data[i,:] == [3,3]:
+            facet_cell.data[i,:] = [2,3]
+    
     return mash
 
 
