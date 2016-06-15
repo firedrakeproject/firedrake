@@ -49,6 +49,11 @@ class WithGeometry(ufl.FunctionSpace):
         else:
             self.parent = None
 
+    @utils.cached_property
+    def _split(self):
+        return tuple(WithGeometry(subspace, self.mesh())
+                     for subspace in self.topological.split())
+
     mesh = ufl.FunctionSpace.ufl_domain
 
     def ufl_function_space(self):
@@ -61,8 +66,7 @@ class WithGeometry(ufl.FunctionSpace):
 
     def split(self):
         """Split into a tuple of constituent spaces."""
-        return tuple(WithGeometry(subspace, self.mesh())
-                     for subspace in self.topological.split())
+        return self._split
 
     def sub(self, i):
         return WithGeometry(self.topological.sub(i), self.mesh())
@@ -190,7 +194,7 @@ class WithGeometry(ufl.FunctionSpace):
             yield WithGeometry(subspace, self.mesh())
 
     def __getitem__(self, i):
-        return WithGeometry(self.topological[i], self.mesh())
+        return self._split[i]
 
     def __mul__(self, other):
         """Create a :class:`.MixedFunctionSpace` composed of this
