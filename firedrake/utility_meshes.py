@@ -257,21 +257,21 @@ def OneElementThickMesh(ncells, Lx, Ly):
                 # need to check if it is a right edge, or a left edge
                 support = plex.getSupport(edge_set[i])
 
-        if(e == 0):
-            # special case for left hand cell
-            if(ncells-1 in support):
-                # we are on left hand edge
-                cell_closure[row][4] = edge_set[i]
-            else:
-                # we are on right hand edge
-                cell_closure[row][5] = edge_set[i]
-        else:
-            if(e-1 in support):
-                # we are on left hand edge
-                cell_closure[row][4] = edge_set[i]
-            else:
-                # we are on right hand edge
-                cell_closure[row][5] = edge_set[i]
+                if(e == 0):
+                    # special case for left hand cell
+                    if(ncells-1 in support):
+                        # we are on left hand edge
+                        cell_closure[row][4] = edge_set[i]
+                    else:
+                        # we are on right hand edge
+                        cell_closure[row][5] = edge_set[i]
+                else:
+                    if(e-1 in support):
+                        # we are on left hand edge
+                        cell_closure[row][4] = edge_set[i]
+                    else:
+                        # we are on right hand edge
+                        cell_closure[row][5] = edge_set[i]
 
         # Add in the vertices
         vertices = tc[0][5:]
