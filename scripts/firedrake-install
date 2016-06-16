@@ -133,7 +133,8 @@ else:
     args.adjoint = args.adjoint or args.install_adjoint
     args.slepc = False
     args.slepc = args.slepc or args.install_slepc
-    args.virtualenv_name = "firedrake"
+    args.virtualenv_name = False
+    args.virtualenv_name = args.virtualenv_name or "firedrake"
 
 
 # Where are packages installed relative to --root?
