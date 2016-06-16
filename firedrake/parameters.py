@@ -75,7 +75,6 @@ pyop2_opts.set_update_function(lambda k, v: configuration.unsafe_reconfigure(**{
 
 # Override values
 pyop2_opts["type_check"] = True
-pyop2_opts["log_level"] = "INFO"
 
 # PyOP2 must know about the COFFEE optimization level chosen by Firedrake
 pyop2_opts["opt_level"] = coffee_default_optlevel
