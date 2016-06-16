@@ -211,8 +211,8 @@ Now all that is left is to define the timestepping parameters and
 execute the time loop. ::
 
   t = 0.
-  T = 100.
-  dumpfreq = 10
+  T = 10.
+  dumpfreq = 5
   tdump = 0
 
   v0 = Function(Vu)
