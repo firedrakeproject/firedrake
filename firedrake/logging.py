@@ -11,7 +11,8 @@ from ufl.log import ufl_logger
 from pyop2.mpi import COMM_WORLD
 
 
-__all__ = ('set_level', 'set_log_level', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL',
+__all__ = ('set_level', 'set_log_level', 'set_log_handlers',
+           'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL',
            'log', 'debug', 'info', 'warning', 'error', 'critical',
            'info_red', 'info_green', 'info_blue',
            "RED", "GREEN", "BLUE")
@@ -19,24 +20,6 @@ __all__ = ('set_level', 'set_log_level', 'DEBUG', 'INFO', 'WARNING', 'ERROR', 'C
 
 packages = ("COFFEE", "pyop2", "tsfc", "firedrake", "UFL")
 
-
-for package in packages:
-    if package != "UFL":
-        logger = logging.getLogger(package)
-        for handler in logger.handlers:
-            logger.removeHandler(handler)
-
-    # Only print on rank 0.
-    if COMM_WORLD.rank == 0:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(fmt="%(name)s:%(levelname)s %(message)s"))
-    else:
-        handler = logging.NullHandler()
-
-    if package == "UFL":
-        ufl_logger.set_handler(handler)
-    else:
-        logger.addHandler(handler)
 
 logger = logging.getLogger("firedrake")
 log = logger.log
@@ -71,6 +54,42 @@ def info_blue(message, *args, **kwargs):
 
     :arg message: the message to be printed. '''
     info(BLUE % message, *args, **kwargs)
+
+
+def set_log_handlers(handlers=None, comm=COMM_WORLD):
+    """Set handlers for the log messages of the different Firedrake components.
+
+    :kwarg handlers: Optional dict of handlers keyed by the name of the logger.
+         If not provided, a separate :class:`logging.StreamHandler`
+         will be created for each logger.
+    :kwarg comm: The communicator the handler should be collective
+         over.  If provided, only rank-0 on that communicator will
+         write to the handler, other ranks will use a
+         :class:`logging.NullHandler`.  If set to ``None``, all ranks
+         will use the provided handler.  This could be used, for
+         example, if you want to log to one file per rank.
+    """
+    if handlers is None:
+        handlers = {}
+
+    for package in packages:
+        if package != "UFL":
+            logger = logging.getLogger(package)
+            for handler in logger.handlers:
+                logger.removeHandler(handler)
+
+        handler = handlers.get(package, None)
+        if handler is None:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter(fmt="%(name)s:%(levelname)s %(message)s"))
+
+        if comm is not None and comm.rank != 0:
+            handler = logging.NullHandler()
+
+        if package == "UFL":
+            ufl_logger.set_handler(handler)
+        else:
+            logger.addHandler(handler)
 
 
 def set_log_level(level):
