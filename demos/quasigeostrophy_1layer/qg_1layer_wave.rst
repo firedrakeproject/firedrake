@@ -1,14 +1,14 @@
-Quasi-Geostrophic Model in Firedrake
-====================================
+Quasi-Geostrophic Model
+=======================
 
 The Quasi-Geostrophic (QG) model is very important in geophysical fluid
 dynamics as it describes some aspects of large-scale flows in the oceans
 and atmosphere very well. The interested reader can find derivations in
-Pedlosky (1987) and Vallis (2006).
+:cite:`Pedlosky:1992` and :cite:`Vallis:2006`.
 
 In these notes we present the nonlinear equations for the one-layer QG
 model with a free-surface. Then, the weak form will be derived as is
-needed for the firedrake library.
+needed for Firedrake.
 
 Governing Equations
 -------------------
@@ -64,13 +64,13 @@ homogeneous Dirichlet boundary conditions on the test function.
 Evolution Equation
 ~~~~~~~~~~~~~~~~~~
 
-The SSPRK3 method used as explained in Gottleib (2005) can be written as
+The SSPRK3 method used as explained in :cite:`Gottlieb:2005` can be written as
 
 .. math::
 
    \begin{aligned}
    q^{(1)} &= q^n - \Delta t \left[ \vec \nabla \cdot \left( \vec u^n q^n \right) +  \beta v^n \right] , \\
-   q^{(2)} &= \frac34 q^n + \frac14 \left[ q^{(1)} - \Delta t  \vec \nabla \cdot \left( \vec u^{(1)} q^{(1)} \right) 
+   q^{(2)} &= \frac34 q^n + \frac14 \left[ q^{(1)} - \Delta t  \vec \nabla \cdot \left( \vec u^{(1)} q^{(1)} \right)
    - \Delta t \beta v^{(1)}\right], \\
    q^{n+1} &= \frac13 q^n + \frac23 \left[ q^{(2)} - \Delta t \vec \nabla \cdot \left( \vec u^{(2)} q^{(2)} \right) - \Delta t \beta v^{(1)} \right].\end{aligned}
 
@@ -80,7 +80,7 @@ and take the inner product of the first equation with :math:`p`.
 .. math::
 
    \begin{aligned}
-   \langle q^{(1)}, p \rangle &= \langle q^n, p \rangle  - \Delta t \langle \vec \nabla \cdot \left( \vec u^n q^n \right), p \rangle 
+   \langle q^{(1)}, p \rangle &= \langle q^n, p \rangle  - \Delta t \langle \vec \nabla \cdot \left( \vec u^n q^n \right), p \rangle
    - \Delta t \langle \beta  v, q \rangle, \\
    \langle q^{(1)}, p \rangle - \Delta t \langle \vec u^n q^n, \vec\nabla p \rangle  +  \Delta t \langle \beta  v, q \rangle
    &= \langle q^n, p \rangle  - \Delta t \langle \vec u^n q^n, p \rangle_{bdry}\end{aligned}
@@ -95,23 +95,34 @@ for :math:`q^{(1)}` and then :math:`q^{(2)}` and then these are used to
 compute the numerical approximation to the PV at the new time
 :math:`q^{n+1)}`.
 
-Below is a copy of the code that solves the QG model for the case of a freely propagating Rossby wave.
-
-.. code-block:: python
+We now move on to the implementation of the QG model for the case of a
+freely propagating Rossby wave.  As ever, we begin by importing the
+Firedrake library. ::
 
   from firedrake import *
+
+Next we define the domain we will solve the equations on, square
+domain with 50 cells in each direction that is periodic along the
+x-axis. ::
 
   Lx   = 2.*pi                                     # Zonal length
   Ly   = 2.*pi                                     # Meridonal length
   n0   = 50                                        # Spatial resolution
-  mesh = PeriodicRectangleMesh(n0, n0, Lx, Ly,  direction="x", quadrilateral=True, reorder=None)
+  mesh = PeriodicRectangleMesh(n0, n0, Lx, Ly,  direction="x", quadrilateral=True)
+
+We define function spaces::
 
   Vdg = FunctionSpace(mesh,"DG",1)               # DG elements for Potential Vorticity (PV)
   Vcg = FunctionSpace(mesh,"CG",1)               # CG elements for Streamfunction
   Vu  = VectorFunctionSpace(mesh,"DG",1)          # DG elements for velocity
 
-  # Intial Conditions for PV
-  q0 = Function(Vdg).interpolate(Expression("0.1*sin(x[0])*sin(x[1])"))
+and initial conditions for the potential vorticity, here we use
+Firedrake's ability to :doc:`interpolate UFL expressions <../interpolation>`. ::
+
+  x = SpatialCoordinate(mesh)
+  q0 = Function(Vdg).interpolate(0.1*sin(x[0])*sin(x[1]))
+
+We define some :class:`~.Function`\s to store the fields::
 
   dq1 = Function(Vdg)       # PV fields for different time steps
   qh  = Function(Vdg)
@@ -120,13 +131,16 @@ Below is a copy of the code that solves the QG model for the case of a freely pr
   psi0 = Function(Vcg)      # Streamfunctions for different time steps
   psi1 = Function(Vcg)
 
-  # Physical parameters
+along with the physical parameters of the model. ::
+
   F    = Constant(1.0)         # Rotational Froude number
-  beta = Constant(0.1)      # beta plane coefficient  
-  Dt   = 0.1                  # Time step
+  beta = Constant(0.1)         # beta plane coefficient
+  Dt   = 0.1                   # Time step
   dt   = Constant(Dt)
 
-  # Set up PV inversion
+Next, we define the variational problems.  First the elliptic problem
+for the stream function. ::
+
   psi = TrialFunction(Vcg)  # Test function
   phi = TestFunction(Vcg)   # Trial function
 
@@ -134,11 +148,11 @@ Below is a copy of the code that solves the QG model for the case of a freely pr
   Apsi = (inner(grad(psi),grad(phi)) + F*psi*phi)*dx
   Lpsi = -q1*phi*dx
 
-  # Impose Dirichlet Boundary Conditions on the streamfunction
-  bc1 = [DirichletBC(Vcg, 0., 1),
-         DirichletBC(Vcg, 0., 2)]
+We impose homogeneous dirichlet boundary conditions on the stream
+function at the top and bottom of the domain. ::
 
-  # Set up Elliptic inverter
+  bc1 = DirichletBC(Vcg, 0., (1, 2))
+
   psi_problem = LinearVariationalProblem(Apsi,Lpsi,psi0,bcs=bc1)
   psi_solver = LinearVariationalSolver(psi_problem,
                                        solver_parameters={
@@ -146,18 +160,19 @@ Below is a copy of the code that solves the QG model for the case of a freely pr
           'pc_type':'sor'
           })
 
-  # Make a gradperp operator
+Next we'll set up the advection equation, for which we need an
+operator :math:`nabla^\perp`, defined as a function::
+
   gradperp = lambda u: as_vector((-u.dx(1), u.dx(0)))
 
-  # Set up Strong Stability Preserving Runge Kutta 3 (SSPRK3) method
+For upwinding, we'll need a representation of the normal to a facet,
+and a way of selecting the upwind side::
 
-  # Mesh-related functions
   n = FacetNormal(mesh)
-
-  # Set up upwinding type method: ( dot(v, n) + |dot(v, n)| )/2.0
   un = 0.5*(dot(gradperp(psi0), n) + abs(dot(gradperp(psi0), n)))
 
-  # advection equation
+Now the variational problem for the advection equation itself. ::
+
   q = TrialFunction(Vdg)
   p = TestFunction(Vdg)
   a_mass = p*q*dx
@@ -166,23 +181,37 @@ Below is a copy of the code that solves the QG model for the case of a freely pr
   arhs   = a_mass - dt*(a_int + a_flux)
 
   q_problem = LinearVariationalProblem(a_mass, action(arhs,q1), dq1)
-  q_solver  = LinearVariationalSolver(q_problem, 
+
+Since the operator is a mass matrix in a discontinuous space, it can
+be inverted exactly using an incomplete LU factorisation with zero
+fill. ::
+
+  q_solver  = LinearVariationalSolver(q_problem,
                                       solver_parameters={
-          'ksp_type':'cg',
-          'pc_type':'sor'
+          'ksp_type':'preonly',
+          'pc_type':'bjacobi',
+          'sub_pc_type': 'ilu'
           })
 
+To visualise the output of the simulation, we create a :class:`~.File`
+object.  To which we can store multiple :class:`~.Function`\s.  So
+that we can distinguish between them we will give them descriptive
+names. ::
 
-  qfile = File("q.pvd")
-  qfile << q0
-  psifile = File("psi.pvd")
-  psifile << psi0
-  vfile = File("v.pvd")
-  v = Function(Vu).project(gradperp(psi0))
-  vfile << v
+  q0.rename("Potential vorticity")
+  psi0.rename("Stream function")
+  v = Function(Vu, name="gradperp(stream function)")
+  v.project(gradperp(psi0))
+
+  output = File("output.pvd")
+
+  output.write(q0, psi0, v)
+
+Now all that is left is to define the timestepping parameters and
+execute the time loop. ::
 
   t = 0.
-  T = 500.
+  T = 100.
   dumpfreq = 10
   tdump = 0
 
@@ -196,7 +225,7 @@ Below is a copy of the code that solves the QG model for the case of a freely pr
     q_solver.solve()
 
     # Find intermediate solution q^(1)
-    q1.assign(dq1)    
+    q1.assign(dq1)
     psi_solver.solve()
     q_solver.solve()
 
@@ -207,15 +236,19 @@ Below is a copy of the code that solves the QG model for the case of a freely pr
 
     # Find new solution q^(n+1)
     q0.assign(q0/3 + 2*dq1/3)
-    
+
     # Store solutions to xml and pvd
-    t +=Dt
+    t += Dt
     print t
 
     tdump += 1
-    if(tdump==dumpfreq):
+    if tdump == dumpfreq:
         tdump -= dumpfreq
-        qfile.write(q0)
-        psifile.write(psi0)
         v.project(gradperp(psi0))
-        vfile.write(v)
+        output.write(q0, psi0, v, time=t)
+
+A python script version of this demo can be found `here <qg_1layer_wave.py>`__.
+
+.. rubric:: References
+
+.. bibliography:: qg_refs.bib
