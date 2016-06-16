@@ -93,6 +93,7 @@ element systems.
    :maxdepth: 1
 
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
+   Solving the one-layer Quasi-Geostrophic equations.<demos/qg_1layer_wave.py>
    Preconditioning saddle-point systems, using the mixed Poisson problem as an example.<demos/saddle_point_systems.py>
    The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
