@@ -1,6 +1,12 @@
 Quasi-Geostrophic Model
 =======================
 
+.. rst-class:: emphasis
+
+   This tutorial was contributed by `Francis Poulin
+   <mailto:fpoulin@uwaterloo.ca>`__, based on code from `Colin Cotter
+   <mailto:colin.cotter@imperial.ac.uk>`__.
+
 The Quasi-Geostrophic (QG) model is very important in geophysical fluid
 dynamics as it describes some aspects of large-scale flows in the oceans
 and atmosphere very well. The interested reader can find derivations in
