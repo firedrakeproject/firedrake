@@ -167,7 +167,8 @@ function at the top and bottom of the domain. ::
           })
 
 Next we'll set up the advection equation, for which we need an
-operator :math:`nabla^\perp`, defined as a function::
+operator :math:`\vec\nabla^\perp`, defined as a python anonymouus
+function::
 
   gradperp = lambda u: as_vector((-u.dx(1), u.dx(0)))
 
