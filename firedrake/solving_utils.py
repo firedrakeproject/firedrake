@@ -135,7 +135,7 @@ class _SNESContext(object):
     def set_jacobian(self, snes):
         snes.setJacobian(self.form_jacobian,
                          J=self._jacs[-1].PETScMatHandle,
-                         P=self._pjacs[-1].PETScMatHandles)
+                         P=self._pjacs[-1].PETScMatHandle)
 
     def set_nullspace(self, nullspace, ises=None, transpose=False):
         if nullspace is None:

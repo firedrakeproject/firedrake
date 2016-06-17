@@ -39,6 +39,7 @@ This times the creation of a PETSc matrix & UFLMatrix creation as its PETSc cont
 
   t1 = time.time()
   A_ufl = ufl2petscmat(a, bcs=bcs)
+  t_assembleMF = time.time() - t1
 
 Now we time the matvecs of the two.::
 
