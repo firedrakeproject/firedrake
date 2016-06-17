@@ -133,30 +133,27 @@ class _SNESContext(object):
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
-        snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
-                         P=self._pjacs[-1]._M.handle)
+        snes.setJacobian(self.form_jacobian,
+                         J=self._jacs[-1].PETScMatHandle,
+                         P=self._pjacs[-1].PETScMatHandles)
 
     def set_nullspace(self, nullspace, ises=None, transpose=False):
         if nullspace is None:
             return
-        nullspace._apply(self._jacs[-1]._M, transpose=transpose)
+        nullspace._apply(self._jacs[-1], transpose=transpose)
         if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M, transpose=transpose)
+            nullspace._apply(self._pjacs[-1], transpose=transpose)
         if ises is not None:
             nullspace._apply(ises, transpose=transpose)
 
     def __len__(self):
         return len(self._problems)
 
-    @property
-    def is_mixed(self):
-        return self._jacs[-1]._M.sparsity.shape != (1, 1)
-
     @classmethod
     def create_matrix(cls, dm):
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
-        return ctx._jacs[lvl]._M.handle
+        return ctx._jacs[lvl].PETScMatHandle
 
     @classmethod
     def form_function(cls, snes, X, F):
@@ -229,11 +226,11 @@ class _SNESContext(object):
                  bcs=problem.bcs,
                  form_compiler_parameters=problem.form_compiler_parameters,
                  nest=problem._nest)
-        ctx._jacs[lvl].M._force_evaluation()
+        ctx._jacs[lvl].force_evaluation()
         if ctx.Jps[lvl] is not None:
             assemble(ctx.Jps[lvl],
                      tensor=ctx._pjacs[lvl],
                      bcs=problem.bcs,
                      form_compiler_parameters=problem.form_compiler_parameters,
                      nest=problem._nest)
-            ctx._pjacs[lvl].M._force_evaluation()
+            ctx._pjacs[lvl].force_evaluation()

@@ -209,3 +209,11 @@ class Matrix(object):
             ('' if self._assembled else 'un',
              self.a,
              self.bcs)
+
+    @property
+    def PETScMatHandle(self):
+        return self._M.handle
+
+    def force_evaluation(self):
+        "Ensures that the matrix is fully assembled."
+        self.M.force_evaluation()
