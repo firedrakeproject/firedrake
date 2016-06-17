@@ -41,7 +41,7 @@ def solve(*args, **kwargs):
 
         solve(A, x, b, bcs=bcs, solver_parameters={...})
 
-    where `A` is a :class:`.Matrix` and `x` and `b` are :class:`.Function`\s.
+    where `A` is a :class:`.AbstractMatrix` and `x` and `b` are :class:`.Function`\s.
     If present, `bcs` should be a list of :class:`.DirichletBC`\s
     specifying the strong boundary conditions to apply.  For the
     format of `solver_parameters` see below.
@@ -166,7 +166,7 @@ def _solve_varproblem(*args, **kwargs):
 def _la_solve(A, x, b, **kwargs):
     """Solve a linear algebra problem.
 
-    :arg A: the assembled bilinear form, a :class:`.Matrix`.
+    :arg A: the bilinear form (perhaps implicitly) assembled: a :class:`.AbstractMatrix`.
     :arg x: the :class:`.Function` to write the solution into.
     :arg b: the :class:`.Function` defining the right hand side values.
     :kwarg bcs: an optional list of :class:`.DirichletBC`\s to apply.
