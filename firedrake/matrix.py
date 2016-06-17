@@ -8,12 +8,14 @@ from firedrake import utils
 
 
 class AbstractMatrix(object):
-    """A representation of the linear operator associated with a bilinear form.
+    """A representation of the linear operator associated with a
+    bilinear form and bcs.  Explicitly assembled matrices and matrix-free
+    matrix classes will derive from this
 
-    :arg a: the bilinear form this :class:`Matrix` represents.
+    :arg a: the bilinear form this :class:`AbstractMatrix` represents.
 
     :arg bcs: an iterable of boundary conditions to apply to this
-        :class:`Matrix`.  May be `None` if there are no boundary
+        :class:`AbstractMatrix`.  May be `None` if there are no boundary
         conditions to apply.
     """
     def __init__(self, a, bcs):
@@ -29,24 +31,24 @@ class AbstractMatrix(object):
 
     @property
     def has_bcs(self):
-        """Return True if this :class:`Matrix` has any boundary
+        """Return True if this :class:`AbstractMatrix` has any boundary
         conditions attached to it."""
         return self._bcs != []
 
     @property
     def bcs(self):
         """The set of boundary conditions attached to this
-        :class:`Matrix` (may be empty)."""
+        :class:`AbstractMatrix` (may be empty)."""
         return self._bcs
 
     @bcs.setter
     def bcs(self, bcs):
-        """Attach some boundary conditions to this :class:`Matrix`.
+        """Attach some boundary conditions to this :class:`AbstractMatrix`.
 
         :arg bcs: a boundary condition (of type
             :class:`.DirichletBC`), or an iterable of boundary
             conditions.  If bcs is None, erase all boundary conditions
-            on the :class:`Matrix`.
+            on the :class:`AbstractMatrix`.
 
         """
         self._bcs = []
@@ -60,20 +62,20 @@ class AbstractMatrix(object):
 
     @property
     def a(self):
-        """The bilinear form this :class:`Matrix` was assembled from"""
+        """The bilinear form this :class:`AbstractMatrix` was assembled from"""
         return self._a
 
     def add_bc(self, bc):
-        """Add a boundary condition to this :class:`Matrix`.
+        """Add a boundary condition to this :class:`AbstractMatrix`.
 
         :arg bc: the :class:`.DirichletBC` to add.
 
         If the subdomain this boundary condition is applied over is
         the same as the subdomain of an existing boundary condition on
-        the :class:`Matrix`, the existing boundary condition is
+        the :class:`AbstractMatrix`, the existing boundary condition is
         replaced with this new one.  Otherwise, this boundary
         condition is added to the set of boundary conditions on the
-        :class:`Matrix`.
+        :class:`AbstractMatrix`.
 
         """
         new_bcs = [bc]
