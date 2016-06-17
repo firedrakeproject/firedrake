@@ -703,3 +703,4 @@ class ExtractSubBlock(MultiFunction):
                          for j in numpy.ndindex(
                          V_is[i].ufl_element().value_shape())]
         return as_vector(args)
+        self.M.force_evaluation()
