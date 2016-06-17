@@ -60,7 +60,6 @@ class MatrixBase(object):
             :class:`.DirichletBC`), or an iterable of boundary
             conditions.  If bcs is None, erase all boundary conditions
             on the :class:`.MatrixBase`.
-
         """
         self._bcs = []
         if bcs is not None:
@@ -87,7 +86,6 @@ class MatrixBase(object):
         replaced with this new one.  Otherwise, this boundary
         condition is added to the set of boundary conditions on the
         :class:`MatrixBase`.
-
         """
         new_bcs = [bc]
         for existing_bc in self._bcs:
