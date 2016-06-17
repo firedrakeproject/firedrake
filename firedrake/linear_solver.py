@@ -100,7 +100,7 @@ class LinearSolver(object):
         # applied
         self.A.force_evaluation()
         self.P.force_evaluation()
-        self.ksp.setOperators(A=self.A.PETScHandle, P=self.P.PETScHandle)
+        self.ksp.setOperators(A=self.A.PETScMatHandle, P=self.P.PETScMatHandle)
 
     @cached_property
     def _b(self):
