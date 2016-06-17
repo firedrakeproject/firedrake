@@ -131,8 +131,11 @@ class NonlinearVariationalSolver(object):
         self.snes.setOptionsPrefix(self._opt_prefix)
 
         # Mixed problem, use jacobi pc if user has not supplied one.
-        if ctx.is_mixed:
-            parameters.setdefault('pc_type', 'jacobi')
+        # Disabled since this will depend on the matrix type,
+        # and at any rate, it will break as a default option
+        # for saddle point problems!
+        # if ctx.is_mixed:
+        #     parameters.setdefault('pc_type', 'jacobi')
 
         # Allow command-line arguments to override dict parameters
         opts = PETSc.Options()
