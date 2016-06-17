@@ -63,8 +63,9 @@ class LinearSolver(object):
         parameters = solver_parameters.copy() if solver_parameters is not None else {}
         parameters.setdefault("ksp_rtol", "1e-7")
 
-        if self.P._M.sparsity.shape != (1, 1):
-            parameters.setdefault('pc_type', 'jacobi')
+        # Disabled: don't refer to the ._M, plus this won't work for saddle point systems!
+        # if self.P._M.sparsity.shape != (1, 1):
+        #     parameters.setdefault('pc_type', 'jacobi')
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
         self.ksp.setOptionsPrefix(self._opt_prefix)
@@ -83,22 +84,23 @@ class LinearSolver(object):
         self.ksp.setDMActive(False)
 
         if nullspace is not None:
-            nullspace._apply(self.A._M)
+            nullspace._apply(self.A)
             if P is not None:
-                nullspace._apply(self.P._M)
+                nullspace._apply(self.P)
 
         if transpose_nullspace is not None:
-            transpose_nullspace._apply(self.A._M, transpose=True)
+            transpose_nullspace._apply(self.A, transpose=True)
             if P is not None:
-                transpose_nullspace._apply(self.P._M, transpose=True)
+                transpose_nullspace._apply(self.P, transpose=True)
 
         self.nullspace = nullspace
         self.transpose_nullspace = transpose_nullspace
         self._W = W
         # Operator setting must come after null space has been
         # applied
-        # Force evaluation here
-        self.ksp.setOperators(A=self.A.M.handle, P=self.P.M.handle)
+        self.A.force_evaluation()
+        self.P.force_evaluation()
+        self.ksp.setOperators(A=self.A.PETScHandle, P=self.P.PETScHandle)
 
     @cached_property
     def _b(self):

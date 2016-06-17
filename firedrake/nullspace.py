@@ -4,7 +4,7 @@ from numpy import prod
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
 
-from firedrake import function
+from firedrake import function, Matrix
 from firedrake.petsc import PETSc
 
 
@@ -92,18 +92,21 @@ class VectorSpaceBasis(object):
     def _apply(self, matrix, transpose=False):
         """Set this VectorSpaceBasis as a nullspace for a matrix
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
+        :arg matrix: a :class:`firedrake.Matrix` whose nullspace should
              be set.
         :kwarg transpose: Should this be set as the transpose
              nullspace instead?  Used to orthogonalize the right hand
              side wrt the provided nullspace.
         """
-        if not isinstance(matrix, op2.Mat):
-            return
+        if not isinstance(matrix, Matrix):
+            raise ValueError("Illegal input type")
+
+        petscmat = matrix.PETScHandle
+
         if transpose:
-            matrix.handle.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
+            petscmat.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
         else:
-            matrix.handle.setNullSpace(self.nullspace(comm=matrix.comm))
+            petscmat.setNullSpace(self.nullspace(comm=matrix.comm))
 
     def __iter__(self):
         """Yield self when iterated over"""

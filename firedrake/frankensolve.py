@@ -448,7 +448,7 @@ class AssembledPC(object):
         P_ufl = P.getPythonContext()
         P_fd = assemble(P_ufl.a, bcs=P_ufl.bcs,
                         form_compiler_parameters=P_ufl.fc_params, nest=False)
-        Pmat = P_fd.M.handle
+        Pmat = P_fd.PETScMatHandle
         optpre = pc.getOptionsPrefix()
 
 # Internally, we just set up a PC object that the user can configure
