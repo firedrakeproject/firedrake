@@ -216,4 +216,5 @@ class Matrix(object):
 
     def force_evaluation(self):
         "Ensures that the matrix is fully assembled."
-        self.M.force_evaluation()
+        self.assemble()
+        self._M._force_evaluation()

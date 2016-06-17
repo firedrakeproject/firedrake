@@ -102,7 +102,7 @@ class VectorSpaceBasis(object):
         if not isinstance(matrix, Matrix):
             raise ValueError("Illegal input type")
 
-        petscmat = matrix.PETScHandle
+        petscmat = matrix.PETScMatHandle
 
         if transpose:
             petscmat.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
@@ -215,7 +215,7 @@ class MixedVectorSpaceBasis(object):
         """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
         matrix.
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
+        :arg matrix: a :class:`Matrix` whose nullspace should
              be set.
 
         :kwarg transpose: Should this be set as the transpose
@@ -229,14 +229,14 @@ class MixedVectorSpaceBasis(object):
         if self._nullspace is None:
             self._build_monolithic_basis()
         if transpose:
-            matrix.handle.setTransposeNullSpace(self._nullspace)
+            matrix.PETScMatHandle.setTransposeNullSpace(self._nullspace)
         else:
-            matrix.handle.setNullSpace(self._nullspace)
+            matrix.PETScMatHandle.setNullSpace(self._nullspace)
 
     def _apply(self, matrix_or_ises, transpose=False):
         """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
-        :arg matrix_or_ises: either a :class:`pyop2.op2.Mat` to set a
+        :arg matrix_or_ises: either a :class:`Matrix` to set a
              nullspace on, or else a list of PETSc ISes to compose a
              nullspace with.
         :kwarg transpose: Should this be set as the transpose
@@ -252,28 +252,29 @@ class MixedVectorSpaceBasis(object):
            If transpose is ``True``, nothing happens in the IS case,
            since PETSc does not provide the ability to set anything.
         """
-        if isinstance(matrix_or_ises, op2.Mat):
+        if isinstance(matrix_or_ises, Matrix):  # it's a matrix
             matrix = matrix_or_ises
-            rows, cols = matrix.sparsity.shape
-            if rows != cols:
-                raise RuntimeError("Can only apply nullspace to square operator")
-            if rows != len(self):
-                raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
-                                   (rows, cols, len(self)))
+            # rows, cols = matrix.sparsity.shape
+            # if rows != cols:
+            #     raise RuntimeError("Can only apply nullspace to square operator")
+            # if rows != len(self):
+            #     raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
+            #                       (rows, cols, len(self)))
             # Hang the expanded nullspace on the big matrix
             self._apply_monolithic(matrix, transpose=transpose)
             return
-        ises = matrix_or_ises
-        if transpose:
-            # PETSc doesn't give us anything here
-            return
-        for i, basis in enumerate(self):
-            if not isinstance(basis, VectorSpaceBasis):
-                continue
-            # Compose appropriate nullspace with IS for schur complement
-            if ises is not None:
-                is_ = ises[i]
-                is_.compose("nullspace", basis.nullspace(comm=self.comm))
+        else:
+            ises = matrix_or_ises
+            if transpose:
+                # PETSc doesn't give us anything here
+                return
+            for i, basis in enumerate(self):
+                if not isinstance(basis, VectorSpaceBasis):
+                    continue
+                # Compose appropriate nullspace with IS for schur complement
+                if ises is not None:
+                    is_ = ises[i]
+                    is_.compose("nullspace", basis.nullspace(comm=self.comm))
 
     def __iter__(self):
         """Yield the individual bases making up this MixedVectorSpaceBasis"""
