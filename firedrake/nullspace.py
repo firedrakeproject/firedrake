@@ -263,7 +263,7 @@ class MixedVectorSpaceBasis(object):
             # Hang the expanded nullspace on the big matrix
             self._apply_monolithic(matrix, transpose=transpose)
             return
-        else:
+        else:  # it's a set of index sets.
             ises = matrix_or_ises
             if transpose:
                 # PETSc doesn't give us anything here

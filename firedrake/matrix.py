@@ -7,7 +7,93 @@ from pyop2.utils import as_tuple, flatten
 from firedrake import utils
 
 
-class Matrix(object):
+class AbstractMatrix(object):
+    """A representation of the linear operator associated with a bilinear form.
+
+    :arg a: the bilinear form this :class:`Matrix` represents.
+
+    :arg bcs: an iterable of boundary conditions to apply to this
+        :class:`Matrix`.  May be `None` if there are no boundary
+        conditions to apply.
+    """
+    def __init__(self, a, bcs):
+        self._a = a
+        self._bcs = [bc for bc in bcs] if bcs is not None else []
+
+    def assemble(self):
+        raise NotImplementedError
+
+    @property
+    def assembled(self):
+        raise NotImplementedError
+
+    @property
+    def has_bcs(self):
+        """Return True if this :class:`Matrix` has any boundary
+        conditions attached to it."""
+        return self._bcs != []
+
+    @property
+    def bcs(self):
+        """The set of boundary conditions attached to this
+        :class:`Matrix` (may be empty)."""
+        return self._bcs
+
+    @bcs.setter
+    def bcs(self, bcs):
+        """Attach some boundary conditions to this :class:`Matrix`.
+
+        :arg bcs: a boundary condition (of type
+            :class:`.DirichletBC`), or an iterable of boundary
+            conditions.  If bcs is None, erase all boundary conditions
+            on the :class:`Matrix`.
+
+        """
+        self._bcs = []
+        if bcs is not None:
+            try:
+                for bc in bcs:
+                    self._bcs.append(bc)
+            except TypeError:
+                # BC instance, not iterable
+                self._bcs.append(bcs)
+
+    @property
+    def a(self):
+        """The bilinear form this :class:`Matrix` was assembled from"""
+        return self._a
+
+    def add_bc(self, bc):
+        """Add a boundary condition to this :class:`Matrix`.
+
+        :arg bc: the :class:`.DirichletBC` to add.
+
+        If the subdomain this boundary condition is applied over is
+        the same as the subdomain of an existing boundary condition on
+        the :class:`Matrix`, the existing boundary condition is
+        replaced with this new one.  Otherwise, this boundary
+        condition is added to the set of boundary conditions on the
+        :class:`Matrix`.
+
+        """
+        new_bcs = [bc]
+        for existing_bc in self._bcs:
+            # New BC doesn't override existing one, so keep it.
+            if bc.sub_domain != existing_bc.sub_domain:
+                new_bcs.append(existing_bc)
+        self._bcs = new_bcs
+
+    def __repr__(self):
+        raise NotImplementedError
+
+    def __str__(self):
+        raise NotImplementedError
+
+    def force_evaluation(self):
+        raise NotImplementedError
+
+
+class Matrix(AbstractMatrix):
     """A representation of an assembled bilinear form.
 
     :arg a: the bilinear form this :class:`Matrix` represents.
@@ -29,7 +115,8 @@ class Matrix(object):
     """
 
     def __init__(self, a, bcs, *args, **kwargs):
-        self._a = a
+        # sets self._a and self._bcs
+        super(Matrix, self).__init__(a, bcs)
         self._M = op2.Mat(*args, **kwargs)
         self.comm = self._M.comm
         self._thunk = None
@@ -37,7 +124,6 @@ class Matrix(object):
         # Iteration over bcs must be in a parallel consistent order
         # (so we can't use a set, since the iteration order may differ
         # on different processes)
-        self._bcs = [bc for bc in bcs] if bcs is not None else []
         self._bcs_at_point_of_assembly = []
 
     @utils.known_pyop2_safe
@@ -97,42 +183,6 @@ class Matrix(object):
     def assembled(self):
         """Return True if this :class:`Matrix` has been assembled."""
         return self._assembled
-
-    @property
-    def has_bcs(self):
-        """Return True if this :class:`Matrix` has any boundary
-        conditions attached to it."""
-        return self._bcs != []
-
-    @property
-    def bcs(self):
-        """The set of boundary conditions attached to this
-        :class:`Matrix` (may be empty)."""
-        return self._bcs
-
-    @bcs.setter
-    def bcs(self, bcs):
-        """Attach some boundary conditions to this :class:`Matrix`.
-
-        :arg bcs: a boundary condition (of type
-            :class:`.DirichletBC`), or an iterable of boundary
-            conditions.  If bcs is None, erase all boundary conditions
-            on the :class:`Matrix`.
-
-        """
-        self._bcs = []
-        if bcs is not None:
-            try:
-                for bc in bcs:
-                    self._bcs.append(bc)
-            except TypeError:
-                # BC instance, not iterable
-                self._bcs.append(bcs)
-
-    @property
-    def a(self):
-        """The bilinear form this :class:`Matrix` was assembled from"""
-        return self._a
 
     @property
     def M(self):
