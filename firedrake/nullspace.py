@@ -4,7 +4,8 @@ from numpy import prod
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
 
-from firedrake import function, Matrix
+from firedrake import function
+from firedrake.matrix import Matrix
 from firedrake.petsc import PETSc
 
 
