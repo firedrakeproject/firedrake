@@ -92,7 +92,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems):
+    def __init__(self, problems, matfree=False):
         problems = as_tuple(problems)
         self._problems = problems
         # Build the jacobian with the correct sparsity pattern.  Note
@@ -103,12 +103,12 @@ class _SNESContext(object):
         from firedrake.assemble import assemble
         self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
                                     form_compiler_parameters=problem.form_compiler_parameters,
-                                    nest=problem._nest)
+                                    nest=problem._nest, matfree=matfree)
                            for problem in problems)
         if problems[-1].Jp is not None:
             self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
                                          form_compiler_parameters=problem.form_compiler_parameters,
-                                         nest=problem._nest)
+                                         nest=problem._nest, matfree=matfree)
                                 for problem in problems)
         else:
             self._pjacs = self._jacs

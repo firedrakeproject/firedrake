@@ -124,12 +124,6 @@ class NonlinearVariationalSolver(object):
 
         assert isinstance(problem, NonlinearVariationalProblem)
 
-        ctx = solving_utils._SNESContext(problem)
-
-        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
-
-        self.snes.setOptionsPrefix(self._opt_prefix)
-
         # Mixed problem, use jacobi pc if user has not supplied one.
         # Disabled since this will depend on the matrix type,
         # and at any rate, it will break as a default option
@@ -142,6 +136,30 @@ class NonlinearVariationalSolver(object):
         for k, v in opts.getAll().iteritems():
             if k.startswith(self._opt_prefix):
                 parameters[k[len(self._opt_prefix):]] = v
+
+        matfree = False
+
+        if "mat_type" in parameters:
+            mat_type = parameters["mat_type"]
+            assert mat_type in ["aij", "matfree"]
+            if mat_type == "matfree":
+                matfree = True
+
+        print matfree
+
+#        pmatfree = False
+
+#        if "pmat_type" in parameters:
+#            pmat_type = parameters["pmat_type"]
+#            assert pmat_type in ["aij", "matfree"]
+#            if pmat_type == "matfree":
+#                pmatfree = True
+
+        ctx = solving_utils._SNESContext(problem, matfree=matfree)
+
+        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+
+        self.snes.setOptionsPrefix(self._opt_prefix)
 
         self._problem = problem
 
