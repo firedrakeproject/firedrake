@@ -274,6 +274,11 @@ def git_url(plain_url, protocol):
     else:
         raise ValueError("Unknown git protocol: %s" % protocol)
 
+def pushd(targetDir):
+    originalDir = os.getcwd()
+    os.chdir(targetDir)
+    yield
+    os.chdir(originalDir)
 
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
@@ -286,14 +291,20 @@ def git_clone(url):
     try:
         if args.disable_ssh:
             raise Exception
-        check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "ssh")])
-        log.info("Successfully cloned %s branch %s." % (name, branch))
+        check_call(["git", "clone", "-q", git_url(plain_url, "ssh")])
+        log.info("Successfully cloned repository %s" % name)
+        with pushd(name):
+            check_call(["git", "checkout", "-q", branch])
+            log.info("Successfully checked out branch %s" % branch)
     except:
         if not args.disable_ssh:
             log.warn("Failed to clone %s using ssh, falling back to https." % name)
         try:
-            check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "https")])
-            log.info("Successfully cloned %s branch %s." % (name, branch))
+            check_call(["git", "clone", "-q", git_url(plain_url, "https")])
+            log.info("Successfully cloned repository %s." % name)
+            with pushd(name):
+                check_call(["git", "checkout", "-q", branch])
+                log.info("Successfully checked out branch %s" % branch)
         except subprocess.CalledProcessError:
             log.error("Failed to clone %s branch %s." % (name, branch))
             raise
