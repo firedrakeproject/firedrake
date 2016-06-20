@@ -24,6 +24,12 @@ def test_assemble_returns_matrix(a):
     assert isinstance(A, matrix.Matrix)
 
 
+def test_assemble_returns_matrix_free(a):
+    A = assemble(a, matfree=True)
+
+    assert isinstance(A, matrix.ImplicitMatrix)
+
+
 def test_assemble_is_lazy(a):
     A = assemble(a)
 
@@ -136,6 +142,23 @@ def test_form_action(a, V):
     u1 = A._form_action(Function(V).assign(1.0))
     u2 = A._form_action(Function(V).assign(2.0))
     assert (2.0*u1.dat.data == u2.dat.data).all()
+
+
+def test_matrix_free(a, V):
+    As = [assemble(a, matfree=mf) for mf in (False, True)]
+    [A.force_evaluation() for A in As]
+
+    F = Function(V).interpolate(Expression("cos(2*pi*x[0])"))
+    Gs = [Function(V) for _ in (0, 1)]
+    mats = [A.PETScMatHandle for A in As]
+
+    with F.dat.vec_ro as xx:
+        for p, G in zip(mats, Gs):
+            with G.dat.vec as yy:
+                p.mult(xx, yy)
+
+    assert sqrt(assemble((Gs[0]-Gs[1])**2*dx)) < 1.e-15
+
 
 if __name__ == '__main__':
     import os

@@ -5,7 +5,6 @@ from mpi4py import MPI
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
-from firedrake.matrix import AbstractMatrix
 
 
 __all__ = ['Vector', 'as_backend_type']
@@ -34,6 +33,7 @@ def as_backend_type(tensor):
     """Compatibility operation for Dolfin's backend switching
     operations. This is for Dolfin compatibility only. There is no reason
     for Firedrake users to ever call this."""
+    from firedrake.matrix import AbstractMatrix
 
     if isinstance(tensor, Vector):
         return VectorShim(tensor)
