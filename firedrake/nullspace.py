@@ -100,7 +100,7 @@ class VectorSpaceBasis(object):
              side wrt the provided nullspace.
         """
         if not isinstance(matrix, AbstractMatrix):
-            raise ValueError("Illegal input type")
+            return
 
         petscmat = matrix.PETScMatHandle
 
