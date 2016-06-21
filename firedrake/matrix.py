@@ -6,11 +6,11 @@ from pyop2 import op2
 from pyop2.utils import as_tuple, flatten
 from firedrake import utils
 from firedrake.petsc import PETSc
-from ufl import action, adjoint, as_vector
+from ufl import action, as_vector
 from ufl.corealg.map_dag import MultiFunction
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.constantvalue import Zero
-from firedrake.ufl_expr import Argument
+from firedrake.ufl_expr import Argument, adjoint
 import numpy
 
 
