@@ -13,7 +13,7 @@
 
 from firedrake.petsc import PETSc
 
-__all__ = ["AssembledPC"]
+__all__ = ["AssembledPC", "MassInvPC", "IdentityPC"]
 
 
 class AssembledPC(object):
@@ -29,8 +29,11 @@ class AssembledPC(object):
 
         P_fd = assemble(P_ufl.a, bcs=P_ufl.row_bcs,
                         form_compiler_parameters=P_ufl.fc_params, nest=False)
-        Pmat = P_fd.M.handle
+        P_fd.force_evaluation()
+
+        Pmat = P_fd.PETScMatHandle
         Pmat.setNullSpace(P.getNullSpace())
+
         optpre = pc.getOptionsPrefix()
 
 # Internally, we just set up a PC object that the user can configure
@@ -53,7 +56,13 @@ class AssembledPC(object):
         self.pc.apply(x, y)
 
 
-class MassInvPrec(object):
+class IdentityPC(object):
+    def apply(self, pc, X, Y):
+        X.copy(Y)
+        return
+
+
+class MassInvPC(object):
     def setUp(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, assemble
         optpre = pc.getOptionsPrefix()
@@ -63,11 +72,15 @@ class MassInvPrec(object):
         Aufl = P.getPythonContext()
 
         pressure_space = Aufl.a.arguments()[0].function_space()
+
         pp = TrialFunction(pressure_space)
         qq = TestFunction(pressure_space)
         mp = pp*qq*dx
 
-        M = assemble(mp)
+        Mfd = assemble(mp)
+        Mfd.force_evaluation()
+        M = Mfd.PETScMatHandle
+        M.setNullSpace(P.getNullSpace())
 
         Mksp = PETSc.KSP().create()
         Mksp.setOperators(M)
