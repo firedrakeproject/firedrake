@@ -15,6 +15,7 @@ from firedrake.petsc import PETSc
 
 __all__ = ["AssembledPC"]
 
+
 class AssembledPC(object):
     def setUp(self, pc):
         from firedrake.assemble import assemble
@@ -50,4 +51,3 @@ class AssembledPC(object):
 # And so is applying the transpose (if the internal PC supports it):
     def applyTranspose(self, pc, x, y):
         self.pc.apply(x, y)
-
