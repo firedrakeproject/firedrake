@@ -190,7 +190,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 if isinstance(tensor, matrix.ImplicitMatrix):
                     tensor.bcs = bcs
                     return tensor
-                
+
                 result_matrix = tensor
                 # Replace any bcs on the tensor we passed in
                 result_matrix.bcs = bcs
