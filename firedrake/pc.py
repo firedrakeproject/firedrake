@@ -51,3 +51,37 @@ class AssembledPC(object):
 # And so is applying the transpose (if the internal PC supports it):
     def applyTranspose(self, pc, x, y):
         self.pc.apply(x, y)
+
+
+class MassInvPrec(object):
+    def setUp(self, pc):
+        from firedrake import TrialFunction, TestFunction, dx, assemble
+        optpre = pc.getOptionsPrefix()
+
+        # we assume A has things stuffed inside of it
+        A, P = pc.getOperators()
+        Aufl = P.getPythonContext()
+
+        pressure_space = Aufl.a.arguments()[0].function_space()
+        pp = TrialFunction(pressure_space)
+        qq = TestFunction(pressure_space)
+        mp = pp*qq*dx
+
+        M = assemble(mp)
+
+        Mksp = PETSc.KSP().create()
+        Mksp.setOperators(M)
+        Mksp.setOptionsPrefix(optpre + "Mp_")
+        Mksp.setUp()
+        Mksp.setFromOptions()
+        self.Mksp = Mksp
+
+    def apply(self, pc, X, Y):
+        self.Mksp.solve(X, Y)
+        return
+
+    def applyTranspose(self, pc, X, Y):
+        # Mass matrix is symmetric.  Don't need to solveTranspose
+        # on subKSP
+        self.Mksp.solve(X, Y)
+        return

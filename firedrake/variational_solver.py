@@ -145,8 +145,6 @@ class NonlinearVariationalSolver(object):
             if mat_type == "matfree":
                 matfree = True
 
-        print matfree
-
 #        pmatfree = False
 
 #        if "pmat_type" in parameters:
