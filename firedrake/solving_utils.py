@@ -137,14 +137,14 @@ class _SNESContext(object):
                          J=self._jacs[-1].PETScMatHandle,
                          P=self._pjacs[-1].PETScMatHandle)
 
-    def set_nullspace(self, nullspace, ises=None, transpose=False):
-        if nullspace is None:
+    def set_nullspace(self, nullspc, ises=None, transpose=False):
+        if nullspc is None:
             return
-        nullspace._apply(self._jacs[-1], transpose=transpose)
+        nullspc._apply(self._jacs[-1], transpose=transpose)
         if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1], transpose=transpose)
+            nullspc._apply(self._pjacs[-1], transpose=transpose)
         if ises is not None:
-            nullspace._apply(ises, transpose=transpose)
+            nullspc._apply(ises, transpose=transpose)
 
     def __len__(self):
         return len(self._problems)
