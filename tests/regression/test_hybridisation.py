@@ -55,7 +55,7 @@ def test_hybridisation(degree):
     f.interpolate(Expression("(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
 
     # Define variational form
-    a_dx = (dot(tau, sigma) - div(tau)*u + v*div(sigma))*dx
+    a_dx = (dot(tau, sigma) - div(tau)*u + v*u + v*div(sigma))*dx
     a_dS = (jump(tau, n=n)*lambdar('+') + gammar('+')*jump(sigma, n=n))*dS
     a = a_dx + a_dS
     L = f*v*dx
@@ -68,31 +68,21 @@ def test_hybridisation(degree):
           bcs=bcs)
     Hsigma, Hu, Hlambdar = w.split()
 
-    File('Hu.pvd').write(Hu)
-    Vx = VectorFunctionSpace(mesh, "DG", 1)
-    Hsigma_out = Function(Vx).project(Hsigma)
-    File('Hsigma.pvd').write(Hsigma_out)
-
     # Compare result to non-hybridised calculation
     RT = FunctionSpace(mesh, "RT", degree)
     W2 = RT * DG
     sigma, u = TrialFunctions(W2)
     tau, v = TestFunctions(W2)
     w2 = Function(W2)
-    a = (dot(tau, sigma) - div(tau)*u + v*div(sigma))*dx
+    a = (dot(tau, sigma) - div(tau)*u + v*u + v*div(sigma))*dx
     L = f*v*dx
     solve(a == L, w2, solver_parameters={'ksp_rtol': 1e-14})
     NHsigma, NHu = w2.split()
-
-    File('NHu.pvd').write(NHu)
-    File('NHsigma.pvd').write(NHsigma)
 
     # Return L2 norm of error
     # (should be identical, i.e. comparable with solver tol)
     uerr = sqrt(assemble((Hu-NHu)*(Hu-NHu)*dx))
     sigerr = sqrt(assemble(dot(Hsigma-NHsigma, Hsigma-NHsigma)*dx))
-    divergence = sqrt(assemble((div(Hsigma)-f)*(div(Hsigma)-f)*dx))
-    print uerr, sigerr, divergence
 
     assert uerr < 1e-11
     assert sigerr < 4e-11

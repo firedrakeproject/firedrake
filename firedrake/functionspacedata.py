@@ -548,7 +548,7 @@ def get_shared_data(mesh, fiat_element):
     """
     if not isinstance(mesh, mesh_mod.MeshTopology):
         raise ValueError("%s is not a MeshTopology" % mesh)
-    if not isinstance(fiat_element, (FIAT.finite_element.CiarletElement, FIAT.finite_element.FiniteElement)):
+    if not isinstance(fiat_element, FIAT.finite_element.FiniteElement):
         raise ValueError("Can't create function space data from a %s" %
                          type(fiat_element))
     return FunctionSpaceData(mesh, fiat_element)
