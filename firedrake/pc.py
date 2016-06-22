@@ -152,6 +152,7 @@ class MassInvPC(InitializedPC):
 class PCDPC(InitializedPC):
     def initialSetUp(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, assemble, inner, grad, split
+        from firedrake import Constant
         optpre = pc.getOptionsPrefix()
 
         # we assume A has things stuffed inside of it
@@ -176,12 +177,15 @@ class PCDPC(InitializedPC):
         Mksp.setFromOptions()
         self.Mksp = Mksp
 
-        kp = inner(grad(pp), grad(qq))*dx
+        kp = inner(grad(pp), grad(qq))*dx + Constant(1.e-6)*pp*qq*dx
         Kfd = assemble(kp)
         Kfd.force_evaluation()
         K = Kfd.PETScMatHandle
         K.setNullSpace(P.getNullSpace())
 
+#        K.getNullSpace().view()
+#        print dir(K.getNullSpace())
+#        K.view()
         Kksp = PETSc.KSP().create()
         Kksp.setOperators(K)
         Kksp.setOptionsPrefix(optpre + "Kp_")
