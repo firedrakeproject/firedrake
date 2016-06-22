@@ -64,15 +64,6 @@ class AssembledPC(InitializedPC):
     def applyTranspose(self, pc, x, y):
         self.pc.applyTranspose(x, y)
 
-    @property
-    def initialized(self):
-        return hasattr(self, "_initialized") and self._initialized
-
-    @initialized.setter
-    def initialized(self, value):
-        assert type(value) is bool
-        self._initialized = value
-
 
 class IdentityPC(object):
     def setUp(self, pc):
