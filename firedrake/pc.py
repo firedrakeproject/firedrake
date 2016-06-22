@@ -47,17 +47,22 @@ class AssembledPC(object):
         pc.setFromOptions()
         self.pc = pc
 
-# Applying this preconditioner is easy.::
     def apply(self, pc, x, y):
         self.pc.apply(x, y)
 
-# And so is applying the transpose (if the internal PC supports it):
     def applyTranspose(self, pc, x, y):
         self.pc.apply(x, y)
 
 
 class IdentityPC(object):
+    def setUp(self, pc):
+        return
+
     def apply(self, pc, X, Y):
+        X.copy(Y)
+        return
+
+    def applyTranspose(self, pc, X, Y):
         X.copy(Y)
         return
 

@@ -188,7 +188,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 tensor = result_matrix._M
             else:
                 if isinstance(tensor, matrix.ImplicitMatrix):
-                    tensor.bcs = bcs
+                    tensor.updateForm(f)
                     return tensor
 
                 result_matrix = tensor

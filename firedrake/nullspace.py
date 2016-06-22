@@ -5,7 +5,7 @@ from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
 
 from firedrake import function
-from firedrake.matrix import AbstractMatrix
+from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 
 
@@ -93,13 +93,13 @@ class VectorSpaceBasis(object):
     def _apply(self, matrix, transpose=False):
         """Set this VectorSpaceBasis as a nullspace for a matrix
 
-        :arg matrix: a :class:`AbstractMatrix` whose nullspace should
+        :arg matrix: a :class:`MatrixBase` whose nullspace should
              be set.
         :kwarg transpose: Should this be set as the transpose
              nullspace instead?  Used to orthogonalize the right hand
              side wrt the provided nullspace.
         """
-        if not isinstance(matrix, AbstractMatrix):
+        if not isinstance(matrix, MatrixBase):
             return
 
         petscmat = matrix.PETScMatHandle
@@ -215,7 +215,7 @@ class MixedVectorSpaceBasis(object):
         """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
         matrix.
 
-        :arg matrix: a :class:`AbstractMatrix` whose nullspace should
+        :arg matrix: a :class:`MatrixBase` whose nullspace should
              be set.
 
         :kwarg transpose: Should this be set as the transpose
@@ -236,7 +236,7 @@ class MixedVectorSpaceBasis(object):
     def _apply(self, matrix_or_ises, transpose=False):
         """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
-        :arg matrix_or_ises: either a :class:`AbstractMatrix` to set a
+        :arg matrix_or_ises: either a :class:`MatrixBase` to set a
              nullspace on, or else a list of PETSc ISes to compose a
              nullspace with.
         :kwarg transpose: Should this be set as the transpose
@@ -252,7 +252,7 @@ class MixedVectorSpaceBasis(object):
            If transpose is ``True``, nothing happens in the IS case,
            since PETSc does not provide the ability to set anything.
         """
-        if isinstance(matrix_or_ises, AbstractMatrix):  # it's a matrix
+        if isinstance(matrix_or_ises, MatrixBase):  # it's a matrix
             matrix = matrix_or_ises
             # rows, cols = matrix.sparsity.shape
             # if rows != cols:
