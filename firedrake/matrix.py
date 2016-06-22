@@ -304,7 +304,6 @@ class ImplicitMatrix(MatrixBase):
         # sets self._a and self._bcs
         super(ImplicitMatrix, self).__init__(a, bcs)
 
-        print kwargs
         extra_ctx = kwargs.get("extra_ctx", {})
 
         ctx = ImplicitMatrixContext(a,
@@ -364,10 +363,6 @@ class ImplicitMatrixContext(object):
 
     :arg col_bcs: An iterable of the :class.`.DirichletBC`s that are
     imposed on the trial space.
-
-    :arg state: An optional :class.`.Function` that can be set defining
-    the Newton state at which this Jacobian was constructed.  Useful
-    in user-defined preconditioning.
 
     :arg fcparams: A dictionary of parameters to pass on to the form
     compiler.
@@ -591,9 +586,8 @@ class ImplicitSubMatrixContext(ImplicitMatrixContext):
         ImplicitMatrixContext.__init__(self, asub,
                                        row_bcs=row_bcs,
                                        col_bcs=col_bcs,
-                                       state=A.newton_state,
                                        fc_params=A.fc_params,
-                                       extra=A.extra)
+                                       extra_ctx=A.extra)
 
     def getSubMatrix(self, mat, row_is, col_is, target=None):
         # Submatrices of submatrices are a bit tricky since I don't want to unwind a whole

@@ -13,7 +13,7 @@
 
 from firedrake.petsc import PETSc
 
-__all__ = ["AssembledPC", "MassInvPC", "IdentityPC"]
+__all__ = ["AssembledPC", "MassInvPC", "IdentityPC", "PCDPC"]
 
 
 # Many preconditioners will want to stash something the first time
@@ -67,7 +67,6 @@ class AssembledPC(InitializedPC):
         Pmat.setNullSpace(P.getNullSpace())
 
         optpre = pc.getOptionsPrefix()
-        self.initialized = True
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -148,3 +147,66 @@ class MassInvPC(InitializedPC):
         # on subKSP
         self.Mksp.solve(X, Y)
         return
+
+
+class PCDPC(InitializedPC):
+    def initialSetUp(self, pc):
+        from firedrake import TrialFunction, TestFunction, dx, assemble, inner, grad, split
+        optpre = pc.getOptionsPrefix()
+
+        # we assume A has things stuffed inside of it
+        A, P = pc.getOperators()
+        Pctx = P.getPythonContext()
+
+        pressure_space = Pctx.a.arguments()[0].function_space()
+
+        pp = TrialFunction(pressure_space)
+        qq = TestFunction(pressure_space)
+        mp = pp*qq*dx
+
+        Mfd = assemble(mp)
+        Mfd.force_evaluation()
+        M = Mfd.PETScMatHandle
+        M.setNullSpace(P.getNullSpace())
+
+        Mksp = PETSc.KSP().create()
+        Mksp.setOperators(M)
+        Mksp.setOptionsPrefix(optpre + "Mp_")
+        Mksp.setUp()
+        Mksp.setFromOptions()
+        self.Mksp = Mksp
+
+        kp = inner(grad(pp), grad(qq))*dx
+        Kfd = assemble(kp)
+        Kfd.force_evaluation()
+        K = Kfd.PETScMatHandle
+        K.setNullSpace(P.getNullSpace())
+
+        Kksp = PETSc.KSP().create()
+        Kksp.setOperators(K)
+        Kksp.setOptionsPrefix(optpre + "Kp_")
+        Kksp.setUp()
+        Kksp.setFromOptions()
+        self.Kksp = Kksp
+
+        ctx = Pctx.extra
+        Re = ctx["Re"]
+        x0 = ctx["state"]
+        velid = ctx["velocity_space"]
+        u0 = split(x0)[velid]
+        fp = 1.0/Re * inner(grad(pp), grad(qq))*dx + inner(u0, grad(pp))*qq*dx
+        self.Fpfd = assemble(fp, matfree=True)
+        self.Fpfd.force_evaluation()
+        self.Fp = self.Fpfd.PETScMatHandle
+
+        self.tmp = [self.Fp.createVecLeft() for i in (0, 1)]
+
+    def subsequentSetUp(self, pc):
+        from firedrake import assemble
+        assemble(self.fp, tensor=self.Fpfd)
+        self.Fpfd.force_evaluation()
+
+    def apply(self, pc, x, y):
+        self.Mksp.solve(x, self.tmp[0])
+        self.Fp.mult(self.tmp[0], self.tmp[1])
+        self.Kksp.solve(self.tmp[1], y)
