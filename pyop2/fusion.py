@@ -127,21 +127,6 @@ class Arg(sequential.Arg):
         """Assign this Arg's c_pointer to ``arg``."""
         return "%s* %s = %s" % (self.ctype, self.c_arg_name(), self.ref_arg.c_arg_name())
 
-    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None, var=None):
-        if self._use_glb_maps:
-            return super(Arg, self).c_ind_data(idx, i, j, is_top, offset)
-        return "%(name)s + (%(map_name)s[%(var)s * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
-            {'name': self.c_arg_name(i),
-             'map_name': self.c_map_name(i, 0),
-             'var': var if var else 'n',
-             'arity': self.map.split[i].arity,
-             'idx': idx,
-             'top': ' + start_layer' if is_top else '',
-             'dim': self.data[i].cdim,
-             'off': ' + %d' % j if j else '',
-             'off_mul': ' * %d' % offset if is_top and offset is not None else '',
-             'off_add': ' + %d' % offset if not is_top and offset is not None else ''}
-
     def c_map_name(self, i, j):
         if self._use_glb_maps:
             return self.ref_arg.c_map_name(i, j)

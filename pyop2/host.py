@@ -122,10 +122,11 @@ class Arg(base.Arg):
                                                      'iname': self.c_arg_name(0, 0)}
         return val
 
-    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None):
-        return "%(name)s + (%(map_name)s[i * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
+    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None, var=None):
+        return "%(name)s + (%(map_name)s[%(var)s * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
+             'var': var if var else 'i',
              'arity': self.map.split[i].arity,
              'idx': idx,
              'top': ' + start_layer' if is_top else '',
