@@ -14,15 +14,15 @@ from firedrake.ufl_expr import Argument, adjoint
 import numpy
 
 
-class AbstractMatrix(object):
+class MatrixBase(object):
     """A representation of the linear operator associated with a
     bilinear form and bcs.  Explicitly assembled matrices and matrix-free
     matrix classes will derive from this
 
-    :arg a: the bilinear form this :class:`AbstractMatrix` represents.
+    :arg a: the bilinear form this :class:`MatrixBase` represents.
 
     :arg bcs: an iterable of boundary conditions to apply to this
-        :class:`AbstractMatrix`.  May be `None` if there are no boundary
+        :class:`MatrixBase`.  May be `None` if there are no boundary
         conditions to apply.
     """
     def __init__(self, a, bcs):
@@ -42,24 +42,24 @@ class AbstractMatrix(object):
 
     @property
     def has_bcs(self):
-        """Return True if this :class:`AbstractMatrix` has any boundary
+        """Return True if this :class:`MatrixBase` has any boundary
         conditions attached to it."""
         return self._bcs != []
 
     @property
     def bcs(self):
         """The set of boundary conditions attached to this
-        :class:`.AbstractMatrix` (may be empty)."""
+        :class:`.MatrixBase` (may be empty)."""
         return self._bcs
 
     @bcs.setter
     def bcs(self, bcs):
-        """Attach some boundary conditions to this :class:`AbstractMatrix`.
+        """Attach some boundary conditions to this :class:`MatrixBase`.
 
         :arg bcs: a boundary condition (of type
             :class:`.DirichletBC`), or an iterable of boundary
             conditions.  If bcs is None, erase all boundary conditions
-            on the :class:`.AbstractMatrix`.
+            on the :class:`.MatrixBase`.
 
         """
         self._bcs = []
@@ -73,20 +73,20 @@ class AbstractMatrix(object):
 
     @property
     def a(self):
-        """The bilinear form this :class:`.AbstractMatrix` was assembled from"""
+        """The bilinear form this :class:`.MatrixBase` was assembled from"""
         return self._a
 
     def add_bc(self, bc):
-        """Add a boundary condition to this :class:`AbstractMatrix`.
+        """Add a boundary condition to this :class:`MatrixBase`.
 
         :arg bc: the :class:`.DirichletBC` to add.
 
         If the subdomain this boundary condition is applied over is
         the same as the subdomain of an existing boundary condition on
-        the :class:`AbstractMatrix`, the existing boundary condition is
+        the :class:`MatrixBase`, the existing boundary condition is
         replaced with this new one.  Otherwise, this boundary
         condition is added to the set of boundary conditions on the
-        :class:`AbstractMatrix`.
+        :class:`MatrixBase`.
 
         """
         new_bcs = [bc]
@@ -106,7 +106,7 @@ class AbstractMatrix(object):
         raise NotImplementedError
 
 
-class Matrix(AbstractMatrix):
+class Matrix(MatrixBase):
     """A representation of an assembled bilinear form.
 
     :arg a: the bilinear form this :class:`Matrix` represents.
@@ -281,7 +281,7 @@ class Matrix(AbstractMatrix):
         self._M._force_evaluation()
 
 
-class ImplicitMatrix(AbstractMatrix):
+class ImplicitMatrix(MatrixBase):
     """A representation of the action of bilinear form operating
     without explicitly assembling the associated matrix.  This class
     wraps the relevant information for Python PETSc matrix.
@@ -302,6 +302,7 @@ class ImplicitMatrix(AbstractMatrix):
     """
     def __init__(self, a, bcs, *args, **kwargs):
         # sets self._a and self._bcs
+        print "building an ImplicitMatrix"
         super(ImplicitMatrix, self).__init__(a, bcs)
 
         ctx = ImplicitMatrixContext(a,
@@ -319,18 +320,28 @@ class ImplicitMatrix(AbstractMatrix):
         return
 
     def assemble(self):
-        pass
+        self.petscmat.assemble()
 
     @property
     def assembled(self):
+        self.assemble()
         return True
+
+    def updateForm(self, a):
+        self._a = a
+        ctx = self.petscmat.getPythonContext()
+        ctx.a = a
+        ctx.aT = adjoint(a)
+        ctx.action = action(ctx.a, ctx._x)
+        ctx.actionT = action(ctx.aT, ctx._y)
 
     @property
     def PETScMatHandle(self):
         return self.petscmat
 
     def force_evaluation(self):
-        pass
+        self.assemble()
+        return
 
 
 class ImplicitMatrixContext(object):

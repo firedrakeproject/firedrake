@@ -171,13 +171,13 @@ class DirichletBC(object):
     def apply(self, r, u=None):
         """Apply this boundary condition to ``r``.
 
-        :arg r: a :class:`.Function` or :class:`.AbstractMatrix` to which the
+        :arg r: a :class:`.Function` or :class:`.MatrixBase` to which the
             boundary condition should be applied.
 
         :arg u: an optional current state.  If ``u`` is supplied then
             ``r`` is taken to be a residual and the boundary condition
             nodes are set to the value ``u-bc``.  Supplying ``u`` has
-            no effect if ``r`` is a :class:`.AbstractMatrix` rather than a
+            no effect if ``r`` is a :class:`.MatrixBase` rather than a
             :class:`.Function`. If ``u`` is absent, then the boundary
             condition nodes of ``r`` are set to the boundary condition
             values.
@@ -189,7 +189,7 @@ class DirichletBC(object):
 
         """
 
-        if isinstance(r, matrix.AbstractMatrix):
+        if isinstance(r, matrix.MatrixBase):
             r.add_bc(self)
             return
         fs = self._function_space
@@ -245,7 +245,7 @@ class DirichletBC(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.AbstractMatrix):
+        if isinstance(r, matrix.MatrixBase):
             raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
 
         # Record whether we are homogenized on entry.

@@ -33,11 +33,11 @@ def as_backend_type(tensor):
     """Compatibility operation for Dolfin's backend switching
     operations. This is for Dolfin compatibility only. There is no reason
     for Firedrake users to ever call this."""
-    from firedrake.matrix import AbstractMatrix
+    from firedrake.matrix import MatrixBase
 
     if isinstance(tensor, Vector):
         return VectorShim(tensor)
-    elif isinstance(tensor, AbstractMatrix):
+    elif isinstance(tensor, MatrixBase):
         return MatrixShim(tensor)
     else:
         raise TypeError("Unknown tensor type %s" % type(tensor))
