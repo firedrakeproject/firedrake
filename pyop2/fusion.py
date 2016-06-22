@@ -186,6 +186,11 @@ class TileArg(FArg):
         """Assign this Arg's c_pointer to ``arg``."""
         return "%s* %s = %s" % (self.ctype, self.c_arg_name(), self.ref_arg.c_arg_name())
 
+    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None, var=None):
+        if not var:
+            var = 'i' if not self._c_local_maps else 'n'
+        return super(TileArg, self).c_ind_data(idx, i, j, is_top, offset, var)
+
     def c_map_name(self, i, j, fromvector=False):
         if not self._c_local_maps:
             map_name = host.Arg.c_map_name(self.ref_arg, i, j)
@@ -1318,6 +1323,7 @@ class Inspector(Cached):
                 if arg in base_loop.args:
                     base_funcall_syms.append(base_funcall_sym)
             for decl, arg in unshared.items():
+                decl.typ = 'double*'
                 decl.sym.symbol = arg.c_arg_name()
                 fusion_fundecl.args.insert(fusion_fundecl.args.index(decl) + 1,
                                            ast.Decl('int*', arg.c_map_name(0, 0)))
