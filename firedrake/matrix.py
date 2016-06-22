@@ -302,7 +302,6 @@ class ImplicitMatrix(MatrixBase):
     """
     def __init__(self, a, bcs, *args, **kwargs):
         # sets self._a and self._bcs
-        print "building an ImplicitMatrix"
         super(ImplicitMatrix, self).__init__(a, bcs)
 
         ctx = ImplicitMatrixContext(a,
