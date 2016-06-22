@@ -16,59 +16,83 @@ from firedrake.petsc import PETSc
 __all__ = ["AssembledPC", "MassInvPC", "IdentityPC"]
 
 
-class AssembledPC(object):
-    def setUp(self, pc):
-        from firedrake.assemble import assemble
+# Many preconditioners will want to stash something the first time
+# they are set up (e.g. constructing a sub-KSP or PC context, assemble
+# a constant matrix and do something different at each subsequent
+# iteration.
+#
+# This creates a base class from which we can inherit, just providing
+# the two alternate setUp routines and the apply method.  It makes
+# it a bit cleaner to write down new PCs that follow this pattern.
 
-        _, P = pc.getOperators()
-        P_ufl = P.getPythonContext()
-
-        if not self.initialized:  # First time, build new matrix, set up internal PC
-            # It only makes sense to preconditioner/invert a diagonal
-            # block in general.  That's all we're going to allow.
-            assert P_ufl.on_diag
-
-            self.P_fd = assemble(P_ufl.a, bcs=P_ufl.row_bcs,
-                                 form_compiler_parameters=P_ufl.fc_params, nest=False)
-            self.P_fd.force_evaluation()
-
-            Pmat = self.P_fd.PETScMatHandle
-            Pmat.setNullSpace(P.getNullSpace())
-
-            optpre = pc.getOptionsPrefix()
-            self.initialized = True
-
-            # Internally, we just set up a PC object that the user can configure
-            # however from the PETSc command line.  Since PC allows the user to specify
-            # a KSP, we can do iterative by -assembled_pc_type ksp.::
-
-            pc = PETSc.PC().create()
-            pc.setOptionsPrefix(optpre+"assembled_")
-            pc.setOperators(Pmat, Pmat)
-            pc.setUp()
-            pc.setFromOptions()
-            self.pc = pc
-            self.initialized = True
-        else:  # reassemble in existing tensor.  Everything else is fine
-            print self.P_fd
-            assemble(P_ufl.a, bcs=P_ufl.row_bcs,
-                     form_compiler_parameteres=P_ufl.fc_params, nest=False,
-                     tensor=self.P_fd)
-
-    def apply(self, pc, x, y):
-        self.pc.apply(x, y)
-
-    def applyTranspose(self, pc, x, y):
-        self.pc.apply(x, y)
-
+class InitializedPC(object):
     @property
     def initialized(self):
         return hasattr(self, "_initialized") and self._initialized
 
     @initialized.setter
     def initialized(self, value):
-        assert type(value) is bool
         self._initialized = value
+
+    def initialSetUp(self, pc):
+        pass
+
+    def subsequentSetUp(self, pc):
+        pass
+
+    def setUp(self, pc):
+        if self.initialized:
+            self.subsequentSetUp(pc)
+        else:
+            self.initialSetUp(pc)
+            self.initialized = True
+
+
+class AssembledPC(InitializedPC):
+    def initialSetUp(self, pc):
+        from firedrake.assemble import assemble
+
+        _, P = pc.getOperators()
+        P_ufl = P.getPythonContext()
+
+        # It only makes sense to preconditioner/invert a diagonal
+        # block in general.  That's all we're going to allow.
+        assert P_ufl.on_diag
+
+        self.P_fd = assemble(P_ufl.a, bcs=P_ufl.row_bcs,
+                             form_compiler_parameters=P_ufl.fc_params, nest=False)
+        self.P_fd.force_evaluation()
+
+        Pmat = self.P_fd.PETScMatHandle
+        Pmat.setNullSpace(P.getNullSpace())
+
+        optpre = pc.getOptionsPrefix()
+        self.initialized = True
+
+        # Internally, we just set up a PC object that the user can configure
+        # however from the PETSc command line.  Since PC allows the user to specify
+        # a KSP, we can do iterative by -assembled_pc_type ksp.::
+
+        pc = PETSc.PC().create()
+        pc.setOptionsPrefix(optpre+"assembled_")
+        pc.setOperators(Pmat, Pmat)
+        pc.setUp()
+        pc.setFromOptions()
+        self.pc = pc
+
+    def subsequentSetUp(self, pc):
+        from firedrake import assemble
+        _, P = pc.getOperators()
+        P_ufl = P.getPythonContext()
+        assemble(P_ufl.a, bcs=P_ufl.row_bcs,
+                 form_compiler_parameteres=P_ufl.fc_params, nest=False,
+                 tensor=self.P_fd)
+
+    def apply(self, pc, x, y):
+        self.pc.apply(x, y)
+
+    def applyTranspose(self, pc, x, y):
+        self.pc.apply(x, y)
 
 
 class IdentityPC(object):
@@ -84,37 +108,35 @@ class IdentityPC(object):
         return
 
 
-class MassInvPC(object):
-    def setUp(self, pc):
-        # This only builds the matrix once since it is constant over all iterations.
-        if not self.initialized:
-            from firedrake import TrialFunction, TestFunction, dx, assemble
-            optpre = pc.getOptionsPrefix()
+class MassInvPC(InitializedPC):
+    def initialSetUp(self, pc):
+        from firedrake import TrialFunction, TestFunction, dx, assemble
+        optpre = pc.getOptionsPrefix()
 
-            # we assume A has things stuffed inside of it
-            A, P = pc.getOperators()
-            Aufl = P.getPythonContext()
+        # we assume A has things stuffed inside of it
+        A, P = pc.getOperators()
+        Aufl = P.getPythonContext()
 
-            pressure_space = Aufl.a.arguments()[0].function_space()
+        pressure_space = Aufl.a.arguments()[0].function_space()
 
-            pp = TrialFunction(pressure_space)
-            qq = TestFunction(pressure_space)
-            mp = pp*qq*dx
+        pp = TrialFunction(pressure_space)
+        qq = TestFunction(pressure_space)
+        mp = pp*qq*dx
 
-            Mfd = assemble(mp)
-            Mfd.force_evaluation()
-            M = Mfd.PETScMatHandle
-            M.setNullSpace(P.getNullSpace())
+        Mfd = assemble(mp)
+        Mfd.force_evaluation()
+        M = Mfd.PETScMatHandle
+        M.setNullSpace(P.getNullSpace())
 
-            Mksp = PETSc.KSP().create()
-            Mksp.setOperators(M)
-            Mksp.setOptionsPrefix(optpre + "Mp_")
-            Mksp.setUp()
-            Mksp.setFromOptions()
-            self.Mksp = Mksp
-            self.initialized = True
-        else:
-            pass
+        Mksp = PETSc.KSP().create()
+        Mksp.setOperators(M)
+        Mksp.setOptionsPrefix(optpre + "Mp_")
+        Mksp.setUp()
+        Mksp.setFromOptions()
+        self.Mksp = Mksp
+
+    def subsequentSetUp(self, pc):
+        pass
 
     def apply(self, pc, X, Y):
         self.Mksp.solve(X, Y)
@@ -126,11 +148,4 @@ class MassInvPC(object):
         self.Mksp.solve(X, Y)
         return
 
-    @property
-    def initialized(self):
-        return hasattr(self, "_initialized") and self._initialized
 
-    @initialized.setter
-    def initialized(self, value):
-        assert type(value) is bool
-        self._initialized = value
