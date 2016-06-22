@@ -145,15 +145,13 @@ class NonlinearVariationalSolver(object):
             if mat_type == "matfree":
                 matfree = True
 
-#        pmatfree = False
+        if "extra_ctx" in kwargs:
+            extra_ctx = kwargs["extra_ctx"]
+        else:
+            extra_ctx = None
 
-#        if "pmat_type" in parameters:
-#            pmat_type = parameters["pmat_type"]
-#            assert pmat_type in ["aij", "matfree"]
-#            if pmat_type == "matfree":
-#                pmatfree = True
-
-        ctx = solving_utils._SNESContext(problem, matfree=matfree)
+        ctx = solving_utils._SNESContext(problem, matfree=matfree,
+                                         extra_ctx=extra_ctx)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
