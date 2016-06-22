@@ -147,5 +147,3 @@ class MassInvPC(InitializedPC):
         # on subKSP
         self.Mksp.solve(X, Y)
         return
-
-
