@@ -304,11 +304,14 @@ class ImplicitMatrix(MatrixBase):
         # sets self._a and self._bcs
         super(ImplicitMatrix, self).__init__(a, bcs)
 
+        print kwargs
+        extra_ctx = kwargs.get("extra_ctx", {})
+
         ctx = ImplicitMatrixContext(a,
                                     row_bcs=bcs,
                                     col_bcs=bcs,
-                                    state=kwargs["state"],
-                                    fc_params=kwargs["fc_params"])
+                                    fc_params=kwargs["fc_params"],
+                                    extra_ctx=extra_ctx)
         self.petscmat = PETSc.Mat().create()
         self.petscmat.setType("python")
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes))
@@ -373,12 +376,12 @@ class ImplicitMatrixContext(object):
     user-defined preconditioners.
 """
     def __init__(self, a, row_bcs=[], col_bcs=[],
-                 state=None, fc_params={}, extra={}):
+                 fc_params={}, extra_ctx={}):
         self.a = a
         self.aT = adjoint(a)
         self.fc_params = fc_params
-        self.extra = extra
-        self.newton_state = state
+        self.extra = extra_ctx
+        self.newton_state = extra_ctx.get("state", None)
 
         self.row_bcs = row_bcs
         self.col_bcs = col_bcs
