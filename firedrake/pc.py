@@ -85,8 +85,9 @@ class AssembledPC(InitializedPC):
         _, P = pc.getOperators()
         P_ufl = P.getPythonContext()
         assemble(P_ufl.a, bcs=P_ufl.row_bcs,
-                 form_compiler_parameteres=P_ufl.fc_params, nest=False,
+                 form_compiler_parameters=P_ufl.fc_params, nest=False,
                  tensor=self.P_fd)
+        self.P_fd.force_evaluation()
 
     def apply(self, pc, x, y):
         self.pc.apply(x, y)
