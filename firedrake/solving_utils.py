@@ -92,7 +92,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems, matfree=False):
+    def __init__(self, problems, matfree=False, extra_ctx={}):
         problems = as_tuple(problems)
         self._problems = problems
         # Build the jacobian with the correct sparsity pattern.  Note
@@ -100,18 +100,6 @@ class _SNESContext(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        from firedrake.assemble import assemble
-        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
-                                    form_compiler_parameters=problem.form_compiler_parameters,
-                                    nest=problem._nest, matfree=matfree)
-                           for problem in problems)
-        if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
-                                         form_compiler_parameters=problem.form_compiler_parameters,
-                                         nest=problem._nest, matfree=matfree)
-                                for problem in problems)
-        else:
-            self._pjacs = self._jacs
         # Function to hold current guess
         self._xs = tuple(function.Function(problem.u) for problem in problems)
         self.Fs = tuple(ufl.replace(problem.F, {problem.u: x}) for problem, x in zip(problems,
@@ -125,6 +113,23 @@ class _SNESContext(object):
             self.Jps = tuple(None for _ in problems)
         self._Fs = tuple(function.Function(F.arguments()[0].function_space())
                          for F in self.Fs)
+
+        if matfree:
+            extra_ctx["state"] = self._xs[-1]
+
+        from firedrake.assemble import assemble
+        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
+                                    form_compiler_parameters=problem.form_compiler_parameters,
+                                    nest=problem._nest, matfree=matfree, extra_ctx=extra_ctx)
+                           for problem in problems)
+        if problems[-1].Jp is not None:
+            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
+                                         form_compiler_parameters=problem.form_compiler_parameters,
+                                         nest=problem._nest, matfree=matfree, extra_ctx=extra_ctx)
+                                for problem in problems)
+        else:
+            self._pjacs = self._jacs
+
         self._jacobians_assembled = [False for _ in problems]
 
     def set_function(self, snes):
