@@ -78,7 +78,7 @@ def output_time(start, end, **kwargs):
     else:
         versions = ['mpi_openmp']
 
-    # Find the total execution time
+    # Determine the total execution time (Python + kernel execution + MPI cost
     if MPI.comm.rank in range(1, num_procs):
         MPI.comm.isend([start, end], dest=0)
     elif MPI.comm.rank == 0:
@@ -89,6 +89,25 @@ def output_time(start, end, **kwargs):
         min_start, max_end = min(starts), max(ends)
         tot = round(max_end - min_start, 3)
         print "Time stepping: ", tot, "s"
+
+    # Determine ACT - Average Compute Time, pure kernel execution -
+    # and ACCT - Average Compute and Communication Time (ACS + MPI cost)
+    avg = lambda v: (sum(v) / len(v)) if v else 0.0
+    compute_time = Timer.get_timers().get('ParLoop kernel', 'VOID').total
+    mpi_time = Timer.get_timers().get('ParLoop halo exchange end', 'VOID').total
+
+    if MPI.comm.rank in range(1, num_procs):
+        MPI.comm.isend([compute_time, mpi_time], dest=0)
+    elif MPI.comm.rank == 0:
+        compute_times, mpi_times = [0]*num_procs, [0]*num_procs
+        compute_times[0], mpi_times[0] = compute_time, mpi_time
+        for i in range(1, num_procs):
+            compute_times[i], mpi_times[i] = MPI.comm.recv(source=i)
+        ACT = round(avg(compute_times), 3)
+        AMT = round(avg(mpi_times), 3)
+        ACCT = ACT + AMT
+        print "Average Compute Time: ", ACT, "s"
+        print "Average Compute and Communication Time: ", ACCT, "s"
 
     # Determine if a multi-node execution
     is_multinode = False
@@ -118,15 +137,22 @@ def output_time(start, end, **kwargs):
     else:
         mode = "loops%d" % nloops
 
-    # Print to file
-    def num(s):
-        try:
-            return int(s)
-        except ValueError:
+    ### Print to file ###
+
+    def fix(values):
+        new_values = []
+        for v in values:
             try:
-                return float(s)
+                new_v = int(v)
             except ValueError:
-                return s.replace(' ', '')
+                try:
+                    new_v = float(v)
+                except ValueError:
+                    new_v = v.strip()
+            if new_v != '':
+                new_values.append(new_v)
+        return tuple(new_values)
+
     if MPI.comm.rank == 0 and tofile:
         name = os.path.splitext(os.path.basename(sys.argv[0]))[0]  # Cut away the extension
         for version in versions:
@@ -142,12 +168,13 @@ def output_time(start, end, **kwargs):
             # back to the file (overwriting existing content)
             with open(filename, "r+") as f:
                 lines = [line.split('|') for line in f if line.strip()][2:]
-                lines = [(num(i[1]), num(i[2]), num(i[3]), num(i[4]), num(i[5]),  num(i[6]),  num(i[7]), num(i[8])) for i in lines]
-                lines += [(tot, mode, tile_size, partitioning, extra_halo, glb_maps, coloring, prefetch)]
+                lines = [fix(i) for i in lines]
+                lines += [(tot, ACT, ACCT, mode, tile_size, partitioning, extra_halo, glb_maps, coloring, prefetch)]
                 lines.sort(key=lambda x: x[0])
-                template = "| " + "%12s | " * 8
-                prepend = template % ('time', 'mode', 'tilesize', 'partitioning', 'extrahalo', 'glbmaps', 'coloring', 'prefetch')
-                lines = "\n".join([prepend, '-'*121] + [template % i for i in lines]) + "\n"
+                template = "| " + "%12s | " * 10
+                prepend = template % ('time', 'ACT', 'ACCT', 'mode', 'tilesize',
+                                      'partitioning', 'extrahalo', 'glbmaps', 'coloring', 'prefetch')
+                lines = "\n".join([prepend, '-'*151] + [template % i for i in lines]) + "\n"
                 f.seek(0)
                 f.write(lines)
                 f.truncate()
@@ -155,8 +182,6 @@ def output_time(start, end, **kwargs):
     if verbose:
         for i in range(num_procs):
             if MPI.comm.rank == i:
-                compute_time = Timer.get_timers().get('ParLoop kernel', 'VOID').total
-                mpi_time = Timer.get_timers().get('ParLoop halo exchange end', 'VOID').total
                 tot_time = compute_time + mpi_time
                 offC = (end - start) - tot_time
                 print "Rank %d: compute=%.2fs, mpi=%.2fs -- tot=%.2fs (py=%.2fs, %.2f%%; mpi_oh=%.2f%%)" % \
@@ -176,12 +201,6 @@ def plot():
             return "%d mpi" % num_procs
         else:
             return "%d mpi x %d omp" % (num_procs, num_threads)
-
-    def avg(values):
-        if values:
-            return sum(values) / len(values)
-        else:
-            return 0
 
     def roundup(x, ceil):
         return int(math.ceil(x / float(ceil))) * ceil
