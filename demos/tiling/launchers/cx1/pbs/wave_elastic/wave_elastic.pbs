@@ -104,6 +104,14 @@ else
     declare -a ts_p4=(10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200)
 fi
 
+if [ -z "$nprocs" ]; then
+    MPICMD="mpiexec"
+elif [ "$nprocs" -eq 10 ]; then
+    MPICMD="mpirun -n 10 -genv I_MPI_PIN yes -genv I_MPI_PIN_MODE lib -genv I_MPI_PIN_PROCESSOR_LIST 0,1,2,3,4,5,6,7,8,9"
+elif [ "$nprocs" -eq 20 ]; then
+    MPICMD="mpirun -n 20 -genv I_MPI_PIN yes -genv I_MPI_PIN_MODE lib -genv I_MPI_PIN_PROCESSOR_LIST allcores:map=scatter"
+fi
+
 # Populate cache
 for poly in ${polys[@]}
 do
@@ -114,7 +122,7 @@ do
     mesh="--mesh-size (300.0,150.0,1.0)"
     echo "    Populate "$mesh >> $LOGGER
     echo "        Populate Untiled ..." >> $LOGGER
-    mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 --time_max 0.1 1>> $OUT_FILE 2>> $OUT_FILE
+    $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 --time_max 0.1 1>> $OUT_FILE 2>> $OUT_FILE
     for p in ${part_all[@]}
     do
         for em in ${em_all[@]}
@@ -125,7 +133,7 @@ do
             do
                 ts=100000
                 echo "        Populate Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
-                mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt --time_max 0.1 1>> $OUT_FILE 2>> $OUT_FILE
+                $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt --time_max 0.1 1>> $OUT_FILE 2>> $OUT_FILE
             done
         done
     done
@@ -145,9 +153,9 @@ do
     do
         echo "    Running "$mesh >> $LOGGER
         echo "        Untiled ..." >> $LOGGER
-        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
         for p in ${part_all[@]}
         do
             for em in ${em_all[@]}
@@ -160,7 +168,7 @@ do
                     for ts in ${!ts_p}
                     do
                         echo "        Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
-                        mpiexec python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt 1>> $OUT_FILE 2>> $OUT_FILE
+                        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt 1>> $OUT_FILE 2>> $OUT_FILE
                     done
                 done
             done
