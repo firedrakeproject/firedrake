@@ -14,7 +14,7 @@ import brewer2mpl
 import matplotlib.ticker as ticker
 
 from pyop2.mpi import MPI
-from pyop2.profiling import summary
+from pyop2.profiling import summary, Timer
 
 
 def parser(**kwargs):
@@ -86,8 +86,8 @@ def output_time(start, end, **kwargs):
         starts[0], ends[0] = start, end
         for i in range(1, num_procs):
             starts[i], ends[i] = MPI.comm.recv(source=i)
-        start, end = min(starts), max(ends)
-        tot = round(end - start, 3)
+        min_start, max_end = min(starts), max(ends)
+        tot = round(max_end - min_start, 3)
         print "Time stepping: ", tot, "s"
 
     # Determine if a multi-node execution
@@ -153,11 +153,14 @@ def output_time(start, end, **kwargs):
                 f.truncate()
 
     if verbose:
-        print "Num procs:", num_procs
         for i in range(num_procs):
             if MPI.comm.rank == i:
-                print "PRINTING SUMMARY FOR RANK", i
-                summary()
+                compute_time = Timer.get_timers().get('ParLoop kernel', 'VOID').total
+                mpi_time = Timer.get_timers().get('ParLoop halo exchange end', 'VOID').total
+                tot_time = compute_time + mpi_time
+                offC = (end - start) - tot_time
+                print "Rank %d: compute=%.2fs, mpi=%.2fs -- tot=%.2fs (py=%.2fs, %.2f%%; mpi_oh=%.2f%%)" % \
+                    (i, compute_time, mpi_time, tot_time, offC, (offC / (end - start))*100, (mpi_time / (end - start))*100)
                 sys.stdout.flush()
             MPI.comm.barrier()
 
