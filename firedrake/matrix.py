@@ -538,7 +538,7 @@ class ImplicitMatrixContext(object):
 # class, which is a Python object that needs to be stuffed inside
 # a PETSc matrix::
 
-        submat_ctx = ImplicitSubMatrixContext(mat.getPythonContext(), row_inds, col_inds)
+        submat_ctx = ImplicitSubMatrixContext(self, row_inds, col_inds)
         submat = PETSc.Mat().create()
         submat.setType("python")
         submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes))
@@ -549,12 +549,12 @@ class ImplicitMatrixContext(object):
 
 
 class ImplicitSubMatrixContext(ImplicitMatrixContext):
-    def __init__(self, A, row_inds, col_inds):
+    def __init__(self, Actx, row_inds, col_inds):
         from firedrake import DirichletBC
-        self.parent = A
+        self.parent = Actx
         self.row_inds = row_inds
         self.col_inds = col_inds
-        asub, = ExtractSubBlock(row_inds, col_inds).split(A.a)
+        asub, = ExtractSubBlock(row_inds, col_inds).split(Actx.a)
 
         Wrow = asub.arguments()[0].function_space()
         Wcol = asub.arguments()[1].function_space()
@@ -562,7 +562,7 @@ class ImplicitSubMatrixContext(ImplicitMatrixContext):
         row_bcs = []
         col_bcs = []
 
-        for bc in A.row_bcs:
+        for bc in Actx.row_bcs:
             for i, r in enumerate(row_inds):
                 if bc.function_space().index == r:
                     nbc = DirichletBC(Wrow.split()[i],
@@ -571,7 +571,7 @@ class ImplicitSubMatrixContext(ImplicitMatrixContext):
                                       method=bc.method)
                     row_bcs.append(nbc)
 
-        for bc in A.col_bcs:
+        for bc in Actx.col_bcs:
             for i, c in enumerate(col_inds):
                 if bc.function_space().index == c:
                     nbc = DirichletBC(Wcol.split()[i],
@@ -586,8 +586,8 @@ class ImplicitSubMatrixContext(ImplicitMatrixContext):
         ImplicitMatrixContext.__init__(self, asub,
                                        row_bcs=row_bcs,
                                        col_bcs=col_bcs,
-                                       fc_params=A.fc_params,
-                                       extra_ctx=A.extra)
+                                       fc_params=Actx.fc_params,
+                                       extra_ctx=Actx.extra)
 
     def getSubMatrix(self, mat, row_is, col_is, target=None):
         # Submatrices of submatrices are a bit tricky since I don't want to unwind a whole
@@ -632,6 +632,7 @@ def find_sub_block(iset, ises):
             break
     if iset.getSize() > 0:
         return None
+    print found
     return found
 
 
@@ -680,6 +681,8 @@ class ExtractSubBlock(MultiFunction):
 
         V_is = V.split()
         indices = self.blocks[o.number()]
+        #print self.blocks
+        #print indices
         if len(indices) == 1:
             W = V_is[indices[0]]
             W = FunctionSpace(W.mesh(), W.ufl_element())
