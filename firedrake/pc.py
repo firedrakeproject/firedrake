@@ -194,7 +194,7 @@ class PCDPC(InitializedPC):
         self.Kksp = Kksp
 
         ctx = Pctx.extra
-        Re = ctx["Re"]
+        Re = ctx.get("Re", Constant(1.0))
         x0 = ctx["state"]
         velid = ctx["velocity_space"]
         u0 = split(x0)[velid]
