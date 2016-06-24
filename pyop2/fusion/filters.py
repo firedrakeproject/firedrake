@@ -75,7 +75,7 @@ class Filter(object):
                         # combinations of RW, INC, MIN, MAX. For simplicity,
                         # just make it RW.
                         fa.access = RW
-        return filtered_args.values()
+        return filtered_args
 
     def kernel_args(self, loops, fundecl):
         """Filter out identical kernel parameters in ``fundecl`` based on the

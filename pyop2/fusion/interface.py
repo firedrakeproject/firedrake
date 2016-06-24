@@ -69,6 +69,7 @@ lazy_trace_name = 'lazy_trace'
 """The default name for sequences of lazily evaluated :class:`ParLoop`s."""
 
 from transformer import Inspector
+import extended
 
 
 def fuse(name, loop_chain, **kwargs):
@@ -128,7 +129,7 @@ def fuse(name, loop_chain, **kwargs):
 
     # Skip if loops in /loop_chain/ are already /fusion/ objects: this could happen
     # when loops had already been fused in a /loop_chain/ context
-    if any([isinstance(l, ParLoop) for l in loop_chain]):
+    if any([isinstance(l, extended.ParLoop) for l in loop_chain]):
         return loop_chain + remainder
 
     # Global reductions are dangerous for correctness, so avoid fusion unless the

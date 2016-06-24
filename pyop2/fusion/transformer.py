@@ -39,7 +39,8 @@ import pyop2.base as base
 from pyop2.caching import Cached
 from pyop2.profiling import timed_region
 
-from extended import lazy_trace_name
+from extended import lazy_trace_name, Kernel
+from filters import Filter
 from scheduler import *
 
 from coffee import base as ast

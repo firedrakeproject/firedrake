@@ -45,7 +45,7 @@ from pyop2.backends import _make_object
 from pyop2.utils import flatten
 
 from extended import FArg, TileArg, IterationSpace, ParLoop
-from filter import Filter, WeakFilter
+from filters import Filter, WeakFilter
 
 
 __all__ = ['Schedule', 'PlainSchedule', 'FusionSchedule',
@@ -76,7 +76,7 @@ class Schedule(object):
         return loop_chain
 
     def _filter(self, loops):
-        return Filter().loop_args(loops)
+        return Filter().loop_args(loops).values()
 
 
 class PlainSchedule(Schedule):
@@ -182,7 +182,7 @@ class HardFusionSchedule(FusionSchedule, Schedule):
         return fused_par_loops
 
     def _filter(self, loops):
-        return WeakFilter().loop_args(loops)
+        return WeakFilter().loop_args(loops).values()
 
 
 class TilingSchedule(Schedule):
