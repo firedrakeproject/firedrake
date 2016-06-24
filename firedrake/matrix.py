@@ -632,7 +632,6 @@ def find_sub_block(iset, ises):
             break
     if iset.getSize() > 0:
         return None
-    print found
     return found
 
 
