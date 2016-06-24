@@ -92,7 +92,7 @@ class AssembledPC(InitializedPC):
         self.pc.apply(x, y)
 
     def applyTranspose(self, pc, x, y):
-        self.pc.apply(x, y)
+        self.pc.applyTranspose(x, y)
 
 
 class IdentityPC(object):

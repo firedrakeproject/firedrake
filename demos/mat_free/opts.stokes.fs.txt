@@ -1,0 +1,21 @@
+-mat_type matfree
+-ksp_type gmres
+-ksp_monitor_true_residual
+-pc_type fieldsplit
+-pc_fieldsplit_type schur
+-pc_fielscplit_schur_fact_type diag
+-pc_fieldsplit_0_fields 0
+-pc_fieldsplit_1_fields 1
+-fieldsplit_0_ksp_type preonly
+-fieldsplit_0_pc_type python
+-fieldsplit_0_pc_python_type firedrake.AssembledPC
+-fieldsplit_0_assembled_pc_type hypre
+-fieldsplit_1_ksp_type preonly
+-fieldsplit_1_pc_type python
+-fieldsplit_1_pc_python_type firedrake.MassInvPC
+-fieldsplit_1_mp_ksp_type preonly
+-fieldsplit_1_mp_pc_type jacobi
+# This performs a field-split -- diagonal preconditioner with
+# -- multigrid sweep for the velocity block
+# -- (preconditioner for) a mass matrix for the (1,1) block.
+
