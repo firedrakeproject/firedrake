@@ -148,7 +148,7 @@ class NonlinearVariationalSolver(object):
         if "extra_ctx" in kwargs:
             extra_ctx = kwargs["extra_ctx"]
         else:
-            extra_ctx = None
+            extra_ctx = {}
 
         ctx = solving_utils._SNESContext(problem, matfree=matfree,
                                          extra_ctx=extra_ctx)
