@@ -40,7 +40,7 @@ Different scheduling functions may implement different loop fusion strategies.""
 from copy import deepcopy as dcopy, copy as scopy
 import numpy as np
 
-import pyop2.base as base
+from pyop2.base import Dat, RW
 from pyop2.backends import _make_object
 from pyop2.utils import flatten
 
@@ -118,7 +118,7 @@ class FusionSchedule(Schedule):
             iterset = loop_chain[loop_indices[0]].it_space.iterset
             args = self._filter([loop_chain[i] for i in loop_indices])
             # Create any ParLoop additional arguments
-            extra_args = [base.Dat(*d)(*a) for d, a in extra_args]
+            extra_args = [Dat(*d)(*a) for d, a in extra_args]
             args += extra_args
             # Remove now incorrect cached properties:
             for a in args:
@@ -155,7 +155,7 @@ class HardFusionSchedule(FusionSchedule, Schedule):
             self._info[pos]['loop_indices'] = [base_idx + ofs, fuse_idx + ofs]
             # A bitmap indicates whether the i-th iteration in /fuse/ has been executed
             self._info[pos]['extra_args'] = [((fused_map.toset, None, np.int32),
-                                              (base.RW, fused_map))]
+                                              (RW, fused_map))]
             # Keep track of the arguments needing a postponed gather
             self._info[pos]['fargs'] = fargs
             # Now we can modify the kernel sequence

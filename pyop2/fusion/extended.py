@@ -44,7 +44,7 @@ import pyop2.base as base
 import pyop2.sequential as sequential
 import pyop2.host as host
 from pyop2.utils import flatten, strip, as_tuple
-from pyop2.mpi import MPI, collective
+from pyop2.mpi import collective
 from pyop2.profiling import timed_region
 
 from interface import slope, lazy_trace_name
@@ -333,6 +333,10 @@ class IterationSpace(base.IterationSpace):
 
     def __init__(self, all_itspaces):
         self._iterset = [i._iterset for i in all_itspaces]
+        self._extents = [i._extents for i in all_itspaces]
+        self._block_shape = [i._block_shape for i in all_itspaces]
+        assert all(all_itspaces[0].comm == i.comm for i in all_itspaces)
+        self.comm = all_itspaces[0].comm
 
     def __str__(self):
         output = "OP2 Fused Iteration Space:"
@@ -456,7 +460,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                                                       slope.get_include_dir())])
         self._libraries += ['-L%s/%s' % (slope_dir, slope.get_lib_dir()),
                             '-l%s' % slope.get_lib_name()]
-        compiler = coffee.plan.compiler.get('name')
+        compiler = coffee.system.compiler.get('name')
         self._cppargs += slope.get_compile_opts(compiler)
         fun = super(JITModule, self).compile()
 
@@ -648,7 +652,7 @@ class ParLoop(sequential.ParLoop):
         for c in base.Const._definitions():
             arglist.append(c._data.ctypes.data)
 
-        arglist.append(MPI.comm.rank)
+        arglist.append(self.it_space.comm.rank)
 
         return arglist
 

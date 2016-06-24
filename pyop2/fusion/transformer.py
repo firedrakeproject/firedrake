@@ -33,16 +33,25 @@
 
 """Core loop fusion mechanisms."""
 
+import os
+from collections import OrderedDict, namedtuple
 from copy import deepcopy as dcopy
 
-import pyop2.base as base
+from pyop2.base import READ, RW, WRITE, MIN, MAX, INC, _LazyMatOp, IterationIndex, \
+    Subset, Map
+from pyop2.mpi import MPI
 from pyop2.caching import Cached
 from pyop2.profiling import timed_region
+from pyop2.utils import flatten, as_tuple
+from pyop2.logger import warning
+from pyop2 import compilation
 
 from extended import lazy_trace_name, Kernel
-from filters import Filter
+from filters import Filter, WeakFilter
+from interface import slope
 from scheduler import *
 
+import coffee
 from coffee import base as ast
 from coffee.utils import ItSpace
 from coffee.visitors import FindInstances, SymbolReferences
@@ -68,7 +77,7 @@ class Inspector(Cached):
             return key
         # Inspector extracted from lazy evaluation trace
         for loop in loop_chain:
-            if isinstance(loop, base._LazyMatOp):
+            if isinstance(loop, _LazyMatOp):
                 continue
             key += (loop.kernel.cache_key,)
             key += (loop.it_space.cache_key, loop.it_space.iterset.sizes)
@@ -76,7 +85,7 @@ class Inspector(Cached):
                 if arg._is_global:
                     key += (arg.data.dim, arg.data.dtype, arg.access)
                 elif arg._is_dat:
-                    if isinstance(arg.idx, base.IterationIndex):
+                    if isinstance(arg.idx, IterationIndex):
                         idx = (arg.idx.__class__, arg.idx.index)
                     else:
                         idx = arg.idx
@@ -184,68 +193,29 @@ class Inspector(Cached):
         from C. Bertolli et al.
         """
 
-        def fuse(self, loops, loop_chain_index):
-            # Naming convention: here, we are fusing ASTs in /fuse_asts/ within
-            # /base_ast/. Same convention will be used in the /hard_fuse/ method
-            kernels = [l.kernel for l in loops]
-            fuse_asts = [k._original_ast if k._code else k._ast for k in kernels]
-            # Fuse the actual kernels' bodies
-            base_ast = dcopy(fuse_asts[0])
-            retval = FindInstances.default_retval()
-            base_fundecl = FindInstances(ast.FunDecl).visit(base_ast, ret=retval)[ast.FunDecl]
-            if len(base_fundecl) != 1:
-                raise RuntimeError("Fusing kernels, but found unexpected AST")
-            base_fundecl = base_fundecl[0]
-            for unique_id, _fuse_ast in enumerate(fuse_asts[1:], 1):
-                fuse_ast = dcopy(_fuse_ast)
-                retval = FindInstances.default_retval()
-                fuse_fundecl = FindInstances(ast.FunDecl).visit(fuse_ast, ret=retval)[ast.FunDecl]
-                if len(fuse_fundecl) != 1:
-                    raise RuntimeError("Fusing kernels, but found unexpected AST")
-                fuse_fundecl = fuse_fundecl[0]
-                # 1) Extend function name
-                base_fundecl.name = "%s_%s" % (base_fundecl.name, fuse_fundecl.name)
-                # 2) Concatenate the arguments in the signature
-                base_fundecl.args.extend(fuse_fundecl.args)
-                # 3) Uniquify symbols identifiers
-                retval = SymbolReferences.default_retval()
-                fuse_symbols = SymbolReferences().visit(fuse_ast, ret=retval)
-                for decl in fuse_fundecl.args:
-                    for symbol, _ in fuse_symbols[decl.sym.symbol]:
-                        symbol.symbol = "%s_%d" % (symbol.symbol, unique_id)
-                # 4) Scope and concatenate bodies
-                base_fundecl.children[0] = ast.Block(
-                    [ast.Block(base_fundecl.children[0].children, open_scope=True),
-                     ast.FlatBlock("\n\n// Begin of fused kernel\n\n"),
-                     ast.Block(fuse_fundecl.children[0].children, open_scope=True)])
-            # Eliminate redundancies in the /fused/ kernel signature
-            Filter().kernel_args(loops, base_fundecl)
-            # Naming convention
-            fused_ast = base_ast
-            return Kernel(kernels, fused_ast, loop_chain_index)
+        loop_chain = self._loop_chain
 
-        fused, fusing = [], [self._loop_chain[0]]
-        for i, loop in enumerate(self._loop_chain[1:]):
+        handled, fusing = [], [loop_chain[0]]
+        for i, loop in enumerate(loop_chain[1:]):
             base_loop = fusing[-1]
-            if base_loop.it_space != loop.it_space or \
-                    (base_loop.is_indirect and loop.is_indirect):
-                # Fusion not legal
-                fused.append((fuse(self, fusing, len(fused)), i+1))
+            info = loops_analyzer(base_loop, loop)
+            if info['heterogeneous'] or info['indirect_w']:
+                # Cannot fuse /loop/ into /base_loop/, so fuse what we found to be
+                # fusible so far and pick a new base
+                fused_kernel = build_soft_fusion_kernel(fusing, len(handled))
+                handled.append((fused_kernel, i+1))
                 fusing = [loop]
-            elif (base_loop.is_direct and loop.is_direct) or \
-                    (base_loop.is_direct and loop.is_indirect) or \
-                    (base_loop.is_indirect and loop.is_direct):
-                # This loop is fusible. Also, can speculative go on searching
-                # for other loops to fuse
-                fusing.append(loop)
             else:
-                raise RuntimeError("Unexpected loop chain structure while fusing")
+                # /base_loop/ and /loop/ are fusible. Before fusing them, we
+                # speculatively search for more loops to fuse
+                fusing.append(loop)
         if fusing:
-            fused.append((fuse(self, fusing, len(fused)), len(self._loop_chain)))
+            # Remainder
+            fused_kernel = build_soft_fusion_kernel(fusing, len(handled))
+            handled.append((fused_kernel, len(loop_chain)))
 
-        fused_kernels, offsets = zip(*fused)
-        self._schedule = FusionSchedule(self._name, self._schedule, fused_kernels, offsets)
-        self._loop_chain = self._schedule(self._loop_chain)
+        self._schedule = FusionSchedule(self._name, self._schedule, *zip(*handled))
+        self._loop_chain = self._schedule(loop_chain)
 
     def _hard_fuse(self):
         """Fuse consecutive loops over different iteration sets that do not
@@ -266,305 +236,92 @@ class Inspector(Cached):
         the presence of ``INC`` does not imply a real WAR dependency, because
         increments are associative."""
 
-        reads = lambda l: set([a.data for a in l.args if a.access in [READ, RW]])
-        writes = lambda l: set([a.data for a in l.args if a.access in [RW, WRITE, MIN, MAX]])
-        incs = lambda l: set([a.data for a in l.args if a.access in [INC]])
+        loop_chain = self._loop_chain
 
-        def has_raw_or_war(loop1, loop2):
-            # Note that INC after WRITE is a special case of RAW dependency since
-            # INC cannot take place before WRITE.
-            return reads(loop2) & writes(loop1) or writes(loop2) & reads(loop1) or \
-                incs(loop1) & (writes(loop2) - incs(loop2)) or \
-                incs(loop2) & (writes(loop1) - incs(loop1))
+        # Search pairs of hard-fusible loops
+        fusible = []
+        base_loop_index = 0
+        while base_loop_index < len(loop_chain):
+            base_loop = loop_chain[base_loop_index]
 
-        def has_iai(loop1, loop2):
-            return incs(loop1) & incs(loop2)
+            for i, loop in enumerate(loop_chain[base_loop_index+1:], 1):
+                info = loops_analyzer(base_loop, loop)
 
-        def fuse(base_loop, loop_chain, fused):
-            """Try to fuse one of the loops in ``loop_chain`` with ``base_loop``."""
-            for loop in loop_chain:
-                if has_raw_or_war(loop, base_loop):
-                    # Can't fuse across loops preseting RAW or WAR dependencies
-                    return []
-                if loop.it_space == base_loop.it_space:
-                    warning("Ignoring unexpected sequence of loops in loop fusion")
+                if info['homogeneous']:
+                    # Hard fusion is meaningless if same iteration space
                     continue
-                # Is there an overlap in any of the incremented regions? If that is
-                # the case, then fusion can really be beneficial
-                common_inc_data = has_iai(base_loop, loop)
-                if not common_inc_data:
-                    continue
-                common_incs = [a for a in base_loop.args + loop.args
-                               if a.data in common_inc_data]
-                # Hard fusion potentially doable provided that we own a map between
-                # the iteration spaces involved
-                maps = list(set(flatten([a.map for a in common_incs])))
-                maps += [m.factors for m in maps if hasattr(m, 'factors')]
-                maps = list(flatten(maps))
+
+                if not info['pure_iai']:
+                    # Can't fuse across loops presenting RAW or WAR dependencies
+                    break
+
+                base_inc_dats = set(a.data for a in incs(base_loop))
+                loop_inc_dats = set(a.data for a in incs(loop))
+                common_inc_dats = base_inc_dats | loop_inc_dats
+                common_incs = [a for a in incs(base_loop) | incs(loop)
+                               if a.data in common_inc_dats]
+                if not common_incs:
+                    # Is there an overlap in any of the incremented dats? If
+                    # that's not the case, fusion is fruitless
+                    break
+
+                # Hard fusion requires a map between the iteration spaces involved
+                maps = set(a.map for a in common_incs if a._is_indirect)
+                maps |= set(flatten(m.factors for m in maps if hasattr(m, 'factors')))
                 set1, set2 = base_loop.it_space.iterset, loop.it_space.iterset
-                fused_map = [m for m in maps if set1 == m.iterset and set2 == m.toset]
-                if fused_map:
-                    fused.append((base_loop, loop, fused_map[0], common_incs[1]))
-                    return loop_chain[:loop_chain.index(loop)+1]
-                fused_map = [m for m in maps if set1 == m.toset and set2 == m.iterset]
-                if fused_map:
-                    fused.append((loop, base_loop, fused_map[0], common_incs[0]))
-                    return loop_chain[:loop_chain.index(loop)+1]
-            return []
-
-        # First, find fusible kernels
-        fusible, skip = [], []
-        for i, l in enumerate(self._loop_chain, 1):
-            if l in skip:
-                # /l/ occurs between (hard) fusible loops, let's leave it where
-                # it is for safeness
-                continue
-            skip = fuse(l, self._loop_chain[i:], fusible)
-        if not fusible:
-            return
-
-        # Then, create a suitable hard-fusion kernel
-        # The hard fused kernel will have the following structure:
-        #
-        # wrapper (args: Union(kernel1, kernel2, extra):
-        #   staging of pointers
-        #   ...
-        #   fusion (staged pointers, ..., extra)
-        #   insertion (...)
-        #
-        # Where /extra/ represents additional arguments, like the map from
-        # /kernel1/ iteration space to /kernel2/ iteration space. The /fusion/
-        # function looks like:
-        #
-        # fusion (...):
-        #   kernel1 (buffer, ...)
-        #   for i = 0 to arity:
-        #     if not already_executed[i]:
-        #       kernel2 (buffer[..], ...)
-        #
-        # Where /arity/ is the number of /kernel2/ iterations incident to
-        # /kernel1/ iterations.
-        fused = []
-        for base_loop, fuse_loop, fused_map, fused_inc_arg in fusible:
-            # Start with analyzing the kernel ASTs. Note: fusion occurs on fresh
-            # copies of the /base/ and /fuse/ ASTs. This is because the optimization
-            # of the /fused/ AST should be independent of that of individual ASTs,
-            # and subsequent cache hits for non-fused ParLoops should always retrive
-            # the original, unmodified ASTs. This is important not just for the
-            # sake of performance, but also for correctness of padding, since hard
-            # fusion changes the signature of /fuse/ (in particular, the buffers that
-            # are provided for computation on iteration spaces)
-            finder = FindInstances((ast.FunDecl, ast.PreprocessNode))
-            base, fuse = base_loop.kernel, fuse_loop.kernel
-            base_ast = dcopy(base._original_ast) if base._code else dcopy(base._ast)
-            retval = FindInstances.default_retval()
-            base_info = finder.visit(base_ast, ret=retval)
-            base_headers = base_info[ast.PreprocessNode]
-            base_fundecl = base_info[ast.FunDecl]
-            fuse_ast = dcopy(fuse._original_ast) if fuse._code else dcopy(fuse._ast)
-            retval = FindInstances.default_retval()
-            fuse_info = finder.visit(fuse_ast, ret=retval)
-            fuse_headers = fuse_info[ast.PreprocessNode]
-            fuse_fundecl = fuse_info[ast.FunDecl]
-            if len(base_fundecl) != 1 or len(fuse_fundecl) != 1:
-                raise RuntimeError("Fusing kernels, but found unexpected AST")
-            base_fundecl = base_fundecl[0]
-            fuse_fundecl = fuse_fundecl[0]
-
-            # Create /fusion/ arguments and signature
-            body = ast.Block([])
-            fusion_name = '%s_%s' % (base_fundecl.name, fuse_fundecl.name)
-            fusion_args = dcopy(base_fundecl.args + fuse_fundecl.args)
-            fusion_fundecl = ast.FunDecl(base_fundecl.ret, fusion_name, fusion_args, body)
-
-            # Filter out duplicate arguments, and append extra arguments to the fundecl
-            binding = WeakFilter().kernel_args([base_loop, fuse_loop], fusion_fundecl)
-            fusion_fundecl.args += [ast.Decl('int*', 'executed'),
-                                    ast.Decl('int*', 'fused_iters'),
-                                    ast.Decl('int', 'i')]
-
-            # Which args are actually used in /fuse/, but not in /base/ ?
-            # The gather for such arguments is moved to /fusion/, to avoid any
-            # usless LOAD from memory
-            retval = SymbolReferences.default_retval()
-            base_symbols = SymbolReferences().visit(base_fundecl.body, ret=retval)
-            retval = SymbolReferences.default_retval()
-            fuse_symbols = SymbolReferences().visit(fuse_fundecl.body, ret=retval)
-            base_funcall_syms, unshared = [], OrderedDict()
-            for arg, decl in binding.items():
-                if decl.sym.symbol in set(fuse_symbols) - set(base_symbols):
-                    base_funcall_sym = ast.Symbol('NULL')
-                    unshared.setdefault(decl, arg)
+                fusion_map_1 = [m for m in maps if set1 == m.iterset and set2 == m.toset]
+                fusion_map_2 = [m for m in maps if set1 == m.toset and set2 == m.iterset]
+                if fusion_map_1:
+                    fuse_loop = loop
+                    fusion_map = fusion_map_1[0]
+                elif fusion_map_2:
+                    fuse_loop = base_loop
+                    base_loop = loop
+                    fusion_map = fusion_map_2[0]
                 else:
-                    base_funcall_sym = ast.Symbol(decl.sym.symbol)
-                if arg in base_loop.args:
-                    base_funcall_syms.append(base_funcall_sym)
-            for decl, arg in unshared.items():
-                decl.typ = 'double*'
-                decl.sym.symbol = arg.c_arg_name()
-                fusion_fundecl.args.insert(fusion_fundecl.args.index(decl) + 1,
-                                           ast.Decl('int*', arg.c_map_name(0, 0)))
+                    continue
 
-            # Append the invocation of /base/; then, proceed with the invocation
-            # of the /fuse/ kernels
-            body.children.append(ast.FunCall(base_fundecl.name, *base_funcall_syms))
+                if any(a._is_direct for a in fuse_loop.args):
+                    # Cannot perform direct reads in a /fuse/ kernel
+                    break
 
-            for idx in range(fused_map.arity):
+                common_inc = [a for a in common_incs if a in base_loop.args][0]
+                fusible.append((base_loop, fuse_loop, fusion_map, common_inc))
+                break
 
-                fused_iter = 'fused_iters[%d]' % idx
-                fuse_funcall = ast.FunCall(fuse_fundecl.name)
-                if_cond = ast.Not(ast.Symbol('executed', (fused_iter,)))
-                if_update = ast.Assign(ast.Symbol('executed', (fused_iter,)), 1)
-                if_body = ast.Block([fuse_funcall, if_update], open_scope=True)
-                if_exec = ast.If(if_cond, [if_body])
-                body.children.extend([ast.FlatBlock('\n'), if_exec])
+            # Set next starting point of the search
+            base_loop_index += i
 
-                # Modify the /fuse/ kernel
-                # This is to take into account that many arguments are shared with
-                # /base/, so they will only staged once for /base/. This requires
-                # tweaking the way the arguments are declared and accessed in /fuse/.
-                # For example, the shared incremented array (called /buffer/ in
-                # the pseudocode in the comment above) now needs to take offsets
-                # to be sure the locations that /base/ is supposed to increment are
-                # actually accessed. The same concept apply to indirect arguments.
-                init = lambda v: '{%s}' % ', '.join([str(j) for j in v])
-                for i, fuse_loop_arg in enumerate(fuse_loop.args):
-                    fuse_kernel_arg = binding[fuse_loop_arg]
-                    buffer = '%s_vec' % fuse_kernel_arg.sym.symbol
-
-                    # How should I use the temporaries ?
-                    if fuse_loop_arg.access == INC:
-                        op = ast.Incr
-                        lvalue, rvalue = fuse_kernel_arg.sym.symbol, buffer
-                        extend_if_body = lambda body, block: body.children.extend(block)
-                        buffer_decl = ast.Decl('%s' % fuse_loop_arg.ctype, buffer)
-                    elif fuse_loop_arg.access == READ:
-                        op = ast.Assign
-                        lvalue, rvalue = buffer, fuse_kernel_arg.sym.symbol
-                        extend_if_body = lambda body, block: \
-                            [body.children.insert(0, b) for b in reversed(block)]
-                        buffer_decl = ast.Decl('%s*' % fuse_loop_arg.ctype, buffer)
-
-                    # Now handle arguments depending on their type ...
-                    if fuse_loop_arg._is_mat:
-                        # ... Handle Mats
-                        staging = []
-                        for b in fused_inc_arg._block_shape:
-                            for rc in b:
-                                lvalue = ast.Symbol(lvalue, (idx, idx),
-                                                    ((rc[0], 'j'), (rc[1], 'k')))
-                                rvalue = ast.Symbol(rvalue, ('j', 'k'))
-                                staging = ItSpace(mode=0).to_for([(0, rc[0]), (0, rc[1])],
-                                                                 ('j', 'k'),
-                                                                 [op(lvalue, rvalue)])[:1]
-                        # Set up the temporary
-                        buffer_decl.sym.rank = fuse_kernel_arg.sym.rank
-                        if fuse_loop_arg.access == INC:
-                            buffer_decl.init = ast.ArrayInit(init([init([0.0])]))
-
-                    elif fuse_loop_arg._is_indirect:
-                        # ... Handle indirect arguments. At the C level, these arguments
-                        # are of pointer type, so simple pointer arithmetic is used
-                        # to ensure the kernel accesses are to the correct locations
-                        fuse_arity = fuse_loop_arg.map.arity
-                        base_arity = fuse_arity*fused_map.arity
-                        cdim = fuse_loop_arg.data.dataset.cdim
-                        size = fuse_arity*cdim
-                        # Set the proper storage layout before invoking /fuse/
-                        ofs_vals = [[base_arity*j + k for k in range(fuse_arity)]
-                                    for j in range(cdim)]
-                        ofs_vals = [[fuse_arity*j + k for k in flatten(ofs_vals)]
-                                    for j in range(fused_map.arity)]
-                        ofs_vals = list(flatten(ofs_vals))
-                        indices = [ofs_vals[idx*size + j] for j in range(size)]
-                        # Set up the temporary and stage (gather) data into it
-                        buffer_decl.sym.rank = (size,)
-                        if fuse_loop_arg.access == INC:
-                            buffer_decl.init = ast.ArrayInit(init([0.0]))
-                            staging = [op(ast.Symbol(lvalue, (k,)), ast.Symbol(rvalue, (j,)))
-                                       for j, k in enumerate(indices)]
-                        elif fuse_kernel_arg in unshared:
-                            staging = unshared[fuse_kernel_arg].c_vec_init(False).split('\n')
-                            staging = [j for i, j in enumerate(staging) if i in indices]
-                            rvalues = [ast.FlatBlock(i.split('=')[1]) for i in staging]
-                            lvalues = [ast.Symbol(buffer, (i,)) for i in range(len(staging))]
-                            staging = [ast.Assign(i, j) for i, j in zip(lvalues, rvalues)]
-                        else:
-                            staging = [op(ast.Symbol(lvalue, (j,)), ast.Symbol(rvalue, (k,)))
-                                       for j, k in enumerate(indices)]
-
-                    else:
-                        # Nothing special to do for direct arguments
-                        continue
-
-                    # Update the If-then AST body
-                    extend_if_body(if_exec.children[0], staging)
-                    if_exec.children[0].children.insert(0, buffer_decl)
-                    fuse_funcall.children.append(ast.Symbol(buffer))
-
-            # Create a /fusion.Kernel/ object as well as the schedule
-            fused_headers = set([str(h) for h in base_headers + fuse_headers])
-            fused_ast = ast.Root([ast.PreprocessNode(h) for h in fused_headers] +
-                                 [base_fundecl, fuse_fundecl, fusion_fundecl])
-            kernels = [base, fuse]
-            loop_chain_index = (self._loop_chain.index(base_loop),
-                                self._loop_chain.index(fuse_loop))
-            # Track position of Args that need a postponed gather
-            # Can't track Args themselves as they change across different parloops
-            fargs = {fusion_args.index(i): ('postponed', False) for i in unshared.keys()}
-            fargs.update({len(set(binding.values())): ('onlymap', True)})
-            fused.append((Kernel(kernels, fused_ast, loop_chain_index), fused_map, fargs))
+        # For each pair of hard-fusible loops, create a suitable Kernel
+        fused = []
+        for base_loop, fuse_loop, fusion_map, fused_inc_arg in fusible:
+            loop_chain_index = (loop_chain.index(base_loop), loop_chain.index(fuse_loop))
+            fused_kernel, fargs = build_hard_fusion_kernel(base_loop, fuse_loop,
+                                                           fusion_map, loop_chain_index)
+            fused.append((fused_kernel, fusion_map, fargs))
 
         # Finally, generate a new schedule
         self._schedule = HardFusionSchedule(self._name, self._schedule, fused)
-        self._loop_chain = self._schedule(self._loop_chain, only_hard=True)
+        self._loop_chain = self._schedule(loop_chain, only_hard=True)
 
     def _tile(self):
         """Tile consecutive loops over different iteration sets characterized
         by RAW and WAR dependencies. This requires interfacing with the SLOPE
         library."""
 
-        def inspect_set(s, insp_sets, extra_halo):
-            """Inspect the iteration set of a loop and store set info suitable
-            for SLOPE in /insp_sets/. Further, check that such iteration set has
-            a sufficiently depth halo region for correct execution in the case a
-            SLOPE MPI backend is enabled."""
-            # Get and format some iterset info
-            partitioning, superset, s_name = None, None, s.name
-            if isinstance(s, Subset):
-                superset = s.superset.name
-                s_name = "%s_ss" % s.name
-            if hasattr(s, '_partitioning'):
-                partitioning = s._partitioning
-            # If not an MPI backend, return "standard" values for core, exec, and
-            # non-exec regions (recall that SLOPE expects owned to be part of exec)
-            if slope.get_exec_mode() not in ['OMP_MPI', 'ONLY_MPI']:
-                exec_size = s.exec_size - s.core_size
-                nonexec_size = s.total_size - s.exec_size
-                infoset = s_name, s.core_size, exec_size, nonexec_size, superset
-            else:
-                if not hasattr(s, '_deep_size'):
-                    raise RuntimeError("SLOPE backend (%s) requires deep halos",
-                                       slope.get_exec_mode())
-                # Assume [1, ..., N] levels of halo depth
-                level_N = s._deep_size[-1]
-                core_size = level_N[0]
-                exec_size = level_N[2] - core_size
-                nonexec_size = level_N[3] - level_N[2]
-                if extra_halo and nonexec_size == 0:
-                    level_E = s._deep_size[-2]
-                    exec_size = level_E[2] - core_size
-                    nonexec_size = level_E[3] - level_E[2]
-                infoset = s_name, core_size, exec_size, nonexec_size, superset
-            insp_sets[infoset] = partitioning
-            return infoset
-
+        loop_chain = self._loop_chain
         tile_size = self._options.get('tile_size', 1)
         extra_halo = self._options.get('extra_halo', False)
         coloring = self._options.get('coloring', 'default')
         use_prefetch = self._options.get('use_prefetch', 0)
         log = self._options.get('log', False)
         rank = MPI.comm.rank
+
+        # SLOPE MPI backend unsupported if extra halo not available
+        if slope.get_exec_mode() in ['OMP_MPI', 'ONLY_MPI'] and \
+                not all(hasattr(l.it_space.iterset, '_deep_size') for l in loop_chain):
+            warning("Tiling through SLOPE requires deep halos in all PyOP2 sets.")
+            return
 
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
@@ -575,21 +332,20 @@ class Inspector(Cached):
         # identical code for all ranks
         arguments = []
         insp_sets, insp_maps, insp_loops = OrderedDict(), OrderedDict(), []
-        for loop in self._loop_chain:
+        for loop in loop_chain:
             slope_desc = set()
             # 1) Add sets
             iterset = loop.it_space.iterset
             iterset = iterset.subset if hasattr(iterset, 'subset') else iterset
-            infoset = inspect_set(iterset, insp_sets, extra_halo)
-            iterset_name, is_superset = infoset[0], infoset[4]
+            slope_set = create_slope_set(iterset, extra_halo, insp_sets)
             # If iterating over a subset, we fake an indirect parloop from the
             # (iteration) subset to the superset. This allows the propagation of
             # tiling across the hierarchy of sets (see SLOPE for further info)
-            if is_superset:
-                inspect_set(iterset.superset, insp_sets, extra_halo)
-                map_name = "%s_tosuperset" % iterset_name
-                insp_maps[iterset_name] = (map_name, iterset_name,
-                                           iterset.superset.name, iterset.indices)
+            if slope_set.superset:
+                create_slope_set(iterset.superset, extra_halo, insp_sets)
+                map_name = "%s_tosuperset" % slope_set.name
+                insp_maps[slope_set.name] = (map_name, slope_set.name,
+                                             iterset.superset.name, iterset.indices)
                 slope_desc.add((map_name, INC._mode))
             for a in loop.args:
                 # 2) Add access descriptors
@@ -607,10 +363,10 @@ class Inspector(Cached):
                             insp_maps[m.name] = (map_name, m.iterset.name,
                                                  m.toset.name, m.values_with_halo)
                             slope_desc.add((map_name, a.access._mode))
-                            inspect_set(m.iterset, insp_sets, extra_halo)
-                            inspect_set(m.toset, insp_sets, extra_halo)
+                            create_slope_set(m.iterset, extra_halo, insp_sets)
+                            create_slope_set(m.toset, extra_halo, insp_sets)
             # 3) Add loop
-            insp_loops.append((loop.kernel.name, iterset_name, list(slope_desc)))
+            insp_loops.append((loop.kernel.name, slope_set.name, list(slope_desc)))
         # Provide structure of loop chain to SLOPE
         arguments.extend([inspector.add_sets(insp_sets.keys())])
         arguments.extend([inspector.add_maps(insp_maps.values())])
@@ -649,11 +405,12 @@ class Inspector(Cached):
 
         # Compiler and linker options
         slope_dir = os.environ['SLOPE_DIR']
-        compiler = coffee.plan.compiler.get('name')
+        compiler = coffee.system.compiler.get('name')
         cppargs = slope.get_compile_opts(compiler)
         cppargs += ['-I%s/%s' % (slope_dir, slope.get_include_dir())]
         ldargs = ['-L%s/%s' % (slope_dir, slope.get_lib_dir()),
                   '-l%s' % slope.get_lib_name(),
+                  '-Wl,-rpath,%s/%s' % (slope_dir, slope.get_lib_dir()),
                   '-lrt']
 
         # Compile and run inspector
@@ -674,7 +431,7 @@ class Inspector(Cached):
                 f.write(template % ('iteration set', 'memory footprint (KB)', 'megaflops'))
                 f.write('-' * 68 + '\n')
                 tot_footprint, tot_flops = 0, 0
-                for loop in self._loop_chain:
+                for loop in loop_chain:
                     flops, footprint = loop.num_flops/(1000*1000), 0
                     for arg in loop.args:
                         dat_size = arg.data.nbytes
@@ -698,7 +455,7 @@ class Inspector(Cached):
                 f.write(template % ('field', 'type', 'loops'))
                 f.write('-' * 125 + '\n')
                 reuse = OrderedDict()
-                for i, loop in enumerate(self._loop_chain):
+                for i, loop in enumerate(loop_chain):
                     for arg in loop.args:
                         values = reuse.setdefault(arg.data, [])
                         if i not in values:
@@ -727,7 +484,7 @@ class Inspector(Cached):
         # code generation time
         executor = slope.Executor(inspector)
 
-        kernel = Kernel(tuple(loop.kernel for loop in self._loop_chain))
+        kernel = Kernel(tuple(loop.kernel for loop in loop_chain))
         self._schedule = TilingSchedule(self._name, self._schedule, kernel, inspection,
                                         executor, **self._options)
 
@@ -738,3 +495,342 @@ class Inspector(Cached):
     @property
     def schedule(self):
         return self._schedule
+
+
+reads = lambda l: set(a for a in l.args if a.access in [READ, RW])
+writes = lambda l: set(a for a in l.args if a.access in [RW, WRITE, MIN, MAX])
+incs = lambda l: set(a for a in l.args if a.access in [INC])
+
+
+def loops_analyzer(loop1, loop2):
+
+    """
+    Determine the data dependencies between ``loop1`` and ``loop2``.
+    In the sequence of lazily evaluated loops, ``loop1`` comes before ``loop2``.
+    Note that INC is treated as a special case of WRITE.
+
+    Return a dictionary of booleans values with the following keys: ::
+
+        * 'homogeneous': True if the loops have same iteration space.
+        * 'heterogeneous': True if the loops have different iteration space.
+        * 'direct_raw': True if a direct read-after-write dependency is present.
+        * 'direct_war': True if a direct write-after-read dependency is present.
+        * 'direct_waw': True if a direct write-after-write dependency is present.
+        * 'direct_w': OR('direct_raw', 'direct_war', 'direct_waw').
+        * 'indirect_raw': True if an indirect (i.e., through maps) read-after-write
+            dependency is present.
+        * 'indirect_war': True if an indirect write-after-read dependency is present.
+        * 'indirect_waw': True if an indirect write-after-write dependency is present.
+        * 'indirect_w': OR('indirect_raw', 'indirect_war', 'indirect_waw').
+        * 'pure_iai': True if an indirect incr-after-incr dependency is present AND
+            no other types of dependencies are present.
+    """
+
+    all_reads = lambda l: set(a.data for a in reads(l))
+    all_writes = lambda l: set(a.data for a in writes(l))
+    all_incs = lambda l: set(a.data for a in incs(l))
+    all_inc_writes = lambda l: set(a.data for a in incs(l) | writes(l))
+
+    dir_reads = lambda l: set(a.data for a in reads(l) if a._is_direct)
+    dir_writes = lambda l: set(a.data for a in writes(l) if a._is_direct)
+    dir_incs = lambda l: set(a.data for a in incs(l) if a._is_direct)
+    dir_inc_writes = lambda l: set(a.data for a in incs(l) | writes(l) if a._is_direct)
+
+    ind_reads = lambda l: set(a.data for a in reads(l) if a._is_indirect)
+    ind_writes = lambda l: set(a.data for a in writes(l) if a._is_indirect)
+    ind_incs = lambda l: set(a.data for a in incs(l) if a._is_indirect)
+    ind_inc_writes = lambda l: set(a.data for a in incs(l) | writes(l) if a._is_indirect)
+
+    info = {}
+
+    homogeneous = loop1.it_space == loop2.it_space
+    heterogeneous = not homogeneous
+
+    info['homogeneous'] = homogeneous
+    info['heterogeneous'] = heterogeneous
+
+    info['direct_raw'] = homogeneous and dir_inc_writes(loop1) & dir_reads(loop2) != set()
+    info['direct_war'] = homogeneous and dir_reads(loop1) & dir_inc_writes(loop2) != set()
+    info['direct_waw'] = homogeneous and dir_inc_writes(loop1) & dir_inc_writes(loop2) != set()
+    info['direct_w'] = info['direct_raw'] or info['direct_war'] or info['direct_waw']
+
+    info['indirect_raw'] = \
+        (homogeneous and ind_inc_writes(loop1) & ind_reads(loop2) != set()) or \
+        (heterogeneous and all_writes(loop1) & all_reads(loop2) != set())
+    info['indirect_war'] = \
+        (homogeneous and ind_reads(loop1) & ind_inc_writes(loop2) != set()) or \
+        (heterogeneous and all_reads(loop1) & all_writes(loop2) != set())
+    info['indirect_waw'] = \
+        (homogeneous and ind_inc_writes(loop1) & ind_inc_writes(loop2) != set()) or \
+        (heterogeneous and all_writes(loop1) & all_writes(loop2) != set())
+    info['indirect_w'] = info['indirect_raw'] or info['indirect_war'] or info['indirect_waw']
+
+    info['pure_iai'] = \
+        all_incs(loop1) & all_incs(loop2) != set() and \
+        all_writes(loop1) & all_reads(loop2) == set() and \
+        all_reads(loop1) & all_writes(loop2) == set() and \
+        all_writes(loop1) & all_reads(loop2) == set()
+
+    return info
+
+
+def build_soft_fusion_kernel(loops, loop_chain_index):
+    """
+    Build AST and :class:`Kernel` for a sequence of loops suitable to soft fusion.
+    """
+
+    kernels = [l.kernel for l in loops]
+    asts = [k._original_ast if k._code else k._ast for k in kernels]
+    base_ast, fuse_asts = dcopy(asts[0]), asts[1:]
+
+    base_fundecl = FindInstances(ast.FunDecl).visit(base_ast)[ast.FunDecl][0]
+    for unique_id, _fuse_ast in enumerate(fuse_asts, 1):
+        fuse_ast = dcopy(_fuse_ast)
+        fuse_fundecl = FindInstances(ast.FunDecl).visit(fuse_ast)[ast.FunDecl][0]
+        # 1) Extend function name
+        base_fundecl.name = "%s_%s" % (base_fundecl.name, fuse_fundecl.name)
+        # 2) Concatenate the arguments in the signature
+        base_fundecl.args.extend(fuse_fundecl.args)
+        # 3) Uniquify symbols identifiers
+        fuse_symbols = SymbolReferences().visit(fuse_ast)
+        for decl in fuse_fundecl.args:
+            for symbol, _ in fuse_symbols[decl.sym.symbol]:
+                symbol.symbol = "%s_%d" % (symbol.symbol, unique_id)
+        # 4) Concatenate bodies
+        base_fundecl.body.extend([ast.FlatBlock("\n\n// Fused kernel: \n\n")] +
+                                 fuse_fundecl.body)
+
+    # Eliminate redundancies in the /fused/ kernel signature
+    Filter().kernel_args(loops, base_fundecl)
+
+    return Kernel(kernels, base_ast, loop_chain_index)
+
+
+def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index):
+    """
+    Build AST and :class:`Kernel` for two loops suitable to hard fusion.
+
+    The AST consists of three functions: fusion, base, fuse. base and fuse
+    are respectively the ``base_loop`` and the ``fuse_loop`` kernels, whereas
+    fusion is the orchestrator that invokes, for each ``base_loop`` iteration,
+    base and, if still to be executed, fuse.
+
+    The orchestrator has the following structure: ::
+
+        fusion (buffer, ..., executed):
+            base (buffer, ...)
+            for i = 0 to arity:
+                if not executed[i]:
+                    additional pointer staging required by kernel2
+                    fuse (sub_buffer, ...)
+                    insertion into buffer
+
+    The executed array tracks whether the i-th iteration (out of /arity/)
+    adjacent to the main kernel1 iteration has been executed.
+    """
+
+    finder = FindInstances((ast.FunDecl, ast.PreprocessNode))
+
+    # Hard fusion occurs on fresh copies of the /base/ and /fuse/ ASTs as
+    # the optimization process in COFFEE is different if kernels get fused.
+
+    base = base_loop.kernel
+    base_ast = dcopy(base._original_ast) if base._code else dcopy(base._ast)
+    base_info = finder.visit(base_ast)
+    base_headers = base_info[ast.PreprocessNode]
+    base_fundecl = base_info[ast.FunDecl]
+    assert len(base_fundecl) == 1
+    base_fundecl = base_fundecl[0]
+
+    fuse = fuse_loop.kernel
+    fuse_ast = dcopy(fuse._original_ast) if fuse._code else dcopy(fuse._ast)
+    fuse_info = finder.visit(fuse_ast)
+    fuse_headers = fuse_info[ast.PreprocessNode]
+    fuse_fundecl = fuse_info[ast.FunDecl]
+    assert len(fuse_fundecl) == 1
+    fuse_fundecl = fuse_fundecl[0]
+
+    # Create /fusion/ arguments and signature
+    body = ast.Block([])
+    fusion_name = '%s_%s' % (base_fundecl.name, fuse_fundecl.name)
+    fusion_args = dcopy(base_fundecl.args + fuse_fundecl.args)
+    fusion_fundecl = ast.FunDecl(base_fundecl.ret, fusion_name, fusion_args, body)
+
+    # Make sure kernel names are unique
+    base_fundecl.name = "%s_base" % base_fundecl.name
+    fuse_fundecl.name = "%s_fuse" % fuse_fundecl.name
+
+    # Filter out duplicate arguments, and append extra arguments to the fundecl
+    binding = WeakFilter().kernel_args([base_loop, fuse_loop], fusion_fundecl)
+    fusion_fundecl.args += [ast.Decl('int*', 'executed'),
+                            ast.Decl('int*', 'fused_iters'),
+                            ast.Decl('int', 'i')]
+
+    # Which args are actually used in /fuse/, but not in /base/ ?
+    # The gather for such arguments is moved to /fusion/, to avoid any
+    # usless LOAD from memory
+    base_symbols = SymbolReferences().visit(base_fundecl.body)
+    fuse_symbols = SymbolReferences().visit(fuse_fundecl.body)
+    base_funcall_syms, unshared = [], OrderedDict()
+    for arg, decl in binding.items():
+        if decl.sym.symbol in set(fuse_symbols) - set(base_symbols):
+            base_funcall_sym = ast.Symbol('NULL')
+            unshared.setdefault(decl, arg)
+        else:
+            base_funcall_sym = ast.Symbol(decl.sym.symbol)
+        if arg in base_loop.args:
+            base_funcall_syms.append(base_funcall_sym)
+    for decl, arg in unshared.items():
+        decl.typ = 'double*'
+        decl.sym.symbol = arg.c_arg_name()
+        fusion_fundecl.args.insert(fusion_fundecl.args.index(decl) + 1,
+                                   ast.Decl('int*', arg.c_map_name(0, 0)))
+
+    # Append the invocation of /base/; then, proceed with the invocation
+    # of the /fuse/ kernels
+    body.children.append(ast.FunCall(base_fundecl.name, *base_funcall_syms))
+
+    for idx in range(fusion_map.arity):
+
+        fused_iter = 'fused_iters[%d]' % idx
+        fuse_funcall = ast.FunCall(fuse_fundecl.name)
+        if_cond = ast.Not(ast.Symbol('executed', (fused_iter,)))
+        if_update = ast.Assign(ast.Symbol('executed', (fused_iter,)), 1)
+        if_body = ast.Block([fuse_funcall, if_update], open_scope=True)
+        if_exec = ast.If(if_cond, [if_body])
+        body.children.extend([ast.FlatBlock('\n'), if_exec])
+
+        # Modify the /fuse/ kernel
+        # This is to take into account that many arguments are shared with
+        # /base/, so they will only staged once for /base/. This requires
+        # tweaking the way the arguments are declared and accessed in /fuse/.
+        # For example, the shared incremented array (called /buffer/ in
+        # the pseudocode in the comment above) now needs to take offsets
+        # to be sure the locations that /base/ is supposed to increment are
+        # actually accessed. The same concept apply to indirect arguments.
+        init = lambda v: '{%s}' % ', '.join([str(j) for j in v])
+        for i, fuse_loop_arg in enumerate(fuse_loop.args):
+            fuse_kernel_arg = binding[fuse_loop_arg]
+            buffer = '%s_vec' % fuse_kernel_arg.sym.symbol
+
+            # How should I use the temporaries ?
+            if fuse_loop_arg.access == INC:
+                op = ast.Incr
+                lvalue, rvalue = fuse_kernel_arg.sym.symbol, buffer
+                extend_if_body = lambda body, block: body.children.extend(block)
+                buffer_decl = ast.Decl(fuse_kernel_arg.typ, buffer,
+                                       qualifiers=fuse_kernel_arg.qual)
+            elif fuse_loop_arg.access == READ:
+                op = ast.Assign
+                lvalue, rvalue = buffer, fuse_kernel_arg.sym.symbol
+                extend_if_body = lambda body, block: \
+                    [body.children.insert(0, b) for b in reversed(block)]
+                pointers = fuse_kernel_arg.typ.count('*') + len(fuse_kernel_arg.pointers)
+                buffer_decl = ast.Decl(fuse_kernel_arg.typ, buffer,
+                                       qualifiers=fuse_kernel_arg.qual,
+                                       pointers=['' for j in range(pointers-1)])
+
+            # Now handle arguments depending on their type ...
+            if fuse_loop_arg._is_mat:
+                # ... Handle Mats
+                staging = []
+                for b in fused_inc_arg._block_shape:
+                    for rc in b:
+                        lvalue = ast.Symbol(lvalue, (idx, idx),
+                                            ((rc[0], 'j'), (rc[1], 'k')))
+                        rvalue = ast.Symbol(rvalue, ('j', 'k'))
+                        staging = ItSpace(mode=0).to_for([(0, rc[0]), (0, rc[1])],
+                                                         ('j', 'k'),
+                                                         [op(lvalue, rvalue)])[:1]
+                # Set up the temporary
+                buffer_decl.sym.rank = fuse_kernel_arg.sym.rank
+                if fuse_loop_arg.access == INC:
+                    buffer_decl.init = ast.ArrayInit(init([init([0.0])]))
+
+            elif fuse_loop_arg._is_indirect:
+                # ... Handle indirect arguments. At the C level, these arguments
+                # are of pointer type, so simple pointer arithmetic is used
+                # to ensure the kernel accesses are to the correct locations
+                fuse_arity = fuse_loop_arg.map.arity
+                base_arity = fuse_arity*fusion_map.arity
+                cdim = fuse_loop_arg.data.dataset.cdim
+                size = fuse_arity*cdim
+                # Set the proper storage layout before invoking /fuse/
+                ofs_vals = [[base_arity*j + k for k in range(fuse_arity)]
+                            for j in range(cdim)]
+                ofs_vals = [[fuse_arity*j + k for k in flatten(ofs_vals)]
+                            for j in range(fusion_map.arity)]
+                ofs_vals = list(flatten(ofs_vals))
+                indices = [ofs_vals[idx*size + j] for j in range(size)]
+                # Set up the temporary and stage (gather) data into it
+                buffer_decl.sym.rank = (size,)
+                if fuse_loop_arg.access == INC:
+                    buffer_decl.init = ast.ArrayInit(init([0.0]))
+                    staging = [op(ast.Symbol(lvalue, (k,)), ast.Symbol(rvalue, (j,)))
+                               for j, k in enumerate(indices)]
+                elif fuse_kernel_arg in unshared:
+                    staging = unshared[fuse_kernel_arg].c_vec_init(False).split('\n')
+                    staging = [j for i, j in enumerate(staging) if i in indices]
+                    rvalues = [ast.FlatBlock(i.split('=')[1]) for i in staging]
+                    lvalues = [ast.Symbol(buffer, (i,)) for i in range(len(staging))]
+                    staging = [ast.Assign(i, j) for i, j in zip(lvalues, rvalues)]
+                else:
+                    staging = [op(ast.Symbol(lvalue, (j,)), ast.Symbol(rvalue, (k,)))
+                               for j, k in enumerate(indices)]
+
+            else:
+                # Nothing special to do for direct arguments
+                continue
+
+            # Update the If-then AST body
+            extend_if_body(if_exec.children[0], staging)
+            if_exec.children[0].children.insert(0, buffer_decl)
+            fuse_funcall.children.append(ast.Symbol(buffer))
+
+    fused_headers = set([str(h) for h in base_headers + fuse_headers])
+    fused_ast = ast.Root([ast.PreprocessNode(h) for h in fused_headers] +
+                         [base_fundecl, fuse_fundecl, fusion_fundecl])
+
+    # Track position of Args that need a postponed gather
+    # Can't track Args themselves as they change across different parloops
+    fargs = {fusion_args.index(i): ('postponed', False) for i in unshared.keys()}
+    fargs.update({len(set(binding.values())): ('onlymap', True)})
+
+    return Kernel([base, fuse], fused_ast, loop_chain_index), fargs
+
+
+def create_slope_set(op2set, extra_halo, insp_sets=None):
+    """
+    Convert an OP2 set to a set suitable for the SLOPE Python interface.
+    Also check that the halo region us sufficiently depth for tiling.
+    """
+    SlopeSet = namedtuple('SlopeSet', 'name core boundary nonexec superset')
+
+    partitioning = op2set._partitioning if hasattr(op2set, '_partitioning') else None
+    if not isinstance(op2set, Subset):
+        name = op2set.name
+        superset = None
+    else:
+        name = "%s_ss" % op2set
+        superset = s.superset.name
+
+    if slope.get_exec_mode() not in ['OMP_MPI', 'ONLY_MPI']:
+        core_size = op2set.core_size
+        boundary_size = op2set.exec_size - op2set.core_size
+        nonexec_size = op2set.total_size - op2set.exec_size
+    else:
+        # Assume [1, ..., N] levels of halo regions
+        # Each level is represented by (core, owned, exec, nonexec)
+        level_N = op2set._deep_size[-1]
+        core_size = level_N[0]
+        boundary_size = level_N[2] - core_size
+        nonexec_size = level_N[3] - level_N[2]
+        if extra_halo and nonexec_size == 0:
+            level_E = op2set._deep_size[-2]
+            boundary_size = level_E[2] - core_size
+            nonexec_size = level_E[3] - level_E[2]
+
+    slope_set = SlopeSet(name, core_size, boundary_size, nonexec_size, superset)
+    insp_sets[slope_set] = partitioning
+
+    return slope_set

@@ -40,6 +40,7 @@ from pyop2.base import READ, RW, WRITE
 from pyop2.utils import flatten
 
 from coffee.utils import ast_make_alias
+from coffee import base as ast
 
 
 class Filter(object):
@@ -87,30 +88,36 @@ class Filter(object):
         binding = OrderedDict(zip(loop_args, kernel_args))
         new_kernel_args, args_maps = [], []
         for loop_arg, kernel_arg in binding.items():
-            key = self._key(loop_arg)
-            unique_loop_arg = unique_loop_args[key]
+            unique_loop_arg = unique_loop_args[self._key(loop_arg)]
+
+            # Do nothing if only a single instance of a given Arg is present
             if loop_arg is unique_loop_arg:
                 new_kernel_args.append(kernel_arg)
                 continue
+
+            # Set up a proper /binding/
             tobind_kernel_arg = binding[unique_loop_arg]
             if tobind_kernel_arg.is_const:
                 # Need to remove the /const/ qualifier from the C declaration
-                # if the same argument is written to, somewhere, in the kernel.
-                # Otherwise, /const/ must be appended, if not present already,
-                # to the alias' qualifiers
+                # if the same argument is now written in the fused kernel.
+                # Otherwise, /const/ may be appended (if necessary)
                 if loop_arg._is_written:
                     tobind_kernel_arg.qual.remove('const')
                 elif 'const' not in kernel_arg.qual:
                     kernel_arg.qual.append('const')
-            # Update the /binding/, since might be useful for the caller
             binding[loop_arg] = tobind_kernel_arg
-            # Aliases may be created instead of changing symbol names
-            if kernel_arg.sym.symbol == tobind_kernel_arg.sym.symbol:
-                continue
-            alias = ast_make_alias(dcopy(kernel_arg), dcopy(tobind_kernel_arg))
-            args_maps.append(alias)
-        fundecl.children[0].children = args_maps + fundecl.children[0].children
+
+            # An alias may at this point be required
+            if kernel_arg.sym.symbol != tobind_kernel_arg.sym.symbol:
+                alias = ast_make_alias(dcopy(kernel_arg), dcopy(tobind_kernel_arg))
+                args_maps.append(alias)
+
         fundecl.args = new_kernel_args
+        if args_maps:
+            args_maps.insert(0, ast.FlatBlock('// Args aliases\n'))
+            args_maps.append(ast.FlatBlock('\n'))
+        fundecl.body = args_maps + fundecl.body
+
         return binding
 
 
