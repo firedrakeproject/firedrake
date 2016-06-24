@@ -819,8 +819,7 @@ class JITModule(base.JITModule):
                                                kernel_name=self._kernel._name,
                                                user_code=self._kernel._user_code,
                                                wrapper_name=self._wrapper_name,
-                                               iteration_region=self._iteration_region,
-                                               applied_blas=self._kernel._applied_blas)
+                                               iteration_region=self._iteration_region)
         return self._code_dict
 
 

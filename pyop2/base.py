@@ -43,6 +43,7 @@ import ctypes
 import operator
 import types
 from hashlib import md5
+from copy import deepcopy as dcopy
 
 from configuration import configuration
 from caching import Cached, ObjectCached
@@ -3842,6 +3843,7 @@ class Kernel(Cached):
         if not isinstance(code, Node):
             # Got a C string, nothing we can do, just use it as Kernel body
             self._ast = None
+            self._original_ast = None
             self._code = code
             self._attached_info = True
         elif isinstance(code, Node) and configuration['loop_fusion']:
@@ -3849,12 +3851,14 @@ class Kernel(Cached):
             # be deferred because optimisation of a kernel in a fused chain of
             # loops may differ from optimisation in a non-fusion context
             self._ast = code
+            self._original_ast = code
             self._code = None
             self._attached_info = False
         elif isinstance(code, Node) and not configuration['loop_fusion']:
             # Got an AST, need to go through COFFEE for optimization and
-            # code generation
+            # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
             self._ast = code
+            self._original_ast = dcopy(code)
             self._code = self._ast_to_c(self._ast, self._opts)
             self._attached_info = False
         self._initialized = True
@@ -3868,6 +3872,7 @@ class Kernel(Cached):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
         if not self._code:
+            self._original_ast = dcopy(self._ast)
             self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
 
@@ -3903,6 +3908,7 @@ class JITModule(Cached):
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         key = (kernel.cache_key, itspace.cache_key)
         for arg in args:
+            key += (arg.__class__,)
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
             elif arg._is_dat:
