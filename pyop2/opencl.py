@@ -46,7 +46,6 @@ from device import *
 from logger import warning
 import plan
 import petsc_base
-from profiling import lineprof
 from utils import verify_reshape, uniquify, maybe_setflags
 
 
@@ -549,7 +548,7 @@ class JITModule(base.JITModule):
         fun = self.compile()
         for i, arg in enumerate(args):
             fun.set_arg(i, arg)
-        with timed_region("ParLoop kernel"):
+        with timed_region("ParLoopCKernel"):
             cl.enqueue_nd_range_kernel(_queue, fun, (thread_count,),
                                        (work_group_size,), g_times_l=False).wait()
 
@@ -649,7 +648,6 @@ class ParLoop(device.ParLoop):
             return {'partition_size': self._i_partition_size()}
 
     @collective
-    @lineprof
     def _compute(self, part, fun, *arglist):
         if part.size == 0:
             # Return before plan call if no computation should occur

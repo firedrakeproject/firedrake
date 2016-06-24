@@ -38,7 +38,6 @@ User API Unit Tests
 import pytest
 import numpy as np
 from numpy.testing import assert_equal
-from mpi4py import MPI
 
 from pyop2 import op2
 from pyop2 import exceptions
@@ -251,36 +250,6 @@ class TestInitAPI:
         "Calling init again with a different backend should fail."
         with pytest.raises(RuntimeError):
             op2.init(backend='other')
-
-
-class TestMPIAPI:
-
-    """
-    Init API unit tests
-    """
-
-    def test_running_sequentially(self, backend):
-        "MPI.parallel should return false if running sequentially."
-        assert not op2.MPI.parallel
-
-    def test_set_mpi_comm_int(self, backend):
-        "int should be converted to mpi4py MPI communicator."
-        oldcomm = op2.MPI.comm
-        op2.MPI.comm = 1
-        assert isinstance(op2.MPI.comm, MPI.Comm)
-        op2.MPI.comm = oldcomm
-
-    def test_set_mpi_comm_mpi4py(self, backend):
-        "Setting an mpi4py MPI communicator should be allowed."
-        oldcomm = op2.MPI.comm
-        op2.MPI.comm = MPI.COMM_SELF
-        assert isinstance(op2.MPI.comm, MPI.Comm)
-        op2.MPI.comm = oldcomm
-
-    def test_set_mpi_comm_invalid_type(self, backend):
-        "Invalid MPI communicator type should raise TypeError."
-        with pytest.raises(TypeError):
-            op2.MPI.comm = None
 
 
 class TestAccessAPI:

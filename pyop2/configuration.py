@@ -65,7 +65,6 @@ class Configuration(dict):
         program exit?
     :param print_summary: Should PyOP2 print a summary of timings at
         program exit?
-    :param profiling: Profiling mode (CUDA kernels are launched synchronously)
     :param matnest: Should matrices on mixed maps be built as nests? (Default yes)
     """
     # name, env variable, type, default, write once
@@ -73,7 +72,6 @@ class Configuration(dict):
         "backend": ("PYOP2_BACKEND", str, "sequential"),
         "compiler": ("PYOP2_BACKEND_COMPILER", str, "gnu"),
         "simd_isa": ("PYOP2_SIMD_ISA", str, "sse"),
-        "blas": ("PYOP2_BLAS", str, ""),
         "debug": ("PYOP2_DEBUG", int, 0),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
@@ -88,7 +86,6 @@ class Configuration(dict):
         "no_fork_available": ("PYOP2_NO_FORK_AVAILABLE", bool, False),
         "print_cache_size": ("PYOP2_PRINT_CACHE_SIZE", bool, False),
         "print_summary": ("PYOP2_PRINT_SUMMARY", bool, False),
-        "profiling": ("PYOP2_PROFILING", bool, False),
         "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
                               os.path.join(gettempdir(), "pyop2-gencode")),
         "matnest": ("PYOP2_MATNEST", bool, True),

@@ -43,7 +43,6 @@ import ctypes
 import operator
 import types
 from hashlib import md5
-from copy import deepcopy as dcopy
 
 from configuration import configuration
 from caching import Cached, ObjectCached
@@ -52,7 +51,7 @@ from versioning import Versioned, modifies, modifies_argn, CopyOnWrite, \
 from exceptions import *
 from utils import *
 from backends import _make_object
-from mpi import MPI, _MPI, _check_comm, collective
+from mpi import MPI, collective, dup_comm
 from profiling import timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
@@ -478,7 +477,7 @@ class Arg(object):
             self._in_flight = False
 
     @collective
-    def reduction_begin(self):
+    def reduction_begin(self, comm):
         """Begin reduction for the argument if its access is INC, MIN, or MAX.
         Doing a reduction only makes sense for :class:`Global` objects."""
         assert self._is_global, \
@@ -488,21 +487,21 @@ class Arg(object):
         if self.access is not READ:
             self._in_flight = True
             if self.access is INC:
-                op = _MPI.SUM
+                op = MPI.SUM
             elif self.access is MIN:
-                op = _MPI.MIN
+                op = MPI.MIN
             elif self.access is MAX:
-                op = _MPI.MAX
+                op = MPI.MAX
             # If the MPI supports MPI-3, this could be MPI_Iallreduce
             # instead, to allow overlapping comp and comms.
             # We must reduce into a temporary buffer so that when
             # executing over the halo region, which occurs after we've
             # called this reduction, we don't subsequently overwrite
             # the result.
-            MPI.comm.Allreduce(self.data._data, self.data._buf, op=op)
+            comm.Allreduce(self.data._data, self.data._buf, op=op)
 
     @collective
-    def reduction_end(self):
+    def reduction_end(self, comm):
         """End reduction for the argument if it is in flight.
         Doing a reduction only makes sense for :class:`Global` objects."""
         assert self._is_global, \
@@ -561,7 +560,8 @@ class Set(object):
 
     @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, name=None, halo=None):
+    def __init__(self, size=None, name=None, halo=None, comm=None):
+        self.comm = dup_comm(comm)
         if type(size) is int:
             size = [size] * 4
         size = as_tuple(size, int, 4)
@@ -907,6 +907,8 @@ class MixedSet(Set, ObjectCached):
         self._sets = sets
         assert all(s.layers == self._sets[0].layers for s in sets), \
             "All components of a MixedSet must have the same number of layers."
+        # TODO: do all sets need the same communicator?
+        self.comm = sets[0].comm
         self._initialized = True
 
     @classmethod
@@ -1254,10 +1256,8 @@ class Halo(object):
         for i, a in self._receives.iteritems():
             self._receives[i] = np.asarray(a)
         self._global_to_petsc_numbering = gnn2unn
-        self._comm = _check_comm(comm) if comm is not None else MPI.comm
-        # FIXME: is this a necessity?
-        assert self._comm == MPI.comm, "Halo communicator not COMM"
-        rank = self._comm.rank
+        self.comm = dup_comm(comm)
+        rank = self.comm.rank
 
         assert rank not in self._sends, \
             "Halo was specified with self-sends on rank %d" % rank
@@ -1296,9 +1296,9 @@ class Halo(object):
                INCing into a :class:`Dat` to obtain correct local
                values."""
         with timed_region("Halo exchange receives wait"):
-            _MPI.Request.Waitall(dat._recv_reqs.values())
+            MPI.Request.Waitall(dat._recv_reqs.values())
         with timed_region("Halo exchange sends wait"):
-            _MPI.Request.Waitall(dat._send_reqs.values())
+            MPI.Request.Waitall(dat._send_reqs.values())
         dat._recv_reqs.clear()
         dat._send_reqs.clear()
         dat._send_buf.clear()
@@ -1346,12 +1346,6 @@ class Halo(object):
     petsc (cross-process) dof numbering."""
         return self._global_to_petsc_numbering
 
-    @property
-    def comm(self):
-        """The MPI communicator this :class:`Halo`'s communications
-    should take place over"""
-        return self._comm
-
     def verify(self, s):
         """Verify that this :class:`Halo` is valid for a given
 :class:`Set`."""
@@ -1378,6 +1372,7 @@ class IterationSpace(object):
     @validate_type(('iterset', Set, SetTypeError))
     def __init__(self, iterset, block_shape=None):
         self._iterset = iterset
+        self.comm = iterset.comm
         if block_shape:
             # Try the Mat case first
             try:
@@ -1681,6 +1676,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         _EmptyDataMixin.__init__(self, data, dtype, self._shape)
 
         self._dataset = dataset
+        self.comm = dataset.comm
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
         self.needs_halo_update = False
@@ -2293,11 +2289,13 @@ class MixedDat(Dat):
     def __init__(self, mdset_or_dats):
         if isinstance(mdset_or_dats, MixedDat):
             self._dats = tuple(_make_object('Dat', d) for d in mdset_or_dats)
-            return
-        self._dats = tuple(d if isinstance(d, Dat) else _make_object('Dat', d)
-                           for d in mdset_or_dats)
+        else:
+            self._dats = tuple(d if isinstance(d, Dat) else _make_object('Dat', d)
+                               for d in mdset_or_dats)
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
             raise DataValueError('MixedDat with different dtypes is not supported')
+        # TODO: Think about different communicators on dats (c.f. MixedSet)
+        self.comm = self._dats[0].comm
 
     def __getitem__(self, idx):
         """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
@@ -2880,6 +2878,7 @@ class Map(object):
     def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, bt_masks=None):
         self._iterset = iterset
         self._toset = toset
+        self.comm = toset.comm
         self._arity = arity
         self._values = verify_reshape(values, np.int32, (iterset.total_size, arity),
                                       allow_none=True)
@@ -3155,6 +3154,8 @@ class MixedMap(Map, ObjectCached):
         # Make sure all itersets are identical
         if not all(m.iterset == self._maps[0].iterset for m in self._maps):
             raise MapTypeError("All maps in a MixedMap need to share the same iterset")
+        # TODO: Think about different communicators on maps (c.f. MixedSet)
+        self.comm = maps[0].comm
         self._initialized = True
 
     @classmethod
@@ -3284,6 +3285,12 @@ class Sparsity(ObjectCached):
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
 
+        self.lcomm = self._rmaps[0].comm
+        self.rcomm = self._cmaps[0].comm
+        if self.lcomm != self.rcomm:
+            raise ValueError("Haven't thought hard enough about different left and right communicators")
+        self.comm = self.lcomm
+
         # All rmaps and cmaps have the same data set - just use the first.
         self._nrows = self._rmaps[0].toset.size
         self._ncols = self._cmaps[0].toset.size
@@ -3319,8 +3326,9 @@ class Sparsity(ObjectCached):
             self._d_nz = sum(s._d_nz for s in self)
             self._o_nz = sum(s._o_nz for s in self)
         else:
-            with timed_region("Build sparsity"):
-                build_sparsity(self, parallel=MPI.parallel, block=self._block_sparse)
+            with timed_region("CreateSparsity"):
+                build_sparsity(self, parallel=(self.comm.size > 1),
+                               block=self._block_sparse)
             self._blocks = [[self]]
             self._nested = False
         self._initialized = True
@@ -3604,6 +3612,9 @@ class Mat(SetAssociated):
                    ('name', str, NameTypeError))
     def __init__(self, sparsity, dtype=None, name=None):
         self._sparsity = sparsity
+        self.lcomm = sparsity.lcomm
+        self.rcomm = sparsity.rcomm
+        self.comm = sparsity.comm
         self._datatype = np.dtype(dtype)
         self._name = name or "mat_%d" % Mat._globalcount
         self.assembly_state = Mat.ASSEMBLED
@@ -3824,7 +3835,6 @@ class Kernel(Cached):
         Kernel._globalcount += 1
         # Record used optimisations
         self._opts = opts
-        self._applied_blas = False
         self._include_dirs = include_dirs
         self._ldargs = ldargs if ldargs is not None else []
         self._headers = headers
@@ -3832,7 +3842,6 @@ class Kernel(Cached):
         if not isinstance(code, Node):
             # Got a C string, nothing we can do, just use it as Kernel body
             self._ast = None
-            self._original_ast = None
             self._code = code
             self._attached_info = True
         elif isinstance(code, Node) and configuration['loop_fusion']:
@@ -3840,14 +3849,12 @@ class Kernel(Cached):
             # be deferred because optimisation of a kernel in a fused chain of
             # loops may differ from optimisation in a non-fusion context
             self._ast = code
-            self._original_ast = code
             self._code = None
             self._attached_info = False
         elif isinstance(code, Node) and not configuration['loop_fusion']:
             # Got an AST, need to go through COFFEE for optimization and
-            # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
+            # code generation
             self._ast = code
-            self._original_ast = dcopy(code)
             self._code = self._ast_to_c(self._ast, self._opts)
             self._attached_info = False
         self._initialized = True
@@ -3861,7 +3868,6 @@ class Kernel(Cached):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
         if not self._code:
-            self._original_ast = dcopy(self._ast)
             self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
 
@@ -3897,7 +3903,6 @@ class JITModule(Cached):
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         key = (kernel.cache_key, itspace.cache_key)
         for arg in args:
-            key += (arg.__class__,)
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
             elif arg._is_dat:
@@ -4041,6 +4046,7 @@ class ParLoop(LazyComputation):
         self._only_local = isinstance(iterset, LocalSet)
 
         self.iterset = iterset
+        self.comm = iterset.comm
 
         for i, arg in enumerate(self._actual_args):
             arg.position = i
@@ -4116,22 +4122,22 @@ class ParLoop(LazyComputation):
     @collective
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
-        self.halo_exchange_begin()
-        iterset = self.iterset
-        arglist = self.prepare_arglist(iterset, *self.args)
-        fun = self._jitmodule
-        self._compute(iterset.core_part, fun, *arglist)
-        self.halo_exchange_end()
-        self._compute(iterset.owned_part, fun, *arglist)
-        self.reduction_begin()
-        if self._only_local:
-            self.reverse_halo_exchange_begin()
-            self.reverse_halo_exchange_end()
-        if self.needs_exec_halo:
-            self._compute(iterset.exec_part, fun, *arglist)
-        self.reduction_end()
-        self.update_arg_data_state()
-        self.log_flops()
+        with timed_region("ParLoopExecute"):
+            self.halo_exchange_begin()
+            iterset = self.iterset
+            arglist = self.prepare_arglist(iterset, *self.args)
+            fun = self._jitmodule
+            self._compute(iterset.core_part, fun, *arglist)
+            self.halo_exchange_end()
+            self._compute(iterset.owned_part, fun, *arglist)
+            self.reduction_begin()
+            if self._only_local:
+                self.reverse_halo_exchange_begin()
+                self.reverse_halo_exchange_end()
+            if self.needs_exec_halo:
+                self._compute(iterset.exec_part, fun, *arglist)
+            self.reduction_end()
+            self.update_arg_data_state()
 
     @collective
     def _compute(self, part, fun, *arglist):
@@ -4145,7 +4151,6 @@ class ParLoop(LazyComputation):
         raise RuntimeError("Must select a backend")
 
     @collective
-    @timed_function('ParLoop halo exchange begin')
     def halo_exchange_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
@@ -4154,7 +4159,6 @@ class ParLoop(LazyComputation):
             arg.halo_exchange_begin(update_inc=self._only_local)
 
     @collective
-    @timed_function('ParLoop halo exchange end')
     def halo_exchange_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
@@ -4163,7 +4167,6 @@ class ParLoop(LazyComputation):
             arg.halo_exchange_end(update_inc=self._only_local)
 
     @collective
-    @timed_function('ParLoop reverse halo exchange begin')
     def reverse_halo_exchange_begin(self):
         """Start reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
@@ -4173,7 +4176,6 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_begin(reverse=True)
 
     @collective
-    @timed_function('ParLoop reverse halo exchange end')
     def reverse_halo_exchange_end(self):
         """Finish reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
@@ -4183,18 +4185,18 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_end(reverse=True)
 
     @collective
-    @timed_function('ParLoop reduction begin')
+    @timed_function("ParLoopReductionBegin")
     def reduction_begin(self):
         """Start reductions"""
         for arg in self.global_reduction_args:
-            arg.reduction_begin()
+            arg.reduction_begin(self.comm)
 
     @collective
-    @timed_function('ParLoop reduction end')
+    @timed_function("ParLoopReductionEnd")
     def reduction_end(self):
         """End reductions"""
         for arg in self.global_reduction_args:
-            arg.reduction_end()
+            arg.reduction_end(self.comm)
         # Finalise global increments
         for i, glob in self._reduced_globals.iteritems():
             # These can safely access the _data member directly
