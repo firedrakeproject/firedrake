@@ -3845,22 +3845,23 @@ class Kernel(Cached):
             self._ast = None
             self._original_ast = None
             self._code = code
-            self._attached_info = True
-        elif isinstance(code, Node) and configuration['loop_fusion']:
-            # Got an AST and loop fusion is enabled, so code generation needs
-            # be deferred because optimisation of a kernel in a fused chain of
-            # loops may differ from optimisation in a non-fusion context
+            self._attached_info = {'fundecl': None, 'attached': False}
+        else:
             self._ast = code
-            self._original_ast = code
-            self._code = None
-            self._attached_info = False
-        elif isinstance(code, Node) and not configuration['loop_fusion']:
-            # Got an AST, need to go through COFFEE for optimization and
-            # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
-            self._ast = code
-            self._original_ast = dcopy(code)
-            self._code = self._ast_to_c(self._ast, self._opts)
-            self._attached_info = False
+            fundecls = FindInstances(ast.FunDecl).visit(self._ast)[ast.FunDecl]
+            assert len(fundecls) == 1, "Illegal Kernel"
+            self._attached_info = {'fundecl': fundecls[0], 'attached': False}
+            if configuration['loop_fusion']:
+                # Got an AST and loop fusion is enabled, so code generation needs
+                # be deferred because optimisation of a kernel in a fused chain of
+                # loops may differ from optimisation in a non-fusion context
+                self._original_ast = self._ast
+                self._code = None
+            else:
+                # Got an AST, need to go through COFFEE for optimization and
+                # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
+                self._original_ast = dcopy(self._ast)
+                self._code = self._ast_to_c(self._ast, opts)
         self._initialized = True
 
     @property
@@ -4081,13 +4082,13 @@ class ParLoop(LazyComputation):
         # Only need to do this once, since the kernel "defines" the
         # access descriptors, if they were to have changed, the kernel
         # would be invalid for this par_loop.
-        if not self._kernel._attached_info and hasattr(self._kernel, '_ast') and self._kernel._ast:
-            fundecl = FindInstances(ast.FunDecl).visit(self._kernel._ast)[ast.FunDecl]
-            if len(fundecl) == 1:
-                for arg, f_arg in zip(self._actual_args, fundecl[0].args):
-                    if arg._uses_itspace and arg._is_INC:
-                        f_arg.pragma = set([ast.WRITE])
-            self._kernel._attached_info = True
+        fundecl = kernel._attached_info['fundecl']
+        attached = kernel._attached_info['attached']
+        if fundecl and not attached:
+            for arg, f_arg in zip(self._actual_args, fundecl.args):
+                if arg._uses_itspace and arg._is_INC:
+                    f_arg.pragma = set([ast.WRITE])
+            kernel._attached_info['attached'] = True
 
     def _run(self):
         return self.compute()

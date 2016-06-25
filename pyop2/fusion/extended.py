@@ -301,7 +301,7 @@ class Kernel(sequential.Kernel, tuple):
         self._ldargs = list(set(flatten([k._ldargs for k in kernels])))
         self._headers = list(set(flatten([k._headers for k in kernels])))
         self._user_code = "\n".join(list(set([k._user_code for k in kernels])))
-        self._attached_info = False
+        self._attached_info = {'fundecl': None, 'attached': False}
 
         # What sort of Kernel do I have?
         if fused_ast:
