@@ -129,20 +129,21 @@ def fuse(name, loop_chain, **kwargs):
 
     # Skip if loops in /loop_chain/ are already /fusion/ objects: this could happen
     # when loops had already been fused in a /loop_chain/ context
-    if any([isinstance(l, extended.ParLoop) for l in loop_chain]):
+    if any(isinstance(l, extended.ParLoop) for l in loop_chain):
         return loop_chain + remainder
 
     # Global reductions are dangerous for correctness, so avoid fusion unless the
     # user is forcing it
-    if not force_glb and any([l._reduced_globals for l in loop_chain]):
+    if not force_glb and any(l._reduced_globals for l in loop_chain):
         return loop_chain + remainder
 
-    # Loop fusion requires modifying kernels, so ASTs must be present...
+    # Loop fusion requires modifying kernels, so ASTs:
     if not mode == 'only_tile':
-        if any([not hasattr(l.kernel, '_ast') or not l.kernel._ast for l in loop_chain]):
+        # ... must be present
+        if any(not hasattr(l.kernel, '_ast') or not l.kernel._ast for l in loop_chain):
             return loop_chain + remainder
-        # ...and must not be "fake" ASTs
-        if any([isinstance(l.kernel._ast, ast.FlatBlock) for l in loop_chain]):
+        # ... must not be "fake" ASTs
+        if any(isinstance(l.kernel._ast, ast.FlatBlock) for l in loop_chain):
             return loop_chain + remainder
 
     # Mixed still not supported
@@ -150,7 +151,7 @@ def fuse(name, loop_chain, **kwargs):
         return loop_chain + remainder
 
     # Extrusion still not supported
-    if any([l.is_layered for l in loop_chain]):
+    if any(l.is_layered for l in loop_chain):
         return loop_chain + remainder
 
     # If tiling is requested, SLOPE must be visible
