@@ -181,7 +181,7 @@ def loop_chain(name, **kwargs):
 
     :arg name: identifier of the loop chain
     :arg kwargs:
-        * mode (default='tile'): the fusion/tiling mode (accepted: soft, hard,
+        * mode (default='hard'): the fusion/tiling mode (accepted: soft, hard,
             tile, only_tile).
         * tile_size: (default=1) suggest a starting average tile size.
         * num_unroll (default=1): in a time stepping loop, the length of the loop
