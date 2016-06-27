@@ -53,6 +53,7 @@ from firedrake.nullspace import *
 from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
+from firedrake.pcinit import *
 from firedrake.pc import *
 from firedrake.projection import *
 from firedrake.solving import *
