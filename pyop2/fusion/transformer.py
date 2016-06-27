@@ -315,7 +315,7 @@ class Inspector(Cached):
         coloring = self._options.get('coloring', 'default')
         use_prefetch = self._options.get('use_prefetch', 0)
         log = self._options.get('log', False)
-        rank = MPI.comm.rank
+        rank = MPI.COMM_WORLD.rank
 
         # SLOPE MPI backend unsupported if extra halo not available
         if slope.get_exec_mode() in ['OMP_MPI', 'ONLY_MPI'] and \
@@ -443,8 +443,8 @@ class Inspector(Cached):
                     tot_flops += flops
                 f.write('** Summary: %d KBytes moved, %d Megaflops performed\n' %
                         (tot_footprint, tot_flops))
-                probSeed = 0 if MPI.parallel else len(self._loop_chain) / 2
-                probNtiles = self._loop_chain[probSeed].it_space.exec_size / tile_size or 1
+                probSeed = 0 if MPI.COMM_WORLD.size > 1 else len(loop_chain) / 2
+                probNtiles = loop_chain[probSeed].it_space.exec_size / tile_size or 1
                 f.write('** KB/tile: %d' % (tot_footprint/probNtiles))
                 f.write('  (Estimated: %d tiles)\n' % probNtiles)
                 f.write('-' * 68 + '\n')

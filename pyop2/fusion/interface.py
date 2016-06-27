@@ -55,7 +55,7 @@ try:
     backend = os.environ.get('SLOPE_BACKEND')
     if backend not in ['SEQUENTIAL', 'OMP']:
         backend = 'SEQUENTIAL'
-    if MPI.parallel:
+    if MPI.COMM_WORLD.size > 1:
         if backend == 'SEQUENTIAL':
             backend = 'ONLY_MPI'
         if backend == 'OMP':
