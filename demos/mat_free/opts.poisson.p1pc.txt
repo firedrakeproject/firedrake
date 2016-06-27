@@ -2,5 +2,6 @@
 -ksp_type cg
 -ksp_converged_reason
 -ksp_monitor_true_residual
--pc_type none
-# unpreconditioned CG.  This could take a while...
+-pc_type python
+-pc_python_type firedrake.P1PC
+# precondition with P1PC
