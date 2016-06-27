@@ -3,10 +3,10 @@ import re
 import argparse
 
 
-def tprint(fp, n, threshold):
+def tprint(max_fp, min_fp, ntiles, threshold):
     RED = '\033[1;37;31m%s\033[0m'
-    msg = '    footprint %d KB/tile (tot tiles: %d)' % (fp, n)
-    if fp > threshold:
+    msg = '    footprint (ntiles=%d): MAX %d KB/tile; MIN %d KB/tile' % (ntiles, max_fp, min_fp)
+    if max_fp > threshold:
         print RED % msg
     else:
         print msg
@@ -68,7 +68,9 @@ for logdir in requested_logs:
     print GREEN % "Poly order: %d, Fusion mode: %d, Seed tile size: %d" % (p, em, ts)
     for i, loopchainlog in enumerate(filenames):
         with open(os.path.join(logdir, loopchainlog), 'r') as f:
-            ts_line = [l for l in f.readlines() if 'KB/tile:' in l][0]
-            footprint, ntiles = [int(j) for j in re.findall(r'\d+', ts_line)]
-            tprint(footprint, ntiles, threshold) 
+            ntiles, ts_wc, ts_bc = [l for l in f.readlines() if 'Estimated' in l or 'KB/tile:' in l]
+            ntiles = int(re.findall(r'\d+', ntiles)[0])
+            max_footprint = int(re.findall(r'\d+', ts_wc)[0])
+            min_footprint = int(re.findall(r'\d+', ts_bc)[0])
+            tprint(max_footprint, min_footprint, ntiles, threshold)
 print "-"*49
