@@ -106,8 +106,7 @@ class FusionSchedule(Schedule):
         loop_indices = [range(offsets[i], o) for i, o in enumerate(offsets[1:])]
         self._info = [{'loop_indices': li} for li in loop_indices]
 
-    def __call__(self, loop_chain):
-        loop_chain = self._schedule(loop_chain)
+    def _combine(self, loop_chain):
         fused_par_loops = []
         for kernel, info in zip(self._kernel, self._info):
             loop_indices = info['loop_indices']
@@ -128,6 +127,9 @@ class FusionSchedule(Schedule):
                                                 iterate=iterregion,
                                                 insp_name=self._insp_name))
         return fused_par_loops
+
+    def __call__(self, loop_chain):
+        return self._combine(self._schedule(loop_chain))
 
 
 class HardFusionSchedule(FusionSchedule, Schedule):
@@ -167,10 +169,9 @@ class HardFusionSchedule(FusionSchedule, Schedule):
         self._kernel = kernel
 
     def __call__(self, loop_chain, only_hard=False):
-        # First apply soft fusion, then hard fusion
         if not only_hard:
             loop_chain = self._schedule(loop_chain)
-        fused_par_loops = FusionSchedule.__call__(self, loop_chain)
+        fused_par_loops = self._combine(loop_chain)
         for i, (loop, info) in enumerate(zip(list(fused_par_loops), self._info)):
             fargs = info.get('fargs', {})
             args = [FArg(arg, *fargs[j]) if j in fargs else arg
