@@ -1,0 +1,46 @@
+-mat_type matfree
+-snes_monitor
+# Inexact solution in sub-solves require fgmres
+-ksp_type fgmres
+-ksp_gmres_restart 200
+-ksp_monitor_true_residual
+-ksp_rtol 1.e-8
+-ksp_converged_reason
+-pc_type fieldsplit
+-pc_fieldsplit_type multiplicative
+# Split Navier-Stokes from temperature
+-pc_fieldsplit_0_fields 0,1
+-pc_fieldsplit_1_fields 2
+# We're going to solve the NSE inexactly
+-fieldsplit_0_ksp_type gmres
+-fieldsplit_0_ksp_rtol 1.e-2
+# Solve the NSE using a fieldsplit preconditioner!
+-fieldsplit_0_pc_type fieldsplit
+-fieldsplit_0_pc_fieldsplit_type schur
+-fieldsplit_0_pc_fieldsplit_schur_fact_type lower
+-fieldsplit_0_pc_fieldsplit_0_fields 0
+-fieldsplit_0_pc_fieldsplit_1_fields 1
+-fieldsplit_0_fieldsplit_0_ksp_type gmres
+# Precondition the velocity block by assembling & using hypre
+-fieldsplit_0_fieldsplit_0_pc_type python
+-fieldsplit_0_fieldsplit_0_pc_python_type firedrake.AssembledPC
+-fieldsplit_0_fieldsplit_0_assembled_pc_type hypre
+# Use the PCD preconditioner to approximate the Schur complement
+-fieldsplit_0_fieldsplit_1_ksp_type preonly
+-fieldsplit_0_fieldsplit_1_pc_type python
+-fieldsplit_0_fieldsplit_1_pc_python_type firedrake.PCDPC
+# Configure the pressure mass & Poisson solves.
+-fieldsplit_0_fieldsplit_1_Mp_ksp_type cg
+-fieldsplit_0_fieldsplit_1_Mp_pc_type jacobi
+-fieldsplit_0_fieldsplit_1_Kp_ksp_type cg
+-fieldsplit_0_fieldsplit_1_Kp_pc_type hypre
+-fieldsplit_0_fieldsplit_1_Kp_ksp_rtol 1.e-6
+# Now for the temperature block.  Solve to a moderately
+# coarse tolerance, preconditioned with AMG
+-fieldsplit_1_ksp_type gmres
+-fieldsplit_1_ksp_rtol 1.e-4
+-fieldsplit_1_pc_type python
+-fieldsplit_1_pc_python_type firedrake.AssembledPC
+-fieldsplit_1_assembled_pc_type hypre
+-options_left
+
