@@ -40,6 +40,9 @@ echo ------------------------------------------------------
 export OMP_NUM_THREADS=1
 export SLOPE_BACKEND=SEQUENTIAL
 
+LOG=""
+EXTRA_OUT=""
+
 OPTS="--output 10000 --flatten True --nocache True"
 TILE_OPTS="--fusion-mode only_tile --coloring default"
 
@@ -82,6 +85,7 @@ if [ -z "$mesh" ]; then
     declare -a mesh_p3=("--mesh-size (300.0,150.0,1.0)" "--mesh-file $MESHES/domain_h100.msh --h 1.0")
     declare -a mesh_p4=("--mesh-size (300.0,150.0,1.2)" "--mesh-file $MESHES/domain_h125.msh --h 1.25")
 else
+    h=$mesh
     declare -a mesh_p1=("--mesh-size (300.0,150.0,$mesh)")
     declare -a mesh_p2=("--mesh-size (300.0,150.0,$mesh)")
     declare -a mesh_p3=("--mesh-size (300.0,150.0,$mesh)")
@@ -104,6 +108,13 @@ else
     declare -a ts_p4=(10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200)
 fi
 
+# If only logging tiling stuff, tweak a few things to run only what is strictly necessary
+if [ -n "$onlylog" ]; then
+    LOG="--log True --time_max 0.05"
+    EXTRA_OUT="(Just logging!)"
+    mkdir -p $TILING/all-logs
+fi
+
 if [ -z "$nprocs" ]; then
     MPICMD="mpiexec"
 elif [ "$nprocs" -eq 10 ]; then
@@ -115,6 +126,9 @@ fi
 # Populate cache
 for poly in ${polys[@]}
 do
+    if [ -n "$onlylog" ]; then
+        break
+    fi
     OUT_FILE=$TMPDIR"/output_populator_"$PBS_JOBNAME"_"$NODENAME"_p"$poly".txt"
     rm -f $OUT_FILE
     touch $OUT_FILE
@@ -153,9 +167,9 @@ do
     do
         echo "    Running "$mesh >> $LOGGER
         echo "        Untiled ..." >> $LOGGER
-        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 $LOG 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 $LOG 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 $LOG 1>> $OUT_FILE 2>> $OUT_FILE
         for p in ${part_all[@]}
         do
             for em in ${em_all[@]}
@@ -168,7 +182,13 @@ do
                     for ts in ${!ts_p}
                     do
                         echo "        Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
-                        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt 1>> $OUT_FILE 2>> $OUT_FILE
+                        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt $LOG 1>> $OUT_FILE 2>> $OUT_FILE
+
+                        if [ -n "$onlylog" ]; then
+                            logdir=p"$poly"_em"$em"_ts"$ts"
+                            mv log $logdir
+                            mv $logdir $TILING"/all-logs"
+                        fi
                     done
                 done
             done

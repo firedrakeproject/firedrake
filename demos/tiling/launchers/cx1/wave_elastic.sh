@@ -51,6 +51,12 @@ elif [ "$1" == "tiles" ]; then
     echo "Executing single node experiments: Ivy Bridge (20 cores, defaultqueue)"
     echo "Executing p=1, h=0.6, em=5, many tiles and all parts"
     qsub -v polys=1,mesh=0.6,part=0,fixmode=1 -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic_tmp.pbs
+elif [ "$1" == "onlylog" ]; then
+    echo "Executing single node experiments for collecting tiling summaries: Haswell (20 cores, pqcdt)"
+    for poly in 1 2 3 4; do
+        echo "Scheduling <poly=$poly,h=0.8,part=0> on ***Haswell (20 cores, pqcdt)***"
+        qsub -v polys=$poly,mesh=0.8,part=0,onlylog=1 -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic.pbs
+    done
 else
     echo "Executing multi node experiments: Haswell (with {1, 2, 4, 8, 12, 16, 20}x20 cores, pqcdt)"
     for i in 1 2 4 8 12 16 20
