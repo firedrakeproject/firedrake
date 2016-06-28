@@ -1,5 +1,5 @@
 from __future__ import absolute_import
-from firedrake import TestFunction, TrialFunction, DirichletBC, \
+from firedrake import DirichletBC, \
     FunctionSpace, VectorFunctionSpace, Function, assemble, InitializedPC
 
 from firedrake.utils import cached_property
@@ -27,7 +27,6 @@ class ArgumentReplacer(MultiFunction):
 
     def argument(self, o):
         return self.args[o.number()]
-
 
 
 def mpi_type(dtype, dim):
@@ -204,11 +203,13 @@ class P1PC(InitializedPC):
 
         a = ctx.a
         self.a = a
-        self.bcs = ctx.row_bcs
+        bcs = ctx.row_bcs
         test, trial = a.arguments()
         mesh = a.ufl_domain()
+        self.mesh = mesh
 
         V = test.function_space()
+
         assert V == trial.function_space()
         self.V = V
         if V.rank == 0:
@@ -219,7 +220,20 @@ class P1PC(InitializedPC):
         else:
             raise NotImplementedError
 
-        self.A_p1 = assemble(self.P1_form, self.P1_bcs)
+        if bcs is None:
+            self.bcs = ()
+            bcs = numpy.zeros(0, dtype=numpy.int32)
+        else:
+            try:
+                bcs = tuple(bcs)
+            except TypeError:
+                bcs = (bcs, )
+            self.bcs = bcs
+            bcs = numpy.unique(numpy.concatenate([bc.nodes for bc in bcs]))
+            bcs = bcs[bcs < V.dof_dset.size]
+
+        self.A_p1 = assemble(self.P1_form, bcs=self.P1_bcs)
+        self.A_p1.force_evaluation()
         op = self.A_p1.PETScMatHandle
 
         self.pc.setOperators(op, op)
@@ -230,13 +244,31 @@ class P1PC(InitializedPC):
         self.work1 = self.transfer.createVecLeft()
         self.work2 = self.transfer.createVecLeft()
 
+        # dof_section = V._dm.getDefaultSection()
+        # dm = mesh._plex
+        # cells, facets = get_cell_facet_patches(dm, mesh._cell_numbering)
+        # d, g, b = get_dof_patches(dm, dof_section,
+        #                           V.cell_node_map().values_with_halo,
+        #                           bcs, cells, facets)
+        self.bc_nodes = PETSc.IS().createBlock(V.dim, bcs, comm=PETSc.COMM_SELF)
+        # self.cells = []
+        # for i in range(len(cells)):
+        #     self.cells.append(PETSc.IS().createGeneral(cells[i], comm=PETSc.COMM_SELF))
+        # self.facets = facets
+        # tmp = []
+        # for i in range(len(d)):
+        #     tmp.append(PETSc.IS().createBlock(V.dim, d[i], comm=PETSc.COMM_SELF))
+        # self.dof_patches = tmp
+
     def subsequentSetUp(self, pc):
         assemble(self.P1_form, self.P1_bcs, tensor=self.A_p1)
 
     @cached_property
     def P1_form(self):
-        mapper = ArgumentReplacer(TestFunction(self.P1),
-                                  TrialFunction(self.P1))
+        from firedrake.ufl_expr import TestFunction, TrialFunction
+        tst = TestFunction(self.P1)
+        trl = TrialFunction(self.P1)
+        mapper = ArgumentReplacer(tst, trl)
         return map_integrands.map_integrand_dags(mapper, self.a)
 
     @cached_property
@@ -359,5 +391,5 @@ class P1PC(InitializedPC):
             self.transfer.mult(x, self.work1)
             self.pc.apply(self.work1, self.work2)
             self.transfer.multTranspose(self.work2, y)
-            indices = self.ctx.bc_nodes.getIndices()
+            indices = self.bc_nodes.getIndices()
             y.array[indices] = x.array_r[indices]

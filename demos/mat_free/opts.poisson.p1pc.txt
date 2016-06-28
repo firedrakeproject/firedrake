@@ -4,4 +4,5 @@
 -ksp_monitor_true_residual
 -pc_type python
 -pc_python_type firedrake.P1PC
+-lo_pc_type lu
 # precondition with P1PC
