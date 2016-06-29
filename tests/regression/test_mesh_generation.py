@@ -55,7 +55,7 @@ def test_unit_cube():
 
 
 def test_one_element_mesh():
-    mesh = PeriodicRectangleMesh(10, 1, Lx=1.0, Ly=1.0)
+    mesh = PeriodicRectangleMesh(10, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)
     Vdg = FunctionSpace(mesh, "DG", 1)
     r = Function(Vdg)
