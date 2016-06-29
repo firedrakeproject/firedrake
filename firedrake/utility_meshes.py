@@ -220,13 +220,8 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         v1 = min(vertices)
         v2 = max(vertices)
         if(v2 != v1 + 1):
-            swap = v2
-            v2 = v1
-            v1 = swap
-        cell_closure[row][0] = v1
-        cell_closure[row][1] = v1
-        cell_closure[row][2] = v2
-        cell_closure[row][3] = v2
+            v1, v2 = v2, v1
+        cell_closure[row][0:4] = [v1, v1, v2, v2]
 
     mesh1.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
 
