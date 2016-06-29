@@ -36,12 +36,9 @@
 from contextlib import contextmanager
 import logging
 
-# Define colors
-RED = "\033[1;37;31m%s\033[0m"
-BLUE = "\033[1;37;34m%s\033[0m"
-GREEN = "\033[1;37;32m%s\033[0m"
-
 logger = logging.getLogger('pyop2')
+handler = logging.StreamHandler()
+logger.addHandler(handler)
 
 debug = logger.debug
 info = logger.info
@@ -61,27 +58,6 @@ def set_log_level(level):
 
     :arg level: the log level. Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL '''
     logger.setLevel(level)
-
-
-def info_red(message, *args, **kwargs):
-    ''' Write info message in red.
-
-    :arg message: the message to be printed. '''
-    info(RED % message, *args, **kwargs)
-
-
-def info_green(message, *args, **kwargs):
-    ''' Write info message in green.
-
-    :arg message: the message to be printed. '''
-    info(GREEN % message, *args, **kwargs)
-
-
-def info_blue(message, *args, **kwargs):
-    ''' Write info message in blue.
-
-    :arg message: the message to be printed. '''
-    info(BLUE % message, *args, **kwargs)
 
 
 def log(level, msg, *args, **kwargs):

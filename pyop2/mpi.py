@@ -232,10 +232,3 @@ if COMM_WORLD.size > 1:
         except_hook(typ, value, traceback)
         COMM_WORLD.Abort(1)
     sys.excepthook = mpi_excepthook
-
-import logging
-logger = logging.getLogger("pyop2")
-handler = logging.StreamHandler()
-handler.setFormatter(logging.Formatter(('[%d] ' % COMM_WORLD.rank) +
-                                       '%(name)s:%(levelname)s %(message)s'))
-logger.addHandler(handler)
