@@ -56,6 +56,7 @@ class Vector(object):
             self.dat = x
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))
+        self.comm = self.dat.comm
 
     def axpy(self, a, x):
         """Add a*x to self.
@@ -150,7 +151,7 @@ class Vector(object):
         if hasattr(self, '_size'):
             return self._size
         lsize = self.local_size()
-        self._size = op2.MPI.comm.allreduce(lsize, op=MPI.SUM)
+        self._size = self.comm.allreduce(lsize, op=MPI.SUM)
         return self._size
 
     def inner(self, other):

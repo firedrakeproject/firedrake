@@ -84,11 +84,6 @@ def test_box():
     assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
 
 
-def test_unit_circle():
-    pytest.importorskip('gmshpy')
-    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
-
-
 def test_unit_triangle():
     assert abs(integrate_one(UnitTriangleMesh()) - 0.5) < 1e-3
 
@@ -125,12 +120,6 @@ def test_unit_square_parallel():
 @pytest.mark.parallel
 def test_unit_cube_parallel():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
-
-
-@pytest.mark.skipif("gmshpy is None", reason='gmshpy not available')
-@pytest.mark.parallel
-def test_unit_circle_parallel():
-    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
 def assert_num_exterior_facets_equals_zero(m):

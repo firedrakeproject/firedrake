@@ -73,7 +73,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
-                c, i = func.operands()
+                c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].fiat_element.space_dimension()
             else:
@@ -219,7 +219,7 @@ def par_loop(kernel, measure, args, **kwargs):
         mesh = None
         for (func, intent) in args.itervalues():
             if isinstance(func, Indexed):
-                c, i = func.operands()
+                c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 if mesh and c.node_set[idx] is not mesh:
                     raise ValueError("Cannot mix sets in direct loop.")
@@ -249,7 +249,7 @@ def par_loop(kernel, measure, args, **kwargs):
 
     def mkarg(f, intent):
         if isinstance(func, Indexed):
-            c, i = func.operands()
+            c, i = func.ufl_operands
             idx = i._indices[0]._value
             m = _map['nodes'](c)
             return c.dat[idx](intent, m.split[idx] if m else None)

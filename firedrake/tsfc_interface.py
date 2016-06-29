@@ -4,6 +4,10 @@ from __future__ import absolute_import
 
 from hashlib import md5
 from os import path, environ, getuid, makedirs
+import cPickle
+import gzip
+import os
+import zlib
 import tempfile
 import numpy
 import collections
@@ -16,9 +20,9 @@ from firedrake.ufl_expr import Argument
 
 from tsfc import compile_form as tsfc_compile_form
 
-from pyop2.caching import DiskCached
+from pyop2.caching import Cached
 from pyop2.op2 import Kernel
-from pyop2.mpi import MPI
+from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 
 from coffee.base import Invert
 
@@ -131,15 +135,56 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "coefficient_map"])
 
 
-class TSFCKernel(DiskCached):
+class TSFCKernel(Cached):
 
     _cache = {}
-    if MPI.comm.rank == 0:
-        _cachedir = environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
-                                path.join(tempfile.gettempdir(),
-                                          'firedrake-tsfc-kernel-cache-uid%d' % getuid()))
-    else:
-        _cachedir = None
+
+    _cachedir = environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
+                            path.join(tempfile.gettempdir(),
+                                      'firedrake-tsfc-kernel-cache-uid%d' % getuid()))
+
+    @classmethod
+    def _cache_lookup(cls, key):
+        key, comm = key
+        return cls._cache.get(key) or cls._read_from_disk(key, comm)
+
+    @classmethod
+    def _read_from_disk(cls, key, comm):
+        if comm.rank == 0:
+            cache = cls._cachedir
+            filepath = os.path.join(cache, key)
+            val = None
+            if os.path.exists(filepath):
+                try:
+                    with gzip.open(filepath, 'rb') as f:
+                        val = f.read()
+                except zlib.error:
+                    pass
+
+            comm.bcast(val, root=0)
+        else:
+            val = comm.bcast(None, root=0)
+
+        if val is None:
+            raise KeyError("Object with key %s not found" % key)
+        val = cPickle.loads(val)
+        cls._cache[key] = val
+        return val
+
+    @classmethod
+    def _cache_store(cls, key, val):
+        key, comm = key
+        _ensure_cachedir(comm=comm)
+        if comm.rank == 0:
+            val._key = key
+            filepath = os.path.join(cls._cachedir, key)
+            tempfile = os.path.join(cls._cachedir, "%s_p%d.tmp" % (key, os.getpid()))
+            # No need for a barrier after this, since non root
+            # processes will never race on this file.
+            with gzip.open(tempfile, 'wb') as f:
+                cPickle.dump(val, f)
+            os.rename(tempfile, filepath)
+        comm.barrier()
 
     @classmethod
     def _cache_key(cls, form, name, parameters, number_map):
@@ -149,7 +194,7 @@ class TSFCKernel(DiskCached):
         return md5(form.signature() + name + Kernel._backend.__name__
                    + str(default_parameters["coffee"])
                    + str(parameters)
-                   + str(number_map)).hexdigest()
+                   + str(number_map)).hexdigest(), form.ufl_domain().comm
 
     def __init__(self, form, name, parameters, number_map):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
@@ -249,22 +294,24 @@ def compile_form(form, name, parameters=None, inverse=False):
     return kernels
 
 
-def clear_cache():
+def clear_cache(comm=None):
     """Clear the Firedrake TSFC kernel cache."""
-    if MPI.comm.rank != 0:
-        return
-    if path.exists(TSFCKernel._cachedir):
-        import shutil
-        shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
-        _ensure_cachedir()
+    comm = dup_comm(comm or COMM_WORLD)
+    if comm.rank == 0:
+        if path.exists(TSFCKernel._cachedir):
+            import shutil
+            shutil.rmtree(TSFCKernel._cachedir, ignore_errors=True)
+            _ensure_cachedir(comm=comm)
+    free_comm(comm)
 
 
-def _ensure_cachedir():
+def _ensure_cachedir(comm=None):
     """Ensure that the TSFC kernel cache directory exists."""
-    if MPI.comm.rank != 0:
-        return
-    if not path.exists(TSFCKernel._cachedir):
-        makedirs(TSFCKernel._cachedir)
+    comm = dup_comm(comm or COMM_WORLD)
+    if comm.rank == 0:
+        if not path.exists(TSFCKernel._cachedir):
+            makedirs(TSFCKernel._cachedir)
+    free_comm(comm)
 
 
 def _inverse(kernel):
@@ -281,6 +328,3 @@ def _inverse(kernel):
     kernel.children[0].children.append(Invert(name, size))
 
     return kernel
-
-
-_ensure_cachedir()

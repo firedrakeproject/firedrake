@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 
 import numpy as np
-from pyop2.mpi import MPI
 
 from firedrake import functionspace
 from firedrake import mesh
@@ -27,8 +26,9 @@ class MeshHierarchy(object):
         dm_hierarchy = []
 
         cdm = m._plex
+        self.comm = m.comm
         fpoint_ises = []
-        if MPI.comm.size > 1 and m._grown_halos:
+        if m.comm.size > 1 and m._grown_halos:
             raise RuntimeError("Cannot refine parallel overlapped meshes (make sure the MeshHierarchy is built immediately after the Mesh)")
         for i in range(refinement_levels):
             rdm = cdm.refine()
@@ -112,6 +112,7 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
 
         See :func:`~.ExtrudedMesh` for the meaning of the remaining parameters.
         """
+        self.comm = mesh_hierarchy.comm
         self._base_hierarchy = mesh_hierarchy
         hierarchy = [set_level(mesh.ExtrudedMesh(m, layers, kernel=kernel,
                                                  layer_height=layer_height,

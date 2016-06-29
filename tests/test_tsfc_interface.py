@@ -66,7 +66,7 @@ class TestTSFCCache:
     def test_tsfc_cache_read_from_disk(self, cache_key):
         """Loading an TSFCKernel from disk should yield the right object."""
         assert tsfc_interface.TSFCKernel._read_from_disk(
-            cache_key).cache_key == cache_key
+            cache_key, COMM_WORLD).cache_key == cache_key
 
     def test_tsfc_same_form(self, mass):
         """Compiling the same form twice should load kernels from cache."""

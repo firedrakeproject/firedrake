@@ -57,6 +57,7 @@ class LinearSolver(object):
             raise TypeError("Provided preconditioner is a '%s', not a Matrix" % type(P).__name__)
 
         self.A = A
+        self.comm = A.comm
         self.P = P if P is not None else A
 
         parameters = solver_parameters.copy() if solver_parameters is not None else {}
@@ -65,7 +66,7 @@ class LinearSolver(object):
         if self.P._M.sparsity.shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
 
-        self.ksp = PETSc.KSP().create()
+        self.ksp = PETSc.KSP().create(comm=self.comm)
         self.ksp.setOptionsPrefix(self._opt_prefix)
 
         # Allow command-line arguments to override dict parameters

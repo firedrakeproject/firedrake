@@ -38,7 +38,7 @@ def test_laplace_physical_ev(parallel=False):
     A.assemble()
 
     E = SLEPc.EPS()
-    E.create()
+    E.create(comm=mesh.comm)
     E.setOperators(A, M)
     st = E.getST()
     st.setType('sinvert')

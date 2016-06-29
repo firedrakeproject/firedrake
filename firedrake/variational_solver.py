@@ -126,7 +126,7 @@ class NonlinearVariationalSolver(object):
 
         ctx = solving_utils._SNESContext(problem)
 
-        self.snes = PETSc.SNES().create()
+        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
         self.snes.setOptionsPrefix(self._opt_prefix)
 

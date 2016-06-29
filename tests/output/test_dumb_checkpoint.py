@@ -46,7 +46,7 @@ def run_store_load(mesh, fs, degree, dumpfile):
 
     f2 = Function(V, name="f")
 
-    dumpfile = op2.MPI.comm.bcast(dumpfile, root=0)
+    dumpfile = mesh.comm.bcast(dumpfile, root=0)
     chk = DumbCheckpoint(dumpfile, mode=FILE_CREATE)
 
     chk.store(f)
@@ -69,14 +69,14 @@ def test_store_load_parallel(mesh, fs, degree, dumpfile):
 def test_serial_checkpoint_parallel_load_fails(f, dumpfile):
     from firedrake.petsc import PETSc
     # Write on COMM_SELF (size == 1)
-    chk = DumbCheckpoint("%s.%d" % (dumpfile, op2.MPI.comm.rank),
-                         mode=FILE_CREATE, comm=PETSc.COMM_SELF)
+    chk = DumbCheckpoint("%s.%d" % (dumpfile, f.comm.rank),
+                         mode=FILE_CREATE, comm=COMM_SELF)
     chk.store(f)
     chk.close()
     # Make sure it's written, and broadcast rank-0 name to all processes
-    fname = op2.MPI.comm.bcast("%s.0" % dumpfile, root=0)
+    fname = f.comm.bcast("%s.0" % dumpfile, root=0)
     with pytest.raises(ValueError):
-        with DumbCheckpoint(fname, mode=FILE_READ) as chk:
+        with DumbCheckpoint(fname, mode=FILE_READ, comm=f.comm) as chk:
             # Written on 1 process, loading on 2 should raise ValueError
             chk.load(f)
 
@@ -95,7 +95,7 @@ def test_checkpoint_read_not_exist_ioerror(dumpfile):
 
 def test_attributes(f, dumpfile):
     mesh = f.function_space().mesh()
-    with DumbCheckpoint(dumpfile, mode=FILE_CREATE) as chk:
+    with DumbCheckpoint(dumpfile, mode=FILE_CREATE, comm=mesh.comm) as chk:
         with pytest.raises(AttributeError):
             chk.write_attribute("/foo", "nprocs", 1)
         with pytest.raises(AttributeError):
