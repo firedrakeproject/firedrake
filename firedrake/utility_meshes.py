@@ -164,16 +164,17 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     mesh1 = mesh.Mesh(plex)
     mesh1.topology.init()
     cell_numbering = mesh1._cell_numbering
-    cell_closure = np.zeros((ncells, 9), dtype=int)
+    cell_range = plex.getHeightStratum(0)
+    cell_closure = np.zeros((cell_range[1], 9), dtype=int)
 
-    for e in range(ncells):
+    for e in range(*cell_range):
         closure, orient = plex.getTransitiveClosure(e)
         # get the row for this cell
         row = cell_numbering.getOffset(e)
 
         # run some checks
         assert(closure[0] == e)
-        assert(len(closure) == 7)
+        assert len(closure) == 7, closure
         edge_range = plex.getHeightStratum(1)
         assert(all(closure[1:5] >= edge_range[0]))
         assert(all(closure[1:5] < edge_range[1]))
@@ -187,6 +188,11 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         # Get a list of unique edges
         edge_set = list(set(closure[1:5]))
 
+        # Get the coordinates for this process
+        coords = plex.getCoordinatesLocal()
+        # get the PETSc section
+        coords_sec = plex.getCoordinateSection()
+
         # Add in the edges
         for i in range(3):
             # count up how many times each edge is repeated
@@ -196,24 +202,38 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
                 cell_closure[row][6] = edge_set[i]
                 cell_closure[row][7] = edge_set[i]
             elif repeats == 1:
-                # need to check if it is a right edge, or a left edge
-                support = plex.getSupport(edge_set[i])
+                # in this code we check if it is a right edge, or a left edge
+                # by inspecting the x coordinates of the edge vertex (1)
+                # and comparing with the x coordinates of the cell vertices (2)
 
-                if(e == 0):
-                    # special case for left hand cell
-                    if(ncells-1 in support):
+                # there is only one vertex on the edge in this case
+                edge_vertex = plex.getCone(edge_set[i])[0]
+
+                # there are two vertices in the cell
+                cell_vertices = closure[5:]
+
+                # get X coordinate for this edge
+                edge_X = coords[coords_sec.getOffset(edge_vertex)]
+                # get X coordinates for this cell
+                cell_X = np.array([0., 0.])
+                for i, v in enumerate(cell_vertices):
+                    cell_X[i] = coords[coords_sec.getOffset(v)]
+
+                if(cell_X.min() < Lx/ncells/2):
+                    # We are in the first cell
+                    if(edge_X.min() < Lx/ncells/2):
                         # we are on left hand edge
                         cell_closure[row][4] = edge_set[i]
                     else:
                         # we are on right hand edge
                         cell_closure[row][5] = edge_set[i]
                 else:
-                    if(e-1 in support):
-                        # we are on left hand edge
-                        cell_closure[row][4] = edge_set[i]
-                    else:
+                    if(cell_X.min() < edge_X.min() - Lx/ncells/2):
                         # we are on right hand edge
                         cell_closure[row][5] = edge_set[i]
+                    else:
+                        # we are on left hand edge
+                        cell_closure[row][4] = edge_set[i]
 
         # Add in the vertices
         vertices = closure[5:]
@@ -231,21 +251,23 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     fc = Function(Vc).interpolate(mesh1.coordinates)
 
     mash = mesh.Mesh(fc)
-    topverts = Vc.cell_node_list[:, 1::2].reshape((2*ncells,))
-    mash.coordinates.dat.data[topverts, 1] = Ly
+    topverts = Vc.cell_node_list[:, 1::2].flatten()
+    mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
 
-    #search for the last cell
-    for e in range(ncells):
+    # search for the last cell
+    for e in range(cell_range[1]):
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
-        Xvals = mash.coordinates.dat.data[cell_nodes, 0]
+        Xvals = mash.coordinates.dat.data_ro_with_halos[cell_nodes, 0]
         if(Xvals.max()-Xvals.min() > Lx/2):
-            mash.coordinates.dat.data[cell_nodes[2:], 0] = Lx
+            mash.coordinates.dat.data_with_halos[cell_nodes[2:], 0] = Lx
+        else:
+            mash.coordinates.dat.data_with_halos
 
     local_facet_dat = mesh1.topology.interior_facets.local_facet_dat
     local_facet_number = mesh1.topology.interior_facets.local_facet_number
-    for i in range(local_facet_dat.shape[0]):
-        if all(local_facet_dat.data[i, :] == np.array([3, 3])):
+    for i in range(local_facet_dat.data_ro.shape[0]):
+        if all(local_facet_dat.data_ro[i, :] == np.array([3, 3])):
             local_facet_dat.data[i, :] = [2, 3]
             local_facet_number[i, :] = [2, 3]
 
