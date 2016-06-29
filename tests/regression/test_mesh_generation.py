@@ -61,8 +61,8 @@ def test_one_element_mesh():
     r = Function(Vdg)
     u = Function(V)
 
-    # Checking that if interpolate a double periodic function
-    # to DG then projecting to CG returns the same function
+    # Interpolate a double periodic function to DG,
+    # then check if projecting to CG returns the same DG function.
     r.interpolate(Expression("sin(2*pi*x[0])"))
     u.project(r)
     assert(abs(assemble((u-r)*(u-r)*dx)) < 1.0e-4)

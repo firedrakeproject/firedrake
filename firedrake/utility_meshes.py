@@ -8,10 +8,10 @@ from pyop2.mpi import MPI, COMM_WORLD
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ
-from firedrake import mesh, Mesh
+from firedrake import mesh
 from firedrake import expression
 from firedrake import function
-from firedrake import functionspace, SpatialCoordinate
+from firedrake import functionspace
 from firedrake.petsc import PETSc
 
 
@@ -158,37 +158,37 @@ def OneElementThickMesh(ncells, Lx, Ly):
     coords = np.array([X, Y]).T
 
     # a line of coordinates, with a looped topology
-    plex = PETSc.DMPlex().createFromCellList(2, cells, coords)
-    mesh = Mesh(plex)
+    plex = mesh._from_cell_list(2, cells, coords)
+    mesh = mesh.Mesh(plex)
     mesh.topology.init()
     cell_numbering = mesh._cell_numbering
     cell_closure = np.zeros((ncells, 9), dtype=int)
 
     for e in range(ncells):
-        tc = plex.getTransitiveClosure(e)
+        closure, orient = plex.getTransitiveClosure(e)
         # get the row for this cell
         row = cell_numbering.getOffset(e)
 
         # run some checks
-        assert(tc[0][0] == e)
-        assert(len(tc[0]) == 7)
+        assert(closure[0] == e)
+        assert(len(closure) == 7)
         edge_range = plex.getHeightStratum(1)
-        assert(all(tc[0][1:5] >= edge_range[0]))
-        assert(all(tc[0][1:5] < edge_range[1]))
+        assert(all(closure[1:5] >= edge_range[0]))
+        assert(all(closure[1:5] < edge_range[1]))
         vertex_range = plex.getHeightStratum(2)
-        assert(all(tc[0][5:] >= vertex_range[0]))
-        assert(all(tc[0][5:] < vertex_range[1]))
+        assert(all(closure[5:] >= vertex_range[0]))
+        assert(all(closure[5:] < vertex_range[1]))
 
         # enter the cell number
         cell_closure[row][8] = e
 
         # Get a list of unique edges
-        edge_set = list(set(tc[0][1:5]))
+        edge_set = list(set(closure[1:5]))
 
         # Add in the edges
         for i in range(3):
             # count up how many times each edge is repeated
-            repeats = list(tc[0][1:5]).count(edge_set[i])
+            repeats = list(closure[1:5]).count(edge_set[i])
             if repeats == 2:
                 # we have a y-periodic edge
                 cell_closure[row][6] = edge_set[i]
@@ -214,7 +214,7 @@ def OneElementThickMesh(ncells, Lx, Ly):
                         cell_closure[row][5] = edge_set[i]
 
         # Add in the vertices
-        vertices = tc[0][5:]
+        vertices = closure[5:]
         v1 = min(vertices)
         v2 = max(vertices)
         if(v2 != v1 + 1):
@@ -231,9 +231,9 @@ def OneElementThickMesh(ncells, Lx, Ly):
     mesh.init()
 
     Vc = VectorFunctionSpace(mesh, 'DQ', 1)
-    fc = Function(Vc).interpolate(SpatialCoordinate(mesh))
+    fc = Function(Vc).interpolate(mesh.coordinates)
 
-    mash = Mesh(fc)
+    mash = mesh.Mesh(fc)
     topverts = Vc.cell_node_list[:, 1::2].reshape((2*ncells,))
     mash.coordinates.dat.data[topverts, 1] = Ly
 
