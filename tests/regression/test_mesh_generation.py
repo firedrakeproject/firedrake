@@ -58,71 +58,44 @@ def test_one_element_advection():
     nx = 20
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
     nlayers = 20
-    
     mesh = ExtrudedMesh(m, nlayers, 1.0/nlayers)
-    
-    V = FunctionSpace(mesh, "CG", 1)
-    
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    
-    Vdg = FunctionSpace(mesh,"DG",1)
-    Vcg = FunctionSpace(mesh,"CG",1)
-    Vu = VectorFunctionSpace(mesh,"DG",1)
-    
+    Vdg = FunctionSpace(mesh, "DG", 1)
+    Vu = VectorFunctionSpace(mesh, "DG", 1)
     q0 = Function(Vdg).interpolate(Expression("cos(2*pi*x[0])*cos(pi*x[2])"))
     q_init = Function(Vdg).assign(q0)
-    
     dq1 = Function(Vdg)
     q1 = Function(Vdg)
-    
     Dt = 0.01
     dt = Constant(Dt)
-    
     # Mesh-related functions
     n = FacetNormal(mesh)
-    
-    u0 = Function(Vu).interpolate(Expression(("1.0","0.0","0.0")))
-    
+    u0 = Function(Vu).interpolate(Expression(("1.0", "0.0", "0.0")))
     # ( dot(v, n) + |dot(v, n)| )/2.0
     un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
-
     # advection equation
     q = TrialFunction(Vdg)
     p = TestFunction(Vdg)
     a_mass = p*q*dx
     a_int = (dot(grad(p), -u0*q))*dx
-    a_flux = ( dot(jump(p), un('+')*q('+') - un('-')*q('-')) )*(dS_v + dS_h)
+    a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')))*(dS_v + dS_h)
     arhs = a_mass-dt*(a_int + a_flux)
-    
-    q_problem = LinearVariationalProblem(a_mass, action(arhs,q1), dq1)
-    q_solver = LinearVariationalSolver(q_problem, 
+    q_problem = LinearVariationalProblem(a_mass, action(arhs, q1), dq1)
+    q_solver = LinearVariationalSolver(q_problem,
                                        solver_parameters={
-                                           'ksp_type':'preonly',
-                                           'pc_type':'lu'
+                                           'ksp_type': 'preonly',
+                                           'pc_type': 'lu'
                                        })
-
-
     t = 0.
     T = 1.0
-    dumpfreq = 1
-    tdump = 0
-    
     while(t < (T-Dt/2)):
-        
         q1.assign(q0)
         q_solver.solve()
-        
-        q1.assign(dq1)    
+        q1.assign(dq1)
         q_solver.solve()
-        
         q1.assign(0.75*q0 + 0.25*dq1)
         q_solver.solve()
-        
         q0.assign(q0/3 + 2*dq1/3)
-        
-        t +=Dt
-
+        t += Dt
     assert(assemble((q0-q_init)**2*dx)**0.5 < 0.005)
 
 
