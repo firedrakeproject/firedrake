@@ -45,7 +45,7 @@ from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, COMM_WORLD, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
-from coffee.system import coffee_init
+from coffee.system import coffee_init, O0
 from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
@@ -74,6 +74,9 @@ def init(**kwargs):
     :arg comm:      The MPI communicator to use for parallel communication,
                     defaults to `MPI_COMM_WORLD`
     :arg log_level: The log level. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    :arg opt_level: The default optimization level in COFFEE. Options: O0, O1, O2,
+                    O3, Ofast. For more information about these levels, refer to
+                    ``coffee_init``'s documentation. The default value is O0.
 
     For debugging purposes, `init` accepts all keyword arguments
     accepted by the PyOP2 :class:`Configuration` object, see
@@ -108,7 +111,8 @@ def init(**kwargs):
 
         backends._BackendSelector._backend._setup()
 
-    coffee_init(compiler=configuration['compiler'], isa=configuration['simd_isa'])
+    coffee_init(compiler=configuration['compiler'], isa=configuration['simd_isa'],
+                optlevel=configuration.get('opt_level', O0))
 
 
 @atexit.register
