@@ -140,7 +140,7 @@ def PeriodicUnitIntervalMesh(ncells, comm=COMM_WORLD):
     return PeriodicIntervalMesh(ncells, length=1.0, comm=comm)
 
 
-def OneElementThickMesh(ncells, Lx, Ly):
+def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     """
     Generate a rectangular mesh in the domain with corners [0,0]
     and [Lx, Ly] with ncells, that is periodic in the x-direction.
@@ -148,6 +148,8 @@ def OneElementThickMesh(ncells, Lx, Ly):
     :arg ncells: The number of cells in the mesh.
     :arg Lx: The width of the domain in the x-direction.
     :arg Ly: The width of the domain in the y-direction.
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
     """
 
     left = np.arange(ncells, dtype='int32')
@@ -158,10 +160,10 @@ def OneElementThickMesh(ncells, Lx, Ly):
     coords = np.array([X, Y]).T
 
     # a line of coordinates, with a looped topology
-    plex = mesh._from_cell_list(2, cells, coords)
-    mesh = mesh.Mesh(plex)
-    mesh.topology.init()
-    cell_numbering = mesh._cell_numbering
+    plex = mesh._from_cell_list(2, cells, coords, comm)
+    mesh1 = mesh.Mesh(plex)
+    mesh1.topology.init()
+    cell_numbering = mesh1._cell_numbering
     cell_closure = np.zeros((ncells, 9), dtype=int)
 
     for e in range(ncells):
@@ -226,12 +228,12 @@ def OneElementThickMesh(ncells, Lx, Ly):
         cell_closure[row][2] = v2
         cell_closure[row][3] = v2
 
-    mesh.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
+    mesh1.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
 
-    mesh.init()
+    mesh1.init()
 
-    Vc = VectorFunctionSpace(mesh, 'DQ', 1)
-    fc = Function(Vc).interpolate(mesh.coordinates)
+    Vc = VectorFunctionSpace(mesh1, 'DQ', 1)
+    fc = Function(Vc).interpolate(mesh1.coordinates)
 
     mash = mesh.Mesh(fc)
     topverts = Vc.cell_node_list[:, 1::2].reshape((2*ncells,))
@@ -241,8 +243,8 @@ def OneElementThickMesh(ncells, Lx, Ly):
     last_cell_nodes = Vc.cell_node_list[last_cell, :]
     mash.coordinates.dat.data[last_cell_nodes[2:], 0] = Lx
 
-    local_facet_dat = mesh.topology.interior_facets.local_facet_dat
-    local_facet_number = mesh.topology.interior_facets.local_facet_number
+    local_facet_dat = mesh1.topology.interior_facets.local_facet_dat
+    local_facet_number = mesh1.topology.interior_facets.local_facet_number
     for i in range(local_facet_dat.shape[0]):
         if all(local_facet_dat.data[i, :] == np.array([3, 3])):
             local_facet_dat.data[i, :] = [2, 3]
