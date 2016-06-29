@@ -21,15 +21,15 @@ def mesh1d(request):
                         pytest.mark.xfail(('dg', False)),
                         ('dg', True),
                         # TODO: generate mesh from .geo file
-                        ('file', '../t11_tria.msh'),
-                        ('file', '../t11_quad.msh')])
+                        ('file', 't11_tria.msh'),
+                        ('file', 't11_quad.msh')])
 def mesh2d(request):
     if request.param[0] == 'cg':
         return UnitSquareMesh(12, 12, quadrilateral=request.param[1])
     elif request.param[0] == 'dg':
         return PeriodicUnitSquareMesh(12, 12, quadrilateral=request.param[1])
     elif request.param[0] == 'file':
-        meshfile = join(cwd, request.param[1])
+        meshfile = join(cwd, '..', 'meshes', request.param[1])
         return Mesh(meshfile)
 
 

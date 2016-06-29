@@ -25,8 +25,8 @@ clean:
 	-@rm -f firedrake/hdf5interface.c > /dev/null 2>&1
 	@echo "    RM firedrake/spatialindex.so"
 	-@rm -f firedrake/spatialindex.so > /dev/null 2>&1
-	@echo "    RM firedrake/spatialindex.cpp"
-	-@rm -f firedrake/spatialindex.cpp > /dev/null 2>&1
+	@echo "    RM firedrake/spatialindex.c"
+	-@rm -f firedrake/spatialindex.c > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.so"
 	-@rm -f firedrake/mg/impl.so > /dev/null 2>&1
 	@echo "    RM firedrake/mg/impl.c"

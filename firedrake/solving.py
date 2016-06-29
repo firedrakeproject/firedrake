@@ -109,6 +109,9 @@ def solve(*args, **kwargs):
     spanning the null space of the operator to the solve call using
     the ``nullspace`` keyword argument.
 
+    If you need to project the transpose nullspace out of the right
+    hand side, you can do so by using the ``transpose_nullspace``
+    keyword argument.
     """
 
     assert(len(args) > 0)
@@ -126,7 +129,7 @@ def _solve_varproblem(*args, **kwargs):
 
     # Extract arguments
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
-        solver_parameters, nullspace, options_prefix, \
+        solver_parameters, nullspace, nullspace_T, options_prefix, \
         nest = _extract_args(*args, **kwargs)
 
     # Solve linear variational problem
@@ -140,6 +143,7 @@ def _solve_varproblem(*args, **kwargs):
         # Create solver and call solve
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace,
+                                            transpose_nullspace=nullspace_T,
                                             options_prefix=options_prefix)
         with progress(INFO, 'Solving linear variational problem'):
             solver.solve()
@@ -157,6 +161,7 @@ def _solve_varproblem(*args, **kwargs):
         # Create solver and call solve
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                                nullspace=nullspace,
+                                               transpose_nullspace=nullspace_T,
                                                options_prefix=options_prefix)
         with progress(INFO, 'Solving nonlinear variational problem'):
             solver.solve()
@@ -173,6 +178,8 @@ def _la_solve(A, x, b, **kwargs):
     :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
          :class:`.MixedVectorSpaceBasis`) spanning the null space of
          the operator.
+    :kwarg transpose_nullspace: as for the nullspace, but used to
+         make the right hand side consistent.
     :kwarg options_prefix: an optional prefix used to distinguish
          PETSc options.  If not provided a unique prefix will be
          created.  Use this option if you want to pass options
@@ -199,20 +206,22 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
-    bcs, solver_parameters, nullspace, options_prefix \
+    bcs, solver_parameters, nullspace, nullspace_T, options_prefix \
         = _extract_linear_solver_args(A, x, b, **kwargs)
     if bcs is not None:
         A.bcs = bcs
 
     solver = ls.LinearSolver(A, solver_parameters=solver_parameters,
                              nullspace=nullspace,
+                             transpose_nullspace=nullspace_T,
                              options_prefix=options_prefix)
 
     solver.solve(x, b)
 
 
 def _extract_linear_solver_args(*args, **kwargs):
-    valid_kwargs = ["bcs", "solver_parameters", "nullspace", "options_prefix"]
+    valid_kwargs = ["bcs", "solver_parameters", "nullspace",
+                    "transpose_nullspace", "options_prefix"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -224,9 +233,10 @@ def _extract_linear_solver_args(*args, **kwargs):
     bcs = kwargs.get("bcs", None)
     solver_parameters = kwargs.get("solver_parameters", None)
     nullspace = kwargs.get("nullspace", None)
+    nullspace_T = kwargs.get("transpose_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
 
-    return bcs, solver_parameters, nullspace, options_prefix
+    return bcs, solver_parameters, nullspace, nullspace_T, options_prefix
 
 
 def _extract_args(*args, **kwargs):
@@ -235,7 +245,7 @@ def _extract_args(*args, **kwargs):
     # Check for use of valid kwargs
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
-                    "nullspace",
+                    "nullspace", "transpose_nullspace",
                     "options_prefix",
                     "nest"]
     for kwarg in kwargs.iterkeys():
@@ -274,6 +284,7 @@ def _extract_args(*args, **kwargs):
         raise RuntimeError("Expecting goal functional M to be a UFL Form")
 
     nullspace = kwargs.get("nullspace", None)
+    nullspace_T = kwargs.get("transpose_nullspace", None)
     # Extract parameters
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
@@ -281,7 +292,7 @@ def _extract_args(*args, **kwargs):
     nest = kwargs.get("nest", None)
 
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
-        solver_parameters, nullspace, options_prefix, nest
+        solver_parameters, nullspace, nullspace_T, options_prefix, nest
 
 
 def _extract_bcs(bcs):

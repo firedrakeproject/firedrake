@@ -88,6 +88,8 @@ class NonlinearVariationalSolver(object):
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
                space of the operator.
+        :kwarg transpose_nullspace: as for the nullspace, but used to
+               make the right hand side consistent.
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
@@ -108,7 +110,7 @@ class NonlinearVariationalSolver(object):
 
             {'snes_monitor': True}
         """
-        parameters, nullspace, options_prefix = solving_utils._extract_kwargs(**kwargs)
+        parameters, nullspace, nullspace_T, options_prefix = solving_utils._extract_kwargs(**kwargs)
 
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__
@@ -124,7 +126,7 @@ class NonlinearVariationalSolver(object):
 
         ctx = solving_utils._SNESContext(problem)
 
-        self.snes = PETSc.SNES().create()
+        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
         self.snes.setOptionsPrefix(self._opt_prefix)
 
@@ -145,7 +147,10 @@ class NonlinearVariationalSolver(object):
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises)
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
+                          transpose=False)
+        ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
+                          transpose=True)
 
         self.parameters = parameters
 
@@ -240,6 +245,8 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
                space of the operator.
+        :kwarg transpose_nullspace: as for the nullspace, but used to
+               make the right hand side consistent.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options

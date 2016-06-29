@@ -5,9 +5,42 @@ from mpi4py import MPI
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
+from firedrake.matrix import Matrix
 
 
-__all__ = ['Vector']
+__all__ = ['Vector', 'as_backend_type']
+
+
+class VectorShim(object):
+    """Compatibility layer to enable Dolfin-style as_backend_type to work."""
+    def __init__(self, vec):
+        self._vec = vec
+
+    def vec(self):
+        with self._vec.dat.vec as v:
+            return v
+
+
+class MatrixShim(object):
+    """Compatibility layer to enable Dolfin-style as_backend_type to work."""
+    def __init__(self, mat):
+        self._mat = mat
+
+    def mat(self):
+        return self._mat.M.handle
+
+
+def as_backend_type(tensor):
+    """Compatibility operation for Dolfin's backend switching
+    operations. This is for Dolfin compatibility only. There is no reason
+    for Firedrake users to ever call this."""
+
+    if isinstance(tensor, Vector):
+        return VectorShim(tensor)
+    elif isinstance(tensor, Matrix):
+        return MatrixShim(tensor)
+    else:
+        raise TypeError("Unknown tensor type %s" % type(tensor))
 
 
 class Vector(object):
@@ -23,6 +56,7 @@ class Vector(object):
             self.dat = x
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))
+        self.comm = self.dat.comm
 
     def axpy(self, a, x):
         """Add a*x to self.
@@ -40,22 +74,50 @@ class Vector(object):
             self.dat *= a.dat
         except AttributeError:
             self.dat *= a
+        return self
 
     def __mul__(self, other):
-        """Scale self by other"""
+        """Scalar multiplication by other."""
+        return self.copy()._scale(other)
+
+    def __imul__(self, other):
+        """In place scalar multiplication by other."""
         return self._scale(other)
 
+    def __rmul__(self, other):
+        """Reverse scalar multiplication by other."""
+        return self.__mul__(other)
+
     def __add__(self, other):
+        """Add other to self"""
+        sum = self.copy()
+        try:
+            sum.dat += other.dat
+        except AttributeError:
+            sum += other
+        return sum
+
+    def __iadd__(self, other):
         """Add other to self"""
         try:
             self.dat += other.dat
         except AttributeError:
-            self.dat += other
+            self += other
+        return self
+
+    def apply(self, action):
+        """Finalise vector assembly. This is not actually required in
+        Firedrake but is provided for Dolfin compatibility."""
+        pass
 
     def array(self):
         """Return a copy of the process local data as a numpy array"""
         with self.dat.vec_ro as v:
             return np.copy(v.array)
+
+    def copy(self):
+        """Return a copy of this vector."""
+        return Vector(op2.Dat(self.dat))
 
     def get_local(self):
         """Return a copy of the process local data as a numpy array"""
@@ -72,12 +134,24 @@ class Vector(object):
         """Return the size of the process local data (without ghost points)"""
         return self.dat.dataset.size
 
+    def local_range(self):
+        """Return the global indices of the start and end of the local part of
+        this vector."""
+
+        with self.dat.vec_ro as v:
+            return v.getOwnershipRange()
+
+    def max(self):
+        """Return the maximum entry in the vector."""
+        with self.dat.vec_ro as v:
+            return v.max()[1]
+
     def size(self):
         """Return the global size of the data"""
         if hasattr(self, '_size'):
             return self._size
         lsize = self.local_size()
-        self._size = op2.MPI.comm.allreduce(lsize, op=MPI.SUM)
+        self._size = self.comm.allreduce(lsize, op=MPI.SUM)
         return self._size
 
     def inner(self, other):

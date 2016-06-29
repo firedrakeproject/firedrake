@@ -715,6 +715,15 @@ the solution to be :math:`u(x, y) = y - 0.5`.
    exact.interpolate(Expression('x[1] - 0.5'))
    print sqrt(assemble((u - exact)*(u - exact)*dx))
 
+For this to work, the provided right hand side must be orthogonal to
+the transpose nullspace of the operator as well.  In many cases, we
+can arrange for this to occur by careful choice of initial
+conditions.  Sometimes this is not possible.  In this case, you can
+ask Firedrake to remove the component of the right hand side that is
+in the transpose nullspace by providing a
+:class:`~firedrake.nullspace.VectorSpaceBasis` with the
+``transpose_nullspace`` keyword argument to :func:`~.solve`.
+
 Singular operators in mixed spaces
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

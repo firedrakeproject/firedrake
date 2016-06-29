@@ -103,7 +103,7 @@ def test_dict_order_parallel(f):
         consts.append(Constant(i, domain=mesh))
 
     arg = {}
-    if op2.MPI.comm.rank == 0:
+    if mesh.comm.rank == 0:
         arg['d'] = (d, WRITE)
 
         for i, c in enumerate(consts):
@@ -160,6 +160,23 @@ def test_cg_max_field_extruded(f_extruded):
     assert (c.dat.data == [1./4, 1./4, 1./4,
                            3./4, 3./4, 3./4,
                            3./4, 3./4, 3./4]).all()
+
+
+@pytest.mark.parametrize("subdomain", [1, 2])
+def test_cell_subdomain(subdomain):
+    from os.path import abspath, dirname, join
+    mesh = Mesh(join(abspath(dirname(__file__)), "..",
+                     "meshes", "cell-sets.msh"))
+
+    V = FunctionSpace(mesh, "DG", 0)
+    expect = interpolate(as_ufl(1), V, subset=mesh.cell_subset(subdomain))
+
+    f = Function(V)
+    par_loop("""
+    for (int i=0; i<f.dofs; i++) f[i][0] = 1.0;
+    """, dx(subdomain), {'f': (f, WRITE)})
+
+    assert np.allclose(f.dat.data, expect.dat.data)
 
 
 def test_walk_facets_rt():

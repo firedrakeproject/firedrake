@@ -88,6 +88,9 @@ honoured.""",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc")
+    parser.add_argument("--virtualenv-name", default="firedrake",
+                        type=str, action="store",
+                        help="Name of the virtualenv to create (default is 'firedrake')")
 
     if travis:
         parser.add_argument("--write-cache", action="store_true",
@@ -130,6 +133,8 @@ else:
     args.adjoint = args.adjoint or args.install_adjoint
     args.slepc = False
     args.slepc = args.slepc or args.install_slepc
+    args.virtualenv_name = False
+    args.virtualenv_name = args.virtualenv_name or "firedrake"
 
 
 # Where are packages installed relative to --root?
@@ -148,11 +153,12 @@ pyinstall = ["python", "setup.py", "install"]
 pipinstall = sudopip + ["install"]
 # virtualenv install
 # Use the pip from the virtualenv
-sudopip = [os.getcwd() + "/firedrake/bin/pip"]
+firedrake_env = args.virtualenv_name
+sudopip = [os.getcwd() + "/%s/bin/pip" % firedrake_env]
 pipinstall = sudopip + ["install"]
-python = [os.getcwd() + "/firedrake/bin/python"]
+python = [os.getcwd() + "/%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
-sitepackages = os.path.join(os.getcwd(), "firedrake/lib/python%d.%d/site-packages" % (v.major, v.minor))
+sitepackages = os.path.join(os.getcwd(), "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor))
 
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 
@@ -242,7 +248,11 @@ def apt_check(name):
 
 def apt_install(names):
     log.info("Installing missing packages: %s." % ", ".join(names))
-    subprocess.check_call(["sudo", "apt-get", "install"] + names)
+    if sys.stdin.isatty():
+        subprocess.check_call(["sudo", "apt-get", "install"] + names)
+    else: 
+        log.info("Non-interactive stdin detected; installing without prompts")
+        subprocess.check_call(["sudo", "apt-get", "-y", "install"] + names)
 
 
 def split_requirements_url(url):
@@ -276,7 +286,7 @@ def git_clone(url):
     try:
         if args.disable_ssh:
             raise Exception
-        check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "git")])
+        check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "ssh")])
         log.info("Successfully cloned %s branch %s." % (name, branch))
     except:
         if not args.disable_ssh:
@@ -692,7 +702,8 @@ def build_update_script():
         update_script = f.read()
 
     for switch in ["developer", "sudo", "package_manager", "minimal_petsc",
-                   "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint"]:
+                   "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint",
+                   "virtualenv_name"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
@@ -840,16 +851,16 @@ if mode == "install":
         else:
             check_call(["pip", "install", "--user", "virtualenv"])
         quit("Virtual env installed. Please run firedrake-%s again." % mode)
-    log.info("Creating firedrake virtualenv.")
-    virtualenv.create_environment("firedrake", site_packages=False)
+    log.info("Creating firedrake virtualenv in '%s'." % firedrake_env)
+    virtualenv.create_environment(firedrake_env, site_packages=False)
     # For some reason virtualenv does not always install the latest pip.
     run_pip_install(["-U", "pip"])
-virtual_env_vars = dict(__file__='firedrake/bin/activate_this.py')
-execfile("firedrake/bin/activate_this.py", virtual_env_vars)
+virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
+execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
 # Activating the virtual_env from within Python does not automatically set the environment variable.
 os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
-os.chdir("firedrake")
+os.chdir(firedrake_env)
 if mode == "install":
     os.mkdir("src")
     os.chdir("src")
@@ -996,10 +1007,10 @@ os.chdir("../..")
 
 log.info("Successfully installed Firedrake.\n")
 
-log.info("To upgrade firedrake, run firedrake/bin/firedrake-update")
+log.info("To upgrade firedrake, run %s/bin/firedrake-update" % firedrake_env)
 
 log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
-log.info("  . firedrake/bin/activate\n")
+log.info("  . %s/bin/activate\n" % firedrake_env)
 log.info("The virtualenv can be deactivated by running:\n")
 log.info("  deactivate")
 

@@ -1,44 +1,58 @@
 cimport numpy as np
 import ctypes
+import cython
 from libc.stdint cimport uintptr_t
 
-include "spatialindex.pxi"
+include "spatialindexinc.pxi"
 
 cdef class SpatialIndex(object):
     """Python class for holding a native spatial index object."""
 
-    cdef IStorageManager *storage_manager
-    cdef ISpatialIndex *spatial_index
+    cdef IndexH index
 
     def __cinit__(self, uint32_t dim):
         """Initialize a native spatial index.
 
         :arg dim: spatial (geometric) dimension
         """
-        cdef:
-            PropertySet ps
-            Variant var
+        cdef IndexPropertyH ps = NULL
+        cdef RTError err = RT_None
 
-        self.storage_manager = NULL
-        self.spatial_index = NULL
+        self.index = NULL
+        try:
+            ps = IndexProperty_Create()
+            if ps == NULL:
+                raise RuntimeError("failed to create index properties")
 
-        var.m_varType = VT_ULONG
-        var.m_val.ulVal = dim
-        ps.setProperty("Dimension", var)
+            err = IndexProperty_SetIndexType(ps, RT_RTree)
+            if err != RT_None:
+                raise RuntimeError("failed to set index type")
 
-        self.storage_manager = createNewMemoryStorageManager()
-        self.spatial_index = returnRTree(self.storage_manager[0], ps)
+            err = IndexProperty_SetDimension(ps, dim)
+            if err != RT_None:
+                raise RuntimeError("failed to set dimension")
+
+            err = IndexProperty_SetIndexStorage(ps, RT_Memory)
+            if err != RT_None:
+                raise RuntimeError("failed to set index storage")
+
+            self.index = Index_Create(ps)
+            if self.index == NULL:
+                raise RuntimeError("failed to create index")
+        finally:
+            IndexProperty_Destroy(ps)
 
     def __dealloc__(self):
-        del self.spatial_index
-        del self.storage_manager
+        Index_Destroy(self.index)
 
     @property
     def ctypes(self):
         """Returns a ctypes pointer to the native spatial index."""
-        return ctypes.c_void_p(<uintptr_t> self.spatial_index)
+        return ctypes.c_void_p(<uintptr_t> self.index)
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
                  np.ndarray[np.float64_t, ndim=2, mode="c"] regions_hi):
     """Builds a spatial index from a set of maximum bounding regions (MBRs).
@@ -49,8 +63,9 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
     """
     cdef:
         SpatialIndex spatial_index
-        Region region
-        int i, dim
+        int64_t i
+        uint32_t dim
+        RTError err
 
     assert regions_lo.shape[0] == regions_hi.shape[0]
     assert regions_lo.shape[1] == regions_hi.shape[1]
@@ -58,6 +73,7 @@ def from_regions(np.ndarray[np.float64_t, ndim=2, mode="c"] regions_lo,
 
     spatial_index = SpatialIndex(dim)
     for i in xrange(len(regions_lo)):
-        region = Region(&regions_lo[i, 0], &regions_hi[i, 0], dim)
-        spatial_index.spatial_index.insertData(0, NULL, region, i)
+        err = Index_InsertData(spatial_index.index, i, &regions_lo[i, 0], &regions_hi[i, 0], dim, NULL, 0)
+        if err != RT_None:
+            raise RuntimeError("failed to insert data into spatial index")
     return spatial_index

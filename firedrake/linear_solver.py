@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import ufl
 import firedrake.function as function
+import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
 from firedrake.petsc import PETSc
@@ -15,7 +16,8 @@ class LinearSolver(object):
     _id = 0
 
     def __init__(self, A, P=None, solver_parameters=None,
-                 nullspace=None, options_prefix=None):
+                 nullspace=None, transpose_nullspace=None,
+                 options_prefix=None):
         """A linear solver for assembled systems (Ax = b).
 
         :arg A: a :class:`~.Matrix` (the operator).
@@ -26,6 +28,8 @@ class LinearSolver(object):
         :kwarg nullspace: an optional :class:`~.VectorSpaceBasis` (or
             :class:`~.MixedVectorSpaceBasis` spanning the null space
             of the operator.
+        :kwarg transpose_nullspace: as for the nullspace, but used to
+               make the right hand side consistent.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
@@ -53,6 +57,7 @@ class LinearSolver(object):
             raise TypeError("Provided preconditioner is a '%s', not a Matrix" % type(P).__name__)
 
         self.A = A
+        self.comm = A.comm
         self.P = P if P is not None else A
 
         parameters = solver_parameters.copy() if solver_parameters is not None else {}
@@ -61,7 +66,7 @@ class LinearSolver(object):
         if self.P._M.sparsity.shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
 
-        self.ksp = PETSc.KSP().create()
+        self.ksp = PETSc.KSP().create(comm=self.comm)
         self.ksp.setOptionsPrefix(self._opt_prefix)
 
         # Allow command-line arguments to override dict parameters
@@ -81,7 +86,14 @@ class LinearSolver(object):
             nullspace._apply(self.A._M)
             if P is not None:
                 nullspace._apply(self.P._M)
+
+        if transpose_nullspace is not None:
+            transpose_nullspace._apply(self.A._M, transpose=True)
+            if P is not None:
+                transpose_nullspace._apply(self.P._M, transpose=True)
+
         self.nullspace = nullspace
+        self.transpose_nullspace = transpose_nullspace
         self._W = W
         # Operator setting must come after null space has been
         # applied
@@ -126,13 +138,15 @@ class LinearSolver(object):
             delattr(self, '_opt_prefix')
 
     def solve(self, x, b):
-        if not isinstance(x, function.Function):
-            raise TypeError("Provided solution is a '%s', not a Function" % type(x).__name__)
+        if not isinstance(x, (function.Function, vector.Vector)):
+            raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
         if not isinstance(b, function.Function):
             raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
 
         if len(self._W) > 1 and self.nullspace is not None:
             self.nullspace._apply(self._W.dof_dset.field_ises)
+        if len(self._W) > 1 and self.transpose_nullspace is not None:
+            self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True)
         # User may have updated parameters
         solving_utils.update_parameters(self, self.ksp)
         if self.A.has_bcs:

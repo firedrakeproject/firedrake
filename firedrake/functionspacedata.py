@@ -84,11 +84,11 @@ def get_node_set(mesh, nodes_per_entity):
     """
     global_numbering = get_global_numbering(mesh, nodes_per_entity)
     # Use a DM to create the halo SFs
-    dm = PETSc.DMShell().create()
+    dm = PETSc.DMShell().create(mesh.comm)
     dm.setPointSF(mesh._plex.getPointSF())
     dm.setDefaultSection(global_numbering)
     node_classes = tuple(numpy.dot(nodes_per_entity, mesh._entity_classes))
-    node_set = op2.Set(node_classes, halo=halo_mod.Halo(dm))
+    node_set = op2.Set(node_classes, halo=halo_mod.Halo(dm), comm=mesh.comm)
     # Don't need it any more, explicitly destroy.
     dm.destroy()
     extruded = bool(mesh.layers)
@@ -364,7 +364,8 @@ class FunctionSpaceData(object):
         # loop is direct and we already have all the correct
         # information available locally.  So We fake a set of the
         # correct size and carry out a direct loop
-        facet_set = op2.Set(self.mesh.exterior_facets.set.total_size)
+        facet_set = op2.Set(self.mesh.exterior_facets.set.total_size,
+                            comm=self.mesh.comm)
 
         fs_dat = op2.Dat(facet_set**el.space_dimension(),
                          data=V.exterior_facet_node_map().values_with_halo)

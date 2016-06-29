@@ -30,7 +30,7 @@ def test_interval_three_arg():
 
 
 def test_interval_negative_length():
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         IntervalMesh(10, 2, 1)
 
 
@@ -56,11 +56,6 @@ def test_unit_cube():
 
 def test_box():
     assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
-
-
-def test_unit_circle():
-    pytest.importorskip('gmshpy')
-    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
 def test_unit_triangle():
@@ -99,12 +94,6 @@ def test_unit_square_parallel():
 @pytest.mark.parallel
 def test_unit_cube_parallel():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
-
-
-@pytest.mark.skipif("gmshpy is None", reason='gmshpy not available')
-@pytest.mark.parallel
-def test_unit_circle_parallel():
-    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
 def assert_num_exterior_facets_equals_zero(m):
@@ -217,7 +206,8 @@ def test_mesh_reordering_defaults_on():
 
 def run_mesh_validation():
     from os.path import abspath, dirname, join
-    meshfile = join(abspath(dirname(__file__)), "broken_rogue_point.msh")
+    meshfile = join(abspath(dirname(__file__)), "..", "meshes",
+                    "broken_rogue_point.msh")
     with pytest.raises(ValueError):
         # Reading a mesh with points not reachable from cell closures
         # should raise ValueError

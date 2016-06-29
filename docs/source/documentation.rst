@@ -35,8 +35,8 @@
 
   .. _firedrake_tutorials:
 
-Tutorials
-=========
+Introductory Tutorials
+======================
 
 Once you've built Firedrake, you'll want to actually solve some
 PDEs. Below are a few tutorial examples to get you started.
@@ -48,11 +48,17 @@ PDEs. Below are a few tutorial examples to get you started.
    The Burgers equation, a non-linear, unsteady example.<demos/burgers.py>
    A mixed formulation of the Poisson equation.<demos/poisson_mixed.py>
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
-   Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
-   Preconditioning saddle-point systems, using the mixed Poisson problem as an example.<demos/saddle_point_systems.py>
-   The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
-   The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
+
+.. only:: html
+
+  API documentation
+  =================
+
+  The complete list of all the classes and methods in Firedrake is
+  available at the :doc:`firedrake` page. The same information is
+  :ref:`indexed <genindex>` in alphabetical order. Another very
+  effective mechanism is the site :ref:`search engine <search>`.
 
 Manual
 ======
@@ -74,13 +80,20 @@ finite element problems in Firedrake.
    visualisation
    checkpointing
    petsc-interface
+   parallelism
 
-.. only:: html
+Advanced tutorials
+==================
 
-  API documentation
-  =================
+These tutorials demonstrate some more advanced features of Firedrake's
+PDE solving capabilities, such as block-preconditioning mixed finite
+element systems.
 
-  The complete list of all the classes and methods in Firedrake is
-  available at the :doc:`firedrake` page. The same information is
-  :ref:`indexed <genindex>` in alphabetical order. Another very
-  effective mechanism is the site :ref:`search engine <search>`.
+.. toctree::
+   :maxdepth: 1
+
+   Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
+   Solving the one-layer Quasi-Geostrophic equations.<demos/qg_1layer_wave.py>
+   Preconditioning saddle-point systems, using the mixed Poisson problem as an example.<demos/saddle_point_systems.py>
+   The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
+   The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>

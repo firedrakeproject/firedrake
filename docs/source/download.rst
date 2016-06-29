@@ -152,6 +152,7 @@ We list here the required homebrew_ packages:
 - automake
 - libtool
 - cmake
+- glpk (science tap)
 
 Ubuntu
 ------
@@ -164,6 +165,7 @@ On Ubuntu, the following apt packages are required:
 - cmake
 - gfortran
 - git-core
+- glpk-utils
 - libblas-dev
 - liblapack-dev
 - libopenmpi-dev
@@ -219,8 +221,9 @@ Otherwise, use the appropriate values of ``PETSC_DIR`` and ``PETSC_ARCH``.
 libspatialindex
 ~~~~~~~~~~~~~~~
 
-libspatialindex_ is utilised during point evaluations.  This version
-is known to work with Firedrake:
+libspatialindex_ is utilised during point evaluations. Since we need a
+recent version, the system provided package is unlikely to work.  This
+version is known to work with Firedrake:
 
 - https://github.com/firedrakeproject/libspatialindex
 

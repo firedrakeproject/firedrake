@@ -70,7 +70,7 @@ def create_lgmap(PETSc.DM dm):
         PetscInt start, end
 
     # Not necessary on one process
-    if MPI.comm.size == 1:
+    if dm.comm.size == 1:
         return None
     CHKERR(DMPlexCreatePointNumbering(dm.dm, &iset.iset))
     CHKERR(ISLocalToGlobalMappingCreateIS(iset.iset, &lgmap.lgm))
@@ -164,7 +164,7 @@ def coarse_to_fine_cells(mc, mf):
     # Walk owned fine cells:
     fStart, fEnd = 0, nfine
 
-    if MPI.comm.size > 1:
+    if mc.comm.size > 1:
         # Compute global numbers of original cell numbers
         mf._overlapped_lgmap.apply(fn2o, result=fn2o)
         # Compute local numbers of original cells on non-overlapped mesh
@@ -248,7 +248,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
 
     cvertices = P1c.cell_node_map().values
     fvertices = P1f.cell_node_map().values
-    if MPI.comm.size > 1:
+    if coarse.comm.size > 1:
         # Convert values in indices to points in the overlapped
         # (rather than non-overlapped) mesh.
         # Convert to global numbers

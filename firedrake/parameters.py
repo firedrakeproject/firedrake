@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
 from firedrake.citations import Citations
+from coffee.system import coffee_reconfigure
 
 
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
@@ -60,11 +61,11 @@ parameters.add(Parameters("assembly_cache",
                           max_factor=0.6,
                           max_misses=3))
 
-parameters.add(Parameters("coffee",
-                          O2=True))
-
-# Spew citation for coffee paper if user modifies coffee options.
-parameters["coffee"].set_update_function(lambda k, v: Citations().register("Luporini2015"))
+# The COFFEE default optimization level is O2
+coffee_default_optlevel = "O2"
+coffee_opts = Parameters("coffee", optlevel=coffee_default_optlevel)
+coffee_opts.set_update_function(lambda k, v: coffee_reconfigure(**{k: v}))
+parameters.add(coffee_opts)
 
 # Default to the values of PyOP2 configuration dictionary
 pyop2_opts = Parameters("pyop2_options",
@@ -75,6 +76,9 @@ pyop2_opts.set_update_function(lambda k, v: configuration.unsafe_reconfigure(**{
 # Override values
 pyop2_opts["type_check"] = True
 pyop2_opts["log_level"] = "INFO"
+
+# PyOP2 must know about the COFFEE optimization level chosen by Firedrake
+pyop2_opts["opt_level"] = coffee_default_optlevel
 
 parameters.add(pyop2_opts)
 
