@@ -234,9 +234,13 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     topverts = Vc.cell_node_list[:, 1::2].reshape((2*ncells,))
     mash.coordinates.dat.data[topverts, 1] = Ly
 
-    last_cell = cell_numbering.getOffset(ncells-1)
-    last_cell_nodes = Vc.cell_node_list[last_cell, :]
-    mash.coordinates.dat.data[last_cell_nodes[2:], 0] = Lx
+    #search for the last cell
+    for e in range(ncells):
+        cell = cell_numbering.getOffset(e)
+        cell_nodes = Vc.cell_node_list[cell, :]
+        Xvals = mash.coordinates.dat.data[cell_nodes, 0]
+        if(Xvals.max()-Xvals.min() > Lx/2):
+            mash.coordinates.dat.data[cell_nodes[2:], 0] = Lx
 
     local_facet_dat = mesh1.topology.interior_facets.local_facet_dat
     local_facet_number = mesh1.topology.interior_facets.local_facet_number
