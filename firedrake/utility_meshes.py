@@ -402,7 +402,7 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     * 2: plane x == Lx
     """
 
-    if direction == "both" and ny == 1 and quadrilateral=True:
+    if direction == "both" and ny == 1 and quadrilateral==True:
         return OneElementThickMesh(nx, Lx, Ly)
 
     if direction not in ("both", "x", "y"):
