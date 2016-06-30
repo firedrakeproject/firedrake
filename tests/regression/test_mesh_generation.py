@@ -55,13 +55,15 @@ def test_unit_cube():
 
 
 def test_one_element_advection():
-    nx = 20
+    nx = 3
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
     nlayers = 20
     mesh = ExtrudedMesh(m, nlayers, 1.0/nlayers)
     Vdg = FunctionSpace(mesh, "DG", 1)
     Vu = VectorFunctionSpace(mesh, "DG", 1)
     q0 = Function(Vdg).interpolate(Expression("cos(2*pi*x[0])*cos(pi*x[2])"))
+    qfile = File('q0.pvd')
+    qfile.write(q0)
     q_init = Function(Vdg).assign(q0)
     dq1 = Function(Vdg)
     q1 = Function(Vdg)
@@ -96,6 +98,7 @@ def test_one_element_advection():
         q_solver.solve()
         q0.assign(q0/3 + 2*dq1/3)
         t += Dt
+        qfile.write(q0)
     assert(assemble((q0-q_init)**2*dx)**0.5 < 0.005)
 
 

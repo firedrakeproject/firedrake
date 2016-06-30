@@ -168,7 +168,9 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     cell_closure = np.zeros((cell_range[1], 9), dtype=int)
 
     for e in range(*cell_range):
+
         closure, orient = plex.getTransitiveClosure(e)
+
         # get the row for this cell
         row = cell_numbering.getOffset(e)
 
@@ -193,6 +195,12 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         # get the PETSc section
         coords_sec = plex.getCoordinateSection()
 
+        # there are two vertices in the cell
+        cell_vertices = closure[5:]
+        cell_X = np.array([0., 0.])
+        for i, v in enumerate(cell_vertices):
+            cell_X[i] = coords[coords_sec.getOffset(v)]
+
         # Add in the edges
         for i in range(3):
             # count up how many times each edge is repeated
@@ -209,16 +217,9 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
                 # there is only one vertex on the edge in this case
                 edge_vertex = plex.getCone(edge_set[i])[0]
 
-                # there are two vertices in the cell
-                cell_vertices = closure[5:]
-
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
                 # get X coordinates for this cell
-                cell_X = np.array([0., 0.])
-                for i, v in enumerate(cell_vertices):
-                    cell_X[i] = coords[coords_sec.getOffset(v)]
-
                 if(cell_X.min() < Lx/ncells/2):
                     # We are in the first cell
                     if(edge_X.min() < Lx/ncells/2):
@@ -243,6 +244,8 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
             v1, v2 = v2, v1
         cell_closure[row][0:4] = [v1, v1, v2, v2]
 
+    print cell_closure
+
     mesh1.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
 
     mesh1.init()
@@ -259,17 +262,22 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
         Xvals = mash.coordinates.dat.data_ro_with_halos[cell_nodes, 0]
-        if(Xvals.max()-Xvals.min() > Lx/2):
+        if(Xvals.max()-Xvals.min() > Lx/2.0):
             mash.coordinates.dat.data_with_halos[cell_nodes[2:], 0] = Lx
         else:
             mash.coordinates.dat.data_with_halos
 
     local_facet_dat = mesh1.topology.interior_facets.local_facet_dat
     local_facet_number = mesh1.topology.interior_facets.local_facet_number
+
+    print local_facet_dat.data, "b4"
+
     for i in range(local_facet_dat.data_ro.shape[0]):
         if all(local_facet_dat.data_ro[i, :] == np.array([3, 3])):
             local_facet_dat.data[i, :] = [2, 3]
             local_facet_number[i, :] = [2, 3]
+
+    print local_facet_dat.data
 
     return mash
 
