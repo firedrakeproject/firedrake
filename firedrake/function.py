@@ -8,9 +8,9 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 import coffee.base as ast
 
 from pyop2 import op2
-from pyop2.logger import warning
 
 from firedrake import functionspaceimpl
+from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
 try:
