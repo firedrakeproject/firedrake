@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import collections
 import itertools
 
 import numpy
@@ -7,13 +8,16 @@ from singledispatch import singledispatch
 
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import Argument, Coefficient, GeometricQuantity, QuadratureWeight
+from ufl.classes import (Argument, Coefficient, CellVolume,
+                         ConstantValue, FacetArea, GeometricQuantity,
+                         QuadratureWeight)
 
 import gem
 
 from tsfc.constants import PRECISION
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc.modified_terminals import analyse_modified_terminal
+from tsfc.quadrature import create_quadrature
 from tsfc import ufl2gem
 from tsfc import geometric
 from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
@@ -90,33 +94,93 @@ class FacetManager(object):
             return gem.partial_indexed(tensor, (f,))
 
 
+# FIXME: copy-paste from PyOP2
+class cached_property(object):
+    """A read-only @property that is only evaluated once. The value is cached
+    on the object itself rather than the function or class; this should prevent
+    memory leakage."""
+    def __init__(self, fget, doc=None):
+        self.fget = fget
+        self.__doc__ = doc or fget.__doc__
+        self.__name__ = fget.__name__
+        self.__module__ = fget.__module__
+
+    def __get__(self, obj, cls):
+        if obj is None:
+            return self
+        obj.__dict__[self.__name__] = result = self.fget(obj)
+        return result
+
+
+class Parameters(object):
+    keywords = ('integral_type',
+                'cell',
+                'quadrature_degree',
+                'quadrature_rule',
+                'points',
+                'weights',
+                'point_index',
+                'argument_indices',
+                'coefficient_mapper',
+                'cellvolume',
+                'facetarea',
+                'index_cache')
+
+    def __init__(self, **kwargs):
+        invalid_keywords = set(kwargs.keys()) - set(Parameters.keywords)
+        if invalid_keywords:
+            raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
+        self.__dict__.update(kwargs)
+
+    # Defaults
+    integral_type = 'cell'
+
+    @cached_property
+    def quadrature_rule(self):
+        from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
+        quad_rule = create_quadrature(self.cell,
+                                      self.integral_type,
+                                      self.quadrature_degree)
+        quad_rule = QuadratureRule(self.cell, quad_rule.points, quad_rule.weights)
+        quad_rule.__class__ = CollapsedGaussJacobiQuadrature
+        return quad_rule
+
+    @cached_property
+    def points(self):
+        return self.quadrature_rule.points
+
+    @cached_property
+    def weights(self):
+        return self.quadrature_rule.weights
+
+    argument_indices = ()
+
+    @cached_property
+    def index_cache(self):
+        return collections.defaultdict(gem.Index)
+
+
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     """Contains all the context necessary to translate UFL into GEM."""
 
-    def __init__(self, integral_type, facet_manager, quad_rule, quadrature_index,
-                 argument_indices, coefficient_mapper, index_cache):
+    def __init__(self, facet_manager, parameters):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
-        self.integral_type = integral_type
-        self.quad_rule = quad_rule
-        self.weights = gem.Literal(quad_rule.weights)
-        self.quadrature_index = quadrature_index
-        self.argument_indices = argument_indices
-        self.coefficient_mapper = coefficient_mapper
-        self.index_cache = index_cache
-        self.facet_manager = facet_manager
-        self.select_facet = facet_manager.select_facet
 
-        if self.integral_type.startswith("interior_facet"):
-            self.cell_orientations = gem.Variable("cell_orientations", (2, 1))
+        if parameters.integral_type.startswith("interior_facet"):
+            parameters.cell_orientations = gem.Variable("cell_orientations", (2, 1))
         else:
-            self.cell_orientations = gem.Variable("cell_orientations", (1, 1))
+            parameters.cell_orientations = gem.Variable("cell_orientations", (1, 1))
+
+        parameters.facet_manager = facet_manager
+        parameters.select_facet = facet_manager.select_facet
+        self.parameters = parameters
 
     def modified_terminal(self, o):
         """Overrides the modified terminal handler from
         :class:`ModifiedTerminalMixin`."""
         mt = analyse_modified_terminal(o)
-        return translate(mt.terminal, mt, self)
+        return translate(mt.terminal, mt, self.parameters)
 
 
 @singledispatch
@@ -131,41 +195,51 @@ def translate(terminal, mt, params):
     raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
 
 
-@translate.register(QuadratureWeight)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
-    return gem.Indexed(params.weights, (params.quadrature_index,))
+@translate.register(QuadratureWeight)
+def translate_quadratureweight(terminal, mt, params):
+    return gem.Indexed(gem.Literal(params.weights), (params.point_index,))
 
 
-@translate.register(GeometricQuantity)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
+@translate.register(GeometricQuantity)
+def translate_geometricquantity(terminal, mt, params):
     return geometric.translate(terminal, mt, params)
 
 
-@translate.register(Argument)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
+@translate.register(CellVolume)
+def translate_cellvolume(terminal, mt, params):
+    return params.cellvolume(mt.restriction)
+
+
+@translate.register(FacetArea)
+def translate_facetarea(terminal, mt, params):
+    return params.facetarea()
+
+
+@translate.register(Argument)
+def translate_argument(terminal, mt, params):
     argument_index = params.argument_indices[terminal.number()]
 
     element = create_element(terminal.ufl_element())
     if params.integral_type == 'cell':
-        M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+        M = element.basis_evaluation(params.quadrature_rule, derivative=mt.local_derivatives)
     else:
         from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
         Ms = []
-        for points in params.facet_manager.facet_transform(params.quad_rule.points):
-            quad_rule = QuadratureRule(params.facet_manager.ufl_cell, points, params.quad_rule.weights)
+        for points in params.facet_manager.facet_transform(params.points):
+            quad_rule = QuadratureRule(params.facet_manager.ufl_cell, points, params.weights)
             quad_rule.__class__ = CollapsedGaussJacobiQuadrature
             Ms.append(element.basis_evaluation(quad_rule, derivative=mt.local_derivatives))
         M = params.facet_manager.select_facet(gem.ListTensor(Ms), mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    result = gem.Indexed(M, (params.quadrature_index,) + argument_index + vi)
+    result = gem.Indexed(M, (params.point_index,) + argument_index + vi)
     if vi:
         return gem.ComponentTensor(result, vi)
     else:
         return result
 
 
-@translate.register(Coefficient)  # noqa: Not actually redefinition
-def _(terminal, mt, params):
+@translate.register(Coefficient)
+def translate_coefficient(terminal, mt, params):
     kernel_arg = params.coefficient_mapper(terminal)
 
     if terminal.ufl_element().family() == 'Real':
@@ -176,19 +250,19 @@ def _(terminal, mt, params):
 
     element = create_element(terminal.ufl_element())
     if params.integral_type == 'cell':
-        M = element.basis_evaluation(params.quad_rule, derivative=mt.local_derivatives)
+        M = element.basis_evaluation(params.quadrature_rule, derivative=mt.local_derivatives)
     else:
         from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
         Ms = []
-        for points in params.facet_manager.facet_transform(params.quad_rule.points):
-            quad_rule = QuadratureRule(params.facet_manager.ufl_cell, points, params.quad_rule.weights)
+        for points in params.facet_manager.facet_transform(params.points):
+            quad_rule = QuadratureRule(params.facet_manager.ufl_cell, points, params.weights)
             quad_rule.__class__ = CollapsedGaussJacobiQuadrature
             Ms.append(element.basis_evaluation(quad_rule, derivative=mt.local_derivatives))
         M = params.facet_manager.select_facet(gem.ListTensor(Ms), mt.restriction)
 
     alpha = element.get_indices()
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    result = gem.Product(gem.Indexed(M, (params.quadrature_index,) + alpha + vi),
+    result = gem.Product(gem.Indexed(M, (params.point_index,) + alpha + vi),
                          gem.Indexed(ka, alpha))
     for i in alpha:
         result = gem.IndexSum(result, i)
@@ -198,22 +272,27 @@ def _(terminal, mt, params):
         return result
 
 
-def process(integral_type, cell, quad_rule, quadrature_index,
-            argument_indices, integrand, coefficient_mapper, index_cache):
+@translate.register(ConstantValue)
+def _translate_constantvalue(terminal, mt, params):
+    # Literal in a modified terminal
+    # Terminal modifiers have no effect, just translate the terminal.
+    return params(terminal)
+
+
+def compile_ufl(expression, **kwargs):
+    params = Parameters(**kwargs)
+
     # Abs-simplification
-    integrand = simplify_abs(integrand)
+    expression = simplify_abs(expression)
 
-    if integral_type.startswith("interior_facet"):
+    if params.integral_type.startswith("interior_facet"):
         expressions = []
-        for rs in itertools.product(("+", "-"), repeat=len(argument_indices)):
-            expressions.append(map_expr_dag(PickRestriction(*rs), integrand))
+        for rs in itertools.product(("+", "-"), repeat=len(params.argument_indices)):
+            expressions.append(map_expr_dag(PickRestriction(*rs), expression))
     else:
-        expressions = [integrand]
+        expressions = [expression]
 
-    # Translate UFL to Einstein's notation,
-    # lowering finite element specific nodes
-    facet_manager = FacetManager(integral_type, cell)
-    translator = Translator(integral_type, facet_manager, quad_rule,
-                            quadrature_index, argument_indices,
-                            coefficient_mapper, index_cache)
+    # Translate UFL to GEM, lowering finite element specific nodes
+    facet_manager = FacetManager(params.integral_type, params.cell)
+    translator = Translator(facet_manager, params)
     return map_expr_dags(translator, expressions)

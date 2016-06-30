@@ -391,19 +391,14 @@ def select_degree(degree, cell, integral_type):
             raise ValueError("Integral type '%s' invalid for cell '%s'" %
                              (integral_type, cell.cellname()))
         if cell.cellname() == "quadrilateral":
-            try:
-                d1, d2 = degree
-                if len(degree) != 2:
-                    raise ValueError("Expected tuple degree of length 2")
-                if d1 != d2:
-                    raise ValueError("tuple degree must have matching values")
-                return d1
-            except TypeError:
-                return degree
+            assert isinstance(degree, int)
         return degree
     if not isinstance(cell, ufl.TensorProductCell):
         raise ValueError("Integral type '%s' invalid for cell '%s'" %
                          (integral_type, cell.cellname()))
+    # Fix degree on TensorProductCell when not tuple
+    if degree == 0:
+        degree = (0, 0)
     if integral_type in ("exterior_facet_top", "exterior_facet_bottom",
                          "interior_facet_horiz"):
         return degree[0]

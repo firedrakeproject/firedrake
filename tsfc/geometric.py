@@ -11,7 +11,7 @@ from ufl import TensorProductCell
 from ufl.classes import (CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
                          FacetCoordinate, ReferenceCellVolume,
-                         ReferenceNormal)
+                         ReferenceFacetVolume, ReferenceNormal)
 
 import gem
 
@@ -33,6 +33,14 @@ reference_cell_volume = {
     interval_x_interval: 1.0,
     triangle_x_interval: 1.0/2.0,
     quadrilateral_x_interval: 1.0,
+}
+
+
+# Volume of the reference cells of facets
+reference_facet_volume = {
+    interval: 1.0,
+    triangle: 1.0,
+    tetrahedron: 1.0/2.0,
 }
 
 
@@ -155,6 +163,11 @@ def translate_reference_cell_volume(terminal, mt, params):
     return gem.Literal(reference_cell_volume[reference_cell(terminal)])
 
 
+@translate.register(ReferenceFacetVolume)
+def translate_reference_facet_volume(terminal, mt, params):
+    return gem.Literal(reference_facet_volume[reference_cell(terminal)])
+
+
 @translate.register(CellFacetJacobian)
 def translate_cell_facet_jacobian(terminal, mt, params):
     table = cell_facet_jacobian[reference_cell(terminal)]
@@ -191,11 +204,11 @@ def translate_cell_coordinate(terminal, mt, params):
         points = list(params.facet_manager.facet_transform(points))
     return gem.partial_indexed(params.select_facet(gem.Literal(points),
                                                    mt.restriction),
-                               (params.quadrature_index,))
+                               (params.point_index,))
 
 
 @translate.register(FacetCoordinate)
 def translate_facet_coordinate(terminal, mt, params):
     assert params.integral_type != 'cell'
     points = params.quad_rule.points
-    return gem.partial_indexed(gem.Literal(points), (params.quadrature_index,))
+    return gem.partial_indexed(gem.Literal(points), (params.point_index,))
