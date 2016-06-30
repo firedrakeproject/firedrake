@@ -516,7 +516,7 @@ def clean(package):
 def get_h5py():
     log.info("Downloading h5py\n")
     import urllib
-    urllib.urlretrieve("https://github.com/h5py/h5py/archive/2.5.0.tar.gz",
+    urllib.urlretrieve("https://codeload.github.com/h5py/h5py/tar.gz/2.5.0",
                        "h5py.tar.gz")
     run_cmd(["tar", "-zxvf", "h5py.tar.gz"])
 
