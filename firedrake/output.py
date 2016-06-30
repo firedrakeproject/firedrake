@@ -503,6 +503,6 @@ class File(object):
                 f.write(self._footer)
 
     def __lshift__(self, arg):
-        from pyop2.logger import warning, RED
+        from firedrake.logging import warning, RED
         warning(RED % "The << syntax is deprecated, use File.write")
         self.write(arg)

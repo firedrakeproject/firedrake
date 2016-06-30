@@ -82,11 +82,6 @@ The implementation of this problem in Firedrake requires solving two nonlinear v
 
   from firedrake import *
 
-We turn off some of firedrake's chattier output, by setting the
-logging level for PyOP2 to ``"WARNING"``::
-
-  parameters["pyop2_options"]["log_level"] = "WARNING"
-
 Now we move on to defining parameters::
 
   T = 2.0
