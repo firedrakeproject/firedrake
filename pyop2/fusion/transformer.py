@@ -71,7 +71,7 @@ class Inspector(Cached):
         key = (name,)
         if name != lazy_trace_name:
             # Special case: the Inspector comes from a user-defined /loop_chain/
-            key += (options['mode'], options['tile_size'],
+            key += (options['mode'], options['tile_size'], options['seed_loop'],
                     options['use_glb_maps'], options['use_prefetch'], options['coloring'])
             key += (loop_chain[0].kernel.cache_key,)
             return key
@@ -103,22 +103,8 @@ class Inspector(Cached):
 
         :arg name: a name for the Inspector
         :arg loop_chain: an iterator for the loops that will be fused/tiled
-        :arg options: a set of parameters to drive fusion/tiling
-            * mode: can take any of the values in ``Inspector._modes``, namely
-                soft, hard, tile, only_tile, only_omp:
-                * soft: consecutive loops over the same iteration set that do
-                    not present RAW or WAR dependencies through indirections
-                    are fused.
-                * hard: ``soft`` fusion; then, loops over different iteration sets
-                    are also fused, provided that there are no RAW or WAR
-                    dependencies.
-                * tile: ``soft`` and ``hard`` fusion; then, tiling through the
-                    SLOPE library takes place.
-                * only_tile: only tiling through the SLOPE library (i.e., no fusion)
-                * only_omp: ompize individual parloops through the SLOPE library
-            * tile_size: starting average tile size
-            * extra_halo: are we providing SLOPE with extra halo to be efficient
-                and allow it to minimize redundant computation ?
+        :arg options: a set of parameters to drive fusion/tiling, as described
+            in ``interface.loop_chain.__doc__``.
         """
         if self._initialized:
             return
@@ -311,6 +297,7 @@ class Inspector(Cached):
 
         loop_chain = self._loop_chain
         tile_size = self._options.get('tile_size', 1)
+        seed_loop = self._options.get('seed_loop', 0)
         extra_halo = self._options.get('extra_halo', False)
         coloring = self._options.get('coloring', 'default')
         use_prefetch = self._options.get('use_prefetch', 0)
@@ -396,6 +383,9 @@ class Inspector(Cached):
 
         # Inform about the prefetch distance that needs be guaranteed
         inspector.set_prefetch_halo(use_prefetch)
+
+        # Set a seed loop for tiling
+        inspector.set_seed_loop(seed_loop)
 
         # Generate the C code
         src = inspector.generate_code()

@@ -112,6 +112,7 @@ def fuse(name, loop_chain, **kwargs):
         'use_glb_maps': kwargs.get('use_glb_maps', False),
         'use_prefetch': kwargs.get('use_prefetch', 0),
         'tile_size': kwargs.get('tile_size', 1),
+        'seed_loop': kwargs.get('seed_loop', 0),
         'extra_halo': kwargs.get('extra_halo', False),
         'coloring': kwargs.get('coloring', 'default')
     }
@@ -182,12 +183,25 @@ def loop_chain(name, **kwargs):
     :arg name: identifier of the loop chain
     :arg kwargs:
         * mode (default='hard'): the fusion/tiling mode (accepted: soft, hard,
-            tile, only_tile).
+            tile, only_tile, only_omp): ::
+            * soft: consecutive loops over the same iteration set that do
+                not present RAW or WAR dependencies through indirections
+                are fused.
+            * hard: fuse consecutive loops presenting inc-after-inc
+                dependencies, on top of soft fusion.
+            * tile: apply tiling through the SLOPE library, on top of soft
+                and hard fusion.
+            * only_tile: apply tiling through the SLOPE library, but do not
+                apply soft or hard fusion
+            * only_omp: ompize individual parloops through the SLOPE library
+                (i.e., no fusion takes place)
         * tile_size: (default=1) suggest a starting average tile size.
         * num_unroll (default=1): in a time stepping loop, the length of the loop
             chain is given by ``num_loops * num_unroll``, where ``num_loops`` is the
-            number of loops per time loop iteration. Therefore, setting this value
-            to a number >1 enables tiling longer chains.
+            number of loops per time loop iteration. Setting this value to something
+            greater than 1 may enable fusing longer chains.
+        * seed_loop (default=0): the seed loop from which tiles are derived. Ignored
+            in case of MPI execution, in which case the seed loop is enforced to 0.
         * force_glb (default=False): force tiling even in presence of global
             reductions. In this case, the user becomes responsible of semantic
             correctness.
@@ -214,6 +228,7 @@ def loop_chain(name, **kwargs):
 
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
+    seed_loop = kwargs.setdefault('seed_loop', 0)
     kwargs.setdefault('use_glb_maps', False)
     kwargs.setdefault('use_prefetch', 0)
     kwargs.setdefault('coloring', 'default')
