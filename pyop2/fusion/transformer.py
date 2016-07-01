@@ -519,16 +519,11 @@ def loops_analyzer(loop1, loop2):
     all_reads = lambda l: set(a.data for a in reads(l))
     all_writes = lambda l: set(a.data for a in writes(l))
     all_incs = lambda l: set(a.data for a in incs(l))
-    all_inc_writes = lambda l: set(a.data for a in incs(l) | writes(l))
 
     dir_reads = lambda l: set(a.data for a in reads(l) if a._is_direct)
-    dir_writes = lambda l: set(a.data for a in writes(l) if a._is_direct)
-    dir_incs = lambda l: set(a.data for a in incs(l) if a._is_direct)
     dir_inc_writes = lambda l: set(a.data for a in incs(l) | writes(l) if a._is_direct)
 
     ind_reads = lambda l: set(a.data for a in reads(l) if a._is_indirect)
-    ind_writes = lambda l: set(a.data for a in writes(l) if a._is_indirect)
-    ind_incs = lambda l: set(a.data for a in incs(l) if a._is_indirect)
     ind_inc_writes = lambda l: set(a.data for a in incs(l) | writes(l) if a._is_indirect)
 
     info = {}
