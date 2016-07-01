@@ -301,6 +301,7 @@ class Inspector(Cached):
         extra_halo = self._options.get('extra_halo', False)
         coloring = self._options.get('coloring', 'default')
         use_prefetch = self._options.get('use_prefetch', 0)
+        ignore_war = self._options.get('ignore_war', False)
         log = self._options.get('log', False)
         rank = MPI.COMM_WORLD.rank
 
@@ -375,17 +376,12 @@ class Inspector(Cached):
         # Arguments types and values
         argtypes, argvalues = zip(*arguments)
 
-        # Set a tile partitioning strategy
-        inspector.set_part_mode('chunk')
-
-        # Set a tile coloring strategy
-        inspector.set_coloring(coloring)
-
-        # Inform about the prefetch distance that needs be guaranteed
-        inspector.set_prefetch_halo(use_prefetch)
-
-        # Set a seed loop for tiling
-        inspector.set_seed_loop(seed_loop)
+        # Set key tiling properties
+        inspector.drive_inspection(ignore_war=ignore_war,
+                                   seed_loop=seed_loop,
+                                   prefetch=use_prefetch,
+                                   coloring=coloring,
+                                   part_mode='chunk')
 
         # Generate the C code
         src = inspector.generate_code()

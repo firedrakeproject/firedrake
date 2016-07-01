@@ -109,6 +109,7 @@ def fuse(name, loop_chain, **kwargs):
     options = {
         'log': kwargs.get('log', False),
         'mode': kwargs.get('mode', 'hard'),
+        'ignore_war': kwargs.get('ignore_war', False),
         'use_glb_maps': kwargs.get('use_glb_maps', False),
         'use_prefetch': kwargs.get('use_prefetch', 0),
         'tile_size': kwargs.get('tile_size', 1),
@@ -219,6 +220,8 @@ def loop_chain(name, **kwargs):
             represent, respectively, the first and last loop index of the sequence;
             ``ts`` is the tile size for the sequence. This option takes precedence
             over /split_mode/.
+        * ignore_war: (default=False) inform SLOPE that inspection doesn't need
+            to care about write-after-read dependencies.
         * log (default=False): output inspector and loop chain info to a file.
         * use_glb_maps (default=False): when tiling, use the global maps provided by
             PyOP2, rather than the ones constructed by SLOPE.
@@ -232,6 +235,7 @@ def loop_chain(name, **kwargs):
     kwargs.setdefault('use_glb_maps', False)
     kwargs.setdefault('use_prefetch', 0)
     kwargs.setdefault('coloring', 'default')
+    kwargs.setdefault('ignore_war', False)
     split_mode = kwargs.pop('split_mode', 0)
     explicit = kwargs.pop('explicit', None)
 
