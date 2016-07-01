@@ -57,7 +57,7 @@ from profiling import timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
 
-from coffee.base import Node
+from coffee.base import Node, FlatBlock
 from coffee.visitors import FindInstances, EstimateFlops
 from coffee import base as ast
 
@@ -3840,7 +3840,7 @@ class Kernel(Cached):
         self._ldargs = ldargs if ldargs is not None else []
         self._headers = headers
         self._user_code = user_code
-        if not isinstance(code, Node):
+        if isinstance(code, (str, FlatBlock)):
             # Got a C string, nothing we can do, just use it as Kernel body
             self._ast = None
             self._original_ast = None

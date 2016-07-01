@@ -88,6 +88,7 @@ class Kernel(base.Kernel):
     def __init__(self, code, name=None, **kwargs):
         self._func = code
         self._name = name
+        self._attached_info = {'fundecl': None, 'attached': False}
 
     def __getattr__(self, attr):
         """Return None on unrecognised attributes"""
