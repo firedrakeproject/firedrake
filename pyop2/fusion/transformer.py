@@ -406,65 +406,7 @@ class Inspector(Cached):
 
         # Log the inspector output
         if log and rank == 0:
-            filename = os.path.join("log", "%s.txt" % self._name)
-            summary = os.path.join("log", "summary.txt")
-            if not os.path.exists(os.path.dirname(filename)):
-                os.makedirs(os.path.dirname(filename))
-            with open(filename, 'w') as f, open(summary, 'a') as s:
-                # Estimate tile footprint
-                template = '| %25s | %22s | %-11s |\n'
-                f.write('*** Tile footprint ***\n')
-                f.write(template % ('iteration set', 'memory footprint (KB)', 'megaflops'))
-                f.write('-' * 68 + '\n')
-                tot_footprint, tot_flops = 0, 0
-                for loop in loop_chain:
-                    flops, footprint = loop.num_flops/(1000*1000), 0
-                    for arg in loop.args:
-                        dat_size = arg.data.nbytes
-                        map_size = 0 if arg._is_direct else arg.map.values_with_halo.nbytes
-                        tot_dat_size = (dat_size + map_size)/1000
-                        footprint += tot_dat_size
-                    tot_footprint += footprint
-                    f.write(template % (loop.it_space.name, str(footprint), str(flops)))
-                    tot_flops += flops
-                f.write('** Summary: %d KBytes moved, %d Megaflops performed\n' %
-                        (tot_footprint, tot_flops))
-                probSeed = 0 if MPI.COMM_WORLD.size > 1 else len(loop_chain) / 2
-                probNtiles = loop_chain[probSeed].it_space.exec_size / tile_size or 1
-                f.write('** KB/tile: %d' % (tot_footprint/probNtiles))
-                f.write('  (Estimated: %d tiles)\n' % probNtiles)
-                f.write('-' * 68 + '\n')
-
-                # Estimate data reuse
-                template = '| %40s | %5s | %-70s |\n'
-                f.write('*** Data reuse ***\n')
-                f.write(template % ('field', 'type', 'loops'))
-                f.write('-' * 125 + '\n')
-                reuse = OrderedDict()
-                for i, loop in enumerate(loop_chain):
-                    for arg in loop.args:
-                        values = reuse.setdefault(arg.data, [])
-                        if i not in values:
-                            values.append(i)
-                        if arg._is_indirect:
-                            values = reuse.setdefault(arg.map, [])
-                            if i not in values:
-                                values.append(i)
-                for field, positions in reuse.items():
-                    reused_in = ', '.join('%d' % j for j in positions)
-                    field_type = 'map' if isinstance(field, Map) else 'data'
-                    f.write(template % (field.name, field_type, reused_in))
-                ideal_reuse = 0
-                for field, positions in reuse.items():
-                    size = field.values_with_halo.nbytes if isinstance(field, Map) \
-                        else field.nbytes
-                    # First position needs be cut away as it's the first touch
-                    ideal_reuse += (size/1000)*len(positions[1:])
-                out = '** Ideal reuse (i.e., no tile growth): %d / %d KBytes (%f %%)\n' % \
-                    (ideal_reuse, tot_footprint, float(ideal_reuse)*100/tot_footprint)
-                f.write(out)
-                f.write('-' * 125 + '\n')
-                s.write(out)
+            estimate_data_reuse(self._name, loop_chain)
 
         # Finally, get the Executor representation, to be used at executor
         # code generation time
@@ -815,3 +757,71 @@ def create_slope_set(op2set, extra_halo, insp_sets=None):
     insp_sets[slope_set] = partitioning
 
     return slope_set
+
+
+def estimate_data_reuse(filename, loop_chain):
+    """
+    Estimate how much data reuse is available in the loop chain and log it to file.
+    """
+
+    filename = os.path.join("log", "%s.txt" % self._name)
+    summary = os.path.join("log", "summary.txt")
+    if not os.path.exists(os.path.dirname(filename)):
+        os.makedirs(os.path.dirname(filename))
+
+    with open(filename, 'w') as f, open(summary, 'a') as s:
+        # Estimate tile footprint
+        template = '| %25s | %22s | %-11s |\n'
+        f.write('*** Tile footprint ***\n')
+        f.write(template % ('iteration set', 'memory footprint (KB)', 'megaflops'))
+        f.write('-' * 68 + '\n')
+        tot_footprint, tot_flops = 0, 0
+        for loop in loop_chain:
+            flops, footprint = loop.num_flops/(1000*1000), 0
+            for arg in loop.args:
+                dat_size = arg.data.nbytes
+                map_size = 0 if arg._is_direct else arg.map.values_with_halo.nbytes
+                tot_dat_size = (dat_size + map_size)/1000
+                footprint += tot_dat_size
+            tot_footprint += footprint
+            f.write(template % (loop.it_space.name, str(footprint), str(flops)))
+            tot_flops += flops
+        f.write('** Summary: %d KBytes moved, %d Megaflops performed\n' %
+                (tot_footprint, tot_flops))
+        probSeed = 0 if MPI.COMM_WORLD.size > 1 else len(loop_chain) / 2
+        probNtiles = loop_chain[probSeed].it_space.exec_size / tile_size or 1
+        f.write('** KB/tile: %d' % (tot_footprint/probNtiles))
+        f.write('  (Estimated: %d tiles)\n' % probNtiles)
+        f.write('-' * 68 + '\n')
+
+        # Estimate data reuse
+        template = '| %40s | %5s | %-70s |\n'
+        f.write('*** Data reuse ***\n')
+        f.write(template % ('field', 'type', 'loops'))
+        f.write('-' * 125 + '\n')
+        reuse = OrderedDict()
+        for i, loop in enumerate(loop_chain):
+            for arg in loop.args:
+                values = reuse.setdefault(arg.data, [])
+                if i not in values:
+                    values.append(i)
+                if arg._is_indirect:
+                    values = reuse.setdefault(arg.map, [])
+                    if i not in values:
+                        values.append(i)
+        for field, positions in reuse.items():
+            reused_in = ', '.join('%d' % j for j in positions)
+            field_type = 'map' if isinstance(field, Map) else 'data'
+            f.write(template % (field.name, field_type, reused_in))
+        ideal_reuse = 0
+        for field, positions in reuse.items():
+            size = field.values_with_halo.nbytes if isinstance(field, Map) \
+                else field.nbytes
+            # First position needs be cut away as it's the first touch
+            ideal_reuse += (size/1000)*len(positions[1:])
+
+        out = '** Ideal reuse (i.e., no tile growth): %d / %d KBytes (%f %%)\n' % \
+            (ideal_reuse, tot_footprint, float(ideal_reuse)*100/tot_footprint)
+        f.write(out)
+        f.write('-' * 125 + '\n')
+        s.write(out)
