@@ -159,6 +159,8 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     Y = 0.*X
     coords = np.array([X, Y]).T
 
+    dx = Lx/ncells
+
     # a line of coordinates, with a looped topology
     plex = mesh._from_cell_list(2, cells, coords, comm)
     mesh1 = mesh.Mesh(plex)
@@ -220,21 +222,30 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
                 # get X coordinates for this cell
-                if(cell_X.min() < Lx/ncells/2):
-                    # We are in the first cell
-                    if(edge_X.min() < Lx/ncells/2):
-                        # we are on left hand edge
-                        cell_closure[row][4] = edge_set[i]
+                if(cell_X.min() < dx/2.0):
+                    if cell_X.max() < 3*dx/2.0:
+                        # We are in the first cell
+                        if(edge_X.min() < dx/2.0):
+                            # we are on left hand edge
+                            cell_closure[row][4] = edge_set[i]
+                        else:
+                            # we are on right hand edge
+                            cell_closure[row][5] = edge_set[i]
                     else:
-                        # we are on right hand edge
-                        cell_closure[row][5] = edge_set[i]
+                        # We are in the last cell
+                        if(edge_X.min() < dx/2.0):
+                            # we are on right hand edge
+                            cell_closure[row][5] = edge_set[i]
+                        else:
+                            # we are on left hand edge
+                            cell_closure[row][4] = edge_set[i]
                 else:
-                    if(cell_X.min() < edge_X.min() - Lx/ncells/2):
-                        # we are on right hand edge
-                        cell_closure[row][5] = edge_set[i]
-                    else:
+                    if(abs(cell_X.min()-edge_X.min()) < dx/2.0):
                         # we are on left hand edge
                         cell_closure[row][4] = edge_set[i]
+                    else:
+                        # we are on right hand edge
+                        cell_closure[row][5] = edge_set[i]
 
         # Add in the vertices
         vertices = closure[5:]
@@ -262,7 +273,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
         Xvals = mash.coordinates.dat.data_ro_with_halos[cell_nodes, 0]
-        if(Xvals.max()-Xvals.min() > Lx/2.0):
+        if(Xvals.max() - Xvals.min() > Lx/2.0):
             mash.coordinates.dat.data_with_halos[cell_nodes[2:], 0] = Lx
         else:
             mash.coordinates.dat.data_with_halos
@@ -270,14 +281,13 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     local_facet_dat = mesh1.topology.interior_facets.local_facet_dat
     local_facet_number = mesh1.topology.interior_facets.local_facet_number
 
-    print local_facet_dat.data, "b4"
-
     for i in range(local_facet_dat.data_ro.shape[0]):
         if all(local_facet_dat.data_ro[i, :] == np.array([3, 3])):
             local_facet_dat.data[i, :] = [2, 3]
             local_facet_number[i, :] = [2, 3]
 
-    print local_facet_dat.data
+
+    print local_facet_number
 
     return mash
 
