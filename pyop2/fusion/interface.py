@@ -39,7 +39,7 @@ import sys
 from contextlib import contextmanager
 from decorator import decorator
 
-from pyop2.base import _LazyMatOp, ParLoop
+from pyop2.base import _LazyMatOp
 from pyop2.mpi import MPI
 from pyop2.logger import warning, info as log_info
 from pyop2.utils import flatten
@@ -231,7 +231,7 @@ def loop_chain(name, **kwargs):
 
     num_unroll = kwargs.setdefault('num_unroll', 1)
     tile_size = kwargs.setdefault('tile_size', 1)
-    seed_loop = kwargs.setdefault('seed_loop', 0)
+    kwargs.setdefault('seed_loop', 0)
     kwargs.setdefault('use_glb_maps', False)
     kwargs.setdefault('use_prefetch', 0)
     kwargs.setdefault('coloring', 'default')
