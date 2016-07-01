@@ -107,6 +107,11 @@ def ix2(indset):
 
 
 @pytest.fixture
+def bigx(bigiterset):
+    return op2.Dat(bigiterset, range(2*nelems), np.uint32, "bigx")
+
+
+@pytest.fixture
 def mapd():
     mapd = range(nelems)
     random.shuffle(mapd, lambda: 0.02041724)
@@ -172,6 +177,14 @@ def ker_inc():
                        [ast.Decl('int', 'B', qualifiers=['unsigned'], pointers=['']),
                         ast.Decl('int', 'A', qualifiers=['unsigned'], pointers=[''])],
                        ast.Block([ast.Incr(ast.Symbol('B', (0,)), ast.Symbol('A', (0,)))]))
+
+
+@pytest.fixture
+def ker_ind_inc():
+    return ast.FunDecl('void', 'ker_ind_inc',
+                       [ast.Decl('int', 'B', qualifiers=['unsigned'], pointers=['', '']),
+                        ast.Decl('int', 'A', qualifiers=['unsigned'], pointers=[''])],
+                       ast.Block([ast.Incr(ast.Symbol('B', (0, 0)), ast.Symbol('A', (0,)))]))
 
 
 @pytest.fixture
@@ -425,8 +438,6 @@ class TestTiling:
                             indset2iterset, x, y, ix2, skip_greedy):
         """Check that tiling works properly in presence of write-after-read dependencies."""
 
-        slope.set_debug_mode('MINIMAL')  # TODO delete me
-
         op2.par_loop(op2.Kernel(ker_write, "ker_write"), iterset, y(op2.WRITE))
 
         # Tiling is skipped until the same sequence is seen three times
@@ -472,6 +483,33 @@ class TestTiling:
             assert sum(z.data) == nelems * 27 + nelems
             assert sum(y.data) == nelems * 3
             assert sum(sum(ix2.data)) == nelems * 9
+
+    @pytest.mark.parametrize('sl', [0, 1, 2])
+    def test_acyclic_raw_dependency(self, ker_ind_inc, ker_write, backend, iterset,
+                                    bigiterset, indset, iterset2indset, indset2iterset,
+                                    bigiterset2iterset, x, y, bigx, ix, sl, skip_greedy):
+        """Check that tiling produces the correct output in a sequence of loops
+        characterized by read-after-write dependencies. SLOPE is told to ignore
+        write-after-read dependencies; this test shows that the resulting
+        inspector/executor scheme created through SLOPE is anyway correct."""
+
+        # Tiling is skipped until the same sequence is seen three times
+        for t in range(3):
+            op2.par_loop(op2.Kernel(ker_write, "ker_write"), iterset, x(op2.WRITE))
+            op2.par_loop(op2.Kernel(ker_write, "ker_write"), iterset, y(op2.WRITE))
+            op2.par_loop(op2.Kernel(ker_write, "ker_write"), bigiterset, bigx(op2.WRITE))
+            op2.par_loop(op2.Kernel(ker_write, "ker_write"), indset, ix(op2.WRITE))
+            with loop_chain("tiling_acyclic_raw", mode='tile', tile_size=nelems/10,
+                            num_unroll=1, seed_loop=sl, ignore_war=True):
+                op2.par_loop(op2.Kernel(ker_ind_inc, 'ker_ind_inc'), bigiterset,
+                             x(op2.INC, bigiterset2iterset), bigx(op2.READ))
+                op2.par_loop(op2.Kernel(ker_ind_inc, 'ker_ind_inc'), iterset,
+                             ix(op2.INC, iterset2indset), x(op2.READ))
+                op2.par_loop(op2.Kernel(ker_ind_inc, 'ker_ind_inc'), indset,
+                             y(op2.INC, indset2iterset), ix(op2.READ))
+            assert sum(x.data) == nelems * 3
+            assert sum(ix.data) == nelems * 4
+            assert sum(y.data) == nelems * 5
 
 
 if __name__ == '__main__':
