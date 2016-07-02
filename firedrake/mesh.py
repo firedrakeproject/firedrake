@@ -23,7 +23,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'adapt']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'adapt', 'writeGmf']
 
 
 _cells = {
@@ -1324,7 +1324,7 @@ def adapt(mesh,metric):
     dmCoords.setDefaultSection(coordSection)    
 #    dmCoords.setDefaultSection(mesh.coordinates.function_space()._dm.getDefaultSection())
 
-    #### TEMPORARY (?) HACK   to sort the metric in the right order
+    #### TEMPORARY (?) HACK   to sort the metric in the right order (waiting for Matt Knepley fix in plexadapt)
     
     met = np.ndarray(shape=metric.dat.data.shape, dtype=metric.dat.data.dtype, order='C');
     for iVer in range(nbrVer):
@@ -1343,3 +1343,23 @@ def adapt(mesh,metric):
     newmesh = Mesh(newplex)
 
     return newmesh
+
+
+#def writeGmf(mesh, writeMesh, numSol, solList , solTypesList, meshName, solNamesList) :
+#
+#    numVertices = mesh.topology.num_vertices()
+#    solArray = np.ndarray(shape=(numSol,numVertices), order='C')
+#    for i in range(numSol):
+#        with solList[i].dat.vec_ro as vec:
+#            solArray[i] = vec
+#
+#    dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, solArray , np.ascontiguousarray(solTypesList), meshName, np.ascontiguousarray(solNamesList))
+
+
+def writeGmf(mesh, writeMesh, numSol, sol, solType, meshName, solName) :
+
+    with sol.dat.vec_ro as vec:
+        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, vec, np.ascontiguousarray([solType]), meshName, np.ascontiguousarray([solName]))
+
+
+

@@ -2036,3 +2036,12 @@ def petscAdap(PETSc.DM plex, PETSc.Vec metric):
     newplex = PETSc.DMPlex().create()
     CHKERR(DMPlexAdapt(plex.dm, metric.vec, "boundary_ids", <PETSc.PetscDM*>&(newplex.dm)))
     return newplex
+
+
+def petscWriteGmf(PETSc.DM plex, PetscBool writeMesh, numSol,  PETSc.Vec sol , np.ndarray solType, meshName, np.ndarray solName):
+    
+    dim = plex.getDimension()
+    if dim == 2 :
+        CHKERR(DMPlexWrite_gmfMesh2d(plex.dm, writeMesh, numSol, <PETSc.PetscVec*>&(sol.vec), <PetscInt *>(solType.data), "", meshName, <char **>(solName.data), PETSC_FALSE))
+    else :
+        print "### WARNING 3D writes not implemented yet. Doing nothing."

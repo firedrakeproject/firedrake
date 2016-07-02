@@ -176,7 +176,7 @@ def compile_coordinate_element(ufl_coordinate_element):
         dim = ufl_cell.topological_dimension()
         point = tuple(sp.Symbol("X[%d]" % i) for i in xrange(dim))
 
-        return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=1e-14).args)
+        return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=1e-12).args)
 
     def init_X(fiat_element):
         f_float = format["floating point"]

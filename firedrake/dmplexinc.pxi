@@ -30,6 +30,7 @@ cdef extern from "petscdmplex.h":
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
     int DMPlexAdapt(PETSc.PetscDM, PETSc.PetscVec, const char [], PETSc.PetscDM*);
+    int DMPlexWrite_gmfMesh2d(PETSc.PetscDM, PetscBool, PetscInt, PETSc.PetscVec *,  PetscInt *, const char [], const char [], const char *[], const PetscBool);
 
 cdef extern from "petscdmlabel.h":
     struct _n_DMLabel
