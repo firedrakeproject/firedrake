@@ -1356,10 +1356,14 @@ def adapt(mesh,metric):
 #    dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, solArray , np.ascontiguousarray(solTypesList), meshName, np.ascontiguousarray(solNamesList))
 
 
-def writeGmf(mesh, writeMesh, numSol, sol, solType, meshName, solName) :
+#def writeGmf(mesh, writeMesh, numSol, sol, solType, meshName, solName) :
+#
+#    with sol.dat.vec_ro as vec:
+#        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, vec, np.ascontiguousarray([solType]), meshName, np.ascontiguousarray([solName]))
+
+
+def writeGmf(mesh, writeMesh, sol, solType, meshName, solName) :
 
     with sol.dat.vec_ro as vec:
-        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, vec, np.ascontiguousarray([solType]), meshName, np.ascontiguousarray([solName]))
-
-
+        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, vec, solType, meshName, solName)
 
