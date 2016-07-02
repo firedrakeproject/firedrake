@@ -224,6 +224,10 @@ class Inspector(Cached):
 
         loop_chain = self._loop_chain
 
+        if len(loop_chain) == 1:
+            # Nothing more to try fusing after soft fusion
+            return
+
         # Search pairs of hard-fusible loops
         fusible = []
         base_loop_index = 0
@@ -296,6 +300,11 @@ class Inspector(Cached):
         library."""
 
         loop_chain = self._loop_chain
+
+        if len(loop_chain) == 1:
+            # Nothing more to try fusing after soft and hard fusion
+            return
+
         tile_size = self._options.get('tile_size', 1)
         seed_loop = self._options.get('seed_loop', 0)
         extra_halo = self._options.get('extra_halo', False)
@@ -507,6 +516,7 @@ def build_soft_fusion_kernel(loops, loop_chain_index):
     base_ast, fuse_asts = dcopy(asts[0]), asts[1:]
 
     base_fundecl = FindInstances(ast.FunDecl).visit(base_ast)[ast.FunDecl][0]
+    base_fundecl.body[:] = [ast.Block(base_fundecl.body, open_scope=True)]
     for unique_id, _fuse_ast in enumerate(fuse_asts, 1):
         fuse_ast = dcopy(_fuse_ast)
         fuse_fundecl = FindInstances(ast.FunDecl).visit(fuse_ast)[ast.FunDecl][0]
@@ -521,7 +531,7 @@ def build_soft_fusion_kernel(loops, loop_chain_index):
                 symbol.symbol = "%s_%d" % (symbol.symbol, unique_id)
         # 4) Concatenate bodies
         base_fundecl.body.extend([ast.FlatBlock("\n\n// Fused kernel: \n\n")] +
-                                 fuse_fundecl.body)
+                                 [ast.Block(fuse_fundecl.body, open_scope=True)])
 
     # Eliminate redundancies in the /fused/ kernel signature
     Filter().kernel_args(loops, base_fundecl)
@@ -585,9 +595,9 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
 
     # Filter out duplicate arguments, and append extra arguments to the fundecl
     binding = WeakFilter().kernel_args([base_loop, fuse_loop], fusion_fundecl)
-    fusion_fundecl.args += [ast.Decl('int*', 'executed'),
-                            ast.Decl('int*', 'fused_iters'),
-                            ast.Decl('int', 'i')]
+    fusion_args += [ast.Decl('int*', 'executed'),
+                    ast.Decl('int*', 'fused_iters'),
+                    ast.Decl('int', 'i')]
 
     # Which args are actually used in /fuse/, but not in /base/ ?
     # The gather for such arguments is moved to /fusion/, to avoid any
@@ -604,10 +614,10 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
         if arg in base_loop.args:
             base_funcall_syms.append(base_funcall_sym)
     for decl, arg in unshared.items():
-        decl.typ = 'double*'
-        decl.sym.symbol = arg.c_arg_name()
-        fusion_fundecl.args.insert(fusion_fundecl.args.index(decl) + 1,
-                                   ast.Decl('int*', arg.c_map_name(0, 0)))
+        decl_pos = fusion_args.index(decl)
+        fusion_args[decl_pos].sym.symbol = arg.c_arg_name()
+        fusion_args[decl_pos].sym.rank = ()
+        fusion_args.insert(decl_pos + 1, ast.Decl('int*', arg.c_map_name(0, 0)))
 
     # Append the invocation of /base/; then, proceed with the invocation
     # of the /fuse/ kernels
@@ -636,7 +646,7 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
             fuse_kernel_arg = binding[fuse_loop_arg]
             buffer = '%s_vec' % fuse_kernel_arg.sym.symbol
 
-            # How should I use the temporaries ?
+            # What kind of temporaries do we need ?
             if fuse_loop_arg.access == INC:
                 op = ast.Incr
                 lvalue, rvalue = fuse_kernel_arg.sym.symbol, buffer
@@ -648,12 +658,13 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
                 lvalue, rvalue = buffer, fuse_kernel_arg.sym.symbol
                 extend_if_body = lambda body, block: \
                     [body.children.insert(0, b) for b in reversed(block)]
-                pointers = fuse_kernel_arg.typ.count('*') + len(fuse_kernel_arg.pointers)
                 buffer_decl = ast.Decl(fuse_kernel_arg.typ, buffer,
                                        qualifiers=fuse_kernel_arg.qual,
-                                       pointers=['' for j in range(pointers-1)])
+                                       pointers=list(fuse_kernel_arg.pointers))
 
-            # Now handle arguments depending on their type ...
+            # Now gonna handle arguments depending on their type and rank ...
+            cdim = fuse_loop_arg.data.cdim
+
             if fuse_loop_arg._is_mat:
                 # ... Handle Mats
                 staging = []
@@ -670,44 +681,63 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
                 if fuse_loop_arg.access == INC:
                     buffer_decl.init = ast.ArrayInit(init([init([0.0])]))
 
+                # Update the if-then AST body
+                extend_if_body(if_exec.children[0], staging)
+                if_exec.children[0].children.insert(0, buffer_decl)
+
             elif fuse_loop_arg._is_indirect:
-                # ... Handle indirect arguments. At the C level, these arguments
-                # are of pointer type, so simple pointer arithmetic is used
-                # to ensure the kernel accesses are to the correct locations
-                fuse_arity = fuse_loop_arg.map.arity
-                base_arity = fuse_arity*fusion_map.arity
-                cdim = fuse_loop_arg.data.dataset.cdim
-                size = fuse_arity*cdim
-                # Set the proper storage layout before invoking /fuse/
-                ofs_vals = [[base_arity*j + k for k in range(fuse_arity)]
-                            for j in range(cdim)]
-                ofs_vals = [[fuse_arity*j + k for k in flatten(ofs_vals)]
-                            for j in range(fusion_map.arity)]
-                ofs_vals = list(flatten(ofs_vals))
-                indices = [ofs_vals[idx*size + j] for j in range(size)]
-                # Set up the temporary and stage (gather) data into it
-                buffer_decl.sym.rank = (size,)
-                if fuse_loop_arg.access == INC:
-                    buffer_decl.init = ast.ArrayInit(init([0.0]))
-                    staging = [op(ast.Symbol(lvalue, (k,)), ast.Symbol(rvalue, (j,)))
-                               for j, k in enumerate(indices)]
-                elif fuse_kernel_arg in unshared:
-                    staging = unshared[fuse_kernel_arg].c_vec_init(False).split('\n')
-                    staging = [j for i, j in enumerate(staging) if i in indices]
-                    rvalues = [ast.FlatBlock(i.split('=')[1]) for i in staging]
-                    lvalues = [ast.Symbol(buffer, (i,)) for i in range(len(staging))]
-                    staging = [ast.Assign(i, j) for i, j in zip(lvalues, rvalues)]
+
+                if fuse_kernel_arg not in unshared and cdim == 1:
+                    # Special case:
+                    # ... Handle rank 1 indirect arguments that appear in both
+                    # /base/ and /fuse/: just use a pointer to the right location
+                    rank = (idx,) if fusion_map.arity > 1 else ()
+                    buffer = ast.Symbol(fuse_kernel_arg.sym.symbol, rank)
+
                 else:
-                    staging = [op(ast.Symbol(lvalue, (j,)), ast.Symbol(rvalue, (k,)))
-                               for j, k in enumerate(indices)]
+                    # ... Handle indirect arguments. At the C level, these arguments
+                    # are of pointer type, so simple pointer arithmetic is used
+                    # to ensure the kernel accesses are to the correct locations
+                    fuse_arity = fuse_loop_arg.map.arity
+                    base_arity = fuse_arity*fusion_map.arity
+                    size = fuse_arity*cdim
+
+                    # Set the proper storage layout before invoking /fuse/
+                    ofs_vals = [[base_arity*j + k for k in range(fuse_arity)]
+                                for j in range(cdim)]
+                    ofs_vals = [[fuse_arity*j + k for k in flatten(ofs_vals)]
+                                for j in range(fusion_map.arity)]
+                    ofs_vals = list(flatten(ofs_vals))
+                    indices = [ofs_vals[idx*size + j] for j in range(size)]
+
+                    # Set up the temporary and stage (gather) data into it
+                    buffer_decl.sym.rank = (size,)
+                    if fuse_loop_arg.access == INC:
+                        buffer_decl.init = ast.ArrayInit(init([0.0]))
+                        staging = [op(ast.Symbol(lvalue, (k,)), ast.Symbol(rvalue, (j,)))
+                                   for j, k in enumerate(indices)]
+                    elif fuse_kernel_arg in unshared:
+                        staging = unshared[fuse_kernel_arg].c_vec_init(False).split('\n')
+                        staging = [k for j, k in enumerate(staging) if j in indices]
+                        if not staging:
+                            from IPython import embed; embed()
+                        rvalues = [ast.FlatBlock(j.split('=')[1]) for j in staging]
+                        lvalues = [ast.Symbol(buffer, (j,)) for j in range(len(staging))]
+                        staging = [ast.Assign(j, k) for j, k in zip(lvalues, rvalues)]
+                    else:
+                        buffer_decl.pointers.pop()
+                        staging = [op(ast.Symbol(lvalue, (j,)), ast.Symbol(rvalue, (k,)))
+                                   for j, k in enumerate(indices)]
+
+                    # Update the if-then AST body
+                    extend_if_body(if_exec.children[0], staging)
+                    if_exec.children[0].children.insert(0, buffer_decl)
 
             else:
                 # Nothing special to do for direct arguments
-                continue
+                pass
 
-            # Update the If-then AST body
-            extend_if_body(if_exec.children[0], staging)
-            if_exec.children[0].children.insert(0, buffer_decl)
+            # Finally update the /fuse/ funcall
             fuse_funcall.children.append(ast.Symbol(buffer))
 
     fused_headers = set([str(h) for h in base_headers + fuse_headers])

@@ -54,32 +54,27 @@ from coffee import base as ast
 from coffee.visitors import FindInstances
 
 
-class FArg(sequential.Arg):
+class FusionArg(sequential.Arg):
 
     """An Arg specialized for kernels and loops subjected to any kind of fusion."""
 
     def __init__(self, arg, gather=None, c_index=False):
-        """Initialize a :class:`FArg`.
+        """Initialize a :class:`FusionArg`.
 
-        :arg arg: a supertype of :class:`FArg`, from which this Arg is derived.
+        :arg arg: a supertype of :class:`FusionArg`, from which this Arg is derived.
         :arg gather: recognized values: ``postponed``, ``onlymap``. With ``postponed``,
-            the gather is performed at some in a callee of the wrapper function; with
-            ``onlymap``, the gather is performed as usual in the wrapper, but only
-            the map values are staged.
+            the gather is performed in a callee of the wrapper function; with
+            ``onlymap``, the gather is performed as usual in the wrapper, but
+            only the map values are staged.
         :arg c_index: if True, will provide the kernel with the iteration index of this
             Arg's set. Otherwise, code generation is unaffected.
         """
-        super(FArg, self).__init__(arg.data, arg.map, arg.idx, arg.access, arg._flatten)
-        self.position = arg.position
-        self.indirect_position = arg.indirect_position
+        super(FusionArg, self).__init__(arg.data, arg.map, arg.idx, arg.access, arg._flatten)
         self.gather = gather or arg.gather
         self.c_index = c_index or arg.c_index
 
-        if hasattr(arg, 'hackflatten'):
-            self.hackflatten = True
-
     def c_map_name(self, i, j, fromvector=False):
-        map_name = super(FArg, self).c_map_name(i, j)
+        map_name = super(FusionArg, self).c_map_name(i, j)
         return map_name if not fromvector else "&%s[0]" % map_name
 
     def c_vec_dec(self, is_facet=False):
@@ -91,7 +86,7 @@ class FArg(sequential.Arg):
                  'vec_name': self.c_vec_name(),
                  'arity': self.map.arity * cdim * facet_mult}
         else:
-            return super(FArg, self).c_vec_dec(is_facet)
+            return super(FusionArg, self).c_vec_dec(is_facet)
 
     def c_vec_init(self, is_top, is_facet=False, force_gather=False):
         if self.gather == 'postponed' and not force_gather:
@@ -104,7 +99,7 @@ class FArg(sequential.Arg):
                                (vec_name, i, map_name, self.c_def_index(), arity, i)
                                for i in range(self.map.arity)])
         else:
-            return super(FArg, self).c_vec_init(is_top, is_facet)
+            return super(FusionArg, self).c_vec_init(is_top, is_facet)
 
     def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
         if self.gather == 'postponed':
@@ -113,7 +108,7 @@ class FArg(sequential.Arg):
         elif self.gather == 'onlymap':
             c_args = "%s, %s" % (self.c_arg_name(i), self.c_vec_name())
         else:
-            c_args = super(FArg, self).c_kernel_arg(count, i, j, shape, layers)
+            c_args = super(FusionArg, self).c_kernel_arg(count, i, j, shape, layers)
         if self.c_index:
             c_args += ", %s" % self.c_def_index()
         return c_args
@@ -125,19 +120,21 @@ class FArg(sequential.Arg):
         return False
 
 
-class TileArg(FArg):
+class TilingArg(FusionArg):
 
     """An Arg specialized for kernels and loops subjected to tiling."""
 
     def __init__(self, arg, loop_position, gtl_maps=None):
-        """Initialize a :class:`TileArg`.
+        """Initialize a :class:`TilingArg`.
 
-        :arg arg: a supertype of :class:`TileArg`, from which this Arg is derived.
+        :arg arg: a supertype of :class:`TilingArg`, from which this Arg is derived.
         :arg loop_position: the position of the loop in the loop chain that this
             object belongs to.
         :arg gtl_maps: a dict associating global map names to local map names.
         """
-        super(TileArg, self).__init__(arg)
+        super(TilingArg, self).__init__(arg)
+        self.position = arg.position
+        self.indirect_position = arg.indirect_position
         self.loop_position = loop_position
 
         c_local_maps = None
@@ -157,7 +154,7 @@ class TileArg(FArg):
     def c_ind_data(self, idx, i, j=0, is_top=False, offset=None, var=None):
         if not var:
             var = 'i' if not self._c_local_maps else 'n'
-        return super(TileArg, self).c_ind_data(idx, i, j, is_top, offset, var)
+        return super(TilingArg, self).c_ind_data(idx, i, j, is_top, offset, var)
 
     def c_map_name(self, i, j, fromvector=False):
         if not self._c_local_maps:
@@ -325,11 +322,38 @@ class Kernel(sequential.Kernel, tuple):
         return "OP2 FusionKernel: %s" % self._name
 
 
-# Parallel loop API
+# API for fused parallel loops
 
-class IterationSpace(base.IterationSpace):
+class ParLoop(sequential.ParLoop):
 
-    """A simple bag of :class:`IterationSpace` objects."""
+    """The root class of non-sequential parallel loops."""
+
+    pass
+
+
+class FusionParLoop(ParLoop):
+
+    def __init__(self, kernel, iterset, *args, **kwargs):
+        self._it_space = kwargs['it_space']
+        super(FusionParLoop, self).__init__(kernel, iterset, *args, **kwargs)
+
+    def _build_itspace(self, iterset):
+        """
+        Bypass the construction of a new iteration space.
+
+        This avoids type checking in base.ParLoop._build_itspace, which would
+        return an error when the fused loop accesses arguments that are not
+        accessed by the base loop.
+        """
+        return self._it_space
+
+
+# API for tiled parallel loops
+
+class TilingIterationSpace(base.IterationSpace):
+
+    """A simple bag of :class:`IterationSpace` objects for a sequence of tiled
+    parallel loops."""
 
     def __init__(self, all_itspaces):
         self._iterset = [i._iterset for i in all_itspaces]
@@ -349,7 +373,9 @@ class IterationSpace(base.IterationSpace):
                           for i in self.iterset])
 
 
-class JITModule(sequential.JITModule):
+class TilingJITModule(sequential.JITModule):
+
+    """A special :class:`JITModule` for a sequence of tiled kernels."""
 
     _cppargs = []
     _libraries = []
@@ -406,7 +432,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         all_itspaces = kwargs['all_itspaces']
         all_args = kwargs['all_args']
         for kernel, itspace, args in zip(all_kernels, all_itspaces, all_args):
-            key += super(JITModule, cls)._cache_key(kernel, itspace, *args)
+            key += super(TilingJITModule, cls)._cache_key(kernel, itspace, *args)
         return key
 
     def __init__(self, kernel, itspace, *args, **kwargs):
@@ -418,7 +444,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         self._executor = kwargs.pop('executor')
         self._use_glb_maps = kwargs.pop('use_glb_maps')
         self._use_prefetch = kwargs.pop('use_prefetch')
-        super(JITModule, self).__init__(kernel, itspace, *args, **kwargs)
+        super(TilingJITModule, self).__init__(kernel, itspace, *args, **kwargs)
 
     def set_argtypes(self, iterset, *args):
         argtypes = [slope.Executor.meta['py_ctype_exec']]
@@ -462,7 +488,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                             '-l%s' % slope.get_lib_name()]
         compiler = coffee.system.compiler.get('name')
         self._cppargs += slope.get_compile_opts(compiler)
-        fun = super(JITModule, self).compile()
+        fun = super(TilingJITModule, self).compile()
 
         if hasattr(self, '_all_args'):
             # After the JITModule is compiled, can drop any reference to now
@@ -560,7 +586,7 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                 loop_code_dict['tile_iter'] = '%s[%s]' % (_ssind_arg, loop_code_dict['tile_iter'])
 
             # ... concatenate the rest, i.e., body, user code, constants, ...
-            _loop_body.append(strip(JITModule._kernel_wrapper % loop_code_dict))
+            _loop_body.append(strip(TilingJITModule._kernel_wrapper % loop_code_dict))
             _user_code.append(kernel._user_code)
             _ssinds_arg.append(_ssind_decl)
             _const_args.add(loop_code_dict['const_args'])
@@ -576,7 +602,9 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         return code_dict
 
 
-class ParLoop(sequential.ParLoop):
+class TilingParLoop(ParLoop):
+
+    """A special :class:`ParLoop` for a sequence of tiled kernels."""
 
     def __init__(self, kernel, it_space, *args, **kwargs):
         base.LazyComputation.__init__(self,
@@ -670,7 +698,7 @@ class ParLoop(sequential.ParLoop):
                 'use_glb_maps': self._use_glb_maps,
                 'use_prefetch': self._use_prefetch
             }
-            fun = JITModule(self.kernel, self.it_space, *self.args, **kwargs)
+            fun = TilingJITModule(self.kernel, self.it_space, *self.args, **kwargs)
             arglist = self.prepare_arglist(None, *self.args)
             fun(*(arglist + [0]))
             self.halo_exchange_end()

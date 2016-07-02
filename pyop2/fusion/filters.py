@@ -48,7 +48,10 @@ class Filter(object):
     def _key(self, arg):
         """Arguments accessing the same :class:`base.Dat` with the same
         :class:`base.Map` are considered identical."""
-        return (arg.data, arg.map)
+        if arg._is_dat:
+            return (arg.data, arg.map)
+        elif arg._is_mat:
+            return (arg.data,) + tuple(arg.map)
 
     def loop_args(self, loops):
         """Merge and return identical :class:`base.Arg`s appearing in ``loops``.
@@ -109,10 +112,10 @@ class Filter(object):
 
             # An alias may at this point be required
             if kernel_arg.sym.symbol != tobind_kernel_arg.sym.symbol:
-                alias = ast_make_alias(dcopy(kernel_arg), dcopy(tobind_kernel_arg))
+                alias = ast_make_alias(tobind_kernel_arg, kernel_arg.sym.symbol)
                 args_maps.append(alias)
 
-        fundecl.args = new_kernel_args
+        fundecl.args[:] = new_kernel_args
         if args_maps:
             args_maps.insert(0, ast.FlatBlock('// Args aliases\n'))
             args_maps.append(ast.FlatBlock('\n'))

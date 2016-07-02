@@ -44,7 +44,8 @@ from pyop2.base import Dat, RW
 from pyop2.backends import _make_object
 from pyop2.utils import flatten
 
-from extended import FArg, TileArg, IterationSpace, ParLoop
+from extended import FusionArg, FusionParLoop, \
+    TilingArg, TilingIterationSpace, TilingParLoop
 from filters import Filter, WeakFilter
 
 
@@ -107,14 +108,14 @@ class FusionSchedule(Schedule):
         self._info = [{'loop_indices': li} for li in loop_indices]
 
     def _combine(self, loop_chain):
-        fused_par_loops = []
+        fused_loops = []
         for kernel, info in zip(self._kernel, self._info):
             loop_indices = info['loop_indices']
             extra_args = info.get('extra_args', [])
-            # Create the ParLoop's arguments. Note that both the iteration set and
-            # the iteration region must correspond to that of the /base/ loop
+            # Create the ParLoop arguments. Note that both the iteration set
+            # and the iteration region correspond to the /base/ loop's
             iterregion = loop_chain[loop_indices[0]].iteration_region
-            iterset = loop_chain[loop_indices[0]].it_space.iterset
+            it_space = loop_chain[loop_indices[0]].it_space
             args = self._filter([loop_chain[i] for i in loop_indices])
             # Create any ParLoop additional arguments
             extra_args = [Dat(*d)(*a) for d, a in extra_args]
@@ -123,10 +124,12 @@ class FusionSchedule(Schedule):
             for a in args:
                 a.__dict__.pop('name', None)
             # Create the actual ParLoop, resulting from the fusion of some kernels
-            fused_par_loops.append(_make_object('ParLoop', kernel, iterset, *args,
-                                                iterate=iterregion,
-                                                insp_name=self._insp_name))
-        return fused_par_loops
+            fused_loops.append(self._make(kernel, it_space, iterregion, args, info))
+        return fused_loops
+
+    def _make(self, kernel, it_space, iterregion, args, info):
+        return _make_object('ParLoop', kernel, it_space.iterset, *args,
+                            iterate=iterregion, insp_name=self._insp_name)
 
     def __call__(self, loop_chain):
         return self._combine(self._schedule(loop_chain))
@@ -171,16 +174,14 @@ class HardFusionSchedule(FusionSchedule, Schedule):
     def __call__(self, loop_chain, only_hard=False):
         if not only_hard:
             loop_chain = self._schedule(loop_chain)
-        fused_par_loops = self._combine(loop_chain)
-        for i, (loop, info) in enumerate(zip(list(fused_par_loops), self._info)):
-            fargs = info.get('fargs', {})
-            args = [FArg(arg, *fargs[j]) if j in fargs else arg
-                    for j, arg in enumerate(loop.args)]
-            fused_par_loop = _make_object('ParLoop', loop.kernel, loop.it_space.iterset,
-                                          *tuple(args), iterate=loop.iteration_region,
-                                          insp_name=self._insp_name)
-            fused_par_loops[i] = fused_par_loop
-        return fused_par_loops
+        return self._combine(loop_chain)
+
+    def _make(self, kernel, it_space, iterregion, args, info):
+        fargs = info.get('fargs', {})
+        args = tuple(FusionArg(arg, *fargs[j]) if j in fargs else arg
+                     for j, arg in enumerate(args))
+        return FusionParLoop(kernel, it_space.iterset, *args, it_space=it_space,
+                             iterate=iterregion, insp_name=self._insp_name)
 
     def _filter(self, loops):
         return WeakFilter().loop_args(loops).values()
@@ -206,11 +207,11 @@ class TilingSchedule(Schedule):
         all_itspaces = tuple(loop.it_space for loop in loop_chain)
         all_args = []
         for i, (loop, gtl_maps) in enumerate(zip(loop_chain, self._executor.gtl_maps)):
-            all_args.append([TileArg(arg, i, None if self._opt_glb_maps else gtl_maps)
+            all_args.append([TilingArg(arg, i, None if self._opt_glb_maps else gtl_maps)
                              for arg in loop.args])
         all_args = tuple(all_args)
         # Data for the actual ParLoop
-        it_space = IterationSpace(all_itspaces)
+        it_space = TilingIterationSpace(all_itspaces)
         args = self._filter(loop_chain)
         reduced_globals = [loop._reduced_globals for loop in loop_chain]
         read_args = set(flatten([loop.reads for loop in loop_chain]))
@@ -230,4 +231,4 @@ class TilingSchedule(Schedule):
             'inspection': self._inspection,
             'executor': self._executor
         }
-        return [ParLoop(self._kernel, it_space, *args, **kwargs)]
+        return [TilingParLoop(self._kernel, it_space, *args, **kwargs)]
