@@ -1,0 +1,203 @@
+#!/bin/bash
+
+# Note: mpiexec.1pps runs hybrid mpi+openmp jobs
+# Behind the scenes, it sets:
+# I_MPI_PIN=yes
+# I_MPI_PIN_MODE=lib
+# I_MPI_PIN_DOMAIN=socket
+# I_MPI_PIN_ORDER=compact
+# KMP_AFFINITY=granularity=fine,compact,1,0
+
+FIREDRAKE=$FIREDRAKE_DIR
+TILING=$FIREDRAKE/demos/tiling
+EXECUTABLE=$TILING/wave_elastic.py
+MESHES=$WORK/meshes/wave_elastic
+
+NODENAME=`cat $PBS_NODEFILE`
+NODENAME="$( cut -d '.' -f 1 <<< "$NODENAME" )"
+
+echo ------------------------------------------------------
+echo -n 'Job is running on node '; echo $NODENAME
+cat /proc/cpuinfo | grep "model name" | uniq
+echo ------------------------------------------------------
+echo PBS: qsub is running on $PBS_O_HOST
+echo PBS: originating queue is $PBS_O_QUEUE
+echo PBS: executing queue is $PBS_QUEUE
+echo PBS: working directory is $PBS_O_WORKDIR
+echo PBS: execution mode is $PBS_ENVIRONMENT
+echo PBS: job identifier is $PBS_JOBID
+echo PBS: job name is $PBS_JOBNAME
+echo PBS: node file is $PBS_NODEFILE
+echo PBS: current home directory is $PBS_O_HOME
+echo PBS: PATH = $PBS_O_PATH
+echo ------------------------------------------------------
+echo PBS: PYTHONPATH = $PYTHONPATH
+echo ------------------------------------------------------
+echo PBS: SLOPE_BACKEND = $SLOPE_BACKEND
+echo ------------------------------------------------------
+
+
+export OMP_NUM_THREADS=1
+export SLOPE_BACKEND=SEQUENTIAL
+
+LOG=""
+EXTRA_OUT=""
+
+OPTS="--output 10000 --flatten True --nocache True"
+TILE_OPTS="--fusion-mode only_tile --coloring default"
+
+LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode.txt"
+rm -f $LOGGER
+touch $LOGGER
+
+# Clean the remote cache.
+# Note: the first run is on a tiny mesh; to be interpreted as a ``warm-up'' run, to populate the cache
+$FIREDRAKE/scripts/firedrake-clean
+
+# Extra options for each mode
+declare -a opts_em1=("" "--glb-maps True")
+declare -a opts_em2=("" "--glb-maps True")
+declare -a opts_em3=("" "--glb-maps True")
+declare -a opts_em4=("" "--extra-halo 1" "--glb-maps True" "--glb-maps True --extra-halo 1")
+declare -a opts_em5=("" "--extra-halo 1" "--glb-maps True" "--glb-maps True --extra-halo 1")
+declare -a opts_em6=("" "--extra-halo 1" "--glb-maps True" "--glb-maps True --extra-halo 1")
+
+# Should I run a specific poly order, as provided in input, or the hard-coded ones?
+if [ -z "$polys" ]; then
+    polys=(1 2 3 4)
+fi
+
+# Should I run a specific partition mode, as provided in input, or the hard-coded ones?
+if [ "$part" -eq 0 ]; then
+    declare -a part_all=("chunk")
+elif [ "$part" -eq 1 ]; then
+    declare -a part_all=("metis")
+elif [ "$part" -eq 2 ]; then
+    declare -a part_all=("chunk" "metis")
+else
+    declare -a part_all=("chunk")
+fi
+
+# Should I run a specific mesh, as provided in input, or the hard-coded ones?
+if [ -z "$mesh" ]; then
+    declare -a mesh_p1=("--mesh-size (300.0,150.0,0.5)" "--mesh-file $MESHES/domain_h060.msh --h 0.6")
+    declare -a mesh_p2=("--mesh-size (300.0,150.0,0.6)" "--mesh-file $MESHES/domain_h080.msh --h 0.8")
+    declare -a mesh_p3=("--mesh-size (300.0,150.0,1.0)" "--mesh-file $MESHES/domain_h100.msh --h 1.0")
+    declare -a mesh_p4=("--mesh-size (300.0,150.0,1.2)" "--mesh-file $MESHES/domain_h125.msh --h 1.25")
+else
+    h=$mesh
+    declare -a mesh_p1=("--mesh-size (300.0,150.0,$mesh)")
+    declare -a mesh_p2=("--mesh-size (300.0,150.0,$mesh)")
+    declare -a mesh_p3=("--mesh-size (300.0,150.0,$mesh)")
+    declare -a mesh_p4=("--mesh-size (300.0,150.0,$mesh)")
+fi
+
+# Should I run a specific mode, varying tiles and partmode, or the hard-coded ones?
+if [ -z "$fixmode" ]; then
+    # Default execution and partition modes, as well as tile sizes, for each poly order
+    declare -a em_all=(1 2 3 4 5 6)
+    declare -a ts_p1=(140 250 320 400)
+    declare -a ts_p2=(70 140 200 300)
+    declare -a ts_p3=(45 60 75)
+    declare -a ts_p4=(20 45 70)
+else
+    declare -a em_all=(5 6)
+    declare -a ts_p1=(50 100 150 200 250 300 350 400 450 500 550 600 650 700 750 800 850 900 950 1000)
+    declare -a ts_p2=(40 70 100 130 160 190 220 250 280 310 340 370 400 430 460 490 520 550 580 610)
+    declare -a ts_p3=(20 40 60 80 100 120 140 160 180 200 220 240 260 280 300 320 340 360 380 400)
+    #declare -a ts_p4=(10 20 30 40 50 60 70 80 90 100 110 120 130 140 150 160 170 180 190 200)
+    declare -a ts_p4=(20 45 70)
+fi
+
+# If only logging tiling stuff, tweak a few things to run only what is strictly necessary
+if [ -n "$onlylog" ]; then
+    LOG="--log True --time_max 0.05"
+    EXTRA_OUT="(Just logging!)"
+    mkdir -p $TILING/all-logs
+fi
+
+if [ -z "$nprocs" ]; then
+    MPICMD="mpiexec"
+elif [ "$nprocs" -eq 10 ]; then
+    MPICMD="mpirun -n 10 -genv I_MPI_PIN yes -genv I_MPI_PIN_MODE lib -genv I_MPI_PIN_PROCESSOR_LIST 0,1,2,3,4,5,6,7,8,9"
+elif [ "$nprocs" -eq 20 ]; then
+    MPICMD="mpirun -n 20 -genv I_MPI_PIN yes -genv I_MPI_PIN_MODE lib -genv I_MPI_PIN_PROCESSOR_LIST allcores:map=scatter"
+fi
+
+# Populate cache
+for poly in ${polys[@]}
+do
+    if [ -n "$onlylog" ]; then
+        break
+    fi
+    echo "Populate polynomial order "$poly >> $LOGGER
+    mesh="--mesh-size (300.0,150.0,1.0)"
+    echo "    Populate "$mesh >> $LOGGER
+    echo "        Populate Untiled ..." >> $LOGGER
+    $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 --time_max 0.1
+    for p in ${part_all[@]}
+    do
+        for em in ${em_all[@]}
+        do
+            opts="opts_em$em[@]"
+            opts_em=( "${!opts}" )
+            for opt in "${opts_em[@]}"
+            do
+                ts=100000
+                echo "        Populate Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
+                $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt --time_max 0.1
+            done
+        done
+    done
+done
+
+# Run actual experiments
+for poly in ${polys[@]}
+do
+    OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_multinode_p"$poly".txt"
+    rm -f $OUT_FILE
+    touch $OUT_FILE
+    echo "Polynomial order "$poly >> $LOGGER
+    mesh_p="mesh_p$poly[@]"
+    meshes=( "${!mesh_p}" )
+    for mesh in "${meshes[@]}"
+    do
+        echo "    Running "$mesh >> $LOGGER
+        echo "        Untiled ..." >> $LOGGER
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 $LOG 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 $LOG 1>> $OUT_FILE 2>> $OUT_FILE
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 $LOG 1>> $OUT_FILE 2>> $OUT_FILE
+        for p in ${part_all[@]}
+        do
+            for em in ${em_all[@]}
+            do
+                opts="opts_em$em[@]"
+                opts_em=( "${!opts}" )
+                for opt in "${opts_em[@]}"
+                do
+                    ts_p="ts_p$poly[*]"
+                    for ts in ${!ts_p}
+                    do
+                        echo "        Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
+                        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt $LOG 1>> $OUT_FILE 2>> $OUT_FILE
+
+                        if [ -n "$onlylog" ]; then
+                            logdir=p"$poly"_em"$em"_ts"$ts"
+                            mv log $logdir
+                            mv $logdir $TILING"/all-logs"
+                        fi
+                    done
+                done
+            done
+        done
+    done
+    mv $OUT_FILE $WORK/
+done
+
+rm $LOGGER
+
+# The pure OMP version needs affinity explicitly set
+export KMP_AFFINITY=granularity=fine,compact,1,0
+export OMP_NUM_THREADS=20
+export SLOPE_BACKEND=OMP
+# No OMP experiments

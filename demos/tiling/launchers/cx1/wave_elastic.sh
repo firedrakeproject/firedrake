@@ -36,10 +36,9 @@ elif [ "$1" == "meshes" ]; then
         echo "Scheduling p=1 and h=$h"
         qsub -v polys=1,mesh=$h,part=0 -l walltime=48:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
     done
-elif [ "$1" == "highp" ]; then
-    echo "Executing single node experiments: Haswell (20 cores, pqcdt)"
-    echo "Executing p=2 and h=0.8"
-    qsub -v polys=2,mesh=0.8,part=0 -l walltime=48:00:00 -l select=1:ncpus=20:mem=32gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic.pbs
+elif [ "$1" == "Nnodes" ]; then
+    echo "Executing N nodes experiments: Haswell (20 cores, pqcdt)"
+    qsub -v polys=2,mesh=0.6,part=0 -l walltime=48:00:00 -l select=2:ncpus=20:mem=32gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
 elif [ "$1" == "playwithmpi" ]; then
     echo "Executing single node experiments: Haswell (20 cores, using 10 processes in a single NUMA domain, pqcdt)"
     echo "Executing p=2 and h=0.9"
@@ -49,8 +48,7 @@ elif [ "$1" == "playwithmpi" ]; then
     qsub -v polys=2,mesh=0.8,part=0,nprocs=20 -l walltime=48:00:00 -l select=1:ncpus=20:mem=32gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic.pbs
 elif [ "$1" == "tiles" ]; then
     echo "Executing single node experiments: Ivy Bridge (20 cores, defaultqueue)"
-    echo "Executing p=1, h=0.6, em=5, many tiles and all parts"
-    qsub -v polys=3,mesh=0.8,part=0,fixmode=1 -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
+    qsub -v polys=4,mesh=0.6,part=0,fixmode=1 -l walltime=72:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
 elif [ "$1" == "onlylog" ]; then
     echo "Executing single node experiments for collecting tiling summaries: Haswell (20 cores, pqcdt)"
     for poly in 1 2 3 4; do
