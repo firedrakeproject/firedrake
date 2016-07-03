@@ -4076,7 +4076,7 @@ class ParLoop(LazyComputation):
                 if arg._is_dat and arg.access not in [INC, READ, WRITE]:
                     raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
 
-        self._it_space = build_itspace(self.args, iterset)
+        self._it_space = self._build_itspace(iterset)
 
         # Attach semantic information to the kernel's AST
         # Only need to do this once, since the kernel "defines" the
@@ -4300,55 +4300,54 @@ class ParLoop(LazyComputation):
         interior facets."""
         return self._iteration_region
 
+    def _build_itspace(self, iterset):
+        """Creates an class:`IterationSpace` for the :class:`ParLoop` from the
+        given iteration set.
 
-def build_itspace(args, iterset):
-    """Creates an class:`IterationSpace` for the :class:`ParLoop` from the
-    given iteration set.
+        Also checks that the iteration set of the :class:`ParLoop` matches the
+        iteration set of all its arguments. A :class:`MapValueError` is raised
+        if this condition is not met.
 
-    Also checks that the iteration set of the :class:`ParLoop` matches the
-    iteration set of all its arguments. A :class:`MapValueError` is raised
-    if this condition is not met.
+        Also determines the size of the local iteration space and checks all
+        arguments using an :class:`IterationIndex` for consistency.
 
-    Also determines the size of the local iteration space and checks all
-    arguments using an :class:`IterationIndex` for consistency.
+        :return: class:`IterationSpace` for this :class:`ParLoop`"""
 
-    :return: class:`IterationSpace` for this :class:`ParLoop`"""
-
-    if isinstance(iterset, (LocalSet, Subset)):
-        _iterset = iterset.superset
-    else:
-        _iterset = iterset
-    block_shape = None
-    if configuration["type_check"]:
-        if isinstance(_iterset, MixedSet):
-            raise SetTypeError("Cannot iterate over MixedSets")
-        for i, arg in enumerate(args):
-            if arg._is_global:
-                continue
-            if arg._is_direct:
-                if arg.data.dataset.set != _iterset:
-                    raise MapValueError(
-                        "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
-                continue
-            for j, m in enumerate(arg._map):
-                if isinstance(_iterset, ExtrudedSet):
-                    if m.iterset != _iterset and m.iterset not in _iterset:
+        if isinstance(iterset, (LocalSet, Subset)):
+            _iterset = iterset.superset
+        else:
+            _iterset = iterset
+        block_shape = None
+        if configuration["type_check"]:
+            if isinstance(_iterset, MixedSet):
+                raise SetTypeError("Cannot iterate over MixedSets")
+            for i, arg in enumerate(self.args):
+                if arg._is_global:
+                    continue
+                if arg._is_direct:
+                    if arg.data.dataset.set != _iterset:
+                        raise MapValueError(
+                            "Iterset of direct arg %s doesn't match ParLoop iterset." % i)
+                    continue
+                for j, m in enumerate(arg._map):
+                    if isinstance(_iterset, ExtrudedSet):
+                        if m.iterset != _iterset and m.iterset not in _iterset:
+                            raise MapValueError(
+                                "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
+                    elif m.iterset != _iterset and m.iterset not in _iterset:
                         raise MapValueError(
                             "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-                elif m.iterset != _iterset and m.iterset not in _iterset:
-                    raise MapValueError(
-                        "Iterset of arg %s map %s doesn't match ParLoop iterset." % (i, j))
-            if arg._uses_itspace:
-                _block_shape = arg._block_shape
-                if block_shape and block_shape != _block_shape:
-                    raise IndexValueError("Mismatching iteration space size for argument %d" % i)
-                block_shape = _block_shape
-    else:
-        for arg in args:
-            if arg._uses_itspace:
-                block_shape = arg._block_shape
-                break
-    return IterationSpace(iterset, block_shape)
+                if arg._uses_itspace:
+                    _block_shape = arg._block_shape
+                    if block_shape and block_shape != _block_shape:
+                        raise IndexValueError("Mismatching iteration space size for argument %d" % i)
+                    block_shape = _block_shape
+        else:
+            for arg in self.args:
+                if arg._uses_itspace:
+                    block_shape = arg._block_shape
+                    break
+        return IterationSpace(iterset, block_shape)
 
 
 DEFAULT_SOLVER_PARAMETERS = {'ksp_type': 'cg',
