@@ -948,7 +948,7 @@ def wrapper_snippets(itspace, args,
         _buf_size = list(itspace._extents)
         if not arg._is_mat:
             # Readjust size to take into account the size of a vector space
-            _dat_size = (arg.data.cdim, )
+            _dat_size = (arg.data.cdim,)
             # Only adjust size if not flattening (in which case the buffer is extents*dat.dim)
             if not arg._flatten:
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
@@ -990,14 +990,13 @@ def wrapper_snippets(itspace, args,
             elif arg._is_mat:
                 continue
             elif arg._is_dat and not arg._flatten:
-                shape = shape[0]
-                loop_size = shape*mult
+                loop_size = shape[0]*mult
                 _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
                 _scatter_stmts = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
                 _buf_offset, _buf_offset_decl = '', ''
             elif arg._is_dat:
-                dim, shape = arg.data.split[i].cdim, shape[0]
-                loop_size = shape*mult/dim
+                dim = arg.data.split[i].cdim
+                loop_size = shape[0]*mult/dim
                 _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
                 _buf_offset_name = 'offset_%d[%s]' % (count, '%s')
                 _buf_offset_decl = 'int %s' % _buf_offset_name % loop_size
