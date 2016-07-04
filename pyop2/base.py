@@ -3848,9 +3848,14 @@ class Kernel(Cached):
             self._attached_info = {'fundecl': None, 'attached': False}
         else:
             self._ast = code
-            fundecls = FindInstances(ast.FunDecl).visit(self._ast)[ast.FunDecl]
+            search = FindInstances(ast.FunDecl, ast.FlatBlock).visit(self._ast)
+            fundecls, flatblocks = search[ast.FunDecl], search[ast.FlatBlock]
             assert len(fundecls) == 1, "Illegal Kernel"
-            self._attached_info = {'fundecl': fundecls[0], 'attached': False}
+            self._attached_info = {
+                'fundecl': fundecls[0],
+                'attached': False,
+                'flatblocks': len(flatblocks) > 0
+            }
             if configuration['loop_fusion']:
                 # Got an AST and loop fusion is enabled, so code generation needs
                 # be deferred because optimisation of a kernel in a fused chain of
