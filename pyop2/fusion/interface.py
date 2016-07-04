@@ -139,13 +139,9 @@ def fuse(name, loop_chain, **kwargs):
     if not force_glb and any(l._reduced_globals for l in loop_chain):
         return loop_chain + remainder
 
-    # Loop fusion requires modifying kernels, so ASTs:
+    # Loop fusion requires modifying kernels, so ASTs must be available
     if not mode == 'only_tile':
-        # ... must be present
-        if any(not hasattr(l.kernel, '_ast') or not l.kernel._ast for l in loop_chain):
-            return loop_chain + remainder
-        # ... must not be "fake" ASTs
-        if any(isinstance(l.kernel._ast, ast.FlatBlock) for l in loop_chain):
+        if any(not l.kernel._ast or l.kernel._attached_info['flatblocks'] for l in loop_chain):
             return loop_chain + remainder
 
     # Mixed still not supported

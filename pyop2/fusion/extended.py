@@ -103,8 +103,11 @@ class FusionArg(sequential.Arg):
 
     def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
         if self.gather == 'postponed':
-            c_args = "%s, %s" % (self.c_arg_name(i),
-                                 self.c_map_name(i, 0, self.c_map_is_vector()))
+            if self._is_indirect:
+                c_args = "%s, %s" % (self.c_arg_name(i),
+                                     self.c_map_name(i, 0, self.c_map_is_vector()))
+            else:
+                c_args = self.c_arg_name(i)
         elif self.gather == 'onlymap':
             c_args = "%s, %s" % (self.c_arg_name(i), self.c_vec_name())
         else:
