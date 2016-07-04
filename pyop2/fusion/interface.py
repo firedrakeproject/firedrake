@@ -98,11 +98,13 @@ def fuse(name, loop_chain, **kwargs):
     remainder = []
     synch_points = [l for l in loop_chain if isinstance(l, _LazyMatOp)]
     if synch_points:
-        if len(synch_points) > 1:
-            warning("Fusing loops and found more than one synchronization point")
         # Fuse only the sub-sequence before the first synch point
         synch_point = loop_chain.index(synch_points[0])
         remainder, loop_chain = loop_chain[synch_point:], loop_chain[:synch_point]
+
+    # Return if there is nothing to fuse (e.g. only _LazyMatOp objects were present)
+    if len(loop_chain) in [0, 1]:
+        return loop_chain + remainder
 
     # Get an inspector for fusing this /loop_chain/. If there's a cache hit,
     # return the fused par loops straight away. Otherwise, try to run an inspection.
@@ -124,10 +126,6 @@ def fuse(name, loop_chain, **kwargs):
     # Otherwise, is the inspection legal ?
     mode = kwargs.get('mode', 'hard')
     force_glb = kwargs.get('force_glb', False)
-
-    # Return if there is nothing to fuse (e.g. only _LazyMatOp objects were present)
-    if len(loop_chain) in [0, 1]:
-        return loop_chain + remainder
 
     # Skip if loops in /loop_chain/ are already /fusion/ objects: this could happen
     # when loops had already been fused in a /loop_chain/ context
