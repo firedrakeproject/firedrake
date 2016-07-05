@@ -1,0 +1,40 @@
+build:
+  image: ubuntu:xenial
+  pull: true
+  environment:
+#     Change the following to reflect your local preferences
+    - PACKAGE=firedrake
+    - FIREDRAKE_HOME=/firedrake
+    - FIREDRAKE_GID=1000
+    - FIREDRAKE_UID=1000
+    - VIRTUALENV_PATH=/firedrake/firedrake/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  commands: 
+#     Bring the image up to date
+    - apt-get -y update
+    - apt-get -y dist-upgrade
+#     Install dependencies for a single run of firedrake-install
+    - apt-get -y install sudo python-minimal python-pip
+    - pip install virtualenv
+#     Set up a non-root user with sudo access to install firedrake
+    - mkdir $FIREDRAKE_HOME
+    - groupadd -g $FIREDRAKE_GID firedrake
+    - useradd -d $FIREDRAKE_HOME -u $FIREDRAKE_UID -g $FIREDRAKE_GID firedrake
+    - chown -R firedrake.firedrake $FIREDRAKE_HOME
+#     A colon in the yaml breaks the parser; to get around this, awk is used to
+#     generate the colon at runtime
+    - awk 'BEGIN { print "firedrake ALL=NOPASSWD\x3A ALL" }' >> /etc/sudoers
+#     Become the firedrake user; change to the build directory
+    - cd $FIREDRAKE_HOME
+#     Install Firedrake
+    - sudo -EHu firedrake $DRONE_BUILD_DIR/scripts/firedrake-install
+                            --disable-ssh --minimal-petsc
+                            --package-branch $PACKAGE $DRONE_COMMIT
+#     Run tests, continuing on error and exiting with error at the end if 
+#     either invocation of py.test exited with error
+    - sudo PATH=$VIRTUALENV_PATH PYOP2_BACKEND=sequential -EHu
+           firedrake -s py.test -n auto -v firedrake/src/firedrake/tests/
+           || touch /tmp/drone-test-error
+    - sudo PATH=$VIRTUALENV_PATH OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp -EHu
+           firedrake -s py.test -n auto -v firedrake/src/firedrake/tests/
+           || touch /tmp/drone-test-error
+    - if [ -f /tmp/drone-test-error ] ; then false ; fi
