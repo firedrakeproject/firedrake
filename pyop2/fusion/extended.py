@@ -39,6 +39,7 @@ import ctypes
 from copy import deepcopy as dcopy
 from itertools import groupby
 from collections import OrderedDict
+from hashlib import md5
 
 import pyop2.base as base
 import pyop2.sequential as sequential
@@ -219,6 +220,8 @@ class Kernel(sequential.Kernel, tuple):
         keys = "".join([super(Kernel, cls)._cache_key(
             k._original_ast.gencode() if k._original_ast else k._code,
             k._name, k._opts, k._include_dirs, k._headers, k._user_code) for k in kernels])
+        if fused_ast:
+            keys += md5(str(hash(str(fused_ast)))).hexdigest()
         return str(loop_chain_index) + keys
 
     def _ast_to_c(self, asts, opts):
