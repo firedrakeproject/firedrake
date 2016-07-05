@@ -36,6 +36,7 @@ common to backends executing on the host."""
 
 from textwrap import dedent
 from copy import deepcopy as dcopy
+from collections import OrderedDict
 
 import base
 import compilation
@@ -939,7 +940,8 @@ def wrapper_snippets(itspace, args,
     # In particular, if:
     # - X is written or incremented, then BUFFER is initialized to 0
     # - X is read, then BUFFER gathers data expected by X
-    _buf_name, _buf_decl, _buf_gather, _tmp_decl, _tmp_name = {}, {}, {}, {}, {}
+    _buf_name, _tmp_decl, _tmp_name = {}, {}, {}
+    _buf_decl, _buf_gather = OrderedDict(), OrderedDict()  # Deterministic code generation
     for count, arg in enumerate(args):
         if not arg._uses_itspace:
             continue
@@ -981,7 +983,7 @@ def wrapper_snippets(itspace, args,
 """
         nloops = len(shape)
         mult = 1 if not is_facet else 2
-        _buf_scatter = {}
+        _buf_scatter = OrderedDict()  # Deterministic code generation
         for count, arg in enumerate(args):
             if not (arg._uses_itspace and arg.access in [WRITE, INC]):
                 continue
