@@ -52,6 +52,8 @@ class Filter(object):
             return (arg.data, arg.map)
         elif arg._is_mat:
             return (arg.data,) + tuple(arg.map)
+        else:
+            return (arg.data,)
 
     def loop_args(self, loops):
         """Merge and return identical :class:`base.Arg`s appearing in ``loops``.
