@@ -714,7 +714,7 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
             elif fuse_loop_arg._is_indirect:
                 cdim = fuse_loop_arg.data.cdim
 
-                if cdim == 1:
+                if cdim == 1 and fuse_kernel_arg.sym.rank:
                     # [Special case]
                     # ... Handle rank 1 indirect arguments that appear in both
                     # /base/ and /fuse/: just point into the right location
