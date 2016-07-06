@@ -370,7 +370,8 @@ class Arg(base.Arg):
                     'rows': rows_str,
                     'cols': cols_str,
                     'insert': "INSERT_VALUES" if self.access == WRITE else "ADD_VALUES"})
-        return "\n".join(ret)
+        ret = " "*16 + "{\n" + "\n".join(ret) + "\n" + " "*16 + "}"
+        return ret
 
     def c_local_tensor_dec(self, extents, i, j):
         if self._is_mat:
