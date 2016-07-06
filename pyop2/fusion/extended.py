@@ -217,21 +217,12 @@ class Kernel(sequential.Kernel, tuple):
 
     @classmethod
     def _cache_key(cls, kernels, fused_ast=None, loop_chain_index=None):
-        keys = "".join([super(Kernel, cls)._cache_key(
-            k._original_ast.gencode() if k._original_ast else k._code,
-            k._name, k._opts, k._include_dirs, k._headers, k._user_code) for k in kernels])
+        key = "".join([super(Kernel, cls)._cache_key(k._code, k._name, k._opts,
+                                                     k._include_dirs, k._headers,
+                                                     k._user_code) for k in kernels])
         if fused_ast:
-            keys += md5(str(hash(str(fused_ast)))).hexdigest()
-        return str(loop_chain_index) + keys
-
-    def _ast_to_c(self, asts, opts):
-        """Produce a string of C code from an abstract syntax tree representation
-        of the kernel."""
-        if not isinstance(asts, (ast.FunDecl, ast.Root)):
-            asts = ast.Root(asts)
-        self._ast = asts
-        self._original_ast = dcopy(self._ast)
-        return super(Kernel, self)._ast_to_c(self._ast, opts)
+            key += str(hash(str(fused_ast)))
+        return md5(str(loop_chain_index) + key).hexdigest()
 
     def _multiple_ast_to_c(self, kernels):
         """Glue together different ASTs (or strings) such that: ::
@@ -245,8 +236,8 @@ class Kernel(sequential.Kernel, tuple):
         for i, (_, kernel_group) in enumerate(groupby(unsorted_kernels, identifier)):
             duplicates = list(kernel_group)
             main = duplicates[0]
-            if main._original_ast:
-                main_ast = dcopy(main._original_ast)
+            if main._ast:
+                main_ast = dcopy(main._ast)
                 finder = FindInstances((ast.FunDecl, ast.FunCall))
                 found = finder.visit(main_ast, ret=FindInstances.default_retval())
                 for fundecl in found[ast.FunDecl]:
@@ -308,14 +299,13 @@ class Kernel(sequential.Kernel, tuple):
 
         # What sort of Kernel do I have?
         if fused_ast:
-            # A single, already fused AST (code generation is then delayed)
+            # A single AST (as a result of soft or hard fusion)
             self._ast = fused_ast
-            self._code = None
+            self._code = self._ast_to_c(fused_ast)
         else:
-            # Multiple kernels, interpreted as different C functions
+            # Multiple functions (AST or strings, as a result of tiling)
             self._ast = None
             self._code = self._multiple_ast_to_c(kernels)
-        self._original_ast = self._ast
         self._kernels = kernels
 
         self._initialized = True

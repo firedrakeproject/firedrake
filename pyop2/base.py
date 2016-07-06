@@ -3843,11 +3843,11 @@ class Kernel(Cached):
         if isinstance(code, (str, FlatBlock)):
             # Got a C string, nothing we can do, just use it as Kernel body
             self._ast = None
-            self._original_ast = None
             self._code = code
             self._attached_info = {'fundecl': None, 'attached': False}
         else:
             self._ast = code
+            self._code = self._ast_to_c(self._ast, opts)
             search = FindInstances(ast.FunDecl, ast.FlatBlock).visit(self._ast)
             fundecls, flatblocks = search[ast.FunDecl], search[ast.FlatBlock]
             assert len(fundecls) == 1, "Illegal Kernel"
@@ -3856,17 +3856,6 @@ class Kernel(Cached):
                 'attached': False,
                 'flatblocks': len(flatblocks) > 0
             }
-            if configuration['loop_fusion']:
-                # Got an AST and loop fusion is enabled, so code generation needs
-                # be deferred because optimisation of a kernel in a fused chain of
-                # loops may differ from optimisation in a non-fusion context
-                self._original_ast = self._ast
-                self._code = None
-            else:
-                # Got an AST, need to go through COFFEE for optimization and
-                # code generation (the /_original_ast/ is tracked by /_ast_to_c/)
-                self._original_ast = dcopy(self._ast)
-                self._code = self._ast_to_c(self._ast, opts)
         self._initialized = True
 
     @property
@@ -3877,9 +3866,6 @@ class Kernel(Cached):
     def code(self):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
-        if not self._code:
-            self._original_ast = dcopy(self._ast)
-            self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
 
     @cached_property

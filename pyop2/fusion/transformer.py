@@ -512,7 +512,7 @@ def build_soft_fusion_kernel(loops, loop_chain_index):
     """
 
     kernels = [l.kernel for l in loops]
-    asts = [k._original_ast if k._code else k._ast for k in kernels]
+    asts = [k._ast for k in kernels]
     base_ast, fuse_asts = dcopy(asts[0]), asts[1:]
 
     base_fundecl = FindInstances(ast.FunDecl).visit(base_ast)[ast.FunDecl][0]
@@ -564,11 +564,8 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
 
     finder = FindInstances((ast.FunDecl, ast.PreprocessNode))
 
-    # Hard fusion occurs on fresh copies of the /base/ and /fuse/ ASTs as
-    # the optimization process in COFFEE is different if kernels get fused.
-
     base = base_loop.kernel
-    base_ast = dcopy(base._original_ast) if base._code else dcopy(base._ast)
+    base_ast = dcopy(base._ast)
     base_info = finder.visit(base_ast)
     base_headers = base_info[ast.PreprocessNode]
     base_fundecl = base_info[ast.FunDecl]
@@ -576,7 +573,7 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
     base_fundecl = base_fundecl[0]
 
     fuse = fuse_loop.kernel
-    fuse_ast = dcopy(fuse._original_ast) if fuse._code else dcopy(fuse._ast)
+    fuse_ast = dcopy(fuse._ast)
     fuse_info = finder.visit(fuse_ast)
     fuse_headers = fuse_info[ast.PreprocessNode]
     fuse_fundecl = fuse_info[ast.FunDecl]
