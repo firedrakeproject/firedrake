@@ -44,8 +44,6 @@ from pyop2.mpi import MPI
 from pyop2.logger import warning, info as log_info
 from pyop2.utils import flatten
 
-from coffee import base as ast
-
 try:
     """Is SLOPE accessible ?"""
     sys.path.append(os.path.join(os.environ['SLOPE_DIR'], 'python'))

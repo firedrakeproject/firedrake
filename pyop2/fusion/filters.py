@@ -34,7 +34,6 @@
 """Classes for handling duplicate arguments in parallel loops and kernels."""
 
 from collections import OrderedDict
-from copy import deepcopy as dcopy
 
 from pyop2.base import READ, RW, WRITE
 from pyop2.utils import flatten

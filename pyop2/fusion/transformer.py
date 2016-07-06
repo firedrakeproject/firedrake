@@ -609,7 +609,7 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
 
     # Track position of Args that need a postponed gather
     # Can't track Args themselves as they change across different parloops
-    fargs = {fusion_args.index(i) : ('postponed', False) for i in unshared.keys()}
+    fargs = {fusion_args.index(i): ('postponed', False) for i in unshared.keys()}
     fargs.update({len(set(binding.values())): ('onlymap', True)})
 
     # Add maps for arguments that need a postponed gather

@@ -43,7 +43,6 @@ import ctypes
 import operator
 import types
 from hashlib import md5
-from copy import deepcopy as dcopy
 
 from configuration import configuration
 from caching import Cached, ObjectCached
