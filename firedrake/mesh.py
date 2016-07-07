@@ -23,7 +23,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'adapt', 'writeGmf']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'adapt', 'writeGmf', 'readGmfMesh', 'readGmfSol']
 
 
 _cells = {
@@ -1362,8 +1362,36 @@ def adapt(mesh,metric):
 #        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, vec, np.ascontiguousarray([solType]), meshName, np.ascontiguousarray([solName]))
 
 
-def writeGmf(mesh, writeMesh, sol, solType, meshName, solName) :
+def writeGmf(mesh, writeMesh, bdLabelName, meshName, sol, solType, solName, section) :
 
-    with sol.dat.vec_ro as vec:
-        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, vec, solType, meshName, solName)
+    if sol :
+        with sol.dat.vec_ro as vec:
+            dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, bdLabelName, meshName, 1, vec, solType, solName, section)
+    else :
+        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, bdLabelName, meshName, 0, vec, solType, solName, section)
 
+
+
+def readGmfMesh(meshName, bdLabelName):
+
+    plex = dmplex.petscReadGmfMesh(meshName, bdLabelName)
+    mesh = Mesh(plex)
+    return mesh
+
+
+
+def readGmfSol(mesh, sol, solName, solType, section):
+
+    solVec = dmplex.petscReadGmfSol(mesh._plex, solName, solType, section)
+
+    numVertices = mesh.topology.num_vertices()
+    if solType == 1:
+        newshape = (numVertices)
+    elif solType == 2:
+        newshape = (numVertices, 2)
+    elif solType == 3:
+        newshape = (numVertices, 2,2)
+    elif solType == 5:
+        newshape = (numVertices, 2,2)
+
+    sol.dat.data[...] = np.array(solVec.getArray(readonly=True)).reshape(newshape)

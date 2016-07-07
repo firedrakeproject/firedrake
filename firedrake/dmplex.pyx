@@ -2032,7 +2032,7 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
 
 
 def petscAdap(PETSc.DM plex, PETSc.Vec metric):
-    cdef PETSc.DM newplex;
+    cdef PETSc.DM newplex
     newplex = PETSc.DMPlex().create()
     CHKERR(DMPlexAdapt(plex.dm, metric.vec, "boundary_ids", <PETSc.PetscDM*>&(newplex.dm)))
     return newplex
@@ -2047,10 +2047,45 @@ def petscAdap(PETSc.DM plex, PETSc.Vec metric):
 #        print "### WARNING 3D writes not implemented yet. Doing nothing."
 
         
-def petscWriteGmf(PETSc.DM plex, PetscBool writeMesh, numSol,  PETSc.Vec sol , solType, meshName, solName):
+def petscWriteGmf(PETSc.DM plex, PetscBool writeMesh, bdLabelName, meshName, PetscInt numSol, PETSc.Vec sol , solType, solName, PETSc.Section section):
+
+    cdef PETSc.PetscSection sec = NULL;
+
+    if section != None:
+        sec = section.sec
+
 
     dim = plex.getDimension()
     if dim == 2 :
-        CHKERR(DMPlexWrite_gmfMesh2d_1sol(plex.dm, writeMesh, <PETSc.PetscVec>(sol.vec), solType, "", meshName, solName.data, PETSC_FALSE))
+        if numSol == 1 :
+            CHKERR(DMPlexWrite_gmfMesh2d_1sol(plex.dm, writeMesh, bdLabelName, meshName, <PETSc.PetscVec>(sol.vec), solType, solName, sec, PETSC_FALSE))
+        elif numSol == 0 :
+            CHKERR(DMPlexWrite_gmfMesh2d_noSol(plex.dm, bdLabelName, meshName, sec, PETSC_FALSE))
+        else :
+            print "#### ERROR  cannot write more than 1 solution in Gmf format for now, whereas %d were given" % numSol
     else :
         print "### WARNING 3D writes not implemented yet. Doing nothing."        
+
+
+def petscReadGmfMesh(meshName, bdLabelName):
+
+    cdef PETSc.DM newplex
+    newplex = PETSc.DMPlex().create()
+    CHKERR(DMPlexCreateGmfFromFile_2d(meshName, bdLabelName, <PETSc.PetscDM*>&(newplex.dm)))
+    return newplex
+
+
+def petscReadGmfSol(PETSc.DM plex, solName, solType, PETSc.Section section):
+
+    cdef :
+        PETSc.PetscSection sec = NULL
+        PETSc.Vec sol
+
+    sol = PETSc.Vec().create()
+
+    if section != None:
+        sec = section.sec
+
+    CHKERR(DMPlexReadGmfSolFromFile_2d(plex.dm, sec, solName, solType, <PETSc.PetscVec*>&(sol.vec)))
+
+    return sol
