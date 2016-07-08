@@ -406,7 +406,7 @@ def apply_patch(self, PETSc.Vec x, PETSc.Vec y):
         ly = self._ys[i]
         b = self._bs[i]
         bcind = self.bc_patches[i]
-        gind = self..glob_patches[i]
+        gind = self.glob_patches[i]
         ksp = self.ksps[i]
 
         insert_forward(local, b, gind)
