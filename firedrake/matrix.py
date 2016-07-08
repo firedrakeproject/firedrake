@@ -678,8 +678,7 @@ class ExtractSubBlock(MultiFunction):
 
         V_is = V.split()
         indices = self.blocks[o.number()]
-        #print self.blocks
-        #print indices
+
         if len(indices) == 1:
             W = V_is[indices[0]]
             W = FunctionSpace(W.mesh(), W.ufl_element())
