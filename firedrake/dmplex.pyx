@@ -2054,7 +2054,6 @@ def petscWriteGmf(PETSc.DM plex, PetscBool writeMesh, bdLabelName, meshName, Pet
     if section != None:
         sec = section.sec
 
-
     dim = plex.getDimension()
     if dim == 2 :
         if numSol == 1 :
@@ -2062,16 +2061,28 @@ def petscWriteGmf(PETSc.DM plex, PetscBool writeMesh, bdLabelName, meshName, Pet
         elif numSol == 0 :
             CHKERR(DMPlexWrite_gmfMesh2d_noSol(plex.dm, bdLabelName, meshName, sec, PETSC_FALSE))
         else :
-            print "#### ERROR  cannot write more than 1 solution in Gmf format for now, whereas %d were given" % numSol
+            print "####  ERROR  cannot write more than 1 solution in Gmf format for now, whereas %d were given" % numSol
+    elif dim == 3 :
+        if numSol == 1 :
+            CHKERR(DMPlexWrite_gmfMesh3d_1sol(plex.dm, writeMesh, bdLabelName, meshName, <PETSc.PetscVec>(sol.vec), solType, solName, sec, PETSC_FALSE))
+        elif numSol == 0 :
+            CHKERR(DMPlexWrite_gmfMesh3d_noSol(plex.dm, bdLabelName, meshName, sec, PETSC_FALSE))
+        else :
+            print "####  ERROR  cannot write more than 1 solution in Gmf format for now, whereas %d were given" % numSol
     else :
-        print "### WARNING 3D writes not implemented yet. Doing nothing."        
+        print "####  ERROR   Cannot write %d-dimension files in GMF format" % dim
 
 
-def petscReadGmfMesh(meshName, bdLabelName):
+def petscReadGmfMesh(meshName, dim, bdLabelName):
 
     cdef PETSc.DM newplex
     newplex = PETSc.DMPlex().create()
-    CHKERR(DMPlexCreateGmfFromFile_2d(meshName, bdLabelName, <PETSc.PetscDM*>&(newplex.dm)))
+    if dim == 2 :
+        CHKERR(DMPlexCreateGmfFromFile_2d(meshName, bdLabelName, <PETSc.PetscDM*>&(newplex.dm)))
+    elif dim == 3 :
+        CHKERR(DMPlexCreateGmfFromFile_3d(meshName, bdLabelName, <PETSc.PetscDM*>&(newplex.dm)))
+    else :
+        print "####  ERROR   Cannot read %d-dimension files in GMF format" % dim
     return newplex
 
 
@@ -2086,6 +2097,13 @@ def petscReadGmfSol(PETSc.DM plex, solName, solType, PETSc.Section section):
     if section != None:
         sec = section.sec
 
-    CHKERR(DMPlexReadGmfSolFromFile_2d(plex.dm, sec, solName, solType, <PETSc.PetscVec*>&(sol.vec)))
+    dim = plex.getDimension()
+    if dim == 2 :
+        CHKERR(DMPlexReadGmfSolFromFile_2d(plex.dm, sec, solName, solType, <PETSc.PetscVec*>&(sol.vec)))
+    elif dim == 3 :
+        CHKERR(DMPlexReadGmfSolFromFile_3d(plex.dm, sec, solName, solType, <PETSc.PetscVec*>&(sol.vec)))
+    else :
+        print "####  ERROR   Cannot read %d-dimension files in GMF format" % dim
 
     return sol
+    

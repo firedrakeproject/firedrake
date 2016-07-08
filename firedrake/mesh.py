@@ -1368,13 +1368,13 @@ def writeGmf(mesh, writeMesh, bdLabelName, meshName, sol, solType, solName, sect
         with sol.dat.vec_ro as vec:
             dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, bdLabelName, meshName, 1, vec, solType, solName, section)
     else :
-        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, bdLabelName, meshName, 0, vec, solType, solName, section)
+        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, bdLabelName, meshName, 0, None, solType, solName, section)
 
 
 
-def readGmfMesh(meshName, bdLabelName):
+def readGmfMesh(meshName, dim, bdLabelName):
 
-    plex = dmplex.petscReadGmfMesh(meshName, bdLabelName)
+    plex = dmplex.petscReadGmfMesh(meshName, dim, bdLabelName)
     mesh = Mesh(plex)
     return mesh
 
@@ -1385,13 +1385,15 @@ def readGmfSol(mesh, sol, solName, solType, section):
     solVec = dmplex.petscReadGmfSol(mesh._plex, solName, solType, section)
 
     numVertices = mesh.topology.num_vertices()
+    dim = mesh._plex.getDimension()
     if solType == 1:
         newshape = (numVertices)
     elif solType == 2:
-        newshape = (numVertices, 2)
+        newshape = (numVertices, dim)
     elif solType == 3:
-        newshape = (numVertices, 2,2)
+        newshape = (numVertices, dim,dim)
     elif solType == 5:
-        newshape = (numVertices, 2,2)
+        newshape = (numVertices, dim,dim)
+  
 
     sol.dat.data[...] = np.array(solVec.getArray(readonly=True)).reshape(newshape)
