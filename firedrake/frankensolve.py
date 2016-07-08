@@ -79,6 +79,7 @@ class UFLMatrix(object):
 
         for bc in self.row_bcs:
             bc.apply(self._y)
+
         with self._y.dat.vec_ro as v:
             v.copy(Y)
 
@@ -202,9 +203,9 @@ class UFLSubMatrix(UFLMatrix):
 # (assembly of the action of a bilinear form) plus boundary conditions.
 # Here, we document the highlights of what we've changed::
 
+
 # This class is created inside our solver.  It is used to set up PETSc's
 # nonlinear solver via various callbacks.::
-
 class SNESContext(object):
     """
     Context holding information for SNES callbacks.
@@ -239,7 +240,6 @@ class SNESContext(object):
         else:
             self._pjac = self._jac
 
-
 # This is the function that PETSc will use as a callback to evaluate the residual.::
     def form_function(self, snes, X, F):
         """Form the residual for this problem
@@ -264,7 +264,6 @@ class SNESContext(object):
             v.copy(F)
 
         return
-
 
 # And ditto for the form_jacobian.  Except that note we *don't* need to
 # reassemble the Jacobians because they are matrix-free.  Updating the

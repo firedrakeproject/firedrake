@@ -5,6 +5,7 @@ from pyop2 import base as pyop2
 from pyop2 import op2
 import numpy
 
+
 # Fake up some PyOP2 objects so we can abuse the PyOP2 code
 # compilation pipeline to get a callable function pointer for
 # assembling into a dense matrix.
@@ -137,9 +138,9 @@ def matrix_callable(kernels, V, coordinates, *coefficients):
     kinfo = kernels[0]
     args = []
     matarg = DenseMat(V.dof_dset, V.dof_dset)(op2.INC,
-                                           (V.cell_node_map()[op2.i[0]],
-                                            V.cell_node_map()[op2.i[1]]),
-                                           flatten=True)
+                                              (V.cell_node_map()[op2.i[0]],
+                                               V.cell_node_map()[op2.i[1]]),
+                                              flatten=True)
     matarg.position = len(args)
     args.append(matarg)
     carg = coordinates.dat(op2.READ, coordinates.cell_node_map(), flatten=True)

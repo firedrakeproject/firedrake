@@ -510,12 +510,10 @@ class ImplicitMatrixContext(object):
 
         return
 
-
 # Now, to enable fieldsplit preconditioners, we need to enable submatrix
 # extraction for our custom matrix type.  Note that we are splitting UFL
 # and index sets rather than an assembled matrix, keeping matrix
 # assembly deferred as long as possible.::
-
     def getSubMatrix(self, mat, row_is, col_is, target=None):
         if target is not None:
             # Repeat call, just return the matrix, since we don't
@@ -533,11 +531,9 @@ class ImplicitMatrixContext(object):
         row_inds = find_sub_block(row_is, row_ises)
         col_inds = find_sub_block(col_is, col_ises)
 
-
 # Now, actually extracting the right UFL bit will occur inside a special
 # class, which is a Python object that needs to be stuffed inside
 # a PETSc matrix::
-
         submat_ctx = ImplicitSubMatrixContext(self, row_inds, col_inds)
         submat = PETSc.Mat().create()
         submat.setType("python")
@@ -699,7 +695,10 @@ class ExtractSubBlock(MultiFunction):
                 else:
                     args += [a_[j] for j in numpy.ndindex(a_.ufl_shape)]
             else:
-                args += [Zero()
-                         for j in numpy.ndindex(
-                         V_is[i].ufl_element().value_shape())]
+                args += [
+                    Zero()
+                    for j in numpy.ndindex(
+                        V_is[i].ufl_element().value_shape()
+                    )
+                ]
         return as_vector(args)
