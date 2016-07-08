@@ -10,7 +10,7 @@ Try out "python poisson.py -options_file opts.poisson.<foo>.txt::
 
   M = UnitSquareMesh(N, N)
 
-  V = FunctionSpace(M, "CG", 1)
+  V = FunctionSpace(M, "CG", 2)
 
   u = TrialFunction(V)
   v = TestFunction(V)

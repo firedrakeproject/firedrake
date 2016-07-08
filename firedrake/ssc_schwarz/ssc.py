@@ -168,7 +168,7 @@ class PatchPC(InitializedPC):
             bs = self.glob_patches[i].getBlockSize()
             mat.setSizes(((size, size), (size, size)),
                          bsize=bs)
-            mat.setType(mat.Type.DENSE)
+            mat.setType(mat.Type.SEQAIJ)
             mat.setOptionsPrefix("scp_")
             mat.setFromOptions()
             mat.setUp()
