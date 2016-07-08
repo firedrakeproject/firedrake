@@ -5,6 +5,7 @@ import argparse
 from collections import defaultdict
 import platform
 import math
+import itertools
 
 # (fancy) plotting stuff
 import numpy as np
@@ -24,11 +25,14 @@ def version_as_str(num_procs, num_threads):
     else:
         return "%d mpi x %d omp" % (num_procs, num_threads)
 
+
 def roundup(x, ceil):
     return int(math.ceil(x / float(ceil))) * ceil
 
+
 def flatten(x):
     return [i for l in x for i in l]
+
 
 def createdir(base, name, platformname, mesh, poly, plot, part="", mode="", tile_size=""):
     poly = "poly%s" % str(poly)
@@ -37,13 +41,16 @@ def createdir(base, name, platformname, mesh, poly, plot, part="", mode="", tile
         os.makedirs(directory)
     return directory
 
+
 def sort_on_mode(x):
     return sorted(x.items(), key=lambda i: ('untiled' in i[0], i[0]))
+
 
 def record(xvalues, max_x, all_xvalues, key):
     max_x = max(max_x, max(xvalues))
     all_xvalues += tuple(i for i in xvalues if i not in all_xvalues)
     return max_x, all_xvalues
+
 
 def take_min(vals, new_val, x=0, y=1):
     old_vals = [i for i in vals if i[x] == new_val[x]]
@@ -51,6 +58,7 @@ def take_min(vals, new_val, x=0, y=1):
         vals.remove(i)
     vals.append(min(old_vals + [new_val], key=lambda i: i[y]))
     vals.sort(key=lambda i: i[x])
+
 
 def setlayout(ax, xvalues, xlim=None, ylim_zero=True):
     # Hide the right and top spines
@@ -118,7 +126,7 @@ def plot(dirname=None):
                     key = (name, platformname, poly, mesh, "scalability")
                     plot_line = "%s-%s" % (version, mode)
                     vals = y_runtimes_x_cores[key].setdefault(plot_line, [])
-                    take_min(vals, (num_cores, runtime))
+                    take_min(vals, (num_cores, ACCT))
 
                     # 2) Structure for tiled versions. Note:
                     # - tile_size is actually the tile increase factor
@@ -126,7 +134,7 @@ def plot(dirname=None):
                     key = (name, platformname, poly, mesh, version)
                     plot_subline = y_runtimes_x_tilesize[key].setdefault(mode, {})
                     vals = plot_subline.setdefault(part if mode != 'untiled' else '', [])
-                    take_min(vals, (tile_size, runtime))
+                    take_min(vals, (tile_size, ACCT))
 
                     # 3) Structure for GRID tiled versions. Note:
                     # - tile_size is actually the tile increase factor
@@ -135,16 +143,16 @@ def plot(dirname=None):
                     poly_plot_subline = grid_y_runtimes_x_tilesize[key].setdefault(poly, {})
                     plot_subline = poly_plot_subline.setdefault(mode, {})
                     vals = plot_subline.setdefault(part if mode != 'untiled' else '', [])
-                    take_min(vals, (tile_size, runtime))
+                    take_min(vals, (tile_size, ACCT))
 
     # Now we can plot !
 
     # Fancy colors (all colorbrewer scales: http://bl.ocks.org/mbostock/5577023)
     set2 = brewer2mpl.get_map('Paired', 'qualitative', 12).hex_colors
 
-    markers = ['o', 'x']
-    markersize = 3
-    markeredgewidth = 5
+    markers = ['>', 'x', 'v', '^', 'o', '+']
+    markersize = 5
+    markeredgewidth = 1
     linestyles = ['-', '--']
     linewidth = 2
     legend_font = FontProperties(size='xx-small')
@@ -158,7 +166,7 @@ def plot(dirname=None):
     for (name, platformname, poly, mesh, filename), plot_lines in y_runtimes_x_cores.items():
         directory = createdir(base, name, platformname, mesh, poly, "scalability")
         ax = fig.add_subplot(1, 1, 1)
-        ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
+        ax.set_ylabel(r'ACCT (s)', fontsize=11, color='black', labelpad=15.0)
         ax.set_xlabel(r'Number of cores', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <version, part, mode>
         max_cores, xvalues = 0, (1,)
@@ -187,18 +195,20 @@ def plot(dirname=None):
     for (name, platformname, poly, mesh, version), plot_line_groups in y_runtimes_x_tilesize.items():
         directory = createdir(base, name, platformname, mesh, poly, "searchforoptimum")
         ax = fig.add_subplot(1, 1, 1)
-        ax.set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
-        ax.set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
+        ax.set_ylabel(r'ACCT (s)', fontsize=11, color='black', labelpad=15.0)
+        ax.set_xlabel(r'Tile size factor$', fontsize=11, color='black', labelpad=10.0)
         # ... Add a line for each <part, mode>
         max_tile_size, xvalues = 0, (0,)
+        # ... Reset markers
+        plotmarker = itertools.cycle(markers)
         for i, (plot_line_group, plot_sublines) in enumerate(sort_on_mode(plot_line_groups)):
             for ls, m, (mode, x_y_vals) in zip(linestyles, markers, sorted(plot_sublines.items())):
-                label = '%s-%s' % (plot_line_group, mode) if plot_line_group != 'untiled' else 'untiled'
+                label = '%s-%s' % (plot_line_group, mode) if plot_line_group != 'untiled' else 'original'
                 x, y = zip(*x_y_vals)
                 max_tile_size, xvalues = record(x, max_tile_size, xvalues, plot_line_group)
                 ax.plot(x, y,
                         ls=ls, lw=linewidth,
-                        marker=m, ms=markersize, mew=markeredgewidth, mec=set2[i],
+                        marker=plotmarker.next(), ms=markersize, mew=markeredgewidth, mec=set2[i],
                         color=set2[i],
                         label=label,
                         clip_on=False)
@@ -219,21 +229,19 @@ def plot(dirname=None):
     for (name, platformname, mesh, version), poly_plot_line_groups in grid_y_runtimes_x_tilesize.items():
         directory = createdir(base, name, platformname, "", "-all", "searchforoptimum")
         fig, axes = plt.subplots(ncols=2, nrows=2)
-        #axes[0][0].set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
-        #axes[1][0].set_ylabel(r'Execution time (s)', fontsize=11, color='black', labelpad=15.0)
-        #axes[1][0].set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
-        #axes[1][1].set_xlabel(r'Tile size $\iota$', fontsize=11, color='black', labelpad=10.0)
         for ax, (poly, plot_line_groups) in zip(axes.ravel(), sorted(poly_plot_line_groups.items())):
             # ... Add a line for each <part, mode>
             max_tile_size, xvalues = 0, (0,)
+            # ... Reset markers
+            plotmarker = itertools.cycle(markers)
             for i, (plot_line_group, plot_sublines) in enumerate(sort_on_mode(plot_line_groups)):
                 for ls, m, (mode, x_y_vals) in zip(linestyles, markers, sorted(plot_sublines.items())):
-                    label = '%s-%s' % (plot_line_group, mode) if plot_line_group != 'untiled' else 'untiled'
+                    label = '%s-%s' % (plot_line_group, mode) if plot_line_group != 'untiled' else 'original'
                     x, y = zip(*x_y_vals)
                     max_tile_size, xvalues = record(x, max_tile_size, xvalues, plot_line_group)
                     ax.plot(x, y,
                             ls=ls, lw=linewidth,
-                            marker=m, ms=markersize, mew=markeredgewidth, mec=set2[i],
+                            marker=plotmarker.next(), ms=markersize, mew=markeredgewidth, mec=set2[i],
                             color=set2[i],
                             label=label,
                             clip_on=False)
@@ -241,8 +249,8 @@ def plot(dirname=None):
             setlayout(ax, xvalues, xlim=(0, max_tile_size), ylim_zero=False)
         # ... Adjust the global layout
         fig.subplots_adjust(hspace=.4, wspace=.4)
-        fig.text(0.02, 0.60, r'Execution time (s)', rotation='vertical', fontsize=12)
-        fig.text(0.46, -0.01, r'Tile size $\iota$', fontsize=12)
+        fig.text(0.02, 0.55, r'ACCT (s)', rotation='vertical', fontsize=12)
+        fig.text(0.42, -0.01, r'Tile size factor', fontsize=12)
         # ... Add a global legend
         fig.legend(*ax.get_legend_handles_labels(), loc='upper center', ncol=7, prop=legend_font, frameon=False)
         # ... Finally, output to a file
