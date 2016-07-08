@@ -401,12 +401,12 @@ def apply_patch(self, PETSc.Vec x, PETSc.Vec y):
     g2l_begin(sf, x, local, dtype)
     g2l_end(sf, x, local, dtype)
 
-    num_patches = len(ctx.matrices)
+    num_patches = len(self.matrices)
     for i in range(num_patches):
         ly = self._ys[i]
         b = self._bs[i]
-        bcind = ctx.bc_patches[i]
-        gind = ctx.glob_patches[i]
+        bcind = self.bc_patches[i]
+        gind = self..glob_patches[i]
         ksp = self.ksps[i]
 
         insert_forward(local, b, gind)
@@ -426,14 +426,14 @@ def apply_patch(self, PETSc.Vec x, PETSc.Vec y):
     local.set(0)
     for i in range(num_patches):
         ly = self._ys[i]
-        gind = ctx.glob_patches[i]
+        gind = self.glob_patches[i]
         add_reverse(ly, local, gind)
 
     l2g_begin(sf, local, y, dtype)
     l2g_end(sf, local, y, dtype)
     VecGetArrayRead(x.vec, &xarr)
     VecGetArray(y.vec, &arr)
-    bcind = ctx.bc_nodes
+    bcind = self.bc_nodes
     ISBlockGetIndices(bcind.iset, &bcindices)
     ISGetBlockSize(bcind.iset, &bs)
     ISBlockGetLocalSize(bcind.iset, &nind)

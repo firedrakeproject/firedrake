@@ -49,11 +49,14 @@ class PatchPC(InitializedPC):
         A, P = pc.getOperators()
         ctx = P.getPythonContext()
 
+        self.ctx = ctx
         a = ctx.a
+        self.a = a
         bcs = ctx.row_bcs
         test, trial = a.arguments()
 
         V = test.function_space()
+        self.V = V
 
         mesh = a.ufl_domain()
         self.mesh = mesh
