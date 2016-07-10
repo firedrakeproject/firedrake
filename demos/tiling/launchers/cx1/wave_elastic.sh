@@ -41,8 +41,7 @@ elif [ "$1" == "multinode" ]; then
     for poly in 1 2 3 4; do
         qsub -v polys=$poly -l walltime=48:00:00 -l select=1:ncpus=20:mem=64gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_populator.pbs
     done
-    # Hack: make sure the shared file system "sees" the cache
-    sleep 10m
+    echo "Running multi-node experiments: Haswell (2x20 cores, pqcdt)"
     for poly in 1 2 3 4; do
         for h in 0.5; do
             qsub -v polys=$poly,mesh=$h -l walltime=48:00:00 -l select=2:ncpus=20:mem=64gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs

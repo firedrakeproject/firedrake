@@ -92,3 +92,6 @@ done
 
 # Copy the local cache to the shared file system
 cp $PYOP2_CACHE_DIR/* $WORK/cache
+
+# Hack: make sure the shared file system "sees" the cache
+sleep 10m
