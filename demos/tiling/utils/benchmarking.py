@@ -106,20 +106,10 @@ def output_time(start, end, **kwargs):
         print "Average Compute and Communication Time: ", ACCT, "s"
 
     # Determine if a multi-node execution
-    is_multinode = False
-    platformname = platform.node().split('.')[0]
-    if MPI.comm.rank in range(1, num_procs):
-        MPI.comm.isend(platformname, dest=0)
-    elif MPI.comm.rank == 0:
-        all_platform_names = [None]*num_procs
-        all_platform_names[0] = platformname
-        for i in range(1, num_procs):
-            all_platform_names[i] = MPI.comm.recv(source=i)
-        if any(i != platformname for i in all_platform_names):
-            is_multinode = True
-        if is_multinode:
-            cluster_island = platformname.split('-')
-            platformname = "%s_%s" % (cluster_island[0], cluster_island[1])
+    if num_procs > 20:
+        platformname = "multinode"
+    else:
+        platformname = platform.node().split('.')[0]
 
     # Adjust /tile_size/ and /version/ based on the problem that was actually run
     assert nloops >= 0

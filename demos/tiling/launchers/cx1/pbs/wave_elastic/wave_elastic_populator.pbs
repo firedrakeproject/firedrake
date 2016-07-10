@@ -47,71 +47,48 @@ LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode.txt"
 rm -f $LOGGER
 touch $LOGGER
 
-# Extra options for each mode
+
 declare -a opts_em1=("" "--glb-maps True")
 declare -a opts_em2=("" "--glb-maps True")
 declare -a opts_em3=("--glb-maps True")
 declare -a opts_em4=("--glb-maps True" "--glb-maps True --extra-halo 1")
 declare -a opts_em5=("--glb-maps True" "--glb-maps True --extra-halo 1")
 
-# Should I run a specific poly order, as provided in input, or the hard-coded ones?
-if [ -z "$polys" ]; then
-    polys=(1 2 3 4)
-fi
-
 declare -a part_all=("chunk")
 
-declare -a mesh_p1=("--mesh-size (300.0,150.0,$mesh)")
-declare -a mesh_p2=("--mesh-size (300.0,150.0,$mesh)")
-declare -a mesh_p3=("--mesh-size (300.0,150.0,$mesh)")
-declare -a mesh_p4=("--mesh-size (300.0,150.0,$mesh)")
-
 declare -a em_all=(1 2 3 4 5)
-declare -a ts_p1=(140 250 320 400)
-declare -a ts_p2=(70 140 200 300)
-declare -a ts_p3=(45 60 75)
-declare -a ts_p4=(20 45 70)
 
-# The PyOP2 cache must be available via a shared file system
-export PYOP2_CACHE_DIR=$WORK/cache
+
+export PYOP2_CACHE_DIR=$TMPDIR/pyop2-cache
 
 MPICMD="mpiexec -env PYOP2_CACHE_DIR $PYOP2_CACHE_DIR"
 
-# Run actual experiments
+# Populate the local cache
 for poly in ${polys[@]}
 do
-    OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_multinode_p"$poly".txt"
-    rm -f $OUT_FILE
-    touch $OUT_FILE
-    echo "Polynomial order "$poly >> $LOGGER
-    mesh_p="mesh_p$poly[@]"
-    meshes=( "${!mesh_p}" )
-    for mesh in "${meshes[@]}"
+    if [ -n "$onlylog" ]; then
+        break
+    fi
+    echo "Populate polynomial order "$poly >> $LOGGER
+    mesh="--mesh-size (300.0,150.0,1.0)"
+    echo "    Populate "$mesh >> $LOGGER
+    echo "        Populate Untiled ..." >> $LOGGER
+    $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 --time_max 0.1
+    for p in ${part_all[@]}
     do
-        echo "    Running "$mesh >> $LOGGER
-        echo "        Untiled ..." >> $LOGGER
-        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 1>> $OUT_FILE 2>> $OUT_FILE
-        for p in ${part_all[@]}
+        for em in ${em_all[@]}
         do
-            for em in ${em_all[@]}
+            opts="opts_em$em[@]"
+            opts_em=( "${!opts}" )
+            for opt in "${opts_em[@]}"
             do
-                opts="opts_em$em[@]"
-                opts_em=( "${!opts}" )
-                for opt in "${opts_em[@]}"
-                do
-                    ts_p="ts_p$poly[*]"
-                    for ts in ${!ts_p}
-                    do
-                        echo "        Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
-                        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt 1>> $OUT_FILE 2>> $OUT_FILE
-                    done
-                done
+                ts=100000
+                echo "        Populate Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
+                $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt --time_max 0.1
             done
         done
     done
-    mv $OUT_FILE $WORK/
 done
 
-rm $LOGGER
+# Copy the local cache to the shared file system
+cp $PYOP2_CACHE_DIR/* $WORK/cache
