@@ -163,7 +163,6 @@ class PatchPC(InitializedPC):
         for n in self.kernels[0].coefficient_map:
             c = coeffs[n]
             if not isinstance(c, Constant):
-                print type(c)
                 args.append(c.dat._data.ctypes.data)
                 args.append(c.cell_node_map()._values.ctypes.data)
         for i in range(len(self.dof_patches)):
