@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from firedrake import DirichletBC, \
-    FunctionSpace, VectorFunctionSpace, Function, assemble, InitializedPC
+    FunctionSpace, VectorFunctionSpace, Function, assemble, InitializedPC, \
+    Constant
 
 from firedrake.utils import cached_property
 from firedrake.petsc import PETSc
@@ -9,7 +10,8 @@ from mpi4py import MPI
 from . import sscutils
 import numpy
 
-import ufl
+# import ufl
+from ufl import as_ufl
 from ufl.algorithms import map_integrands, MultiFunction
 from .patches import get_cell_facet_patches, get_dof_patches, \
     g2l_begin, g2l_end, l2g_begin, l2g_end, apply_patch
@@ -160,8 +162,10 @@ class PatchPC(InitializedPC):
         args = []
         for n in self.kernels[0].coefficient_map:
             c = coeffs[n]
-            args.append(c.dat._data.ctypes.data)
-            args.append(c.cell_node_map()._values.ctypes.data)
+            if not isinstance(c, Constant):
+                print type(c)
+                args.append(c.dat._data.ctypes.data)
+                args.append(c.cell_node_map()._values.ctypes.data)
         for i in range(len(self.dof_patches)):
             mat = PETSc.Mat().create(comm=PETSc.COMM_SELF)
             size = self.glob_patches[i].getSize()
@@ -279,7 +283,7 @@ class P1PC(InitializedPC):
         bcs = []
         for bc in self.bcs:
             val = Function(self.P1)
-            val.interpolate(ufl.as_ufl(bc.function_arg))
+            val.interpolate(as_ufl(bc.function_arg))
             bcs.append(DirichletBC(self.P1, val, bc.sub_domain, method=bc.method))
         return tuple(bcs)
 
