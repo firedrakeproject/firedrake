@@ -66,8 +66,8 @@ except:
 lazy_trace_name = 'lazy_trace'
 """The default name for sequences of lazily evaluated :class:`ParLoop`s."""
 
-from transformer import Inspector
-import extended
+from pyop2.fusion.transformer import Inspector
+from pyop2.fusion import extended
 
 
 def fuse(name, loop_chain, **kwargs):

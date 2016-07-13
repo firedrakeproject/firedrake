@@ -48,7 +48,7 @@ from pyop2.utils import flatten, strip, as_tuple
 from pyop2.mpi import collective
 from pyop2.profiling import timed_region
 
-from interface import slope, lazy_trace_name
+from pyop2.fusion.interface import slope, lazy_trace_name
 
 import coffee
 from coffee import base as ast
