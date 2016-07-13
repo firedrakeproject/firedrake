@@ -1,3 +1,4 @@
+<<<<<<< f86a73743f4cb36e0f6a4777027d48215d6cb8df
 """
 The purpose of this test is to check that the trace elements
 are solving the Galerkin projection problem. We project a
