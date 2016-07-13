@@ -217,12 +217,10 @@ class Kernel(sequential.Kernel, tuple):
 
     @classmethod
     def _cache_key(cls, kernels, fused_ast=None, loop_chain_index=None):
-        key = "".join([super(Kernel, cls)._cache_key(k._code, k._name, k._opts,
-                                                     k._include_dirs, k._headers,
-                                                     k._user_code) for k in kernels])
-        if fused_ast:
-            key += str(hash(str(fused_ast)))
-        return md5(str(loop_chain_index) + key).hexdigest()
+        key = str(loop_chain_index)
+        key += "".join([k.cache_key for k in kernels])
+        key += str(hash(str(fused_ast)))
+        return md5(key).hexdigest()
 
     def _multiple_ast_to_c(self, kernels):
         """Glue together different ASTs (or strings) such that: ::
