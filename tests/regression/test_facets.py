@@ -154,6 +154,19 @@ def test_internal_integral_unit_tet():
     assert abs(assemble(u('+') * dS)) < 1.0e-14
 
 
+@pytest.mark.xfail(reason="e_f_b_n_m reshapes values")
+def test_facet_map_no_reshape():
+    m = UnitSquareMesh(1, 1)
+    V = FunctionSpace(m, "DG", 0)
+    efnm = V.exterior_facet_node_map()
+    efbnmt = V.exterior_facet_boundary_node_map("topological")
+    efbnmg = V.exterior_facet_boundary_node_map("geometric")
+    assert efnm.values_with_halo.shape == (4, 1)
+    assert efbnmt.values_with_halo.shape == (4, 0)
+    assert efbnmg.values_with_halo.shape == (4, 1)
+    assert efnm.values_with_halo.shape == (4, 1)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
