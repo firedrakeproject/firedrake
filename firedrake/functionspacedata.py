@@ -368,7 +368,7 @@ class FunctionSpaceData(object):
                             comm=self.mesh.comm)
 
         fs_dat = op2.Dat(facet_set**el.space_dimension(),
-                         data=V.exterior_facet_node_map().values_with_halo)
+                         data=V.exterior_facet_node_map().values_with_halo.view())
 
         facet_dat = op2.Dat(facet_set**nodes_per_facet,
                             dtype=numpy.int32)
