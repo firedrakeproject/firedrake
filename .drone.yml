@@ -1,5 +1,10 @@
+matrix:
+    BASE_IMAGE:
+       - ubuntu:xenial
+       - ubuntu:14.04
+
 build:
-  image: ubuntu:xenial
+  image: $$BASE_IMAGE
   pull: true
   environment:
 #     Change the following to reflect your local preferences
@@ -23,7 +28,7 @@ build:
 #     A colon in the yaml breaks the parser; to get around this, awk is used to
 #     generate the colon at runtime
     - awk 'BEGIN { print "firedrake ALL=NOPASSWD\x3A ALL" }' >> /etc/sudoers
-#     Become the firedrake user; change to the build directory
+#     Change to the build directory
     - cd $FIREDRAKE_HOME
 #     Install Firedrake
     - sudo -EHu firedrake $DRONE_BUILD_DIR/scripts/firedrake-install
