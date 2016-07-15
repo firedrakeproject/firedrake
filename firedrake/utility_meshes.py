@@ -193,7 +193,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         edge_set = list(set(closure[1:5]))
 
         # Get the coordinates for this process
-        coords = plex.getCoordinatesLocal()
+        coords = plex.getCoordinatesLocal().array
         # get the PETSc section
         coords_sec = plex.getCoordinateSection()
 
