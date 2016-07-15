@@ -93,7 +93,8 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
-    def measure_set(self, integral_type, subdomain_id):
+    def measure_set(self, integral_type, subdomain_id,
+                    all_integer_subdomain_ids=()):
         '''Return the iteration set appropriate to measure. This will
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
@@ -102,11 +103,9 @@ class _Facets(object):
         # FIXME: This is WRONG in the case of 1*(ds + ds(1))
         # "otherwise" is "everywhere" - set(explicit subdomain ids)
         if subdomain_id in ["everywhere", "otherwise"]:
-            if integral_type == "exterior_facet_bottom":
-                return (op2.ON_BOTTOM, self.bottom_set)
-            elif integral_type == "exterior_facet_top":
-                return (op2.ON_TOP, self.bottom_set)
-            elif integral_type == "interior_facet_horiz":
+            if integral_type in ("exterior_facet_bottom",
+                                 "exterior_facet_top",
+                                 "interior_facet_horiz"):
                 return self.bottom_set
             else:
                 return self.set
@@ -617,7 +616,7 @@ class MeshTopology(object):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "%s_cells" % self.name, comm=self.comm)
 
-    def cell_subset(self, subdomain_id):
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=()):
         """Return a subset over cells with the given subdomain_id."""
         # FIXME: This is WRONG in the case of 1*(dx + dx(1))
         # "otherwise" is "everywhere" - set(explicit subdomain ids)
@@ -631,6 +630,21 @@ class MeshTopology(object):
                                               subdomain_id)
             self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
             return self._subsets[subdomain_id]
+
+    def measure_set(self, integral_type, subdomain_id,
+                    all_integer_subdomain_ids=()):
+        if integral_type == "cell":
+            return self.cell_subset(subdomain_id, all_integer_subdomain_ids)
+        elif integral_type in ("exterior_facet", "exterior_facet_vert",
+                               "exterior_facet_top", "exterior_facet_bottom"):
+            return self.exterior_facets.measure_set(integral_type, subdomain_id,
+                                                    all_integer_subdomain_ids)
+        elif integral_type in ("interior_facet", "interior_facet_vert",
+                               "interior_facet_horiz"):
+            return self.interior_facets.measure_set(integral_type, subdomain_id,
+                                                    all_integer_subdomain_ids)
+        else:
+            raise ValueError("Unknown integral type '%s'" % integral_type)
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -677,7 +691,7 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         return self._base_mesh.cell_closure
 
-    def cell_subset(self, subdomain_id):
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids):
         """Return a subset over cells with the given subdomain_id."""
         # FIXME: This is WRONG in the case of 1*(dx + dx(1))
         # "otherwise" is "everywhere" - set(explicit subdomain ids)
