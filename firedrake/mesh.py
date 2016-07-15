@@ -80,11 +80,6 @@ class _Facets(object):
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind),
                        comm=self.mesh.comm)
 
-    @property
-    def bottom_set(self):
-        '''Returns the bottom row of cells.'''
-        return self.mesh.cell_set
-
     @utils.cached_property
     def _null_subset(self):
         '''Empty subset for the case in which there are no facets with
@@ -99,16 +94,27 @@ class _Facets(object):
         either be for all the interior or exterior (as appropriate)
         facets, or for a particular numbered subdomain.'''
 
-        # ufl.Measure doesn't have enums for these any more :(
-        # FIXME: This is WRONG in the case of 1*(ds + ds(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
-            if integral_type in ("exterior_facet_bottom",
-                                 "exterior_facet_top",
-                                 "interior_facet_horiz"):
-                return self.bottom_set
-            else:
+        if integral_type in ("exterior_facet_bottom",
+                             "exterior_facet_top",
+                             "interior_facet_horiz"):
+            # these iterate over the base cell set
+            return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
+
+        if subdomain_id == "everywhere":
+            return self.set
+        if subdomain_id == "otherwise":
+            if len(all_integer_subdomain_ids) == 0:
                 return self.set
+            key = ("otherwise", ) + all_integer_subdomain_ids
+            try:
+                return self._subsets[key]
+            except KeyError:
+                ids = [np.where(self.markers == sid)[0]
+                       for sid in all_integer_subdomain_ids]
+                to_remove = np.unique(np.concatenate(ids))
+                indices = np.arange(self.set.total_size, dtype=np.int32)
+                indices = np.delete(indices, to_remove)
+                return self._subsets.setdefault(key, op2.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
 
@@ -133,8 +139,7 @@ class _Facets(object):
             # markers
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
-            self._subsets[markers] = op2.Subset(self.set, indices)
-            return self._subsets[markers]
+            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
 
     @utils.cached_property
     def local_facet_dat(self):
@@ -147,7 +152,7 @@ class _Facets(object):
     @utils.cached_property
     def facet_cell_map(self):
         """Map from facets to cells."""
-        return op2.Map(self.set, self.bottom_set, self._rank, self.facet_cell,
+        return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
 
 
@@ -618,18 +623,30 @@ class MeshTopology(object):
 
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=()):
         """Return a subset over cells with the given subdomain_id."""
-        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
+        if subdomain_id == "everywhere":
             return self.cell_set
+        if subdomain_id == "otherwise":
+            if len(all_integer_subdomain_ids) == 0:
+                return self.cell_set
+            key = ("otherwise", ) + all_integer_subdomain_ids
+        else:
+            key = subdomain_id
         try:
-            return self._subsets[subdomain_id]
+            return self._subsets[key]
         except KeyError:
-            indices = dmplex.get_cell_markers(self._plex,
-                                              self._cell_numbering,
-                                              subdomain_id)
-            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
-            return self._subsets[subdomain_id]
+            if subdomain_id == "otherwise":
+                ids = tuple(dmplex.get_cell_markers(self._plex,
+                                                    self._cell_numbering,
+                                                    sid)
+                            for sid in all_integer_subdomain_ids)
+                to_remove = np.unique(np.concatenate(ids))
+                indices = np.arange(self.cell_set.total_size, dtype=np.int32)
+                indices = np.delete(indices, to_remove)
+            else:
+                indices = dmplex.get_cell_markers(self._plex,
+                                                  self._cell_numbering,
+                                                  subdomain_id)
+            return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
 
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=()):
@@ -676,6 +693,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
+        self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
 
@@ -690,22 +708,6 @@ class ExtrudedMeshTopology(MeshTopology):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         return self._base_mesh.cell_closure
-
-    def cell_subset(self, subdomain_id, all_integer_subdomain_ids):
-        """Return a subset over cells with the given subdomain_id."""
-        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
-            return self.cell_set
-        try:
-            return self._subsets[subdomain_id]
-        except KeyError:
-            base = self._base_mesh
-            indices = dmplex.get_cell_markers(base._plex,
-                                              base._cell_numbering,
-                                              subdomain_id)
-            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
-            return self._subsets[subdomain_id]
 
     @utils.cached_property
     def exterior_facets(self):
