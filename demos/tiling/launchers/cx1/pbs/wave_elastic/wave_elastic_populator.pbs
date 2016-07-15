@@ -40,7 +40,7 @@ echo ------------------------------------------------------
 export OMP_NUM_THREADS=1
 export SLOPE_BACKEND=SEQUENTIAL
 
-OPTS="--output 10000 --flatten True --nocache True"
+OPTS="--output 10000 --flatten True --nocache True --time_max 0.01 --tofile False"
 TILE_OPTS="--fusion-mode only_tile --coloring default"
 
 LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode.txt"
@@ -56,12 +56,17 @@ declare -a opts_em5=("--glb-maps True" "--glb-maps True --extra-halo 1")
 
 declare -a part_all=("chunk")
 
+declare -a mesh_p1=("--mesh-size (50.0,25.0,$mesh)")
+declare -a mesh_p2=("--mesh-size (30.0,15.0,$mesh)")
+declare -a mesh_p3=("--mesh-size (30.0,15.0,$mesh)")
+declare -a mesh_p4=("--mesh-size (30.0,15.0,$mesh)")
+
 declare -a em_all=(1 2 3 4 5)
 
-
+export FIREDRAKE_FFC_KERNEL_CACHE_DIR=$TMPDIR/ffc-cache
 export PYOP2_CACHE_DIR=$TMPDIR/pyop2-cache
 
-MPICMD="mpiexec -env PYOP2_CACHE_DIR $PYOP2_CACHE_DIR"
+MPICMD="mpiexec -env FIREDRAKE_FFC_KERNEL_CACHE_DIR $FIREDRAKE_FFC_KERNEL_CACHE_DIR -env PYOP2_CACHE_DIR $PYOP2_CACHE_DIR"
 
 # Populate the local cache
 for poly in ${polys[@]}
@@ -70,28 +75,34 @@ do
         break
     fi
     echo "Populate polynomial order "$poly >> $LOGGER
-    mesh="--mesh-size (300.0,150.0,1.0)"
-    echo "    Populate "$mesh >> $LOGGER
-    echo "        Populate Untiled ..." >> $LOGGER
-    $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0 --time_max 0.1
-    for p in ${part_all[@]}
+    mesh_p="mesh_p$poly[@]"
+    meshes=( "${!mesh_p}" )
+    for mesh in "${meshes[@]}"
     do
-        for em in ${em_all[@]}
+        echo "    Populate "$mesh >> $LOGGER
+        echo "        Populate Untiled ..." >> $LOGGER
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0
+        for p in ${part_all[@]}
         do
-            opts="opts_em$em[@]"
-            opts_em=( "${!opts}" )
-            for opt in "${opts_em[@]}"
+            for em in ${em_all[@]}
             do
-                ts=100000
-                echo "        Populate Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
-                $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt --time_max 0.1
+                opts="opts_em$em[@]"
+                opts_em=( "${!opts}" )
+                for opt in "${opts_em[@]}"
+                do
+                    ts=100000
+                    echo "        Populate Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
+                    $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt
+                done
             done
         done
     done
 done
 
-# Copy the local cache to the shared file system
-cp $PYOP2_CACHE_DIR/* $WORK/cache
+rm $LOGGER
 
-# Hack: make sure the shared file system "sees" the cache
-sleep 10m
+# Copy the local cache to the shared file system
+mkdir -p $HOME/cache/pyop2-cache
+mkdir -p $HOME/cache/ffc-cache
+cp $PYOP2_CACHE_DIR/* $HOME/cache/pyop2-cache
+cp $FIREDRAKE_FFC_KERNEL_CACHE_DIR/* $HOME/cache/ffc-cache

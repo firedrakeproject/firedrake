@@ -108,6 +108,7 @@ def output_time(start, end, **kwargs):
     # Determine if a multi-node execution
     if num_procs > 20:
         platformname = "multinode"
+        platformname += "_%s" % os.environ.get('NODETYPE', 'unknown')
     else:
         platformname = platform.node().split('.')[0]
 

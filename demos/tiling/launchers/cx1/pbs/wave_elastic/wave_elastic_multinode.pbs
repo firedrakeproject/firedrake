@@ -11,6 +11,7 @@
 FIREDRAKE=$FIREDRAKE_DIR
 TILING=$FIREDRAKE/demos/tiling
 EXECUTABLE=$TILING/wave_elastic.py
+POPULATOR=$TILING/utils/copycache.py
 MESHES=$WORK/meshes/wave_elastic
 
 NODENAME=`cat $PBS_NODEFILE`
@@ -43,7 +44,18 @@ export SLOPE_BACKEND=SEQUENTIAL
 OPTS="--output 10000 --flatten True --nocache True"
 TILE_OPTS="--fusion-mode only_tile --coloring default"
 
-LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode.txt"
+if [ "$nodename" -eq 0 ]; then
+    nodename="haswell"
+elif [ "$nodename" -eq 1 ]; then
+    nodename="ivy"
+else
+    nodename="UNKNOWN"
+fi
+
+# To be used in Python-land
+export NODETYPE=$nodename
+
+LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode_"$nodename".txt"
 rm -f $LOGGER
 touch $LOGGER
 
@@ -72,15 +84,20 @@ declare -a ts_p2=(70 140 200 300)
 declare -a ts_p3=(45 60 75)
 declare -a ts_p4=(20 45 70)
 
-# The PyOP2 cache must be available via a shared file system
-export PYOP2_CACHE_DIR=$WORK/cache
+# Populate the local caches
+export FIREDRAKE_FFC_KERNEL_CACHE_DIR=$HOME/cache/ffc-cache
+export PYOP2_CACHE_DIR=$HOME/cache/pyop2-cache
+python $POPULATOR
+export FIREDRAKE_FFC_KERNEL_CACHE_DIR=$TMPDIR/ffc-cache
+export PYOP2_CACHE_DIR=$TMPDIR/pyop2-cache
 
-MPICMD="mpiexec -env PYOP2_CACHE_DIR $PYOP2_CACHE_DIR"
+
+MPICMD="mpiexec -env FIREDRAKE_FFC_KERNEL_CACHE_DIR $FIREDRAKE_FFC_KERNEL_CACHE_DIR -env PYOP2_CACHE_DIR $PYOP2_CACHE_DIR -env NODETYPE $NODETYPE"
 
 # Run actual experiments
 for poly in ${polys[@]}
 do
-    OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_multinode_p"$poly".txt"
+    OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_multinode_"$nodename"_p"$poly".txt"
     rm -f $OUT_FILE
     touch $OUT_FILE
     echo "Polynomial order "$poly >> $LOGGER
