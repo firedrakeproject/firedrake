@@ -424,6 +424,7 @@ class Function(ufl.Coefficient):
         names = {v[0] for v in expression._user_args}
 
         X = coords_element.tabulate(0, to_pts).values()[0]
+        X = X.round(12)
 
         # Produce C array notation of X.
         X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
