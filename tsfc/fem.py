@@ -11,9 +11,9 @@ from singledispatch import singledispatch
 
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, Coefficient, CellVolume, ConstantValue,
-                         FacetArea, FormArgument, GeometricQuantity,
-                         QuadratureWeight)
+from ufl.classes import (Argument, Coefficient, CellVolume,
+                         FacetArea, FormArgument,
+                         GeometricQuantity, QuadratureWeight)
 import gem
 from gem.utils import cached_property
 
