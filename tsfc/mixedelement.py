@@ -29,7 +29,6 @@ import numpy
 from collections import defaultdict
 from operator import add
 from functools import partial
-from FIAT.hdiv_trace import TraceError
 
 
 class MixedElement(object):
@@ -96,10 +95,7 @@ class MixedElement(object):
         crange = numpy.cumsum(sub_cmps)
 
         for i, e in enumerate(self.elements()):
-            try:
-                table = e.tabulate(order, points, entity)
-            except TraceError as TE:
-                table = TE.zeros
+            table = e.tabulate(order, points, entity)
 
             for d, tab in table.items():
                 try:
