@@ -90,16 +90,31 @@ class _Facets(object):
 
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=()):
-        '''Return the iteration set appropriate to measure. This will
-        either be for all the interior or exterior (as appropriate)
-        facets, or for a particular numbered subdomain.'''
+        """Return an iteration set appropriate for the requested integral type.
 
+        :arg integral_type: The type of the integral (should be a facet measure).
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
         if integral_type in ("exterior_facet_bottom",
                              "exterior_facet_top",
                              "interior_facet_horiz"):
             # these iterate over the base cell set
             return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
-
+        elif not (integral_type.startswith("exterior_") or
+                  integral_type.startswith("interior_")):
+            raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
         if subdomain_id == "everywhere":
             return self.set
         if subdomain_id == "otherwise":
@@ -121,7 +136,9 @@ class _Facets(object):
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
 
-        :param markers: integer marker id or an iterable of marker ids"""
+        :param markers: integer marker id or an iterable of marker ids
+            (or ``None``, for an empty subset).
+        """
         if self.markers is None:
             return self._null_subset
         markers = as_tuple(markers, int)
@@ -129,11 +146,9 @@ class _Facets(object):
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            for marker in markers:
-                if marker not in self.unique_markers:
-                    raise LookupError(
-                        '{0} is not a valid marker'.
-                        format(marker))
+            if len(set(markers).difference(self.unique_markers)) > 0:
+                invalid = set(markers).difference(self.unique_markers)
+                raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
 
             # build a list of indices corresponding to the subsets selected by
             # markers
@@ -622,7 +637,22 @@ class MeshTopology(object):
         return op2.Set(size, "%s_cells" % self.name, comm=self.comm)
 
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=()):
-        """Return a subset over cells with the given subdomain_id."""
+        """Return a subset over cells with the given subdomain_id.
+
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
         if subdomain_id == "everywhere":
             return self.cell_set
         if subdomain_id == "otherwise":
@@ -650,6 +680,23 @@ class MeshTopology(object):
 
     def measure_set(self, integral_type, subdomain_id,
                     all_integer_subdomain_ids=()):
+        """Return an iteration set appropriate for the requested integral type.
+
+        :arg integral_type: The type of the integral (should be a valid UFL measure).
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
         if integral_type == "cell":
             return self.cell_subset(subdomain_id, all_integer_subdomain_ids)
         elif integral_type in ("exterior_facet", "exterior_facet_vert",
