@@ -79,40 +79,6 @@ def test_invalid_integral_type_tensor_prod(tensor_product_cell, itype):
         q.select_degree((1, 1), tensor_product_cell, itype)
 
 
-@pytest.mark.parametrize("itype",
-                         ["interior_facet",
-                          "exterior_facet",
-                          "cell"])
-@pytest.mark.parametrize("scheme",
-                         ["default",
-                          "canonical"])
-def test_invalid_quadrature_degree(cell, itype, scheme):
-    with pytest.raises(ValueError):
-        q.create_quadrature(cell, itype, -1, scheme)
-
-
-@pytest.mark.parametrize("itype",
-                         ["interior_facet_horiz",
-                          "interior_facet_vert",
-                          "exterior_facet_vert",
-                          "exterior_facet_top",
-                          "exterior_facet_bottom",
-                          "cell"])
-def test_invalid_quadrature_degree_tensor_prod(tensor_product_cell, itype):
-    with pytest.raises(ValueError):
-        q.create_quadrature(tensor_product_cell, itype, (-1, -1))
-
-
-def test_high_degree_runtime_error(cell):
-    with pytest.raises(RuntimeError):
-        q.create_quadrature(cell, "cell", 60)
-
-
-def test_high_degree_runtime_error_tensor_prod(tensor_product_cell):
-    with pytest.raises(RuntimeError):
-        q.create_quadrature(tensor_product_cell, "cell", (60, 60))
-
-
 if __name__ == "__main__":
     import os
     import sys
