@@ -3296,6 +3296,8 @@ class Sparsity(ObjectCached):
         self._nrows = self._rmaps[0].toset.size
         self._ncols = self._cmaps[0].toset.size
 
+        self._has_diagonal = self._rmaps[0].toset == self._cmaps[0].toset
+
         tmp = itertools.product([x.cdim for x in self._dsets[0]],
                                 [x.cdim for x in self._dsets[1]])
 
