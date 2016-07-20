@@ -3,6 +3,12 @@ matrix:
        - ubuntu:xenial
        - ubuntu:14.04
 
+notify:
+  slack:
+    webhook_url: $$SLACK_DRONE_WEBHOOK
+    channel: drone
+    username: drone
+
 build:
   image: $$BASE_IMAGE
   pull: true
