@@ -5,18 +5,19 @@ Written by: Thomas Gibson
 """
 
 from __future__ import absolute_import
+
 import numpy as np
 from singledispatch import singledispatch
 import operator
 import itertools
 import functools
 import firedrake
-import ufl
+from ufl.form import Form
 from coffee import base as ast
 from tsfc import compile_form as tsfc_compile_form
 
 
-class Tensor(ufl.form.Form):
+class Tensor(Form):
     """An abstract class for Tensor SLATE nodes.
     This tensor class also inherits directly from
     ufl.form for composability purposes.
@@ -25,10 +26,12 @@ class Tensor(ufl.form.Form):
     children = ()
     id_num = 0
 
-    def __init__(self, arguments, coefficients):
+    def __init__(self, arguments, coefficients, integrals):
         self.id = Tensor.id_num
         self._arguments = tuple(arguments)
         self._coefficients = tuple(coefficients)
+        self._integrals = integrals
+        self._hash = None
         shape = []
         shapes = {}
         for i, arg in enumerate(self._arguments):
@@ -78,6 +81,25 @@ class Tensor(ufl.form.Form):
         """
         return ()
 
+    def tensor_integrals(self):
+        """Return a sequence of all integrals
+        associated with this tensor object."""
+        return self._integrals
+
+    def tensor_integrals_by_type(self, integral_type):
+        """Return a sequence of integrals of the
+        associated form of the tensor with all
+        particular domain types."""
+        return tuple(integral for integral in self.tensor_integrals()
+                     if integral.integral_type() == integral_type)
+
+    def __hash__(self):
+        """Hash code for use in dictionary objects."""
+        if self._hash is None:
+            self._hash = hash((type(self), )
+                              + tuple(hash(i) for i in self.tensor_integrals()))
+        return self._hash
+
 
 class Scalar(Tensor):
     """An abstract class for scalar-valued SLATE nodes."""
@@ -90,35 +112,15 @@ class Scalar(Tensor):
         assert r == 0
         self.rank = r
         self.form = form
-        self._integrals = form.integrals()
-        self._hash = None
         Tensor.id_num += 1
-        Tensor.__init__(self, arguments=(),
-                        coefficients=form.coefficients())
-
-    def integrals(self):
-        """Return a sequence of all integrals in
-        the associated form of the tensor.
-        """
-        return self._integrals
-
-    def integrals_by_type(self, integral_type):
-        """Return a sequence of integrals of the
-        associated form of the tensor with a
-        particular domain type.
-        """
-        return tuple(integral for integral in self.integrals())
+        super(Scalar, self).__init__(arguments=(),
+                                     coefficients=form.coefficients(),
+                                     integrals=())
 
     def __str__(self):
         return "S_%d" % self.id
 
     __repr__ = __str__
-
-    def __hash__(self):
-        """Hash code for use in dictionary objects."""
-        if self._hash is None:
-            self._hash = hash(tuple(hash(i) for i in self.integrals()))
-        return self._hash
 
 
 class Vector(Tensor):
@@ -132,36 +134,15 @@ class Vector(Tensor):
         assert r == 1
         self.rank = r
         self.form = form
-        self._integrals = form.integrals()
-        self._hash = None
         Tensor.id_num += 1
-        Tensor.__init__(self, arguments=form.arguments(),
-                        coefficients=form.coefficients())
-
-    def integrals(self):
-        """Return a sequence of all integrals in
-        the associated form of the tensor.
-        """
-        return self._integrals
-
-    def integrals_by_type(self, integral_type):
-        """Return a sequence of integrals of the
-        associated form of the tensor with a
-        particular domain type.
-        """
-        return tuple(integral for integral in self.integrals()
-                     if integral.integral_type() == integral_type)
+        super(Vector, self).__init__(arguments=form.arguments(),
+                                     coefficients=form.coefficients(),
+                                     integrals=form.integrals())
 
     def __str__(self):
         return "V_%d" % self.id
 
     __repr__ = __str__
-
-    def __hash__(self):
-        """Hash code for use in dictionary objects."""
-        if self._hash is None:
-            self._hash = hash(tuple(hash(i) for i in self.integrals()))
-        return self._hash
 
 
 class Matrix(Tensor):
@@ -175,50 +156,32 @@ class Matrix(Tensor):
         assert r == 2
         self.rank = r
         self.form = form
-        self._integrals = form.integrals()
-        self._hash = None
         Tensor.id_num += 1
-        Tensor.__init__(self, arguments=self.form.arguments(),
-                        coefficients=self.form.coefficients())
-
-    def integrals(self):
-        """Return a sequence of all integrals in
-        the associated form of the tensor.
-        """
-        return self._integrals
-
-    def integrals_by_type(self, integral_type):
-        """Return a sequence of integrals of the
-        associated form of the tensor with a
-        particular domain type.
-        """
-        return tuple(integral for integral in self.integrals()
-                     if integral.integral_type() == integral_type)
+        super(Matrix, self).__init__(arguments=form.arguments(),
+                                     coefficients=form.coefficients(),
+                                     integrals=form.integrals())
 
     def __str__(self):
         return "M_%d" % self.id
 
     __repr__ = __str__
 
-    def __hash__(self):
-        """Hash code for use in dictionary objects."""
-        if self._hash is None:
-            self._hash = hash(tuple(hash(i) for i in self.integrals()))
-        return self._hash
-
 
 class Inverse(Tensor):
     """An abstract class for the tensor inverse SLATE node."""
 
-    __slots__ = ('children', )
+    __slots__ = ('children', 'rank')
 
     def __init__(self, tensor):
-        assert len(tensor.shape) == 2 and tensor.shape[0] == tensor.shape[1], \
-            "Taking inverses only makes sense for rank 2 square tensors."
+        if (tensor.shape[0] != tensor.shape[1]):
+            raise ValueError("Cannot take the inverse of a non-square tensor.")
         self.children = tensor
+        self.rank = tensor.rank
+        self.form = tensor.form
         Tensor.id_num += 1
-        Tensor.__init__(self, arguments=reversed(tensor.arguments()),
-                        coefficients=tensor.coefficients())
+        super(Inverse, self).__init__(arguments=reversed(tensor.arguments()),
+                                      coefficients=tensor.coefficients(),
+                                      integrals=tensor.tensor_integrals())
 
     def __str__(self):
         return "%s.inverse()" % self.children
@@ -234,13 +197,16 @@ class Inverse(Tensor):
 class Transpose(Tensor):
     """An abstract class for the tensor transpose SLATE node."""
 
-    __slots__ = ('children', )
+    __slots__ = ('children', 'rank')
 
     def __init__(self, tensor):
         self.children = tensor
+        self.rank = tensor.rank
+        self.form = tensor.form
         Tensor.id_num += 1
-        Tensor.__init__(self, arguments=reversed(tensor.arguments()),
-                        coefficients=tensor.coefficients())
+        super(Transpose, self).__init__(arguments=reversed(tensor.arguments()),
+                                        coefficients=tensor.coefficients(),
+                                        integrals=tensor.tensor_integrals())
 
     def __str__(self):
         return "%s.transpose()" % self.children
@@ -264,8 +230,9 @@ class UnaryOp(Tensor):
     def __init__(self, tensor):
         self.children = tensor
         Tensor.id_num += 1
-        Tensor.__init__(self, arguments=tensor.arguments(),
-                        coefficients=tensor.coefficients())
+        super(UnaryOp, self).__init__(arguments=tensor.arguments(),
+                                      coefficients=tensor.coefficients(),
+                                      integrals=tensor.tensor_integrals())
 
     def __str__(self, order_of_operation=None):
         ops = {operator.neg: '-',
@@ -310,12 +277,15 @@ class BinaryOp(Tensor):
     __slots__ = ('children', )
 
     def __init__(self, A, B):
+        self.children = A, B
         args = self.get_arguments(A, B)
         coeffs = self.get_coefficients(A, B)
-        self.children = A, B
+        integs = tuple(list(A.tensor_integrals()) +
+                          list(B.tensor_integrals()))
         Tensor.id_num += 1
-        Tensor.__init__(self, arguments=args,
-                        coefficients=coeffs)
+        super(BinaryOp, self).__init__(arguments=args,
+                                       coefficients=coeffs,
+                                       integrals=integs)
 
     @classmethod
     def get_arguments(cls, A, B):
@@ -325,10 +295,9 @@ class BinaryOp(Tensor):
     def get_coefficients(cls, A, B):
         # Remove duplicate coefficients in forms
         coeffs = []
-        # 'set()' creates an iterable list of unique elements
-        A_UniqueCoeffs = set(A.coefficients())
+        A_uniquecoeffs = set(A.coefficients())
         for c in B.coefficients():
-            if c not in A_UniqueCoeffs:
+            if c not in A_uniquecoeffs:
                 coeffs.append(c)
         return tuple(list(A.coefficients()) + coeffs)
 
@@ -432,8 +401,9 @@ def macro_kernel(slate_expr):
             rows = shape[0]
             cols = 1
         else:
-            assert (len(shape) == 2,
-                    "%d-rank tensors are not supported" % len(shape))
+            if not len(shape) == 2:
+                raise ValueError(
+                    "%d-rank tensors are not currently supported" % len(shape))
             rows = shape[0]
             cols = shape[1]
         if cols != 1:
@@ -445,6 +415,7 @@ def macro_kernel(slate_expr):
     def map_type(matrix):
         return "Eigen::Map<%s >" % matrix
 
+    # Compile forms associated with a temporary
     @singledispatch
     def get_kernel_expr(expr):
         raise NotImplementedError("Expression of type %s not supported",
@@ -453,24 +424,27 @@ def macro_kernel(slate_expr):
     @get_kernel_expr.register(Scalar)
     @get_kernel_expr.register(Vector)
     @get_kernel_expr.register(Matrix)
+    @get_kernel_expr.register(Transpose)
+    @get_kernel_expr.register(Inverse)
     def get_kernel_expr_tensor(expr):
         temp = ast.Symbol("t%d" % len(temps))
         temp_type = mat_type(expr.shape)
         temps[expr] = temp
+        print len(temps)
         compiled_form = tsfc_compile_form(expr.form)
-        kernel_exprs[expr] = ((temp_type, temp.symbol, compiled_form))
         coefflist = [c for c in coeffs if c in expr.coefficients()]
-        templist.append((temp.symbol, coefflist, compiled_form))
+        print coefflist
+        templist.append(((temp.symbol, temp_type, expr), coefflist, compiled_form))
+        kernel_exprs[expr] = ((temp.symbol, temp_type), coefflist, compiled_form)
         return
 
     @get_kernel_expr.register(UnaryOp)
     @get_kernel_expr.register(BinaryOp)
-    @get_kernel_expr.register(Transpose)
-    @get_kernel_expr.register(Inverse)
     def get_kernel_expr_ops(expr):
         map(get_kernel_expr, expr.operands)
         return
 
     get_kernel_expr(slate_expr)
 
+    # Declare temporary variables here
     return kernel_exprs, templist, temps
