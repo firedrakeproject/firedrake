@@ -14,6 +14,7 @@ import functools
 import firedrake
 from ufl.form import Form
 from coffee import base as ast
+from coffee.visitor import Visitor
 from tsfc import compile_form as tsfc_compile_form
 
 
@@ -30,7 +31,7 @@ class Tensor(Form):
         self.id = Tensor.id_num
         self._arguments = tuple(arguments)
         self._coefficients = tuple(coefficients)
-        self._integrals = integrals
+        self._integrals = tuple(integrals)
         self._hash = None
         shape = []
         shapes = {}
@@ -176,15 +177,14 @@ class Inverse(Tensor):
         if (tensor.shape[0] != tensor.shape[1]):
             raise ValueError("Cannot take the inverse of a non-square tensor.")
         self.children = tensor
-        self.rank = tensor.rank
-        self.form = tensor.form
+        reversedargs = tensor.arguments()[::-1]
         Tensor.id_num += 1
-        super(Inverse, self).__init__(arguments=reversed(tensor.arguments()),
+        super(Inverse, self).__init__(arguments=reversedargs,
                                       coefficients=tensor.coefficients(),
                                       integrals=tensor.tensor_integrals())
 
     def __str__(self):
-        return "%s.inverse()" % self.children
+        return "%s.inv" % self.children
 
     def __repr__(self):
         return "Inverse(%s)" % self.children
@@ -201,15 +201,14 @@ class Transpose(Tensor):
 
     def __init__(self, tensor):
         self.children = tensor
-        self.rank = tensor.rank
-        self.form = tensor.form
+        reversedargs = tensor.arguments()[::-1]
         Tensor.id_num += 1
-        super(Transpose, self).__init__(arguments=reversed(tensor.arguments()),
+        super(Transpose, self).__init__(arguments=reversedargs,
                                         coefficients=tensor.coefficients(),
                                         integrals=tensor.tensor_integrals())
 
     def __str__(self):
-        return "%s.transpose()" % self.children
+        return "%s.T" % self.children
 
     def __repr__(self):
         return "Transpose(%s)" % self.children
@@ -225,14 +224,17 @@ class UnaryOp(Tensor):
     An example is the negation operator: ('Negative(A)' = -A).
     """
 
-    __slots__ = ('children', )
+    __slots__ = ('children', 'rank')
 
     def __init__(self, tensor):
         self.children = tensor
+        args = get_arguments(tensor)
+        coeffs = get_coefficients(tensor)
+        ints = get_integrals(tensor)
         Tensor.id_num += 1
-        super(UnaryOp, self).__init__(arguments=tensor.arguments(),
-                                      coefficients=tensor.coefficients(),
-                                      integrals=tensor.tensor_integrals())
+        super(UnaryOp, self).__init__(arguments=args,
+                                      coefficients=coeffs,
+                                      integrals=ints)
 
     def __str__(self, order_of_operation=None):
         ops = {operator.neg: '-',
@@ -274,32 +276,35 @@ class BinaryOp(Tensor):
     expression.
     """
 
-    __slots__ = ('children', )
+    __slots__ = ('children', 'rank')
 
     def __init__(self, A, B):
         self.children = A, B
-        args = self.get_arguments(A, B)
-        coeffs = self.get_coefficients(A, B)
-        integs = tuple(list(A.tensor_integrals()) +
-                          list(B.tensor_integrals()))
+        args = self.assemble_arguments(A, B)
+        coeffs = self.assemble_coefficients(A, B)
+        integs = self.assemble_integrals(A, B)
         Tensor.id_num += 1
         super(BinaryOp, self).__init__(arguments=args,
                                        coefficients=coeffs,
                                        integrals=integs)
 
     @classmethod
-    def get_arguments(cls, A, B):
+    def assemble_arguments(cls, A, B):
         pass
 
     @classmethod
-    def get_coefficients(cls, A, B):
-        # Remove duplicate coefficients in forms
-        coeffs = []
-        A_uniquecoeffs = set(A.coefficients())
-        for c in B.coefficients():
-            if c not in A_uniquecoeffs:
-                coeffs.append(c)
-        return tuple(list(A.coefficients()) + coeffs)
+    def assemble_coefficients(cls, A, B):
+        clist = []
+        A_coeffs = get_coefficients(A)
+        uniquelistforA = set(A_coeffs)
+        for c in get_coefficients(B):
+            if c not in uniquelistforA:
+                clist.append(c)
+        return tuple(list(A_coeffs) + clist)
+
+    @classmethod
+    def assemble_integrals(cls, A, B):
+        pass
 
     @property
     def operands(self):
@@ -335,14 +340,17 @@ class TensorAdd(BinaryOp):
     operation = operator.add
 
     @classmethod
-    def get_arguments(cls, A, B):
-        # Scalars distribute over sums
+    def assemble_arguments(cls, A, B):
         if isinstance(A, Scalar):
-            return B.arguments()
+            return get_arguments(B)
         elif isinstance(B, Scalar):
-            return A.arguments()
+            return get_arguments(A)
         assert A.shape == B.shape
-        return A.arguments()
+        return get_arguments(A)
+
+    @classmethod
+    def assemble_integrals(cls, A, B):
+        return get_integrals(A) + get_integrals(B)
 
 
 class TensorSub(BinaryOp):
@@ -355,14 +363,17 @@ class TensorSub(BinaryOp):
     operation = operator.sub
 
     @classmethod
-    def get_arguments(cls, A, B):
-        # Scalars distribute over sums
+    def assemble_arguments(cls, A, B):
         if isinstance(A, Scalar):
-            return B.arguments()
+            return get_arguments(B)
         elif isinstance(B, Scalar):
-            return A.arguments()
+            return get_arguments(A)
         assert A.shape == B.shape
-        return A.arguments()
+        return get_arguments(A)
+
+    @classmethod
+    def assemble_integrals(cls, A, B):
+        return get_integrals(A) + get_integrals(B)
 
 
 class TensorMul(BinaryOp):
@@ -375,18 +386,166 @@ class TensorMul(BinaryOp):
     operation = operator.mul
 
     @classmethod
-    def get_arguments(cls, A, B):
-        # Scalars distribute over sums
+    def assemble_arguments(cls, A, B):
         if isinstance(A, Scalar):
-            return B.arguments()
+            return get_arguments(B)
         elif isinstance(B, Scalar):
-            return A.arguments()
-        # Check for function space type to perform contraction
-        # over middle indices
-        assert (A.arguments()[-1].function_space() ==
-                B.arguments()[0].function_space())
-        return A.arguments()[:-1] + B.arguments()[1:]
+            return get_arguments(A)
+        argsA = get_arguments(A)
+        argsB = get_arguments(B)
+        assert (argsA[-1].function_space() ==
+                argsB[0].function_space())
+        return argsA[:-1] + argsB[1:]
 
+    @classmethod
+    def assemble_integrals(cls, A, B):
+        intsA = get_integrals(A)
+        intsB = get_integrals(B)
+        return intsA[:-1] + intsB[1:]
+
+
+class TransformKernel(Visitor):
+    """Replaces all references to an output tensor with specified name
+    by an Eigen Matrix of the appropriate shape.
+
+    A default name of :data: "A" is assumed, otherwise you pass in the
+    name as :data: `name` kwarg when calling the visitor.
+    """
+
+    def visit_object(self, obj, *args, **kwargs):
+        return obj
+
+    def visit_list(self, obj, *args, **kwargs):
+        newlist = [self.visit(e, *args, **kwargs) for e in obj]
+        if all(n is e for n, e in zip(newlist, obj)):
+            return obj
+        return newlist
+
+    def visit_FunDecl(self, obj, *args, **kwargs):
+        new = self.visit_Node(obj, *args, **kwargs)
+        ops, obj_kwargs = new.operands()
+        name = kwargs.get("name", "A")
+        if all(new is old for new, old in zip(ops, obj.operands()[0])):
+            return obj
+        pred = ["template<typename Derived>", "static", "inline"]
+        ops[4] = pred
+        body = ops[3]
+        args, _ = body.operands()
+        nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived>& %s = const_cast< Eigen::MatrixBase<Derived>& >(%s_);\n" % \
+                               (name, name))] + args
+        ops[3] = ast.Node(nargs)
+        return obj.reconstruct(*ops, **obj_kwargs)
+
+    def visit_Symbol(self, obj, *args, **kwargs):
+        name = kwargs.get("name", "A")
+        if obj.symbol != name:
+            return obj
+        shape = obj.rank
+        return ast.FunCall(ast.Symbol(name), *shape)
+
+
+@singledispatch
+def get_arguments(expr):
+    raise ValueError("Tensors of type %s are not supported." % type(expr))
+
+@get_arguments.register(Scalar)
+@get_arguments.register(Vector)
+@get_arguments.register(Matrix)
+def get_tensor_arguments(tensor):
+    return tensor.arguments()
+
+@get_arguments.register(Inverse)
+@get_arguments.register(Transpose)
+@get_arguments.register(UnaryOp)
+def get_uop_arguments(expr):
+    if isinstance(expr, (Inverse, Transpose)):
+        return get_arguments(expr.children)[::-1]
+    return get_arguments(expr.children)
+
+@get_arguments.register(TensorAdd)
+@get_arguments.register(TensorSub)
+def get_bop_arguments(expr):
+    A = expr.children[0]
+    B = expr.children[1]
+    # Scalars distribute over sums/diffs
+    if isinstance(A, Scalar):
+        return get_arguments(B)
+    elif isinstance(B, Scalar):
+        return get_arguments(A)
+    assert A.shape == B.shape
+    return get_arguments(A)
+
+@get_arguments.register(TensorMul)
+def get_product_arguments(expr):
+    A = expr.children[0]
+    B = expr.children[1]
+    # Scalars distribute over sums
+    if isinstance(A, Scalar):
+        return get_arguments(B)
+    elif isinstance(B, Scalar):
+        return get_arguments(A)
+    # Check for function space type to perform contraction
+    # over middle indices
+    assert (get_arguments(A)[-1].function_space() ==
+            get_arguments(B)[0].function_space())
+    return get_arguments(A)[:-1] + get_arguments(B)[1:]
+
+@singledispatch
+def get_coefficients(expr):
+    raise ValueError("Tensors of type %s is not supported." % type(expr))
+
+@get_coefficients.register(Scalar)
+@get_coefficients.register(Vector)
+@get_coefficients.register(Matrix)
+def get_tensor_coefficients(tensor):
+    return tensor.coefficients()
+
+@get_coefficients.register(Inverse)
+@get_coefficients.register(Transpose)
+@get_coefficients.register(UnaryOp)
+def get_uop_coefficients(expr):
+    return get_coefficients(expr.children)
+
+@get_coefficients.register(BinaryOp)
+def get_bop_coefficients(expr):
+    A = expr.children[0]
+    B = expr.children[1]
+    # Remove duplicate coefficients in forms
+    coeffs = []
+    A_uniquecoeffs = set(get_coefficients(A))
+    for c in get_coefficients(B):
+        if c not in A_uniquecoeffs:
+            coeffs.append(c)
+    return tuple(list(get_coefficients(A)) + coeffs)
+
+@singledispatch
+def get_integrals(expr):
+    raise ValueError("Tensors of type %s is not supported." % type(expr))
+
+@get_integrals.register(Scalar)
+@get_integrals.register(Vector)
+@get_integrals.register(Matrix)
+def get_tensor_integrals(tensor):
+    return tensor.tensor_integrals()
+
+@get_integrals.register(Inverse)
+@get_integrals.register(Transpose)
+@get_integrals.register(UnaryOp)
+def get_uop_integrals(expr):
+    return get_integrals(expr.children)
+
+@get_integrals.register(TensorAdd)
+@get_integrals.register(TensorSub)
+def get_bop_integrals(expr):
+    A = expr.children[0]
+    B = expr.children[1]
+    return get_integrals(A) + get_integrals(B)
+
+@get_integrals.register(TensorMul)
+def get_product_integrals(expr):
+    A = expr.children[0]
+    B = expr.children[1]
+    return get_integrals(A)[:-1] + get_integrals(B)[1:]
 
 def macro_kernel(slate_expr):
     dtype = "double"
@@ -395,6 +554,8 @@ def macro_kernel(slate_expr):
     kernel_exprs = {}
     templist = []
     coeffs = slate_expr.coefficients()
+    _coeffs = {}
+    statements = []
 
     def mat_type(shape):
         if len(shape) == 1:
@@ -424,27 +585,101 @@ def macro_kernel(slate_expr):
     @get_kernel_expr.register(Scalar)
     @get_kernel_expr.register(Vector)
     @get_kernel_expr.register(Matrix)
-    @get_kernel_expr.register(Transpose)
-    @get_kernel_expr.register(Inverse)
     def get_kernel_expr_tensor(expr):
-        temp = ast.Symbol("t%d" % len(temps))
-        temp_type = mat_type(expr.shape)
-        temps[expr] = temp
-        print len(temps)
-        compiled_form = tsfc_compile_form(expr.form)
-        coefflist = [c for c in coeffs if c in expr.coefficients()]
-        print coefflist
-        templist.append(((temp.symbol, temp_type, expr), coefflist, compiled_form))
-        kernel_exprs[expr] = ((temp.symbol, temp_type), coefflist, compiled_form)
+        if expr not in temps.keys():
+            temp = ast.Symbol("T%d" % len(temps))
+            temp_type = mat_type(expr.shape)
+            temps[expr] = temp
+            statements.append(ast.Decl(temp_type, temp))
+
+            compiled_form = tsfc_compile_form(expr.form)[0]
+
+            coefflist = [c for c in coeffs if c in expr.coefficients()]
+            _coeffs[expr] = coefflist
+
+            templist.append((temp.symbol, temp_type))
+
+            kernel_exprs[expr] = (temp_type, compiled_form)
         return
 
     @get_kernel_expr.register(UnaryOp)
     @get_kernel_expr.register(BinaryOp)
+    @get_kernel_expr.register(Transpose)
+    @get_kernel_expr.register(Inverse)
     def get_kernel_expr_ops(expr):
         map(get_kernel_expr, expr.operands)
         return
 
+    coeffmap = dict((c, ast.Symbol("w%d" % i)) for i, c in enumerate(coeffs))
+    coordsym = ast.Symbol("coords")
     get_kernel_expr(slate_expr)
 
-    # Declare temporary variables here
-    return kernel_exprs, templist, temps
+    for exp, klist in kernel_exprs.items():
+        statements.append(ast.FlatBlock("%s.setZero();\n" % temps[exp].symbol))
+        clist = []
+        for cf in _coeffs[exp]:
+            clist.append(coeffmap[cf])
+        statements.append(ast.FunCall(klist[1].ast.name,
+                                      temps[exp].symbol,
+                                      coordsym,
+                                      *clist))
+
+
+    def pars(expr, order_of_op=None, parent=None):
+        if order_of_op is None or parent >= order_of_op:
+            return expr
+        return "(%s)" % expr
+
+    @singledispatch
+    def get_c_str(expr, temps, order_of_op=None):
+         raise NotImplementedError("Expression of type %s not supported",
+                                  type(expr).__name__)
+
+    @get_c_str.register(Scalar)
+    @get_c_str.register(Vector)
+    @get_c_str.register(Matrix)
+    def get_c_str_tensors(expr, temps, order_of_op=None):
+        return temps[expr].gencode()
+
+    @get_c_str.register(UnaryOp)
+    def get_c_str_uop(expr, temps, order_of_op=None):
+        op = {operator.neg: '-',
+              operator.pos: '+'}[expr.operation]
+        order_of_op = expr.order_of_operation
+        result = "%s%s" % (op, get_c_str(expr.children,
+                                         temps,
+                                         order_of_op))
+        return pars(result, expr.order_of_operation, order_of_op)
+
+    @get_c_str.register(BinaryOp)
+    def get_c_str_bop(expr, temps, order_of_op=None):
+        op = {operator.add: '+',
+              operator.sub: '_',
+              operator.mul: '*'}[expr.operation]
+        order_of_op = expr.order_of_operation
+        result = "%s %s %s" % (get_c_str(expr.children[0], temps,
+                                         order_of_op),
+                               op,
+                               get_c_str(expr.children[1], temps,
+                                         order_of_op))
+        return pars(result, expr.order_of_operation, order_of_op)
+
+    @get_c_str.register(Inverse)
+    def get_c_str_inv(expr, temps, order_of_op=None):
+        return "(%s).inverse()" % get_c_str(expr.children, temps)
+
+    @get_c_str.register(Transpose)
+    def get_c_str_t(expr, temps, order_of_op=None):
+        return "(%s).transpose()" % get_c_str(expr.children, temps)
+
+    result_type = map_type(mat_type(shape))
+    result_sym = ast.Symbol("T%d" % len(temps))
+    result_statement = ast.FlatBlock("%s (%s);\n" %
+                                     (result_type, result_sym))
+    statements.append(result_statement)
+    c_string = ast.FlatBlock(get_c_str(slate_expr, temps))
+    statements.append(ast.Assign(result_sym, c_string))
+
+
+
+    return kernel_exprs, templist, temps, _coeffs, statements, c_string
