@@ -26,8 +26,8 @@ def test_plot_quadratic():
     V = FunctionSpace(mesh, "CG", 2)
     f = Function(V)
     x = SpatialCoordinate(mesh)
-    f.interpolate(2 * x[0] - x[0] + 3)
+    f.interpolate(x[0] ** 2 - x[0] + 3)
     x_vals, y_vals = one_dimension_plot(f, 10)
     points = np.array([x_vals, y_vals]).T
     for point in points:
-        assert np.allclose(2.0 * point[0] - point[0] + 3, point[1])
+        assert np.allclose(point[0] ** 2 - point[0] + 3, point[1])
