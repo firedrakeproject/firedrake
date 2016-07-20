@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy as np
 
 
@@ -13,13 +14,9 @@ def one_dimension_plot(function, num_points):
 
     def __calculate_values(function, function_space, points):
         "Calculate function values at given points"
-        vals = np.array([], dtype=float)
-        for cell_node in function_space.cell_node_list:
-            data = function.dat.data_ro[cell_node]
-            elem = function_space.fiat_element.tabulate(0, points)[(0,)]
-            val = np.dot(data, elem)
-            vals = np.append(vals, [val])
-        return vals
+        elem = function_space.fiat_element.tabulate(0, points)[(0, )]
+        data = function.dat.data_ro[function_space.cell_node_list]
+        return np.dot(data, elem).reshape(-1)
 
     points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
     y_vals = __calculate_values(function, function_space, points)
