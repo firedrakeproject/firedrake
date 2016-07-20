@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def one_dimension_plot(function, num_points):
     """Calculate a set of points for plotting for a one-dimension function as a
     numpy array

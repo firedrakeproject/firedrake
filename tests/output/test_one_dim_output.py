@@ -1,6 +1,7 @@
 from firedrake import *
 import numpy as np
 
+
 def test_plot_constant():
     mesh = UnitIntervalMesh(1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -9,6 +10,7 @@ def test_plot_constant():
     x_vals, y_vals = one_dimension_plot(f, 10)
     for y in y_vals:
         assert np.allclose(1.0, y)
+
 
 def test_plot_linear():
     mesh = IntervalMesh(10, 20)
@@ -19,7 +21,8 @@ def test_plot_linear():
     x_vals, y_vals = one_dimension_plot(f, 10)
     points = np.array([x_vals, y_vals]).T
     for point in points:
-        assert np.allclose(2.0 * point[0],point[1])
+        assert np.allclose(2.0 * point[0], point[1])
+
 
 def test_plot_quadratic():
     mesh = IntervalMesh(10, 20)
