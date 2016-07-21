@@ -1,11 +1,7 @@
 sudo: false
 notifications:
-  irc:
-    channels: "chat.freenode.net#firedrake"
-    skip_join: true
-    on_success: change
-    on_failure: always
-    template: "%{repository}#%{build_number} (%{branch} - %{commit} : %{author}): %{message} | %{build_url}"
+  slack:
+    secure: ZHRHwEmv0B5pu3HxFPTkk70chHxupN45X8CkMtY6PTapMatICxRIIJNDhUWZGepmkXZB/JnXM7f4pKQe3p83jGLTM4PCQJCoHju9G6yus3swiS6JXQ85UN/acL4K9DegFZPGEi+PtA5gvVP/4HMwOeursbgrm4ayXgXGQUx94cM=
 language: python
 python:
   - "2.7_with_system_site_packages"
