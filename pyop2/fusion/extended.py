@@ -34,6 +34,7 @@
 """Classes for fusing parallel loops and for executing fused parallel loops,
 derived from ``base.py``."""
 
+import sys
 import os
 import ctypes
 from copy import deepcopy as dcopy
@@ -471,15 +472,12 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             raise RuntimeError("JITModule not in cache, but has no args associated")
 
         # Set compiler and linker options
-        slope_dir = os.environ['SLOPE_DIR']
         self._kernel._name = 'executor'
         self._kernel._headers.extend(slope.Executor.meta['headers'])
         if self._use_prefetch:
             self._kernel._headers.extend(['#include "xmmintrin.h"'])
-        self._kernel._include_dirs.extend(['%s/%s' % (slope_dir,
-                                                      slope.get_include_dir())])
-        self._libraries += ['-L%s/%s' % (slope_dir, slope.get_lib_dir()),
-                            '-l%s' % slope.get_lib_name()]
+        self._kernel._include_dirs.extend(['%s/include/SLOPE' % sys.prefix])
+        self._libraries += ['-L%s/lib' % sys.prefix, '-l%s' % slope.get_lib_name()]
         compiler = coffee.system.compiler.get('name')
         self._cppargs += slope.get_compile_opts(compiler)
         fun = super(TilingJITModule, self).compile()

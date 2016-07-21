@@ -41,15 +41,11 @@ from decorator import decorator
 
 from pyop2.base import _LazyMatOp
 from pyop2.mpi import MPI
-from pyop2.logger import warning, info as log_info
+from pyop2.logger import warning, debug
 from pyop2.utils import flatten
 
 try:
-    """Is SLOPE accessible ?"""
-    sys.path.append(os.path.join(os.environ['SLOPE_DIR'], 'python'))
-    import slope_python as slope
-
-    # Set the SLOPE backend
+    from pyslope import slope
     backend = os.environ.get('SLOPE_BACKEND')
     if backend not in ['SEQUENTIAL', 'OMP']:
         backend = 'SEQUENTIAL'
@@ -59,8 +55,8 @@ try:
         if backend == 'OMP':
             backend = 'OMP_MPI'
     slope.set_exec_mode(backend)
-    log_info("SLOPE backend set to %s" % backend)
-except:
+    debug("SLOPE backend set to %s" % backend)
+except ImportError:
     slope = None
 
 lazy_trace_name = 'lazy_trace'

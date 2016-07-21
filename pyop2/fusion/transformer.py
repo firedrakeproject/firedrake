@@ -33,6 +33,7 @@
 
 """Core loop fusion mechanisms."""
 
+import sys
 import os
 from collections import OrderedDict, namedtuple
 from copy import deepcopy as dcopy
@@ -399,14 +400,11 @@ class Inspector(Cached):
         rettype = slope.Executor.meta['py_ctype_exec']
 
         # Compiler and linker options
-        slope_dir = os.environ['SLOPE_DIR']
         compiler = coffee.system.compiler.get('name')
         cppargs = slope.get_compile_opts(compiler)
-        cppargs += ['-I%s/%s' % (slope_dir, slope.get_include_dir())]
-        ldargs = ['-L%s/%s' % (slope_dir, slope.get_lib_dir()),
-                  '-l%s' % slope.get_lib_name(),
-                  '-Wl,-rpath,%s/%s' % (slope_dir, slope.get_lib_dir()),
-                  '-lrt']
+        cppargs += ['-I%s/include/SLOPE' % sys.prefix]
+        ldargs = ['-L%s/lib' % sys.prefix, '-l%s' % slope.get_lib_name(),
+                  '-Wl,-rpath,%s/lib' % sys.prefix, '-lrt']
 
         # Compile and run inspector
         fun = compilation.load(src, "cpp", "inspector", cppargs, ldargs,
