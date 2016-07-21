@@ -21,7 +21,9 @@ def plot(function, num_points, **kwargs):
         points = one_dimension_plot(function, num_points)
     else:
         raise RuntimeError("Unsupported functionality")
-    return plt.plot(points[0], points[1], **kwargs)
+    figure = plt.figure()
+    plt.plot(points[0], points[1], **kwargs)
+    return figure
 
 
 def one_dimension_plot(function, num_points):
