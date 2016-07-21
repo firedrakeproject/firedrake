@@ -1,22 +1,56 @@
-from firedrake import *
-from abc import *
+from __future__ import absolute_import
+from firedrake import dx, assemble, LinearSolver
+from firedrake.function import Function
+from firedrake.functionspace import FunctionSpace
+from firedrake.parloops import par_loop, READ, RW
+from firedrake.ufl_expr import TrialFunction, TestFunction
+from abc import ABCMeta, abstractmethod
 
-class _Limiter(object):
 
+class Limiter(object):
     __metaclass__ = ABCMeta
 
     @abstractmethod
+    def __init__(self, space):
+        """
+        Abstract Limiter class for all limiters to implement its methods.
+
+        :param space: FunctionSpace instance
+        """
+        pass
+
+    @abstractmethod
     def apply(self, field):
-        return NotImplemented
+        """
+        Re-computes centroids and applies limiter to given field
+        """
+        pass
+
+    @abstractmethod
+    def apply_limiter(self, field):
+        """
+        Only applies limiting loop on the given field
+        """
+        pass
 
     @abstractmethod
     def compute_bounds(self, field):
-        return NotImplemented
+        """
+        Only computes min and max bounds of neighbouring cells
+        """
+        pass
 
-class VertexBased(_Limiter):
+
+class VertexBased(Limiter):
     """
-    Vertex Based limiter for P1DG fields
+    A vertex based limiter for P1DG fields.
+
+    This limiter implements the vertex-based limiting scheme described in
+    Dmitri Kuzmin, "A vertex-based hierarchical slope limiter for p-adaptive
+    discontinuous Galerkin methods". J. Comp. Appl. Maths (2010)
+    http://dx.doi.org/10.1016/j.cam.2009.05.028
     """
+
     def __init__(self, space):
         """
         Initialise limiter
@@ -26,14 +60,14 @@ class VertexBased(_Limiter):
 
         self.P1DG = space
         self.P1CG = FunctionSpace(self.P1DG.mesh(), 'CG', 1)  # for min/max limits
-        self.P0 = FunctionSpace(self.P1DG.mesh(), 'DG', 0)    # for centroids
+        self.P0 = FunctionSpace(self.P1DG.mesh(), 'DG', 0)  # for centroids
 
         # Storage containers for cell means, max and mins
         self.centroids = Function(self.P0)
         self.max_field = Function(self.P1CG)
         self.min_field = Function(self.P1CG)
 
-        self.centroid_solvers = {}
+        self.centroid_solver = self._construct_centroid_solver()
 
         # Update min and max loop
         self._min_max_loop = """
@@ -57,42 +91,33 @@ for (int i=0; i<q.dofs; i++) {
 }
                              """
 
-    def _construct_centroid_solver(self, field):
+    def _construct_centroid_solver(self):
         """
         Constructs a linear problem for computing the centroids
-        and adds it to the cache
 
-        :param field: Discretised field associated with the P1DG field
-        :return: LinearVariationalSolver instance
+        :return: LinearSolver instance
         """
-
-        if field not in self.centroid_solvers:
-            tri = TrialFunction(self.P0)
-            test = TestFunction(self.P0)
-
-            a = tri * test * dx
-            l = field * test * dx
-
-            params = {'ksp_type': 'preonly'}
-            problem = LinearVariationalProblem(a, l, self.centroids)
-            solver = LinearVariationalSolver(problem, solver_parameters=params)
-            self.centroid_solvers[field] = solver
-        return self.centroid_solvers[field]
+        u = TrialFunction(self.P0)
+        v = TestFunction(self.P0)
+        a = assemble(u * v * dx)
+        return LinearSolver(a, solver_parameters={'ksp_type': 'preonly',
+                                                  'pc_type': 'bjacobi',
+                                                  'sub_pc_type': 'ilu'})
 
     def _update_centroids(self, field):
         """
         Update centroid values
         """
-        solver = self._construct_centroid_solver(field)
-        solver.solve()
+        b = assemble(TestFunction(self.P0) * field * dx)
+        self.centroid_solver.solve(self.centroids, b)
 
     def compute_bounds(self, field):
         """
-        Compute min and max bounds of neighbouring cells
+        Only computes min and max bounds of neighbouring cells
         """
         self._update_centroids(field)
         self.max_field.assign(-1.0e10)  # small number
-        self.min_field.assign(1.0e10)   # big number
+        self.min_field.assign(1.0e10)  # big number
 
         par_loop(self._min_max_loop,
                  dx,
@@ -100,9 +125,9 @@ for (int i=0; i<q.dofs; i++) {
                   "minq": (self.min_field, RW),
                   "q": (self.centroids, READ)})
 
-    def _apply_limiter(self, field):
+    def apply_limiter(self, field):
         """
-        Perform limiting loop on the given field
+        Only applies limiting loop on the given field
         """
         par_loop(self._limit_kernel, dx,
                  {"qbar": (self.centroids, READ),
@@ -118,4 +143,4 @@ for (int i=0; i<q.dofs; i++) {
             'Given field does not belong to this objects function space'
 
         self.compute_bounds(field)
-        self._apply_limiter(field)
+        self.apply_limiter(field)
