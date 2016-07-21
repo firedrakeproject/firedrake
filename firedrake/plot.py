@@ -4,7 +4,7 @@ from ufl import cell
 from firedrake import Function, SpatialCoordinate
 
 
-def plot(function, num_points, **kwargs):
+def plot(function, num_points=100, **kwargs):
     """Plot a function and return a matplotlib figure object.
     :arg function: The function to plot.
     :arg num_points: Number of points per element
