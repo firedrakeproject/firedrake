@@ -1,5 +1,24 @@
 from __future__ import absolute_import
 import numpy as np
+from ufl import cell
+
+
+def plot(function, num_points, **kwargs):
+    """Plot a function and return a matplotlib figure object.
+    :arg function: The function to plot.
+    :arg num_points: Number of points per element
+    :arg kwargs: Additional keyword arguments passed to
+    ``matplotlib.plot``.
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise RuntimeError("Matplotlib not importable, is it installed?")
+    if function.function_space().mesh().ufl_cell() == cell.Cell("interval"):
+        points = one_dimension_plot(function, num_points)
+    else:
+        raise RuntimeError("Unsupported functionality")
+    return plt.plot(points[0], points[1], **kwargs)
 
 
 def one_dimension_plot(function, num_points):
