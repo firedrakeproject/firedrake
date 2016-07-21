@@ -38,6 +38,7 @@ travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
 # More generic hack for drone.io CI
 ci = "CI" in os.environ
 ci_event = os.environ.get("CI_EVENT", None)
+ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 
 if mode == "install":
     # Handle command line arguments.
@@ -313,7 +314,7 @@ def git_clone(url):
             log.error("Failed to clone %s branch %s." % (name, branch))
             raise
     with directory(name):
-        if name == "firedrake" and ci and ci_event == "pull_request":
+        if name == "firedrake" and ci and ci_testing_firedrake and ci_event == "pull_request":
             try:
                 ci_pull_request = os.environ["CI_PULL_REQUEST"]
                 log.info("Checking out pull request %s" % ci_pull_request)

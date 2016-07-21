@@ -18,6 +18,8 @@ build:
     - FIREDRAKE_HOME=/firedrake
     - FIREDRAKE_GID=1000
     - FIREDRAKE_UID=1000
+    # Tell firedrake-install we're testing firedrake
+    - FIREDRAKE_CI_TESTS=1
   commands: 
     # Bring the image up to date
     - apt-get -y update
