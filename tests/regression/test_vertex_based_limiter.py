@@ -1,8 +1,6 @@
-from __future__ import absolute_import
-
 import pytest
 from firedrake import *
-from firedrake.slope_limiter.limiter import VertexBased
+from firedrake.slope_limiter.vertex_based_limiter import VertexBased
 import numpy as np
 
 
