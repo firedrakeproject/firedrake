@@ -50,6 +50,7 @@ from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
 from firedrake.projection import *
+from firedrake.slope_limiter import *
 from firedrake.solving import *
 from firedrake.ufl_expr import *
 from firedrake.utility_meshes import *
