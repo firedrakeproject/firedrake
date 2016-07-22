@@ -10,6 +10,8 @@ def plot_mult(functions, num_points=100):
         from matplotlib.widgets import Slider
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
+    if len(functions) == 0:
+        return None
     figure, ax = plt.subplots()
     func_axis = plt.axes([0.25, 0.025, 0.65, 0.03], axisbg='lightgoldenrodyellow')
     func_slider = Slider(func_axis, "Func Select", 0.1, len(functions), valinit=0)
