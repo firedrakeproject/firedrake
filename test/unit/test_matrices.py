@@ -584,16 +584,18 @@ class TestSparsity:
             m = op2.Map(s, s, 1)
             op2.Sparsity((s, s), (m, m))
 
-    def test_sparsity_always_has_diagonal_space(self, backend):
-        # A sparsity should always have space for diagonal entries
+    def test_sparsity_has_diagonal_space(self, backend):
+        # A sparsity should have space for diagonal entries if rmap==cmap
         s = op2.Set(1)
         d = op2.Set(4)
-        m = op2.Map(s, d, 1, [2])
-        d2 = op2.Set(5)
-        m2 = op2.Map(s, d2, 2, [1, 4])
-        sparsity = op2.Sparsity((d, d2), (m, m2))
+        m = op2.Map(s, d, 2, [1, 3])
+        d2 = op2.Set(4)
+        m2 = op2.Map(s, d2, 3, [1, 2, 3])
+        sparsity = op2.Sparsity((d, d), (m, m))
+        sparsity2 = op2.Sparsity((d, d2), (m, m2))
 
-        assert all(sparsity.nnz == [1, 1, 3, 1])
+        assert all(sparsity.nnz == [1, 2, 1, 2])
+        assert all(sparsity2.nnz == [0, 3, 0, 3])
 
 
 class TestMatrices:

@@ -265,7 +265,7 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
                     # Preallocate set entries heuristically based on arity
                     cur_nrows = rset[r].size * rdim
                     rarity = rmap.arity
-                    alloc_diag = r == c
+                    alloc_diag = r == c and sparsity._has_diagonal
                     for i in range(cur_nrows):
                         diag[c][row_offset + i].reserve(6*rarity)
                         if alloc_diag and i < ncols:
