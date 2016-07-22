@@ -26,7 +26,7 @@ def test_consistent_facet_orientation(mesh_thunk):
 
     Q = FunctionSpace(mesh, "DG", 0)  # result space
 
-    expression = Expression("x[0]*(x[0] + sqrt(2.0)) + x[1] + x[2]*x[2]*x[2]")
+    expression = Expression("x[0]*(x[0] + sqrt(2.0)) + x[1]")
     f = Function(V).interpolate(expression)
     g = Function(W).interpolate(expression)
 

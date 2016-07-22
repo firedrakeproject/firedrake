@@ -104,10 +104,10 @@ def set_log_level(level):
     for package in packages:
         if package == "UFL":
             from ufl.log import ufl_logger as logger
-            logger.set_level(level)
+            logger = logger.get_logger()
         else:
             logger = logging.getLogger(package)
-            logger.setLevel(level)
+        logger.setLevel(level)
 
 
 set_level = set_log_level
