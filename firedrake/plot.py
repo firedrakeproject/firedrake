@@ -4,7 +4,28 @@ from ufl import cell
 from firedrake import Function, SpatialCoordinate
 
 
-def plot(function, num_points=100, **kwargs):
+def plot_mult(functions, num_points=100):
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.widgets import Slider
+    except ImportError:
+        raise RuntimeError("Matplotlib not importable, is it installed?")
+    figure, ax = plt.subplots()
+    func_axis = plt.axes([0.25, 0.025, 0.65, 0.03], axisbg='lightgoldenrodyellow')
+    func_slider = Slider(func_axis, "Func Select", 0.1, len(functions), valinit=0)
+    func_slider.valtext.set_text('0')
+
+    def _update(val):
+        val = int(val - 0.1)
+        func_slider.valtext.set_text('{:.0f}'.format(val))
+        ax.cla()
+        plot(functions[val], ax)
+    _update(0)
+    func_slider.on_changed(_update)
+    return figure
+
+
+def plot(function, axes=None, num_points=100, **kwargs):
     """Plot a function and return a matplotlib figure object.
     :arg function: The function to plot.
     :arg num_points: Number of points per element
@@ -17,13 +38,14 @@ def plot(function, num_points=100, **kwargs):
         raise RuntimeError("Matplotlib not importable, is it installed?")
     if function.function_space().mesh().ufl_cell() == cell.Cell("interval"):
         if function.function_space().ufl_element().degree() < 4:
-            return bezier_plot(function)
+            return bezier_plot(function, axes)
         points = one_dimension_plot(function, num_points)
     else:
         raise RuntimeError("Unsupported functionality")
-    figure = plt.figure()
-    plt.plot(points[0], points[1], **kwargs)
-    return figure
+    if axes is None:
+        axes = plt.subplot(111)
+    axes.plot(points[0], points[1], **kwargs)
+    return plt.gcf()
 
 
 def one_dimension_plot(function, num_points):
@@ -57,7 +79,7 @@ def one_dimension_plot(function, num_points):
     return np.array([x_vals, y_vals])
 
 
-def bezier_plot(function):
+def bezier_plot(function, axes=None):
     try:
         import matplotlib.pyplot as plt
         from matplotlib.path import Path
@@ -80,17 +102,18 @@ def bezier_plot(function):
     x_vals = np.dot(coords.dat.data_ro[cell_node_list], M_inv)
     vals = np.dstack((x_vals, y_vals))
 
-    figure = plt.figure()
+    if axes is None:
+        figure = plt.figure()
+        axes = figure.add_subplot(111)
     codes = {1: [Path.MOVETO, Path.LINETO],
              2: [Path.MOVETO, Path.CURVE3, Path.CURVE3],
              3: [Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4]}
     vertices = vals.reshape(-1, 2)
     path = Path(vertices, np.tile(codes[deg], cell_node_list.shape[0]))
-    ax = figure.add_subplot(111)
     patch = patches.PathPatch(path, facecolor='none', lw=2)
-    ax.add_patch(patch)
-    ax.plot()
-    return figure
+    axes.add_patch(patch)
+    axes.plot()
+    return plt.gcf()
 
 
 def _bernstein(x, k, n):
