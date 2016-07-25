@@ -62,15 +62,23 @@ def plot(function, axes=None, num_points=100, **kwargs):
         raise RuntimeError("Unsupported functionality")
 
 
-def _calculate_values(function, points):
+def _calculate_values(function, points, dimension):
     """Calculate function values at given reference points
     :arg function: function to be sampled
     :arg points: points to be sampled in reference space
     """
     function_space = function.function_space()
-    elem = function_space.fiat_element.tabulate(0, points)[(0, )]
+    keys = {1: (0,),
+            2: (0, 0)}
+    elem = function_space.fiat_element.tabulate(0, points)[keys[dimension]]
     data = function.dat.data_ro[function_space.cell_node_list]
-    return np.dot(data, elem).reshape(-1)
+    if function.ufl_shape == ():
+        vec_length = 1
+    else:
+        vec_length = function.ufl_shape[0]
+    if vec_length == 1:
+        data = np.reshape(data, data.shape+(1, ))
+    return np.einsum("ijk,jl->ilk", data, elem).reshape(-1, vec_length)
 
 
 def _calculate_points(function, num_points):
