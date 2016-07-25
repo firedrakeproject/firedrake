@@ -50,7 +50,9 @@ def plot(function, axes=None, num_points=100, **kwargs):
         import matplotlib.pyplot as plt
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    if function.function_space().mesh().ufl_cell() == cell.Cell("interval"):
+    if function.function_space().mesh().geometric_dimension() \
+            == function.function_space().mesh().topological_dimension() \
+            == 1:
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
         points = calculate_one_dim_points(function, num_points)
@@ -58,6 +60,10 @@ def plot(function, axes=None, num_points=100, **kwargs):
             axes = plt.subplot(111)
         axes.plot(points[0], points[1], **kwargs)
         return plt.gcf()
+    elif function.function_space().mesh().geometric_dimension() \
+            == function.function_space().mesh().topological_dimension() \
+            == 2:
+        return two_dimension_plot(function, num_points, axes)
     else:
         raise RuntimeError("Unsupported functionality")
 
