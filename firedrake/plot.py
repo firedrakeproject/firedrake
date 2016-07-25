@@ -133,7 +133,7 @@ def calculate_one_dim_points(function, num_points):
 
 
 def two_dimension_plot(function, num_points, axes=None):
-    """Plot a 2D function in Contour lines, return a matplotlib figure
+    """Plot a 2D function in triangular surfaces, return a matplotlib figure
 
     :arg function: 2D function for plotting
     :arg num_points: Number of sample points per element
@@ -145,14 +145,14 @@ def two_dimension_plot(function, num_points, axes=None):
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
     coord_vals, f_vals = _calculate_points(function, num_points, 2)
-    X = coord_vals.T[0].reshape(-1, num_points)
-    Y = coord_vals.T[1].reshape(-1, num_points)
-    Z = f_vals.reshape(-1, num_points)
+    X = coord_vals.T[0].reshape(-1)
+    Y = coord_vals.T[1].reshape(-1)
+    Z = f_vals.reshape(-1)
 
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
-    axes.contour(X, Y, Z)
+    axes.plot_trisurf(X, Y, Z, edgecolor='none', antialiased=False)
     return plt.gcf()
 
 
