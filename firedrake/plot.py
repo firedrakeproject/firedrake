@@ -108,6 +108,24 @@ def calculate_one_dim_points(function, num_points):
     return np.array([x_vals, y_vals])
 
 
+def two_dimension_plot(function, num_points, axes=None):
+    try:
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+    except ImportError:
+        raise RuntimeError("Matplotlib not importable, is it installed?")
+    coord_vals, f_vals = _calculate_points(function, num_points, 2)
+    X = coord_vals.T[0].reshape(-1, num_points)
+    Y = coord_vals.T[1].reshape(-1, num_points)
+    Z = f_vals.reshape(-1, num_points)
+
+    if axes is None:
+        figure = plt.figure()
+        axes = figure.add_subplot(111, projection='3d')
+    axes.contour(X, Y, Z)
+    return plt.gcf()
+
+
 def bezier_plot(function, axes=None, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
     Bezier curve within each cell, return a matplotlib figure
