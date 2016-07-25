@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 import numpy as np
-from ufl import cell
+from ufl import Cell
 from firedrake import Function, SpatialCoordinate
 
 __all__ = ["plot"]
@@ -87,16 +87,34 @@ def _calculate_values(function, points, dimension):
     return np.einsum("ijk,jl->ilk", data, elem).reshape(-1, vec_length)
 
 
-def _calculate_points(function, num_points):
+def _calculate_points(function, num_points, dimension):
     """Calculate points in physical space of given function with given number of
     sampling points at given dimension
     :arg function: function to be sampled
     :arg num_points: number of sampling points
+    :arg dimension: dimension of the function
     """
-    mesh = function.function_space().mesh()
-    points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
-    y_vals = _calculate_values(function, points)
-    x_vals = _calculate_values(mesh.coordinates, points)
+    function_space = function.function_space()
+    mesh = function_space.mesh()
+    if mesh.ufl_cell() == Cell('interval'):
+        points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
+    elif mesh.ufl_cell() == Cell('quadrilateral'):
+        points_1d = np.linspace(0, 1.0, num=num_points,
+                                dtype=float).reshape(-1, 1)
+        points = np.array(np.meshgrid(points_1d, points_1d)).T.reshape(-1, 2)
+    elif mesh.ufl_cell() == Cell('triangle'):
+        points_1d = np.linspace(0, 1.0, num=num_points,
+                                dtype=float).reshape(-1, 1)
+        points_1d_rev = np.fliplr([points_1d]).reshape(-1)
+        iu = np.triu_indices(num_points)
+        points = np.array(np.meshgrid(points_1d, points_1d_rev)).T[iu]
+        print points
+    else:
+        raise RuntimeError("Unsupported functionality")
+    y_vals = _calculate_values(function, function_space, points, dimension)
+    x_vals = _calculate_values(mesh.coordinates,
+                               mesh.coordinates.function_space(),
+                               points, dimension)
     return x_vals, y_vals
 
 
