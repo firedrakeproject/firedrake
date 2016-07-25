@@ -1,19 +1,27 @@
 import pytest
 from firedrake import *
-from firedrake.slope_limiter.vertex_based_limiter import VertexBased
 import numpy as np
 
 
-def test_constant_field(mesh_size=30):
-    # test mesh
-    mesh = PeriodicUnitSquareMesh(mesh_size, mesh_size)
+@pytest.fixture(params=["periodic-interval",
+                        "periodic-square-tri", "periodic-square-quad"])
+def mesh(request):
+    if request.param == "periodic-interval":
+        return PeriodicUnitIntervalMesh(30)
+    elif request.param == "periodic-square-tri":
+        return PeriodicUnitSquareMesh(30, 30)
+    elif request.param == "periodic-square-quad":
+        return PeriodicUnitSquareMesh(30, 30, quadrilateral=True)
+
+
+def test_constant_field(mesh):
     x = SpatialCoordinate(mesh)
 
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
 
     # Create limiter
-    limiter = VertexBased(v)
+    limiter = VertexBasedLimiter(v)
 
     # Set up constant field
     u0 = Constant(1)
@@ -25,16 +33,14 @@ def test_constant_field(mesh_size=30):
     assert diff < 1.0e-10, "Failed on Constant function"
 
 
-def test_step_function_bounds(mesh_size=30):
-    # test mesh
-    mesh = PeriodicUnitSquareMesh(mesh_size, mesh_size)
+def test_step_function_bounds(mesh):
     x = SpatialCoordinate(mesh)
 
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
 
     # Create limiter
-    limiter = VertexBased(v)
+    limiter = VertexBasedLimiter(v)
 
     # advecting velocity
     u0 = conditional(x[0] < 0.5, 1., 0.)
@@ -44,16 +50,17 @@ def test_step_function_bounds(mesh_size=30):
     assert np.max(u.dat.data_ro) <= 1.0, "Failed by exceeding max values"
     assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
-def test_step_function_loop(mesh_size=30, iterations=100):
-    # test mesh
-    mesh = PeriodicUnitSquareMesh(mesh_size, mesh_size)
 
+def test_step_function_loop(mesh, iterations=100):
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
     m = VectorFunctionSpace(mesh, "CG", 1)
 
     # advecting velocity
-    u0 = Expression(('1', '0'))
+    if m.shape == (1, ):
+        u0 = as_vector([1])
+    else:
+        u0 = as_vector([1, 0])
     u = Function(m).interpolate(u0)
 
     # advection problem
@@ -85,7 +92,7 @@ def test_step_function_loop(mesh_size=30, iterations=100):
     solver = LinearVariationalSolver(problem, solver_parameters={'ksp_type': 'cg'})
 
     # Make slope limiter
-    limiter = VertexBased(v)
+    limiter = VertexBasedLimiter(v)
     limiter.apply(D)
 
     while t < (T - dt / 2):
