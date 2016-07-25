@@ -16,8 +16,8 @@ import gem
 
 from tsfc.constants import PRECISION
 from tsfc.finatinterface import create_element, as_fiat_cell
+from tsfc.fiatinterface import create_quadrature
 from tsfc.modified_terminals import analyse_modified_terminal
-from tsfc.quadrature import create_quadrature
 from tsfc import ufl2gem
 from tsfc import geometric
 from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
@@ -59,22 +59,24 @@ class FacetManager(object):
 
         :arg points: points in integration cell coordinates
         """
+        dim = self.ufl_cell.topological_dimension()
+
         if self.integral_type == 'cell':
             yield points
 
         elif self.integral_type in ['exterior_facet', 'interior_facet']:
             for entity in range(self.ufl_cell.num_facets()):
-                t = as_fiat_cell(self.ufl_cell).get_facet_transform(entity)
+                t = as_fiat_cell(self.ufl_cell).get_entity_transform(dim-1, entity)
                 yield numpy.asarray(map(t, points))
 
         elif self.integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
             for entity in range(2):  # top and bottom
-                t = as_fiat_cell(self.ufl_cell).get_horiz_facet_transform(entity)
+                t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), entity)
                 yield numpy.asarray(map(t, points))
 
         elif self.integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
             for entity in range(self.ufl_cell.sub_cells()[0].num_facets()):  # "base cell" facets
-                t = as_fiat_cell(self.ufl_cell).get_vert_facet_transform(entity)
+                t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-2, 1), entity)
                 yield numpy.asarray(map(t, points))
 
         else:
@@ -115,6 +117,8 @@ class cached_property(object):
 class Parameters(object):
     keywords = ('integral_type',
                 'cell',
+                'integration_dim',
+                'entity_ids',
                 'quadrature_degree',
                 'quadrature_rule',
                 'points',
@@ -136,12 +140,19 @@ class Parameters(object):
     integral_type = 'cell'
 
     @cached_property
+    def integration_dim(self):
+        fiat_cell = as_fiat_cell(self.cell)
+        return fiat_cell.get_dimension()
+
+    entity_ids = [None]
+
+    @cached_property
     def quadrature_rule(self):
         from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
-        quad_rule = create_quadrature(self.cell,
-                                      self.integral_type,
-                                      self.quadrature_degree)
-        quad_rule = QuadratureRule(self.cell, quad_rule.points, quad_rule.weights)
+        fiat_cell = as_fiat_cell(self.cell)
+        integration_cell = fiat_cell.construct_subelement(self.integration_dim)
+        quad_rule = create_quadrature(integration_cell, self.quadrature_degree)
+        quad_rule = QuadratureRule(fiat_cell, quad_rule.get_points(), quad_rule.get_weights())
         quad_rule.__class__ = CollapsedGaussJacobiQuadrature
         return quad_rule
 

@@ -17,9 +17,9 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.finatinterface import create_element
+from tsfc.fiatinterface import as_fiat_cell, create_quadrature
 from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
 from tsfc.logging import logger
-from tsfc.quadrature import create_quadrature
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -82,6 +82,9 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     mesh = integral_data.domain
     cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
+
+    fiat_cell = as_fiat_cell(cell)
+    integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
 
     argument_indices = tuple(tuple(gem.Index(extent=e)
                                    for e in create_element(arg.ufl_element()).index_shape)
@@ -163,6 +166,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         quadrature_index = gem.Index(name='q')
         ir = fem.compile_ufl(integrand,
                              integral_type=integral_type,
+                             integration_dim=integration_dim,
                              cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
@@ -190,8 +194,9 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         try:
             quad_rule = params["quadrature_rule"]
         except KeyError:
-            quad_rule = create_quadrature(cell, integral_type, quadrature_degree)
-            quad_rule = QuadratureRule(cell, quad_rule.points, quad_rule.weights)
+            integration_cell = fiat_cell.construct_subelement(integration_dim)
+            quad_rule = create_quadrature(integration_cell, quadrature_degree)
+            quad_rule = QuadratureRule(cell, quad_rule.get_points(), quad_rule.get_weights())
             quad_rule.__class__ = CollapsedGaussJacobiQuadrature
 
         if not isinstance(quad_rule, QuadratureRule):
@@ -205,6 +210,8 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         ir = fem.compile_ufl(integrand,
                              integral_type=integral_type,
                              cell=cell,
+                             integration_dim=integration_dim,
+                             entity_ids=entity_ids,
                              quadrature_rule=quad_rule,
                              point_index=quadrature_index,
                              argument_indices=argument_indices,
@@ -248,3 +255,37 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)
+
+
+def lower_integral_type(fiat_cell, integral_type):
+    """Lower integral type into the dimension of the integration
+    subentity and a list of entity numbers for that dimension.
+
+    :arg fiat_cell: FIAT reference cell
+    :arg integral_type: integral type (string)
+    """
+    dim = fiat_cell.get_dimension()
+    if integral_type == 'cell':
+        integration_dim = dim
+    elif integral_type in ['exterior_facet', 'interior_facet']:
+        integration_dim = dim - 1
+    else:
+        # Extrusion case
+        basedim, extrdim = dim
+        assert extrdim == 1
+
+        if integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
+            integration_dim = (basedim - 1, 1)
+        elif integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
+            integration_dim = (basedim, 0)
+        else:
+            raise NotImplementedError("integral type %s not supported" % integral_type)
+
+    if integral_type == 'exterior_facet_bottom':
+        entity_ids = [0]
+    elif integral_type == 'exterior_facet_top':
+        entity_ids = [1]
+    else:
+        entity_ids = range(len(fiat_cell.get_topology()[integration_dim]))
+
+    return integration_dim, entity_ids
