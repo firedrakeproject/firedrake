@@ -4,7 +4,7 @@ from ufl import cell
 from firedrake import Function, SpatialCoordinate
 
 
-def plot_mult(functions, num_points=100):
+def _plot_mult(functions, num_points=100):
     """Plot multiple functions on a figure, return a matplotlib figure
     :arg functions: Functions to be plotted
     :arg num_points: Number of points per element
@@ -32,13 +32,17 @@ def plot_mult(functions, num_points=100):
 
 
 def plot(function, axes=None, num_points=100, **kwargs):
-    """Plot a function and return a matplotlib figure object.
+    """Plot a function or a list of functions and return a matplotlib
+    figure object.
     :arg function: The function to plot.
     :arg axes: Axes to be plotted on
     :arg num_points: Number of points per element
     :arg kwargs: Additional keyword arguments passed to
     ``matplotlib.plot``.
     """
+
+    if not isinstance(function, Function):
+        return _plot_mult(function, num_points)
     try:
         import matplotlib.pyplot as plt
     except ImportError:
