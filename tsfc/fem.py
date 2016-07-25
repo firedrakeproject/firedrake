@@ -15,9 +15,8 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
 import gem
 
 from tsfc.constants import PRECISION
-from tsfc.fiatinterface import create_element, as_fiat_cell
+from tsfc.fiatinterface import create_element, create_quadrature, as_fiat_cell
 from tsfc.modified_terminals import analyse_modified_terminal
-from tsfc.quadrature import create_quadrature
 from tsfc import compat
 from tsfc import ufl2gem
 from tsfc import geometric
@@ -215,6 +214,8 @@ class cached_property(object):
 class Parameters(object):
     keywords = ('integral_type',
                 'cell',
+                'integration_dim',
+                'entity_ids',
                 'quadrature_degree',
                 'quadrature_rule',
                 'points',
@@ -236,18 +237,25 @@ class Parameters(object):
     integral_type = 'cell'
 
     @cached_property
+    def integration_dim(self):
+        fiat_cell = as_fiat_cell(self.cell)
+        return fiat_cell.get_dimension()
+
+    entity_ids = [None]
+
+    @cached_property
     def quadrature_rule(self):
-        return create_quadrature(self.cell,
-                                 self.integral_type,
-                                 self.quadrature_degree)
+        fiat_cell = as_fiat_cell(self.cell)
+        integration_cell = fiat_cell.construct_subelement(self.integration_dim)
+        return create_quadrature(integration_cell, self.quadrature_degree)
 
     @cached_property
     def points(self):
-        return self.quadrature_rule.points
+        return self.quadrature_rule.get_points()
 
     @cached_property
     def weights(self):
-        return self.quadrature_rule.weights
+        return self.quadrature_rule.get_weights()
 
     argument_indices = ()
 
