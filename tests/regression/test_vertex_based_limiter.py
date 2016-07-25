@@ -15,8 +15,6 @@ def mesh(request):
 
 
 def test_constant_field(mesh):
-    x = SpatialCoordinate(mesh)
-
     # test function space
     v = FunctionSpace(mesh, "DG", 1)
 
@@ -83,7 +81,6 @@ def test_step_function_loop(mesh, iterations=100):
     D0 = conditional(x[0] < 0.5, 1., 0.)
 
     D = Function(v).interpolate(D0)
-    D_old = Function(D)
     D1.assign(D)
 
     t = 0.0
