@@ -127,5 +127,6 @@ def bezier_plot(function, axes=None):
 
 
 def _bernstein(x, k, n):
-    from scipy.misc import comb
-    return comb(n, k) * (x ** k) * ((1 - x) ** (n - k))
+    from FIAT.factorial import factorial
+    comb = factorial(n) / factorial(k) / factorial(n - k)
+    return comb * (x ** k) * ((1 - x) ** (n - k))
