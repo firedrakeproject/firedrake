@@ -57,6 +57,24 @@ def _calculate_values(function, function_space, points):
     return np.dot(data, elem).reshape(-1)
 
 
+def _calculate_points(function, num_points, dimension):
+    function_space = function.function_space()
+    mesh = function_space.mesh()
+    if dimension == 1:
+        points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
+    elif dimension == 2:
+        points_1d = np.linspace(0, 1.0, num=num_points,
+                                dtype=float).reshape(-1, 1)
+        points = np.array(np.meshgrid(points_1d, points_1d)).T.reshape(-1, 2)
+    else:
+        raise RuntimeError("Unsupported functionality")
+    y_vals = _calculate_values(function, function_space, points, dimension)
+    x_vals = _calculate_values(mesh.coordinates,
+                               mesh.coordinates.function_space(),
+                               points, dimension)
+    return x_vals, y_vals
+
+
 def one_dimension_plot(function, num_points):
     """Calculate a set of points for plotting for a one-dimension function as a
     numpy array
@@ -64,13 +82,7 @@ def one_dimension_plot(function, num_points):
     :arg function: 1D function for plotting
     :arg num_points: number of points per element
     """
-    function_space = function.function_space()
-    mesh = function_space.mesh()
-    points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
-    y_vals = _calculate_values(function, function_space, points)
-    x_vals = _calculate_values(mesh.coordinates,
-                               mesh.coordinates.function_space(),
-                               points)
+    x_vals, y_vals = _calculate_points(function, num_points, 1)
 
     def __sort_points(x_vals, y_vals):
         "Sort the points according to x values"
