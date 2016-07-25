@@ -3,6 +3,8 @@ import numpy as np
 from ufl import cell
 from firedrake import Function, SpatialCoordinate
 
+__all__ = ["plot"]
+
 
 def _plot_mult(functions, num_points=100):
     """Plot multiple functions on a figure, return a matplotlib figure
