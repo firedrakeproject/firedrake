@@ -253,12 +253,19 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
 
 def lower_integral_type(fiat_cell, integral_type):
+    """Lower integral type into the dimension of the integration
+    subentity and a list of entity numbers for that dimension.
+
+    :arg fiat_cell: FIAT reference cell
+    :arg integral_type: integral type (string)
+    """
     dim = fiat_cell.get_dimension()
     if integral_type == 'cell':
         integration_dim = dim
     elif integral_type in ['exterior_facet', 'interior_facet']:
         integration_dim = dim - 1
     else:
+        # Extrusion case
         basedim, extrdim = dim
         assert extrdim == 1
 
