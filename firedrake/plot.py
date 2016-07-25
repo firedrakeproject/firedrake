@@ -17,13 +17,13 @@ def plot_mult(functions, num_points=100):
     func_slider = Slider(func_axis, "Func Select", 0.1, len(functions), valinit=0)
     func_slider.valtext.set_text('0')
 
-    def _update(val):
+    def update(val):
         val = int(val - 0.1)
         func_slider.valtext.set_text('{:.0f}'.format(val))
         ax.cla()
         plot(functions[val], ax)
-    _update(0)
-    func_slider.on_changed(_update)
+    update(0)
+    func_slider.on_changed(update)
     return figure
 
 
