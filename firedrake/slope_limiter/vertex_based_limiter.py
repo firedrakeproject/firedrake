@@ -1,12 +1,14 @@
+from __future__ import absolute_import
 from firedrake import dx, assemble, LinearSolver
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
 from firedrake.parloops import par_loop, READ, RW
 from firedrake.ufl_expr import TrialFunction, TestFunction
-from limiter import Limiter
+from firedrake.slope_limiter.limiter import Limiter
+__all__ = ("VertexBasedLimiter",)
 
 
-class VertexBased(Limiter):
+class VertexBasedLimiter(Limiter):
     """
     A vertex based limiter for P1DG fields.
 
