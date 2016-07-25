@@ -109,6 +109,12 @@ def calculate_one_dim_points(function, num_points):
 
 
 def two_dimension_plot(function, num_points, axes=None):
+    """Plot a 2D function in Contour lines, return a matplotlib figure
+
+    :arg function: 2D function for plotting
+    :arg num_points: Number of sample points per element
+    :arg axes: Axes to be plotted on
+    """
     try:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
