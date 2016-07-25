@@ -35,7 +35,7 @@ def u(V):
                         "v*u*dx + v*u*dx(2) - v*dx(1) - v*dx(2)",
                         "v*u*dx(1) + v*u*dx(2) + v*u*dx(2) -v*dx(1) - v*dx(2)"])
 def form(request, u):
-    v = TestFunction(u.function_space())  # noqa: necessary for eval
+    v = TestFunction(u.function_space())  # noqa
     return eval(request.param)
 
 
