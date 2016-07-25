@@ -35,7 +35,6 @@
 itself, whereas others directly from application code."""
 
 import os
-import sys
 from contextlib import contextmanager
 from decorator import decorator
 

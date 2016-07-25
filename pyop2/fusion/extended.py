@@ -35,7 +35,6 @@
 derived from ``base.py``."""
 
 import sys
-import os
 import ctypes
 from copy import deepcopy as dcopy
 from itertools import groupby
