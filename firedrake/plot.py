@@ -52,7 +52,7 @@ def plot(function, axes=None, num_points=100, **kwargs):
     if function.function_space().mesh().ufl_cell() == cell.Cell("interval"):
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes)
-        points = one_dimension_plot(function, num_points)
+        points = calculate_one_dim_points(function, num_points)
     else:
         raise RuntimeError("Unsupported functionality")
     if axes is None:
@@ -86,7 +86,7 @@ def _calculate_points(function, num_points, dimension):
     return x_vals, y_vals
 
 
-def one_dimension_plot(function, num_points):
+def calculate_one_dim_points(function, num_points):
     """Calculate a set of points for plotting for a one-dimension function as a
     numpy array
 
