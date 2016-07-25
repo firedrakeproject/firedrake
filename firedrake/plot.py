@@ -83,13 +83,9 @@ def one_dimension_plot(function, num_points):
     :arg num_points: number of points per element
     """
     x_vals, y_vals = _calculate_points(function, num_points, 1)
-
-    def __sort_points(x_vals, y_vals):
-        "Sort the points according to x values"
-        order = np.argsort(x_vals)
-        return np.array([x_vals[order], y_vals[order]])
-    x_vals, y_vals = __sort_points(x_vals, y_vals)
-
+    order = np.argsort(x_vals)
+    x_vals = x_vals[order]
+    y_vals = y_vals[order]
     return np.array([x_vals, y_vals])
 
 
