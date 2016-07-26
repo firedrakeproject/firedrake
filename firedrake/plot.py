@@ -53,12 +53,12 @@ def plot(function, axes=None, num_points=100, **kwargs):
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
         points = calculate_one_dim_points(function, num_points)
+        if axes is None:
+            axes = plt.subplot(111)
+        axes.plot(points[0], points[1], **kwargs)
+        return plt.gcf()
     else:
         raise RuntimeError("Unsupported functionality")
-    if axes is None:
-        axes = plt.subplot(111)
-    axes.plot(points[0], points[1], **kwargs)
-    return plt.gcf()
 
 
 def _calculate_values(function, function_space, points):
