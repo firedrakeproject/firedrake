@@ -5,6 +5,10 @@ from firedrake import Function, SpatialCoordinate
 
 
 def plot_mult(functions, num_points=100):
+    """Plot multiple functions on a figure, return a matplotlib figure
+    :arg functions: Functions to be plotted
+    :arg num_points: Number of points per element
+    """
     try:
         import matplotlib.pyplot as plt
         from matplotlib.widgets import Slider
@@ -30,6 +34,7 @@ def plot_mult(functions, num_points=100):
 def plot(function, axes=None, num_points=100, **kwargs):
     """Plot a function and return a matplotlib figure object.
     :arg function: The function to plot.
+    :arg axes: Axes to be plotted on
     :arg num_points: Number of points per element
     :arg kwargs: Additional keyword arguments passed to
     ``matplotlib.plot``.
@@ -80,7 +85,7 @@ def one_dimension_plot(function, num_points):
     numpy array
 
     :arg function: 1D function for plotting
-    :arg num_points: number of points per element
+    :arg num_points: Number of points per element
     """
     x_vals, y_vals = _calculate_points(function, num_points, 1)
     order = np.argsort(x_vals)
@@ -90,6 +95,12 @@ def one_dimension_plot(function, num_points):
 
 
 def bezier_plot(function, axes=None):
+    """Plot a 1D function on a function space with order no more than 4 using
+    Bezier curve within each cell, return a matplotlib figure
+
+    :arg function: 1D function for plotting
+    :arg Axes: Axes for plotting, if None, a new one will be created
+    """
     try:
         import matplotlib.pyplot as plt
         from matplotlib.path import Path
