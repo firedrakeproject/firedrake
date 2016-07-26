@@ -21,8 +21,7 @@ import FIAT
 from decorator import decorator
 
 
-from FIAT.finite_element import facet_support_dofs
-from FIAT.tensor_product import horiz_facet_support_dofs, vert_facet_support_dofs
+from FIAT.finite_element import entity_support_dofs
 
 from coffee import base as ast
 
@@ -198,11 +197,12 @@ def get_bt_masks(mesh, key, fiat_element):
     # comes last [-1], before that the horizontal facet [-2], before
     # that vertical facets [-3]. We need the horizontal facets here.
     closure_dofs = fiat_element.entity_closure_dofs()
-    b_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][0]
-    t_mask = closure_dofs[sorted(closure_dofs.keys())[-2]][1]
+    horiz_facet_dim = sorted(closure_dofs.keys())[-2]
+    b_mask = closure_dofs[horiz_facet_dim][0]
+    t_mask = closure_dofs[horiz_facet_dim][1]
     bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
     # Geometric facet dofs
-    facet_dofs = horiz_facet_support_dofs(fiat_element)
+    facet_dofs = entity_support_dofs(fiat_element, horiz_facet_dim)
     bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
     return bt_masks
 
@@ -346,14 +346,10 @@ class FunctionSpaceData(object):
         if method == "topological":
             boundary_dofs = el.entity_closure_dofs()[dim]
         elif method == "geometric":
-            if self.extruded:
-                # This function is only called on extruded meshes when
-                # asking for the nodes that live on the "vertical"
-                # exterior facets.  Hence we don't need to worry about
-                # horiz_facet_support_dofs as well.
-                boundary_dofs = vert_facet_support_dofs(el)
-            else:
-                boundary_dofs = facet_support_dofs(el)
+            # This function is only called on extruded meshes when
+            # asking for the nodes that live on the "vertical"
+            # exterior facets.
+            boundary_dofs = entity_support_dofs(el, dim)
 
         nodes_per_facet = \
             len(boundary_dofs[0])
@@ -368,7 +364,7 @@ class FunctionSpaceData(object):
                             comm=self.mesh.comm)
 
         fs_dat = op2.Dat(facet_set**el.space_dimension(),
-                         data=V.exterior_facet_node_map().values_with_halo)
+                         data=V.exterior_facet_node_map().values_with_halo.view())
 
         facet_dat = op2.Dat(facet_set**nodes_per_facet,
                             dtype=numpy.int32)
