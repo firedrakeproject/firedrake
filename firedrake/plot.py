@@ -33,19 +33,25 @@ def _plot_mult(functions, num_points=100, **kwargs):
     return figure
 
 
-def plot(function, num_points=100, axes=None, **kwargs):
+def plot(function,
+         num_sample_points=100,
+         axes=None,
+         num_interp_points=100,
+         **kwargs):
     """Plot a function or a list of functions and return a matplotlib
     figure object.
     :arg function: The function to plot.
+    :arg num_sample_points: Number of Sample points per element, ignored if
+        degree < 4 where Bezier curve will be used instead of sampling at
+        points
     :arg axes: Axes to be plotted on
-    :arg num_points: Number of points per element, ignored if degree < 4 where
-        Bezier curve will be used instead of sampling at points
+    :arg num_interp_points: Number of Interpolation Points for 2D plotting
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
 
     if not isinstance(function, Function):
-        return _plot_mult(function, num_points, **kwargs)
+        return _plot_mult(function, num_sample_points, **kwargs)
     try:
         import matplotlib.pyplot as plt
     except ImportError:
@@ -55,7 +61,7 @@ def plot(function, num_points=100, axes=None, **kwargs):
             == 1:
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
-        points = calculate_one_dim_points(function, num_points)
+        points = calculate_one_dim_points(function, num_sample_points)
         if axes is None:
             axes = plt.subplot(111)
         axes.plot(points[0], points[1], **kwargs)
@@ -63,7 +69,8 @@ def plot(function, num_points=100, axes=None, **kwargs):
     elif function.function_space().mesh().geometric_dimension() \
             == function.function_space().mesh().topological_dimension() \
             == 2:
-        return two_dimension_plot(function, num_points, axes, **kwargs)
+        return two_dimension_plot(function, num_sample_points, axes,
+                                  num_interp_points, **kwargs)
     else:
         raise RuntimeError("Unsupported functionality")
 
