@@ -168,6 +168,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         ir = fem.compile_ufl(integrand,
                              integral_type=integral_type,
                              integration_dim=integration_dim,
+                             entity_ids=entity_ids,
                              cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,

@@ -5,6 +5,7 @@ from __future__ import absolute_import
 
 from numpy import array, nan, vstack
 from singledispatch import singledispatch
+import sympy
 
 from ufl import interval, triangle, quadrilateral, tetrahedron
 from ufl import TensorProductCell
@@ -22,63 +23,6 @@ from tsfc.fiatinterface import as_fiat_cell
 interval_x_interval = TensorProductCell(interval, interval)
 triangle_x_interval = TensorProductCell(triangle, interval)
 quadrilateral_x_interval = TensorProductCell(quadrilateral, interval)
-
-
-# Volume of the reference cells
-reference_cell_volume = {
-    interval: 1.0,
-    triangle: 1.0/2.0,
-    quadrilateral: 1.0,
-    tetrahedron: 1.0/6.0,
-    interval_x_interval: 1.0,
-    triangle_x_interval: 1.0/2.0,
-    quadrilateral_x_interval: 1.0,
-}
-
-
-# Volume of the reference cells of facets
-reference_facet_volume = {
-    interval: 1.0,
-    triangle: 1.0,
-    tetrahedron: 1.0/2.0,
-}
-
-
-# Jacobian of the mapping from a facet to the cell on the reference cell
-cell_facet_jacobian = {
-    interval: array([[1.0],
-                     [1.0]], dtype=NUMPY_TYPE),
-    triangle: array([[-1.0, 1.0],
-                     [0.0, 1.0],
-                     [1.0, 0.0]], dtype=NUMPY_TYPE),
-    quadrilateral: array([[0.0, 1.0],
-                          [0.0, 1.0],
-                          [1.0, 0.0],
-                          [1.0, 0.0]], dtype=NUMPY_TYPE),
-    tetrahedron: array([[-1.0, -1.0, 1.0, 0.0, 0.0, 1.0],
-                        [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                        [1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                        [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]], dtype=NUMPY_TYPE),
-    # Product cells. Convention:
-    # Bottom, top, then vertical facets in the order of the base cell
-    interval_x_interval: array([[1.0, 0.0],
-                                [1.0, 0.0],
-                                [0.0, 1.0],
-                                [0.0, 1.0]], dtype=NUMPY_TYPE),
-    triangle_x_interval: array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                [-1.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]],
-                               dtype=NUMPY_TYPE),
-    quadrilateral_x_interval: array([[1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                     [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-                                     [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                     [0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
-                                     [1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-                                     [1.0, 0.0, 0.0, 0.0, 0.0, 1.0]],
-                                    dtype=NUMPY_TYPE),
-}
 
 
 # Facet normals of the reference cells
@@ -125,7 +69,11 @@ def reference_cell(terminal):
 def strip_table(table, integral_type):
     """Select horizontal or vertical parts for facet integrals on
     extruded cells. No-op in all other cases."""
-    if integral_type in ["exterior_facet_bottom", "exterior_facet_top", "interior_facet_horiz"]:
+    if integral_type == "exterior_facet_bottom":
+        return table[0:1]
+    elif integral_type == "exterior_facet_top":
+        return table[1:2]
+    elif integral_type == "interior_facet_horiz":
         # Bottom and top
         return table[:2]
     elif integral_type in ["exterior_facet_vert", "interior_facet_vert"]:
@@ -160,20 +108,33 @@ def translate_cell_orientation(terminal, mt, params):
 
 @translate.register(ReferenceCellVolume)
 def translate_reference_cell_volume(terminal, mt, params):
-    return gem.Literal(reference_cell_volume[reference_cell(terminal)])
+    return gem.Literal(params.fiat_cell.volume())
 
 
 @translate.register(ReferenceFacetVolume)
 def translate_reference_facet_volume(terminal, mt, params):
-    return gem.Literal(reference_facet_volume[reference_cell(terminal)])
+    # FIXME: simplex only code path
+    dim = params.fiat_cell.get_spatial_dimension()
+    facet_cell = params.fiat_cell.construct_subelement(dim - 1)
+    return gem.Literal(facet_cell.volume())
 
 
 @translate.register(CellFacetJacobian)
 def translate_cell_facet_jacobian(terminal, mt, params):
-    table = cell_facet_jacobian[reference_cell(terminal)]
-    table = strip_table(table, params.integral_type)
-    table = table.reshape(table.shape[:1] + terminal.ufl_shape)
-    return params.select_facet(gem.Literal(table), mt.restriction)
+    assert params.integration_dim != params.fiat_cell.get_dimension()
+    dim = params.fiat_cell.construct_subelement(params.integration_dim).get_spatial_dimension()
+    X = sympy.DeferredVector('X')
+    point = [X[j] for j in range(dim)]
+    result = []
+    for entity_id in params.entity_ids:
+        f = params.fiat_cell.get_entity_transform(params.integration_dim, entity_id)
+        y = f(point)
+        J = [[sympy.diff(y_i, X[j])
+              for j in range(dim)]
+             for y_i in y]
+        J = array(J, dtype=float)
+        result.append(J)
+    return params.select_facet(gem.Literal(result), mt.restriction)
 
 
 @translate.register(ReferenceNormal)

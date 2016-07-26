@@ -144,7 +144,7 @@ class FacetManager(object):
         elif integral_type == 'exterior_facet_bottom':
             self.facet = {None: 0}
         elif integral_type == 'exterior_facet_top':
-            self.facet = {None: 1}
+            self.facet = {None: 0}
         elif integral_type == 'interior_facet_horiz':
             self.facet = {'+': 1, '-': 0}
         else:
@@ -166,7 +166,15 @@ class FacetManager(object):
                 t = as_fiat_cell(self.ufl_cell).get_entity_transform(dim-1, entity)
                 yield numpy.asarray(map(t, points))
 
-        elif self.integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
+        elif self.integral_type == 'exterior_facet_bottom':
+            t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), 0)
+            yield numpy.asarray(map(t, points))
+
+        elif self.integral_type == 'exterior_facet_top':
+            t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), 1)
+            yield numpy.asarray(map(t, points))
+
+        elif self.integral_type == 'interior_facet_horiz':
             for entity in range(2):  # top and bottom
                 t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), entity)
                 yield numpy.asarray(map(t, points))
@@ -214,6 +222,7 @@ class cached_property(object):
 class Parameters(object):
     keywords = ('integral_type',
                 'cell',
+                'fiat_cell',
                 'integration_dim',
                 'entity_ids',
                 'quadrature_degree',
@@ -237,16 +246,18 @@ class Parameters(object):
     integral_type = 'cell'
 
     @cached_property
+    def fiat_cell(self):
+        return as_fiat_cell(self.cell)
+
+    @cached_property
     def integration_dim(self):
-        fiat_cell = as_fiat_cell(self.cell)
-        return fiat_cell.get_dimension()
+        return self.fiat_cell.get_dimension()
 
     entity_ids = [None]
 
     @cached_property
     def quadrature_rule(self):
-        fiat_cell = as_fiat_cell(self.cell)
-        integration_cell = fiat_cell.construct_subelement(self.integration_dim)
+        integration_cell = self.fiat_cell.construct_subelement(self.integration_dim)
         return create_quadrature(integration_cell, self.quadrature_degree)
 
     @cached_property
