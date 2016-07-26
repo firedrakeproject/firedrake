@@ -48,7 +48,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.Dat` or
+            :class:`~.Vector`) providing initial values (optional).
+            This :class:`Function` will share data with the provided
+            value.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``valuetype``).
@@ -66,6 +69,9 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._label = "a function"
         self._split = None
 
+        if isinstance(val, vector.Vector):
+            # Allow constructing using a vector.
+            val = val.dat
         if isinstance(val, (op2.Dat, op2.DatView)):
             assert val.comm == self.comm
             self.dat = val
@@ -76,6 +82,22 @@ class CoordinatelessFunction(ufl.Coefficient):
     def topological(self):
         """The underlying coordinateless function."""
         return self
+
+    def copy(self, deepcopy=False):
+        """Return a copy of this CoordinatelessFunction.
+
+        :kwarg deepcopy: If ``True``, the new
+            :class:`CoordinatelessFunction` will allocate new space
+            and copy values.  If ``False``, the default, then the new
+            :class:`CoordinatelessFunction` will share the dof values.
+        """
+        if deepcopy:
+            val = op2.Dat(self.dat)
+        else:
+            val = self.dat
+        return type(self)(self.function_space(),
+                          val=val, name=self.name(),
+                          dtype=self.dat.dtype)
 
     def ufl_id(self):
         return self.uid
@@ -238,6 +260,17 @@ class Function(ufl.Coefficient):
         """The underlying coordinateless function."""
         return self._data
 
+    def copy(self, deepcopy=False):
+        """Return a copy of this Function.
+
+        :kwarg deepcopy: If ``True``, the new :class:`Function` will
+            allocate new space and copy values.  If ``False``, the
+            default, then the new :class:`Function` will share the dof
+            values.
+        """
+        val = self.topological.copy(deepcopy=deepcopy)
+        return type(self)(self.function_space(), val=val)
+
     def __getattr__(self, name):
         return getattr(self._data, name)
 
@@ -288,13 +321,13 @@ class Function(ufl.Coefficient):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
         return vector.Vector(self.dat)
 
-    def interpolate(self, expression, subset=None):
+    def interpolate(self, expression, subset=None, access=None):
         """Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
-        return interpolation.interpolate(expression, self, subset=subset)
+        return interpolation.interpolate(expression, self, subset=subset, access=access)
 
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):

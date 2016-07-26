@@ -10,12 +10,12 @@ from coffee import base as ast
 from pyop2 import op2
 
 import firedrake
-from firedrake import utils
+from firedrake import utils, conditional
 
 __all__ = ("interpolate", "Interpolator")
 
 
-def interpolate(expr, V, subset=None):
+def interpolate(expr, V, subset=None, access=None):
     """Interpolate an expression onto a new function in V.
 
     :arg expr: an :class:`.Expression`.
@@ -33,7 +33,7 @@ def interpolate(expr, V, subset=None):
        (for example in a time loop) you may find you get better
        performance by using a :class:`Interpolator` instead.
     """
-    return Interpolator(expr, V, subset=subset).interpolate()
+    return Interpolator(expr, V, subset=subset, access=access).interpolate()
 
 
 class Interpolator(object):
@@ -52,8 +52,8 @@ class Interpolator(object):
        arguments (such that they won't be collected until the
        :class:`Interpolator` is also collected).
     """
-    def __init__(self, expr, V, subset=None):
-        self.callable = make_interpolator(expr, V, subset)
+    def __init__(self, expr, V, subset=None, access=None):
+        self.callable = make_interpolator(expr, V, subset, access)
 
     @utils.known_pyop2_safe
     def interpolate(self):
@@ -86,7 +86,7 @@ class SubExpression(object):
         return getattr(self._expr, name)
 
 
-def make_interpolator(expr, V, subset):
+def make_interpolator(expr, V, subset, access=None):
     assert isinstance(expr, ufl.classes.Expr)
 
     if isinstance(V, firedrake.Function):
@@ -108,7 +108,17 @@ def make_interpolator(expr, V, subset):
         if len(V) > 1:
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
-        loops.append(_interpolator(V, f.dat, expr, subset))
+        if access is not None:
+            # check upward propagation of these functions
+            # raise appropriate not implemented errors if not in MIN/Max Case
+            from operator import lt, gt
+            if access not in [op2.MIN, op2.MAX]:
+                raise NotImplementedError("Only MIN and MAX are supported accesses")
+            op = {op2.MIN: lt, op2.MAX: gt}[access]
+            expr = conditional(op(f, expr), f, expr)
+        loops.append(_interpolator(V, f.dat, expr, subset, access=access))
+    elif access is not None:
+        raise NotImplementedError("Access is only defined for UFL expressions")
     elif hasattr(expr, 'eval'):
         if len(V) > 1:
             raise NotImplementedError(
@@ -133,7 +143,7 @@ def make_interpolator(expr, V, subset):
     return partial(callable, loops, f)
 
 
-def _interpolator(V, dat, expr, subset):
+def _interpolator(V, dat, expr, subset, access=None):
     to_element = V.fiat_element
     to_pts = []
 
@@ -182,7 +192,7 @@ def _interpolator(V, dat, expr, subset):
     if indexed:
         args.append(dat(op2.WRITE, V.cell_node_map()[op2.i[0]]))
     else:
-        args.append(dat(op2.WRITE, V.cell_node_map()))
+        aaccesirgs.append(dat(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
         args.append(co.dat(op2.READ, co.cell_node_map(), flatten=flatten))
