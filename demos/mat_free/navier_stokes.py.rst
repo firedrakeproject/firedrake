@@ -35,10 +35,7 @@ Driven cavity with Taylor-Hood.::
   prob = NonlinearVariationalProblem(F, up, bcs=bcs, nest=False)
 
   solver = NonlinearVariationalSolver(prob, options_prefix='',
-                                      nullspace=nullspace,
-                                      extra_ctx={"Re": Re,
-                                                 "pressure_space": 1,
-                                                 "velocity_space": 0}
+                                      nullspace=nullspace
                                       )
 
   solver.solve()

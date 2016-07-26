@@ -121,8 +121,7 @@ class MassInvPC(InitializedPC):
 
 class PCDPC(InitializedPC):
     def initialSetUp(self, pc):
-        from firedrake import TrialFunction, TestFunction, dx, assemble, inner, grad, split
-        from firedrake import Constant
+        from firedrake import TrialFunction, TestFunction, dx, assemble, inner, grad, split, Constant
         optpre = pc.getOptionsPrefix()
 
         # we assume A has things stuffed inside of it
@@ -164,9 +163,15 @@ class PCDPC(InitializedPC):
         self.Kksp = Kksp
 
         ctx = Pctx.extra
-        Re = ctx.get("Re", Constant(1.0))
         x0 = ctx["state"]
-        velid = ctx["velocity_space"]
+
+        # Re = ctx.get("Re", Constant(1.0))
+        # velid = ctx["velocity_space"]
+        OptDB = PETSc.Options()
+        Re_num = OptDB.getReal("Re", 1.0)
+        Re = Constant(Re_num)
+        velid = OptDB.getInt(optpre + "pcd_velocity_space")
+
         u0 = split(x0)[velid]
         fp = 1.0/Re * inner(grad(pp), grad(qq))*dx + inner(u0, grad(pp))*qq*dx
         self.Fpfd = assemble(fp, matfree=True)

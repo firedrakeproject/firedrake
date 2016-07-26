@@ -1,4 +1,5 @@
 -mat_type matfree
+-Re 100.0
 -snes_monitor
 -ksp_type fgmres
 -ksp_gmres_restart 100
@@ -19,6 +20,7 @@
 -fieldsplit_1_ksp_type preonly
 -fieldsplit_1_pc_type python
 -fieldsplit_1_pc_python_type firedrake.PCDPC
+-fieldsplit_1_pcd_velocity_space 0
 -fieldsplit_1_Mp_ksp_type cg
 -fieldsplit_1_Mp_pc_type jacobi
 #-fieldsplit_1_Mp_ksp_rtol 1.e-11
