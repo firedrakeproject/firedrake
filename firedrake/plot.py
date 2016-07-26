@@ -51,7 +51,7 @@ def plot(function, axes=None, num_points=100, **kwargs):
         raise RuntimeError("Matplotlib not importable, is it installed?")
     if function.function_space().mesh().ufl_cell() == cell.Cell("interval"):
         if function.function_space().ufl_element().degree() < 4:
-            return bezier_plot(function, axes)
+            return bezier_plot(function, axes, **kwargs)
         points = calculate_one_dim_points(function, num_points)
     else:
         raise RuntimeError("Unsupported functionality")
@@ -100,7 +100,7 @@ def calculate_one_dim_points(function, num_points):
     return np.array([x_vals, y_vals])
 
 
-def bezier_plot(function, axes=None):
+def bezier_plot(function, axes=None, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
     Bezier curve within each cell, return a matplotlib figure
 
@@ -139,7 +139,7 @@ def bezier_plot(function, axes=None):
     path = Path(vertices, np.tile(codes[deg], cell_node_list.shape[0]))
     patch = patches.PathPatch(path, facecolor='none', lw=2)
     axes.add_patch(patch)
-    axes.plot()
+    axes.plot(**kwargs)
     return plt.gcf()
 
 
