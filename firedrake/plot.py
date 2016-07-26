@@ -108,7 +108,6 @@ def _calculate_points(function, num_points, dimension):
         points_1d_rev = np.fliplr([points_1d]).reshape(-1)
         iu = np.triu_indices(num_points)
         points = np.array(np.meshgrid(points_1d, points_1d_rev)).T[iu]
-        print points
     else:
         raise RuntimeError("Unsupported functionality")
     y_vals = _calculate_values(function, function_space, points, dimension)
