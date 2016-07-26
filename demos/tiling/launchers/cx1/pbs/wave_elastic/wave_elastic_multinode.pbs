@@ -41,7 +41,7 @@ echo ------------------------------------------------------
 export OMP_NUM_THREADS=1
 export SLOPE_BACKEND=SEQUENTIAL
 
-OPTS="--output 10000 --flatten True --nocache True"
+OPTS="--output 100000 --flatten True --nocache True"
 TILE_OPTS="--fusion-mode only_tile --coloring default"
 
 if [ "$nodename" -eq 0 ]; then
@@ -55,16 +55,14 @@ fi
 # To be used in Python-land
 export NODETYPE=$nodename
 
-LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode_"$nodename".txt"
+LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode_"$nodename"_h"$mesh".txt"
 rm -f $LOGGER
 touch $LOGGER
 
 # Extra options for each mode
-declare -a opts_em1=("" "--glb-maps True")
-declare -a opts_em2=("" "--glb-maps True")
-declare -a opts_em3=("--glb-maps True")
-declare -a opts_em4=("--glb-maps True" "--glb-maps True --extra-halo 1")
-declare -a opts_em5=("--glb-maps True" "--glb-maps True --extra-halo 1")
+declare -a opts_em3=("")
+declare -a opts_em4=("" "--extra-halo 1")
+declare -a opts_em5=("" "--extra-halo 1")
 
 # Should I run a specific poly order, as provided in input, or the hard-coded ones?
 if [ -z "$polys" ]; then
@@ -78,11 +76,11 @@ declare -a mesh_p2=("--mesh-size (300.0,150.0,$mesh)")
 declare -a mesh_p3=("--mesh-size (300.0,150.0,$mesh)")
 declare -a mesh_p4=("--mesh-size (300.0,150.0,$mesh)")
 
-declare -a em_all=(1 2 3 4 5)
-declare -a ts_p1=(140 250 320 400)
-declare -a ts_p2=(70 140 200 300)
-declare -a ts_p3=(45 60 75)
-declare -a ts_p4=(20 45 70)
+declare -a em_all=(3 4 5)
+declare -a ts_p1=(250 320)
+declare -a ts_p2=(140 200)
+declare -a ts_p3=(60 75)
+declare -a ts_p4=(45 70)
 
 # Populate the local caches
 export FIREDRAKE_FFC_KERNEL_CACHE_DIR=$HOME/cache/ffc-cache
@@ -97,7 +95,7 @@ MPICMD="mpiexec -env FIREDRAKE_FFC_KERNEL_CACHE_DIR $FIREDRAKE_FFC_KERNEL_CACHE_
 # Run actual experiments
 for poly in ${polys[@]}
 do
-    OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_multinode_"$nodename"_p"$poly".txt"
+    OUT_FILE=$TMPDIR"/output_"$PBS_JOBNAME"_multinode_"$nodename"_p"$poly"_h"$mesh".txt"
     rm -f $OUT_FILE
     touch $OUT_FILE
     echo "Polynomial order "$poly >> $LOGGER

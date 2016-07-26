@@ -47,12 +47,11 @@ LOGGER=$WORK"/logger_"$PBS_JOBNAME"_multinode.txt"
 rm -f $LOGGER
 touch $LOGGER
 
-
-declare -a opts_em1=("" "--glb-maps True")
-declare -a opts_em2=("" "--glb-maps True")
-declare -a opts_em3=("--glb-maps True")
-declare -a opts_em4=("--glb-maps True" "--glb-maps True --extra-halo 1")
-declare -a opts_em5=("--glb-maps True" "--glb-maps True --extra-halo 1")
+declare -a opts_em1=("")
+declare -a opts_em2=("")
+declare -a opts_em3=("")
+declare -a opts_em4=("" "--extra-halo 1")
+declare -a opts_em5=("" "--extra-halo 1")
 
 declare -a part_all=("chunk")
 
@@ -61,7 +60,9 @@ declare -a mesh_p2=("--mesh-size (30.0,15.0,$mesh)")
 declare -a mesh_p3=("--mesh-size (30.0,15.0,$mesh)")
 declare -a mesh_p4=("--mesh-size (30.0,15.0,$mesh)")
 
-declare -a em_all=(1 2 3 4 5)
+declare -a mesh_default=("--mesh-size (300.0,150.0,1.0)")
+
+declare -a em_all=(3 4 5)
 
 export FIREDRAKE_FFC_KERNEL_CACHE_DIR=$TMPDIR/ffc-cache
 export PYOP2_CACHE_DIR=$TMPDIR/pyop2-cache
@@ -82,6 +83,7 @@ do
         echo "    Populate "$mesh >> $LOGGER
         echo "        Populate Untiled ..." >> $LOGGER
         $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 0
+        $MPICMD python $EXECUTABLE --poly-order $poly $mesh_default $OPTS --num-unroll 0  # Create the expression kernels
         for p in ${part_all[@]}
         do
             for em in ${em_all[@]}
@@ -93,6 +95,7 @@ do
                     ts=100000
                     echo "        Populate Tiled (pm="$p", ts="$ts", em="$em") ..." >> $LOGGER
                     $MPICMD python $EXECUTABLE --poly-order $poly $mesh $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt
+                    $MPICMD python $EXECUTABLE --poly-order $poly $mesh_default $OPTS --num-unroll 1 --tile-size $ts --part-mode $p --explicit-mode $em $TILE_OPTS $opt
                 done
             done
         done
@@ -104,5 +107,5 @@ rm $LOGGER
 # Copy the local cache to the shared file system
 mkdir -p $HOME/cache/pyop2-cache
 mkdir -p $HOME/cache/ffc-cache
-cp $PYOP2_CACHE_DIR/* $HOME/cache/pyop2-cache
-cp $FIREDRAKE_FFC_KERNEL_CACHE_DIR/* $HOME/cache/ffc-cache
+cp -n $PYOP2_CACHE_DIR/* $HOME/cache/pyop2-cache
+cp -n $FIREDRAKE_FFC_KERNEL_CACHE_DIR/* $HOME/cache/ffc-cache

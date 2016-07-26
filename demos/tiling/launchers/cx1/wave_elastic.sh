@@ -37,7 +37,7 @@ elif [ "$1" == "meshes" ]; then
         qsub -v polys=1,mesh=$h,part=0 -l walltime=48:00:00 -l select=1:ncpus=20:mem=32gb:ivyb=true $LAUNCHERS/wave_elastic.pbs
     done
 elif [ "$1" == "populator" ]; then
-    echo "Populating cache for multi-node experiments: Haswell (20 cores, pqcdt)"
+    echo "Populating cache for multi-node experiments: Ivy Bridge (20 cores, defaultqueue)"
     for poly in 1 2 3 4; do
         for h in 0.6 0.45 0.3 0.225 0.15 0.115; do
             qsub -v polys=$poly,mesh=$h -l walltime=48:00:00 -l select=1:ncpus=20:mem=60gb:ivyb=true $LAUNCHERS/wave_elastic_populator.pbs
@@ -46,12 +46,12 @@ elif [ "$1" == "populator" ]; then
 elif [ "$1" == "multinode-haswell" ]; then
     echo "Running multi-node experiments: Haswell (Nx20 cores, pqcdt)"
     for poly in 1 2 3 4; do
-        qsub -v polys=$poly,mesh=0.6,nodename=0 -l walltime=48:00:00 -l select=1:ncpus=20:mem=48gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
-        qsub -v polys=$poly,mesh=0.45,nodename=0 -l walltime=48:00:00 -l select=2:ncpus=20:mem=48gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
-        qsub -v polys=$poly,mesh=0.3,nodename=0 -l walltime=48:00:00 -l select=4:ncpus=20:mem=48gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
-        qsub -v polys=$poly,mesh=0.225,nodename=0 -l walltime=48:00:00 -l select=8:ncpus=20:mem=48gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
-        qsub -v polys=$poly,mesh=0.15,nodename=0 -l walltime=48:00:00 -l select=16:ncpus=20:mem=48gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
-        qsub -v polys=$poly,mesh=0.115,nodename=0 -l walltime=48:00:00 -l select=32:ncpus=20:mem=48gb:icib=true -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
+        qsub -v polys=$poly,mesh=0.6,nodename=0 -l walltime=48:00:00 -l select=1:ncpus=20:mem=48gb -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
+        qsub -v polys=$poly,mesh=0.45,nodename=0 -l walltime=48:00:00 -l select=2:ncpus=20:mem=48gb -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
+        qsub -v polys=$poly,mesh=0.3,nodename=0 -l walltime=48:00:00 -l select=4:ncpus=20:mem=48gb -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
+        qsub -v polys=$poly,mesh=0.225,nodename=0 -l walltime=48:00:00 -l select=8:ncpus=20:mem=48gb -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
+        qsub -v polys=$poly,mesh=0.15,nodename=0 -l walltime=48:00:00 -l select=16:ncpus=20:mem=48gb -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
+        qsub -v polys=$poly,mesh=0.115,nodename=0 -l walltime=48:00:00 -l select=32:ncpus=20:mem=48gb -q pqcdt $LAUNCHERS/wave_elastic_multinode.pbs
     done
 elif [ "$1" == "multinode-ivy" ]; then
     echo "Running multi-node experiments: Ivy Bridge (Nx20 cores, defaultqueue)"
