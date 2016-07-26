@@ -14,6 +14,7 @@ conduction::
 
 
   from firedrake import *
+  from firedrake.petsc import PETSc
 
   N = 8
 
@@ -28,8 +29,9 @@ conduction::
   u, p, T = split(upT)
   v, q, S = TestFunctions(Z)
 
-  Ra = Constant(200.)
-  Pr = Constant(6.8)
+  OptsDB = PETSc.Options()
+  Ra = Constant(OptsDB.getReal("Ra", 200.0))
+  Pr = Constant(OptsDB.getReal("Pr", 6.8))
 
   g = Constant((0, -1))
 
@@ -76,8 +78,7 @@ numbers to the dictionary since our known preconditioners don't
 actually require them, although doing so would be quite easy.::
   
   solver = NonlinearVariationalSolver(prob, options_prefix='',
-                                      nullspace=nullspace,
-                                      extra_ctx={"velocity_space": 0}
+                                      nullspace=nullspace
                                       )
 
   solver.solve()

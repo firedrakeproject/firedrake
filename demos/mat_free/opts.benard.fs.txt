@@ -1,4 +1,6 @@
 -mat_type matfree
+-Ra 200.0
+-Pr 6.8
 -snes_monitor
 -ksp_type gmres
 -ksp_gmres_restart 200
