@@ -63,7 +63,7 @@ def plot(function, num_points=100, axes=None, **kwargs):
     elif function.function_space().mesh().geometric_dimension() \
             == function.function_space().mesh().topological_dimension() \
             == 2:
-        return two_dimension_plot(function, num_points, axes)
+        return two_dimension_plot(function, num_points, axes, **kwargs)
     else:
         raise RuntimeError("Unsupported functionality")
 
@@ -133,8 +133,9 @@ def calculate_one_dim_points(function, num_points):
 
 def two_dimension_plot(function,
                        num_sample_points,
+                       axes=None,
                        num_interp_points=100,
-                       axes=None):
+                       **kwargs):
     """Plot a 2D function as surface plotting, return a matplotlib figure
 
     :arg function: 2D function for plotting
@@ -162,7 +163,7 @@ def two_dimension_plot(function,
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
-    axes.plot_surface(Xi, Yi, Zi, edgecolor='none', antialiased=False)
+    axes.plot_surface(Xi, Yi, Zi, edgecolor='none', antialiased=False, **kwargs)
     return plt.gcf()
 
 
