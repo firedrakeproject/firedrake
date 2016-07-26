@@ -131,27 +131,38 @@ def calculate_one_dim_points(function, num_points):
     return np.array([x_vals, y_vals])
 
 
-def two_dimension_plot(function, num_points, axes=None):
-    """Plot a 2D function in triangular surfaces, return a matplotlib figure
+def two_dimension_plot(function,
+                       num_sample_points,
+                       num_interp_points=100,
+                       axes=None):
+    """Plot a 2D function as surface plotting, return a matplotlib figure
 
     :arg function: 2D function for plotting
-    :arg num_points: Number of sample points per element
+    :arg num_sample_points: Number of sample points per element
+    :arg num_interp_points: Number of interpolation points per axis
     :arg axes: Axes to be plotted on
     """
     try:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
+        from scipy.interpolate import griddata
     except ImportError:
-        raise RuntimeError("Matplotlib not importable, is it installed?")
-    coord_vals, f_vals = _calculate_points(function, num_points, 2)
+        raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
+    coord_vals, f_vals = _calculate_points(function, num_sample_points, 2)
     X = coord_vals.T[0].reshape(-1)
     Y = coord_vals.T[1].reshape(-1)
     Z = f_vals.reshape(-1)
 
+    Xi = np.linspace(X.min(), X.max(), num_interp_points)
+    Yi = np.linspace(Y.min(), Y.max(), num_interp_points)
+    Zi = griddata((X, Y), Z, (Xi[None, :], Yi[:, None]))
+
+    Xi, Yi = np.meshgrid(Xi, Yi)
+
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
-    axes.plot_trisurf(X, Y, Z, edgecolor='none', antialiased=False)
+    axes.plot_surface(Xi, Yi, Zi, edgecolor='none', antialiased=False)
     return plt.gcf()
 
 
