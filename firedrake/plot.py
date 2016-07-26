@@ -27,13 +27,13 @@ def _plot_mult(functions, num_points=100, **kwargs):
         val = int(val - 0.1)
         func_slider.valtext.set_text('{:.0f}'.format(val))
         ax.cla()
-        plot(functions[val], ax, **kwargs)
+        plot(functions[val], num_points, ax, **kwargs)
     update(0)
     func_slider.on_changed(update)
     return figure
 
 
-def plot(function, axes=None, num_points=100, **kwargs):
+def plot(function, num_points=100, axes=None, **kwargs):
     """Plot a function or a list of functions and return a matplotlib
     figure object.
     :arg function: The function to plot.
