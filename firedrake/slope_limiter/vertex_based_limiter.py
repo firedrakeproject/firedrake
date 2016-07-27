@@ -81,7 +81,7 @@ for (int i=0; i<q.dofs; i++) {
         self.max_field.assign(-1.0e10)  # small number
         self.min_field.assign(1.0e10)  # big number
 
-        # FIXME : Relies on implementation detail in PyOp2
+        # FIXME: Relies on implementation detail in PyOP2
         self.min_interpolate.interpolate()
         self.max_interpolate.interpolate()
 
