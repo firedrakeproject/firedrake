@@ -109,8 +109,6 @@ def make_interpolator(expr, V, subset, access=None):
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
         if access is not None:
-            # check upward propagation of these functions
-            # raise appropriate not implemented errors if not in MIN/Max Case
             from operator import lt, gt
             if access not in [op2.MIN, op2.MAX]:
                 raise NotImplementedError("Only MIN and MAX are supported accesses")
