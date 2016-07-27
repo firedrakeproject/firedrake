@@ -93,7 +93,7 @@ def calculate_one_dim_points(function, num_points):
     :arg function: 1D function for plotting
     :arg num_points: Number of points per element
     """
-    x_vals, y_vals = _calculate_points(function, num_points, 1)
+    x_vals, y_vals = _calculate_points(function, num_points)
     order = np.argsort(x_vals)
     x_vals = x_vals[order]
     y_vals = y_vals[order]
