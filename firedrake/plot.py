@@ -115,10 +115,8 @@ def _calculate_points(function, num_points, dimension):
         points = np.array(np.meshgrid(points_1d, points_1d_rev)).T[iu]
     else:
         raise RuntimeError("Unsupported functionality")
-    y_vals = _calculate_values(function, function_space, points, dimension)
-    x_vals = _calculate_values(mesh.coordinates,
-                               mesh.coordinates.function_space(),
-                               points, dimension)
+    y_vals = _calculate_values(function, points, dimension)
+    x_vals = _calculate_values(mesh.coordinates, points, dimension)
     return x_vals, y_vals
 
 
@@ -166,9 +164,8 @@ def two_dimension_plot(function,
     num_verts = triangles.max() + 1
     num_cells = function.function_space().cell_node_list.shape[0]
     ref_points = np.dstack([x_ref, y_ref]).reshape(-1, 2)
-    z_vals = _calculate_values(function, function.function_space(), ref_points, 2)
+    z_vals = _calculate_values(function, ref_points, 2)
     coords_vals = _calculate_values(function.function_space().mesh().coordinates,
-                                    function.function_space().mesh().coordinates.function_space(),
                                     ref_points, 2)
     Z = z_vals.reshape(-1)
     X = coords_vals.reshape(-1, 2).T[0]
