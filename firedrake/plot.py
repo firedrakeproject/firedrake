@@ -191,6 +191,29 @@ def two_dimension_plot(function,
     axes.plot_trisurf(triangulation, Z, edgecolor='none', antialiased=False, **kwargs)
     return plt.gcf()
 
+def two_dimension_contour(function,
+                       num_sample_points,
+                       axes=None,
+                       **kwargs):
+    """Plot a 2D function as contour plotting, return a matplotlib figure
+
+    :arg function: 2D function for plotting
+    :arg num_sample_points: Number of sample points per element
+    :arg axes: Axes to be plotted on
+    """
+    try:
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+    except ImportError:
+        raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
+    triangulation, Z = two_dimension_triangle_Z(function, num_sample_points)
+
+    if axes is None:
+        figure = plt.figure()
+        axes = figure.add_subplot(111, projection='3d')
+    axes.tricontour(triangulation, Z, edgecolor='none', antialiased=False, **kwargs)
+    return plt.gcf()
+
 
 def bezier_plot(function, axes=None, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
