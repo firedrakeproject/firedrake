@@ -275,20 +275,23 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
 
     # search for the last cell
+    mcoords_ro = mash.coordinates.dat.data_ro_with_halos
+    mcoords = mash.coordinates.dat.data_with_halos
     for e in range(*cell_range):
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
-        Xvals = mash.coordinates.dat.data_ro_with_halos[cell_nodes, 0]
+        Xvals = mcoords_ro[cell_nodes, 0]
         if(Xvals.max() - Xvals.min() > Lx/2.0):
-            mash.coordinates.dat.data_with_halos[cell_nodes[2:], 0] = Lx
+            mcoords[cell_nodes[2:], 0] = Lx
         else:
-            mash.coordinates.dat.data_with_halos
+            mcoords
 
     local_facet_dat = mash.topology.interior_facets.local_facet_dat
     local_facet_number = mash.topology.interior_facets.local_facet_number
 
-    for i in range(local_facet_dat.data_ro.shape[0]):
-        if all(local_facet_dat.data_ro[i, :] == np.array([3, 3])):
+    lfd_ro = local_facet_dat.data_ro
+    for i in range(lfd_ro.shape[0]):
+        if all(lfd_ro[i, :] == np.array([3, 3])):
             local_facet_dat.data[i, :] = [2, 3]
             local_facet_number[i, :] = [2, 3]
 

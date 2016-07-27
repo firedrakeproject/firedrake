@@ -100,7 +100,7 @@ def test_one_element_advection():
     assert(assemble((q0-q_init)**2*dx)**0.5 < 0.005)
 
 
-@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parallel(nprocs=3)
 def test_one_element_mesh():
     mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)
