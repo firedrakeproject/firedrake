@@ -136,23 +136,11 @@ def calculate_one_dim_points(function, num_points):
     return np.array([x_vals, y_vals])
 
 
-def two_dimension_plot(function,
-                       num_sample_points,
-                       axes=None,
-                       **kwargs):
-    """Plot a 2D function as surface plotting, return a matplotlib figure
-
-    :arg function: 2D function for plotting
-    :arg num_sample_points: Number of sample points per element
-    :arg axes: Axes to be plotted on
-    """
+def two_dimension_triangle_Z(function, num_sample_points):
     try:
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
         from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
         raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
-
     x = np.array([0, 0, 1])
     y = np.array([0, 1, 0])
     base_tri = Triangulation(x, y)
@@ -176,10 +164,30 @@ def two_dimension_plot(function,
         temp = temp + num_verts
         all_triangles = np.append(all_triangles, temp)
     all_triangles = all_triangles.reshape(-1, 3)
+    triangulation = Triangulation(X, Y, triangles=all_triangles)
+    return triangulation, Z
+
+
+def two_dimension_plot(function,
+                       num_sample_points,
+                       axes=None,
+                       **kwargs):
+    """Plot a 2D function as surface plotting, return a matplotlib figure
+
+    :arg function: 2D function for plotting
+    :arg num_sample_points: Number of sample points per element
+    :arg axes: Axes to be plotted on
+    """
+    try:
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
+    except ImportError:
+        raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
+    triangulation, Z = two_dimension_triangle_Z(function, num_sample_points)
+
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
-    triangulation = Triangulation(X, Y, triangles=all_triangles)
     axes.plot_trisurf(triangulation, Z, edgecolor='none', antialiased=False, **kwargs)
     return plt.gcf()
 
