@@ -19,8 +19,10 @@ def _plot_mult(functions, num_points=100, **kwargs):
     if len(functions) == 0:
         return None
     figure, ax = plt.subplots()
-    func_axis = plt.axes([0.25, 0.025, 0.65, 0.03], axisbg='lightgoldenrodyellow')
-    func_slider = Slider(func_axis, "Func Select", 0.1, len(functions), valinit=0)
+    func_axis = plt.axes([0.25, 0.025, 0.65, 0.03],
+                         axisbg='lightgoldenrodyellow')
+    func_slider = Slider(func_axis, "Func Select",
+                         0.1, len(functions), valinit=0)
     func_slider.valtext.set_text('0')
 
     def update(val):
@@ -102,7 +104,8 @@ def _calculate_points(function, num_points, dimension):
     function_space = function.function_space()
     mesh = function_space.mesh()
     if mesh.ufl_cell() == Cell('interval'):
-        points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
+        points = np.linspace(0.0, 1.0, num=num_points,
+                             dtype=float).reshape(-1, 1)
     elif mesh.ufl_cell() == Cell('quadrilateral'):
         points_1d = np.linspace(0, 1.0, num=num_points,
                                 dtype=float).reshape(-1, 1)
@@ -140,7 +143,7 @@ def two_dimension_triangle_Z(function, num_sample_points):
     try:
         from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
-        raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
+        raise RuntimeError("Matplotlib not importable, is it installed?")
     x = np.array([0, 0, 1])
     y = np.array([0, 1, 0])
     base_tri = Triangulation(x, y)
@@ -153,7 +156,8 @@ def two_dimension_triangle_Z(function, num_sample_points):
     num_cells = function.function_space().cell_node_list.shape[0]
     ref_points = np.dstack([x_ref, y_ref]).reshape(-1, 2)
     z_vals = _calculate_values(function, ref_points, 2)
-    coords_vals = _calculate_values(function.function_space().mesh().coordinates,
+    coords_vals = _calculate_values(function.function_space().
+                                    mesh().coordinates,
                                     ref_points, 2)
     Z = z_vals.reshape(-1)
     X = coords_vals.reshape(-1, 2).T[0]
@@ -182,19 +186,21 @@ def two_dimension_plot(function,
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
     except ImportError:
-        raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
+        raise RuntimeError("Matplotlib not importable, is it installed?")
     triangulation, Z = two_dimension_triangle_Z(function, num_sample_points)
 
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
-    axes.plot_trisurf(triangulation, Z, edgecolor='none', antialiased=False, **kwargs)
+    axes.plot_trisurf(triangulation, Z, edgecolor='none',
+                      antialiased=False, **kwargs)
     return plt.gcf()
 
+
 def two_dimension_contour(function,
-                       num_sample_points,
-                       axes=None,
-                       **kwargs):
+                          num_sample_points,
+                          axes=None,
+                          **kwargs):
     """Plot a 2D function as contour plotting, return a matplotlib figure
 
     :arg function: 2D function for plotting
@@ -205,13 +211,14 @@ def two_dimension_contour(function,
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
     except ImportError:
-        raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
+        raise RuntimeError("Matplotlib not importable, is it installed?")
     triangulation, Z = two_dimension_triangle_Z(function, num_sample_points)
 
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
-    axes.tricontour(triangulation, Z, edgecolor='none', antialiased=False, **kwargs)
+    axes.tricontour(triangulation, Z, edgecolor='none',
+                    antialiased=False, **kwargs)
     return plt.gcf()
 
 
@@ -240,7 +247,8 @@ def bezier_plot(function, axes=None, **kwargs):
     basis = function.function_space().fiat_element.dual_basis()
     for i in range(deg + 1):
         for j in range(deg + 1):
-            M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0], i, deg)
+            M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0],
+                                 i, deg)
     M_inv = np.linalg.inv(M)
     cell_node_list = function.function_space().cell_node_list
     y_vals = np.dot(function.dat.data_ro[cell_node_list], M_inv)
