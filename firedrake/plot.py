@@ -36,7 +36,6 @@ def _plot_mult(functions, num_points=100, **kwargs):
 def plot(function,
          num_sample_points=100,
          axes=None,
-         num_interp_points=100,
          **kwargs):
     """Plot a function or a list of functions and return a matplotlib
     figure object.
@@ -45,7 +44,6 @@ def plot(function,
         degree < 4 where Bezier curve will be used instead of sampling at
         points
     :arg axes: Axes to be plotted on
-    :arg num_interp_points: Number of Interpolation Points for 2D plotting
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
@@ -70,7 +68,7 @@ def plot(function,
             == function.function_space().mesh().topological_dimension() \
             == 2:
         return two_dimension_plot(function, num_sample_points, axes,
-                                  num_interp_points, **kwargs)
+                                  **kwargs)
     else:
         raise RuntimeError("Unsupported functionality")
 
@@ -91,7 +89,7 @@ def _calculate_values(function, points, dimension):
         vec_length = function.ufl_shape[0]
     if vec_length == 1:
         data = np.reshape(data, data.shape+(1, ))
-    return np.einsum("ijk,jl->ilk", data, elem).reshape(-1, vec_length)
+    return np.einsum("ijk,jl->ilk", data, elem)
 
 
 def _calculate_points(function, num_points, dimension):
@@ -141,36 +139,49 @@ def calculate_one_dim_points(function, num_points):
 def two_dimension_plot(function,
                        num_sample_points,
                        axes=None,
-                       num_interp_points=100,
                        **kwargs):
     """Plot a 2D function as surface plotting, return a matplotlib figure
 
     :arg function: 2D function for plotting
     :arg num_sample_points: Number of sample points per element
-    :arg num_interp_points: Number of interpolation points per axis
     :arg axes: Axes to be plotted on
     """
     try:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
-        from scipy.interpolate import griddata
+        from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
         raise RuntimeError("Matplotlib or Scipy not importable, is it installed?")
-    coord_vals, f_vals = _calculate_points(function, num_sample_points, 2)
-    X = coord_vals.T[0].reshape(-1)
-    Y = coord_vals.T[1].reshape(-1)
-    Z = f_vals.reshape(-1)
 
-    Xi = np.linspace(X.min(), X.max(), num_interp_points)
-    Yi = np.linspace(Y.min(), Y.max(), num_interp_points)
-    Zi = griddata((X, Y), Z, (Xi[None, :], Yi[:, None]))
-
-    Xi, Yi = np.meshgrid(Xi, Yi)
-
+    x = np.array([0, 0, 1])
+    y = np.array([0, 1, 0])
+    base_tri = Triangulation(x, y)
+    refiner = UniformTriRefiner(base_tri)
+    tri = refiner.refine_triangulation(False, num_sample_points)
+    triangles = tri.get_masked_triangles()
+    x_ref = tri.x
+    y_ref = tri.y
+    num_verts = triangles.max() + 1
+    num_cells = function.function_space().cell_node_list.shape[0]
+    ref_points = np.dstack([x_ref, y_ref]).reshape(-1, 2)
+    z_vals = _calculate_values(function, function.function_space(), ref_points, 2)
+    coords_vals = _calculate_values(function.function_space().mesh().coordinates,
+                                    function.function_space().mesh().coordinates.function_space(),
+                                    ref_points, 2)
+    Z = z_vals.reshape(-1)
+    X = coords_vals.reshape(-1, 2).T[0]
+    Y = coords_vals.reshape(-1, 2).T[1]
+    all_triangles = triangles.copy()
+    temp = triangles.copy()
+    for i in range(num_cells - 1):
+        temp = temp + num_verts
+        all_triangles = np.append(all_triangles, temp)
+    all_triangles = all_triangles.reshape(-1, 3)
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
-    axes.plot_surface(Xi, Yi, Zi, edgecolor='none', antialiased=False, **kwargs)
+    triangulation = Triangulation(X, Y, triangles=all_triangles)
+    axes.plot_trisurf(triangulation, Z, edgecolor='none', antialiased=False, **kwargs)
     return plt.gcf()
 
 
