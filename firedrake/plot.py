@@ -73,25 +73,16 @@ def _calculate_values(function, points):
     return np.dot(data, elem).reshape(-1)
 
 
-def _calculate_points(function, num_points, dimension):
+def _calculate_points(function, num_points):
     """Calculate points in physical space of given function with given number of
     sampling points at given dimension
     :arg function: function to be sampled
     :arg num_points: number of sampling points
-    :arg dimension: dimension of the function
     """
     mesh = function.function_space().mesh()
-    if dimension == 1:
-        points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
-    elif dimension == 2:
-        points_1d = np.linspace(0, 1.0, num=num_points,
-                                dtype=float).reshape(-1, 1)
-        points = np.array(np.meshgrid(points_1d, points_1d)).T.reshape(-1, 2)
-    else:
-        raise RuntimeError("Unsupported functionality")
-    y_vals = _calculate_values(function, points, dimension)
-    x_vals = _calculate_values(mesh.coordinates,
-                               points, dimension)
+    points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
+    y_vals = _calculate_values(function, points)
+    x_vals = _calculate_values(mesh.coordinates, points)
     return x_vals, y_vals
 
 
