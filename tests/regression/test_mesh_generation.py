@@ -54,6 +54,7 @@ def test_unit_cube():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
+@pytest.mark.parallel(nprocs=2)
 def test_one_element_advection():
     nx = 20
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
@@ -101,7 +102,7 @@ def test_one_element_advection():
 
 @pytest.mark.parallel(nprocs=2)
 def test_one_element_mesh():
-    mesh = PeriodicRectangleMesh(10, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
+    mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)
     Vdg = FunctionSpace(mesh, "DG", 1)
     r = Function(Vdg)
@@ -123,7 +124,8 @@ def test_one_element_mesh():
     # to DG then projecting to CG does not return the same function
     r.interpolate(Expression("x[0]"))
     u.project(r)
-    assert(abs(assemble((u-r)*(u-r)*dx)) > 1.0e-2)
+    err = abs(assemble((u-r)*(u-r)*dx))
+    assert(err > 1.0e-3)
 
 
 def test_box():

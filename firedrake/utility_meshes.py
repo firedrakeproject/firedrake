@@ -155,11 +155,10 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     left = np.arange(ncells, dtype='int32')
     right = np.roll(left, -1)
     cells = np.array([left, left, right, right]).T
-    X = np.arange(1.0*ncells)/ncells*Lx
+    dx = Lx/ncells
+    X = np.arange(1.0*ncells)*dx
     Y = 0.*X
     coords = np.array([X, Y]).T
-
-    dx = Lx/ncells
 
     # a line of coordinates, with a looped topology
     plex = mesh._from_cell_list(2, cells, coords, comm)
@@ -168,6 +167,11 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     cell_numbering = mesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
     cell_closure = np.zeros((cell_range[1], 9), dtype=int)
+
+    # Get the coordinates for this process
+    coords = plex.getCoordinatesLocal().array_r
+    # get the PETSc section
+    coords_sec = plex.getCoordinateSection()
 
     for e in range(*cell_range):
 
@@ -191,11 +195,6 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
 
         # Get a list of unique edges
         edge_set = list(set(closure[1:5]))
-
-        # Get the coordinates for this process
-        coords = plex.getCoordinatesLocal().array
-        # get the PETSc section
-        coords_sec = plex.getCoordinateSection()
 
         # there are two vertices in the cell
         cell_vertices = closure[5:]
@@ -249,13 +248,20 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
 
         # Add in the vertices
         vertices = closure[5:]
-        v1 = min(vertices)
-        v2 = max(vertices)
-        if(v2 != v1 + 1):
+        v1 = vertices[0]
+        v2 = vertices[1]
+        x1 = coords[coords_sec.getOffset(v1)]
+        x2 = coords[coords_sec.getOffset(v2)]
+        # Fix orientations
+        if(x1 > x2):
+            if(x1 - x2 < dx*1.5):
+                # we are not on the rightmost cell and need to swap
+                v1, v2 = v2, v1
+        elif(x2 - x1 > dx*1.5):
+            # we are on the rightmost cell and need to swap
             v1, v2 = v2, v1
-        cell_closure[row][0:4] = [v1, v1, v2, v2]
 
-    print cell_closure
+        cell_closure[row][0:4] = [v1, v1, v2, v2]
 
     mesh1.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
 
@@ -269,7 +275,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
 
     # search for the last cell
-    for e in range(cell_range[1]):
+    for e in range(*cell_range):
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
         Xvals = mash.coordinates.dat.data_ro_with_halos[cell_nodes, 0]
@@ -278,16 +284,13 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         else:
             mash.coordinates.dat.data_with_halos
 
-    local_facet_dat = mesh1.topology.interior_facets.local_facet_dat
-    local_facet_number = mesh1.topology.interior_facets.local_facet_number
+    local_facet_dat = mash.topology.interior_facets.local_facet_dat
+    local_facet_number = mash.topology.interior_facets.local_facet_number
 
     for i in range(local_facet_dat.data_ro.shape[0]):
         if all(local_facet_dat.data_ro[i, :] == np.array([3, 3])):
             local_facet_dat.data[i, :] = [2, 3]
             local_facet_number[i, :] = [2, 3]
-
-
-    print local_facet_number
 
     return mash
 
