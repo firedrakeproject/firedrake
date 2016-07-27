@@ -38,7 +38,8 @@ def plot(function, axes=None, num_points=100, **kwargs):
     figure object.
     :arg function: The function to plot.
     :arg axes: Axes to be plotted on
-    :arg num_points: Number of points per element
+    :arg num_points: Number of points per element, ignored if degree < 4 where
+        Bezier curve will be used instead of sampling at points
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
