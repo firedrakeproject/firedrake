@@ -202,6 +202,12 @@ def bezier_plot(function, axes=None, **kwargs):
         raise RuntimeError("Matplotlib not importable, is it installed?")
 
     deg = function.function_space().ufl_element().degree()
+    if deg == 0:
+        from firedrake import FunctionSpace
+        mesh = function.function_space().mesh()
+        V = FunctionSpace(mesh, "DG", 1)
+        func = Function(V).interpolate(function)
+        return bezier_plot(func, axes, **kwargs)
     M = np.empty([deg + 1, deg + 1], dtype=float)
     basis = function.function_space().fiat_element.dual_basis()
     for i in range(deg + 1):
