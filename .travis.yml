@@ -1,11 +1,8 @@
 sudo: false
 notifications:
-  irc:
-    channels: "chat.freenode.net#firedrake"
-    skip_join: true
-    on_success: change
-    on_failure: always
-    template: "%{repository}#%{build_number} (%{branch} - %{commit} : %{author}): %{message} | %{build_url}"
+  slack:
+    secure: OvkwWFNZXlD9CkUZBMdhiMGERlHeImEcWpCUp0vk/Z8pS7iM3PjrWYF7iZtt1La6z9LrQXh15OhI1jn6VN8IzMeZmrJYv3cgAJiCUnRkOu2iQjW6MKsZNl9gccdxfUr7r5wrV3th+48d353T7W2WEd6ADJSeI5jKu37STwIjztM=
+
 # language: python
 language: c
 # We're not Python 2.6 compatible at the moment
@@ -57,7 +54,7 @@ matrix:
     - os: linux
       env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="extrusion output multigrid benchmarks" TEST_ADJOINT="TRUE"
 before_install:
-  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; brew upgrade; fi
+  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; brew upgrade libtool; fi
   - pip install -U --user pip
   - pip install -U --user virtualenv
   # Fail fast on lint errors

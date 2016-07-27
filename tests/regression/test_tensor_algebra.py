@@ -41,11 +41,11 @@ def form_expect(request, mesh):
         V = FunctionSpace(mesh, "RT", 1)
 
     mu_s = Constant(1.0)
-    mu = as_tensor(np.diag(np.repeat(mu_s, dim)))  # noqa:
+    mu = as_tensor(np.diag(np.repeat(mu_s, dim)))  # noqa
 
-    n = FacetNormal(mesh)       # noqa: Used in eval below
-    u = TrialFunction(V)        # noqa:
-    v = TestFunction(V)         # noqa:
+    n = FacetNormal(mesh)       # noqa
+    u = TrialFunction(V)        # noqa
+    v = TestFunction(V)         # noqa
 
     form, expect = request.param
     return eval(form), eval(expect)
