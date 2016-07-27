@@ -62,16 +62,16 @@ def plot(function, axes=None, num_points=100, **kwargs):
         raise RuntimeError("Unsupported functionality")
 
 
-def _calculate_values(function, function_space, points):
-    "Calculate function values at given points"
+def _calculate_values(function, points):
+    "Calculate function values at given reference points"
+    function_space = function.function_space()
     elem = function_space.fiat_element.tabulate(0, points)[(0, )]
     data = function.dat.data_ro[function_space.cell_node_list]
     return np.dot(data, elem).reshape(-1)
 
 
 def _calculate_points(function, num_points, dimension):
-    function_space = function.function_space()
-    mesh = function_space.mesh()
+    mesh = function.function_space().mesh()
     if dimension == 1:
         points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
     elif dimension == 2:
@@ -80,9 +80,8 @@ def _calculate_points(function, num_points, dimension):
         points = np.array(np.meshgrid(points_1d, points_1d)).T.reshape(-1, 2)
     else:
         raise RuntimeError("Unsupported functionality")
-    y_vals = _calculate_values(function, function_space, points, dimension)
+    y_vals = _calculate_values(function, points, dimension)
     x_vals = _calculate_values(mesh.coordinates,
-                               mesh.coordinates.function_space(),
                                points, dimension)
     return x_vals, y_vals
 
