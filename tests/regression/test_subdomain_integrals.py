@@ -50,6 +50,34 @@ def test_solve_cell_subdomains(form, u):
     assert np.allclose(expect.dat.data_ro, u.dat.data_ro)
 
 
+@pytest.fixture
+def square():
+    from os.path import abspath, dirname, join
+    return Mesh(join(abspath(dirname(__file__)), "..",
+                     "meshes", "square.msh"))
+
+
+@pytest.fixture(params=[("v*u*dx", "v*u*ds(2)"),
+                        ("v*u*dx(1)", "v*u*ds(2)", "v*u*dx(1)"),
+                        ("v*u*dx", "v*u*ds(1)")],
+                ids=lambda x: " + ".join(x))
+def forms(request):
+    return request.param
+
+
+@pytest.mark.xfail(reason="Bad treatment of otherwise subdomain")
+def test_cell_facet_subdomains(square, forms):
+    from operator import add
+    V = FunctionSpace(square, "CG", 1)
+    v = TestFunction(V)         # noqa
+    u = TrialFunction(V)        # noqa
+    forms = map(eval, forms)
+    full = reduce(add, forms)
+    full_mat = assemble(full).M.values
+    part_mat = reduce(add, map(lambda x: assemble(x).M.values, forms))
+    assert np.allclose(part_mat, full_mat)
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))
