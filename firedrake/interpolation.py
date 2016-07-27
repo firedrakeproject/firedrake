@@ -192,7 +192,7 @@ def _interpolator(V, dat, expr, subset, access=None):
     if indexed:
         args.append(dat(op2.WRITE, V.cell_node_map()[op2.i[0]]))
     else:
-        aaccesirgs.append(dat(op2.WRITE, V.cell_node_map()))
+        args.append(dat(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
         args.append(co.dat(op2.READ, co.cell_node_map(), flatten=flatten))
