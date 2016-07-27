@@ -82,6 +82,9 @@ for (int i=0; i<q.dofs; i++) {
         self.min_field.assign(1.0e10)  # big number
 
         # FIXME: Relies on implementation detail in PyOP2
+        # since op2.RW does not work the way it was expected to
+        # we are using op2.WRITE in all cases and it happens to
+        # read and write from the buffer
         self.min_interpolate.interpolate()
         self.max_interpolate.interpolate()
 
