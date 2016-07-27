@@ -6,7 +6,7 @@ from firedrake import Function, SpatialCoordinate
 __all__ = ["plot"]
 
 
-def _plot_mult(functions, num_points=100):
+def _plot_mult(functions, num_points=100, **kwargs):
     """Plot multiple functions on a figure, return a matplotlib figure
     :arg functions: Functions to be plotted
     :arg num_points: Number of points per element
@@ -27,7 +27,7 @@ def _plot_mult(functions, num_points=100):
         val = int(val - 0.1)
         func_slider.valtext.set_text('{:.0f}'.format(val))
         ax.cla()
-        plot(functions[val], ax)
+        plot(functions[val], ax, **kwargs)
     update(0)
     func_slider.on_changed(update)
     return figure
@@ -44,7 +44,7 @@ def plot(function, axes=None, num_points=100, **kwargs):
     """
 
     if not isinstance(function, Function):
-        return _plot_mult(function, num_points)
+        return _plot_mult(function, num_points, **kwargs)
     try:
         import matplotlib.pyplot as plt
     except ImportError:
