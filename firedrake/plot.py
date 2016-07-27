@@ -74,6 +74,12 @@ def _calculate_values(function, points):
 
 
 def _calculate_points(function, num_points, dimension):
+    """Calculate points in physical space of given function with given number of
+    sampling points at given dimension
+    :arg function: function to be sampled
+    :arg num_points: number of sampling points
+    :arg dimension: dimension of the function
+    """
     mesh = function.function_space().mesh()
     if dimension == 1:
         points = np.linspace(0, 1.0, num=num_points, dtype=float).reshape(-1, 1)
