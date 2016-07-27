@@ -40,7 +40,7 @@ def plot(function, axes=None, num_points=100, **kwargs):
     :arg axes: Axes to be plotted on
     :arg num_points: Number of points per element
     :arg kwargs: Additional keyword arguments passed to
-    ``matplotlib.plot``.
+        ``matplotlib.plot``.
     """
 
     if not isinstance(function, Function):
