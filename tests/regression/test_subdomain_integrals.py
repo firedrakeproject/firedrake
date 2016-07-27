@@ -65,7 +65,6 @@ def forms(request):
     return request.param
 
 
-@pytest.mark.xfail(reason="Bad treatment of otherwise subdomain")
 def test_cell_facet_subdomains(square, forms):
     from operator import add
     V = FunctionSpace(square, "CG", 1)
