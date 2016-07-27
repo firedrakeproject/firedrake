@@ -63,7 +63,10 @@ def plot(function, axes=None, num_points=100, **kwargs):
 
 
 def _calculate_values(function, points):
-    "Calculate function values at given reference points"
+    """Calculate function values at given reference points
+    :arg function: function to be sampled
+    :arg points: points to be sampled in reference space
+    """
     function_space = function.function_space()
     elem = function_space.fiat_element.tabulate(0, points)[(0, )]
     data = function.dat.data_ro[function_space.cell_node_list]
