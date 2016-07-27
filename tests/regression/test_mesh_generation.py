@@ -54,8 +54,7 @@ def test_unit_cube():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
-@pytest.mark.parallel(nprocs=2)
-def test_one_element_advection():
+def run_one_element_advection():
     nx = 20
     m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
     nlayers = 20
@@ -100,8 +99,16 @@ def test_one_element_advection():
     assert(assemble((q0-q_init)**2*dx)**0.5 < 0.005)
 
 
-@pytest.mark.parallel(nprocs=3)
-def test_one_element_mesh():
+def test_one_element_advection():
+    run_one_element_advection()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_one_element_advection_parallel():
+    run_one_element_advection()
+
+
+def run_one_element_mesh():
     mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
     V = FunctionSpace(mesh, "CG", 1)
     Vdg = FunctionSpace(mesh, "DG", 1)
@@ -112,20 +119,29 @@ def test_one_element_mesh():
     # then check if projecting to CG returns the same DG function.
     r.interpolate(Expression("sin(2*pi*x[0])"))
     u.project(r)
-    assert(abs(assemble((u-r)*(u-r)*dx)) < 1.0e-4)
+    assert(assemble((u-r)*(u-r)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(Expression("x[1]"))
     u.project(r)
-    assert(abs(assemble((u-0.5)*(u-0.5)*dx)) < 1.0e-4)
+    assert(assemble((u-0.5)*(u-0.5)*dx) < 1.0e-4)
 
     # Checking that if interpolate an x-periodic function
     # to DG then projecting to CG does not return the same function
     r.interpolate(Expression("x[0]"))
     u.project(r)
-    err = abs(assemble((u-r)*(u-r)*dx))
+    err = assemble((u-r)*(u-r)*dx)
     assert(err > 1.0e-3)
+
+
+def test_one_element_mesh():
+    run_one_element_mesh()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_one_element_mesh_parallel():
+    run_one_element_mesh()
 
 
 def test_box():

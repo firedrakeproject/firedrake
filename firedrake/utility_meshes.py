@@ -300,6 +300,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
 
 def UnitTriangleMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference triangle
+
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
     """
