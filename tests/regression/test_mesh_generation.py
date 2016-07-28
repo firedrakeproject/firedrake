@@ -83,7 +83,8 @@ def run_one_element_advection():
     q_solver = LinearVariationalSolver(q_problem,
                                        solver_parameters={
                                            'ksp_type': 'preonly',
-                                           'pc_type': 'lu'
+                                           'pc_type': 'bjacobi',
+                                           'sub_pc_type': 'lu'
                                        })
     t = 0.
     T = 1.0
