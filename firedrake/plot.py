@@ -6,7 +6,7 @@ from firedrake import Function, SpatialCoordinate
 __all__ = ["plot"]
 
 
-def _plot_mult(functions, num_points=100, **kwargs):
+def _plot_mult(functions, num_points=10, **kwargs):
     """Plot multiple functions on a figure, return a matplotlib figure
     :arg functions: Functions to be plotted
     :arg num_points: Number of points per element
@@ -36,7 +36,7 @@ def _plot_mult(functions, num_points=100, **kwargs):
 
 
 def plot(function,
-         num_sample_points=100,
+         num_sample_points=10,
          axes=None,
          **kwargs):
     """Plot a function or a list of functions and return a matplotlib
