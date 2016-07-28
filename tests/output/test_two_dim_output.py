@@ -20,7 +20,7 @@ def test_linear():
     x = SpatialCoordinate(mesh)
     f.interpolate(x[0] + x[1])
     coords_vals, f_vals = _calculate_points(f, 10, 2)
-    coords_vals = coord_vals.reshape(-1, 2)
+    coords_vals = coords_vals.reshape(-1, 2)
     f_vals = f_vals.reshape(-1, 1)
     for i in range(f_vals.size):
         assert np.allclose(coords_vals[i][0] + coords_vals[i][1], f_vals[i])
@@ -33,7 +33,7 @@ def test_quadratic():
     x = SpatialCoordinate(mesh)
     f.interpolate(x[0] ** 2 + x[1] ** 2)
     coords_vals, f_vals = _calculate_points(f, 10, 2)
-    coords_vals = coord_vals.reshape(-1, 2)
+    coords_vals = coords_vals.reshape(-1, 2)
     f_vals = f_vals.reshape(-1, 1)
     for i in range(f_vals.size):
         assert np.allclose(coords_vals[i][0] ** 2 + coords_vals[i][1] ** 2,
@@ -47,6 +47,8 @@ def test_linear_and_quadratic():
     x = SpatialCoordinate(mesh)
     f.interpolate(x[0] + x[1] ** 2)
     coords_vals, f_vals = _calculate_points(f, 10, 2)
+    coords_vals = coords_vals.reshape(-1, 2)
+    f_vals = f_vals.reshape(-1, 1)
     for i in range(f_vals.size):
         assert np.allclose(coords_vals[i][0] + coords_vals[i][1] ** 2,
                            f_vals[i])
