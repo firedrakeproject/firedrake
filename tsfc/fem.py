@@ -81,7 +81,7 @@ class TabulationManager(object):
     """Manages the generation of tabulation matrices for the different
     integral types."""
 
-    def __init__(self, integral_type, integration_dim, entity_ids, cell, points):
+    def __init__(self, integral_type, entity_points):
         """Constructs a TabulationManager.
 
         :arg integral_type: integral type
@@ -90,10 +90,8 @@ class TabulationManager(object):
                      an interval for facet integrals on a triangle)
         """
         self.integral_type = integral_type
-        self.points = points
 
-        self.facet_manager = FacetManager(integral_type, integration_dim, entity_ids, as_fiat_cell(cell))
-        self.tabulators = map(make_tabulator, self.facet_manager.facet_transform(points))
+        self.tabulators = map(make_tabulator, entity_points)
         self.tables = {}
 
     def tabulate(self, ufl_element, max_deriv):
@@ -122,58 +120,6 @@ class TabulationManager(object):
 
     def __getitem__(self, key):
         return self.tables[key]
-
-
-class FacetManager(object):
-    """Collection of utilities for facet integrals."""
-
-    def __init__(self, integral_type, integration_dim, entity_ids, fiat_cell):
-        """Constructs a FacetManager.
-
-        :arg integral_type: integral type
-        :arg fiat_cell: FIAT cell
-        """
-        self.integral_type = integral_type
-        self.integration_dim = integration_dim
-        self.entity_ids = entity_ids
-        self.fiat_cell = fiat_cell
-
-        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            self.facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
-        elif integral_type in ['interior_facet', 'interior_facet_vert']:
-            self.facet = {'+': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (0,))),
-                          '-': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (1,)))}
-        elif integral_type == 'exterior_facet_bottom':
-            self.facet = {None: 0}
-        elif integral_type == 'exterior_facet_top':
-            self.facet = {None: 0}
-        elif integral_type == 'interior_facet_horiz':
-            self.facet = {'+': 1, '-': 0}
-        else:
-            self.facet = None
-
-    def facet_transform(self, points):
-        """Generator function that transforms points in integration cell
-        coordinates to cell coordinates for each facet.
-
-        :arg points: points in integration cell coordinates
-        """
-        for entity_id in self.entity_ids:
-            t = self.fiat_cell.get_entity_transform(self.integration_dim, entity_id)
-            yield numpy.asarray(map(t, points))
-
-    def select_facet(self, tensor, restriction):
-        """Applies facet selection on a GEM tensor if necessary.
-
-        :arg tensor: GEM tensor
-        :arg restriction: restriction on the modified terminal
-        :returns: another GEM tensor
-        """
-        if self.integral_type == 'cell':
-            return tensor
-        else:
-            f = self.facet[restriction]
-            return gem.partial_indexed(tensor, (f,))
 
 
 # FIXME: copy-paste from PyOP2
@@ -243,6 +189,42 @@ class Parameters(object):
     def weights(self):
         return self.quadrature_rule.get_weights()
 
+    @cached_property
+    def entity_points(self):
+        """Points in cell coordinates for each entity."""
+        result = []
+        for entity_id in self.entity_ids:
+            t = self.fiat_cell.get_entity_transform(self.integration_dim, entity_id)
+            result.append(numpy.asarray(map(t, self.points)))
+        return result
+
+    def select_facet(self, tensor, restriction):
+        """Applies facet selection on a GEM tensor if necessary.
+
+        :arg tensor: GEM tensor
+        :arg restriction: restriction on the modified terminal
+        :returns: another GEM tensor
+        """
+        if self.integral_type in ['exterior_facet', 'exterior_facet_vert']:
+            facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
+        elif self.integral_type in ['interior_facet', 'interior_facet_vert']:
+            facet = {'+': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (0,))),
+                     '-': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (1,)))}
+        elif self.integral_type == 'exterior_facet_bottom':
+            facet = {None: 0}
+        elif self.integral_type == 'exterior_facet_top':
+            facet = {None: 0}
+        elif self.integral_type == 'interior_facet_horiz':
+            facet = {'+': 1, '-': 0}
+        else:
+            facet = None
+
+        if self.integral_type == 'cell':
+            return tensor
+        else:
+            f = facet[restriction]
+            return gem.partial_indexed(tensor, (f,))
+
     argument_indices = ()
 
     @cached_property
@@ -263,8 +245,6 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
             parameters.cell_orientations = gem.Variable("cell_orientations", (1, 1))
 
         parameters.tabulation_manager = tabulation_manager
-        parameters.facet_manager = tabulation_manager.facet_manager
-        parameters.select_facet = tabulation_manager.facet_manager.select_facet
         self.parameters = parameters
 
     def modified_terminal(self, o):
@@ -417,7 +397,7 @@ def compile_ufl(expression, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(params.integral_type, params.integration_dim, params.entity_ids, params.cell, params.points)
+    tabulation_manager = TabulationManager(params.integral_type, params.entity_points)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)

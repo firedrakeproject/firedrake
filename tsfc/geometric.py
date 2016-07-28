@@ -95,10 +95,7 @@ def translate_cell_edge_vectors(terminal, mt, params):
 
 @translate.register(CellCoordinate)
 def translate_cell_coordinate(terminal, mt, params):
-    points = params.tabulation_manager.points
-    if params.integral_type != 'cell':
-        points = list(params.facet_manager.facet_transform(points))
-    return gem.partial_indexed(params.select_facet(gem.Literal(points),
+    return gem.partial_indexed(params.select_facet(gem.Literal(params.entity_points),
                                                    mt.restriction),
                                (params.point_index,))
 
@@ -106,5 +103,5 @@ def translate_cell_coordinate(terminal, mt, params):
 @translate.register(FacetCoordinate)
 def translate_facet_coordinate(terminal, mt, params):
     assert params.integral_type != 'cell'
-    points = params.tabulation_manager.points
+    points = params.points
     return gem.partial_indexed(gem.Literal(points), (params.point_index,))
