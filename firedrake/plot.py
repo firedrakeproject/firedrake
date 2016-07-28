@@ -46,6 +46,7 @@ def plot(function,
         degree < 4 where Bezier curve will be used instead of sampling at
         points
     :arg axes: Axes to be plotted on
+    :kwarg contour: For 2D plotting, True for a contour plot
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
@@ -69,8 +70,13 @@ def plot(function,
     elif function.function_space().mesh().geometric_dimension() \
             == function.function_space().mesh().topological_dimension() \
             == 2:
-        return two_dimension_plot(function, num_sample_points, axes,
-                                  **kwargs)
+        is_contour = kwargs.pop('contour', False)
+        if is_contour:
+            return two_dimension_contour(function, num_sample_points,
+                                         axes, **kwargs)
+        else:
+            return two_dimension_surface(function, num_sample_points,
+                                         axes, **kwargs)
     else:
         raise RuntimeError("Unsupported functionality")
 
@@ -172,10 +178,10 @@ def two_dimension_triangle_Z(function, num_sample_points):
     return triangulation, Z
 
 
-def two_dimension_plot(function,
-                       num_sample_points,
-                       axes=None,
-                       **kwargs):
+def two_dimension_surface(function,
+                          num_sample_points,
+                          axes=None,
+                          **kwargs):
     """Plot a 2D function as surface plotting, return a matplotlib figure
 
     :arg function: 2D function for plotting
