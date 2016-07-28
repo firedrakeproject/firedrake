@@ -35,19 +35,24 @@ direct = _DirectLoop()
 of the measure in order to indicate that the loop is a direct loop
 over degrees of freedom."""
 
+
+def indirect_measure(mesh, measure):
+    return mesh.measure_set(measure.integral_type(),
+                            measure.subdomain_id())
+
 """Map a measure to the correct maps."""
 _maps = {
     'cell': {
         'nodes': lambda x: x.cell_node_map(),
-        'itspace': lambda mesh, measure: mesh.cell_subset(measure.subdomain_id())
+        'itspace': indirect_measure
     },
     'interior_facet': {
         'nodes': lambda x: x.interior_facet_node_map(),
-        'itspace': lambda mesh, measure: mesh.interior_facets.measure_set(measure.integral_type(), measure.subdomain_id())
+        'itspace': indirect_measure
     },
     'exterior_facet': {
         'nodes': lambda x: x.exterior_facet_node_map(),
-        'itspace': lambda mesh, measure: mesh.exterior_facets.measure_set(measure.integral_type(), measure.subdomain_id())
+        'itspace': indirect_measure
     },
     'direct': {
         'nodes': lambda x: None,

@@ -72,7 +72,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, (op2.Dat, op2.DatView)):
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat)):
             assert val.comm == self.comm
             self.dat = val
         else:
@@ -92,7 +92,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             :class:`CoordinatelessFunction` will share the dof values.
         """
         if deepcopy:
-            val = op2.Dat(self.dat)
+            val = type(self.dat)(self.dat)
         else:
             val = self.dat
         return type(self)(self.function_space(),
