@@ -150,6 +150,6 @@ def bezier_plot(function, axes=None, **kwargs):
 
 
 def _bernstein(x, k, n):
-    from FIAT.factorial import factorial
+    from math import factorial
     comb = factorial(n) / factorial(k) / factorial(n - k)
     return comb * (x ** k) * ((1 - x) ** (n - k))
