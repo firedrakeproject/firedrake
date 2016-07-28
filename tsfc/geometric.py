@@ -59,25 +59,23 @@ def translate_cell_facet_jacobian(terminal, mt, params):
     dim = params.fiat_cell.construct_subelement(params.integration_dim).get_spatial_dimension()
     X = sympy.DeferredVector('X')
     point = [X[j] for j in range(dim)]
-    result = []
-    for entity_id in params.entity_ids:
+
+    def callback(entity_id):
         f = params.fiat_cell.get_entity_transform(params.integration_dim, entity_id)
         y = f(point)
         J = [[sympy.diff(y_i, X[j])
               for j in range(dim)]
              for y_i in y]
-        J = array(J, dtype=float)
-        result.append(J)
-    return params.select_facet(gem.Literal(result), mt.restriction)
+        return gem.Literal(array(J, dtype=float))
+    return params.entity_selector(callback, mt.restriction)
 
 
 @translate.register(ReferenceNormal)
 def translate_reference_normal(terminal, mt, params):
-    result = []
-    for facet_i in params.entity_ids:
+    def callback(facet_i):
         n = params.fiat_cell.compute_scaled_outward_normal(params.integration_dim, facet_i)
-        result.append(n)
-    return params.select_facet(gem.Literal(result), mt.restriction)
+        return gem.Literal(n)
+    return params.entity_selector(callback, mt.restriction)
 
 
 @translate.register(CellEdgeVectors)
@@ -95,8 +93,8 @@ def translate_cell_edge_vectors(terminal, mt, params):
 
 @translate.register(CellCoordinate)
 def translate_cell_coordinate(terminal, mt, params):
-    return gem.partial_indexed(params.select_facet(gem.Literal(params.entity_points),
-                                                   mt.restriction),
+    return gem.partial_indexed(params.index_selector(lambda i: gem.Literal(params.entity_points[i]),
+                                                     mt.restriction),
                                (params.point_index,))
 
 
