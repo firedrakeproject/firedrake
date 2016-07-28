@@ -191,6 +191,7 @@ def two_dimension_surface(function,
     try:
         import matplotlib.pyplot as plt
         from mpl_toolkits.mplot3d import Axes3D
+        from matplotlib import cm
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
     triangulation, Z = two_dimension_triangle_Z(function, num_sample_points)
@@ -198,8 +199,10 @@ def two_dimension_surface(function,
     if axes is None:
         figure = plt.figure()
         axes = figure.add_subplot(111, projection='3d')
+    cmap = kwargs.pop('cmap', cm.coolwarm)
     axes.plot_trisurf(triangulation, Z, edgecolor='none',
-                      antialiased=False, **kwargs)
+                      antialiased=False, shade=False, cmap=cmap,
+                      **kwargs)
     return plt.gcf()
 
 
