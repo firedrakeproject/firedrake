@@ -81,7 +81,7 @@ class TabulationManager(object):
     """Manages the generation of tabulation matrices for the different
     integral types."""
 
-    def __init__(self, integral_type, cell, points):
+    def __init__(self, integral_type, integration_dim, entity_ids, cell, points):
         """Constructs a TabulationManager.
 
         :arg integral_type: integral type
@@ -92,7 +92,7 @@ class TabulationManager(object):
         self.integral_type = integral_type
         self.points = points
 
-        self.facet_manager = FacetManager(integral_type, cell)
+        self.facet_manager = FacetManager(integral_type, integration_dim, entity_ids, as_fiat_cell(cell))
         self.tabulators = map(make_tabulator, self.facet_manager.facet_transform(points))
         self.tables = {}
 
@@ -127,14 +127,16 @@ class TabulationManager(object):
 class FacetManager(object):
     """Collection of utilities for facet integrals."""
 
-    def __init__(self, integral_type, ufl_cell):
+    def __init__(self, integral_type, integration_dim, entity_ids, fiat_cell):
         """Constructs a FacetManager.
 
         :arg integral_type: integral type
-        :arg ufl_cell: UFL cell
+        :arg fiat_cell: FIAT cell
         """
         self.integral_type = integral_type
-        self.ufl_cell = ufl_cell
+        self.integration_dim = integration_dim
+        self.entity_ids = entity_ids
+        self.fiat_cell = fiat_cell
 
         if integral_type in ['exterior_facet', 'exterior_facet_vert']:
             self.facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
@@ -156,36 +158,9 @@ class FacetManager(object):
 
         :arg points: points in integration cell coordinates
         """
-        dim = self.ufl_cell.topological_dimension()
-
-        if self.integral_type == 'cell':
-            yield points
-
-        elif self.integral_type in ['exterior_facet', 'interior_facet']:
-            for entity in range(self.ufl_cell.num_facets()):
-                t = as_fiat_cell(self.ufl_cell).get_entity_transform(dim-1, entity)
-                yield numpy.asarray(map(t, points))
-
-        elif self.integral_type == 'exterior_facet_bottom':
-            t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), 0)
+        for entity_id in self.entity_ids:
+            t = self.fiat_cell.get_entity_transform(self.integration_dim, entity_id)
             yield numpy.asarray(map(t, points))
-
-        elif self.integral_type == 'exterior_facet_top':
-            t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), 1)
-            yield numpy.asarray(map(t, points))
-
-        elif self.integral_type == 'interior_facet_horiz':
-            for entity in range(2):  # top and bottom
-                t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), entity)
-                yield numpy.asarray(map(t, points))
-
-        elif self.integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
-            for entity in range(self.ufl_cell.sub_cells()[0].num_facets()):  # "base cell" facets
-                t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-2, 1), entity)
-                yield numpy.asarray(map(t, points))
-
-        else:
-            raise NotImplementedError("integral type %s not supported" % self.integral_type)
 
     def select_facet(self, tensor, restriction):
         """Applies facet selection on a GEM tensor if necessary.
@@ -253,7 +228,7 @@ class Parameters(object):
     def integration_dim(self):
         return self.fiat_cell.get_dimension()
 
-    entity_ids = [None]
+    entity_ids = [0]
 
     @cached_property
     def quadrature_rule(self):
@@ -442,7 +417,7 @@ def compile_ufl(expression, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(params.integral_type, params.cell, params.points)
+    tabulation_manager = TabulationManager(params.integral_type, params.integration_dim, params.entity_ids, params.cell, params.points)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
