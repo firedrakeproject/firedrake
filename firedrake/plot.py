@@ -150,8 +150,14 @@ def two_dimension_triangle_Z(function, num_sample_points):
         from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    x = np.array([0, 0, 1])
-    y = np.array([0, 1, 0])
+    if function.function_space().mesh().cell() == Cell('triangle'):
+        x = np.array([0, 0, 1])
+        y = np.array([0, 1, 0])
+    elif function.function_space().mesh().cell() == Cell('quadrilateral'):
+        x = np.array([0, 0, 1, 1])
+        y = np.array([0, 1, 0, 1])
+    else:
+        raise RuntimeError("Unsupported Functionality")
     base_tri = Triangulation(x, y)
     refiner = UniformTriRefiner(base_tri)
     tri = refiner.refine_triangulation(False, num_sample_points)
