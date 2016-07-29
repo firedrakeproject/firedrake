@@ -73,7 +73,7 @@ def translate_cell_facet_jacobian(terminal, mt, params):
 @translate.register(ReferenceNormal)
 def translate_reference_normal(terminal, mt, params):
     def callback(facet_i):
-        n = params.fiat_cell.compute_scaled_outward_normal(params.integration_dim, facet_i)
+        n = params.fiat_cell.compute_reference_normal(params.integration_dim, facet_i)
         return gem.Literal(n)
     return params.entity_selector(callback, mt.restriction)
 
