@@ -65,7 +65,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint ${PACKAGE_MANAGER}
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope ${PACKAGE_MANAGER}
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update
