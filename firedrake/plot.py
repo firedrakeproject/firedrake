@@ -30,6 +30,7 @@ def _plot_mult(functions, num_points=10, **kwargs):
         func_slider.valtext.set_text('{:.0f}'.format(val))
         ax.cla()
         plot(functions[val], num_points, ax, **kwargs)
+        plt.pause(0.01)
     update(0)
     func_slider.on_changed(update)
     return figure
