@@ -95,6 +95,28 @@ def plot(function,
         raise RuntimeError("Unsupported functionality")
 
 
+def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
+    """Create an interactive plot for multiple 1D functions to be viewed in
+    Jupyter Notebook
+
+    :arg functions: 1D Functions to be plotted
+    :arg num_sample_points: Number of sample points per element, ignore if
+        degree < 4 where Bezier curve is used for an exact plot
+    :arg kwargs: Additional key word arguments to be passed to
+        ``matplotlib.plot``
+    """
+    try:
+        from ipywidgets import interact, IntSlider
+    except ImportError:
+        raise RuntimeError("Not in notebook")
+
+    def display_plot(index):
+        return plot(functions[index], num_sample_points, **kwargs)
+
+    interact(display_plot, index=IntSlider(min=0, max=len(functions)-1,
+                                           step=1, value=0))
+
+
 def _calculate_values(function, points, dimension):
     """Calculate function values at given reference points
 
