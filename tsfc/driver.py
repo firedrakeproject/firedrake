@@ -15,7 +15,7 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.fiatinterface import QuadratureRule, as_fiat_cell, create_quadrature
-from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
+from tsfc.kernel_interface import KernelInterface, KernelBuilder, needs_cell_orientations
 from tsfc.logging import logger
 
 
@@ -76,6 +76,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         del parameters["quadrature_rule"]
 
     integral_type = integral_data.integral_type
+    interior_facet = integral_type.startswith("interior_facet")
     mesh = integral_data.domain
     cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
@@ -126,17 +127,30 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
-        if integral_type.startswith("interior_facet"):
-            def coefficient_mapper(coefficient):
-                return gem.partial_indexed(builder.coefficient_mapper(coefficient), ({'+': 0, '-': 1}[restriction],))
+        if interior_facet:
+            class KIT(KernelInterface):
+                def __init__(self, parent):
+                    self.parent = parent
+
+                def coefficient(self, ufl_coefficient, r):
+                    return gem.partial_indexed(self.parent.coefficient(ufl_coefficient, r),
+                                               ({'+': 0, '-': 1}[restriction],))
+
+                def cell_orientation(self, restriction):
+                    return self.parent.cell_orientation(restriction)
+
+                def facet_number(self, restriction):
+                    return self.parent.facet_number(restriction)
+
+            ki = KIT(builder)
         else:
             assert restriction is None
-            coefficient_mapper = builder.coefficient_mapper
+            ki = builder
         ir = fem.compile_ufl(integrand,
                              cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
-                             coefficient_mapper=coefficient_mapper,
+                             kernel_interface=ki,
                              index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -166,13 +180,12 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
         ir = fem.compile_ufl(integrand,
-                             integral_type=integral_type,
+                             cell=cell,
                              integration_dim=integration_dim,
                              entity_ids=entity_ids,
-                             cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
-                             coefficient_mapper=builder.coefficient_mapper,
+                             kernel_interface=builder,
                              index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -207,14 +220,14 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         quadrature_index = gem.Index(name='ip')
         quadrature_indices.append(quadrature_index)
         ir = fem.compile_ufl(integrand,
-                             integral_type=integral_type,
+                             interior_facet=interior_facet,
                              cell=cell,
                              integration_dim=integration_dim,
                              entity_ids=entity_ids,
                              quadrature_rule=quad_rule,
                              point_index=quadrature_index,
                              argument_indices=argument_indices,
-                             coefficient_mapper=builder.coefficient_mapper,
+                             kernel_interface=builder,
                              index_cache=index_cache,
                              cellvolume=cellvolume,
                              facetarea=facetarea)

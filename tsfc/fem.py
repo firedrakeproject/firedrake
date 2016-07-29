@@ -133,8 +133,7 @@ class cached_property(object):
 
 
 class Parameters(object):
-    keywords = ('integral_type',
-                'cell',
+    keywords = ('cell',
                 'fiat_cell',
                 'integration_dim',
                 'entity_ids',
@@ -144,7 +143,7 @@ class Parameters(object):
                 'weights',
                 'point_index',
                 'argument_indices',
-                'coefficient_mapper',
+                'kernel_interface',
                 'cellvolume',
                 'facetarea',
                 'index_cache')
@@ -154,9 +153,6 @@ class Parameters(object):
         if invalid_keywords:
             raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
         self.__dict__.update(kwargs)
-
-    # Defaults
-    integral_type = 'cell'
 
     @cached_property
     def fiat_cell(self):
@@ -190,24 +186,13 @@ class Parameters(object):
             result.append(numpy.asarray(map(t, self.points)))
         return result
 
-    def facet_number(self, restriction):
-        # TODO: move to kernel interface
-        if self.integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
-        elif self.integral_type in ['interior_facet', 'interior_facet_vert']:
-            facet = {'+': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (0,))),
-                     '-': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (1,)))}
-        elif self.integral_type == 'interior_facet_horiz':
-            facet = {'+': 1, '-': 0}
-
-        return facet[restriction]
-
     def _selector(self, callback, opts, restriction):
         if len(opts) == 1:
             return callback(opts[0])
         else:
             results = gem.ListTensor(map(callback, opts))
-            return gem.partial_indexed(results, (self.facet_number(restriction),))
+            f = self.kernel_interface.facet_number(restriction)
+            return gem.partial_indexed(results, (f,))
 
     def entity_selector(self, callback, restriction):
         return self._selector(callback, self.entity_ids, restriction)
@@ -228,11 +213,6 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     def __init__(self, tabulation_manager, parameters):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
-
-        if parameters.integral_type.startswith("interior_facet"):
-            parameters.cell_orientations = gem.Variable("cell_orientations", (2, 1))
-        else:
-            parameters.cell_orientations = gem.Variable("cell_orientations", (1, 1))
 
         parameters.tabulation_manager = tabulation_manager
         self.parameters = parameters
@@ -331,13 +311,11 @@ def translate_argument(terminal, mt, params):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, params):
-    kernel_arg = params.coefficient_mapper(terminal)
+    vec = params.kernel_interface.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0
-        return kernel_arg
-
-    ka = gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[mt.restriction])
+        return vec
 
     def callback(key):
         table = params.tabulation_manager[key]
@@ -345,9 +323,9 @@ def translate_coefficient(terminal, mt, params):
             # Cellwise constant
             row = gem.Literal(table)
             if numpy.count_nonzero(table) <= 2:
-                assert row.shape == ka.shape
+                assert row.shape == vec.shape
                 return reduce(gem.Sum,
-                              [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(ka, (i,)))
+                              [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(vec, (i,)))
                                for i in range(row.shape[0])],
                               gem.Zero())
         else:
@@ -356,7 +334,7 @@ def translate_coefficient(terminal, mt, params):
 
         r = params.index_cache[terminal.ufl_element()]
         return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)),
-                                        gem.Indexed(ka, (r,))), r)
+                                        gem.Indexed(vec, (r,))), r)
 
     return iterate_shape(mt, callback)
 
@@ -368,7 +346,7 @@ def _translate_constantvalue(terminal, mt, params):
     return params(terminal)
 
 
-def compile_ufl(expression, **kwargs):
+def compile_ufl(expression, interior_facet=False, **kwargs):
     params = Parameters(**kwargs)
 
     # Abs-simplification
@@ -392,7 +370,7 @@ def compile_ufl(expression, **kwargs):
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
 
-    if params.integral_type.startswith("interior_facet"):
+    if interior_facet:
         expressions = []
         for rs in itertools.product(("+", "-"), repeat=len(params.argument_indices)):
             expressions.append(map_expr_dag(PickRestriction(*rs), expression))

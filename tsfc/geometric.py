@@ -3,7 +3,7 @@ expressions."""
 
 from __future__ import absolute_import
 
-from numpy import array, nan, vstack
+from numpy import array, vstack
 from singledispatch import singledispatch
 import sympy
 
@@ -30,14 +30,7 @@ def translate(terminal, mt, params):
 
 @translate.register(CellOrientation)
 def translate_cell_orientation(terminal, mt, params):
-    cell_orientations = params.cell_orientations
-    f = {None: 0, '+': 0, '-': 1}[mt.restriction]
-    co_int = gem.Indexed(cell_orientations, (f, 0))
-    return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
-                           gem.Literal(-1),
-                           gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),
-                                           gem.Literal(1),
-                                           gem.Literal(nan)))
+    return params.kernel_interface.cell_orientation(mt.restriction)
 
 
 @translate.register(ReferenceCellVolume)
@@ -100,6 +93,6 @@ def translate_cell_coordinate(terminal, mt, params):
 
 @translate.register(FacetCoordinate)
 def translate_facet_coordinate(terminal, mt, params):
-    assert params.integral_type != 'cell'
+    assert params.integration_dim != params.fiat_cell.get_dimension()
     points = params.points
     return gem.partial_indexed(gem.Literal(points), (params.point_index,))
