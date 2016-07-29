@@ -14,17 +14,20 @@ def _plot_mult(functions, num_points=10, **kwargs):
     """
     try:
         import matplotlib.pyplot as plt
-        from matplotlib.widgets import Slider
+        from matplotlib.widgets import Slider, Button
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
     if len(functions) == 0:
         return None
     figure, ax = plt.subplots()
-    func_axis = plt.axes([0.25, 0.025, 0.65, 0.03],
+    func_axis = plt.axes([0.3, 0.025, 0.65, 0.03],
                          axisbg='lightgoldenrodyellow')
     func_slider = Slider(func_axis, "Func Select",
                          0.1, len(functions), valinit=0)
     func_slider.valtext.set_text('0')
+    play_axis = plt.axes([0.05, 0.025, 0.1, 0.03])
+    play_button = Button(play_axis, "Play")
+    play_axis._button = play_button  # Hacking: keep a reference of button
 
     def update(val):
         val = int(val - 0.1)
@@ -34,6 +37,14 @@ def _plot_mult(functions, num_points=10, **kwargs):
         plt.pause(0.01)
     update(0)
     func_slider.on_changed(update)
+
+    def auto_play(event):
+        curr = 0
+        while curr < len(functions):
+            curr += 1
+            func_slider.set_val(curr)
+            plt.pause(0.5)
+    play_button.on_clicked(auto_play)
     return figure
 
 
