@@ -421,6 +421,8 @@ class TransformKernel(Visitor):
             return obj
         return newlist
 
+    visit_Node = Visitor.maybe_reconstruct
+
     def visit_FunDecl(self, obj, *args, **kwargs):
         new = self.visit_Node(obj, *args, **kwargs)
         ops, obj_kwargs = new.operands()
@@ -435,6 +437,13 @@ class TransformKernel(Visitor):
                                (name, name))] + args
         ops[3] = ast.Node(nargs)
         return obj.reconstruct(*ops, **obj_kwargs)
+
+    def visit_Decl(self, obj, *args, **kwargs):
+        name = kwargs.get("name", "A")
+        if obj.sym.symbol != name:
+            return obj
+        typ = "Eigen::MatrixBase<Derived> const &"
+        return obj.reconstruct(typ, ast.Symbol("%s_" % name))
 
     def visit_Symbol(self, obj, *args, **kwargs):
         name = kwargs.get("name", "A")
@@ -587,12 +596,13 @@ def macro_kernel(slate_expr):
     @get_kernel_expr.register(Matrix)
     def get_kernel_expr_tensor(expr):
         if expr not in temps.keys():
-            temp = ast.Symbol("T%d" % len(temps))
+            sym = "T%d" % len(temps)
+            temp = ast.Symbol(sym)
             temp_type = mat_type(expr.shape)
             temps[expr] = temp
             statements.append(ast.Decl(temp_type, temp))
 
-            compiled_form = tsfc_compile_form(expr.form)[0]
+            compiled_form = tsfc_compile_form(expr.form, prefix="form_%s" % sym)[0]
 
             coefflist = [c for c in coeffs if c in expr.coefficients()]
             _coeffs[expr] = coefflist
@@ -674,12 +684,34 @@ def macro_kernel(slate_expr):
 
     result_type = map_type(mat_type(shape))
     result_sym = ast.Symbol("T%d" % len(temps))
-    result_statement = ast.FlatBlock("%s (%s);\n" %
-                                     (result_type, result_sym))
+    result_data_sym = ast.Symbol("datasym%d" % len(temps))
+    result = ast.Decl(dtype, ast.Symbol(result_data_sym, shape))
+
+    result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" %
+                                     (result_type, result_sym,
+                                      dtype, result_data_sym))
     statements.append(result_statement)
     c_string = ast.FlatBlock(get_c_str(slate_expr, temps))
     statements.append(ast.Assign(result_sym, c_string))
 
+    arglist = [result, ast.Decl("%s **" % dtype, coordsym)]
+    for c in coeffs:
+        ctype = "%s **" % dtype
+        if isinstance(c, firedrake.Constant):
+            ctype = "%s *" % dtype
+        arglist.append(ast.Decl(ctype, coeffmap[c]))
+
+    kernel = ast.FunDecl("void", "macro_kernel", arglist,
+                         ast.Block(statements),
+                         pred=["static", "inline"])
+
+    transformer = TransformKernel()
+    klist = []
+    for _, kv in kernel_exprs.items():
+        kast = kv[1].ast
+        klist.append(kast)
+    klist.append(kernel)
+    kernelast = ast.Node(klist)
 
 
-    return kernel_exprs, templist, temps, _coeffs, statements, c_string
+    return coeffs, kernel, kernelast
