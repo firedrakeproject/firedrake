@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 import numpy as np
-from ufl import cell
-from firedrake import Function, SpatialCoordinate
+from ufl import Cell
+from firedrake import Function, SpatialCoordinate, FunctionSpace
 
 __all__ = ["plot"]
 
@@ -50,7 +50,7 @@ def plot(function, axes=None, num_points=100, **kwargs):
         import matplotlib.pyplot as plt
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    if function.function_space().mesh().ufl_cell() == cell.Cell("interval"):
+    if function.function_space().mesh().ufl_cell() == Cell("interval"):
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
         points = calculate_one_dim_points(function, num_points)
@@ -100,6 +100,18 @@ def calculate_one_dim_points(function, num_points):
     return np.array([x_vals, y_vals])
 
 
+def _bezier_calculate_points(function):
+    deg = function.function_space().ufl_element().degree()
+    M = np.empty([deg + 1, deg + 1], dtype=float)
+    basis = function.function_space().fiat_element.dual_basis()
+    for i in range(deg + 1):
+        for j in range(deg + 1):
+            M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0], i, deg)
+    M_inv = np.linalg.inv(M)
+    cell_node_list = function.function_space().cell_node_list
+    return np.dot(function.dat.data_ro[cell_node_list], M_inv)
+
+
 def bezier_plot(function, axes=None, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
     Bezier curve within each cell, return a matplotlib figure
@@ -115,24 +127,16 @@ def bezier_plot(function, axes=None, **kwargs):
         raise RuntimeError("Matplotlib not importable, is it installed?")
 
     deg = function.function_space().ufl_element().degree()
+    mesh = function.function_space().mesh()
     if deg == 0:
-        from firedrake import FunctionSpace
-        mesh = function.function_space().mesh()
         V = FunctionSpace(mesh, "DG", 1)
         func = Function(V).interpolate(function)
         return bezier_plot(func, axes, **kwargs)
-    M = np.empty([deg + 1, deg + 1], dtype=float)
-    basis = function.function_space().fiat_element.dual_basis()
-    for i in range(deg + 1):
-        for j in range(deg + 1):
-            M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0], i, deg)
-    M_inv = np.linalg.inv(M)
-    cell_node_list = function.function_space().cell_node_list
-    y_vals = np.dot(function.dat.data_ro[cell_node_list], M_inv)
-    x = SpatialCoordinate(function.function_space().mesh())
-    coords = Function(function.function_space())
+    y_vals = _bezier_calculate_points(function)
+    x = SpatialCoordinate(mesh)
+    coords = Function(FunctionSpace(mesh, 'DG', deg))
     coords.interpolate(x[0])
-    x_vals = np.dot(coords.dat.data_ro[cell_node_list], M_inv)
+    x_vals = _bezier_calculate_points(coords)
     vals = np.dstack((x_vals, y_vals))
 
     if axes is None:
@@ -142,7 +146,8 @@ def bezier_plot(function, axes=None, **kwargs):
              2: [Path.MOVETO, Path.CURVE3, Path.CURVE3],
              3: [Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4]}
     vertices = vals.reshape(-1, 2)
-    path = Path(vertices, np.tile(codes[deg], cell_node_list.shape[0]))
+    path = Path(vertices, np.tile(codes[deg],
+                function.function_space().cell_node_list.shape[0]))
     patch = patches.PathPatch(path, facecolor='none', lw=2)
     axes.add_patch(patch)
     axes.plot(**kwargs)
