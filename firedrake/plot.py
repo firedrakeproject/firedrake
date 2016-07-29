@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 import numpy as np
-from ufl import cell
-from firedrake import Function, SpatialCoordinate
+from ufl import Cell
+from firedrake import Function, SpatialCoordinate, FunctionSpace
 
 __all__ = ["plot"]
 
@@ -50,7 +50,7 @@ def plot(function, axes=None, num_points=100, **kwargs):
         import matplotlib.pyplot as plt
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    if function.function_space().mesh().ufl_cell() == cell.Cell("interval"):
+    if function.function_space().mesh().ufl_cell() == Cell("interval"):
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
         points = calculate_one_dim_points(function, num_points)
@@ -115,9 +115,8 @@ def bezier_plot(function, axes=None, **kwargs):
         raise RuntimeError("Matplotlib not importable, is it installed?")
 
     deg = function.function_space().ufl_element().degree()
+    mesh = function.function_space().mesh()
     if deg == 0:
-        from firedrake import FunctionSpace
-        mesh = function.function_space().mesh()
         V = FunctionSpace(mesh, "DG", 1)
         func = Function(V).interpolate(function)
         return bezier_plot(func, axes, **kwargs)
@@ -129,10 +128,10 @@ def bezier_plot(function, axes=None, **kwargs):
     M_inv = np.linalg.inv(M)
     cell_node_list = function.function_space().cell_node_list
     y_vals = np.dot(function.dat.data_ro[cell_node_list], M_inv)
-    x = SpatialCoordinate(function.function_space().mesh())
-    coords = Function(function.function_space())
+    x = SpatialCoordinate(mesh)
+    coords = Function(FunctionSpace(mesh, 'DG', deg))
     coords.interpolate(x[0])
-    x_vals = np.dot(coords.dat.data_ro[cell_node_list], M_inv)
+    x_vals = np.dot(coords.dat.data_ro[coords.function_space().cell_node_list], M_inv)
     vals = np.dstack((x_vals, y_vals))
 
     if axes is None:
