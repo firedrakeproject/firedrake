@@ -926,6 +926,7 @@ int main(int argc, char **argv) {
     dotsrc = os.readlink(dotpython)
     if os.path.exists(pythonapp):
         # Already fixed up.
+        log.info("MacOS framework python already exists, not creating")
         return True
     if not os.path.exists(dotpython):
         log.warning("Unable to find .Python, can't build framework python")
@@ -937,6 +938,7 @@ int main(int argc, char **argv) {
         return False
     appdest = os.path.abspath(os.path.join(".", "Python.app"))
     shutil.copytree(appsrc, appdest)
+    log.info("MacOS framework copied from '%s' to '%s'" % (appsrc, appdest))
     execname = os.path.join(appdest,
                             "Contents",
                             "MacOS",
@@ -945,10 +947,11 @@ int main(int argc, char **argv) {
                 dotpython, execname])
     pyname = "python%s.%s" % platform.python_version_tuple()[:2]
     for name in [pyname, "pythonw"]:
-        dest = os.path.join(".", "bin", name)
+        dest = os.path.abspath(os.path.join(".", "bin", name))
         fd, tmpfile = tempfile.mkstemp(suffix=".c")
         with os.fdopen(fd, "w") as f:
             f.write(new_binary % {'Python': execname})
+        log.info("Building trampoline framework python as '%s'" % dest)
         check_call(["cc", "-Wall", "-Werror", "-arch", platform.machine(),
                     "-o", dest, tmpfile])
         os.remove(tmpfile)
