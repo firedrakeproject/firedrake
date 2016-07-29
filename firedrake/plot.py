@@ -8,6 +8,7 @@ __all__ = ["plot"]
 
 def _plot_mult(functions, num_points=10, **kwargs):
     """Plot multiple functions on a figure, return a matplotlib figure
+
     :arg functions: Functions to be plotted
     :arg num_points: Number of points per element
     """
@@ -42,6 +43,7 @@ def plot(function,
          **kwargs):
     """Plot a function or a list of functions and return a matplotlib
     figure object.
+
     :arg function: The function to plot.
     :arg num_sample_points: Number of Sample points per element, ignored if
         degree < 4 where Bezier curve will be used instead of sampling at
@@ -84,6 +86,7 @@ def plot(function,
 
 def _calculate_values(function, points, dimension):
     """Calculate function values at given reference points
+
     :arg function: function to be sampled
     :arg points: points to be sampled in reference space
     """
@@ -104,6 +107,7 @@ def _calculate_values(function, points, dimension):
 def _calculate_points(function, num_points, dimension):
     """Calculate points in physical space of given function with given number of
     sampling points at given dimension
+
     :arg function: function to be sampled
     :arg num_points: number of sampling points
     :arg dimension: dimension of the function
@@ -147,6 +151,12 @@ def calculate_one_dim_points(function, num_points):
 
 
 def two_dimension_triangle_Z(function, num_sample_points):
+    """Calculate the triangulation and function values for a given 2D function
+
+    :arg function: 2D function
+    :arg num_sample_points: Number of sampling points
+    """
+
     try:
         from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
@@ -239,6 +249,10 @@ def two_dimension_contour(function,
 
 
 def _bezier_calculate_points(function):
+    """Calculate points values for a function used for bezier plotting
+
+    :arg function: 1D Function with 1 < deg < 4
+    """
     deg = function.function_space().ufl_element().degree()
     M = np.empty([deg + 1, deg + 1], dtype=float)
     basis = function.function_space().fiat_element.dual_basis()
