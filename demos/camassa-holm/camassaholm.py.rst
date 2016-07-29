@@ -63,6 +63,11 @@ Firedrake namespace. ::
 
   from firedrake import *
 
+To visualise the output, we also need to import matplotlib.python to display
+the visual output ::
+
+  import matplotlib.pyplot as plt
+
 The following code is currently required to ensure
 reevaluation of the energy for output. ::
 
@@ -170,12 +175,13 @@ e.g. for output. ::
   m1, u1 = w1.split()
 
 We choose a final time, and initialise a :class:`~.File` object for
-storing ``u``. ::
+storing ``u``. as well as an array for storing the function to be visualised::
 
   T = 100.0
   ufile = File('u.pvd')
   t = 0.0
   ufile.write(u1, time=t)
+  all_us = []
 
 We also initialise a dump counter so we only dump every 10 timesteps. ::
 
@@ -200,17 +206,27 @@ To implement the timestepping algorithm, we just call the solver, and assign
      usolver.solve()
      w0.assign(w1)
 
-Finally, we check if it is time to dump the data. ::
+Finally, we check if it is time to dump the data. The function will be appended
+to the array of functions to be plotted later::
 
   #
      dumpn += 1
      if dumpn == ndump:
         dumpn -= ndump
         ufile.write(u1, time=t)
+        all_us.append(Function(u1))
 
 This solution leads to emergent peakons (peaked solitons); the left
 peakon is travelling faster than the right peakon, so they collide and
 momentum is transferred to the right peakon.
+
+At last, we call the :func:`plot(all_us) <firedrake.plot.plot>` to plot the image::
+
+  plot(all_us)
+
+And finally show the figure::
+
+  plt.show()
 
 Images of the solution at shown below.
 
