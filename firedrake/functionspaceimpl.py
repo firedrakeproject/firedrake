@@ -795,7 +795,7 @@ class ProxyFunctionSpace(FunctionSpace):
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
         if self.no_dats:
-            raise ValueError("Can't build Function on %s function space" % self.typ)
+            raise ValueError("Can't build Function on %s function space" % self.identifier)
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
 
