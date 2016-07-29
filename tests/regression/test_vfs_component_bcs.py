@@ -88,8 +88,7 @@ def test_poisson_in_components(V):
                          [False, True], ids=["nest", "monolithic"])
 @pytest.mark.parametrize("make_val",
                          [lambda x: x,
-                          pytest.mark.xfail(reason="Can't make dat")(
-                              lambda x: Expression("%g" % x))],
+                          lambda x: Expression("%g" % x)],
                          ids=["UFL value", "C expression"])
 def test_poisson_in_mixed_plus_vfs_components(V, nested, make_val):
     # Solve five decoupled poisson problems with different boundary

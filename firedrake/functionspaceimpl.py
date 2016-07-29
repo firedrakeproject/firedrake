@@ -839,5 +839,4 @@ def ComponentFunctionSpace(parent, component):
     new.identifier = "component"
     new.component = component
     new.parent = parent
-    new.no_dats = True
     return new
