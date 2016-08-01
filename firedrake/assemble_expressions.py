@@ -297,7 +297,7 @@ class ExpressionSplitter(ReuseTransformer):
             # the indexed coefficient if its position matches the FixedIndex
             # Since we don't split rank-1 function spaces, we have to
             # reconstruct the fixed index expression for those (and only those)
-            if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
+            if isinstance(idx._indices[0], ufl.core.multiindex.FixedIndex):
                 if idx._indices[0]._value != i:
                     return self._identity
                 elif coeff.function_space().rank == 1:
