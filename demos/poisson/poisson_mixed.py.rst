@@ -144,6 +144,18 @@ visualisation tool such as `ParaView <http://www.paraview.org/>`__ ::
 
   File("poisson_mixed.pvd").write(u)
 
+We could use the built in plot function of firedrake by calling 
+:func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
+matplotlib.pyplot should be installed and imported::
+
+  import matplotlib.pyplot as plt
+  plot(u, 1)
+
+Don't forget to show the image::
+
+  plt.show()
+
+
 This demo is based on the corresponding `DOLFIN mixed Poisson demo
 <http://fenicsproject.org/documentation/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__
 and can be found as a script in `poisson_mixed.py <poisson_mixed.py>`__.
