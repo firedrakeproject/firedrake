@@ -91,6 +91,22 @@ to a file::
 
 This file can be visualised using `paraview <http://www.paraview.org/>`__.
 
+We could use the built in plot function of firedrake by calling 
+:func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
+matplotlib.pyplot should be installed and imported::
+
+  import matplotlib.pyplot as plt
+  plot(u, 2)
+
+For a contour plot, it could be plotted by adding an additional key word
+argument::
+
+  plot(u, 2, contour=True)
+
+Don't forget to show the image::
+  
+  plt.show()
+
 Alternatively, since we have an analytic solution, we can check the
 :math:`L_2` norm of the error in the solution::
 
