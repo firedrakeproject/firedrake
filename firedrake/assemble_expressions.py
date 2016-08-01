@@ -4,7 +4,7 @@ import weakref
 import ufl
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero, IntValue
-from ufl.indexing import MultiIndex
+from ufl.core.multiindex import MultiIndex
 from ufl.core.operator import Operator
 from ufl.mathfunctions import MathFunction
 from ufl.core.ufl_type import ufl_type as orig_ufl_type
