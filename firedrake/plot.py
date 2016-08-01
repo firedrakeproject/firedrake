@@ -49,7 +49,7 @@ def _plot_mult(functions, num_points=10, **kwargs):
 
 
 def plot(function,
-         num_sample_points=10,
+         num_sample_points=100,
          axes=None,
          **kwargs):
     """Plot a function or a list of functions and return a matplotlib
@@ -190,6 +190,7 @@ def two_dimension_triangle_Z(function, num_sample_points):
     :arg num_sample_points: Number of sampling points
     """
 
+    from math import log, sqrt
     try:
         from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
@@ -204,7 +205,8 @@ def two_dimension_triangle_Z(function, num_sample_points):
         raise RuntimeError("Unsupported Functionality")
     base_tri = Triangulation(x, y)
     refiner = UniformTriRefiner(base_tri)
-    tri = refiner.refine_triangulation(False, num_sample_points)
+    sub_triangles = int(log(sqrt(num_sample_points), 4)) + 1
+    tri = refiner.refine_triangulation(False, sub_triangles)
     triangles = tri.get_masked_triangles()
     x_ref = tri.x
     y_ref = tri.y
