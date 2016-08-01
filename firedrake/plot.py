@@ -3,7 +3,7 @@ import numpy as np
 from ufl import Cell
 from firedrake import Function, SpatialCoordinate, FunctionSpace
 
-__all__ = ["plot"]
+__all__ = ["plot", "interactive_multiple_plot"]
 
 
 def _plot_mult(functions, num_points=10, **kwargs):
