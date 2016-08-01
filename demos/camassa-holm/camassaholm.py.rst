@@ -220,13 +220,18 @@ This solution leads to emergent peakons (peaked solitons); the left
 peakon is travelling faster than the right peakon, so they collide and
 momentum is transferred to the right peakon.
 
-At last, we call the :func:`plot(all_us) <firedrake.plot.plot>` to plot the image::
+At last, we call the :func:`plot(all_us) <firedrake.plot.plot>` to plot the
+image::
 
   plot(all_us)
 
 And finally show the figure::
 
   plt.show()
+
+Alternatively, if running in Jupyter Notebook, an interactive interface will be
+displayed by calling `interactive_multiple_plot(all_us)
+<firedrake.plot.interactive_multiple_plot>`.
 
 Images of the solution at shown below.
 
