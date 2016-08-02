@@ -734,8 +734,8 @@ def build_and_install_slope():
         check_call(["mkdir", "-p", include_dir])
         check_call(["cp"] + glob(os.path.join('sparsetiling', 'include', '*')) + [include_dir])
         # Also install the Python interface
+        run_cmd(pyinstall)
         os.chdir("..")
-        install("SLOPE/")
 
 
 def clean_obsolete_packages():
