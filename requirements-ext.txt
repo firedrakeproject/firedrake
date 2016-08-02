@@ -7,3 +7,4 @@ pytest
 pytest-xdist
 pytest-benchmark
 ipython
+matplotlib
