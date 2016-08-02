@@ -1,5 +1,4 @@
-"""This is a symbolic language for algebraic tensor expressions.
-This work is based on a template written by Lawrence Mitchell.
+"""This is a system for linear algebra operations on algebraic tensor expressions.
 
 Written by: Thomas Gibson
 """
@@ -11,11 +10,27 @@ from singledispatch import singledispatch
 import operator
 import itertools
 import functools
+
 import firedrake
 from ufl.form import Form
+from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms.multifunction import MultiFunction
+
 from coffee import base as ast
-from coffee.visitor import Visitor
-from tsfc import compile_form as tsfc_compile_form
+
+
+class CheckRestrictions(MultiFunction):
+    expr = MultiFunction.reuse_if_untouched
+
+    def negative_restricted(self, o):
+        raise ValueError("Cell-wise integrals may only contain positive restrictions.")
+
+
+class RemoveRestrictions(MultiFunction):
+    expr = MultiFunction.reuse_if_untouched
+
+    def positive_restricted(self, o):
+        return self(o.ufl_operands[0])
 
 
 class Tensor(Form):
@@ -33,6 +48,7 @@ class Tensor(Form):
         self._coefficients = tuple(coefficients)
         self._integrals = tuple(integrals)
         self._hash = None
+        self._ufl_domain = self._arguments[0].ufl_domain()
         shape = []
         shapes = {}
         for i, arg in enumerate(self._arguments):
@@ -82,6 +98,24 @@ class Tensor(Form):
         """
         return ()
 
+    @classmethod
+    def check_integrals(cls, integrals):
+        mapper = CheckRestrictions()
+        for it in integrals:
+            map_integrand_dags(mapper, it)
+
+    def _bop(self, other, op):
+        ops = {operator.add: Sum,
+               operator.sub: Sub,
+               operator.mul: Mul}
+        assert isinstance(other, Tensor)
+        return ops[op](self, other)
+
+    def ufl_domain(self):
+        """Returns the ufl_domain of the tensor
+        object."""
+        return self._ufl_domain
+
     def tensor_integrals(self):
         """Return a sequence of all integrals
         associated with this tensor object."""
@@ -112,6 +146,7 @@ class Scalar(Tensor):
         r = len(form.arguments())
         assert r == 0
         self.rank = r
+        self.check_integrals(form.integrals())
         self.form = form
         Tensor.id_num += 1
         super(Scalar, self).__init__(arguments=(),
@@ -134,6 +169,7 @@ class Vector(Tensor):
         r = len(form.arguments())
         assert r == 1
         self.rank = r
+        self.check_integrals(form.integrals())
         self.form = form
         Tensor.id_num += 1
         super(Vector, self).__init__(arguments=form.arguments(),
@@ -156,6 +192,7 @@ class Matrix(Tensor):
         r = len(form.arguments())
         assert r == 2
         self.rank = r
+        self.check_integrals(form.integrals())
         self.form = form
         Tensor.id_num += 1
         super(Matrix, self).__init__(arguments=form.arguments(),
@@ -404,55 +441,6 @@ class TensorMul(BinaryOp):
         return intsA[:-1] + intsB[1:]
 
 
-class TransformKernel(Visitor):
-    """Replaces all references to an output tensor with specified name
-    by an Eigen Matrix of the appropriate shape.
-
-    A default name of :data: "A" is assumed, otherwise you pass in the
-    name as :data: `name` kwarg when calling the visitor.
-    """
-
-    def visit_object(self, obj, *args, **kwargs):
-        return obj
-
-    def visit_list(self, obj, *args, **kwargs):
-        newlist = [self.visit(e, *args, **kwargs) for e in obj]
-        if all(n is e for n, e in zip(newlist, obj)):
-            return obj
-        return newlist
-
-    visit_Node = Visitor.maybe_reconstruct
-
-    def visit_FunDecl(self, obj, *args, **kwargs):
-        new = self.visit_Node(obj, *args, **kwargs)
-        ops, obj_kwargs = new.operands()
-        name = kwargs.get("name", "A")
-        if all(new is old for new, old in zip(ops, obj.operands()[0])):
-            return obj
-        pred = ["template<typename Derived>", "static", "inline"]
-        ops[4] = pred
-        body = ops[3]
-        args, _ = body.operands()
-        nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived>& %s = const_cast< Eigen::MatrixBase<Derived>& >(%s_);\n" % \
-                               (name, name))] + args
-        ops[3] = ast.Node(nargs)
-        return obj.reconstruct(*ops, **obj_kwargs)
-
-    def visit_Decl(self, obj, *args, **kwargs):
-        name = kwargs.get("name", "A")
-        if obj.sym.symbol != name:
-            return obj
-        typ = "Eigen::MatrixBase<Derived> const &"
-        return obj.reconstruct(typ, ast.Symbol("%s_" % name))
-
-    def visit_Symbol(self, obj, *args, **kwargs):
-        name = kwargs.get("name", "A")
-        if obj.symbol != name:
-            return obj
-        shape = obj.rank
-        return ast.FunCall(ast.Symbol(name), *shape)
-
-
 @singledispatch
 def get_arguments(expr):
     raise ValueError("Tensors of type %s are not supported." % type(expr))
@@ -561,11 +549,10 @@ def macro_kernel(slate_expr):
     shape = slate_expr.shape
     temps = {}
     kernel_exprs = {}
-    templist = []
     coeffs = slate_expr.coefficients()
-    _coeffs = {}
     statements = []
 
+    need_cell_facets = False
     def mat_type(shape):
         if len(shape) == 1:
             rows = shape[0]
@@ -602,14 +589,20 @@ def macro_kernel(slate_expr):
             temps[expr] = temp
             statements.append(ast.Decl(temp_type, temp))
 
-            compiled_form = tsfc_compile_form(expr.form, prefix="form_%s" % sym)[0]
+            integrands = expr.integrals()
+            kernel_exprs[expr] = []
+            mapper = RemoveRestrictions()
+            for i, integ in enumerate(integrands):
+                typ = integ.integral_type()
+                form = Form([integ])
+                prefix = "subkernel%d_%d_%s_" % (len(kernel_exprs), i, typ)
+                if typ == "interior_facet":
+                    newinteg = map_integrand_dags(mapper, integ)
+                    newinteg = newinteg.reconstruct(integral_type="exterior_facet")
+                    form = Form([newinteg])
 
-            coefflist = [c for c in coeffs if c in expr.coefficients()]
-            _coeffs[expr] = coefflist
-
-            templist.append((temp.symbol, temp_type))
-
-            kernel_exprs[expr] = (temp_type, compiled_form)
+                compiled_form = firedrake.tsfc_interface.compile_form(form, prefix)
+                kernel_exprs[expr].append((typ, compiled_form))
         return
 
     @get_kernel_expr.register(UnaryOp)
@@ -622,17 +615,88 @@ def macro_kernel(slate_expr):
 
     coeffmap = dict((c, ast.Symbol("w%d" % i)) for i, c in enumerate(coeffs))
     coordsym = ast.Symbol("coords")
+    coords = None
+    cellfacetsym = ast.Symbol("cell_facets")
     get_kernel_expr(slate_expr)
+    inc = []
+    for exp, t in temps.items():
+        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+        for (typ, klist) in kernel_exprs[exp]:
+            for ks in klist:
+                clist = []
+                kinfo = ks[1]
+                kernel = kinfo.kernel
+                if typ not in ["cell", "interior_facet", "exterior_facet"]:
+                    raise NotImplementedError("Integral type '%s' not supported." % typ)
 
-    for exp, klist in kernel_exprs.items():
-        statements.append(ast.FlatBlock("%s.setZero();\n" % temps[exp].symbol))
-        clist = []
-        for cf in _coeffs[exp]:
-            clist.append(coeffmap[cf])
-        statements.append(ast.FunCall(klist[1].ast.name,
-                                      temps[exp].symbol,
-                                      coordsym,
-                                      *clist))
+                # Checking for facet integral
+                if typ in ["interior_facet", "exterior_facet"]:
+                    need_cell_facets = True
+
+                # Extracting coordinates
+                if coords is not None:
+                    assert exp.ufl_domain().coordinates == coords
+                else:
+                    coords = exp.ufl_domain().coordinates
+
+                # Extracting coefficients
+                for cindex in list(kinfo[4]):
+                    coeff = exp.coefficients()[cindex]
+                    clist.append(coeffmap[coeff])
+
+                # Defining tensor matrices of appropriate size
+                inc.extend(kernel._include_dirs)
+                row, col = ks[0]
+                rshape = exp.shapes[0][row]
+                rstart = sum(exp.shapes[0][:row])
+                try:
+                    cshape = exp.shapes[1][col]
+                    cstart = sum(exp.shapes[1][:col])
+                except:
+                    cshape = 1
+                    cstart = 0
+
+                # Creating sub-block if tensor is mixed
+                if (rshape, cshape) != exp.shape:
+                    tensor = ast.FlatBlock("%s.block<%d,%d>(%d, %d)" %
+                                           (t, rshape, cshape,
+                                            rstart, cstart))
+                else:
+                    tensor = t
+
+                # Facet integral loop
+                if typ in ["exterior_facet", "interior_facet"]:
+                    integsym = ast.Symbol("i0")
+                    block = []
+                    mesh = coords.function_space().mesh()
+
+                    # ASK LAWRENCE: Does this return the number of facets on a particular
+                    # element or for the entire mesh?
+                    nfacet = mesh._plex.getConeSize(mesh._plex.getHeightStratum(0)[0])
+                    clist.append(ast.FlatBlock("&%s" % integsym))
+                    if typ == "exterior_facet":
+                        check = 0
+                    else:
+                        check = 1
+                    block.append(
+                        ast.If(ast.Eq(ast.Symbol(cellfacetsym,
+                                                 rank=(integsym, )),
+                                      check),
+                                      [ast.Block([ast.FunCall(kernel.name,
+                                                              tensor,
+                                                              coordsym,
+                                                              *clist)],
+                                                 open_scope=True)]))
+                    loop = ast.For(ast.Decl("unsigned int", integsym, init=0),
+                                   ast.Less(integsym, nfacet),
+                                   ast.Incr(integsym, 1),
+                                   block)
+                    statements.append(loop)
+                else:
+                    statements.append(ast.FunCall(kernel.name,
+                                                  tensor,
+                                                  coordsym,
+                                                  *clist))
 
 
     def pars(expr, order_of_op=None, parent=None):
@@ -684,7 +748,7 @@ def macro_kernel(slate_expr):
 
     result_type = map_type(mat_type(shape))
     result_sym = ast.Symbol("T%d" % len(temps))
-    result_data_sym = ast.Symbol("datasym%d" % len(temps))
+    result_data_sym = ast.Symbol("A%d" % len(temps))
     result = ast.Decl(dtype, ast.Symbol(result_data_sym, shape))
 
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" %
@@ -701,17 +765,26 @@ def macro_kernel(slate_expr):
             ctype = "%s *" % dtype
         arglist.append(ast.Decl(ctype, coeffmap[c]))
 
+    if need_cell_facets:
+        arglist.append(ast.Decl("char *", cellfacetsym))
+
     kernel = ast.FunDecl("void", "macro_kernel", arglist,
                          ast.Block(statements),
                          pred=["static", "inline"])
 
-    transformer = TransformKernel()
     klist = []
-    for _, kv in kernel_exprs.items():
-        kast = kv[1].ast
-        klist.append(kast)
+    for v in kernel_exprs.values():
+        for (_, ks) in v:
+            for k in ks:
+                kast = k.kinfo.kernel._ast
+                klist.append(ast.FlatBlock(kast.gencode()))
+
     klist.append(kernel)
     kernelast = ast.Node(klist)
 
-
-    return coeffs, kernel, kernelast
+    return coords, coeffs, need_cell_facets, kernel, kernelast, \
+        firedrake.op2.Kernel(kernelast,
+                             "macro_kernel",
+                             cpp=True,
+                             include_dirs=inc,
+                             headers=["#include <eigen3/Eigen/Dense>"])
