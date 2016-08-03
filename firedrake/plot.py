@@ -351,11 +351,13 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
 
     pts = pts.T.reshape(num_cells, -1, 2)
     vertices = np.array([]).reshape(-1, 2)
+    rows = np.arange(4)
+    cols = (np.arange((pts.shape[1] - 1) / 3) * 3).reshape(-1, 1)
+    idx = rows + cols
     for i in range(num_cells):
-        j = 0
-        while j + 3 <= pts.shape[1]:
-            vertices = np.append(vertices, points_to_bezier_curve(pts[i, j:j+4]))
-            j += 3
+        vertices = np.append(vertices,
+                             points_to_bezier_curve(pts[i, idx])
+                             .transpose([1, 0, 2]).reshape(-1, 2))
     vertices = vertices.reshape(-1, 2)
     codes = np.tile([Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4],
                     vertices.shape[0] / 4)
