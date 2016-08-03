@@ -370,12 +370,11 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
 
 
 def points_to_bezier_curve(pts):
-    bezier_ctrl_pts = np.empty([4, 2])
-    bezier_ctrl_pts[0] = pts[0]
-    bezier_ctrl_pts[1] = -5./6.*pts[0] + 3.*pts[1] - 3./2.*pts[2] + 1./3.*pts[3]
-    bezier_ctrl_pts[2] = +1./3.*pts[0] - 3./2.*pts[1] + 3.*pts[2] - 5./6.*pts[3]
-    bezier_ctrl_pts[3] = pts[3]
-    return bezier_ctrl_pts
+    M = np.array([[1., 0., 0., 0.],
+                  [-5./6., 3., -3./2., 1./3.],
+                  [1./3., -3./2., 3., -5./6.],
+                  [0., 0., 0., 1.]])
+    return np.dot(M, pts)
 
 
 def _bernstein(x, k, n):
