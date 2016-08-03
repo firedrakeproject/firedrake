@@ -262,6 +262,14 @@ class Kernel(sequential.Kernel, tuple):
                         self.cache_key: function_name
                     }
             code += "\n"
+
+        # Tiled kernels are C++, and C++ compilers don't recognize /restrict/
+        code = """
+#define restrict __restrict
+
+%s
+""" % code
+
         return code
 
     def __init__(self, kernels, fused_ast=None, loop_chain_index=None):
@@ -371,7 +379,7 @@ class TilingJITModule(sequential.JITModule):
 
     """A special :class:`JITModule` for a sequence of tiled kernels."""
 
-    _cppargs = []
+    _cppargs = ['-fpermissive']
     _libraries = []
     _extension = 'cpp'
 
