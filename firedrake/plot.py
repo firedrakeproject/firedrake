@@ -215,7 +215,7 @@ def two_dimension_triangle_Z(function, num_sample_points):
         raise RuntimeError("Unsupported Functionality")
     base_tri = Triangulation(x, y)
     refiner = UniformTriRefiner(base_tri)
-    sub_triangles = int(log(sqrt(num_sample_points), 4)) + 1
+    sub_triangles = int(log(sqrt(num_sample_points), 4))
     tri = refiner.refine_triangulation(False, sub_triangles)
     triangles = tri.get_masked_triangles()
     x_ref = tri.x
