@@ -57,10 +57,12 @@ def plot(function,
 
     :arg function: The function to plot.
     :arg num_sample_points: Number of Sample points per element, ignored if
-        degree < 4 where Bezier curve will be used instead of sampling at
-        points
+        degree < 4 where an exact Bezier curve will be used instead of
+        sampling at points
     :arg axes: Axes to be plotted on
     :kwarg contour: For 2D plotting, True for a contour plot
+    :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
+        piece-wise linear
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
@@ -76,7 +78,15 @@ def plot(function,
             == 1:
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
+        bezier = kwargs.pop('bezier', False)
+        if bezier:
+            num_sample_points = int(num_sample_points / 3) * 3 + 1 \
+                if num_sample_points >= 4 else 4
         points = calculate_one_dim_points(function, num_sample_points)
+        if bezier:
+            return interp_bezier(points,
+                                 function.function_space().mesh().num_cells(),
+                                 axes, **kwargs)
         if axes is None:
             axes = plt.subplot(111)
         axes.plot(points[0], points[1], **kwargs)
