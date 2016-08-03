@@ -315,12 +315,6 @@ class Inspector(Cached):
         log = self._options.get('log', False)
         rank = MPI.COMM_WORLD.rank
 
-        # SLOPE MPI backend unsupported if extra halo not available
-        if slope.get_exec_mode() in ['OMP_MPI', 'ONLY_MPI'] and \
-                not all(hasattr(l.it_space.iterset, '_deep_size') for l in loop_chain):
-            warning("Tiling through SLOPE requires deep halos in all PyOP2 sets.")
-            return
-
         # The SLOPE inspector, which needs be populated with sets, maps,
         # descriptors, and loop chain structure
         inspector = slope.Inspector(self._name)
@@ -783,7 +777,7 @@ def create_slope_set(op2set, extra_halo, insp_sets=None):
         core_size = op2set.core_size
         boundary_size = op2set.exec_size - op2set.core_size
         nonexec_size = op2set.total_size - op2set.exec_size
-    else:
+    elif hasattr(op2set, '_deep_size'):
         # Assume [1, ..., N] levels of halo regions
         # Each level is represented by (core, owned, exec, nonexec)
         level_N = op2set._deep_size[-1]
@@ -794,6 +788,11 @@ def create_slope_set(op2set, extra_halo, insp_sets=None):
             level_E = op2set._deep_size[-2]
             boundary_size = level_E[2] - core_size
             nonexec_size = level_E[3] - level_E[2]
+    else:
+        warning("Couldn't find deep halos in %s, outcome is undefined." % op2set.name)
+        core_size = op2set.core_size
+        boundary_size = op2set.exec_size - op2set.core_size
+        nonexec_size = op2set.total_size - op2set.exec_size
 
     slope_set = SlopeSet(name, core_size, boundary_size, nonexec_size, superset)
     insp_sets[slope_set] = partitioning
