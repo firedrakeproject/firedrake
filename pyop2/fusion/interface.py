@@ -145,7 +145,7 @@ def fuse(name, loop_chain, **kwargs):
 
     # If tiling is requested, SLOPE must be visible
     if mode in ['tile', 'only_tile'] and not slope:
-        warning("Couldn't locate SLOPE. Check the SLOPE_DIR environment variable")
+        warning("Couldn't locate SLOPE. Falling back to plain op2.ParLoops.")
         return loop_chain + remainder
 
     schedule = inspector.inspect()
@@ -193,9 +193,6 @@ def loop_chain(name, **kwargs):
         * force_glb (default=False): force tiling even in presence of global
             reductions. In this case, the user becomes responsible of semantic
             correctness.
-        * split_mode (default=0): split the loop chain every /split_mode/ occurrences
-            of the special object ``LoopChainTag`` in the trace, creating a proper
-            inspector for each sub-sequence.
         * coloring (default='default'): set a coloring scheme for tiling. The ``default``
             coloring should be used because it ensures correctness by construction,
             based on the execution mode (sequential, openmp, mpi, mixed). So this
@@ -205,8 +202,7 @@ def loop_chain(name, **kwargs):
         * explicit (default=None): an iterator of 3-tuples (f, l, ts), each 3-tuple
             indicating a sub-sequence of loops to be inspected. ``f`` and ``l``
             represent, respectively, the first and last loop index of the sequence;
-            ``ts`` is the tile size for the sequence. This option takes precedence
-            over /split_mode/.
+            ``ts`` is the tile size for the sequence.
         * ignore_war: (default=False) inform SLOPE that inspection doesn't need
             to care about write-after-read dependencies.
         * log (default=False): output inspector and loop chain info to a file.
@@ -223,7 +219,6 @@ def loop_chain(name, **kwargs):
     kwargs.setdefault('use_prefetch', 0)
     kwargs.setdefault('coloring', 'default')
     kwargs.setdefault('ignore_war', False)
-    split_mode = kwargs.pop('split_mode', 0)
     explicit = kwargs.pop('explicit', None)
 
     # Get a snapshot of the trace before new par loops are added within this
@@ -247,24 +242,10 @@ def loop_chain(name, **kwargs):
             break
     extracted_trace = trace[bottom:]
 
-    # Identify sub traces
-    extracted_sub_traces, sub_trace, tags = [], [], []
-    for loop in extracted_trace:
-        if not isinstance(loop, LoopChainTag):
-            sub_trace.append(loop)
-        else:
-            tags.append(loop)
-            if split_mode and len(tags) % split_mode == 0:
-                extracted_sub_traces.append(sub_trace)
-                sub_trace = []
-    if sub_trace:
-        extracted_sub_traces.append(sub_trace)
-    extracted_trace = [i for i in extracted_trace if i not in tags]
-
-    # Four possibilities: ...
+    # Three possibilities:
     if num_unroll < 1:
-        # 1) ... No tiling requested, but the openmp backend was set. So we still
-        # omp-ize the loops through SLOPE
+        # 1) No tiling requested, but the openmp backend was set, so we still try to
+        # omp-ize the loops with SLOPE
         if slope and slope.get_exec_mode() in ['OMP', 'OMP_MPI'] and tile_size > 0:
             block_size = tile_size    # This is rather a 'block' size (no tiling)
             options = {'mode': 'only_omp',
@@ -274,8 +255,8 @@ def loop_chain(name, **kwargs):
             trace[bottom:] = list(flatten(new_trace))
             _trace.evaluate_all()
     elif explicit:
-        # 2) ... Tile over subsets of loops in the loop chain, as specified
-        # by the user through the /explicit/ list [subset1, subset2, ...]
+        # 2) Tile over subsets of loops in the loop chain, as specified
+        # by the user through the /explicit/ list
         prev_last = 0
         transformed = []
         for i, (first, last, tile_size) in enumerate(explicit):
@@ -287,18 +268,9 @@ def loop_chain(name, **kwargs):
         transformed.extend(extracted_trace[prev_last:])
         trace[bottom:] = transformed
         _trace.evaluate_all()
-    elif split_mode > 0:
-        # 3) ... Tile over subsets of loops in the loop chain. The subsets have
-        # been identified by the user through /sub_loop_chain/ or /loop_chain_tag/
-        new_trace = []
-        for i, sub_loop_chain in enumerate(extracted_sub_traces):
-            sub_name = "%s_sub%d" % (name, i)
-            new_trace.append(fuse(sub_name, sub_loop_chain, **kwargs))
-        trace[bottom:] = list(flatten(new_trace))
-        _trace.evaluate_all()
     else:
-        # 4) ... Tile over the entire loop chain, possibly unrolled as by user
-        # request of a factor = /num_unroll/
+        # 3) Tile over the entire loop chain, possibly unrolled as by user
+        # request of a factor equals to /num_unroll/
         total_loop_chain = loop_chain.unrolled_loop_chain + extracted_trace
         if len(total_loop_chain) / len(extracted_trace) == num_unroll:
             bottom = trace.index(total_loop_chain[0])
@@ -308,19 +280,3 @@ def loop_chain(name, **kwargs):
         else:
             loop_chain.unrolled_loop_chain.extend(extracted_trace)
 loop_chain.unrolled_loop_chain = []
-
-
-class LoopChainTag(object):
-    """A special object to split a sequence of lazily evaluated parallel loops
-    into two halves."""
-
-    def _run(self):
-        return
-
-
-@decorator
-def loop_chain_tag(method, self, *args, **kwargs):
-    from pyop2.base import _trace
-    retval = method(self, *args, **kwargs)
-    _trace._trace.append(LoopChainTag())
-    return retval
