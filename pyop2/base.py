@@ -4156,6 +4156,7 @@ class ParLoop(LazyComputation):
             arg.halo_exchange_begin(update_inc=self._only_local)
 
     @collective
+    @timed_function("ParLoopHaloEnd")
     def halo_exchange_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
@@ -4173,6 +4174,7 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_begin(reverse=True)
 
     @collective
+    @timed_function("ParLoopReverseHaloEnd")
     def reverse_halo_exchange_end(self):
         """Finish reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
