@@ -178,11 +178,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
-# TODO: Insert slate expression check here for assemble
-#    if isinstance(f, slate.Tensor):
-#        kernels = slate_compile_form(f, ...)
-#    else:
-
     kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
     rank = len(f.arguments())
 

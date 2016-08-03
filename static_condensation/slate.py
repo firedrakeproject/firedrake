@@ -105,9 +105,9 @@ class Tensor(Form):
             map_integrand_dags(mapper, it)
 
     def _bop(self, other, op):
-        ops = {operator.add: Sum,
-               operator.sub: Sub,
-               operator.mul: Mul}
+        ops = {operator.add: TensorAdd,
+               operator.sub: TensorSub,
+               operator.mul: TensorMul}
         assert isinstance(other, Tensor)
         return ops[op](self, other)
 
@@ -445,11 +445,13 @@ class TensorMul(BinaryOp):
 def get_arguments(expr):
     raise ValueError("Tensors of type %s are not supported." % type(expr))
 
+
 @get_arguments.register(Scalar)
 @get_arguments.register(Vector)
 @get_arguments.register(Matrix)
 def get_tensor_arguments(tensor):
     return tensor.arguments()
+
 
 @get_arguments.register(Inverse)
 @get_arguments.register(Transpose)
@@ -458,6 +460,7 @@ def get_uop_arguments(expr):
     if isinstance(expr, (Inverse, Transpose)):
         return get_arguments(expr.children)[::-1]
     return get_arguments(expr.children)
+
 
 @get_arguments.register(TensorAdd)
 @get_arguments.register(TensorSub)
@@ -471,6 +474,7 @@ def get_bop_arguments(expr):
         return get_arguments(A)
     assert A.shape == B.shape
     return get_arguments(A)
+
 
 @get_arguments.register(TensorMul)
 def get_product_arguments(expr):
@@ -487,9 +491,11 @@ def get_product_arguments(expr):
             get_arguments(B)[0].function_space())
     return get_arguments(A)[:-1] + get_arguments(B)[1:]
 
+
 @singledispatch
 def get_coefficients(expr):
     raise ValueError("Tensors of type %s is not supported." % type(expr))
+
 
 @get_coefficients.register(Scalar)
 @get_coefficients.register(Vector)
@@ -497,11 +503,13 @@ def get_coefficients(expr):
 def get_tensor_coefficients(tensor):
     return tensor.coefficients()
 
+
 @get_coefficients.register(Inverse)
 @get_coefficients.register(Transpose)
 @get_coefficients.register(UnaryOp)
 def get_uop_coefficients(expr):
     return get_coefficients(expr.children)
+
 
 @get_coefficients.register(BinaryOp)
 def get_bop_coefficients(expr):
@@ -515,9 +523,11 @@ def get_bop_coefficients(expr):
             coeffs.append(c)
     return tuple(list(get_coefficients(A)) + coeffs)
 
+
 @singledispatch
 def get_integrals(expr):
     raise ValueError("Tensors of type %s is not supported." % type(expr))
+
 
 @get_integrals.register(Scalar)
 @get_integrals.register(Vector)
@@ -525,11 +535,13 @@ def get_integrals(expr):
 def get_tensor_integrals(tensor):
     return tensor.tensor_integrals()
 
+
 @get_integrals.register(Inverse)
 @get_integrals.register(Transpose)
 @get_integrals.register(UnaryOp)
 def get_uop_integrals(expr):
     return get_integrals(expr.children)
+
 
 @get_integrals.register(TensorAdd)
 @get_integrals.register(TensorSub)
@@ -538,21 +550,32 @@ def get_bop_integrals(expr):
     B = expr.children[1]
     return get_integrals(A) + get_integrals(B)
 
+
 @get_integrals.register(TensorMul)
 def get_product_integrals(expr):
     A = expr.children[0]
     B = expr.children[1]
     return get_integrals(A)[:-1] + get_integrals(B)[1:]
 
-def macro_kernel(slate_expr):
+
+def compile_slate_expression(slate_expr):
+    """Takes a SLATE expression `slate_expr` and returns the appropriate
+    coordinates `coords` of the mesh its defined on, the `coefficients` in
+    the SLATE expression and the :class:`firedrake.op2.Kernel` object
+    representing the SLATE expression.
+
+    :arg slate_expr: A SLATE expression to unpack.
+
+    """
+
     dtype = "double"
     shape = slate_expr.shape
     temps = {}
     kernel_exprs = {}
     coeffs = slate_expr.coefficients()
     statements = []
-
     need_cell_facets = False
+
     def mat_type(shape):
         if len(shape) == 1:
             rows = shape[0]
@@ -669,9 +692,6 @@ def macro_kernel(slate_expr):
                     integsym = ast.Symbol("i0")
                     block = []
                     mesh = coords.function_space().mesh()
-
-                    # ASK LAWRENCE: Does this return the number of facets on a particular
-                    # element or for the entire mesh?
                     nfacet = mesh._plex.getConeSize(mesh._plex.getHeightStratum(0)[0])
                     clist.append(ast.FlatBlock("&%s" % integsym))
                     if typ == "exterior_facet":
@@ -681,12 +701,11 @@ def macro_kernel(slate_expr):
                     block.append(
                         ast.If(ast.Eq(ast.Symbol(cellfacetsym,
                                                  rank=(integsym, )),
-                                      check),
-                                      [ast.Block([ast.FunCall(kernel.name,
-                                                              tensor,
-                                                              coordsym,
-                                                              *clist)],
-                                                 open_scope=True)]))
+                                      check), [ast.Block([ast.FunCall(kernel.name,
+                                                                      tensor,
+                                                                      coordsym,
+                                                                      *clist)],
+                                                         open_scope=True)]))
                     loop = ast.For(ast.Decl("unsigned int", integsym, init=0),
                                    ast.Less(integsym, nfacet),
                                    ast.Incr(integsym, 1),
@@ -698,7 +717,6 @@ def macro_kernel(slate_expr):
                                                   coordsym,
                                                   *clist))
 
-
     def pars(expr, order_of_op=None, parent=None):
         if order_of_op is None or parent >= order_of_op:
             return expr
@@ -706,7 +724,7 @@ def macro_kernel(slate_expr):
 
     @singledispatch
     def get_c_str(expr, temps, order_of_op=None):
-         raise NotImplementedError("Expression of type %s not supported",
+        raise NotImplementedError("Expression of type %s not supported",
                                   type(expr).__name__)
 
     @get_c_str.register(Scalar)
@@ -768,7 +786,7 @@ def macro_kernel(slate_expr):
     if need_cell_facets:
         arglist.append(ast.Decl("char *", cellfacetsym))
 
-    kernel = ast.FunDecl("void", "macro_kernel", arglist,
+    kernel = ast.FunDecl("void", "compile_slate_expression", arglist,
                          ast.Block(statements),
                          pred=["static", "inline"])
 
@@ -781,10 +799,80 @@ def macro_kernel(slate_expr):
 
     klist.append(kernel)
     kernelast = ast.Node(klist)
+    op2kernel = firedrake.op2.Kernel(kernelast,
+                                     "compile_slate_expression",
+                                     cpp=True,
+                                     include_dirs=inc,
+                                     headers=["#include <eigen3/Eigen/Dense>"])
 
-    return coords, coeffs, need_cell_facets, kernel, kernelast, \
-        firedrake.op2.Kernel(kernelast,
-                             "macro_kernel",
-                             cpp=True,
-                             include_dirs=inc,
-                             headers=["#include <eigen3/Eigen/Dense>"])
+    return coords, coeffs, need_cell_facets, op2kernel
+
+
+def slate_assemble(expr, bcs=None):
+    """Assemble the SLATE expression `expr` and return a Firedrake object
+    representing the result. This will be a :class:`float` for rank-0
+    tensors, a :class:`.Function` for rank-1 tensors and a :class:`.Matrix`
+    for rank-2 tensors. The result will be returned as a `tensor` of
+    :class:`firedrake.Function` for rank-0 and rank-1 SLATE expressions and
+    :class:`firedrake.op2.Mat` for rank-2 SLATE expressions.
+
+    :arg expr: A SLATE object to assemble.
+    :arg bcs: A tuple of :class:`.DirichletBC`\s to be applied.
+
+    """
+
+    arguments = expr.arguments()
+    integrals = expr.integrals()
+    rank = len(arguments)
+
+    # If the expression is a rank-2 tensor: matrix
+    if rank == 2:
+        test_function, trial_function = arguments
+        maps = tuple((test_function.cell_node_map(), trial_function.cell_node_map()))
+        sparsity = firedrake.op2.Sparsity((test_function.function_space().dof_dset,
+                                           trial_function.function_space().dof_dset),
+                                          maps)
+        tensor = firedrake.op2.Mat(sparsity, np.float64)
+        tensor_arg = tensor(firedrake.op2.INC, (test_function.cell_node_map()[firedrake.op2.i[0]],
+                                                trial_function.cell_node_map()[firedrake.op2.i[0]]),
+                            flatten=True)
+
+    # If the expression is a rank-1 tensor: vector
+    elif rank == 1:
+        test_function = arguments[0]
+        tensor = firedrake.Function(test_function.function_space())
+        tensor_arg = tensor.dat(firedrake.op2.INC, test_function.cell_node_map()[firedrake.op2.i[0]],
+                                flatten=True)
+
+    # if the expression is a rank-0 tensor: scalar
+    elif rank == 0:
+        tensor = firedrake.op2.Global(1, [0.0])
+        tensor_arg = tensor(firedrake.op2.INC)
+    else:
+        raise NotImplementedError("Not implemented for rank-%d tensors.", rank)
+
+    coords, coefficients, need_cell_facets, klist, kernel = compile_slate_expression(expr)
+    mesh = coords.function_space().mesh()
+    args = [kernel, mesh.cell_set, tensor_arg, coords.dat(firedrake.op2.READ,
+                                                          coords.cell_node_map(),
+                                                          flatten=True)]
+    for c in coefficients:
+        args.append(c.dat(firedrake.op2.READ, c.cell_node_map(), flatten=True))
+
+    if need_cell_facets:
+        for it in integrals:
+            if it.integral_type() == "cell":
+                pass
+            elif it.integral_type() == "exterior_facet":
+                args.append(mesh.exterior_facets.local_facet_dat(firedrake.op2.READ))
+            elif it.integral_type() == "interior_facet":
+                args.append(mesh.interior_facets.local_facet_dat(firedrake.op2.READ))
+            else:
+                raise NotImplementedError("Integrals of type %s not implemeneted." % it.integral_type())
+
+    firedrake.op2.par_loop(*args)
+    if bcs is not None and rank == 2:
+        for bc in bcs:
+            tensor.set_local_diagonal_entries(bc.nodes)
+
+    return tensor
