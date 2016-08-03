@@ -341,6 +341,43 @@ def bezier_plot(function, axes=None, **kwargs):
     return plt.gcf()
 
 
+def interp_bezier(pts, num_cells, axes=None, **kwargs):
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib.path import Path
+        import matplotlib.patches as patches
+    except ImportError:
+        raise RuntimeError("Matplotlib not importable, is it installed?")
+
+    pts = pts.T.reshape(num_cells, -1, 2)
+    vertices = np.array([]).reshape(-1, 2)
+    for i in range(num_cells):
+        j = 0
+        while j + 3 <= pts.shape[1]:
+            vertices = np.append(vertices, points_to_bezier_curve(pts[i, j:j+4]))
+            j += 3
+    vertices = vertices.reshape(-1, 2)
+    codes = np.tile([Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4],
+                    vertices.shape[0] / 4)
+    path = Path(vertices, codes)
+    patch = patches.PathPatch(path, facecolor='none', lw=2)
+    if axes is None:
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
+    axes.add_patch(patch)
+    axes.plot(**kwargs)
+    return plt.gcf()
+
+
+def points_to_bezier_curve(pts):
+    bezier_ctrl_pts = np.empty([4, 2])
+    bezier_ctrl_pts[0] = pts[0]
+    bezier_ctrl_pts[1] = -5./6.*pts[0] + 3.*pts[1] - 3./2.*pts[2] + 1./3.*pts[3]
+    bezier_ctrl_pts[2] = +1./3.*pts[0] - 3./2.*pts[1] + 3.*pts[2] - 5./6.*pts[3]
+    bezier_ctrl_pts[3] = pts[3]
+    return bezier_ctrl_pts
+
+
 def _bernstein(x, k, n):
     from math import factorial
     comb = factorial(n) / factorial(k) / factorial(n - k)
