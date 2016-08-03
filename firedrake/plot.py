@@ -230,12 +230,8 @@ def two_dimension_triangle_Z(function, num_sample_points):
     Z = z_vals.reshape(-1)
     X = coords_vals.reshape(-1, 2).T[0]
     Y = coords_vals.reshape(-1, 2).T[1]
-    all_triangles = triangles.copy()
-    temp = triangles.copy()
-    for i in range(num_cells - 1):
-        temp = temp + num_verts
-        all_triangles = np.append(all_triangles, temp)
-    all_triangles = all_triangles.reshape(-1, 3)
+    add_idx = np.arange(num_cells).reshape(-1, 1, 1) * num_verts
+    all_triangles = (triangles + add_idx).reshape(-1, 3)
     triangulation = Triangulation(X, Y, triangles=all_triangles)
     return triangulation, Z
 
