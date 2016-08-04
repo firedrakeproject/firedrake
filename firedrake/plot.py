@@ -127,17 +127,23 @@ def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
                                            step=1, value=0))
 
 
-def _calculate_values(function, points, dimension):
+def _calculate_values(function, points, dimension, cell_mask=None):
     """Calculate function values at given reference points
 
     :arg function: function to be sampled
     :arg points: points to be sampled in reference space
     """
+    import numpy.ma as ma
     function_space = function.function_space()
     keys = {1: (0,),
             2: (0, 0)}
     elem = function_space.fiat_element.tabulate(0, points)[keys[dimension]]
-    data = function.dat.data_ro[function_space.cell_node_list]
+    cell_node_list = function_space.cell_node_list
+    if cell_mask is not None:
+        cell_mask = np.tile(cell_mask.reshape(-1, 1), cell_node_list.shape[1])
+        cell_node_list = ma.compress_rows(ma.masked_array(cell_node_list,
+                                                          mask=cell_mask))
+    data = function.dat.data_ro[cell_node_list]
     if function.ufl_shape == ():
         vec_length = 1
     else:
@@ -147,7 +153,7 @@ def _calculate_values(function, points, dimension):
     return np.einsum("ijk,jl->ilk", data, elem)
 
 
-def _calculate_points(function, num_points, dimension):
+def _calculate_points(function, num_points, dimension, cell_mask=None):
     """Calculate points in physical space of given function with given number of
     sampling points at given dimension
 
@@ -172,19 +178,19 @@ def _calculate_points(function, num_points, dimension):
         points = np.array(np.meshgrid(points_1d, points_1d_rev)).T[iu]
     else:
         raise RuntimeError("Unsupported functionality")
-    y_vals = _calculate_values(function, points, dimension)
-    x_vals = _calculate_values(mesh.coordinates, points, dimension)
+    y_vals = _calculate_values(function, points, dimension, cell_mask)
+    x_vals = _calculate_values(mesh.coordinates, points, dimension, cell_mask)
     return x_vals, y_vals
 
 
-def calculate_one_dim_points(function, num_points):
+def calculate_one_dim_points(function, num_points, cell_mask=None):
     """Calculate a set of points for plotting for a one-dimension function as a
     numpy array
 
     :arg function: 1D function for plotting
     :arg num_points: Number of points per element
     """
-    x_vals, y_vals = _calculate_points(function, num_points, 1)
+    x_vals, y_vals = _calculate_points(function, num_points, 1, cell_mask)
     x_vals = x_vals.reshape(-1)
     y_vals = y_vals.reshape(-1)
     order = np.argsort(x_vals)
