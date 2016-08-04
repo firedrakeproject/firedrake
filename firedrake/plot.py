@@ -63,6 +63,8 @@ def plot(function,
     :kwarg contour: For 2D plotting, True for a contour plot
     :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
         piece-wise linear
+    :kwarg auto_resample: For 1D linear plotting, resample the interval when
+        zoomed
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
@@ -79,6 +81,7 @@ def plot(function,
         if function.function_space().ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
         bezier = kwargs.pop('bezier', False)
+        auto_resample = kwargs.pop('auto_resample', False)
         if bezier:
             num_sample_points = int(num_sample_points / 3) * 3 + 1 \
                 if num_sample_points >= 4 else 4
@@ -90,6 +93,33 @@ def plot(function,
         if axes is None:
             axes = plt.subplot(111)
         axes.plot(points[0], points[1], **kwargs)
+        cell_boundary = np.fliplr(_get_cell_boundary(function).reshape(-1, 2))
+
+        def update_points(axes):
+            import numpy.ma as ma
+            axes.set_autoscale_on(False)
+            x_begin = axes.transData.inverted() \
+                .transform(axes.transAxes.transform((0, 0)))[0]
+            x_end = axes.transData.inverted() \
+                .transform(axes.transAxes.transform((1, 0)))[0]
+            x_range = np.array([x_begin, x_end])
+            cell_intersect = np.empty([cell_boundary.shape[0]])
+            for i in range(cell_boundary.shape[0]):
+                cell_intersect[i] = _detect_intersection(x_range, cell_boundary[i])
+            width = plt.gcf().get_size_inches()[0] * plt.gcf().dpi
+            cell_mask = 1 - cell_intersect
+            cell_width = cell_boundary[:, 1] - cell_boundary[:, 0]
+            total_cell_width = ma.masked_array(cell_width,
+                                               mask=cell_mask).sum()
+            num_points = int(width / cell_intersect.sum()
+                             * total_cell_width / (x_end-x_begin))
+            points = calculate_one_dim_points(function, num_points, cell_mask)
+            axes.cla()
+            axes.plot(points[0], points[1], **kwargs)
+            axes.set_xlim(x_range)
+            axes.callbacks.connect('xlim_changed', update_points)
+        if auto_resample:
+            axes.callbacks.connect('xlim_changed', update_points)
         return plt.gcf()
     elif function.function_space().mesh().geometric_dimension() \
             == function.function_space().mesh().topological_dimension() \
@@ -395,3 +425,13 @@ def _bernstein(x, k, n):
     from math import factorial
     comb = factorial(n) / factorial(k) / factorial(n - k)
     return comb * (x ** k) * ((1 - x) ** (n - k))
+
+
+def _get_cell_boundary(function):
+    coords = function.function_space().mesh().coordinates
+    return _calculate_values(coords, np.array([[0.0], [1.0]], dtype=float), 1)
+
+
+def _detect_intersection(interval1, interval2):
+    return np.less_equal(np.amax([interval1[0], interval2[0]]),
+                         np.amin([interval1[1], interval2[1]]))
