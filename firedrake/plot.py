@@ -191,6 +191,7 @@ def _calculate_values(function, points, dimension, cell_mask=None):
 
     :arg function: function to be sampled
     :arg points: points to be sampled in reference space
+    :arg cell_mask: Masks for cell node list
     """
     import numpy.ma as ma
     function_space = function.function_space()
@@ -219,6 +220,7 @@ def _calculate_points(function, num_points, dimension, cell_mask=None):
     :arg function: function to be sampled
     :arg num_points: number of sampling points
     :arg dimension: dimension of the function
+    :arg cell_mask: Masks for cell node list
     """
     function_space = function.function_space()
     mesh = function_space.mesh()
@@ -248,6 +250,7 @@ def calculate_one_dim_points(function, num_points, cell_mask=None):
 
     :arg function: 1D function for plotting
     :arg num_points: Number of points per element
+    :arg cell_mask: Masks for cell node list
     """
     x_vals, y_vals = _calculate_points(function, num_points, 1, cell_mask)
     x_vals = x_vals.reshape(-1)
@@ -377,7 +380,8 @@ def bezier_plot(function, axes=None, **kwargs):
     Bezier curve within each cell, return a matplotlib figure
 
     :arg function: 1D function for plotting
-    :arg Axes: Axes for plotting, if None, a new one will be created
+    :arg axes: Axes for plotting, if None, a new one will be created
+    :arg kwargs: additional key work arguments to plot
     """
     try:
         import matplotlib.pyplot as plt
@@ -418,7 +422,7 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
     """Interpolate points of a 1D function into piece-wise Bezier curves
 
     :arg pts: Points of the 1D function evaluated by _calculate_one_dim_points
-    :arg num_cell: Number of cells containing the points
+    :arg num_cells: Number of cells containing the points
     :arg axes: Axes to be plotted on
     :arg kwargs: Addition key word argument for plotting
     """
