@@ -69,7 +69,10 @@ def plot(function,
         ``matplotlib.plot``.
     """
     if not isinstance(function, Function):
-        return _plot_mult(function, num_sample_points, **kwargs)
+        if isinstance(function, list) and \
+                all(isinstance(f, Function) for f in function):
+            return _plot_mult(function, num_sample_points, **kwargs)
+        raise TypeError("Unexpected type")
     try:
         import matplotlib.pyplot as plt
     except ImportError:
