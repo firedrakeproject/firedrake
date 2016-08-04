@@ -63,8 +63,8 @@ def plot(function,
     :kwarg contour: For 2D plotting, True for a contour plot
     :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
         piece-wise linear
-    :kwarg auto_resample: For 1D linear plotting, resample the interval when
-        zoomed
+    :kwarg auto_resample: For 1D plotting for functions with degree >= 4,
+        resample automatically when zoomed
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
@@ -88,13 +88,9 @@ def plot(function,
             num_sample_points = int(num_sample_points / 3) * 3 + 1 \
                 if num_sample_points >= 4 else 4
         points = calculate_one_dim_points(function, num_sample_points)
-        if bezier:
-            return interp_bezier(points,
-                                 function.function_space().mesh().num_cells(),
-                                 axes, **kwargs)
+        cell_boundary = np.fliplr(_get_cell_boundary(function).reshape(-1, 2))
         if axes is None:
             axes = plt.subplot(111)
-        cell_boundary = np.fliplr(_get_cell_boundary(function).reshape(-1, 2))
 
         def update_points(axes):
             import numpy.ma as ma
@@ -115,13 +111,26 @@ def plot(function,
                                                mask=cell_mask).sum()
             num_points = int(width / cell_intersect.sum()
                              * total_cell_width / (x_end-x_begin))
+            if bezier:
+                num_points = int(num_points / 3) * 3 + 1 \
+                    if num_points >= 4 else 4
             points = calculate_one_dim_points(function, num_points, cell_mask)
             axes.cla()
-            axes.plot(points[0], points[1], **kwargs)
+            if bezier:
+                interp_bezier(points,
+                              int(cell_intersect.sum()),
+                              axes, **kwargs)
+            else:
+                piecewise_linear(points, axes, **kwargs)
             axes.set_xlim(x_range)
             axes.callbacks.connect('xlim_changed', update_points)
+
         if auto_resample:
             axes.callbacks.connect('xlim_changed', update_points)
+        if bezier:
+            return interp_bezier(points,
+                                 function.function_space().mesh().num_cells(),
+                                 axes, **kwargs)
         return piecewise_linear(points, axes, **kwargs)
     elif function.function_space().mesh().geometric_dimension() \
             == function.function_space().mesh().topological_dimension() \
