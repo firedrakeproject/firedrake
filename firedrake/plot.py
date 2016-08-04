@@ -94,7 +94,6 @@ def plot(function,
                                  axes, **kwargs)
         if axes is None:
             axes = plt.subplot(111)
-        axes.plot(points[0], points[1], **kwargs)
         cell_boundary = np.fliplr(_get_cell_boundary(function).reshape(-1, 2))
 
         def update_points(axes):
@@ -123,7 +122,7 @@ def plot(function,
             axes.callbacks.connect('xlim_changed', update_points)
         if auto_resample:
             axes.callbacks.connect('xlim_changed', update_points)
-        return plt.gcf()
+        return piecewise_linear(points, axes, **kwargs)
     elif function.function_space().mesh().geometric_dimension() \
             == function.function_space().mesh().topological_dimension() \
             == 2:
@@ -158,6 +157,24 @@ def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
 
     interact(display_plot, index=IntSlider(min=0, max=len(functions)-1,
                                            step=1, value=0))
+
+
+def piecewise_linear(points, axes=None, **kwargs):
+    """Plot a piece-wise linear plot for the given points, returns a
+    matplotlib figure
+
+    :arg points: Points to be plotted
+    :arg axes: Axes to be plotted on
+    :arg kwargs: Additional key word arguments passed to plot
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise RuntimeError("Matplotlib not importable, is it installed?")
+    if axes is None:
+        axes = plt.subplot(111)
+    axes.plot(points[0], points[1], **kwargs)
+    return plt.gcf()
 
 
 def _calculate_values(function, points, dimension, cell_mask=None):
