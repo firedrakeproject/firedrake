@@ -68,7 +68,6 @@ def plot(function,
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
-
     if not isinstance(function, Function):
         return _plot_mult(function, num_sample_points, **kwargs)
     try:
@@ -105,7 +104,8 @@ def plot(function,
             x_range = np.array([x_begin, x_end])
             cell_intersect = np.empty([cell_boundary.shape[0]])
             for i in range(cell_boundary.shape[0]):
-                cell_intersect[i] = _detect_intersection(x_range, cell_boundary[i])
+                cell_intersect[i] = _detect_intersection(x_range,
+                                                         cell_boundary[i])
             width = plt.gcf().get_size_inches()[0] * plt.gcf().dpi
             cell_mask = 1 - cell_intersect
             cell_width = cell_boundary[:, 1] - cell_boundary[:, 0]
@@ -184,8 +184,8 @@ def _calculate_values(function, points, dimension, cell_mask=None):
 
 
 def _calculate_points(function, num_points, dimension, cell_mask=None):
-    """Calculate points in physical space of given function with given number of
-    sampling points at given dimension
+    """Calculate points in physical space of given function with given number
+    of sampling points at given dimension
 
     :arg function: function to be sampled
     :arg num_points: number of sampling points
@@ -214,8 +214,8 @@ def _calculate_points(function, num_points, dimension, cell_mask=None):
 
 
 def calculate_one_dim_points(function, num_points, cell_mask=None):
-    """Calculate a set of points for plotting for a one-dimension function as a
-    numpy array
+    """Calculate a set of points for plotting for a one-dimension function as
+    a numpy array
 
     :arg function: 1D function for plotting
     :arg num_points: Number of points per element
@@ -229,13 +229,12 @@ def calculate_one_dim_points(function, num_points, cell_mask=None):
     return np.array([x_vals, y_vals])
 
 
-def two_dimension_triangle_Z(function, num_sample_points):
+def _two_dimension_triangle_func_val(function, num_sample_points):
     """Calculate the triangulation and function values for a given 2D function
 
     :arg function: 2D function
     :arg num_sample_points: Number of sampling points
     """
-
     from math import log, sqrt
     try:
         from matplotlib.tri import Triangulation, UniformTriRefiner
@@ -288,7 +287,8 @@ def two_dimension_surface(function,
         from matplotlib import cm
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    triangulation, Z = two_dimension_triangle_Z(function, num_sample_points)
+    triangulation, Z = _two_dimension_triangle_func_val(function,
+                                                        num_sample_points)
 
     if axes is None:
         figure = plt.figure()
@@ -315,7 +315,8 @@ def two_dimension_contour(function,
         from mpl_toolkits.mplot3d import Axes3D
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    triangulation, Z = two_dimension_triangle_Z(function, num_sample_points)
+    triangulation, Z = _two_dimension_triangle_func_val(function,
+                                                        num_sample_points)
 
     if axes is None:
         figure = plt.figure()
@@ -335,7 +336,8 @@ def _bezier_calculate_points(function):
     basis = function.function_space().fiat_element.dual_basis()
     for i in range(deg + 1):
         for j in range(deg + 1):
-            M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0], i, deg)
+            M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0],
+                                 i, deg)
     M_inv = np.linalg.inv(M)
     cell_node_list = function.function_space().cell_node_list
     return np.dot(function.dat.data_ro[cell_node_list], M_inv)
@@ -384,6 +386,13 @@ def bezier_plot(function, axes=None, **kwargs):
 
 
 def interp_bezier(pts, num_cells, axes=None, **kwargs):
+    """Interpolate points of a 1D function into piece-wise Bezier curves
+
+    :arg pts: Points of the 1D function evaluated by _calculate_one_dim_points
+    :arg num_cell: Number of cells containing the points
+    :arg axes: Axes to be plotted on
+    :arg kwargs: Addition key word argument for plotting
+    """
     try:
         import matplotlib.pyplot as plt
         from matplotlib.path import Path
@@ -398,7 +407,7 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
     idx = rows + cols
     for i in range(num_cells):
         vertices = np.append(vertices,
-                             points_to_bezier_curve(pts[i, idx])
+                             _points_to_bezier_curve(pts[i, idx])
                              .transpose([1, 0, 2]).reshape(-1, 2))
     vertices = vertices.reshape(-1, 2)
     codes = np.tile([Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4],
@@ -413,7 +422,17 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
     return plt.gcf()
 
 
-def points_to_bezier_curve(pts):
+def _points_to_bezier_curve(pts):
+    """Transform 4 points on a function into cubic Bezier curve control points
+    In a cubic Bezier curve: P(t) = (1 - t) ^ 3 * P_0
+                                  + 3 * t * (1 - t) ^ 2 * P_1
+                                  + 3 * t ^ 2 * (1 - t) * P_2
+                                  + t ^ 3 * P_3
+    Input points are interpolated as P(0), P(1/3), P(2/3) and P(1)
+    Return control points P_0, P_1, P_2, P_3
+
+    :arg pts: Points on a 1D function
+    """
     M = np.array([[1., 0., 0., 0.],
                   [-5./6., 3., -3./2., 1./3.],
                   [1./3., -3./2., 3., -5./6.],
@@ -422,16 +441,32 @@ def points_to_bezier_curve(pts):
 
 
 def _bernstein(x, k, n):
+    """Compute the value of Bernstein polynomial
+    (n choose k) * x ^ k * (1 - x) ^ (n - k)
+
+    :arg x: value of x
+    :arg k: value of k
+    :arg n: value of n
+    """
     from math import factorial
     comb = factorial(n) / factorial(k) / factorial(n - k)
     return comb * (x ** k) * ((1 - x) ** (n - k))
 
 
 def _get_cell_boundary(function):
+    """Compute the x-coordinate value of boundaries of cells of a function
+
+    :arg function: the function for which cell boundary is to be computed
+    """
     coords = function.function_space().mesh().coordinates
     return _calculate_values(coords, np.array([[0.0], [1.0]], dtype=float), 1)
 
 
 def _detect_intersection(interval1, interval2):
+    """Detect intersection of two intervals
+
+    :arg interval1: Interval 1 as numpy array [x1, x2]
+    :arg interval2: Interval 2 as numpy array [y1, y2]
+    """
     return np.less_equal(np.amax([interval1[0], interval2[0]]),
                          np.amin([interval1[1], interval2[1]]))
