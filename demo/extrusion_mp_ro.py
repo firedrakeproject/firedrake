@@ -39,7 +39,6 @@ The cube will be unstructured in the 2D plane and structured vertically.
 
 from pyop2 import op2, utils
 from triangle_reader import read_triangle
-from ufl import *
 from pyop2.computeind import compute_ind_extr
 
 import numpy as np

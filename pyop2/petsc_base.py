@@ -376,6 +376,7 @@ class SparsityBlock(base.Sparsity):
         self._cmaps = tuple(m.split[j] for m in parent.cmaps)
         self._nrows = self._dsets[0].size
         self._ncols = self._dsets[1].size
+        self._has_diagonal = i == j and parent._has_diagonal
         self._parent = parent
         self._dims = tuple([tuple([parent.dims[i][j]])])
         self._blocks = [[self]]
@@ -565,7 +566,7 @@ class Mat(base.Mat, CopyOnWrite):
                     sparsity.fill_with_zeros(self[i, j].handle,
                                              self[i, j].sparsity.dims[0][0],
                                              self[i, j].sparsity.maps,
-                                             set_diag=(i == j))
+                                             set_diag=self[i, j].sparsity._has_diagonal)
 
         mat.assemble()
         mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
@@ -630,7 +631,7 @@ class Mat(base.Mat, CopyOnWrite):
 
         # Put zeros in all the places we might eventually put a value.
         with timed_region("MatZeroInitial"):
-            sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps)
+            sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps, set_diag=self.sparsity._has_diagonal)
 
         # Now we've filled up our matrix, so the sparsity is
         # "complete", we can ignore subsequent zero entries.

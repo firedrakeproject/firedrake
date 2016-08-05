@@ -6,7 +6,7 @@ delivers performance-portability across a range of platforms:
 * GPU (CUDA and OpenCL)
 """
 
-from op2 import *
+from op2 import *  # noqa
 from version import __version__ as ver, __version_info__  # noqa: just expose
 
 from ._version import get_versions
