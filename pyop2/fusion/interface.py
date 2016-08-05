@@ -36,7 +36,6 @@ itself, whereas others directly from application code."""
 
 import os
 from contextlib import contextmanager
-from decorator import decorator
 
 from pyop2.base import _LazyMatOp
 from pyop2.mpi import MPI
