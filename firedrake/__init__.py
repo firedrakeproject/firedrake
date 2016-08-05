@@ -23,10 +23,8 @@ except AttributeError:
     pass
 del ufl
 from ufl import *
-from pyop2.logger import set_log_level, info_red, info_green, info_blue, log  # noqa
-from pyop2.logger import debug, info, warning, error, critical  # noqa
-from pyop2.logger import DEBUG, INFO, WARNING, ERROR, CRITICAL  # noqa
 from pyop2 import op2                                           # noqa
+from pyop2.mpi import COMM_WORLD, COMM_SELF                     # noqa
 
 from firedrake.assemble import *
 from firedrake.bcs import *
@@ -51,7 +49,9 @@ from firedrake.nullspace import *
 from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
+from firedrake.plot import *
 from firedrake.projection import *
+from firedrake.slope_limiter import *
 from firedrake.solving import *
 from firedrake.ufl_expr import *
 from firedrake.utility_meshes import *
@@ -59,8 +59,10 @@ from firedrake.variational_solver import *
 from firedrake.vector import *
 from firedrake.version import __version__ as ver, __version_info__, check  # noqa
 
+from firedrake.logging import *
 # Set default log level
-set_log_level(INFO)
+set_log_level(WARNING)
+set_log_handlers(comm=COMM_WORLD)
 
 check()
 del check

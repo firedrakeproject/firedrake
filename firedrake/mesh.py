@@ -8,7 +8,7 @@ import weakref
 from collections import defaultdict
 
 from pyop2 import op2
-from pyop2.logger import info_red
+from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
 
@@ -18,6 +18,7 @@ import firedrake.dmplex as dmplex
 import firedrake.extrusion_utils as eutils
 import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
+from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
@@ -70,19 +71,14 @@ class _Facets(object):
     @utils.cached_property
     def set(self):
         size = self.classes
-        halo = None
         if isinstance(self.mesh, ExtrudedMeshTopology):
             if self.kind == "interior":
                 base = self.mesh._base_mesh.interior_facets.set
             else:
                 base = self.mesh._base_mesh.exterior_facets.set
             return op2.ExtrudedSet(base, layers=self.mesh.layers)
-        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind), halo=halo)
-
-    @property
-    def bottom_set(self):
-        '''Returns the bottom row of cells.'''
-        return self.mesh.cell_set
+        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind),
+                       comm=self.mesh.comm)
 
     @utils.cached_property
     def _null_subset(self):
@@ -92,30 +88,57 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
-    def measure_set(self, integral_type, subdomain_id):
-        '''Return the iteration set appropriate to measure. This will
-        either be for all the interior or exterior (as appropriate)
-        facets, or for a particular numbered subdomain.'''
+    def measure_set(self, integral_type, subdomain_id,
+                    all_integer_subdomain_ids=None):
+        """Return an iteration set appropriate for the requested integral type.
 
-        # ufl.Measure doesn't have enums for these any more :(
-        # FIXME: This is WRONG in the case of 1*(ds + ds(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
-            if integral_type == "exterior_facet_bottom":
-                return (op2.ON_BOTTOM, self.bottom_set)
-            elif integral_type == "exterior_facet_top":
-                return (op2.ON_TOP, self.bottom_set)
-            elif integral_type == "interior_facet_horiz":
-                return self.bottom_set
-            else:
+        :arg integral_type: The type of the integral (should be a facet measure).
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
+        if integral_type in ("exterior_facet_bottom",
+                             "exterior_facet_top",
+                             "interior_facet_horiz"):
+            # these iterate over the base cell set
+            return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
+        elif not (integral_type.startswith("exterior_") or
+                  integral_type.startswith("interior_")):
+            raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
+        if subdomain_id == "everywhere":
+            return self.set
+        if subdomain_id == "otherwise":
+            if all_integer_subdomain_ids is None:
                 return self.set
+            key = ("otherwise", ) + all_integer_subdomain_ids
+            try:
+                return self._subsets[key]
+            except KeyError:
+                ids = [np.where(self.markers == sid)[0]
+                       for sid in all_integer_subdomain_ids]
+                to_remove = np.unique(np.concatenate(ids))
+                indices = np.arange(self.set.total_size, dtype=np.int32)
+                indices = np.delete(indices, to_remove)
+                return self._subsets.setdefault(key, op2.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
 
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
 
-        :param markers: integer marker id or an iterable of marker ids"""
+        :param markers: integer marker id or an iterable of marker ids
+            (or ``None``, for an empty subset).
+        """
         if self.markers is None:
             return self._null_subset
         markers = as_tuple(markers, int)
@@ -123,18 +146,15 @@ class _Facets(object):
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            for marker in markers:
-                if marker not in self.unique_markers:
-                    raise LookupError(
-                        '{0} is not a valid marker'.
-                        format(marker))
+            if len(set(markers).difference(self.unique_markers)) > 0:
+                invalid = set(markers).difference(self.unique_markers)
+                raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
 
             # build a list of indices corresponding to the subsets selected by
             # markers
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
-            self._subsets[markers] = op2.Subset(self.set, indices)
-            return self._subsets[markers]
+            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
 
     @utils.cached_property
     def local_facet_dat(self):
@@ -147,19 +167,23 @@ class _Facets(object):
     @utils.cached_property
     def facet_cell_map(self):
         """Map from facets to cells."""
-        return op2.Map(self.set, self.bottom_set, self._rank, self.facet_cell,
+        return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
 
 
-def _from_gmsh(filename):
-    """Read a Gmsh .msh file from `filename`"""
+def _from_gmsh(filename, comm=None):
+    """Read a Gmsh .msh file from `filename`.
 
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    comm = comm or COMM_WORLD
     # Create a read-only PETSc.Viewer
-    gmsh_viewer = PETSc.Viewer().create()
+    gmsh_viewer = PETSc.Viewer().create(comm=comm)
     gmsh_viewer.setType("ascii")
     gmsh_viewer.setFileMode("r")
     gmsh_viewer.setFileName(filename)
-    gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer)
+    gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, comm=comm)
 
     if gmsh_plex.hasLabel("Face Sets"):
         boundary_ids = gmsh_plex.getLabelIdIS("Face Sets").getIndices()
@@ -172,9 +196,12 @@ def _from_gmsh(filename):
     return gmsh_plex
 
 
-def _from_exodus(filename):
-    """Read an Exodus .e or .exo file from `filename`"""
-    plex = PETSc.DMPlex().createExodusFromFile(filename)
+def _from_exodus(filename, comm):
+    """Read an Exodus .e or .exo file from `filename`.
+
+    :arg comm: communicator to build the mesh on.
+    """
+    plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
 
     boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
     plex.createLabel("boundary_ids")
@@ -186,19 +213,27 @@ def _from_exodus(filename):
     return plex
 
 
-def _from_cgns(filename):
-    """Read a CGNS .cgns file from `filename`"""
-    plex = PETSc.DMPlex().createCGNSFromFile(filename)
+def _from_cgns(filename, comm):
+    """Read a CGNS .cgns file from `filename`.
+
+    :arg comm: communicator to build the mesh on.
+    """
+    plex = PETSc.DMPlex().createCGNSFromFile(filename, comm=comm)
 
     # TODO: Add boundary IDs
     return plex
 
 
-def _from_triangle(filename, dim):
-    """Read a set of triangle mesh files from `filename`"""
+def _from_triangle(filename, dim, comm):
+    """Read a set of triangle mesh files from `filename`.
+
+    :arg dim: The embedding dimension.
+    :arg comm: communicator to build the mesh on.
+    """
     basename, ext = os.path.splitext(filename)
 
-    if op2.MPI.comm.rank == 0:
+    comm = dup_comm(comm)
+    if comm.rank == 0:
         try:
             facetfile = open(basename+".face")
             tdim = 3
@@ -211,7 +246,7 @@ def _from_triangle(filename, dim):
                 tdim = 1
         if dim is None:
             dim = tdim
-        op2.MPI.comm.bcast(tdim, root=0)
+        comm.bcast(tdim, root=0)
 
         with open(basename+".node") as nodefile:
             header = np.fromfile(nodefile, dtype=np.int32, count=2, sep=' ')
@@ -230,13 +265,13 @@ def _from_triangle(filename, dim):
 
         cells = map(lambda c: c-1, eles)
     else:
-        tdim = op2.MPI.comm.bcast(None, root=0)
+        tdim = comm.bcast(None, root=0)
         cells = None
         coordinates = None
-    plex = _from_cell_list(tdim, cells, coordinates, comm=op2.MPI.comm)
+    plex = _from_cell_list(tdim, cells, coordinates, comm=comm)
 
     # Apply boundary IDs
-    if op2.MPI.comm.rank == 0:
+    if comm.rank == 0:
         facets = None
         try:
             header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
@@ -254,40 +289,40 @@ def _from_triangle(filename, dim):
                 join = plex.getJoin(vertices)
                 plex.setLabelValue("boundary_ids", join[0], bid)
 
+    free_comm(comm)
     return plex
 
 
-def _from_cell_list(dim, cells, coords, comm=None):
+def _from_cell_list(dim, cells, coords, comm):
     """
     Create a DMPlex from a list of cells and coords.
 
     :arg dim: The topological dimension of the mesh
     :arg cells: The vertices of each cell
     :arg coords: The coordinates of each vertex
-    :arg comm: An optional MPI communicator to build the plex on
-         (defaults to ``COMM_WORLD``)
+    :arg comm: communicator to build the mesh on.
     """
-
-    if comm is None:
-        comm = op2.MPI.comm
+    comm = dup_comm(comm)
     if comm.rank == 0:
         cells = np.asarray(cells, dtype=PETSc.IntType)
         coords = np.asarray(coords, dtype=float)
         comm.bcast(cells.shape, root=0)
         comm.bcast(coords.shape, root=0)
         # Provide the actual data on rank 0.
-        return PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
-
-    cell_shape = list(comm.bcast(None, root=0))
-    coord_shape = list(comm.bcast(None, root=0))
-    cell_shape[0] = 0
-    coord_shape[0] = 0
-    # Provide empty plex on other ranks
-    # A subsequent call to plex.distribute() takes care of parallel partitioning
-    return PETSc.DMPlex().createFromCellList(dim,
-                                             np.zeros(cell_shape, dtype=PETSc.IntType),
-                                             np.zeros(coord_shape, dtype=float),
-                                             comm=comm)
+        plex = PETSc.DMPlex().createFromCellList(dim, cells, coords, comm=comm)
+    else:
+        cell_shape = list(comm.bcast(None, root=0))
+        coord_shape = list(comm.bcast(None, root=0))
+        cell_shape[0] = 0
+        coord_shape[0] = 0
+        # Provide empty plex on other ranks
+        # A subsequent call to plex.distribute() takes care of parallel partitioning
+        plex = PETSc.DMPlex().createFromCellList(dim,
+                                                 np.zeros(cell_shape, dtype=PETSc.IntType),
+                                                 np.zeros(coord_shape, dtype=float),
+                                                 comm=comm)
+    free_comm(comm)
+    return plex
 
 
 class MeshTopology(object):
@@ -308,6 +343,7 @@ class MeshTopology(object):
 
         self._plex = plex
         self.name = name
+        self.comm = dup_comm(plex.comm.tompi4py())
 
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
@@ -318,11 +354,11 @@ class MeshTopology(object):
         # Note.  This must come before distribution, because otherwise
         # DMPlex will consider facets on the domain boundary to be
         # exterior, which is wrong.
-        label_boundary = (op2.MPI.comm.size == 1) or distribute
+        label_boundary = (self.comm.size == 1) or distribute
         dmplex.label_facets(plex, label_boundary=label_boundary)
 
         # Distribute the dm to all ranks
-        if op2.MPI.comm.size > 1 and distribute:
+        if self.comm.size > 1 and distribute:
             # We distribute with overlap zero, in case we're going to
             # refine this mesh in parallel.  Later, when we actually use
             # it, we grow the halo.
@@ -339,7 +375,7 @@ class MeshTopology(object):
         def callback(self):
             """Finish initialisation."""
             del self._callback
-            if op2.MPI.comm.size > 1:
+            if self.comm.size > 1:
                 self._plex.distributeOverlap(1)
             self._grown_halos = True
 
@@ -378,8 +414,10 @@ class MeshTopology(object):
                                                            perm=self._plex_renumbering)
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
-        # HACK HACK HACK !!!!!
-        self.comm = op2.MPI.comm
+
+    def mpi_comm(self):
+        """The MPI communicator this mesh is built on (an mpi4py object)."""
+        return self.comm
 
     @timed_function("CreateMesh")
     def init(self):
@@ -478,7 +516,7 @@ class MeshTopology(object):
 
             # Determine union of boundary IDs.  All processes must
             # know the values of all ids, for collective reasons.
-            comm = self._plex.comm.tompi4py()
+            comm = self.comm
             from mpi4py import MPI
 
             def merge_ids(x, y, datatype):
@@ -596,22 +634,84 @@ class MeshTopology(object):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "%s_cells" % self.name)
+        return op2.Set(size, "%s_cells" % self.name, comm=self.comm)
 
-    def cell_subset(self, subdomain_id):
-        """Return a subset over cells with the given subdomain_id."""
-        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
+        """Return a subset over cells with the given subdomain_id.
+
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
+        if subdomain_id == "everywhere":
             return self.cell_set
+        if subdomain_id == "otherwise":
+            if all_integer_subdomain_ids is None:
+                return self.cell_set
+            key = ("otherwise", ) + all_integer_subdomain_ids
+        else:
+            key = subdomain_id
         try:
-            return self._subsets[subdomain_id]
+            return self._subsets[key]
         except KeyError:
-            indices = dmplex.get_cell_markers(self._plex,
-                                              self._cell_numbering,
-                                              subdomain_id)
-            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
-            return self._subsets[subdomain_id]
+            if subdomain_id == "otherwise":
+                ids = tuple(dmplex.get_cell_markers(self._plex,
+                                                    self._cell_numbering,
+                                                    sid)
+                            for sid in all_integer_subdomain_ids)
+                to_remove = np.unique(np.concatenate(ids))
+                indices = np.arange(self.cell_set.total_size, dtype=np.int32)
+                indices = np.delete(indices, to_remove)
+            else:
+                indices = dmplex.get_cell_markers(self._plex,
+                                                  self._cell_numbering,
+                                                  subdomain_id)
+            return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
+
+    def measure_set(self, integral_type, subdomain_id,
+                    all_integer_subdomain_ids=None):
+        """Return an iteration set appropriate for the requested integral type.
+
+        :arg integral_type: The type of the integral (should be a valid UFL measure).
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.  This should be a dict mapping
+             ``integral_type`` to the explicitly enumerated subdomain ids.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
+        if all_integer_subdomain_ids is not None:
+            all_integer_subdomain_ids = all_integer_subdomain_ids.get(integral_type, None)
+        if integral_type == "cell":
+            return self.cell_subset(subdomain_id, all_integer_subdomain_ids)
+        elif integral_type in ("exterior_facet", "exterior_facet_vert",
+                               "exterior_facet_top", "exterior_facet_bottom"):
+            return self.exterior_facets.measure_set(integral_type, subdomain_id,
+                                                    all_integer_subdomain_ids)
+        elif integral_type in ("interior_facet", "interior_facet_vert",
+                               "interior_facet_horiz"):
+            return self.interior_facets.measure_set(integral_type, subdomain_id,
+                                                    all_integer_subdomain_ids)
+        else:
+            raise ValueError("Unknown integral type '%s'" % integral_type)
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -633,6 +733,7 @@ class ExtrudedMeshTopology(MeshTopology):
         self._base_mesh = mesh
         if layers < 1:
             raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)
+        self.comm = mesh.comm
         # All internal logic works with layers of base mesh (not layers of cells)
         self._layers = layers + 1
         self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
@@ -642,6 +743,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
+        self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
 
@@ -656,22 +758,6 @@ class ExtrudedMeshTopology(MeshTopology):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         return self._base_mesh.cell_closure
-
-    def cell_subset(self, subdomain_id):
-        """Return a subset over cells with the given subdomain_id."""
-        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
-            return self.cell_set
-        try:
-            return self._subsets[subdomain_id]
-        except KeyError:
-            base = self._base_mesh
-            indices = dmplex.get_cell_markers(base._plex,
-                                              base._cell_numbering,
-                                              subdomain_id)
-            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
-            return self._subsets[subdomain_id]
 
     @utils.cached_property
     def exterior_facets(self):
@@ -919,18 +1005,18 @@ values from f.)"""
 
         src = pq_utils.src_locate_cell(self)
         src += """
-extern "C" int locator(struct Function *f, double *x)
+int locator(struct Function *f, double *x)
 {
     struct ReferenceCoords reference_coords;
     return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
 }
 """ % dict(geometric_dimension=self.geometric_dimension())
 
-        locator = compilation.load(src, "cpp", "locator",
+        locator = compilation.load(src, "c", "locator",
                                    cppargs=["-I%s" % os.path.dirname(__file__),
                                             "-I%s/include" % sys.prefix],
                                    ldargs=["-L%s/lib" % sys.prefix,
-                                           "-lspatialindex",
+                                           "-lspatialindex_c",
                                            "-Wl,-rpath,%s/lib" % sys.prefix])
 
         locator.argtypes = [ctypes.POINTER(function._CFunction),
@@ -1063,6 +1149,10 @@ def Mesh(meshfile, **kwargs):
            meshes for better cache locality.  If not supplied the
            default value in ``parameters["reorder_meshes"]``
            is used.
+    :param comm: the communicator to use when creating the mesh.  If
+           not supplied, then the mesh will be created on COMM_WORLD.
+           Ignored if ``meshfile`` is a DMPlex object (in which case
+           the communicator will be taken from there).
 
     When the mesh is read from a file the following mesh formats
     are supported (determined, case insensitively, from the
@@ -1105,17 +1195,18 @@ def Mesh(meshfile, **kwargs):
         name = "plexmesh"
         plex = meshfile
     else:
+        comm = kwargs.get("comm", COMM_WORLD)
         name = meshfile
         basename, ext = os.path.splitext(meshfile)
 
         if ext.lower() in ['.e', '.exo']:
-            plex = _from_exodus(meshfile)
+            plex = _from_exodus(meshfile, comm)
         elif ext.lower() == '.cgns':
-            plex = _from_cgns(meshfile)
+            plex = _from_cgns(meshfile, comm)
         elif ext.lower() == '.msh':
-            plex = _from_gmsh(meshfile)
+            plex = _from_gmsh(meshfile, comm)
         elif ext.lower() == '.node':
-            plex = _from_triangle(meshfile, geometric_dim)
+            plex = _from_triangle(meshfile, geometric_dim, comm)
         else:
             raise RuntimeError("Mesh file %s has unknown format '%s'."
                                % (meshfile, ext[1:]))

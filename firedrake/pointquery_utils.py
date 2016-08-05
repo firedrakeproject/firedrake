@@ -29,7 +29,7 @@ def src_locate_cell(mesh):
                         kernel_name="to_reference_coords_kernel",
                         wrapper_name="wrap_to_reference_coords")
 
-    with open(path.join(path.dirname(__file__), "locate.cpp")) as f:
+    with open(path.join(path.dirname(__file__), "locate.c")) as f:
         src += f.read()
 
     return src

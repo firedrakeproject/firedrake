@@ -6,9 +6,9 @@ import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
-from pyop2.logger import warning
 
 from firedrake import functionspaceimpl
+from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
 try:
@@ -46,7 +46,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.Dat` or
+            :class:`~.Vector`) providing initial values (optional).
+            This :class:`Function` will share data with the provided
+            value.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``valuetype``).
@@ -57,13 +60,18 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         ufl.Coefficient.__init__(self, function_space.ufl_element())
 
+        self.comm = function_space.comm
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
         self._split = None
 
-        if isinstance(val, (op2.Dat, op2.DatView, op2.Global)):
+        if isinstance(val, vector.Vector):
+            # Allow constructing using a vector.
+            val = val.dat
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
@@ -72,6 +80,22 @@ class CoordinatelessFunction(ufl.Coefficient):
     def topological(self):
         """The underlying coordinateless function."""
         return self
+
+    def copy(self, deepcopy=False):
+        """Return a copy of this CoordinatelessFunction.
+
+        :kwarg deepcopy: If ``True``, the new
+            :class:`CoordinatelessFunction` will allocate new space
+            and copy values.  If ``False``, the default, then the new
+            :class:`CoordinatelessFunction` will share the dof values.
+        """
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(self.function_space(),
+                          val=val, name=self.name(),
+                          dtype=self.dat.dtype)
 
     def ufl_id(self):
         return self.uid
@@ -233,6 +257,17 @@ class Function(ufl.Coefficient):
     def topological(self):
         """The underlying coordinateless function."""
         return self._data
+
+    def copy(self, deepcopy=False):
+        """Return a copy of this Function.
+
+        :kwarg deepcopy: If ``True``, the new :class:`Function` will
+            allocate new space and copy values.  If ``False``, the
+            default, then the new :class:`Function` will share the dof
+            values.
+        """
+        val = self.topological.copy(deepcopy=deepcopy)
+        return type(self)(self.function_space(), val=val)
 
     def __getattr__(self, name):
         return getattr(self._data, name)
@@ -429,11 +464,6 @@ class Function(ufl.Coefficient):
     def at(self, arg, *args, **kwargs):
         """Evaluate function at points."""
         from mpi4py import MPI
-        halo = self.dof_dset.halo
-        if isinstance(halo, tuple):
-            # mixed function space
-            halo = halo[0]
-        comm = halo.comm.tompi4py()
 
         if args:
             arg = (arg,) + args
@@ -460,9 +490,9 @@ class Function(ufl.Coefficient):
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = comm.bcast(arg, root=0)
+        root_arg = self.comm.bcast(arg, root=0)
         same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = comm.allreduce(int(not same_arg), op=MPI.SUM)
+        diff_arg = self.comm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 
@@ -506,7 +536,7 @@ class Function(ufl.Coefficient):
             else:
                 return np.allclose(a, b)
 
-        all_results = comm.allgather(l_result)
+        all_results = self.comm.allgather(l_result)
         g_result = [None] * len(points)
         for results in all_results:
             for i, result in results:
@@ -561,8 +591,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex", "-Wl,-rpath,%s/lib" % sys.prefix]
-    return compilation.load(src, "cpp", c_name,
+    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
+    return compilation.load(src, "c", c_name,
                             cppargs=["-I%s" % path.dirname(__file__),
                                      "-I%s/include" % sys.prefix],
-                            ldargs=ldargs)
+                            ldargs=ldargs,
+                            comm=function.comm)

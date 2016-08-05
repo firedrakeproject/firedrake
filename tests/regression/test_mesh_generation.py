@@ -30,7 +30,7 @@ def test_interval_three_arg():
 
 
 def test_interval_negative_length():
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ValueError):
         IntervalMesh(10, 2, 1)
 
 
@@ -54,13 +54,99 @@ def test_unit_cube():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
 
 
+def run_one_element_advection():
+    nx = 20
+    m = PeriodicRectangleMesh(nx, 1, 1.0, 1.0, quadrilateral=True)
+    nlayers = 20
+    mesh = ExtrudedMesh(m, nlayers, 1.0/nlayers)
+    Vdg = FunctionSpace(mesh, "DG", 1)
+    Vu = VectorFunctionSpace(mesh, "DG", 1)
+    q0 = Function(Vdg).interpolate(Expression("cos(2*pi*x[0])*cos(pi*x[2])"))
+    q_init = Function(Vdg).assign(q0)
+    dq1 = Function(Vdg)
+    q1 = Function(Vdg)
+    Dt = 0.01
+    dt = Constant(Dt)
+    # Mesh-related functions
+    n = FacetNormal(mesh)
+    u0 = Function(Vu).interpolate(Expression(("1.0", "0.0", "0.0")))
+    # ( dot(v, n) + |dot(v, n)| )/2.0
+    un = 0.5*(dot(u0, n) + abs(dot(u0, n)))
+    # advection equation
+    q = TrialFunction(Vdg)
+    p = TestFunction(Vdg)
+    a_mass = p*q*dx
+    a_int = (dot(grad(p), -u0*q))*dx
+    a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')))*(dS_v + dS_h)
+    arhs = a_mass-dt*(a_int + a_flux)
+    q_problem = LinearVariationalProblem(a_mass, action(arhs, q1), dq1)
+    q_solver = LinearVariationalSolver(q_problem,
+                                       solver_parameters={
+                                           'ksp_type': 'preonly',
+                                           'pc_type': 'bjacobi',
+                                           'sub_pc_type': 'lu'
+                                       })
+    t = 0.
+    T = 1.0
+    while(t < (T-Dt/2)):
+        q1.assign(q0)
+        q_solver.solve()
+        q1.assign(dq1)
+        q_solver.solve()
+        q1.assign(0.75*q0 + 0.25*dq1)
+        q_solver.solve()
+        q0.assign(q0/3 + 2*dq1/3)
+        t += Dt
+    assert(assemble((q0-q_init)**2*dx)**0.5 < 0.005)
+
+
+def test_one_element_advection():
+    run_one_element_advection()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_one_element_advection_parallel():
+    run_one_element_advection()
+
+
+def run_one_element_mesh():
+    mesh = PeriodicRectangleMesh(20, 1, Lx=1.0, Ly=1.0, quadrilateral=True)
+    V = FunctionSpace(mesh, "CG", 1)
+    Vdg = FunctionSpace(mesh, "DG", 1)
+    r = Function(Vdg)
+    u = Function(V)
+
+    # Interpolate a double periodic function to DG,
+    # then check if projecting to CG returns the same DG function.
+    r.interpolate(Expression("sin(2*pi*x[0])"))
+    u.project(r)
+    assert(assemble((u-r)*(u-r)*dx) < 1.0e-4)
+
+    # Checking that if interpolate an x-periodic function
+    # to DG then projecting to CG does not return the same function
+    r.interpolate(Expression("x[1]"))
+    u.project(r)
+    assert(assemble((u-0.5)*(u-0.5)*dx) < 1.0e-4)
+
+    # Checking that if interpolate an x-periodic function
+    # to DG then projecting to CG does not return the same function
+    r.interpolate(Expression("x[0]"))
+    u.project(r)
+    err = assemble((u-r)*(u-r)*dx)
+    assert(err > 1.0e-3)
+
+
+def test_one_element_mesh():
+    run_one_element_mesh()
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_one_element_mesh_parallel():
+    run_one_element_mesh()
+
+
 def test_box():
     assert abs(integrate_one(BoxMesh(3, 3, 3, 1, 2, 3)) - 6) < 1e-3
-
-
-def test_unit_circle():
-    pytest.importorskip('gmshpy')
-    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
 def test_unit_triangle():
@@ -99,12 +185,6 @@ def test_unit_square_parallel():
 @pytest.mark.parallel
 def test_unit_cube_parallel():
     assert abs(integrate_one(UnitCubeMesh(3, 3, 3)) - 1) < 1e-3
-
-
-@pytest.mark.skipif("gmshpy is None", reason='gmshpy not available')
-@pytest.mark.parallel
-def test_unit_circle_parallel():
-    assert abs(integrate_one(UnitCircleMesh(4)) - pi * 0.5 ** 2) < 0.02
 
 
 def assert_num_exterior_facets_equals_zero(m):

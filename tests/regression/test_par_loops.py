@@ -103,7 +103,7 @@ def test_dict_order_parallel(f):
         consts.append(Constant(i, domain=mesh))
 
     arg = {}
-    if op2.MPI.comm.rank == 0:
+    if mesh.comm.rank == 0:
         arg['d'] = (d, WRITE)
 
         for i, c in enumerate(consts):

@@ -234,10 +234,11 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
         args.append(builder.coefficient(coefficient, "w_%d" % i))
 
     point_index = gem.Index(name='p')
-    ir = fem.process('cell', fs.mesh().ufl_cell(), to_pts, None,
-                     point_index, (), expression,
-                     builder.coefficient_mapper,
-                     collections.defaultdict(gem.Index))
+    ir = fem.compile_ufl(expression,
+                         cell=fs.mesh().ufl_cell(),
+                         points=to_pts,
+                         point_index=point_index,
+                         coefficient_mapper=builder.coefficient_mapper)
     assert len(ir) == 1
 
     # Deal with non-scalar expressions

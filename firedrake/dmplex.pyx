@@ -1,6 +1,5 @@
 # Utility functions to derive global and local numbering from DMPlex
 from petsc import PETSc
-from pyop2 import MPI as _MPI
 import numpy as np
 cimport numpy as np
 import cython
@@ -629,7 +628,7 @@ def mark_entity_classes(PETSc.DM plex):
     CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_non_exec, pStart, pEnd))
 
-    if _MPI.comm.size > 1:
+    if plex.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
@@ -662,6 +661,7 @@ def mark_entity_classes(PETSc.DM plex):
             if vStart <= closure[2*ci] < vEnd:
                 vertices[vi] = closure[2*ci]
                 vi += 1
+        v_per_cell = vi
 
         # Mark all cells in the star of each vertex
         for vi in range(v_per_cell):
@@ -1053,7 +1053,7 @@ def plex_renumbering(PETSc.DM plex,
         CHKERR(ISRestoreIndices(facet_is.iset, &facets))
 
     CHKERR(PetscBTDestroy(&seen))
-    perm_is = PETSc.IS().create()
+    perm_is = PETSc.IS().create(comm=plex.comm)
     perm_is.setType("general")
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
@@ -1079,7 +1079,7 @@ def get_cell_remote_ranks(PETSc.DM plex):
     ncells = cEnd - cStart
 
     result = np.full(ncells, -1, dtype=np.int32)
-    if _MPI.comm.size > 1:
+    if plex.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
@@ -1198,7 +1198,7 @@ cdef inline void get_communication_lists(
                       buffer, inverse of 'facets' (return value)
     """
     cdef:
-        int comm_size = _MPI.comm.size
+        int comm_size = plex.comm.size
         PetscInt cStart, cEnd
         PetscInt nfacets, fStart, fEnd, f
         PetscInt i, k, support_size
@@ -1570,7 +1570,8 @@ cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
 cdef inline void exchange_edge_orientation_data(
     np.int32_t nranks, np.int32_t *ranks, np.int32_t *offsets,
     np.ndarray[np.int32_t, ndim=1, mode="c"] ours,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] theirs):
+    np.ndarray[np.int32_t, ndim=1, mode="c"] theirs,
+    MPI.Comm comm):
 
     """Exchange edge orientation data between neighbouring MPI nodes.
 
@@ -1579,18 +1580,19 @@ cdef inline void exchange_edge_orientation_data(
     :arg offsets: Offset for each neighbour in the data buffer
     :arg ours: Local data, to be sent to neigbours
     :arg theirs: Remote data, to be received from neighbours (return value)
+    :arg comm: MPI Communicator.
     """
     cdef np.int32_t ri
 
     # Initiate receiving
     recv_reqs = []
     for ri in range(nranks):
-        recv_reqs.append(_MPI.comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        recv_reqs.append(comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Initiate sending
     send_reqs = []
     for ri in range(nranks):
-        send_reqs.append(_MPI.comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        send_reqs.append(comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Wait for completion
     for req in recv_reqs:
@@ -1619,6 +1621,7 @@ def quadrilateral_facet_orientations(
         np.int32_t *facets = NULL
         np.int32_t *facet2index = NULL
 
+        MPI.Comm comm = plex.comm.tompi4py()
         PetscInt nfacets, nfacets_shared, fStart, fEnd
 
         np.ndarray[np.int32_t, ndim=1, mode="c"] affects
@@ -1654,7 +1657,7 @@ def quadrilateral_facet_orientations(
     # the sign tells the edge direction. Positive sign implies that the edge
     # points from the vertex with the smaller global number to the vertex with
     # the greater global number, negative implies otherwise.
-    ours = _MPI.comm.size * np.arange(nfacets_shared, dtype=np.int32) + _MPI.comm.rank
+    ours = comm.size * np.arange(nfacets_shared, dtype=np.int32) + comm.rank
 
     # We update these values based on the local connections
     # before we do any communication.
@@ -1672,10 +1675,10 @@ def quadrilateral_facet_orientations(
     theirs = np.empty_like(ours)
 
     # Synchronise shared edge directions in parallel
-    conflict = int(_MPI.comm.size > 1)
+    conflict = int(comm.size > 1)
     while conflict != 0:
         # Populate 'theirs' by communication from the 'ours' of others.
-        exchange_edge_orientation_data(nranks, ranks, offsets, ours, theirs)
+        exchange_edge_orientation_data(nranks, ranks, offsets, ours, theirs, comm)
 
         conflict = 0
         for i in range(nfacets_shared):
@@ -1712,7 +1715,7 @@ def quadrilateral_facet_orientations(
 
         # If there was a conflict anywhere, do another round
         # of communication everywhere.
-        conflict = _MPI.comm.allreduce(conflict)
+        conflict = comm.allreduce(conflict)
 
     CHKERR(PetscFree(ranks))
     CHKERR(PetscFree(offsets))
@@ -1872,11 +1875,11 @@ def exchange_cell_orientations(
 
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
-    if _MPI.comm.size > 1:
+    if plex.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
-        new_section = PETSc.Section().create()
+        new_section = PETSc.Section().create(comm=plex.comm)
         CHKERR(DMPlexDistributeData(plex.dm, sf.sf, section.sec,
                                     dtype.ob_mpi, <void *>orientations.data,
                                     new_section.sec, <void **>&new_values))
@@ -1952,7 +1955,7 @@ def prune_sf(PETSc.SF sf):
             new_iremote[j].index = iremote[i].index
             j += 1
 
-    pruned_sf = PETSc.SF().create()
+    pruned_sf = PETSc.SF().create(comm=sf.comm)
     CHKERR(PetscSFSetGraph(pruned_sf.sf, nroots, new_nleaves,
                            new_ilocal, PETSC_OWN_POINTER,
                            new_iremote, PETSC_OWN_POINTER))

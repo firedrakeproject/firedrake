@@ -31,6 +31,7 @@ class Matrix(object):
     def __init__(self, a, bcs, *args, **kwargs):
         self._a = a
         self._M = op2.Mat(*args, **kwargs)
+        self.comm = self._M.comm
         self._thunk = None
         self._assembled = False
         # Iteration over bcs must be in a parallel consistent order

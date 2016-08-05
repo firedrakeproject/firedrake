@@ -49,6 +49,11 @@ class WithGeometry(ufl.FunctionSpace):
         else:
             self.parent = None
 
+    @utils.cached_property
+    def _split(self):
+        return tuple(WithGeometry(subspace, self.mesh())
+                     for subspace in self.topological.split())
+
     mesh = ufl.FunctionSpace.ufl_domain
 
     def ufl_function_space(self):
@@ -61,8 +66,7 @@ class WithGeometry(ufl.FunctionSpace):
 
     def split(self):
         """Split into a tuple of constituent spaces."""
-        return tuple(WithGeometry(subspace, self.mesh())
-                     for subspace in self.topological.split())
+        return self._split
 
     def sub(self, i):
         return WithGeometry(self.topological.sub(i), self.mesh())
@@ -190,7 +194,7 @@ class WithGeometry(ufl.FunctionSpace):
             yield WithGeometry(subspace, self.mesh())
 
     def __getitem__(self, i):
-        return WithGeometry(self.topological[i], self.mesh())
+        return self._split[i]
 
     def __mul__(self, other):
         """Create a :class:`.MixedFunctionSpace` composed of this
@@ -274,6 +278,8 @@ class FunctionSpace(object):
                                     name="%s_nodes_dset" % self.name)
         """A :class:`pyop2.DataSet` representing the function space
         degrees of freedom."""
+
+        self.comm = self.node_set.comm
         self.fiat_element = fiat_element
         self.extruded = sdata.extruded
         self.offset = sdata.offset
@@ -306,7 +312,7 @@ class FunctionSpace(object):
     @utils.cached_property
     def _dm(self):
         """A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = PETSc.DMShell().create()
+        dm = PETSc.DMShell().create(comm=self.comm)
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setPointSF(self.mesh()._plex.getPointSF())
         dm.setDefaultSection(self._shared_data.global_numbering)
@@ -520,6 +526,7 @@ class MixedFunctionSpace(object):
         self.name = name or "_".join(str(s.name) for s in spaces)
         self._subspaces = {}
         self._mesh = spaces[0].mesh()
+        self.comm = self.node_set.comm
 
     # These properties are so a mixed space can behave like a normal FunctionSpace.
     index = None
@@ -689,7 +696,7 @@ class MixedFunctionSpace(object):
     @utils.cached_property
     def _dm(self):
         """A PETSc DM describing the data layout for fieldsplit solvers."""
-        dm = PETSc.DMShell().create()
+        dm = PETSc.DMShell().create(comm=self.comm)
         dm.setAttr('__fs__', weakref.ref(self))
         dm.setCreateFieldDecomposition(self.create_field_decomp)
         dm.setCreateSubDM(self.create_subdm)
@@ -720,7 +727,8 @@ class MixedFunctionSpace(object):
             subspace = MixedFunctionSpace([W[f] for f in fields])
             # Index set mapping from W into subspace.
             iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
-                                                               for f in fields]))
+                                                               for f in fields]),
+                                            comm=W.comm)
             # Keep hold of strong reference to created subspace (given we
             # only hold a weakref in the shell DM), and so we can
             # reuse it later.
@@ -787,7 +795,7 @@ class ProxyFunctionSpace(FunctionSpace):
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
         if self.no_dats:
-            raise ValueError("Can't build Function on %s function space" % self.typ)
+            raise ValueError("Can't build Function on %s function space" % self.identifier)
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
 
@@ -836,7 +844,6 @@ def ComponentFunctionSpace(parent, component):
     new.identifier = "component"
     new.component = component
     new.parent = parent
-    new.no_dats = True
     return new
 
 

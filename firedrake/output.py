@@ -6,6 +6,7 @@ import numpy
 import os
 import ufl
 import weakref
+from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 
 
 __all__ = ("File", )
@@ -256,9 +257,7 @@ class File(object):
         if ext not in (".pvd", ):
             raise ValueError("Only output to PVD is supported")
 
-        if comm is None:
-            from pyop2.mpi import MPI
-            comm = MPI.comm
+        comm = dup_comm(comm or COMM_WORLD)
 
         if comm.rank == 0:
             outdir = os.path.dirname(os.path.abspath(filename))
@@ -504,6 +503,6 @@ class File(object):
                 f.write(self._footer)
 
     def __lshift__(self, arg):
-        from pyop2.logger import warning, RED
+        from firedrake.logging import warning, RED
         warning(RED % "The << syntax is deprecated, use File.write")
         self.write(arg)

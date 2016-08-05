@@ -1,0 +1,46 @@
+import pytest
+import numpy as np
+from firedrake import *
+from mpi4py import MPI
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_split_communicators():
+
+    wcomm = COMM_WORLD
+
+    if wcomm.rank == 0:
+        # On rank zero, we build a unit triangle,
+        wcomm.Split(MPI.UNDEFINED)
+
+        m = UnitTriangleMesh(comm=COMM_SELF)
+        V = FunctionSpace(m, 'DG', 0)
+
+        u = TrialFunction(V)
+        v = TestFunction(V)
+
+        volume = assemble(u*v*dx).M.values
+
+        assert np.allclose(volume, 0.5)
+    else:
+        # On the other ranks, we'll build a collective mesh
+        comm = wcomm.Split(0)
+
+        m = UnitSquareMesh(4, 4, quadrilateral=True, comm=comm)
+
+        V = VectorFunctionSpace(m, 'DG', 0)
+
+        f = Function(V)
+
+        u = TrialFunction(V)
+        v = TestFunction(V)
+
+        solve(dot(u, v)*dx == dot(Constant((1, 0)), v)*dx, f)
+
+        expect = Function(V).interpolate(Constant((1, 0)))
+        assert np.allclose(expect.dat.data, f.dat.data)
+
+
+if __name__ == "__main__":
+    import os
+    pytest.main(os.path.abspath(__file__))

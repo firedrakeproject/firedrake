@@ -1,11 +1,11 @@
 from __future__ import absolute_import
 import ufl
 
-from pyop2.logger import warning, RED
 from pyop2.utils import as_tuple
 
 from firedrake.mg import utils
 from firedrake import function
+from firedrake.logging import warning, RED
 from firedrake.petsc import PETSc
 
 

@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from numpy import prod
 
 from pyop2 import op2
+from pyop2.mpi import COMM_WORLD
 
 from firedrake import function
 from firedrake.petsc import PETSc
@@ -30,6 +31,7 @@ class VectorSpaceBasis(object):
     def __init__(self, vecs=None, constant=False):
         if vecs is None and not constant:
             raise RuntimeError("Must either provide a list of null space vectors, or constant keyword (or both)")
+
         self._vecs = vecs or []
         self._petsc_vecs = []
         for v in self._vecs:
@@ -37,13 +39,18 @@ class VectorSpaceBasis(object):
                 self._petsc_vecs.append(v_)
         if not self.is_orthonormal():
             raise RuntimeError("Provided vectors must be orthonormal")
-        self._nullspace = PETSc.NullSpace().create(constant=constant,
-                                                   vectors=self._petsc_vecs)
         self._constant = constant
 
-    @property
-    def nullspace(self):
-        """The PETSc NullSpace object for this :class:`.VectorSpaceBasis`"""
+    def nullspace(self, comm=None):
+        """The PETSc NullSpace object for this :class:`.VectorSpaceBasis`.
+
+        :kwarg comm: Communicator to create the nullspace on."""
+        if hasattr(self, "_nullspace"):
+            return self._nullspace
+        comm = comm or COMM_WORLD
+        self._nullspace = PETSc.NullSpace().create(constant=self._constant,
+                                                   vectors=self._petsc_vecs,
+                                                   comm=comm)
         return self._nullspace
 
     def orthogonalize(self, b):
@@ -94,9 +101,9 @@ class VectorSpaceBasis(object):
         if not isinstance(matrix, op2.Mat):
             return
         if transpose:
-            matrix.handle.setTransposeNullSpace(self.nullspace)
+            matrix.handle.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
         else:
-            matrix.handle.setNullSpace(self.nullspace)
+            matrix.handle.setNullSpace(self.nullspace(comm=matrix.comm))
 
     def __iter__(self):
         """Yield self when iterated over"""
@@ -142,6 +149,7 @@ class MixedVectorSpaceBasis(object):
     """
     def __init__(self, function_space, bases):
         self._function_space = function_space
+        self.comm = function_space.comm
         for basis in bases:
             if isinstance(basis, VectorSpaceBasis):
                 continue
@@ -196,7 +204,8 @@ class MixedVectorSpaceBasis(object):
             with v.dat.vec_ro as v_:
                 self._petsc_vecs.append(v_)
         self._nullspace = PETSc.NullSpace().create(constant=False,
-                                                   vectors=self._petsc_vecs)
+                                                   vectors=self._petsc_vecs,
+                                                   comm=self.comm)
 
     def _apply_monolithic(self, matrix, transpose=False):
         """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
@@ -260,7 +269,7 @@ class MixedVectorSpaceBasis(object):
             # Compose appropriate nullspace with IS for schur complement
             if ises is not None:
                 is_ = ises[i]
-                is_.compose("nullspace", basis.nullspace)
+                is_.compose("nullspace", basis.nullspace(comm=self.comm))
 
     def __iter__(self):
         """Yield the individual bases making up this MixedVectorSpaceBasis"""

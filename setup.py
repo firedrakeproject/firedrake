@@ -53,9 +53,6 @@ except ImportError:
 if 'CC' not in env:
     env['CC'] = "mpicc"
 
-if 'CXX' not in env:
-    env['CXX'] = "mpic++"
-
 petsc_dirs = get_petsc_dir()
 include_dirs = [np.get_include(), petsc4py.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
@@ -69,10 +66,10 @@ setup(name='firedrake',
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=["firedrake", "firedrake.mg"],
+      packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter"],
       package_data={"firedrake": ["firedrake_geometry.h",
                                   "evaluate.h",
-                                  "locate.cpp"]},
+                                  "locate.c"]},
       scripts=glob('scripts/*'),
       ext_modules=[Extension('firedrake.dmplex',
                              sources=dmplex_sources,
@@ -92,10 +89,9 @@ setup(name='firedrake',
                              sources=spatialindex_sources,
                              include_dirs=[np.get_include(),
                                            "%s/include" % sys.prefix],
-                             libraries=["spatialindex"],
+                             libraries=["spatialindex_c"],
                              extra_link_args=["-L%s/lib" % sys.prefix,
-                                              "-Wl,-rpath,%s/lib" % sys.prefix],
-                             language="c++"),
+                                              "-Wl,-rpath,%s/lib" % sys.prefix]),
                    Extension('firedrake.mg.impl',
                              sources=mg_sources,
                              include_dirs=include_dirs,
