@@ -10,6 +10,7 @@ from singledispatch import singledispatch
 import operator
 import itertools
 import functools
+import sys
 
 import firedrake
 from ufl.form import Form
@@ -281,7 +282,7 @@ class UnaryOp(Tensor):
         else:
             pars = lambda X: "(%s)" % X
 
-        return pars("%s%s" % (ops[self.operation], self.children__str__()))
+        return pars("%s%s" % (ops[self.operation], self.children.__str__()))
 
     def __repr__(self):
         return "%s(%r)" % (type(self).__name__, self.children)
@@ -430,8 +431,8 @@ class TensorMul(BinaryOp):
             return get_arguments(A)
         argsA = get_arguments(A)
         argsB = get_arguments(B)
-        assert (argsA[-1].function_space() ==
-                argsB[0].function_space())
+#        assert (argsA[-1].function_space() ==
+#                argsB[0].function_space())
         return argsA[:-1] + argsB[1:]
 
     @classmethod
@@ -487,8 +488,8 @@ def get_product_arguments(expr):
         return get_arguments(A)
     # Check for function space type to perform contraction
     # over middle indices
-    assert (get_arguments(A)[-1].function_space() ==
-            get_arguments(B)[0].function_space())
+#    assert (get_arguments(A)[-1].function_space() ==
+#            get_arguments(B)[0].function_space())
     return get_arguments(A)[:-1] + get_arguments(B)[1:]
 
 
@@ -695,17 +696,17 @@ def compile_slate_expression(slate_expr):
                     nfacet = mesh._plex.getConeSize(mesh._plex.getHeightStratum(0)[0])
                     clist.append(ast.FlatBlock("&%s" % integsym))
                     if typ == "exterior_facet":
-                        check = 0
+                        isinterior = 0
                     else:
-                        check = 1
+                        isinterior = 1
                     block.append(
                         ast.If(ast.Eq(ast.Symbol(cellfacetsym,
                                                  rank=(integsym, )),
-                                      check), [ast.Block([ast.FunCall(kernel.name,
-                                                                      tensor,
-                                                                      coordsym,
-                                                                      *clist)],
-                                                         open_scope=True)]))
+                                      isinterior), [ast.Block([ast.FunCall(kernel.name,
+                                                                           tensor,
+                                                                           coordsym,
+                                                                           *clist)],
+                                                              open_scope=True)]))
                     loop = ast.For(ast.Decl("unsigned int", integsym, init=0),
                                    ast.Less(integsym, nfacet),
                                    ast.Incr(integsym, 1),
@@ -799,16 +800,17 @@ def compile_slate_expression(slate_expr):
 
     klist.append(kernel)
     kernelast = ast.Node(klist)
+    inc.append('%s/include/eigen3' % sys.prefix)
     op2kernel = firedrake.op2.Kernel(kernelast,
                                      "compile_slate_expression",
                                      cpp=True,
                                      include_dirs=inc,
-                                     headers=["#include <eigen3/Eigen/Dense>"])
+                                     headers=['#include "Eigen/Dense"'])
 
     return coords, coeffs, need_cell_facets, op2kernel
 
 
-def slate_assemble(expr, bcs=None):
+def slate_assemble(expr, bcs=None, nest=False):
     """Assemble the SLATE expression `expr` and return a Firedrake object
     representing the result. This will be a :class:`float` for rank-0
     tensors, a :class:`.Function` for rank-1 tensors and a :class:`.Matrix`
@@ -822,16 +824,19 @@ def slate_assemble(expr, bcs=None):
     """
 
     arguments = expr.arguments()
-    integrals = expr.integrals()
     rank = len(arguments)
 
     # If the expression is a rank-2 tensor: matrix
     if rank == 2:
         test_function, trial_function = arguments
+        fs_names = (test_function.function_space().name,
+                    trial_function.function_space().name)
         maps = tuple((test_function.cell_node_map(), trial_function.cell_node_map()))
         sparsity = firedrake.op2.Sparsity((test_function.function_space().dof_dset,
                                            trial_function.function_space().dof_dset),
-                                          maps)
+                                          maps,
+                                          "%s_%s_sparsity" % fs_names,
+                                          nest=nest)
         tensor = firedrake.op2.Mat(sparsity, np.float64)
         tensor_arg = tensor(firedrake.op2.INC, (test_function.cell_node_map()[firedrake.op2.i[0]],
                                                 trial_function.cell_node_map()[firedrake.op2.i[0]]),
@@ -851,7 +856,7 @@ def slate_assemble(expr, bcs=None):
     else:
         raise NotImplementedError("Not implemented for rank-%d tensors.", rank)
 
-    coords, coefficients, need_cell_facets, klist, kernel = compile_slate_expression(expr)
+    coords, coefficients, need_cell_facets, kernel = compile_slate_expression(expr)
     mesh = coords.function_space().mesh()
     args = [kernel, mesh.cell_set, tensor_arg, coords.dat(firedrake.op2.READ,
                                                           coords.cell_node_map(),
@@ -860,15 +865,7 @@ def slate_assemble(expr, bcs=None):
         args.append(c.dat(firedrake.op2.READ, c.cell_node_map(), flatten=True))
 
     if need_cell_facets:
-        for it in integrals:
-            if it.integral_type() == "cell":
-                pass
-            elif it.integral_type() == "exterior_facet":
-                args.append(mesh.exterior_facets.local_facet_dat(firedrake.op2.READ))
-            elif it.integral_type() == "interior_facet":
-                args.append(mesh.interior_facets.local_facet_dat(firedrake.op2.READ))
-            else:
-                raise NotImplementedError("Integrals of type %s not implemeneted." % it.integral_type())
+        args.append(mesh.cell_to_facet_map(firedrake.op2.READ))
 
     firedrake.op2.par_loop(*args)
     if bcs is not None and rank == 2:

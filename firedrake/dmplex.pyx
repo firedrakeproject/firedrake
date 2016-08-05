@@ -552,6 +552,59 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def cell_to_facets(PETSc.DM plex,
+                   PETSc.Section cell_numbering,
+                   np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures):
+    """Computes a mapping from cells to local facet numbers on a particular
+    cell (both interior and exterior facets). The i-th local facet is
+    represented as:
+
+    cell_facets[c, i]
+
+    If this result is :data:`0`, then the local facet `data:`ci` is an
+    exterior facet, otherwise if the result is :data:`1` it is interior.
+
+    :arg plex: The DMPlex object representing the mesh topology.
+    :arg cell_numbering: PETSc.Section describing the global cell numbering
+    :arg cell_closures: 2D array of ordered cell closures."""
+    cdef:
+        PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
+        PetscInt f, fstart, fend, point
+        char *int_label = <char *>"interior_facets"
+        PetscBool isinterior
+        const PetscInt *facets
+        DMLabel label
+        np.ndarray[np.int8_t, ndim=2, mode="c"] cell_facets
+
+    nclosure = cell_closures.shape[1]
+    cstart, cend = plex.getHeightStratum(0)
+    nfacet = plex.getConeSize(cstart)
+    fstart, fend = plex.getHeightStratum(1)
+    cell_facets = np.full((cend - cstart, nfacet), -1, dtype=np.int8)
+    CHKERR(DMGetLabel(plex.dm, int_label, &label))
+
+    for c in range(cstart, cend):
+        CHKERR(DMPlexGetCone(plex.dm, c, &facets))
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+
+        for f in range(nfacet):
+            fi = 0
+            CHKERR(DMLabelHasPoint(label, facets[f], &isinterior))
+
+            for p in range(nclosure):
+                point = cell_closures[cell, p]
+                if point == facets[f]:
+                    if isinterior:
+                        cell_facets[cell, fi] = 1
+                    else:
+                        cell_facets[cell, fi] = 0
+                    break
+                if fstart <= point < fend:
+                    fi += 1
+    return cell_facets
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     """Return coordinates for the plex, reordered according to the
     global numbering permutation for the coordinate function space.

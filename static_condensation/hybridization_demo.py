@@ -41,7 +41,9 @@ K = slate.Matrix(Positive_trace)
 A = slate.Matrix(Mass + Div - Grad)
 
 Schur = -K.T*A.inv*K
-slate_schur = slate.slate_assemble(Schur, bcs=[bcs]).values
+slate_schur = slate.slate_assemble(Schur, bcs=[bcs])
+
+print slate_schur.values
 
 trace_f = assemble(Trace, nest=False).M.values
 
@@ -57,6 +59,6 @@ L = f*v*dx
 F = slate.Vector(L)
 rhs = K.T*A.inv*F
 
-print thunk
-print slate_schur
-print np.allclose(thunk, slate_schur)
+# print thunk
+# print slate_schur
+# print np.allclose(thunk, slate_schur)
