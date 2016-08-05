@@ -28,6 +28,11 @@ def _plot_mult(functions, num_points=10, **kwargs):
     play_axis = plt.axes([0.05, 0.025, 0.1, 0.03])
     play_button = Button(play_axis, "Play")
     play_axis._button = play_button  # Hacking: keep a reference of button
+    is_closed = [False]  # Use array to allow its value to be changed
+
+    def handle_close(event):
+        is_closed[0] = True
+    figure.canvas.mpl_connect('close_event', handle_close)
 
     def update(val):
         val = int(val - 0.1)
@@ -40,11 +45,12 @@ def _plot_mult(functions, num_points=10, **kwargs):
 
     def auto_play(event):
         curr = 0
-        while curr < len(functions):
+        while curr < len(functions) and not is_closed[0]:
             curr += 1
             func_slider.set_val(curr)
             plt.pause(0.5)
     play_button.on_clicked(auto_play)
+
     return figure
 
 
