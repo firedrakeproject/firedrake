@@ -33,6 +33,16 @@ def _plot_mult(functions, num_points=10, **kwargs):
         os.path.dirname(firedrake__file__), 'icons/play.png'))
     play_button = Button(play_axis, "", image=play_image)
     play_axis._button = play_button  # Hacking: keep a reference of button
+    plus_axis = plt.axes([0.08, 0.025, 0.1, 0.03])
+    plus_image = mpimg.imread(os.path.join(
+        os.path.dirname(firedrake__file__), 'icons/plus.png'))
+    plus_button = Button(plus_axis, "", image=plus_image)
+    plus_axis._button = plus_button  # Hacking: keep a reference of button
+    minus_axis = plt.axes([0.02, 0.025, 0.1, 0.03])
+    minus_image = mpimg.imread(os.path.join(
+        os.path.dirname(firedrake__file__), 'icons/minus.png'))
+    minus_button = Button(minus_axis, "", image=minus_image)
+    minus_axis._button = minus_button  # Hacking: keep a reference of button
 
     class Player:
         STOP = 0
@@ -67,6 +77,14 @@ def _plot_mult(functions, num_points=10, **kwargs):
             plt.pause(player.frame_interval)
         player.status = Player.STOP
     play_button.on_clicked(auto_play)
+
+    def increase_speed(event):
+        player.frame_interval /= 2
+    plus_button.on_clicked(increase_speed)
+
+    def decrease_speed(event):
+        player.frame_interval *= 2
+    minus_button.on_clicked(decrease_speed)
 
     return figure
 
