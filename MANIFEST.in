@@ -1,2 +1,3 @@
 include versioneer.py
 include firedrake/_version.py
+include firedrake/icons/*.png

@@ -15,10 +15,13 @@ def _plot_mult(functions, num_points=10, **kwargs):
     try:
         import matplotlib.pyplot as plt
         from matplotlib.widgets import Slider, Button
+        import matplotlib.image as mpimg
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
     if len(functions) == 0:
         return None
+    import os
+    from firedrake import __file__ as firedrake__file__
     figure, ax = plt.subplots()
     func_axis = plt.axes([0.3, 0.025, 0.65, 0.03],
                          axisbg='lightgoldenrodyellow')
@@ -26,7 +29,9 @@ def _plot_mult(functions, num_points=10, **kwargs):
                          0.1, len(functions), valinit=0)
     func_slider.valtext.set_text('0')
     play_axis = plt.axes([0.05, 0.025, 0.1, 0.03])
-    play_button = Button(play_axis, "Play")
+    play_image = mpimg.imread(os.path.join(
+        os.path.dirname(firedrake__file__), 'icons/play.png'))
+    play_button = Button(play_axis, "", image=play_image)
     play_axis._button = play_button  # Hacking: keep a reference of button
     is_closed = [False]  # Use array to allow its value to be changed
 
