@@ -33,10 +33,15 @@ def _plot_mult(functions, num_points=10, **kwargs):
         os.path.dirname(firedrake__file__), 'icons/play.png'))
     play_button = Button(play_axis, "", image=play_image)
     play_axis._button = play_button  # Hacking: keep a reference of button
-    is_closed = [False]  # Use array to allow its value to be changed
+
+    class PlayerStatus:
+        STOP = 0
+        PLAYING = 1
+        CLOSED = -1
+    player_status = [PlayerStatus.STOP]  # Use array to allow its value to be changed
 
     def handle_close(event):
-        is_closed[0] = True
+        player_status[0] = PlayerStatus.CLOSED
     figure.canvas.mpl_connect('close_event', handle_close)
 
     def update(val):
@@ -49,11 +54,16 @@ def _plot_mult(functions, num_points=10, **kwargs):
     func_slider.on_changed(update)
 
     def auto_play(event):
+        if player_status[0] == PlayerStatus.PLAYING:
+            player_status[0] = PlayerStatus.STOP
+            return
         curr = 0
-        while curr < len(functions) and not is_closed[0]:
+        player_status[0] = PlayerStatus.PLAYING
+        while curr < len(functions) and player_status[0] == PlayerStatus.PLAYING:
             curr += 1
             func_slider.set_val(curr)
             plt.pause(0.5)
+        player_status[0] = PlayerStatus.STOP
     play_button.on_clicked(auto_play)
 
     return figure
