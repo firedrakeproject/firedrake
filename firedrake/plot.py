@@ -34,14 +34,16 @@ def _plot_mult(functions, num_points=10, **kwargs):
     play_button = Button(play_axis, "", image=play_image)
     play_axis._button = play_button  # Hacking: keep a reference of button
 
-    class PlayerStatus:
+    class Player:
         STOP = 0
         PLAYING = 1
         CLOSED = -1
-    player_status = [PlayerStatus.STOP]  # Use array to allow its value to be changed
+        status = STOP
+        frame_interval = 0.5
+    player = Player()  # Use array to allow its value to be changed
 
     def handle_close(event):
-        player_status[0] = PlayerStatus.CLOSED
+        player.status = Player.CLOSED
     figure.canvas.mpl_connect('close_event', handle_close)
 
     def update(val):
@@ -54,16 +56,16 @@ def _plot_mult(functions, num_points=10, **kwargs):
     func_slider.on_changed(update)
 
     def auto_play(event):
-        if player_status[0] == PlayerStatus.PLAYING:
-            player_status[0] = PlayerStatus.STOP
+        if player.status == Player.PLAYING:
+            player.status = Player.STOP
             return
         curr = 0
-        player_status[0] = PlayerStatus.PLAYING
-        while curr < len(functions) and player_status[0] == PlayerStatus.PLAYING:
+        player.status = Player.PLAYING
+        while curr < len(functions) and player.status == Player.PLAYING:
             curr += 1
             func_slider.set_val(curr)
-            plt.pause(0.5)
-        player_status[0] = PlayerStatus.STOP
+            plt.pause(player.frame_interval)
+        player.status = Player.STOP
     play_button.on_clicked(auto_play)
 
     return figure
