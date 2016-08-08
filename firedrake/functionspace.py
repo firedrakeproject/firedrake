@@ -87,7 +87,7 @@ def check_element(element, top=True):
     elif type(element) is ufl.EnrichedElement:
         inner = element._elements
     elif type(element) is ufl.TensorProductElement:
-        inner = element._A, element._B
+        inner = element.sub_elements()
     elif isinstance(element, ufl.MixedElement):
         if not top:
             raise ValueError("%s modifier must be outermost" % type(element))
