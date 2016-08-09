@@ -118,18 +118,19 @@ class _SNESContext(object):
             extra_ctx["state"] = self._xs[-1]
 
         from firedrake.assemble import assemble
-        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
+        self._jacs = tuple(assemble(J, bcs=problem.bcs,
                                     form_compiler_parameters=problem.form_compiler_parameters,
                                     nest=problem._nest, matfree=matfree, extra_ctx=extra_ctx)
-                           for problem in problems)
+                           for J, problem in zip(self.Js, problems))
         if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
+            self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
                                          form_compiler_parameters=problem.form_compiler_parameters,
                                          nest=problem._nest, matfree=matfree, extra_ctx=extra_ctx)
-                                for problem in problems)
+                                for Jp, problem in zip(self.Jps, problems))
         else:
             self._pjacs = self._jacs
 
+        self.matfree = matfree
         self._jacobians_assembled = [False for _ in problems]
 
     def set_function(self, snes):
@@ -230,12 +231,14 @@ class _SNESContext(object):
                  tensor=ctx._jacs[lvl],
                  bcs=problem.bcs,
                  form_compiler_parameters=problem.form_compiler_parameters,
-                 nest=problem._nest)
+                 nest=problem._nest,
+                 matfree=ctx.matfree)
         ctx._jacs[lvl].force_evaluation()
         if ctx.Jps[lvl] is not None:
             assemble(ctx.Jps[lvl],
                      tensor=ctx._pjacs[lvl],
                      bcs=problem.bcs,
                      form_compiler_parameters=problem.form_compiler_parameters,
-                     nest=problem._nest)
+                     nest=problem._nest,
+                     matfree=ctx.matfree)
             ctx._pjacs[lvl].force_evaluation()
