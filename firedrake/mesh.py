@@ -89,7 +89,7 @@ class _Facets(object):
         return op2.Subset(self.set, [])
 
     def measure_set(self, integral_type, subdomain_id,
-                    all_integer_subdomain_ids=()):
+                    all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
 
         :arg integral_type: The type of the integral (should be a facet measure).
@@ -118,7 +118,7 @@ class _Facets(object):
         if subdomain_id == "everywhere":
             return self.set
         if subdomain_id == "otherwise":
-            if len(all_integer_subdomain_ids) == 0:
+            if all_integer_subdomain_ids is None:
                 return self.set
             key = ("otherwise", ) + all_integer_subdomain_ids
             try:
@@ -636,7 +636,7 @@ class MeshTopology(object):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "%s_cells" % self.name, comm=self.comm)
 
-    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=()):
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
 
         :arg subdomain_id: The subdomain of the mesh to iterate over.
@@ -656,7 +656,7 @@ class MeshTopology(object):
         if subdomain_id == "everywhere":
             return self.cell_set
         if subdomain_id == "otherwise":
-            if len(all_integer_subdomain_ids) == 0:
+            if all_integer_subdomain_ids is None:
                 return self.cell_set
             key = ("otherwise", ) + all_integer_subdomain_ids
         else:
@@ -679,7 +679,7 @@ class MeshTopology(object):
             return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
 
     def measure_set(self, integral_type, subdomain_id,
-                    all_integer_subdomain_ids=()):
+                    all_integer_subdomain_ids=None):
         """Return an iteration set appropriate for the requested integral type.
 
         :arg integral_type: The type of the integral (should be a valid UFL measure).
@@ -693,10 +693,13 @@ class MeshTopology(object):
              all_integer_subdomain_ids is empty, then ``"otherwise" ==
              "everywhere"``.  If it contains ``(1, 2)``, then
              ``"otherwise"`` is all entities except those marked by
-             subdomains 1 and 2.
+             subdomains 1 and 2.  This should be a dict mapping
+             ``integral_type`` to the explicitly enumerated subdomain ids.
 
          :returns: A :class:`pyop2.Subset` for iteration.
         """
+        if all_integer_subdomain_ids is not None:
+            all_integer_subdomain_ids = all_integer_subdomain_ids.get(integral_type, None)
         if integral_type == "cell":
             return self.cell_subset(subdomain_id, all_integer_subdomain_ids)
         elif integral_type in ("exterior_facet", "exterior_facet_vert",

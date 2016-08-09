@@ -140,6 +140,164 @@ def PeriodicUnitIntervalMesh(ncells, comm=COMM_WORLD):
     return PeriodicIntervalMesh(ncells, length=1.0, comm=comm)
 
 
+def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
+    """
+    Generate a rectangular mesh in the domain with corners [0,0]
+    and [Lx, Ly] with ncells, that is periodic in the x-direction.
+
+    :arg ncells: The number of cells in the mesh.
+    :arg Lx: The width of the domain in the x-direction.
+    :arg Ly: The width of the domain in the y-direction.
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+
+    left = np.arange(ncells, dtype='int32')
+    right = np.roll(left, -1)
+    cells = np.array([left, left, right, right]).T
+    dx = Lx/ncells
+    X = np.arange(1.0*ncells)*dx
+    Y = 0.*X
+    coords = np.array([X, Y]).T
+
+    # a line of coordinates, with a looped topology
+    plex = mesh._from_cell_list(2, cells, coords, comm)
+    mesh1 = mesh.Mesh(plex)
+    mesh1.topology.init()
+    cell_numbering = mesh1._cell_numbering
+    cell_range = plex.getHeightStratum(0)
+    cell_closure = np.zeros((cell_range[1], 9), dtype=int)
+
+    # Get the coordinates for this process
+    coords = plex.getCoordinatesLocal().array_r
+    # get the PETSc section
+    coords_sec = plex.getCoordinateSection()
+
+    for e in range(*cell_range):
+
+        closure, orient = plex.getTransitiveClosure(e)
+
+        # get the row for this cell
+        row = cell_numbering.getOffset(e)
+
+        # run some checks
+        assert(closure[0] == e)
+        assert len(closure) == 7, closure
+        edge_range = plex.getHeightStratum(1)
+        assert(all(closure[1:5] >= edge_range[0]))
+        assert(all(closure[1:5] < edge_range[1]))
+        vertex_range = plex.getHeightStratum(2)
+        assert(all(closure[5:] >= vertex_range[0]))
+        assert(all(closure[5:] < vertex_range[1]))
+
+        # enter the cell number
+        cell_closure[row][8] = e
+
+        # Get a list of unique edges
+        edge_set = list(set(closure[1:5]))
+
+        # there are two vertices in the cell
+        cell_vertices = closure[5:]
+        cell_X = np.array([0., 0.])
+        for i, v in enumerate(cell_vertices):
+            cell_X[i] = coords[coords_sec.getOffset(v)]
+
+        # Add in the edges
+        for i in range(3):
+            # count up how many times each edge is repeated
+            repeats = list(closure[1:5]).count(edge_set[i])
+            if repeats == 2:
+                # we have a y-periodic edge
+                cell_closure[row][6] = edge_set[i]
+                cell_closure[row][7] = edge_set[i]
+            elif repeats == 1:
+                # in this code we check if it is a right edge, or a left edge
+                # by inspecting the x coordinates of the edge vertex (1)
+                # and comparing with the x coordinates of the cell vertices (2)
+
+                # there is only one vertex on the edge in this case
+                edge_vertex = plex.getCone(edge_set[i])[0]
+
+                # get X coordinate for this edge
+                edge_X = coords[coords_sec.getOffset(edge_vertex)]
+                # get X coordinates for this cell
+                if(cell_X.min() < dx/2.0):
+                    if cell_X.max() < 3*dx/2.0:
+                        # We are in the first cell
+                        if(edge_X.min() < dx/2.0):
+                            # we are on left hand edge
+                            cell_closure[row][4] = edge_set[i]
+                        else:
+                            # we are on right hand edge
+                            cell_closure[row][5] = edge_set[i]
+                    else:
+                        # We are in the last cell
+                        if(edge_X.min() < dx/2.0):
+                            # we are on right hand edge
+                            cell_closure[row][5] = edge_set[i]
+                        else:
+                            # we are on left hand edge
+                            cell_closure[row][4] = edge_set[i]
+                else:
+                    if(abs(cell_X.min()-edge_X.min()) < dx/2.0):
+                        # we are on left hand edge
+                        cell_closure[row][4] = edge_set[i]
+                    else:
+                        # we are on right hand edge
+                        cell_closure[row][5] = edge_set[i]
+
+        # Add in the vertices
+        vertices = closure[5:]
+        v1 = vertices[0]
+        v2 = vertices[1]
+        x1 = coords[coords_sec.getOffset(v1)]
+        x2 = coords[coords_sec.getOffset(v2)]
+        # Fix orientations
+        if(x1 > x2):
+            if(x1 - x2 < dx*1.5):
+                # we are not on the rightmost cell and need to swap
+                v1, v2 = v2, v1
+        elif(x2 - x1 > dx*1.5):
+            # we are on the rightmost cell and need to swap
+            v1, v2 = v2, v1
+
+        cell_closure[row][0:4] = [v1, v1, v2, v2]
+
+    mesh1.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
+
+    mesh1.init()
+
+    Vc = VectorFunctionSpace(mesh1, 'DQ', 1)
+    fc = Function(Vc).interpolate(mesh1.coordinates)
+
+    mash = mesh.Mesh(fc)
+    topverts = Vc.cell_node_list[:, 1::2].flatten()
+    mash.coordinates.dat.data_with_halos[topverts, 1] = Ly
+
+    # search for the last cell
+    mcoords_ro = mash.coordinates.dat.data_ro_with_halos
+    mcoords = mash.coordinates.dat.data_with_halos
+    for e in range(*cell_range):
+        cell = cell_numbering.getOffset(e)
+        cell_nodes = Vc.cell_node_list[cell, :]
+        Xvals = mcoords_ro[cell_nodes, 0]
+        if(Xvals.max() - Xvals.min() > Lx/2.0):
+            mcoords[cell_nodes[2:], 0] = Lx
+        else:
+            mcoords
+
+    local_facet_dat = mash.topology.interior_facets.local_facet_dat
+    local_facet_number = mash.topology.interior_facets.local_facet_number
+
+    lfd_ro = local_facet_dat.data_ro
+    for i in range(lfd_ro.shape[0]):
+        if all(lfd_ro[i, :] == np.array([3, 3])):
+            local_facet_dat.data[i, :] = [2, 3]
+            local_facet_number[i, :] = [2, 3]
+
+    return mash
+
+
 def UnitTriangleMesh(comm=COMM_WORLD):
     """Generate a mesh of the reference triangle
 
@@ -290,6 +448,9 @@ def PeriodicRectangleMesh(nx, ny, Lx, Ly, direction="both",
     * 1: plane x == 0
     * 2: plane x == Lx
     """
+
+    if direction == "both" and ny == 1 and quadrilateral:
+        return OneElementThickMesh(nx, Lx, Ly)
 
     if direction not in ("both", "x", "y"):
         raise ValueError("Cannot have a periodic mesh with periodicity '%s'" % direction)

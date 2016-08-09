@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import numpy
 import ufl
+from collections import defaultdict
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
@@ -236,9 +237,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     m.init()
     subdomain_data = subdomain_data[m]
 
-    # These will be used to correctly interpret the "otherwise" subdomain
-    all_integer_subdomain_ids = tuple(sorted(k.kinfo.subdomain_id for k in kernels
-                                             if k.kinfo.subdomain_id != "otherwise"))
+    # These will be used to correctly interpret the "otherwise"
+    # subdomain
+    all_integer_subdomain_ids = defaultdict(list)
+    for k in kernels:
+        if k.kinfo.subdomain_id != "otherwise":
+            all_integer_subdomain_ids[k.kinfo.integral_type].append(k.kinfo.subdomain_id)
+    for k, v in all_integer_subdomain_ids.items():
+        all_integer_subdomain_ids[k] = tuple(sorted(v))
 
     # Since applying boundary conditions to a matrix changes the
     # initial assembly, to support:

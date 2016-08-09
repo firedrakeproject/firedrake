@@ -52,6 +52,7 @@ from firedrake.parameters import *
 from firedrake.parloops import *
 from firedrake.pcinit import *
 from firedrake.pc import *
+from firedrake.plot import *
 from firedrake.projection import *
 from firedrake.slope_limiter import *
 from firedrake.solving import *
