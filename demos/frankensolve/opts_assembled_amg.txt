@@ -1,7 +1,0 @@
--snes_monitor
--ksp_type cg
--pc_type python
--pc_python_type firedrake.AssembledPC
--assembled_pc_type ksp
--assembled_ksp_ksp_type cg
-# Do CG with AMG preconditioning on an *assembled matrix*

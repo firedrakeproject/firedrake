@@ -1,7 +1,0 @@
--snes_monitor
--ksp_type preonly
--pc_type python
--pc_python_type firedrake.AssembledPC
--assembled_ksp_type preonly
--assembled_pc_type lu
-# Force assembly and direct solution in the preconditioner
