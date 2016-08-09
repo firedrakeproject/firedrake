@@ -519,6 +519,7 @@ class ImplicitMatrixContext(object):
             # Repeat call, just return the matrix, since we don't
             # actually assemble in here.
             return target
+        from firedrake import DirichletBC
 
 # These are the sets of ISes of which the the row and column space consist.::
 
@@ -529,14 +530,43 @@ class ImplicitMatrixContext(object):
 # tuples of integers indicating which field ids (hence logical sub-blocks).::
 
         row_inds = find_sub_block(row_is, row_ises)
-        col_inds = find_sub_block(col_is, col_ises)
+        if row_is == col_is and row_ises == col_ises:
+            col_inds = row_inds
+        else:
+            col_inds = find_sub_block(col_is, col_ises)
 
+        asub, = ExtractSubBlock(row_inds, col_inds).split(self.a)
 
-# Now, actually extracting the right UFL bit will occur inside a special
-# class, which is a Python object that needs to be stuffed inside
-# a PETSc matrix::
+        Wrow = asub.arguments()[0].function_space()
+        Wcol = asub.arguments()[1].function_space()
 
-        submat_ctx = ImplicitSubMatrixContext(self, row_inds, col_inds)
+        row_bcs = []
+        col_bcs = []
+
+        for bc in self.row_bcs:
+            for i, r in enumerate(row_inds):
+                if bc.function_space().index == r:
+                    row_bcs.append(DirichletBC(Wrow.split()[i],
+                                               bc.function_arg,
+                                               bc.sub_domain,
+                                               method=bc.method))
+
+        if Wrow == Wcol and row_inds == col_inds and self.row_bcs == self.col_bcs:
+            col_bcs = row_bcs
+        else:
+            for bc in self.col_bcs:
+                for i, c in enumerate(col_inds):
+                    if bc.function_space().index == c:
+                        col_bcs.append(DirichletBC(Wcol.split()[i],
+                                                   bc.function_arg,
+                                                   bc.sub_domain,
+                                                   method=bc.method))
+        submat_ctx = ImplicitMatrixContext(asub,
+                                           row_bcs=row_bcs,
+                                           col_bcs=col_bcs,
+                                           fc_params=self.fc_params,
+                                           extra_ctx=self.extra)
+        submat_ctx.on_diag = self.on_diag and row_inds == col_inds
         submat = PETSc.Mat().create()
         submat.setType("python")
         submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes))
@@ -546,90 +576,30 @@ class ImplicitMatrixContext(object):
         return submat
 
 
-class ImplicitSubMatrixContext(ImplicitMatrixContext):
-    def __init__(self, Actx, row_inds, col_inds):
-        from firedrake import DirichletBC
-        self.parent = Actx
-        self.row_inds = row_inds
-        self.col_inds = col_inds
-        asub, = ExtractSubBlock(row_inds, col_inds).split(Actx.a)
-
-        Wrow = asub.arguments()[0].function_space()
-        Wcol = asub.arguments()[1].function_space()
-
-        row_bcs = []
-        col_bcs = []
-
-        for bc in Actx.row_bcs:
-            for i, r in enumerate(row_inds):
-                if bc.function_space().index == r:
-                    nbc = DirichletBC(Wrow.split()[i],
-                                      bc.function_arg,
-                                      bc.sub_domain,
-                                      method=bc.method)
-                    row_bcs.append(nbc)
-
-        for bc in Actx.col_bcs:
-            for i, c in enumerate(col_inds):
-                if bc.function_space().index == c:
-                    nbc = DirichletBC(Wcol.split()[i],
-                                      bc.function_arg,
-                                      bc.sub_domain,
-                                      method=bc.method)
-                    col_bcs.append(nbc)
-
-        if row_inds != col_inds:
-            self.on_diag = False
-
-        ImplicitMatrixContext.__init__(self, asub,
-                                       row_bcs=row_bcs,
-                                       col_bcs=col_bcs,
-                                       fc_params=Actx.fc_params,
-                                       extra_ctx=Actx.extra)
-
-    def getSubMatrix(self, mat, row_is, col_is, target=None):
-        # Submatrices of submatrices are a bit tricky since I don't want to unwind a whole
-        # trace of parents to get to the "top".  So, I will actually return a submatrix of
-        # a submatrix as the appropriate submatrix of the parent.  The first bit of
-        # this simply asserts that the desired row & column blocks are present in this submatrix.
-        row_ises = self.parent._y.function_space().dof_dset.field_ises
-        col_ises = self.parent._x.function_space().dof_dset.field_ises
-
-        row_inds = find_sub_block(row_is, row_ises)
-        col_inds = find_sub_block(col_is, col_ises)
-
-        for r in row_inds:
-            assert r in self.row_inds
-
-        for c in col_inds:
-            assert c in self.col_inds
-
-        return self.parent.getSubMatrix(self.parent, row_is, col_is, target=target)
-
-
 def find_sub_block(iset, ises):
     found = []
     sfound = set()
+    comm = iset.comm
     while True:
         match = False
         for i, iset_ in enumerate(ises):
             if i in sfound:
                 continue
-            lsize = iset_.getSize()
-            if lsize > iset.getSize():
+            lsize = iset_.getLocalSize()
+            if lsize > iset.getLocalSize():
                 continue
             indices = iset.indices
-            tmp = PETSc.IS().createGeneral(indices[:lsize])
+            tmp = PETSc.IS().createGeneral(indices[:lsize], comm=comm)
             if tmp.equal(iset_):
                 found.append(i)
                 sfound.add(i)
-                iset = PETSc.IS().createGeneral(indices[lsize:])
+                iset = PETSc.IS().createGeneral(indices[lsize:], comm=comm)
                 match = True
                 continue
         if not match:
             break
     if iset.getSize() > 0:
-        return None
+        raise LookupError("Unable to find %s in %s" % (iset, ises))
     return found
 
 
@@ -700,4 +670,3 @@ class ExtractSubBlock(MultiFunction):
                          for j in numpy.ndindex(
                          V_is[i].ufl_element().value_shape())]
         return as_vector(args)
-        self.M.force_evaluation()
