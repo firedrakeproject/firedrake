@@ -35,13 +35,16 @@ Grad = div(tau)*u*dx
 A_f = assemble(Mass + Div - Grad, nest=False).M.values
 
 Trace = jump(tau, n=n)*lambdar('+')*dS + jump(sigma, n=n)*gammar('+')*dS
-Positive_trace = dot(tau, n)('+')*lambdar('+')*dS + dot(sigma, n)('+')*gammar('+')*dS
+Positive_trace = gammar('+')*lambdar('+')*dS + lambdar('+')*gammar('+')*dS
 
 K = slate.Matrix(Positive_trace)
 A = slate.Matrix(Mass + Div - Grad)
 
 Schur = -K.T*A.inv*K
 slate_schur = slate.slate_assemble(Schur, bcs=[bcs])
+L = f*v*dx
+F = slate.Vector(L)
+rhs = K.T*A.inv*F
 
 print slate_schur.values
 
@@ -54,10 +57,6 @@ schur_f[:, bcs.nodes] = 0
 d = np.zeros_like(schur_f)
 d[bcs.nodes, bcs.nodes] = 1
 thunk = d - schur_f
-
-L = f*v*dx
-F = slate.Vector(L)
-rhs = K.T*A.inv*F
 
 # print thunk
 # print slate_schur

@@ -18,6 +18,9 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
 
 from coffee import base as ast
+from coffee.visitor import Visitor
+
+firedrake.parameters["pyop2_options"]["debug"] = True
 
 
 class CheckRestrictions(MultiFunction):
@@ -431,8 +434,6 @@ class TensorMul(BinaryOp):
             return get_arguments(A)
         argsA = get_arguments(A)
         argsB = get_arguments(B)
-#        assert (argsA[-1].function_space() ==
-#                argsB[0].function_space())
         return argsA[:-1] + argsB[1:]
 
     @classmethod
@@ -440,6 +441,86 @@ class TensorMul(BinaryOp):
         intsA = get_integrals(A)
         intsB = get_integrals(B)
         return intsA[:-1] + intsB[1:]
+
+
+class TransformEigenKernel(Visitor):
+    """Replaces all out tensor references with a specified name
+    of :type:`Eigen::Matrix` with the appropriate shape.
+
+    The default name of :data:`"A"` is assigned, otherwise a
+    specified name may be passed as the :data:`name` argument
+    when calling the visitor."""
+
+    def visit_object(self, o, *args, **kwargs):
+        """Visits an object `o` and leaves it alone.
+
+        i.e.  string ---> string
+
+        """
+
+        return o
+
+    def visit_list(self, o, *args, **kwargs):
+        """Visits a list of COFFEE nodes and returns
+        the list of specified objects in the original
+        list."""
+
+        newlist = [self.visit(e, *args, **kwargs) for e in o]
+        if all(newo is e for newo, e in zip(newlist, o)):
+            return o
+
+        return newlist
+
+    visit_Node = Visitor.maybe_reconstruct
+
+    def visit_FunDecl(self, o, *args, **kwargs):
+        """Visits a COFFEE FunDecl object and reconstructs
+        the FunDecl with the appropriate changed arguments
+        and body."""
+
+        new = self.visit_Node(o, *args, **kwargs)
+        ops, okwargs = new.operands()
+        if all(new is old for new, old in zip(ops, o.operands()[0])):
+            return o
+
+        return o.reconstruct(*ops, **okwargs)
+
+    def visit_Decl(self, o, *args, **kwargs):
+        """Visits a declared tensor and changes its type
+        to :type:`Eigen::Matrix`.
+
+        i.e. double A[n][m] ---> Eigen::Matrix<double, n, m::EigenRowMajor> A
+        or   double A[n][1] ---> Eigen::Matrix<double, n, 1> A
+
+        """
+
+        name = kwargs.get("name", "A")
+        if o.sym.symbol != name:
+            return o
+
+        rank = o.sym.rank
+        if rank[1] != 1:
+            order = ", Eigen::RowMajor"
+        else:
+            order = ""
+        newtype = "Eigen::Matrix<double, %d, %d%s>" % (rank[0], rank[1], order)
+
+        return o.reconstruct(newtype, ast.Symbol("%s" % name))
+
+    def visit_Symbol(self, o, *args, **kwargs):
+        """Visits a COFFEE symbol and redefines it as a
+        FunCall object.
+
+        i.e.     A[j][k] ---> A(j, k)
+
+        """
+
+        name = kwargs.get("name", "A")
+        if o.symbol != name:
+            return o
+
+        shape = o.rank
+        return ast.FunCall(ast.Symbol(name), *shape)
 
 
 @singledispatch
@@ -486,10 +567,6 @@ def get_product_arguments(expr):
         return get_arguments(B)
     elif isinstance(B, Scalar):
         return get_arguments(A)
-    # Check for function space type to perform contraction
-    # over middle indices
-#    assert (get_arguments(A)[-1].function_space() ==
-#            get_arguments(B)[0].function_space())
     return get_arguments(A)[:-1] + get_arguments(B)[1:]
 
 
@@ -681,6 +758,9 @@ def compile_slate_expression(slate_expr):
                     cstart = 0
 
                 # Creating sub-block if tensor is mixed
+                # For example: Cell-wise integrals associated with
+                # a hybridized Helmholtz will have arguments in
+                # both BrokenRT and DG
                 if (rshape, cshape) != exp.shape:
                     tensor = ast.FlatBlock("%s.block<%d,%d>(%d, %d)" %
                                            (t, rshape, cshape,
@@ -777,7 +857,7 @@ def compile_slate_expression(slate_expr):
     c_string = ast.FlatBlock(get_c_str(slate_expr, temps))
     statements.append(ast.Assign(result_sym, c_string))
 
-    arglist = [result, ast.Decl("%s **" % dtype, coordsym)]
+    arglist = [result, ast.Decl("const %s *restrict *" % dtype, coordsym)]
     for c in coeffs:
         ctype = "%s **" % dtype
         if isinstance(c, firedrake.Constant):
@@ -787,25 +867,27 @@ def compile_slate_expression(slate_expr):
     if need_cell_facets:
         arglist.append(ast.Decl("char *", cellfacetsym))
 
-    kernel = ast.FunDecl("void", "compile_slate_expression", arglist,
+    kernel = ast.FunDecl("void", "hfc_compile_slate", arglist,
                          ast.Block(statements),
                          pred=["static", "inline"])
 
     klist = []
+    transformkernel = TransformEigenKernel()
     for v in kernel_exprs.values():
         for (_, ks) in v:
             for k in ks:
-                kast = k.kinfo.kernel._ast
+                kast = transformkernel.visit(k.kinfo.kernel._ast)
                 klist.append(ast.FlatBlock(kast.gencode()))
 
     klist.append(kernel)
     kernelast = ast.Node(klist)
     inc.append('%s/include/eigen3' % sys.prefix)
     op2kernel = firedrake.op2.Kernel(kernelast,
-                                     "compile_slate_expression",
+                                     "hfc_compile_slate",
                                      cpp=True,
                                      include_dirs=inc,
-                                     headers=['#include "Eigen/Dense"'])
+                                     headers=['#include <Eigen/Dense>',
+                                              '#define restrict __restrict'])
 
     return coords, coeffs, need_cell_facets, op2kernel
 
