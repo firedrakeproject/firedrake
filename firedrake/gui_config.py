@@ -15,10 +15,14 @@ def show_config_gui(parameters):
         raise TypeError("Expected Type: Parameters")
 
     def load_json():
-        pass
+        import tkFileDialog
+        filename = tkFileDialog.askopenfilename()
+        import_params_from_json(parameters, filename)
 
     def save_json():
-        pass
+        import tkFileDialog
+        filename = tkFileDialog.asksaveasfilename()
+        export_params_to_json(parameters, filename)
 
     root = Tk()
 
