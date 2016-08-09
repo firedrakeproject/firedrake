@@ -22,12 +22,28 @@ def export_params_to_json(parameters, filename):
     output_file.close()
 
 
-def import_params_from_json(filename):
+def import_params_from_json(parameters, filename):
     import json
-    from firedrake import Parameters
 
     input_file = open(filename, 'r')
     dictionary = json.loads(input_file.read())
-    params = Parameters(**dictionary)
     input_file.close()
-    return params
+    load_from_dict(parameters, dictionary)
+    return parameters
+
+
+def load_from_dict(parameters, dictionary):
+    from firedrake import Parameters
+
+    for k in dictionary:
+        if k in parameters:
+            if isinstance(parameters[k], Parameters):
+                load_from_dict(parameters[k], dictionary[k])
+            else:
+                if isinstance(dictionary[k], unicode):
+                    # change unicode type to str type
+                    parameters[k] = dictionary[k].encode('ascii', 'ignore')
+                else:
+                    parameters[k] = dictionary[k]
+        else:
+            print 'WARNING: ' + k + ' is not in the parameters and ignored'
