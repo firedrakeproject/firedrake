@@ -875,6 +875,8 @@ class RealFunctionSpace(FunctionSpace):
         """:class:`RealFunctionSpace` objects have no dof set."""
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
 
+        self.comm = mesh.comm
+
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
