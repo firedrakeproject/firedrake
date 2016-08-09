@@ -227,6 +227,7 @@ class _SNESContext(object):
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
             X.copy(v)
+
         assemble(ctx.Js[lvl],
                  tensor=ctx._jacs[lvl],
                  bcs=problem.bcs,

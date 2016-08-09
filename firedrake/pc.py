@@ -181,9 +181,8 @@ class PCDPC(InitializedPC):
         self.tmp = [self.Fp.createVecLeft() for i in (0, 1)]
 
     def subsequentSetUp(self, pc):
-        from firedrake import assemble
-        assemble(self.fp, tensor=self.Fpfd)
-        self.Fpfd.force_evaluation()
+        # self.Fpfd.
+        self.Fpfd.assemble()
 
     def apply(self, pc, x, y):
         self.Mksp.solve(x, self.tmp[0])

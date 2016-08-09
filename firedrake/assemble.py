@@ -122,89 +122,88 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if is_mat:
         if matfree:  # intercept matrix-free matrices here
             if tensor is None:
-                from firedrake.matrix import ImplicitMatrix
-                return ImplicitMatrix(f, bcs,
-                                      fc_params=form_compiler_parameters,
-                                      extra_ctx=extra_ctx)
-            else:
-                return tensor
+                return matrix.ImplicitMatrix(f, bcs,
+                                             fc_params=form_compiler_parameters,
+                                             extra_ctx=extra_ctx)
+            if not isinstance(tensor, matrix.ImplicitMatrix):
+                raise ValueError("Expecting implicit matrix with matfree")
+            tensor.assemble()
+            return tensor
+        test, trial = f.arguments()
+
+        map_pairs = []
+        cell_domains = []
+        exterior_facet_domains = []
+        interior_facet_domains = []
+        if tensor is None:
+            # For horizontal facets of extrded meshes, the corresponding domain
+            # in the base mesh is the cell domain. Hence all the maps used for top
+            # bottom and interior horizontal facets will use the cell to dofs map
+            # coming from the base mesh as a starting point for the actual dynamic map
+            # computation.
+            for integral in integrals:
+                integral_type = integral.integral_type()
+                if integral_type == "cell":
+                    cell_domains.append(op2.ALL)
+                elif integral_type == "exterior_facet":
+                    exterior_facet_domains.append(op2.ALL)
+                elif integral_type == "interior_facet":
+                    interior_facet_domains.append(op2.ALL)
+                elif integral_type == "exterior_facet_bottom":
+                    cell_domains.append(op2.ON_BOTTOM)
+                elif integral_type == "exterior_facet_top":
+                    cell_domains.append(op2.ON_TOP)
+                elif integral_type == "exterior_facet_vert":
+                    exterior_facet_domains.append(op2.ALL)
+                elif integral_type == "interior_facet_horiz":
+                    cell_domains.append(op2.ON_INTERIOR_FACETS)
+                elif integral_type == "interior_facet_vert":
+                    interior_facet_domains.append(op2.ALL)
+                else:
+                    raise ValueError('Unknown integral type "%s"' % integral_type)
+
+            # To avoid an extra check for extruded domains, the maps that are being passed in
+            # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
+            # space over which we iterate as the domains are dropped at Sparsity construction
+            # time. In the extruded case the cell domains are used to identify the regions of the
+            # mesh which require allocation in the sparsity.
+            if cell_domains:
+                map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
+                                  op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
+            if exterior_facet_domains:
+                map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
+                                  op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
+            if interior_facet_domains:
+                map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
+                                  op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
+
+            map_pairs = tuple(map_pairs)
+            # Construct OP2 Mat to assemble into
+            fs_names = (test.function_space().name, trial.function_space().name)
+            sparsity = op2.Sparsity((test.function_space().dof_dset,
+                                     trial.function_space().dof_dset),
+                                    map_pairs,
+                                    "%s_%s_sparsity" % fs_names,
+                                    nest=nest)
+            result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
+                                          "%s_%s_matrix" % fs_names)
+            tensor = result_matrix._M
         else:
-            test, trial = f.arguments()
+            if isinstance(tensor, matrix.ImplicitMatrix):
+                raise ValueError("Expecting matfree with implicit matrix")
 
-            map_pairs = []
-            cell_domains = []
-            exterior_facet_domains = []
-            interior_facet_domains = []
-            if tensor is None:
-                # For horizontal facets of extrded meshes, the corresponding domain
-                # in the base mesh is the cell domain. Hence all the maps used for top
-                # bottom and interior horizontal facets will use the cell to dofs map
-                # coming from the base mesh as a starting point for the actual dynamic map
-                # computation.
-                for integral in integrals:
-                    integral_type = integral.integral_type()
-                    if integral_type == "cell":
-                        cell_domains.append(op2.ALL)
-                    elif integral_type == "exterior_facet":
-                        exterior_facet_domains.append(op2.ALL)
-                    elif integral_type == "interior_facet":
-                        interior_facet_domains.append(op2.ALL)
-                    elif integral_type == "exterior_facet_bottom":
-                        cell_domains.append(op2.ON_BOTTOM)
-                    elif integral_type == "exterior_facet_top":
-                        cell_domains.append(op2.ON_TOP)
-                    elif integral_type == "exterior_facet_vert":
-                        exterior_facet_domains.append(op2.ALL)
-                    elif integral_type == "interior_facet_horiz":
-                        cell_domains.append(op2.ON_INTERIOR_FACETS)
-                    elif integral_type == "interior_facet_vert":
-                        interior_facet_domains.append(op2.ALL)
-                    else:
-                        raise ValueError('Unknown integral type "%s"' % integral_type)
+            result_matrix = tensor
+            # Replace any bcs on the tensor we passed in
+            result_matrix.bcs = bcs
+            tensor = tensor._M
+            zero_tensor = lambda: tensor.zero()
 
-                # To avoid an extra check for extruded domains, the maps that are being passed in
-                # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the
-                # space over which we iterate as the domains are dropped at Sparsity construction
-                # time. In the extruded case the cell domains are used to identify the regions of the
-                # mesh which require allocation in the sparsity.
-                if cell_domains:
-                    map_pairs.append((op2.DecoratedMap(test.cell_node_map(), cell_domains),
-                                      op2.DecoratedMap(trial.cell_node_map(), cell_domains)))
-                if exterior_facet_domains:
-                    map_pairs.append((op2.DecoratedMap(test.exterior_facet_node_map(), exterior_facet_domains),
-                                      op2.DecoratedMap(trial.exterior_facet_node_map(), exterior_facet_domains)))
-                if interior_facet_domains:
-                    map_pairs.append((op2.DecoratedMap(test.interior_facet_node_map(), interior_facet_domains),
-                                      op2.DecoratedMap(trial.interior_facet_node_map(), interior_facet_domains)))
-
-                map_pairs = tuple(map_pairs)
-                # Construct OP2 Mat to assemble into
-                fs_names = (test.function_space().name, trial.function_space().name)
-                sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                         trial.function_space().dof_dset),
-                                        map_pairs,
-                                        "%s_%s_sparsity" % fs_names,
-                                        nest=nest)
-                result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
-                                              "%s_%s_matrix" % fs_names)
-                tensor = result_matrix._M
-            else:
-                if isinstance(tensor, matrix.ImplicitMatrix):
-                    tensor.updateForm(f)
-                    return tensor
-
-                result_matrix = tensor
-                # Replace any bcs on the tensor we passed in
-                result_matrix.bcs = bcs
-                tensor = tensor._M
-                zero_tensor = lambda: tensor.zero()
-
-            def mat(testmap, trialmap, i, j):
-                return tensor[i, j](op2.INC,
-                                    (testmap(test.function_space()[i])[op2.i[0]],
-                                     trialmap(trial.function_space()[j])[op2.i[1]]),
-                                    flatten=True)
-            result = lambda: result_matrix
+        def mat(testmap, trialmap, i, j):
+            return tensor[i, j](op2.INC,
+                                (testmap(test.function_space()[i])[op2.i[0]],
+                                 trialmap(trial.function_space()[j])[op2.i[1]]),
+                                flatten=True)
+        result = lambda: result_matrix
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:

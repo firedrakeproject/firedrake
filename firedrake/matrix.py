@@ -326,14 +326,6 @@ class ImplicitMatrix(MatrixBase):
         self.assemble()
         return True
 
-    def updateForm(self, a):
-        self._a = a
-        ctx = self.petscmat.getPythonContext()
-        ctx.a = a
-        ctx.aT = adjoint(a)
-        ctx.action = action(ctx.a, ctx._x)
-        ctx.actionT = action(ctx.aT, ctx._y)
-
     @property
     def PETScMatHandle(self):
         return self.petscmat
@@ -518,6 +510,7 @@ class ImplicitMatrixContext(object):
         if target is not None:
             # Repeat call, just return the matrix, since we don't
             # actually assemble in here.
+            target.assemble()
             return target
         from firedrake import DirichletBC
 
