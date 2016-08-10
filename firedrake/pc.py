@@ -162,7 +162,7 @@ class PCDPC(InitializedPC):
         Kksp.setFromOptions()
         self.Kksp = Kksp
 
-        ctx = Pctx.extra
+        ctx = Pctx.context
         x0 = ctx["state"]
 
         # Re = ctx.get("Re", Constant(1.0))
