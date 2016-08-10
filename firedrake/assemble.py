@@ -20,7 +20,7 @@ __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, nest=None):
+             inverse=False, nest=None, matfree=False, extra_ctx={}):
     """Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
@@ -64,7 +64,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse, nest=nest)
+                         inverse=inverse, nest=nest, matfree=matfree, extra_ctx=extra_ctx)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -73,7 +73,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 @utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-              inverse=False, nest=None):
+              inverse=False, nest=None, matfree=False, extra_ctx={}):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -121,6 +121,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     zero_tensor = lambda: None
 
     if is_mat:
+        if matfree:  # intercept matrix-free matrices here
+            if tensor is None:
+                return matrix.ImplicitMatrix(f, bcs,
+                                             fc_params=form_compiler_parameters,
+                                             extra_ctx=extra_ctx)
+            if not isinstance(tensor, matrix.ImplicitMatrix):
+                raise ValueError("Expecting implicit matrix with matfree")
+            tensor.assemble()
+            return tensor
         test, trial = f.arguments()
 
         map_pairs = []
@@ -181,6 +190,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
         else:
+            if isinstance(tensor, matrix.ImplicitMatrix):
+                raise ValueError("Expecting matfree with implicit matrix")
+
             result_matrix = tensor
             # Replace any bcs on the tensor we passed in
             result_matrix.bcs = bcs
