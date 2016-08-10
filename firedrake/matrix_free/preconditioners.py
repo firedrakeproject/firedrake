@@ -46,6 +46,15 @@ class PCBase(object):
             self.initialize(pc)
             self.initialized = True
 
+    def view(self, pc, viewer=None):
+        if viewer is None:
+            return
+        typ = viewer.getType()
+        if typ != PETSc.Viewer.Type.ASCII:
+            return
+        viewer.printfASCII("Firedrake matrix-free preconditioner %s\n" %
+                           type(self).__name__)
+
     @abc.abstractmethod
     def apply(self, pc, X, Y):
         """Apply the preconditioner to X, putting the result in Y.
@@ -115,6 +124,13 @@ class AssembledPC(PCBase):
     def applyTranspose(self, pc, x, y):
         self.pc.applyTranspose(x, y)
 
+    def view(self, pc, viewer=None):
+        super(AssembledPC, self).view(pc, viewer)
+        viewer.printfASCII("PC to apply inverse\n")
+        viewer.pushASCIITab()
+        self.pc.view(viewer)
+        viewer.popASCIITab()
+
 
 class MassInvPC(PCBase):
 
@@ -165,6 +181,13 @@ class MassInvPC(PCBase):
 
     # Mass matrix is symmetric
     applyTranspose = apply
+
+    def view(self, pc, viewer=None):
+        super(MassInvPC, self).view(pc, viewer)
+        viewer.printfASCII("KSP solver for M^-1\n")
+        viewer.pushASCIITab()
+        self.ksp.view(viewer)
+        viewer.popASCIITab()
 
 
 class PCDPC(PCBase):
@@ -251,6 +274,7 @@ class PCDPC(PCBase):
         u0 = split(state)[velid]
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
+        self.Re_num = Re_num
         # FIXME, allow assembled matrix here
         self.Fp = assemble(fp, form_compiler_parameters=context.fc_params,
                            matfree=True)
@@ -272,3 +296,19 @@ class PCDPC(PCBase):
 
     def applyTranspose(self, pc, x, y):
         raise NotImplementedError
+
+    def view(self, pc, viewer=None):
+        super(PCDPC, self).view(pc, viewer)
+        viewer.printfASCII("Pressure-Convection-Diffusion inverse K^-1 F_p M^-1:\n")
+        viewer.pushASCIITab()
+        viewer.printfASCII("Reynolds number in F_p (applied matrix-free) is %g\n" %
+                           self.Re_num)
+        viewer.printfASCII("KSP solver for K^-1:\n")
+        viewer.pushASCIITab()
+        self.Kksp.view(viewer)
+        viewer.popASCIITab()
+        viewer.printfASCII("KSP solver for M^-1:\n")
+        viewer.pushASCIITab()
+        self.Mksp.view(viewer)
+        viewer.popASCIITab()
+        viewer.popASCIITab()

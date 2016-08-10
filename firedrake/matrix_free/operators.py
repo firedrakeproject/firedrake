@@ -193,6 +193,14 @@ class ImplicitMatrixContext(object):
 
         return
 
+    def view(self, mat, viewer=None):
+        if viewer is None:
+            return
+        typ = viewer.getType()
+        if typ != PETSc.Viewer.Type.ASCII:
+            return
+        viewer.printfASCII("Firedrake matrix-free operator %s\n" %
+                           type(self).__name__)
 
     # Now, to enable fieldsplit preconditioners, we need to enable submatrix
     # extraction for our custom matrix type.  Note that we are splitting UFL
