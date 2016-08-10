@@ -30,7 +30,36 @@ def show_config_gui(parameters):
         root.destroy()
 
     def save_params():
-        pass
+        # TODO: handle excection
+        parsed_dict = parse_input_dict(parameters, variable_dict)
+        load_from_dict(parameters, parsed_dict)
+
+    def parse_input_dict(parameters, variable_dict):
+        from firedrake import Parameters
+
+        parsed_dict = {}
+        for key in variable_dict.keys():
+            if isinstance(parameters[key], Parameters):
+                parsed_dict[key] = parse_input_dict(parameters[key],
+                                                    variable_dict[key])
+            else:
+                str_val = variable_dict[key].get()
+                if type(parameters[key]) is int:
+                    parsed_dict[key] = int(str_val)
+                elif type(parameters[key]) is float:
+                    parsed_dict[key] = float(str_val)
+                elif type(parameters[key]) is bool:
+                    if str_val == 'True' or str_val == 'true' or str_val == '1':
+                        parsed_dict[key] = True
+                    elif str_val == 'False' or str_val == 'false' or str_val == '0':
+                        parsed_dict[key] = False
+                    else:
+                        raise ValueError("invalid bool value %s" % str_val)
+                elif type(parameters[key]) is str:
+                    parsed_dict[key] = str_val
+                else:
+                    raise TypeError("unrecognisable type" + type(parameters[key]))
+        return parsed_dict
 
     def generate_input(parameters, labelframe, variable_dict):
         global row_count
