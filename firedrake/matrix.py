@@ -5,9 +5,100 @@ import ufl
 from pyop2 import op2
 from pyop2.utils import as_tuple, flatten
 from firedrake import utils
+from firedrake.petsc import PETSc
 
 
-class Matrix(object):
+class MatrixBase(object):
+    """A representation of the linear operator associated with a
+    bilinear form and bcs.  Explicitly assembled matrices and matrix-free
+    matrix classes will derive from this
+
+    :arg a: the bilinear form this :class:`MatrixBase` represents.
+
+    :arg bcs: an iterable of boundary conditions to apply to this
+        :class:`MatrixBase`.  May be `None` if there are no boundary
+        conditions to apply.
+    """
+    def __init__(self, a, bcs):
+        self._a = a
+
+        # Iteration over bcs must be in a parallel consistent order
+        # (so we can't use a set, since the iteration order may differ
+        # on different processes)
+        self._bcs = [bc for bc in bcs] if bcs is not None else []
+
+    def assemble(self):
+        raise NotImplementedError
+
+    @property
+    def assembled(self):
+        raise NotImplementedError
+
+    @property
+    def has_bcs(self):
+        """Return True if this :class:`MatrixBase` has any boundary
+        conditions attached to it."""
+        return self._bcs != []
+
+    @property
+    def bcs(self):
+        """The set of boundary conditions attached to this
+        :class:`.MatrixBase` (may be empty)."""
+        return self._bcs
+
+    @bcs.setter
+    def bcs(self, bcs):
+        """Attach some boundary conditions to this :class:`MatrixBase`.
+
+        :arg bcs: a boundary condition (of type
+            :class:`.DirichletBC`), or an iterable of boundary
+            conditions.  If bcs is None, erase all boundary conditions
+            on the :class:`.MatrixBase`.
+        """
+        self._bcs = []
+        if bcs is not None:
+            try:
+                for bc in bcs:
+                    self._bcs.append(bc)
+            except TypeError:
+                # BC instance, not iterable
+                self._bcs.append(bcs)
+
+    @property
+    def a(self):
+        """The bilinear form this :class:`.MatrixBase` was assembled from"""
+        return self._a
+
+    def add_bc(self, bc):
+        """Add a boundary condition to this :class:`MatrixBase`.
+
+        :arg bc: the :class:`.DirichletBC` to add.
+
+        If the subdomain this boundary condition is applied over is
+        the same as the subdomain of an existing boundary condition on
+        the :class:`MatrixBase`, the existing boundary condition is
+        replaced with this new one.  Otherwise, this boundary
+        condition is added to the set of boundary conditions on the
+        :class:`MatrixBase`.
+        """
+        new_bcs = [bc]
+        for existing_bc in self._bcs:
+            # New BC doesn't override existing one, so keep it.
+            if bc.sub_domain != existing_bc.sub_domain:
+                new_bcs.append(existing_bc)
+        self._bcs = new_bcs
+
+    def __repr__(self):
+        raise NotImplementedError
+
+    def __str__(self):
+        raise NotImplementedError
+
+    def force_evaluation(self):
+        raise NotImplementedError
+
+
+class Matrix(MatrixBase):
     """A representation of an assembled bilinear form.
 
     :arg a: the bilinear form this :class:`Matrix` represents.
@@ -29,15 +120,13 @@ class Matrix(object):
     """
 
     def __init__(self, a, bcs, *args, **kwargs):
-        self._a = a
+        # sets self._a and self._bcs
+        super(Matrix, self).__init__(a, bcs)
         self._M = op2.Mat(*args, **kwargs)
         self.comm = self._M.comm
         self._thunk = None
         self._assembled = False
-        # Iteration over bcs must be in a parallel consistent order
-        # (so we can't use a set, since the iteration order may differ
-        # on different processes)
-        self._bcs = [bc for bc in bcs] if bcs is not None else []
+
         self._bcs_at_point_of_assembly = []
 
     @utils.known_pyop2_safe
@@ -97,42 +186,6 @@ class Matrix(object):
     def assembled(self):
         """Return True if this :class:`Matrix` has been assembled."""
         return self._assembled
-
-    @property
-    def has_bcs(self):
-        """Return True if this :class:`Matrix` has any boundary
-        conditions attached to it."""
-        return self._bcs != []
-
-    @property
-    def bcs(self):
-        """The set of boundary conditions attached to this
-        :class:`Matrix` (may be empty)."""
-        return self._bcs
-
-    @bcs.setter
-    def bcs(self, bcs):
-        """Attach some boundary conditions to this :class:`Matrix`.
-
-        :arg bcs: a boundary condition (of type
-            :class:`.DirichletBC`), or an iterable of boundary
-            conditions.  If bcs is None, erase all boundary conditions
-            on the :class:`Matrix`.
-
-        """
-        self._bcs = []
-        if bcs is not None:
-            try:
-                for bc in bcs:
-                    self._bcs.append(bc)
-            except TypeError:
-                # BC instance, not iterable
-                self._bcs.append(bcs)
-
-    @property
-    def a(self):
-        """The bilinear form this :class:`Matrix` was assembled from"""
-        return self._a
 
     @property
     def M(self):
@@ -209,3 +262,62 @@ class Matrix(object):
             ('' if self._assembled else 'un',
              self.a,
              self.bcs)
+
+    @property
+    def PETScMatHandle(self):
+        return self._M.handle
+
+    def force_evaluation(self):
+        "Ensures that the matrix is fully assembled."
+        self.assemble()
+        self._M._force_evaluation()
+
+
+class ImplicitMatrix(MatrixBase):
+    """A representation of the action of bilinear form operating
+    without explicitly assembling the associated matrix.  This class
+    wraps the relevant information for Python PETSc matrix.
+
+    :arg a: the bilinear form this :class:`Matrix` represents.
+
+    :arg bcs: an iterable of boundary conditions to apply to this
+        :class:`Matrix`.  May be `None` if there are no boundary
+        conditions to apply.
+
+
+    .. note::
+
+        This object acts to the right on an assembled :class:`.Function`
+        and to the left on an assembled cofunction (currently represented
+        by a :class:`.Function`).
+
+    """
+    def __init__(self, a, bcs, *args, **kwargs):
+        # sets self._a and self._bcs
+        super(ImplicitMatrix, self).__init__(a, bcs)
+
+        extra_ctx = kwargs.get("extra_ctx", {})
+
+        from firedrake.matrix_free.operators import ImplicitMatrixContext
+        ctx = ImplicitMatrixContext(a,
+                                    row_bcs=bcs,
+                                    col_bcs=bcs,
+                                    fc_params=kwargs["fc_params"],
+                                    context=extra_ctx)
+        self.petscmat = PETSc.Mat().create()
+        self.petscmat.setType("python")
+        self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes))
+        self.petscmat.setPythonContext(ctx)
+        self.petscmat.setUp()
+        self.petscmat.assemble()
+        self.PETScMatHandle = self.petscmat
+
+    def assemble(self):
+        self.petscmat.assemble()
+
+    force_evaluation = assemble
+
+    @property
+    def assembled(self):
+        self.assemble()
+        return True
