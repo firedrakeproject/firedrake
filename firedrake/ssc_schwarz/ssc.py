@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 from firedrake import DirichletBC, \
-    FunctionSpace, VectorFunctionSpace, Function, assemble, InitializedPC, \
+    FunctionSpace, VectorFunctionSpace, Function, assemble, PCBase, \
     Constant
 
 from firedrake.utils import cached_property
@@ -45,9 +45,9 @@ def mpi_type(dtype, dim):
     return typ
 
 
-class PatchPC(InitializedPC):
+class PatchPC(PCBase):
 
-    def initialSetUp(self, pc):
+    def initialize(self, pc):
         A, P = pc.getOperators()
         ctx = P.getPythonContext()
 
@@ -186,6 +186,9 @@ class PatchPC(InitializedPC):
             mats.append(mat)
         return tuple(mats)
 
+    def update(self, pc):
+        pass
+
     def view(self, pc, viewer=None):
         if viewer is not None:
             comm = viewer.comm
@@ -199,9 +202,9 @@ class PatchPC(InitializedPC):
         apply_patch(self, x, y)
 
 
-class P1PC(InitializedPC):
+class P1PC(PCBase):
 
-    def initialSetUp(self, pc):
+    def initialize(self, pc):
         self.pc = PETSc.PC().create()
         self.pc.setOptionsPrefix(pc.getOptionsPrefix() + "lo_")
         A, P = pc.getOperators()
@@ -266,7 +269,7 @@ class P1PC(InitializedPC):
         #     tmp.append(PETSc.IS().createBlock(V.dim, d[i], comm=PETSc.COMM_SELF))
         # self.dof_patches = tmp
 
-    def subsequentSetUp(self, pc):
+    def update(self, pc):
         assemble(self.P1_form, self.P1_bcs, tensor=self.A_p1)
 
     @cached_property

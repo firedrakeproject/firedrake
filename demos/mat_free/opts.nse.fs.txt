@@ -21,12 +21,12 @@
 -fieldsplit_1_pc_type python
 -fieldsplit_1_pc_python_type firedrake.PCDPC
 -fieldsplit_1_pcd_velocity_space 0
--fieldsplit_1_Mp_ksp_type cg
--fieldsplit_1_Mp_pc_type jacobi
-#-fieldsplit_1_Mp_ksp_rtol 1.e-11
-#-fieldsplit_1_Mp_ksp_converged_reason
--fieldsplit_1_Kp_ksp_type cg
--fieldsplit_1_Kp_pc_type hypre
--fieldsplit_1_Kp_ksp_rtol 1.e-11
+-fieldsplit_1_pcd_Mp_ksp_type cg
+-fieldsplit_1_pcd_Mp_pc_type jacobi
+#-fieldsplit_1_pcd_Mp_ksp_rtol 1.e-11
+#-fieldsplit_1_pcd_Mp_ksp_converged_reason
+-fieldsplit_1_pcd_Kp_ksp_type cg
+-fieldsplit_1_pcd_Kp_pc_type hypre
+-fieldsplit_1_pcd_Kp_ksp_rtol 1.e-11
 -options_left
 

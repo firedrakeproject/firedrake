@@ -37,6 +37,7 @@ from firedrake.functionspace import *
 from firedrake.interpolation import *
 from firedrake.output import *
 from firedrake.linear_solver import *
+from firedrake.matrix_free.preconditioners import *
 from firedrake.mesh import *
 from firedrake.mg.mesh import *
 from firedrake.mg.function import *
@@ -49,8 +50,6 @@ from firedrake.nullspace import *
 from firedrake.optimizer import *
 from firedrake.parameters import *
 from firedrake.parloops import *
-from firedrake.pcinit import *
-from firedrake.pc import *
 from firedrake.plot import *
 from firedrake.projection import *
 from firedrake.slope_limiter import *

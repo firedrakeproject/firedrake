@@ -8,6 +8,48 @@ from firedrake.matrix_free.formmanipulation import ExtractSubBlock
 from firedrake.petsc import PETSc
 
 
+__all__ = ("ImplicitMatrixContext", )
+
+
+def find_sub_block(iset, ises):
+    """Determine if iset comes from a concatenation of some subset of
+    ises.
+
+    :arg iset: a PETSc IS to find in ``ises``.
+    :arg ises: An iterable of PETSc ISes.
+
+    :returns: The indices into ``ises`` that when concatenated
+        together produces ``iset``.
+
+    :raises LookupError: if ``iset`` could not be found in
+        ``ises``.
+    """
+    found = []
+    sfound = set()
+    comm = iset.comm
+    while True:
+        match = False
+        for i, iset_ in enumerate(ises):
+            if i in sfound:
+                continue
+            lsize = iset_.getLocalSize()
+            if lsize > iset.getLocalSize():
+                continue
+            indices = iset.indices
+            tmp = PETSc.IS().createGeneral(indices[:lsize], comm=comm)
+            if tmp.equal(iset_):
+                found.append(i)
+                sfound.add(i)
+                iset = PETSc.IS().createGeneral(indices[lsize:], comm=comm)
+                match = True
+                continue
+        if not match:
+            break
+    if iset.getSize() > 0:
+        raise LookupError("Unable to find %s in %s" % (iset, ises))
+    return found
+
+
 class ImplicitMatrixContext(object):
     # By default, these matrices will represent diagonal blocks (the
     # (0,0) block of a 1x1 block matrix is on the diagonal).
@@ -152,10 +194,10 @@ class ImplicitMatrixContext(object):
         return
 
 
-# Now, to enable fieldsplit preconditioners, we need to enable submatrix
-# extraction for our custom matrix type.  Note that we are splitting UFL
-# and index sets rather than an assembled matrix, keeping matrix
-# assembly deferred as long as possible.::
+    # Now, to enable fieldsplit preconditioners, we need to enable submatrix
+    # extraction for our custom matrix type.  Note that we are splitting UFL
+    # and index sets rather than an assembled matrix, keeping matrix
+    # assembly deferred as long as possible.::
 
     def getSubMatrix(self, mat, row_is, col_is, target=None):
         if target is not None:
@@ -219,30 +261,3 @@ class ImplicitMatrixContext(object):
         submat.setUp()
 
         return submat
-
-
-def find_sub_block(iset, ises):
-    found = []
-    sfound = set()
-    comm = iset.comm
-    while True:
-        match = False
-        for i, iset_ in enumerate(ises):
-            if i in sfound:
-                continue
-            lsize = iset_.getLocalSize()
-            if lsize > iset.getLocalSize():
-                continue
-            indices = iset.indices
-            tmp = PETSc.IS().createGeneral(indices[:lsize], comm=comm)
-            if tmp.equal(iset_):
-                found.append(i)
-                sfound.add(i)
-                iset = PETSc.IS().createGeneral(indices[lsize:], comm=comm)
-                match = True
-                continue
-        if not match:
-            break
-    if iset.getSize() > 0:
-        raise LookupError("Unable to find %s in %s" % (iset, ises))
-    return found

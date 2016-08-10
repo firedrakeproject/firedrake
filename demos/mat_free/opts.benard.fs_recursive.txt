@@ -31,11 +31,11 @@
 -fieldsplit_0_fieldsplit_1_pc_python_type firedrake.PCDPC
 -fieldsplit_0_fieldsplit_1_pcd_velocity_space 0
 # Configure the pressure mass & Poisson solves.
--fieldsplit_0_fieldsplit_1_Mp_ksp_type cg
--fieldsplit_0_fieldsplit_1_Mp_pc_type jacobi
--fieldsplit_0_fieldsplit_1_Kp_ksp_type cg
--fieldsplit_0_fieldsplit_1_Kp_pc_type hypre
--fieldsplit_0_fieldsplit_1_Kp_ksp_rtol 1.e-6
+-fieldsplit_0_fieldsplit_1_pcd_Mp_ksp_type cg
+-fieldsplit_0_fieldsplit_1_pcd_Mp_pc_type jacobi
+-fieldsplit_0_fieldsplit_1_pcd_Kp_ksp_type cg
+-fieldsplit_0_fieldsplit_1_pcd_Kp_pc_type hypre
+-fieldsplit_0_fieldsplit_1_pcd_Kp_ksp_rtol 1.e-6
 # Now for the temperature block.  Solve to a moderately
 # coarse tolerance, preconditioned with AMG
 -fieldsplit_1_ksp_type gmres

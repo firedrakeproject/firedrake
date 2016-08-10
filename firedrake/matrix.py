@@ -316,23 +316,14 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.setPythonContext(ctx)
         self.petscmat.setUp()
         self.petscmat.assemble()
-
-        return
+        self.PETScMatHandle = self.petscmat
 
     def assemble(self):
         self.petscmat.assemble()
+
+    force_evaluation = assemble
 
     @property
     def assembled(self):
         self.assemble()
         return True
-
-    @property
-    def PETScMatHandle(self):
-        return self.petscmat
-
-    def force_evaluation(self):
-        self.assemble()
-        return
-
-
