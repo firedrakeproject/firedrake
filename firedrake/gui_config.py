@@ -52,13 +52,32 @@ def show_config_gui(parameters):
                 variable_dict[key].set(parameters[key])
                 label_val.grid(column=3, row=row_count, sticky=(E))
 
+    def configure_frame(event):
+        size = (mainframe.winfo_reqwidth(), mainframe.winfo_reqheight())
+        canvas.config(scrollregion="0 0 %s %s" % size)
+        if mainframe.winfo_reqwidth() != canvas.winfo_width():
+            canvas.config(width=mainframe.winfo_reqwidth())
+
+    def configure_canvas(event):
+        if mainframe.winfo_reqwidth() != canvas.winfo_width():
+            canvas.itemconfigure(frame_id, width=canvas.winfo_width())
+
     root = Tk()
     root.title("Configure")
 
-    mainframe = Frame(root, padding='3 3 12 12')
+    canvas = Canvas(root, borderwidth=0)
+
+    mainframe = Frame(canvas, padding='3 3 12 12')
     mainframe.grid(row=0, column=0, sticky=(N, W, E, S))
     mainframe.columnconfigure(0, weight=1)
     mainframe.rowconfigure(0, weight=1)
+
+    scrollbar = Scrollbar(root, orient=VERTICAL, command=canvas.yview)
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    scrollbar.pack(side=RIGHT, fill=Y)
+    canvas.pack(side=LEFT, fill=BOTH, expand=True)
+    frame_id = canvas.create_window(0, 0, window=mainframe, anchor=NW)
 
     global row_count
     row_count = 1
@@ -75,6 +94,9 @@ def show_config_gui(parameters):
     button_save.grid(column=2, row=row_count, sticky=S)
     button_quit = Button(mainframe, text="Save and Quit", command=save_and_quit)
     button_quit.grid(column=3, row=row_count, sticky=E)
+
+    mainframe.bind('<Configure>', configure_frame)
+    canvas.bind('<Configure>', configure_canvas)
 
     root.mainloop()
 
