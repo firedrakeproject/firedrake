@@ -45,6 +45,8 @@ def show_config_gui(parameters):
 def export_params_to_json(parameters, filename):
     import json
 
+    if filename == '':
+        return
     output_file = open(filename, 'w')
     output_file.write(json.dumps(parameters))
     output_file.close()
@@ -53,6 +55,8 @@ def export_params_to_json(parameters, filename):
 def import_params_from_json(parameters, filename):
     import json
 
+    if filename == '':
+        return
     input_file = open(filename, 'r')
     dictionary = json.loads(input_file.read())
     input_file.close()
