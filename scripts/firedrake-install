@@ -267,7 +267,7 @@ def apt_install(names):
     log.info("Installing missing packages: %s." % ", ".join(names))
     if sys.stdin.isatty():
         subprocess.check_call(["sudo", "apt-get", "install"] + names)
-    else: 
+    else:
         log.info("Non-interactive stdin detected; installing without prompts")
         subprocess.check_call(["sudo", "apt-get", "-y", "install"] + names)
 
@@ -839,6 +839,7 @@ elif osname == "Linux":
                         "openmpi-bin",
                         "python-dev",
                         "python-pip",
+                        "python-tk",
                         "zlib1g-dev"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
