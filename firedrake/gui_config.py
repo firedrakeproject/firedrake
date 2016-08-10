@@ -32,7 +32,7 @@ def show_config_gui(parameters):
     def save_params():
         pass
 
-    def generate_input(parameters, labelframe):
+    def generate_input(parameters, labelframe, variable_dict):
         global row_count
         keys = sorted(parameters.keys())
         for key in keys:
@@ -42,11 +42,14 @@ def show_config_gui(parameters):
                 subframe.grid(column=1, columnspan=3, row=row_count, sticky=(W, E))
                 subframe.columnconfigure(1, weight=1)
                 subframe.rowconfigure(0, weight=1)
-                generate_input(parameters[key], subframe)
+                variable_dict[key] = {}
+                generate_input(parameters[key], subframe, variable_dict[key])
             else:
                 label_key = Label(labelframe, text=key)
                 label_key.grid(column=1, row=row_count, sticky=(W))
-                label_val = Label(labelframe, text=parameters[key])
+                variable_dict[key] = StringVar()
+                label_val = Entry(labelframe, textvariable=variable_dict[key])
+                variable_dict[key].set(parameters[key])
                 label_val.grid(column=3, row=row_count, sticky=(E))
 
     root = Tk()
@@ -60,7 +63,8 @@ def show_config_gui(parameters):
     global row_count
     row_count = 1
 
-    generate_input(parameters, mainframe)
+    variable_dict = {}
+    generate_input(parameters, mainframe, variable_dict)
 
     row_count += 1
     button_load = Button(mainframe,
