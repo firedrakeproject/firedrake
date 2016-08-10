@@ -32,6 +32,23 @@ def show_config_gui(parameters):
     def save_params():
         pass
 
+    def generate_input(parameters, labelframe):
+        global row_count
+        keys = sorted(parameters.keys())
+        for key in keys:
+            row_count += 1
+            if isinstance(parameters[key], Parameters):
+                subframe = Labelframe(labelframe, text=key, padding='3 3 12 12')
+                subframe.grid(column=1, columnspan=3, row=row_count, sticky=(W, E))
+                subframe.columnconfigure(1, weight=1)
+                subframe.rowconfigure(0, weight=1)
+                generate_input(parameters[key], subframe)
+            else:
+                label_key = Label(labelframe, text=key)
+                label_key.grid(column=1, row=row_count, sticky=(W))
+                label_val = Label(labelframe, text=parameters[key])
+                label_val.grid(column=3, row=row_count, sticky=(E))
+
     root = Tk()
     root.title("Configure")
 
@@ -40,15 +57,20 @@ def show_config_gui(parameters):
     mainframe.columnconfigure(0, weight=1)
     mainframe.rowconfigure(0, weight=1)
 
-    Button(mainframe,
-           text="Load from File",
-           command=load_json).grid(column=1, row=7, sticky=W)
-    Button(mainframe,
-           text="Save to File",
-           command=save_json).grid(column=2, row=7, sticky=S)
-    Button(mainframe,
-           text="Save and Quit",
-           command=save_and_quit).grid(column=3, row=7, sticky=E)
+    global row_count
+    row_count = 1
+
+    generate_input(parameters, mainframe)
+
+    row_count += 1
+    button_load = Button(mainframe,
+                         text="Load from File",
+                         command=load_json)
+    button_load.grid(column=1, row=row_count, sticky=W)
+    button_save = Button(mainframe, text="Save to File", command=save_json)
+    button_save.grid(column=2, row=row_count, sticky=S)
+    button_quit = Button(mainframe, text="Save and Quit", command=save_and_quit)
+    button_quit.grid(column=3, row=row_count, sticky=E)
 
     root.mainloop()
 
