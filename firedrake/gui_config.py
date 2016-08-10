@@ -61,6 +61,7 @@ def import_params_from_json(parameters, filename):
 
 def load_from_dict(parameters, dictionary):
     from firedrake import Parameters
+    from firedrake.logging import warning
 
     for k in dictionary:
         if k in parameters:
@@ -73,4 +74,4 @@ def load_from_dict(parameters, dictionary):
                 else:
                     parameters[k] = dictionary[k]
         else:
-            print 'WARNING: ' + k + ' is not in the parameters and ignored'
+            warning(k + ' is not in the parameters and ignored')
