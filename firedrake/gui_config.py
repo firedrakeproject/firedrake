@@ -40,7 +40,7 @@ def show_config_gui(parameters):
             if isinstance(parameters[key], Parameters):
                 refresh_params(parameters[key], variable_dict[key])
             else:
-                variable_dict[key].set(parameters[key])
+                variable_dict[key].set(str(parameters[key]))
 
     def parse_input_dict(parameters, variable_dict):
         from firedrake import Parameters
@@ -86,7 +86,7 @@ def show_config_gui(parameters):
                 label_key.grid(column=1, row=row_count, sticky=(W))
                 variable_dict[key] = StringVar()
                 label_val = Entry(labelframe, textvariable=variable_dict[key])
-                variable_dict[key].set(parameters[key])
+                variable_dict[key].set(str(parameters[key]))
                 label_val.grid(column=3, row=row_count, sticky=(E))
 
     def configure_frame(event):
