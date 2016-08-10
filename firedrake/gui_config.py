@@ -25,6 +25,7 @@ def show_config_gui(parameters):
         export_params_to_json(parameters, filename)
 
     root = Tk()
+    root.title("Configure")
 
     mainframe = Frame(root, padding='3 3 12 12')
     mainframe.grid(row=0, column=0, sticky=(N, W, E, S))
