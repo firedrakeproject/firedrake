@@ -21,8 +21,16 @@ def show_config_gui(parameters):
 
     def save_json():
         import tkFileDialog
+        save_params()
         filename = tkFileDialog.asksaveasfilename()
         export_params_to_json(parameters, filename)
+
+    def save_and_quit():
+        save_params()
+        root.destroy()
+
+    def save_params():
+        pass
 
     root = Tk()
     root.title("Configure")
@@ -38,6 +46,9 @@ def show_config_gui(parameters):
     Button(mainframe,
            text="Save to File",
            command=save_json).grid(column=2, row=7, sticky=S)
+    Button(mainframe,
+           text="Save and Quit",
+           command=save_and_quit).grid(column=3, row=7, sticky=E)
 
     root.mainloop()
 
