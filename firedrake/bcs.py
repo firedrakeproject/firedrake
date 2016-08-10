@@ -256,6 +256,16 @@ class DirichletBC(object):
         except exceptions.MapValueError:
             raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
+    def set(self, r, val):
+        """Set the boundary nodes to a prescribed (external) value.
+        :arg r: the :class:`Function` to which the value should be applied.
+        :arg val: the prescribed value.
+        """
+        for idx in self._indices:
+            r = r.sub(idx)
+            val = val.sub(idx)
+        r.assign(val, subset=self.node_set)
+
 
 def homogenize(bc):
     """Create a homogeneous version of a :class:`.DirichletBC` object and return it. If
