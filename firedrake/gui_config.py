@@ -18,6 +18,7 @@ def show_config_gui(parameters):
         import tkFileDialog
         filename = tkFileDialog.askopenfilename()
         import_params_from_json(parameters, filename)
+        refresh_params(parameters, variable_dict)
 
     def save_json():
         import tkFileDialog
@@ -33,6 +34,13 @@ def show_config_gui(parameters):
         # TODO: handle excection
         parsed_dict = parse_input_dict(parameters, variable_dict)
         load_from_dict(parameters, parsed_dict)
+
+    def refresh_params(parameters, variable_dict):
+        for key in parameters.keys():
+            if isinstance(parameters[key], Parameters):
+                refresh_params(parameters[key], variable_dict[key])
+            else:
+                variable_dict[key].set(parameters[key])
 
     def parse_input_dict(parameters, variable_dict):
         from firedrake import Parameters
