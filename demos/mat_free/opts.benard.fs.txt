@@ -3,7 +3,8 @@
 -Pr 6.8
 -snes_monitor
 -ksp_type gmres
--ksp_gmres_restart 200
+-ksp_gmres_restart 30
+-ksp_gmres_modifiedgramschmidt
 -ksp_monitor_true_residual
 -ksp_rtol 1.e-8
 -ksp_atol 1.e-12
