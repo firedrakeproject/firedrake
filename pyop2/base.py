@@ -856,8 +856,8 @@ class Subset(ExtrudedSet):
         raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
 
     def __str__(self):
-        return "OP2 Subset: %s with size %s" % \
-            (self._name, self._size)
+        return "OP2 Subset: %s with sizes %s" % \
+            (self._name, self._sizes)
 
     def __repr__(self):
         return "Subset(%r, %r)" % (self._superset, self._indices)
