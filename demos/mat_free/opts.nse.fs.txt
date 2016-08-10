@@ -1,0 +1,32 @@
+-mat_type matfree
+-Re 100.0
+-snes_monitor
+-ksp_type fgmres
+-ksp_gmres_restart 100
+-ksp_monitor_true_residual
+-ksp_rtol 1.e-8
+-ksp_atol 1.e-12
+-ksp_converged_reason
+-pc_type fieldsplit
+-pc_fieldsplit_type schur
+-pc_fieldsplit_schur_fact_type lower
+-pc_fieldsplit_0_fields 0
+-pc_fieldsplit_1_fields 1
+-fieldsplit_0_ksp_type preonly
+-fieldsplit_0_pc_type python
+-fieldsplit_0_pc_python_type firedrake.AssembledPC
+-fieldsplit_0_assembled_pc_type lu
+#-fieldsplit_0_ksp_rtol 1.e-10
+-fieldsplit_1_ksp_type preonly
+-fieldsplit_1_pc_type python
+-fieldsplit_1_pc_python_type firedrake.PCDPC
+-fieldsplit_1_pcd_velocity_space 0
+-fieldsplit_1_pcd_Mp_ksp_type cg
+-fieldsplit_1_pcd_Mp_pc_type jacobi
+#-fieldsplit_1_pcd_Mp_ksp_rtol 1.e-11
+#-fieldsplit_1_pcd_Mp_ksp_converged_reason
+-fieldsplit_1_pcd_Kp_ksp_type cg
+-fieldsplit_1_pcd_Kp_pc_type hypre
+-fieldsplit_1_pcd_Kp_ksp_rtol 1.e-11
+-options_left
+

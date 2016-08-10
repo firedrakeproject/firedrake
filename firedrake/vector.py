@@ -5,7 +5,6 @@ from mpi4py import MPI
 from pyop2 import op2
 
 from firedrake.petsc import PETSc
-from firedrake.matrix import Matrix
 
 
 __all__ = ['Vector', 'as_backend_type']
@@ -27,17 +26,18 @@ class MatrixShim(object):
         self._mat = mat
 
     def mat(self):
-        return self._mat.M.handle
+        return self._mat.PETScMatHandle
 
 
 def as_backend_type(tensor):
     """Compatibility operation for Dolfin's backend switching
     operations. This is for Dolfin compatibility only. There is no reason
     for Firedrake users to ever call this."""
+    from firedrake.matrix import MatrixBase
 
     if isinstance(tensor, Vector):
         return VectorShim(tensor)
-    elif isinstance(tensor, Matrix):
+    elif isinstance(tensor, MatrixBase):
         return MatrixShim(tensor)
     else:
         raise TypeError("Unknown tensor type %s" % type(tensor))

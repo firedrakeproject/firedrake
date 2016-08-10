@@ -92,7 +92,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems):
+    def __init__(self, problems, matfree=False, extra_ctx={}):
         problems = as_tuple(problems)
         self._problems = problems
         # Build the jacobian with the correct sparsity pattern.  Note
@@ -100,18 +100,6 @@ class _SNESContext(object):
         # force an additional assembly of the matrix since in
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
-        from firedrake.assemble import assemble
-        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
-                                    form_compiler_parameters=problem.form_compiler_parameters,
-                                    nest=problem._nest)
-                           for problem in problems)
-        if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
-                                         form_compiler_parameters=problem.form_compiler_parameters,
-                                         nest=problem._nest)
-                                for problem in problems)
-        else:
-            self._pjacs = self._jacs
         # Function to hold current guess
         self._xs = tuple(function.Function(problem.u) for problem in problems)
         self.Fs = tuple(ufl.replace(problem.F, {problem.u: x}) for problem, x in zip(problems,
@@ -125,6 +113,24 @@ class _SNESContext(object):
             self.Jps = tuple(None for _ in problems)
         self._Fs = tuple(function.Function(F.arguments()[0].function_space())
                          for F in self.Fs)
+
+        if matfree:
+            extra_ctx["state"] = self._xs[-1]
+
+        from firedrake.assemble import assemble
+        self._jacs = tuple(assemble(J, bcs=problem.bcs,
+                                    form_compiler_parameters=problem.form_compiler_parameters,
+                                    nest=problem._nest, matfree=matfree, extra_ctx=extra_ctx)
+                           for J, problem in zip(self.Js, problems))
+        if problems[-1].Jp is not None:
+            self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
+                                         form_compiler_parameters=problem.form_compiler_parameters,
+                                         nest=problem._nest, matfree=matfree, extra_ctx=extra_ctx)
+                                for Jp, problem in zip(self.Jps, problems))
+        else:
+            self._pjacs = self._jacs
+
+        self.matfree = matfree
         self._jacobians_assembled = [False for _ in problems]
 
     def set_function(self, snes):
@@ -133,30 +139,27 @@ class _SNESContext(object):
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
-        snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
-                         P=self._pjacs[-1]._M.handle)
+        snes.setJacobian(self.form_jacobian,
+                         J=self._jacs[-1].PETScMatHandle,
+                         P=self._pjacs[-1].PETScMatHandle)
 
-    def set_nullspace(self, nullspace, ises=None, transpose=False):
-        if nullspace is None:
+    def set_nullspace(self, nullspc, ises=None, transpose=False):
+        if nullspc is None:
             return
-        nullspace._apply(self._jacs[-1]._M, transpose=transpose)
+        nullspc._apply(self._jacs[-1], transpose=transpose)
         if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M, transpose=transpose)
+            nullspc._apply(self._pjacs[-1], transpose=transpose)
         if ises is not None:
-            nullspace._apply(ises, transpose=transpose)
+            nullspc._apply(ises, transpose=transpose)
 
     def __len__(self):
         return len(self._problems)
-
-    @property
-    def is_mixed(self):
-        return self._jacs[-1]._M.sparsity.shape != (1, 1)
 
     @classmethod
     def create_matrix(cls, dm):
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
-        return ctx._jacs[lvl]._M.handle
+        return ctx._jacs[lvl].PETScMatHandle
 
     @classmethod
     def form_function(cls, snes, X, F):
@@ -224,16 +227,19 @@ class _SNESContext(object):
         # copy guess in from X.
         with ctx._xs[lvl].dat.vec as v:
             X.copy(v)
+
         assemble(ctx.Js[lvl],
                  tensor=ctx._jacs[lvl],
                  bcs=problem.bcs,
                  form_compiler_parameters=problem.form_compiler_parameters,
-                 nest=problem._nest)
-        ctx._jacs[lvl].M._force_evaluation()
+                 nest=problem._nest,
+                 matfree=ctx.matfree)
+        ctx._jacs[lvl].force_evaluation()
         if ctx.Jps[lvl] is not None:
             assemble(ctx.Jps[lvl],
                      tensor=ctx._pjacs[lvl],
                      bcs=problem.bcs,
                      form_compiler_parameters=problem.form_compiler_parameters,
-                     nest=problem._nest)
-            ctx._pjacs[lvl].M._force_evaluation()
+                     nest=problem._nest,
+                     matfree=ctx.matfree)
+            ctx._pjacs[lvl].force_evaluation()

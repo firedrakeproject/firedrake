@@ -1,0 +1,14 @@
+-mat_type matfree
+-ksp_type cg
+-ksp_converged_reason
+-ksp_monitor_true_residual
+-pc_type composite
+-pc_composite_type multiplicative
+-pc_composite_pcs python,python
+-sub_0_pc_python_type firedrake.PatchPC
+-sub_0_sub_ksp_type gmres
+-sub_0_sub_pc_type ilu
+-sub_1_pc_python_type firedrake.P1PC
+-sub_1_lo_pc_type lu
+# precondition with P1PC, need to combine with 
+# the identity multiplicatively to keep PC nonsingular

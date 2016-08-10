@@ -43,12 +43,14 @@ try:
     spatialindex_sources = ["firedrake/spatialindex.pyx"]
     h5iface_sources = ["firedrake/hdf5interface.pyx"]
     mg_sources = ["firedrake/mg/impl.pyx"]
+    patch_sources = ["firedrake/ssc_schwarz/patches.pyx"]
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
     spatialindex_sources = ["firedrake/spatialindex.cpp"]
     h5iface_sources = ["firedrake/hdf5interface.c"]
     mg_sources = ["firedrake/mg/impl.c"]
+    patch_sources = ["firedrake/ssc_schwarz/patches.pyx"]
 
 if 'CC' not in env:
     env['CC'] = "mpicc"
@@ -66,7 +68,8 @@ setup(name='firedrake',
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter"],
+      packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter",
+                "firedrake.ssc_schwarz"],
       package_data={"firedrake": ["firedrake_geometry.h",
                                   "evaluate.h",
                                   "locate.c"]},
@@ -98,4 +101,10 @@ setup(name='firedrake',
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % sys.prefix])])
+                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
+                   Extension('firedrake.ssc_schwarz.patches',
+                             sources=patch_sources,
+                             include_dirs=include_dirs,
+                             extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
+                             ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs],
+                             libraries=["petsc"])])
