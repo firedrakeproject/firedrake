@@ -465,6 +465,8 @@ class Function(ufl.Coefficient):
 
     def at(self, arg, *args, **kwargs):
         """Evaluate function at points."""
+        # Need to ensure data is up-to-date for reading
+        self.dat._force_evaluation(read=True, write=False)
         from mpi4py import MPI
 
         if args:
