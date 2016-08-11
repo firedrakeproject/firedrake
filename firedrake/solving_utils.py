@@ -132,8 +132,8 @@ class _SNESContext(object):
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
-        snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
-                         P=self._pjacs[-1]._M.handle)
+        snes.setJacobian(self.form_jacobian, J=self._jacs[-1].petscmat,
+                         P=self._pjacs[-1].petscmat)
 
     def set_nullspace(self, nullspace, ises=None, transpose=False):
         if nullspace is None:
@@ -155,7 +155,7 @@ class _SNESContext(object):
     def create_matrix(cls, dm):
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
-        return ctx._jacs[lvl]._M.handle
+        return ctx._jacs[lvl].petscmat
 
     @classmethod
     def form_function(cls, snes, X, F):

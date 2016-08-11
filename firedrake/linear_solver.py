@@ -98,7 +98,9 @@ class LinearSolver(object):
         # Operator setting must come after null space has been
         # applied
         # Force evaluation here
-        self.ksp.setOperators(A=self.A.M.handle, P=self.P.M.handle)
+        self.A.force_evaluation()
+        self.P.force_evaluation()
+        self.ksp.setOperators(A=self.A.petscmat, P=self.P.petscmat)
 
     @cached_property
     def _b(self):

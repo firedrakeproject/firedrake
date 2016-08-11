@@ -126,6 +126,7 @@ class Matrix(MatrixBase):
         # sets self._a and self._bcs
         super(Matrix, self).__init__(a, bcs)
         self._M = op2.Mat(*args, **kwargs)
+        self.petscmat = self._M.handle
         self.comm = self._M.comm
         self._thunk = None
         self._assembled = False
@@ -251,10 +252,6 @@ class Matrix(MatrixBase):
              self.a,
              self.bcs)
 
-    @property
-    def PETScMatHandle(self):
-        return self._M.handle
-
     def force_evaluation(self):
         "Ensures that the matrix is fully assembled."
         self.assemble()
@@ -298,7 +295,6 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.setPythonContext(ctx)
         self.petscmat.setUp()
         self.petscmat.assemble()
-        self.PETScMatHandle = self.petscmat
 
     def assemble(self):
         self.petscmat.assemble()

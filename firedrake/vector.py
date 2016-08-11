@@ -27,7 +27,7 @@ class MatrixShim(object):
         self._mat = mat
 
     def mat(self):
-        return self._mat.M.handle
+        return self._mat.petscmat
 
 
 def as_backend_type(tensor):
