@@ -856,8 +856,8 @@ class Subset(ExtrudedSet):
         raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
 
     def __str__(self):
-        return "OP2 Subset: %s with size %s" % \
-            (self._name, self._size)
+        return "OP2 Subset: %s with sizes %s" % \
+            (self._name, self._sizes)
 
     def __repr__(self):
         return "Subset(%r, %r)" % (self._superset, self._indices)
@@ -1867,9 +1867,19 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
     @zeroes
     @collective
-    def zero(self):
-        """Zero the data associated with this :class:`Dat`"""
-        if not hasattr(self, '_zero_parloop'):
+    def zero(self, subset=None):
+        """Zero the data associated with this :class:`Dat`
+
+        :arg subset: A :class:`Subset` of entries to zero (optional)."""
+        if hasattr(self, "_zero_parloops"):
+            loops = self._zero_parloops
+        else:
+            loops = {}
+            self._zero_parloops = loops
+
+        iterset = subset or self.dataset.set
+        loop = loops.get(iterset, None)
+        if loop is None:
             k = ast.FunDecl("void", "zero",
                             [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
                             body=ast.c_for("n", self.cdim,
@@ -1877,9 +1887,11 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
                                                       ast.Symbol("(%s)0" % self.ctype)),
                                            pragma=None))
             k = _make_object('Kernel', k, 'zero')
-            self._zero_parloop = _make_object('ParLoop', k, self.dataset.set,
-                                              self(WRITE))
-        self._zero_parloop.enqueue()
+            loop = _make_object('ParLoop', k,
+                                iterset,
+                                self(WRITE))
+            loops[iterset] = loop
+        loop.enqueue()
 
     @modifies_argn(0)
     @collective
@@ -2378,8 +2390,12 @@ class MixedDat(Dat):
             s.halo_exchange_end()
 
     @collective
-    def zero(self):
-        """Zero the data associated with this :class:`MixedDat`."""
+    def zero(self, subset=None):
+        """Zero the data associated with this :class:`MixedDat`.
+
+        :arg subset: optional subset of entries to zero (not implemented)."""
+        if subset is not None:
+            raise NotImplementedError("Subsets of mixed sets not implemented")
         for d in self._dats:
             d.zero()
 
