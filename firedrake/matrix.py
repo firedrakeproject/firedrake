@@ -27,6 +27,7 @@ class MatrixBase(object):
         self._bcs = [bc for bc in bcs] if bcs is not None else []
 
         test, trial = a.arguments()
+        self.comm = test.function_space().comm
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
 
@@ -127,7 +128,6 @@ class Matrix(MatrixBase):
         super(Matrix, self).__init__(a, bcs)
         self._M = op2.Mat(*args, **kwargs)
         self.petscmat = self._M.handle
-        self.comm = self._M.comm
         self._thunk = None
         self._assembled = False
 
