@@ -863,6 +863,101 @@ else:
     log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
 
+def fix_osx_virtualenv_python():
+    """Hack hack hack to convert the virtualenv python into a
+    "framework" build so it can access GUI components on MacOS.
+    """
+    # Mostly taken from
+    # https://github.com/gldnspud/virtualenv-pythonw-osx.
+    # Original license:
+    # Copyright (c) 2008 Matthew Scott and Contributors
+
+    # Permission is hereby granted, free of charge, to any person obtaining
+    # a copy of this software and associated documentation files (the
+    # "Software"), to deal in the Software without restriction, including
+    # without limitation the rights to use, copy, modify, merge, publish,
+    # distribute, sublicense, and/or sell copies of the Software, and to
+    # permit persons to whom the Software is furnished to do so, subject to
+    # the following conditions:
+
+    # The above copyright notice and this permission notice shall be
+    # included in all copies or substantial portions of the Software.
+
+    # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+    # LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+    # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+    import shutil
+    import platform
+    import tempfile
+    if osname != "Darwin":
+        return
+    new_binary = """
+/*
+ * This wrapper program executes a python executable hidden inside an
+ * application bundle inside the Python framework. This is needed to run
+ * GUI code: some GUI API's don't work unless the program is inside an
+ * application bundle.
+ */
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <err.h>
+
+int main(int argc, char **argv) {
+     char **a;
+     a = malloc((argc + 3) * sizeof(char *));
+     memcpy(a + 2, argv, argc * sizeof(char *));
+     a[0] = "/usr/bin/arch";
+     a[1] = sizeof(char *) == 4 ? "-i386" : "-x86_64";
+     a[2] = "%(Python)s";
+     a[argc+2] = NULL;
+     execv("/usr/bin/arch", a);
+     err(1, "execv: %%s", "arch");
+     /* NOTREACHED */
+}
+"""
+    pythonapp = os.path.abspath(os.path.join(".", "Python.app"))
+    dotpython = os.path.abspath(os.path.join(".", ".Python"))
+    dotsrc = os.readlink(dotpython)
+    if os.path.exists(pythonapp):
+        # Already fixed up.
+        log.info("MacOS framework python already exists, not creating")
+        return True
+    if not os.path.exists(dotpython):
+        log.warning("Unable to find .Python, can't build framework python")
+        return False
+    appsrc = os.path.join(os.path.dirname(dotsrc),
+                          "Resources", "Python.app")
+    if not os.path.exists(appsrc):
+        log.warning("Unable to find Python.app, can't build framework python")
+        return False
+    appdest = os.path.abspath(os.path.join(".", "Python.app"))
+    shutil.copytree(appsrc, appdest)
+    log.info("MacOS framework copied from '%s' to '%s'" % (appsrc, appdest))
+    execname = os.path.join(appdest,
+                            "Contents",
+                            "MacOS",
+                            "Python")
+    check_call(["install_name_tool", "-change", dotsrc,
+                dotpython, execname])
+    pyname = "python%s.%s" % platform.python_version_tuple()[:2]
+    for name in [pyname, "pythonw"]:
+        dest = os.path.abspath(os.path.join(".", "bin", name))
+        fd, tmpfile = tempfile.mkstemp(suffix=".c")
+        with os.fdopen(fd, "w") as f:
+            f.write(new_binary % {'Python': execname})
+        log.info("Building trampoline framework python as '%s'" % dest)
+        check_call(["cc", "-Wall", "-Werror", "-arch", platform.machine(),
+                    "-o", dest, tmpfile])
+        os.remove(tmpfile)
+    return True
+
+
 if mode == "install":
     try:
         import virtualenv
@@ -884,6 +979,9 @@ execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
 os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir(firedrake_env)
+
+framework = fix_osx_virtualenv_python()
+
 if mode == "install":
     os.mkdir("src")
     os.chdir("src")
@@ -1037,6 +1135,11 @@ log.info("  . %s/bin/activate\n" % firedrake_env)
 log.info("The virtualenv can be deactivated by running:\n")
 log.info("  deactivate")
 
+if osname == "Darwin" and not framework:
+    log.warning("\n\n")
+    log.warning("It was not possible to create a framework build of python\n")
+    log.warning("You will not be able to use the MacOS backend of matplotlib\n")
+    log.warning("See http://matplotlib.org/faq/virtualenv_faq.html#osx for more details\n")
 
 if travis:
     travis_writer.terminate()
