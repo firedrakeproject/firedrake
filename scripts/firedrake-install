@@ -5,6 +5,7 @@ import subprocess
 import sys
 import os
 import shutil
+from glob import glob
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 from distutils import dir_util
@@ -71,8 +72,10 @@ honoured.""",
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
     parser.add_argument("--adjoint", action='store_true',
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slope", action='store_true',
+                        help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true",
-                        help="Install SLEPc along with PETSc")
+                        help="Install SLEPc along with PETSc.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--disable-ssh", "--disable_ssh", action="store_true",
@@ -115,6 +118,8 @@ else:
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--adjoint", action='store_true', dest="install_adjoint",
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slope", action='store_true', dest="install_slope",
+                        help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true", dest="install_slepc",
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -136,6 +141,8 @@ else:
     args.show_petsc_configure_options = False
     args.adjoint = False
     args.adjoint = args.adjoint or args.install_adjoint
+    args.slope = False
+    args.slope = args.slope or args.install_slope
     args.slepc = False
     args.slepc = args.slepc or args.install_slepc
     args.virtualenv_name = False
@@ -706,6 +713,31 @@ def build_and_install_adjoint():
     install("dolfin-adjoint/")
 
 
+def build_and_install_slope():
+    log.info("Installing SLOPE\n")
+    if os.path.exists("SLOPE"):
+        slope_changed = git_update("SLOPE")
+    else:
+        git_clone("git+https://github.com/coneoproject/SLOPE.git")
+        slope_changed = True
+
+    if slope_changed:
+        os.chdir("SLOPE")
+        # Clean source directory
+        check_call(["git", "reset", "--hard"])
+        check_call(["git", "clean", "-f", "-x", "-d"])
+        # Build and install (hack: need to do this manually as SLOPE is
+        # still stupid and doesn't have a proper configure+make+install system)
+        check_call(["make"])
+        check_call(["mv"] + glob(os.path.join('lib', '*')) + [os.path.join(sys.prefix, 'lib')])
+        include_dir = os.path.join(sys.prefix, 'include', 'SLOPE')
+        check_call(["mkdir", "-p", include_dir])
+        check_call(["cp"] + glob(os.path.join('sparsetiling', 'include', '*')) + [include_dir])
+        # Also install the Python interface
+        run_cmd(pyinstall)
+        os.chdir("..")
+
+
 def clean_obsolete_packages():
     dirs = os.listdir(".")
     for package in old_git_packages:
@@ -1123,6 +1155,8 @@ if args.adjoint:
     build_and_install_adjoint()
 if args.slepc:
     build_and_install_slepc()
+if args.slope:
+    build_and_install_slope()
 
 os.chdir("../..")
 
