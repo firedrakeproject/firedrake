@@ -52,13 +52,32 @@ class Parameters(dict):
     def add(self, key, value=None):
         if isinstance(key, Parameters):
             self[key.name()] = key
-        else:
+        elif isinstance(value, Parameter):
             self[key] = value
+        else:
+            self[key] = Parameter(value)
 
     def __setitem__(self, key, value):
-        super(Parameters, self).__setitem__(key, value)
-        if self._update_function:
-            self._update_function(key, value)
+        if isinstance(value, Parameter):
+            if key in self:
+                self.get_param(key).set(value)
+            else:
+                super(Parameters, self).__setitem__(key, value)
+            if self._update_function:
+                self._update_function(key, value.get())
+        else:
+            super(Parameters, self).__setitem__(key, Parameter(value))
+            if self._update_function:
+                self._update_function(key, value)
+
+    def __getitem__(self, key):
+        if isinstance(super(Parameters, self).__getitem__(key), Parameter):
+            return super(Parameters, self).__getitem__(key).get()
+        else:
+            return super(Parameters, self).__getitem__(key)
+
+    def get_param(self, key):
+        return super(Parameters, self).__getitem__(key)
 
     def name(self):
         return self._name
