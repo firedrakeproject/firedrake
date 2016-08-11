@@ -10,6 +10,37 @@ from coffee.system import coffee_reconfigure
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
+class Parameter():
+    def __init__(self, value, help_text=None, validate_function=None):
+        if help_text is not None:
+            self._help_text = help_text
+        else:
+            self._help_text = "No help text available"
+        if validate_function is not None:
+            self._validate_function = validate_function
+        else:
+            self._validate_function = lambda x: True
+        self.set(value)
+
+    def set(self, value):
+        if self._validate_function(value):
+            self._value = value
+        else:
+            raise ValueError("Invalid parameter value %s" % value)
+
+    def get(self):
+        return self._value
+
+    def get_help(self):
+        return self._help_text
+
+    def set_help(self, help_text):
+        self._help_text = help_text
+
+    def set_validate_function(self, validate_function):
+        self._validate_function = validate_function
+
+
 class Parameters(dict):
     def __init__(self, name=None, **kwargs):
         self._name = name
