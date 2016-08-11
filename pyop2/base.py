@@ -47,7 +47,7 @@ from hashlib import md5
 from configuration import configuration
 from caching import Cached, ObjectCached
 from versioning import Versioned, modifies, modifies_argn, CopyOnWrite, \
-    shallow_copy, zeroes
+    shallow_copy, _force_copies
 from exceptions import *
 from utils import *
 from backends import _make_object
@@ -1865,7 +1865,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
 
         return self.dtype.itemsize * self.dataset.total_size * self.dataset.cdim
 
-    @zeroes
     @collective
     def zero(self, subset=None):
         """Zero the data associated with this :class:`Dat`
@@ -1878,6 +1877,13 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             self._zero_parloops = loops
 
         iterset = subset or self.dataset.set
+        # Versioning only zeroes the Dat if the provided subset is None.
+        _force_copies(self)
+        if iterset is self.dataset.set:
+            self._version_set_zero()
+        else:
+            self._version_bump()
+
         loop = loops.get(iterset, None)
         if loop is None:
             k = ast.FunDecl("void", "zero",
