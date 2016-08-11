@@ -15,11 +15,11 @@ import gem
 import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
-from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
+from finat.quadrature import QuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
-from tsfc.fiatinterface import as_fiat_cell, create_quadrature
+from tsfc.fiatinterface import as_fiat_cell
 from tsfc.finatinterface import create_element
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters
@@ -133,6 +133,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         # parameters override per-integral metadata
         params.update(parameters)
 
+        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
+        integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
+
         # Check if the integral has a quad degree attached, otherwise use
         # the estimated polynomial degree attached by compute_form_data
         quadrature_degree = params.get("quadrature_degree",
@@ -141,27 +144,24 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             quad_rule = params["quadrature_rule"]
         except KeyError:
             integration_cell = fiat_cell.construct_subelement(integration_dim)
-            quad_rule = create_quadrature(integration_cell, quadrature_degree)
-            quad_rule = QuadratureRule(cell, quad_rule.get_points(), quad_rule.get_weights())
-            quad_rule.__class__ = CollapsedGaussJacobiQuadrature
+            quad_rule = make_quadrature(integration_cell, quadrature_degree)
 
         if not isinstance(quad_rule, QuadratureRule):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
                              type(quad_rule))
 
-        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
-        integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
-        quadrature_index = gem.Index(name='ip')
-        quadrature_indices.append(quadrature_index)
+        quadrature_index = quad_rule.get_indices()
+        quadrature_indices += quadrature_index
+
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule, point_index=quadrature_index)
         ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        irs.append([(gem.IndexSum(expr, quadrature_index)
-                     if quadrature_index in expr.free_indices
-                     else expr)
-                    for expr in ir])
+        for q in quadrature_index:
+            ir = [gem.IndexSum(expr, q) if q in expr.free_indices else expr
+                  for expr in ir]
+        irs.append(ir)
 
     # Sum the expressions that are part of the same restriction
     ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))

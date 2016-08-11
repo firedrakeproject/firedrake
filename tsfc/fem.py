@@ -166,7 +166,7 @@ def translate(terminal, mt, ctx):
 
 @translate.register(QuadratureWeight)
 def translate_quadratureweight(terminal, mt, ctx):
-    return gem.Indexed(gem.Literal(ctx.weights), (ctx.point_index,))
+    return gem.Indexed(gem.Literal(ctx.weights), ctx.point_index)
 
 
 @translate.register(GeometricQuantity)
@@ -195,7 +195,7 @@ def translate_argument(terminal, mt, ctx):
     M = ctx.index_selector(callback, mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     argument_index = ctx.argument_indices[terminal.number()]
-    result = gem.Indexed(M, (ctx.point_index,) + argument_index + vi)
+    result = gem.Indexed(M, ctx.point_index + argument_index + vi)
     if vi:
         return gem.ComponentTensor(result, vi)
     else:
@@ -220,7 +220,7 @@ def translate_coefficient(terminal, mt, ctx):
 
     alpha = element.get_indices()
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    result = gem.Product(gem.Indexed(M, (ctx.point_index,) + alpha + vi),
+    result = gem.Product(gem.Indexed(M, ctx.point_index + alpha + vi),
                          gem.Indexed(vec, alpha))
     for i in alpha:
         result = gem.IndexSum(result, i)
