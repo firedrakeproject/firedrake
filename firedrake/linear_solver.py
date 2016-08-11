@@ -83,14 +83,14 @@ class LinearSolver(object):
         self.ksp.setDMActive(False)
 
         if nullspace is not None:
-            nullspace._apply(self.A._M)
+            nullspace._apply(self.A)
             if P is not None:
-                nullspace._apply(self.P._M)
+                nullspace._apply(self.P)
 
         if transpose_nullspace is not None:
-            transpose_nullspace._apply(self.A._M, transpose=True)
+            transpose_nullspace._apply(self.A, transpose=True)
             if P is not None:
-                transpose_nullspace._apply(self.P._M, transpose=True)
+                transpose_nullspace._apply(self.P, transpose=True)
 
         self.nullspace = nullspace
         self.transpose_nullspace = transpose_nullspace

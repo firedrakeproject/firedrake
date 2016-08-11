@@ -138,9 +138,9 @@ class _SNESContext(object):
     def set_nullspace(self, nullspace, ises=None, transpose=False):
         if nullspace is None:
             return
-        nullspace._apply(self._jacs[-1]._M, transpose=transpose)
+        nullspace._apply(self._jacs[-1], transpose=transpose)
         if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M, transpose=transpose)
+            nullspace._apply(self._pjacs[-1], transpose=transpose)
         if ises is not None:
             nullspace._apply(ises, transpose=transpose)
 

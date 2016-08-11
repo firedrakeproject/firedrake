@@ -1,10 +1,10 @@
 from __future__ import absolute_import
 from numpy import prod
 
-from pyop2 import op2
 from pyop2.mpi import COMM_WORLD
 
 from firedrake import function
+from firedrake.matrix import MatrixBase
 from firedrake.petsc import PETSc
 
 
@@ -92,18 +92,18 @@ class VectorSpaceBasis(object):
     def _apply(self, matrix, transpose=False):
         """Set this VectorSpaceBasis as a nullspace for a matrix
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
+        :arg matrix: a :class:`~.MatrixBase` whose nullspace should
              be set.
         :kwarg transpose: Should this be set as the transpose
              nullspace instead?  Used to orthogonalize the right hand
              side wrt the provided nullspace.
         """
-        if not isinstance(matrix, op2.Mat):
+        if not isinstance(matrix, MatrixBase):
             return
         if transpose:
-            matrix.handle.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
+            matrix.petscmat.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
         else:
-            matrix.handle.setNullSpace(self.nullspace(comm=matrix.comm))
+            matrix.petscmat.setNullSpace(self.nullspace(comm=matrix.comm))
 
     def __iter__(self):
         """Yield self when iterated over"""
@@ -211,7 +211,7 @@ class MixedVectorSpaceBasis(object):
         """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
         matrix.
 
-        :arg matrix: a :class:`pyop2.op2.Mat` whose nullspace should
+        :arg matrix: a :class:`~.MatrixBase` whose nullspace should
              be set.
 
         :kwarg transpose: Should this be set as the transpose
@@ -225,14 +225,14 @@ class MixedVectorSpaceBasis(object):
         if self._nullspace is None:
             self._build_monolithic_basis()
         if transpose:
-            matrix.handle.setTransposeNullSpace(self._nullspace)
+            matrix.petscmat.setTransposeNullSpace(self._nullspace)
         else:
-            matrix.handle.setNullSpace(self._nullspace)
+            matrix.petscmat.setNullSpace(self._nullspace)
 
     def _apply(self, matrix_or_ises, transpose=False):
         """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
-        :arg matrix_or_ises: either a :class:`pyop2.op2.Mat` to set a
+        :arg matrix_or_ises: either a :class:`~.MatrixBase` to set a
              nullspace on, or else a list of PETSc ISes to compose a
              nullspace with.
         :kwarg transpose: Should this be set as the transpose
@@ -248,9 +248,9 @@ class MixedVectorSpaceBasis(object):
            If transpose is ``True``, nothing happens in the IS case,
            since PETSc does not provide the ability to set anything.
         """
-        if isinstance(matrix_or_ises, op2.Mat):
+        if isinstance(matrix_or_ises, MatrixBase):
             matrix = matrix_or_ises
-            rows, cols = matrix.sparsity.shape
+            rows, cols = matrix.block_shape
             if rows != cols:
                 raise RuntimeError("Can only apply nullspace to square operator")
             if rows != len(self):
