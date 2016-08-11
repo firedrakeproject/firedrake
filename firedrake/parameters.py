@@ -101,6 +101,51 @@ class Parameters(dict):
         self._update_function = callable
 
 
+def fill_metadata(parameters):
+    # COFFEE
+    parameters["coffee"].get_param("optlevel").set_help("Optimization level, accepted \
+        values are `O0, `O1, `O2, `O3, `Ofast`.")
+    parameters["coffee"].get_param("optlevel").set_validate_function(
+        lambda x: x in ["O0", "O1", "O2", "O3", "Ofast"])
+    # Form Compiler
+
+    # PyOP2
+    parameters["pyop2_options"].get_param("backend").set_help("Select the PyOP2 backend \
+        (one of `cuda`, `opencl`, `openmp` or `sequential`).")
+    parameters["pyop2_options"].get_param("backend").set_validate_function(
+        lambda x: x in ["cuda", "opencl", "openmp", "seqential"])
+    parameters["pyop2_options"].get_param("debug").set_help("Turn on debugging for \
+        generated code (turns off compiler optimisations).")
+    parameters["pyop2_options"].get_param("type_check").set_help("Should PyOP2 \
+        type-check API-calls?  (Default, yes)")
+    parameters["pyop2_options"].get_param("check_src_hashes").set_help("Should PyOP2 \
+        check that generated code is the same on all processes?  (Default, \
+        yes).  Uses an allreduce.")
+    parameters["pyop2_options"].get_param("log_level").set_help("How chatty should \
+        PyOP2 be?  Valid values are \"DEBUG\", \"INFO\", \"WARNING\", \
+        \"ERROR\", \"CRITICAL\".")
+    parameters["pyop2_options"].get_param("log_level").set_validate_function(
+        lambda x: x in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    parameters["pyop2_options"].get_param("lazy_evaluation").set_help("Should lazy \
+        evaluation be on or off?")
+    parameters["pyop2_options"].get_param("lazy_max_trace_length").set_help("How many \
+        `par_loop`s should be queued lazily before forcing evaluation?  Pass \
+        `0` for an unbounded length.")
+    parameters["pyop2_options"].get_param("loop_fusion").set_help("Should loop fusion \
+        be on or off?")
+    parameters["pyop2_options"].get_param("dump_gencode").set_help("Should PyOP2 write \
+        the generated code somewhere for inspection?")
+    parameters["pyop2_options"].get_param("dump_gencode_path").set_help("Where should \
+        the generated code be written to?")
+    parameters["pyop2_options"].get_param("print_cache_size").set_help("Should PyOP2 \
+        print the size of caches at program exit?")
+    parameters["pyop2_options"].get_param("print_summary").set_help("Should PyOP2 \
+        print a summary of timings at program exit?")
+    parameters["pyop2_options"].get_param("matnest").set_help("Should matrices on \
+        mixed maps be built as nests? (Default yes)")
+    # Other
+
+
 parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
@@ -138,6 +183,8 @@ parameters["reorder_meshes"] = True
 parameters["matnest"] = True
 
 parameters["type_check_safe_par_loops"] = False
+
+fill_metadata(parameters)
 
 
 def disable_performance_optimisations():
