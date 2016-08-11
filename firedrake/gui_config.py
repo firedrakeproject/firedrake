@@ -22,18 +22,23 @@ def show_config_gui(parameters):
 
     def save_json():
         import tkFileDialog
-        save_params()
-        filename = tkFileDialog.asksaveasfilename()
-        export_params_to_json(parameters, filename)
+        if save_params():
+            filename = tkFileDialog.asksaveasfilename()
+            export_params_to_json(parameters, filename)
 
     def save_and_quit():
-        save_params()
-        root.destroy()
+        if save_params():
+            root.destroy()
 
     def save_params():
-        # TODO: handle excection
-        parsed_dict = parse_input_dict(parameters, variable_dict)
-        load_from_dict(parameters, parsed_dict)
+        try:
+            parsed_dict = parse_input_dict(parameters, variable_dict)
+            load_from_dict(parameters, parsed_dict)
+            return True
+        except ValueError as e:
+            from tkMessageBox import showinfo
+            showinfo(title="Error", message=e.message, icon="error", parent=root)
+            return False
 
     def refresh_params(parameters, variable_dict):
         for key in parameters.keys():
