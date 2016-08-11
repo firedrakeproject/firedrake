@@ -85,9 +85,19 @@ def show_config_gui(parameters):
                 label_key = Label(labelframe, text=key)
                 label_key.grid(column=1, row=row_count, sticky=(W))
                 variable_dict[key] = StringVar()
-                label_val = Entry(labelframe, textvariable=variable_dict[key])
                 variable_dict[key].set(str(parameters[key]))
-                label_val.grid(column=3, row=row_count, sticky=(E))
+                if type(parameters[key]) is not bool:
+                    label_val = Entry(labelframe, textvariable=variable_dict[key])
+                    label_val.grid(column=2, columnspan=2, row=row_count, sticky=(E))
+                else:
+                    button_true = Radiobutton(labelframe, text='True',
+                                              variable=variable_dict[key],
+                                              value="True")
+                    button_true.grid(column=2, row=row_count, sticky=(E))
+                    button_false = Radiobutton(labelframe, text='False',
+                                               variable=variable_dict[key],
+                                               value="False")
+                    button_false.grid(column=3, row=row_count, sticky=(E))
 
     def configure_frame(event):
         size = (mainframe.winfo_reqwidth(), mainframe.winfo_reqheight())
