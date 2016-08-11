@@ -275,7 +275,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # Extract block from tensor and test/trial spaces
             # FIXME Ugly variable renaming required because functions are not
             # lexical closures in Python and we're writing to these variables
-            if is_mat and tensor.sparsity.shape > (1, 1):
+            if is_mat and result_matrix.block_shape > (1, 1):
                 tsbc = []
                 trbc = []
                 # Unwind ComponentFunctionSpace to check for matching BCs
@@ -383,7 +383,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 fs = bc.function_space()
                 if len(fs) > 1:
                     raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                shape = tensor.sparsity.shape
+                shape = result_matrix.block_shape
                 for i in range(shape[0]):
                     for j in range(shape[1]):
                         # Set diagonal entries on bc nodes to 1 if the current

@@ -150,7 +150,7 @@ class _SNESContext(object):
 
     @property
     def is_mixed(self):
-        return self._jacs[-1]._M.sparsity.shape != (1, 1)
+        return self._jacs[-1].block_shape != (1, 1)
 
     @classmethod
     def create_matrix(cls, dm):

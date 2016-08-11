@@ -26,6 +26,10 @@ class MatrixBase(object):
         # on different processes)
         self._bcs = [bc for bc in bcs] if bcs is not None else []
 
+        test, trial = a.arguments()
+        self.block_shape = (len(test.function_space()),
+                            len(trial.function_space()))
+
     def assemble(self):
         raise NotImplementedError
 

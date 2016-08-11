@@ -63,7 +63,7 @@ class LinearSolver(object):
         parameters = solver_parameters.copy() if solver_parameters is not None else {}
         parameters.setdefault("ksp_rtol", "1e-7")
 
-        if self.P._M.sparsity.shape != (1, 1):
+        if self.P.block_shape != (1, 1):
             parameters.setdefault('pc_type', 'jacobi')
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
