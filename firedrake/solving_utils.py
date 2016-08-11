@@ -101,28 +101,27 @@ class _SNESContext(object):
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
         from firedrake.assemble import assemble
-        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
-                                    form_compiler_parameters=problem.form_compiler_parameters,
-                                    nest=problem._nest)
-                           for problem in problems)
-        if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
-                                         form_compiler_parameters=problem.form_compiler_parameters,
-                                         nest=problem._nest)
-                                for problem in problems)
-        else:
-            self._pjacs = self._jacs
         # Function to hold current guess
         self._xs = tuple(function.Function(problem.u) for problem in problems)
-        self.Fs = tuple(ufl.replace(problem.F, {problem.u: x}) for problem, x in zip(problems,
-                                                                                     self._xs))
-        self.Js = tuple(ufl.replace(problem.J, {problem.u: x}) for problem, x in zip(problems,
-                                                                                     self._xs))
+        self.Fs = tuple(ufl.replace(problem.F, {problem.u: x})
+                        for problem, x in zip(problems, self._xs))
+        self.Js = tuple(ufl.replace(problem.J, {problem.u: x})
+                        for problem, x in zip(problems, self._xs))
+        self._jacs = tuple(assemble(J, bcs=problem.bcs,
+                                    form_compiler_parameters=problem.form_compiler_parameters,
+                                    nest=problem._nest)
+                           for J, problem in zip(self.Js, problems))
         if problems[-1].Jp is not None:
-            self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x}) for problem, x in zip(problems,
-                                                                                           self._xs))
+            self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x})
+                             for problem, x in zip(problems, self._xs))
+            self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
+                                         form_compiler_parameters=problem.form_compiler_parameters,
+                                         nest=problem._nest)
+                                for Jp, problem in zip(self.Jps, problems))
         else:
             self.Jps = tuple(None for _ in problems)
+            self._pjacs = self._jacs
+
         self._Fs = tuple(function.Function(F.arguments()[0].function_space())
                          for F in self.Fs)
         self._jacobians_assembled = [False for _ in problems]
