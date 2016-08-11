@@ -208,7 +208,7 @@ class DirichletBC(object):
 
         """
 
-        if isinstance(r, matrix.Matrix):
+        if isinstance(r, matrix.MatrixBase):
             r.add_bc(self)
             return
         fs = self._function_space
@@ -246,7 +246,7 @@ class DirichletBC(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.Matrix):
+        if isinstance(r, matrix.MatrixBase):
             raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
 
         for idx in self._indices:

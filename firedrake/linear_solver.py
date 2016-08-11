@@ -20,8 +20,8 @@ class LinearSolver(object):
                  options_prefix=None):
         """A linear solver for assembled systems (Ax = b).
 
-        :arg A: a :class:`~.Matrix` (the operator).
-        :arg P: an optional :class:`~.Matrix` to construct any
+        :arg A: a :class:`~.MatrixBase` (the operator).
+        :arg P: an optional :class:`~.MatrixBase` to construct any
              preconditioner from; if none is supplied ``A`` is
              used to construct the preconditioner.
         :kwarg parameters: (optional) dict of solver parameters.
@@ -51,10 +51,10 @@ class LinearSolver(object):
             self._auto_prefix = True
             LinearSolver._id += 1
 
-        if not isinstance(A, matrix.Matrix):
-            raise TypeError("Provided operator is a '%s', not a Matrix" % type(A).__name__)
-        if P is not None and not isinstance(P, matrix.Matrix):
-            raise TypeError("Provided preconditioner is a '%s', not a Matrix" % type(P).__name__)
+        if not isinstance(A, matrix.MatrixBase):
+            raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
+        if P is not None and not isinstance(P, matrix.MatrixBase):
+            raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
         self.A = A
         self.comm = A.comm
