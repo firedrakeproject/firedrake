@@ -63,8 +63,13 @@ class LinearSolver(object):
         parameters = solver_parameters.copy() if solver_parameters is not None else {}
         parameters.setdefault("ksp_rtol", "1e-7")
 
-        if self.P.block_shape != (1, 1):
-            parameters.setdefault('pc_type', 'jacobi')
+        # If preconditioning matrix is matrix-free, then default to no
+        # preconditioning.
+        if isinstance(self.P, matrix.ImplicitMatrix):
+            parameters.setdefault("pc_type", "none")
+        elif self.P.block_shape != (1, 1):
+            # Otherwise, mixed problems default to jacobi.
+            parameters.setdefault("pc_type", "jacobi")
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
         self.ksp.setOptionsPrefix(self._opt_prefix)

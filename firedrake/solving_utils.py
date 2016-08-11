@@ -85,6 +85,11 @@ class _SNESContext(object):
     Context holding information for SNES callbacks.
 
     :arg problems: a :class:`NonlinearVariationalProblem` or iterable thereof.
+    :arg matfree: Should the operators be assembled matrix-free (as
+        :class:`~.ImplicitMatrix`\es).
+    :arg appctx: Any extra information used in the assembler.  For the
+        matrix-free case this will contain the Newton state in
+        ``"state"``.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -92,7 +97,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems):
+    def __init__(self, problems, matfree=False, appctx=None):
         problems = as_tuple(problems)
         self._problems = problems
         # Build the jacobian with the correct sparsity pattern.  Note
@@ -103,21 +108,37 @@ class _SNESContext(object):
         from firedrake.assemble import assemble
         # Function to hold current guess
         self._xs = tuple(function.Function(problem.u) for problem in problems)
+
+        if appctx is None:
+            appctx = {}
+            appctxs = tuple(appctx.copy() for _ in problems)
+
+        if matfree:
+            # We will want the newton state for some preconditioners
+            for c, x in zip(appctxs, self._xs):
+                c["state"] = x
+
+        self.matfree = matfree
         self.Fs = tuple(ufl.replace(problem.F, {problem.u: x})
                         for problem, x in zip(problems, self._xs))
         self.Js = tuple(ufl.replace(problem.J, {problem.u: x})
                         for problem, x in zip(problems, self._xs))
         self._jacs = tuple(assemble(J, bcs=problem.bcs,
                                     form_compiler_parameters=problem.form_compiler_parameters,
-                                    nest=problem._nest)
-                           for J, problem in zip(self.Js, problems))
+                                    nest=problem._nest,
+                                    matfree=matfree,
+                                    extra_ctx=ctx)
+                           for J, problem, ctx in zip(self.Js, problems, appctxs))
+        self.is_mixed = self._jacs[-1].block_shape != (1, 1)
         if problems[-1].Jp is not None:
             self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x})
                              for problem, x in zip(problems, self._xs))
             self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
                                          form_compiler_parameters=problem.form_compiler_parameters,
-                                         nest=problem._nest)
-                                for Jp, problem in zip(self.Jps, problems))
+                                         nest=problem._nest,
+                                         matfree=matfree,
+                                         extra_ctx=ctx)
+                                for Jp, problem, ctx in zip(self.Jps, problems, appctxs))
         else:
             self.Jps = tuple(None for _ in problems)
             self._pjacs = self._jacs
@@ -146,10 +167,6 @@ class _SNESContext(object):
 
     def __len__(self):
         return len(self._problems)
-
-    @property
-    def is_mixed(self):
-        return self._jacs[-1].block_shape != (1, 1)
 
     @classmethod
     def create_matrix(cls, dm):
@@ -227,12 +244,14 @@ class _SNESContext(object):
                  tensor=ctx._jacs[lvl],
                  bcs=problem.bcs,
                  form_compiler_parameters=problem.form_compiler_parameters,
-                 nest=problem._nest)
-        ctx._jacs[lvl].M._force_evaluation()
+                 nest=problem._nest,
+                 matfree=ctx.matfree)
+        ctx._jacs[lvl].force_evaluation()
         if ctx.Jps[lvl] is not None:
             assemble(ctx.Jps[lvl],
                      tensor=ctx._pjacs[lvl],
                      bcs=problem.bcs,
                      form_compiler_parameters=problem.form_compiler_parameters,
-                     nest=problem._nest)
-            ctx._pjacs[lvl].M._force_evaluation()
+                     nest=problem._nest,
+                     matfree=ctx.matfree)
+            ctx._pjacs[lvl].force_evaluation()
