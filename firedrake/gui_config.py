@@ -85,7 +85,7 @@ def show_config_gui(parameters):
             row_count += 1
             if isinstance(parameters[key], Parameters):
                 subframe = Labelframe(labelframe, text=key, padding='3 3 12 12')
-                subframe.grid(column=1, columnspan=3, row=row_count, sticky=(W, E))
+                subframe.grid(column=1, columnspan=4, row=row_count, sticky=(W, E))
                 subframe.columnconfigure(1, weight=1)
                 subframe.rowconfigure(0, weight=1)
                 variable_dict[key] = {}
@@ -107,6 +107,16 @@ def show_config_gui(parameters):
                                                variable=variable_dict[key],
                                                value="False")
                     button_false.grid(column=3, row=row_count, sticky=(E))
+
+                def help_box(param):
+                    def click():
+                        from tkMessageBox import showinfo
+                        showinfo(title="Help", message=param.get_help(), parent=root)
+                    return click
+
+                help_button = Button(labelframe, text='Help',
+                                     command=help_box(parameters.get_param(key)))
+                help_button.grid(column=4, row=row_count, sticky=(E))
 
     def configure_frame(event):
         size = (mainframe.winfo_reqwidth(), mainframe.winfo_reqheight())
@@ -147,9 +157,9 @@ def show_config_gui(parameters):
                          command=load_json)
     button_load.grid(column=1, row=row_count, sticky=W)
     button_save = Button(mainframe, text="Save to File", command=save_json)
-    button_save.grid(column=2, row=row_count, sticky=S)
+    button_save.grid(column=3, row=row_count, sticky=S)
     button_quit = Button(mainframe, text="Save and Quit", command=save_and_quit)
-    button_quit.grid(column=3, row=row_count, sticky=E)
+    button_quit.grid(column=4, row=row_count, sticky=E)
 
     mainframe.bind('<Configure>', configure_frame)
     canvas.bind('<Configure>', configure_canvas)
