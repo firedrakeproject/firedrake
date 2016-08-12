@@ -105,6 +105,16 @@ class ImplicitMatrixContext(object):
         with self._y.dat.vec_ro as yy:
             self.row_sizes = yy.getSizes()
 
+        if len(test_space) == 1:
+            rbsize = test_space.dim
+        else:
+            rbsize = 1
+        if len(trial_space) == 1:
+            cbsize = trial_space.dim
+        else:
+            cbsize = 1
+
+        self.block_size = (rbsize, cbsize)
         self.action = action(self.a, self._x)
         self.actionT = action(self.aT, self._y)
 
@@ -239,7 +249,8 @@ class ImplicitMatrixContext(object):
         submat_ctx.on_diag = self.on_diag and row_inds == col_inds
         submat = PETSc.Mat().create()
         submat.setType("python")
-        submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes))
+        submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes),
+                        bsize=submat_ctx.block_size)
         submat.setPythonContext(submat_ctx)
         submat.setUp()
 

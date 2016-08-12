@@ -302,7 +302,8 @@ class ImplicitMatrix(MatrixBase):
                                     context=extra_ctx)
         self.petscmat = PETSc.Mat().create()
         self.petscmat.setType("python")
-        self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes))
+        self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
+                               bsize=ctx.block_size)
         self.petscmat.setPythonContext(ctx)
         self.petscmat.setUp()
         self.petscmat.assemble()
