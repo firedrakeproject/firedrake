@@ -10,37 +10,6 @@ from coffee.system import coffee_reconfigure
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
-class Parameter():
-    def __init__(self, value, help_text=None, validate_function=None):
-        self._help_text = help_text
-        if validate_function is not None:
-            self._validate_function = validate_function
-        else:
-            self._validate_function = lambda x: True
-        self.set(value)
-
-    def set(self, value):
-        if self._validate_function(value):
-            self._value = value
-        else:
-            raise ValueError("Invalid parameter value %s" % value)
-
-    def get(self):
-        return self._value
-
-    def get_help(self):
-        if self._help_text is not None:
-            return self._help_text
-        else:
-            return "No help available"
-
-    def set_help(self, help_text):
-        self._help_text = help_text
-
-    def set_validate_function(self, validate_function):
-        self._validate_function = validate_function
-
-
 class Parameters(dict):
     def __init__(self, name=None, **kwargs):
         self._name = name
@@ -52,32 +21,13 @@ class Parameters(dict):
     def add(self, key, value=None):
         if isinstance(key, Parameters):
             self[key.name()] = key
-        elif isinstance(value, Parameter):
-            self[key] = value
         else:
-            self[key] = Parameter(value)
+            self[key] = value
 
     def __setitem__(self, key, value):
-        if isinstance(value, Parameter):
-            if key in self:
-                self.get_param(key).set(value)
-            else:
-                super(Parameters, self).__setitem__(key, value)
-            if self._update_function:
-                self._update_function(key, value.get())
-        else:
-            super(Parameters, self).__setitem__(key, Parameter(value))
-            if self._update_function:
-                self._update_function(key, value)
-
-    def __getitem__(self, key):
-        if isinstance(super(Parameters, self).__getitem__(key), Parameter):
-            return super(Parameters, self).__getitem__(key).get()
-        else:
-            return super(Parameters, self).__getitem__(key)
-
-    def get_param(self, key):
-        return super(Parameters, self).__getitem__(key)
+        super(Parameters, self).__setitem__(key, value)
+        if self._update_function:
+            self._update_function(key, value)
 
     def name(self):
         return self._name
@@ -102,59 +52,60 @@ class Parameters(dict):
 
 
 def fill_metadata(parameters):
-    # COFFEE
-    parameters["coffee"].get_param("optlevel").set_help(
-        """Optimization level, accepted values are `O0, `O1, `O2, `O3, `Ofast`"""
-    )
-    parameters["coffee"].get_param("optlevel").set_validate_function(
-        lambda x: x in ["O0", "O1", "O2", "O3", "Ofast"])
-    # Form Compiler
+    # # COFFEE
+    # parameters["coffee"].get_param("optlevel").set_help(
+    #     """Optimization level, accepted values are `O0, `O1, `O2, `O3, `Ofast`"""
+    # )
+    # parameters["coffee"].get_param("optlevel").set_validate_function(
+    #     lambda x: x in ["O0", "O1", "O2", "O3", "Ofast"])
+    # # Form Compiler
 
-    # PyOP2
-    parameters["pyop2_options"].get_param("backend").set_help(
-        """Select the PyOP2 backend (one of `cuda`, `opencl`, `openmp` or `sequential`)."""
-    )
-    parameters["pyop2_options"].get_param("backend").set_validate_function(
-        lambda x: x in ["cuda", "opencl", "openmp", "seqential"])
-    parameters["pyop2_options"].get_param("debug").set_help(
-        """Turn on debugging for generated code (turns off compiler optimisations)."""
-    )
-    parameters["pyop2_options"].get_param("type_check").set_help(
-        """Should PyOP2 type-check API-calls?  (Default, yes)"""
-    )
-    parameters["pyop2_options"].get_param("check_src_hashes").set_help(
-        """Should PyOP2 check that generated code is the same on all processes? (Default, yes).  Uses an allreduce."""
-    )
-    parameters["pyop2_options"].get_param("log_level").set_help(
-        """How chatty should PyOP2 be?  Valid values are \"DEBUG\", \"INFO\", \"WARNING\", \"ERROR\", \"CRITICAL\"."""
-    )
-    parameters["pyop2_options"].get_param("log_level").set_validate_function(
-        lambda x: x in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-    parameters["pyop2_options"].get_param("lazy_evaluation").set_help(
-        """Should lazy evaluation be on or off?"""
-    )
-    parameters["pyop2_options"].get_param("lazy_max_trace_length").set_help(
-        """How many `par_loop`s should be queued lazily before forcing evaluation?  Pass \`0` for an unbounded length."""
-    )
-    parameters["pyop2_options"].get_param("loop_fusion").set_help(
-        """Should loop fusion be on or off?"""
-    )
-    parameters["pyop2_options"].get_param("dump_gencode").set_help(
-        """Should PyOP2 write the generated code somewhere for inspection?"""
-    )
-    parameters["pyop2_options"].get_param("dump_gencode_path").set_help(
-        """Where should the generated code be written to?"""
-    )
-    parameters["pyop2_options"].get_param("print_cache_size").set_help(
-        """Should PyOP2 print the size of caches at program exit?"""
-    )
-    parameters["pyop2_options"].get_param("print_summary").set_help(
-        """Should PyOP2 print a summary of timings at program exit?"""
-    )
-    parameters["pyop2_options"].get_param("matnest").set_help(
-        """Should matrices on mixed maps be built as nests? (Default yes)"""
-    )
-    # Other
+    # # PyOP2
+    # parameters["pyop2_options"].get_param("backend").set_help(
+    #     """Select the PyOP2 backend (one of `cuda`, `opencl`, `openmp` or `sequential`)."""
+    # )
+    # parameters["pyop2_options"].get_param("backend").set_validate_function(
+    #     lambda x: x in ["cuda", "opencl", "openmp", "seqential"])
+    # parameters["pyop2_options"].get_param("debug").set_help(
+    #     """Turn on debugging for generated code (turns off compiler optimisations)."""
+    # )
+    # parameters["pyop2_options"].get_param("type_check").set_help(
+    #     """Should PyOP2 type-check API-calls?  (Default, yes)"""
+    # )
+    # parameters["pyop2_options"].get_param("check_src_hashes").set_help(
+    #     """Should PyOP2 check that generated code is the same on all processes? (Default, yes).  Uses an allreduce."""
+    # )
+    # parameters["pyop2_options"].get_param("log_level").set_help(
+    #     """How chatty should PyOP2 be?  Valid values are \"DEBUG\", \"INFO\", \"WARNING\", \"ERROR\", \"CRITICAL\"."""
+    # )
+    # parameters["pyop2_options"].get_param("log_level").set_validate_function(
+    #     lambda x: x in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    # parameters["pyop2_options"].get_param("lazy_evaluation").set_help(
+    #     """Should lazy evaluation be on or off?"""
+    # )
+    # parameters["pyop2_options"].get_param("lazy_max_trace_length").set_help(
+    #     """How many `par_loop`s should be queued lazily before forcing evaluation?  Pass \`0` for an unbounded length."""
+    # )
+    # parameters["pyop2_options"].get_param("loop_fusion").set_help(
+    #     """Should loop fusion be on or off?"""
+    # )
+    # parameters["pyop2_options"].get_param("dump_gencode").set_help(
+    #     """Should PyOP2 write the generated code somewhere for inspection?"""
+    # )
+    # parameters["pyop2_options"].get_param("dump_gencode_path").set_help(
+    #     """Where should the generated code be written to?"""
+    # )
+    # parameters["pyop2_options"].get_param("print_cache_size").set_help(
+    #     """Should PyOP2 print the size of caches at program exit?"""
+    # )
+    # parameters["pyop2_options"].get_param("print_summary").set_help(
+    #     """Should PyOP2 print a summary of timings at program exit?"""
+    # )
+    # parameters["pyop2_options"].get_param("matnest").set_help(
+    #     """Should matrices on mixed maps be built as nests? (Default yes)"""
+    # )
+    # # Other
+    pass
 
 
 parameters = Parameters()
