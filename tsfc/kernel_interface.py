@@ -38,12 +38,13 @@ class Kernel(object):
 class KernelBuilderBase(object):
     """Helper class for building local assembly kernels."""
 
-    def __init__(self, integral_type):
+    def __init__(self, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
-        self.interior_facet = integral_type.startswith("interior_facet")
+        assert isinstance(interior_facet, bool)
+        self.interior_facet = interior_facet
 
         self.prepare = []
         self.finalise = []
@@ -52,23 +53,10 @@ class KernelBuilderBase(object):
         self.coefficient_map = {}
 
         # Cell orientation
-        if integral_type.startswith("interior_facet"):
+        if interior_facet:
             self._cell_orientations = gem.Variable("cell_orientations", (2, 1))
         else:
             self._cell_orientations = gem.Variable("cell_orientations", (1, 1))
-
-        # Facet number
-        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            facet = gem.Variable('facet', (1,))
-            self._facet_number = {None: gem.VariableIndex(gem.Indexed(facet, (0,)))}
-        elif integral_type in ['interior_facet', 'interior_facet_vert']:
-            facet = gem.Variable('facet', (2,))
-            self._facet_number = {
-                '+': gem.VariableIndex(gem.Indexed(facet, (0,))),
-                '-': gem.VariableIndex(gem.Indexed(facet, (1,)))
-            }
-        elif integral_type == 'interior_facet_horiz':
-            self._facet_number = {'+': 1, '-': 0}
 
     def coefficient(self, ufl_coefficient, restriction):
         """A function that maps :class:`ufl.Coefficient`s to GEM
@@ -87,9 +75,6 @@ class KernelBuilderBase(object):
                                gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),
                                                gem.Literal(1),
                                                gem.Literal(numpy.nan)))
-
-    def facet_number(self, restriction):
-        return self._facet_number[restriction]
 
     def apply_glue(self, prepare=None, finalise=None):
         """Append glue code for operations that are not handled in the
@@ -153,13 +138,29 @@ class KernelBuilder(KernelBuilderBase):
 
     def __init__(self, integral_type, subdomain_id):
         """Initialise a kernel builder."""
-        super(KernelBuilder, self).__init__(integral_type)
+        super(KernelBuilder, self).__init__(integral_type.startswith("interior_facet"))
 
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id)
         self.local_tensor = None
         self.coordinates_arg = None
         self.coefficient_args = []
         self.coefficient_split = {}
+
+        # Facet number
+        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
+            facet = gem.Variable('facet', (1,))
+            self._facet_number = {None: gem.VariableIndex(gem.Indexed(facet, (0,)))}
+        elif integral_type in ['interior_facet', 'interior_facet_vert']:
+            facet = gem.Variable('facet', (2,))
+            self._facet_number = {
+                '+': gem.VariableIndex(gem.Indexed(facet, (0,))),
+                '-': gem.VariableIndex(gem.Indexed(facet, (1,)))
+            }
+        elif integral_type == 'interior_facet_horiz':
+            self._facet_number = {'+': 1, '-': 0}
+
+    def facet_number(self, restriction):
+        return self._facet_number[restriction]
 
     def set_arguments(self, arguments, indices):
         """Process arguments.
