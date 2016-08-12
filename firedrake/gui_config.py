@@ -108,14 +108,14 @@ def show_config_gui(parameters):
                                                value="False")
                     button_false.grid(column=3, row=row_count, sticky=(E))
 
-                def help_box(param):
+                def help_box(key):
                     def click():
                         from tkMessageBox import showinfo
-                        showinfo(title="Help", message=param.get_help(), parent=root)
+                        showinfo(title="Help", message=key.help, parent=root)
                     return click
 
                 help_button = Button(labelframe, text='Help',
-                                     command=help_box(parameters.get_param(key)))
+                                     command=help_box(parameters.get_key(key)))
                 help_button.grid(column=4, row=row_count, sticky=(E))
 
     def configure_frame(event):
