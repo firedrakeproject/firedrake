@@ -12,10 +12,7 @@ __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 class Parameter():
     def __init__(self, value, help_text=None, validate_function=None):
-        if help_text is not None:
-            self._help_text = help_text
-        else:
-            self._help_text = "No help text available"
+        self._help_text = help_text
         if validate_function is not None:
             self._validate_function = validate_function
         else:
@@ -32,7 +29,10 @@ class Parameter():
         return self._value
 
     def get_help(self):
-        return self._help_text
+        if self._help_text is not None:
+            return self._help_text
+        else:
+            return "No help available"
 
     def set_help(self, help_text):
         self._help_text = help_text
