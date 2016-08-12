@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import copy
+import abc
 
 from pyop2 import op2
 from pyop2.utils import as_tuple, flatten
@@ -8,6 +9,7 @@ from firedrake.petsc import PETSc
 
 
 class MatrixBase(object):
+    __metaclass__ = abc.ABCMeta
     """A representation of the linear operator associated with a
     bilinear form and bcs.  Explicitly assembled matrices and matrix-free
     matrix classes will derive from this
@@ -31,12 +33,32 @@ class MatrixBase(object):
         self.block_shape = (len(test.function_space()),
                             len(trial.function_space()))
 
+    @abc.abstractmethod
     def assemble(self):
-        raise NotImplementedError
+        """Actually assemble this matrix.
 
-    @property
+        Ensures any pending calculations needed to populate this
+        matrix are queued up.
+
+        Note that this does not guarantee that those calculations are
+        executed.  If you want the latter, see :meth:`force_evaluation`.
+        """
+        pass
+
+    @abc.abstractmethod
+    def force_evaluation(self):
+        """Force any pending writes to this matrix.
+
+        Ensures that the matrix is assembled and populated with
+        values, ready for sending to PETSc."""
+        pass
+
+    @abc.abstractmethod
     def assembled(self):
-        raise NotImplementedError
+        """Is this matrix currently assembled?
+
+        See also :meth:`assemble`."""
+        pass
 
     @property
     def has_bcs(self):
@@ -93,13 +115,14 @@ class MatrixBase(object):
         self._bcs = new_bcs
 
     def __repr__(self):
-        raise NotImplementedError
+        return "%s(a=%r, bcs=%r)" % (type(self).__name__,
+                                     self.a,
+                                     self.bcs)
 
     def __str__(self):
-        raise NotImplementedError
-
-    def force_evaluation(self):
-        raise NotImplementedError
+        pfx = "" if self.assembled else "un"
+        return "%sassembled %s(a=%s, bcs=%s)" % (pfx, type(self).__name__,
+                                                 self.a, self.bcs)
 
 
 class Matrix(MatrixBase):
@@ -240,18 +263,6 @@ class Matrix(MatrixBase):
                 new_bcs.append(existing_bc)
         self.bcs = new_bcs
 
-    def __repr__(self):
-        return '%sassembled firedrake.Matrix(form=%r, bcs=%r)' % \
-            ('' if self._assembled else 'un',
-             self.a,
-             self.bcs)
-
-    def __str__(self):
-        return '%sassembled firedrake.Matrix(form=%s, bcs=%s)' % \
-            ('' if self._assembled else 'un',
-             self.a,
-             self.bcs)
-
     def force_evaluation(self):
         "Ensures that the matrix is fully assembled."
         self.assemble()
@@ -297,6 +308,9 @@ class ImplicitMatrix(MatrixBase):
         self.petscmat.assemble()
 
     def assemble(self):
+        # Bump petsc matrix state by assembling it.
+        # Ensures that if the matrix changed, the preconditioner is
+        # updated if necessary.
         self.petscmat.assemble()
 
     force_evaluation = assemble
