@@ -10,6 +10,28 @@ from coffee.system import coffee_reconfigure
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
+class TypedKey(str):
+    @property
+    def help(self):
+        try:
+            return self._help
+        except AttributeError:
+            return "No help available"
+
+    def set_help(self, help):
+        self._help = help
+
+    def set_validate_function(self, callable):
+        self._validate_function = callable
+
+    def validate(self, value):
+        try:
+            return self._validate_function(value)
+        except AttributeError:
+            # no validation, accept all values
+            return True
+
+
 class Parameters(dict):
     def __init__(self, name=None, **kwargs):
         self._name = name
@@ -20,12 +42,20 @@ class Parameters(dict):
 
     def add(self, key, value=None):
         if isinstance(key, Parameters):
-            self[key.name()] = key
-        else:
+            self[TypedKey(key.name())] = key
+        elif isinstance(key, TypedKey):
             self[key] = value
+        else:
+            self[TypedKey(key)] = value
 
     def __setitem__(self, key, value):
-        super(Parameters, self).__setitem__(key, value)
+        if isinstance(key, TypedKey):
+            if key.validate(value):
+                super(Parameters, self).__setitem__(key, value)
+            else:
+                raise ValueError("Invalid value for key %s:" % key + value)
+        else:
+            super(Parameters, self).__setitem__(TypedKey(key), value)
         if self._update_function:
             self._update_function(key, value)
 
@@ -49,6 +79,10 @@ class Parameters(dict):
         The function receives two arguments, the key-value pair of
         updated entries."""
         self._update_function = callable
+
+    def get_key(self, key_name):
+        idx = self.keys().index(key_name)
+        return self.keys()[idx]
 
 
 def fill_metadata(parameters):
