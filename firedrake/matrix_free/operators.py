@@ -3,7 +3,7 @@ from __future__ import absolute_import
 from ufl import action
 
 from firedrake.ufl_expr import adjoint
-from firedrake.matrix_free.formmanipulation import ExtractSubBlock
+from firedrake.formmanipulation import ExtractSubBlock
 
 from firedrake.petsc import PETSc
 
@@ -205,9 +205,8 @@ class ImplicitMatrixContext(object):
         else:
             col_inds = find_sub_block(col_is, col_ises)
 
-        asub = ExtractSubBlock(row_inds, col_inds).split(self.a)
-        if asub is None:
-            raise ValueError("Empty subblock in %s %s" % (row_inds, col_inds))
+        asub = ExtractSubBlock().split(self.a,
+                                       argument_indices=(row_inds, col_inds))
         Wrow = asub.arguments()[0].function_space()
         Wcol = asub.arguments()[1].function_space()
 
