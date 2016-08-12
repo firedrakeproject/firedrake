@@ -31,7 +31,7 @@ def translate(terminal, mt, params):
 
 @translate.register(CellOrientation)
 def translate_cell_orientation(terminal, mt, params):
-    return params.kernel_interface.cell_orientation(mt.restriction)
+    return params.cell_orientation(mt.restriction)
 
 
 @translate.register(ReferenceCellVolume)

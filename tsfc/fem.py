@@ -143,7 +143,9 @@ class Parameters(object):
                 'weights',
                 'point_index',
                 'argument_indices',
-                'kernel_interface',
+                'coefficient',
+                'cell_orientation',
+                'facet_number',
                 'cellvolume',
                 'facetarea',
                 'index_cache')
@@ -191,7 +193,7 @@ class Parameters(object):
             return callback(opts[0])
         else:
             results = gem.ListTensor(map(callback, opts))
-            f = self.kernel_interface.facet_number(restriction)
+            f = self.facet_number(restriction)
             return gem.partial_indexed(results, (f,))
 
     def entity_selector(self, callback, restriction):
@@ -311,7 +313,7 @@ def translate_argument(terminal, mt, params):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, params):
-    vec = params.kernel_interface.coefficient(terminal, mt.restriction)
+    vec = params.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0

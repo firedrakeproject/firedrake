@@ -1,7 +1,5 @@
 from __future__ import absolute_import
 
-from abc import ABCMeta, abstractmethod
-
 import numpy
 
 import coffee.base as coffee
@@ -12,25 +10,6 @@ from gem.node import traversal
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE
-
-
-class KernelInterface(object):
-    """Abstract class for interfacing kernel arguments during the
-    translation of UFL expressions."""
-
-    __metaclass__ = ABCMeta
-
-    @abstractmethod
-    def coefficient(self, ufl_coefficient, restriction):
-        pass
-
-    @abstractmethod
-    def cell_orientation(self, restriction):
-        pass
-
-    @abstractmethod
-    def facet_number(self, restriction):
-        pass
 
 
 class Kernel(object):
@@ -56,7 +35,7 @@ class Kernel(object):
         super(Kernel, self).__init__()
 
 
-class KernelBuilderBase(KernelInterface):
+class KernelBuilderBase(object):
     """Helper class for building local assembly kernels."""
 
     def __init__(self, integral_type):
