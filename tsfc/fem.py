@@ -15,10 +15,9 @@ from ufl.classes import (Argument, Coefficient, CellVolume, FacetArea,
 import gem
 from gem.utils import cached_property
 
-from finat.quadrature import QuadratureRule, CollapsedGaussJacobiQuadrature
+from finat.quadrature import make_quadrature
 
 from tsfc import ufl2gem, geometric
-from tsfc.fiatinterface import create_quadrature
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import analyse_modified_terminal
@@ -63,10 +62,7 @@ class Context(ProxyKernelInterface):
     @cached_property
     def quadrature_rule(self):
         integration_cell = self.fiat_cell.construct_subelement(self.integration_dim)
-        quad_rule = create_quadrature(integration_cell, self.quadrature_degree)
-        quad_rule = QuadratureRule(integration_cell, quad_rule.get_points(), quad_rule.get_weights())
-        quad_rule.__class__ = CollapsedGaussJacobiQuadrature
-        return quad_rule
+        return make_quadrature(integration_cell, self.quadrature_degree)
 
     @cached_property
     def points(self):
@@ -188,11 +184,11 @@ def translate_facetarea(terminal, mt, ctx):
 def translate_argument(terminal, mt, ctx):
     element = create_element(terminal.ufl_element())
 
-    def callback(entity_index):
-        quad_rule = QuadratureRule(ctx.fiat_cell, ctx.entity_points[entity_index], ctx.weights)
-        quad_rule.__class__ = CollapsedGaussJacobiQuadrature
-        return element.basis_evaluation(quad_rule, derivative=mt.local_derivatives)
-    M = ctx.index_selector(callback, mt.restriction)
+    def callback(entity_id):
+        return element.basis_evaluation(ctx.quadrature_rule,
+                                        derivative=mt.local_derivatives,
+                                        entity=(ctx.integration_dim, entity_id))
+    M = ctx.entity_selector(callback, mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     argument_index = ctx.argument_indices[terminal.number()]
     result = gem.Indexed(M, ctx.point_index + argument_index + vi)
@@ -212,11 +208,11 @@ def translate_coefficient(terminal, mt, ctx):
 
     element = create_element(terminal.ufl_element())
 
-    def callback(entity_index):
-        quad_rule = QuadratureRule(ctx.fiat_cell, ctx.entity_points[entity_index], ctx.weights)
-        quad_rule.__class__ = CollapsedGaussJacobiQuadrature
-        return element.basis_evaluation(quad_rule, derivative=mt.local_derivatives)
-    M = ctx.index_selector(callback, mt.restriction)
+    def callback(entity_id):
+        return element.basis_evaluation(ctx.quadrature_rule,
+                                        derivative=mt.local_derivatives,
+                                        entity=(ctx.integration_dim, entity_id))
+    M = ctx.entity_selector(callback, mt.restriction)
 
     alpha = element.get_indices()
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
