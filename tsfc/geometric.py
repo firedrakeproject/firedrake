@@ -3,14 +3,15 @@ expressions."""
 
 from __future__ import absolute_import
 
-from numpy import array, vstack
+from numpy import allclose, vstack
 from singledispatch import singledispatch
-import sympy
 
 from ufl.classes import (CellCoordinate, CellEdgeVectors,
                          CellFacetJacobian, CellOrientation,
                          FacetCoordinate, ReferenceCellVolume,
                          ReferenceFacetVolume, ReferenceNormal)
+
+from FIAT.reference_element import make_affine_mapping
 
 import gem
 
@@ -48,18 +49,22 @@ def translate_reference_facet_volume(terminal, mt, params):
 
 @translate.register(CellFacetJacobian)
 def translate_cell_facet_jacobian(terminal, mt, params):
-    assert params.integration_dim != params.fiat_cell.get_dimension()
-    dim = params.fiat_cell.construct_subelement(params.integration_dim).get_spatial_dimension()
-    X = sympy.DeferredVector('X')
-    point = [X[j] for j in range(dim)]
+    cell = params.fiat_cell
+    dim = cell.get_spatial_dimension()
+    facet_dim = params.integration_dim
+    facet_cell = cell.construct_subelement(facet_dim)
+    assert facet_dim != cell.get_dimension()
+    xs = facet_cell.get_vertices()
 
     def callback(entity_id):
-        f = params.fiat_cell.get_entity_transform(params.integration_dim, entity_id)
-        y = f(point)
-        J = [[sympy.diff(y_i, X[j])
-              for j in range(dim)]
-             for y_i in y]
-        return gem.Literal(array(J, dtype=float))
+        ys = cell.get_vertices_of_subcomplex(cell.get_topology()[facet_dim][entity_id])
+        # Use first 'dim' points to make an affine mapping
+        A, b = make_affine_mapping(xs[:dim], ys[:dim])
+        for x, y in zip(xs[dim:], ys[dim:]):
+            # The rest of the points are checked to make sure the
+            # mapping really *is* affine.
+            assert allclose(y, A.dot(x) + b)
+        return gem.Literal(A)
     return params.entity_selector(callback, mt.restriction)
 
 
