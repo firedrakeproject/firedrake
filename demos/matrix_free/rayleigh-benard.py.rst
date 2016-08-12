@@ -28,9 +28,8 @@ conduction::
   u, p, T = split(upT)
   v, q, S = TestFunctions(Z)
 
-  OptsDB = PETSc.Options()
-  Ra = Constant(OptsDB.getReal("Ra", 200.0))
-  Pr = Constant(OptsDB.getReal("Pr", 6.8))
+  Ra = Constant(200.0)
+  Pr = Constant(6.8)
 
   g = Constant((0, -1))
 
@@ -75,9 +74,12 @@ Reynolds number in the extra context, defaults to 1.0, which works for
 the Benard convection case.  We haven't added the Rayleigh or Prandtl
 numbers to the dictionary since our known preconditioners don't
 actually require them, although doing so would be quite easy.::
-  
+
+  extra_ctx = {"velocity_space": 0}
+
   solver = NonlinearVariationalSolver(prob, options_prefix='',
-                                      nullspace=nullspace)
+                                      nullspace=nullspace,
+				      extra_ctx=extra_ctx)
 
   solver.solve()
 

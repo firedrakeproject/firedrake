@@ -1,6 +1,4 @@
 -mat_type matfree
--Ra 200.0
--Pr 6.8
 -snes_monitor
 -ksp_type gmres
 -ksp_gmres_restart 30
@@ -22,4 +20,3 @@
 -fieldsplit_1_pc_type python
 -fieldsplit_1_pc_python_type firedrake.AssembledPC
 -fieldsplit_1_assembled_pc_type lu
-

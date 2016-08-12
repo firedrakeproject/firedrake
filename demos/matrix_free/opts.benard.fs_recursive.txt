@@ -27,7 +27,6 @@
 -fieldsplit_0_fieldsplit_1_ksp_type preonly
 -fieldsplit_0_fieldsplit_1_pc_type python
 -fieldsplit_0_fieldsplit_1_pc_python_type firedrake.PCDPC
--fieldsplit_0_fieldsplit_1_pcd_velocity_space 0
 # Configure the pressure mass & Poisson solves.
 -fieldsplit_0_fieldsplit_1_pcd_Mp_ksp_type preonly
 -fieldsplit_0_fieldsplit_1_pcd_Mp_pc_type ilu

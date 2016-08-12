@@ -264,17 +264,14 @@ class PCDPC(PCBase):
 
         state = context.context["state"]
 
-        OptDB = PETSc.Options()
-        # FIXME: spatially-varying Reynolds number.  Should probably
-        # gets these from the context dict.
-        Re_num = OptDB.getReal("Re", 1.0)
-        Re = Constant(Re_num)
-        velid = OptDB.getInt(prefix + "velocity_space")
+        Re = context.context.get("Re", 1.0)
+
+        velid = context.context["velocity_space"]
 
         u0 = split(state)[velid]
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
-        self.Re_num = Re_num
+        self.Re = Re
         # FIXME, allow assembled matrix here
         self.Fp = assemble(fp, form_compiler_parameters=context.fc_params,
                            matfree=True)
@@ -302,7 +299,7 @@ class PCDPC(PCBase):
         viewer.printfASCII("Pressure-Convection-Diffusion inverse K^-1 F_p M^-1:\n")
         viewer.pushASCIITab()
         viewer.printfASCII("Reynolds number in F_p (applied matrix-free) is %g\n" %
-                           self.Re_num)
+                           str(self.Re))
         viewer.printfASCII("KSP solver for K^-1:\n")
         viewer.pushASCIITab()
         self.Kksp.view(viewer)

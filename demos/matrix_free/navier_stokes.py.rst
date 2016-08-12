@@ -33,8 +33,18 @@ Driven cavity with Taylor-Hood.::
 
   prob = NonlinearVariationalProblem(F, up, bcs=bcs, nest=False)
 
+
+We set extra information in the solver.  Certain Python-based preconditioners
+(e.g. pressure convection-diffusion) need access to the Reynolds number,
+which can't be fished out of the UFL bilinear form.  PCD also needs to know which
+piece of the mixed function space is the velocity.  We pass this into the solver,
+but otherwise the preconditioners are set from the options.::
+
+  extra_ctx = {"Re": Re, "velocity_space": 0}
+  
   solver = NonlinearVariationalSolver(prob, options_prefix='',
-                                      nullspace=nullspace)
+                                      nullspace=nullspace,
+				      extra_ctx=extra_ctx)
 
   solver.solve()
 

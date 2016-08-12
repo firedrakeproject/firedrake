@@ -67,7 +67,7 @@ information that will not be fully available from the UFL description
 in :class:`.ImplicitMatrixContext`.  For example, it is not possible
 to extract physical parameters such as the Reynolds number from a UFL
 bilinear form.  In this case, the :class:`.NonlinearVariationalSolver`
-takes a dictionar "extra_ctx" as an optional keyword argument.
+takes a dictionary "extra_ctx" as an optional keyword argument.
 Firedrake passes that down into the :class:`.ImplicitMatrixContext` so
 that it is accessible to preconditioners.
 

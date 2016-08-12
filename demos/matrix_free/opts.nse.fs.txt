@@ -1,7 +1,6 @@
 # Schur complement using matrix-free PCD preconditioner for the schur
 # complement.
 -mat_type matfree
--Re 100.0
 -snes_monitor
 -ksp_type fgmres
 -ksp_gmres_modifiedgramschmidt

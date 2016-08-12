@@ -111,7 +111,8 @@ class _SNESContext(object):
 
         if appctx is None:
             appctx = {}
-            appctxs = tuple(appctx.copy() for _ in problems)
+        
+        appctxs = tuple(appctx.copy() for _ in problems)
 
         if matfree:
             # We will want the newton state for some preconditioners
