@@ -3,7 +3,6 @@ from __future__ import absolute_import
 
 from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
-from firedrake.citations import Citations
 from coffee.system import coffee_reconfigure
 
 
