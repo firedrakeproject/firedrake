@@ -36,7 +36,7 @@ Splitting unassembled matrices
 For the purposes of fieldsplit preconditioners, the PETSc matrix
 object must be able to extract submatrices.  For unassembled matrices,
 this is achieved through a specialized
-:method:`.ImplicitMatrixContext.getSubMatrix` method that partitions
+:meth:`.ImplicitMatrixContext.getSubMatrix` method that partitions
 the UFL form defining the operator into pieces corresponding to the
 integer labels of the unknown fields.  This is in
 contrast to the normal splitting of assembled matrices which operates
@@ -52,7 +52,7 @@ As well as providing symbolic field splitting, the
 preconditioners.  Since it contains a complete UFL
 description of the bilinear form, preconditioners can query or
 manipulate it as desired.  As a particularly simple example, the class
-:class:`.AssembledPC` simply passes the UFL into :function:`.assemble`
+:class:`.AssembledPC` simply passes the UFL into :func:`.assemble`
 to produce an explicit matrix during set up.  It also sets up a new
 PETSc PC context acting on this assembled matrix so that the user can
 configure it at run-time via the options database.  This allows the
@@ -91,4 +91,7 @@ from a simple primal Poisson equation and build up the complexity,
 ending with a scalable preconditioner for the simulation of
 Rayleigh-Benard convection.
 
-We start with Poisson's equation.
+.. include:: demos/poisson.py.rst
+
+.. include:: demos/stokes.py.rst
+

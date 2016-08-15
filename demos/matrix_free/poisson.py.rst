@@ -1,7 +1,10 @@
-Poisson
-=======
-It is what it is.  Conforming discretization on a regular mesh.
-Try out "python poisson.py -options_file opts.poisson.<foo>.txt::
+Poisson equation
+================
+
+It is what it is, a conforming discretization on a regular mesh using
+piecewise quadratic elements.
+
+As usual we start by importing firedrake and setting up the problem.::
 
   from firedrake import *
 
@@ -25,10 +28,50 @@ Try out "python poisson.py -options_file opts.poisson.<foo>.txt::
 
   uu = Function(V)
 
-  prob = LinearVariationalProblem(a, L, uu, bcs)
+With the setup out of the way, we now demonstrate various ways of
+configuring the solver.  First, a direct solve with an assembled
+operator.::
 
-  solver = LinearVariationalSolver(prob, options_prefix='')
+  solve(a == L, uu, solver_parameters={"ksp_type": "preonly",
+                                       "pc_type": "lu"})
 
-  solver.solve()
+Next, we use unpreconditioned conjugate gradients using matrix-free
+actions.  This is not very efficient due to the :math:`h^{-2}`
+conditioning of the Laplacian, but demonstrates how to request an
+unassembled operator using the ``"mat_type"`` solver parameter.::
 
-  File("poisson.pvd").write(uu)
+  uu.assign(0)
+  solve(a == L, uu, solver_parameters={"mat_type": "matfree",
+                                       "ksp_type": "cg",
+                                       "pc_type": "none",
+                                       "ksp_monitor": True})
+
+Finally, we demonstrate the use of a :class:`.AssembledPC`
+preconditioner.  This uses matrix-free actions but preconditions the
+Krylov iterations with an incomplete LU factorisation of the assembled
+operator.::
+
+  uu.assign(0)
+  solve(a == L, uu, solver_parameters={"mat_type": "matfree",
+                                       "ksp_type": "cg",
+                                       "ksp_monitor": True,
+
+To use the assembled matrix for the preconditioner we select a
+``"python"`` type::
+
+  #
+                                       "pc_type": "python",
+
+and set its type, by providing the name of the class constructor to
+PETSc.::
+
+  #
+                                       "pc_python_type": "firedrake.AssembledPC"
+
+Finally, we set the preconditioner type for the assembled operator::
+
+  #
+                                       "assembled_pc_type": "ilu"}
+
+This demo is available as a runnable python file `here
+<poisson.py>`__.
