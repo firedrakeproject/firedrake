@@ -476,36 +476,49 @@ class TransformEigenKernel(Visitor):
     def visit_FunDecl(self, o, *args, **kwargs):
         """Visits a COFFEE FunDecl object and reconstructs
         the FunDecl with the appropriate changed arguments
-        and body."""
+        and body.
 
+        Creates a template function for each subkernel for
+        template <typename Derived>:
+
+        template <typename Derived>
+        static inline void foo(Eigen::MatrixBase<Derived> const &A_, ...);
+        {
+         Eigen::MatrixBase<Derived> & A = const_cast<Eigen::MatrixBase<Derived> &>(A_);
+        [Body]...
+        }
+        """
+
+        name = kwargs.get("name", "A")
         new = self.visit_Node(o, *args, **kwargs)
         ops, okwargs = new.operands()
         if all(new is old for new, old in zip(ops, o.operands()[0])):
             return o
 
+        pred = ["template <typename Derived>\nstatic", "inline"]
+        body = ops[3]
+        args,_ = body.operands()
+        nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived> & %s = const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n"\
+                               % (name, name))] + args
+        ops[3] = nargs
+        ops[4] = pred
+
         return o.reconstruct(*ops, **okwargs)
 
     def visit_Decl(self, o, *args, **kwargs):
         """Visits a declared tensor and changes its type
-        to :type:`Eigen::Matrix`.
+        to :template: result `Eigen::MatrixBase<Derived>`.
 
-        i.e. double A[n][m] ---> Eigen::Matrix<double, n, m::EigenRowMajor> A
-        or   double A[n][1] ---> Eigen::Matrix<double, n, 1> A
+        i.e. double A[n][m] ---> Eigen::MatrixBase<Derived> const &A_
 
         """
 
         name = kwargs.get("name", "A")
         if o.sym.symbol != name:
             return o
+        newtype = "Eigen::MatrixBase<Derived> const &"
 
-        rank = o.sym.rank
-        if rank[1] != 1:
-            order = ", Eigen::RowMajor"
-        else:
-            order = ""
-        newtype = "Eigen::Matrix<double, %d, %d%s>" % (rank[0], rank[1], order)
-
-        return o.reconstruct(newtype, ast.Symbol("%s" % name))
+        return o.reconstruct(newtype, ast.Symbol("%s_" % name))
 
     def visit_Symbol(self, o, *args, **kwargs):
         """Visits a COFFEE symbol and redefines it as a
@@ -739,7 +752,8 @@ def compile_slate_expression(slate_expr):
                     assert exp.ufl_domain().coordinates == coords
                 else:
                     coords = exp.ufl_domain().coordinates
-
+                import ipdb
+                ipdb.set_trace()
                 # Extracting coefficients
                 for cindex in list(kinfo[4]):
                     coeff = exp.coefficients()[cindex]
@@ -854,10 +868,12 @@ def compile_slate_expression(slate_expr):
                                      (result_type, result_sym,
                                       dtype, result_data_sym))
     statements.append(result_statement)
+#    statements.append(ast.FlatBlock("std::cout << T0 << std::endl;\n"))
+#    statements.append(ast.FlatBlock("std::cout << T1 << std::endl;\n"))
     c_string = ast.FlatBlock(get_c_str(slate_expr, temps))
     statements.append(ast.Assign(result_sym, c_string))
 
-    arglist = [result, ast.Decl("const %s *restrict *" % dtype, coordsym)]
+    arglist = [result, ast.Decl("%s **" % dtype, coordsym)]
     for c in coeffs:
         ctype = "%s **" % dtype
         if isinstance(c, firedrake.Constant):
@@ -877,7 +893,7 @@ def compile_slate_expression(slate_expr):
         for (_, ks) in v:
             for k in ks:
                 kast = transformkernel.visit(k.kinfo.kernel._ast)
-                klist.append(ast.FlatBlock(kast.gencode()))
+                klist.append(kast)
 
     klist.append(kernel)
     kernelast = ast.Node(klist)
@@ -887,7 +903,9 @@ def compile_slate_expression(slate_expr):
                                      cpp=True,
                                      include_dirs=inc,
                                      headers=['#include <Eigen/Dense>',
-                                              '#define restrict __restrict'])
+                                              '#include <string>',
+                                              '#include <iostream>',
+                                              '#define restrict'])
 
     return coords, coeffs, need_cell_facets, op2kernel
 
@@ -954,4 +972,5 @@ def slate_assemble(expr, bcs=None, nest=False):
         for bc in bcs:
             tensor.set_local_diagonal_entries(bc.nodes)
 
+    tensor.assemble()
     return tensor
