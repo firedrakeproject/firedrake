@@ -154,12 +154,13 @@ expression. ::
   )
 
 Since we are in one dimension, we use a direct solver for the linear
-system within the Newton algorithm. The function space is mixed, so
-we must specify ``nest=False`` when defining the variational problem. ::
+system within the Newton algorithm. To do this, we assemble a monolithic
+rather than blocked system. ::
 
-  uprob = NonlinearVariationalProblem(L, w1, nest=False)
+  uprob = NonlinearVariationalProblem(L, w1)
   usolver = NonlinearVariationalSolver(uprob, solver_parameters=
-     {'ksp_type': 'preonly',
+     {'mat_type': 'aij',
+      'ksp_type': 'preonly',
       'pc_type': 'lu'})
 
 Next we use the other form of :meth:`~.Function.split`, ``w0.split()``,

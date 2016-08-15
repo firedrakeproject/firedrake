@@ -65,7 +65,7 @@ Like Navier-Stokes, the pressure is only defined up to a constant.::
       Z, [Z.sub(0), VectorSpaceBasis(constant=True), Z.sub(2)])
 
 
-  prob = NonlinearVariationalProblem(F, upT, bcs=bcs, nest=False)
+  prob = NonlinearVariationalProblem(F, upT, bcs=bcs)
 
 Also, if we desire to use PCD preconditioning for the Navier-Stokes
 block, we need to make sure the variational solver has access to where

@@ -92,7 +92,8 @@ class AssembledPC(PCBase):
             raise ValueError("Only makes sense to invert diagonal block")
 
         self.P = assemble(context.a, bcs=context.row_bcs,
-                          form_compiler_parameters=context.fc_params, nest=False)
+                          form_compiler_parameters=context.fc_params,
+                          mat_type='aij')
         self.P.force_evaluation()
 
         # Transfer nullspace over
@@ -160,11 +161,10 @@ class MassInvPC(PCBase):
         a = inner(u, v)*dx
 
         opts = PETSc.Options()
-        mattype = opts.getString(prefix+"Mp_mat_type", "")
-        matfree = mattype == "matfree"
+        mat_type = opts.getString(prefix+"Mp_mat_type", "")
         
         A = assemble(a, form_compiler_parameters=context.fc_params,
-                     matfree=matfree)
+                     mat_type=mat_type)
         A.force_evaluation()
 
         Pmat = A.petscmat
@@ -248,21 +248,18 @@ class PCDPC(PCBase):
         # we're inverting Mp and Kp, so default them to assembled.
         # Fp only needs its action, so default it to mat-free.
         # These can of course be overridden.
-        Mpmattype = opts.getString(prefix+"Mp_mat_type", "")
-        Kpmattype = opts.getString(prefix+"Kp_mat_type", "")
-        Fpmattype = opts.getString(prefix+"Fp_mat_type", "matfree")
+        # only Fp is referred to in update, so that's the only
+        # one we stash.
+        Mp_mat_type = opts.getString(prefix+"Mp_mat_type", "")
+        Kp_mat_type = opts.getString(prefix+"Kp_mat_type", "")
+        self.Fp_mat_type = opts.getString(prefix+"Fp_mat_type", "matfree")
 
-        mpmatfree = (Mpmattype == "matfree")
-        kpmatfree = (Kpmattype == "matfree")
-        fpmatfree = (Fpmattype == "matfree")
-        self.fpmatfree = fpmatfree
-                                
         
         # FIXME: allow these guys to be matrix-free
         Mp = assemble(mass, form_compiler_parameters=context.fc_params,
-                      matfree=mpmatfree)
+                      mat_type=Mp_mat_type)
         Kp = assemble(stiffness, form_compiler_parameters=context.fc_params,
-                      matfree=kpmatfree)
+                      mat_type=Kp_mat_type)
 
         Mp.force_evaluation()
         Kp.force_evaluation()
@@ -295,14 +292,14 @@ class PCDPC(PCBase):
         self.Re = Re
         # FIXME, allow assembled matrix here
         self.Fp = assemble(fp, form_compiler_parameters=context.fc_params,
-                           matfree=fpmatfree)
+                           mat_type=self.Fp_mat_type)
         self.Fp.force_evaluation()
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]
 
     def update(self, pc):
         from firedrake import assemble
-        assemble(self.Fp.a, tensor=self.Fp, matfree=self.fpmatfree)
+        assemble(self.Fp.a, tensor=self.Fp, mat_type=self.Fp_mat_type)
         self.Fp.force_evaluation()
 
     def apply(self, pc, x, y):
@@ -312,7 +309,10 @@ class PCDPC(PCBase):
         self.Kksp.solve(b, y)
 
     def applyTranspose(self, pc, x, y):
-        raise NotImplementedError
+        a, b = self.workspace
+        self.Kksp.solveTranspose(x, b)
+        self.Fp.petscmat.multTranspose(b, a)
+        self.Mksp.solveTranspose(y, a)
 
     def view(self, pc, viewer=None):
         super(PCDPC, self).view(pc, viewer)

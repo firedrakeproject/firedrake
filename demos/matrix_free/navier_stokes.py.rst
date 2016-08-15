@@ -31,7 +31,7 @@ Driven cavity with Taylor-Hood.::
   nullspace = MixedVectorSpaceBasis(
       Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
 
-  prob = NonlinearVariationalProblem(F, up, bcs=bcs, nest=False)
+  prob = NonlinearVariationalProblem(F, up, bcs=bcs)
 
 
 We set extra information in the solver.  Certain Python-based preconditioners

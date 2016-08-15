@@ -34,14 +34,8 @@ and such for this.::
 
   nullspace = MixedVectorSpaceBasis(
       Z, [Z.sub(0), VectorSpaceBasis(constant=True)])
-
-
-We set ``nest=False`` inside the problem so that assembled matrices
-will be monolithic and we can use a direct solver.  The ``nest``
-parameter is ignored if we turn on implicit matrices and so can still
-field-split them efficiently.::
       
-  prob = LinearVariationalProblem(a, L, up, bcs=bcs, nest=False)
+  prob = LinearVariationalProblem(a, L, up, bcs=bcs)
 
   solver = LinearVariationalSolver(prob, options_prefix='', nullspace=nullspace)
 

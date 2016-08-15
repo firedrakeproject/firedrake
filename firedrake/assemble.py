@@ -20,7 +20,7 @@ __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, nest=None, matfree=False, extra_ctx={}):
+             inverse=False, mat_type='aij', extra_ctx={}):
     """Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
@@ -36,14 +36,16 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          the measure, the latter will be used.
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
-    :arg nest: (optional) flag indicating if a 2-form (matrix) on a
-         mixed space should be assembled as a block matrix (if
-         ``nest`` is ``True``) or not.  The default value is
-         taken from the parameters dict, ``parameters["matnest"]``.
+    :arg mat_type: (optional) string indicating how a 2-form (matrix) should be
+         assembled -- either as a monolithic matrix ('aij'), a block matrix
+         ('nest'), or left as a :class:`.ImplicitMatrix` giving matrix-free
+         actions.  For a 1-form, 'aij' will refer to assembled
+         monolithic vectors and 'nest' blocked. 
 
     If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
+    :class:`.Function` for 1-forms and a :class:`.Matrix` or :class:`.ImplicitMatrix`
+    for 2-forms.
 
     If f is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
@@ -64,7 +66,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse, nest=nest, matfree=matfree, extra_ctx=extra_ctx)
+                         inverse=inverse, mat_type=mat_type, extra_ctx=extra_ctx)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -73,7 +75,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 @utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-              inverse=False, nest=None, matfree=False, extra_ctx={}):
+              inverse=False, mat_type='aij', extra_ctx={}):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -90,7 +92,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          should be built in blocks or monolithically.
 
     """
-
+    nest = mat_type == 'nest'
+    matfree = mat_type == 'matfree'
+    
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
     else:
