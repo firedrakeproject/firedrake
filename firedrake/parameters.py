@@ -31,6 +31,15 @@ class TypedKey(str):
             # no validation, accept all values
             return True
 
+    def __getstate__(self):
+        # Remove non-picklable validate function slot
+        d = self.__dict__.copy()
+        try:
+            del d["_validate_function"]
+        except:
+            pass
+        return d
+
 
 class Parameters(dict):
     def __init__(self, name=None, **kwargs):
