@@ -18,7 +18,8 @@ class TypedKey(str):
         except AttributeError:
             return "No help available"
 
-    def set_help(self, help):
+    @help.setter
+    def help(self, help):
         self._help = help
 
     def set_validate_function(self, callable):
@@ -96,57 +97,43 @@ class Parameters(dict):
 
 def fill_metadata(parameters):
     # COFFEE
-    parameters["coffee"].get_key("optlevel").set_help(
+    parameters["coffee"].get_key("optlevel").help = \
         """Optimization level, accepted values are `O0, `O1, `O2, `O3, `Ofast`"""
-    )
     parameters["coffee"].get_key("optlevel").set_validate_function(
         lambda x: x in ["O0", "O1", "O2", "O3", "Ofast"])
     # Form Compiler
 
     # PyOP2
-    parameters["pyop2_options"].get_key("backend").set_help(
+    parameters["pyop2_options"].get_key("backend").help = \
         """Select the PyOP2 backend (one of `cuda`, `opencl`, `openmp` or `sequential`)."""
-    )
     parameters["pyop2_options"].get_key("backend").set_validate_function(
-        lambda x: x in ["cuda", "opencl", "openmp", "seqential"])
-    parameters["pyop2_options"].get_key("debug").set_help(
+        lambda x: x in ["cuda", "opencl", "openmp", "sequential"])
+    parameters["pyop2_options"].get_key("debug").help = \
         """Turn on debugging for generated code (turns off compiler optimisations)."""
-    )
-    parameters["pyop2_options"].get_key("type_check").set_help(
+    parameters["pyop2_options"].get_key("type_check").help = \
         """Should PyOP2 type-check API-calls?  (Default, yes)"""
-    )
-    parameters["pyop2_options"].get_key("check_src_hashes").set_help(
+    parameters["pyop2_options"].get_key("check_src_hashes").help = \
         """Should PyOP2 check that generated code is the same on all processes? (Default, yes).  Uses an allreduce."""
-    )
-    parameters["pyop2_options"].get_key("log_level").set_help(
+    parameters["pyop2_options"].get_key("log_level").help = \
         """How chatty should PyOP2 be?  Valid values are \"DEBUG\", \"INFO\", \"WARNING\", \"ERROR\", \"CRITICAL\"."""
-    )
     parameters["pyop2_options"].get_key("log_level").set_validate_function(
         lambda x: x in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
-    parameters["pyop2_options"].get_key("lazy_evaluation").set_help(
+    parameters["pyop2_options"].get_key("lazy_evaluation").help = \
         """Should lazy evaluation be on or off?"""
-    )
-    parameters["pyop2_options"].get_key("lazy_max_trace_length").set_help(
+    parameters["pyop2_options"].get_key("lazy_max_trace_length").help = \
         """How many `par_loop`s should be queued lazily before forcing evaluation?  Pass \`0` for an unbounded length."""
-    )
-    parameters["pyop2_options"].get_key("loop_fusion").set_help(
+    parameters["pyop2_options"].get_key("loop_fusion").help = \
         """Should loop fusion be on or off?"""
-    )
-    parameters["pyop2_options"].get_key("dump_gencode").set_help(
+    parameters["pyop2_options"].get_key("dump_gencode").help = \
         """Should PyOP2 write the generated code somewhere for inspection?"""
-    )
-    parameters["pyop2_options"].get_key("dump_gencode_path").set_help(
+    parameters["pyop2_options"].get_key("dump_gencode_path").help = \
         """Where should the generated code be written to?"""
-    )
-    parameters["pyop2_options"].get_key("print_cache_size").set_help(
+    parameters["pyop2_options"].get_key("print_cache_size").help = \
         """Should PyOP2 print the size of caches at program exit?"""
-    )
-    parameters["pyop2_options"].get_key("print_summary").set_help(
+    parameters["pyop2_options"].get_key("print_summary").help = \
         """Should PyOP2 print a summary of timings at program exit?"""
-    )
-    parameters["pyop2_options"].get_key("matnest").set_help(
+    parameters["pyop2_options"].get_key("matnest").help = \
         """Should matrices on mixed maps be built as nests? (Default yes)"""
-    )
     # Other
 
 
