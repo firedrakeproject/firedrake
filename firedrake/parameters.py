@@ -99,6 +99,10 @@ class StrType(KeyType):
     def clear_options(self):
         self._options = []
 
+    @property
+    def options(self):
+        return self._options
+
     def validate(self, value):
         if hasattr(self, "_validate_function"):
             return self._validate_function(value)

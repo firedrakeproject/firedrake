@@ -80,8 +80,15 @@ def show_config_gui(parameters):
                 variable_dict[key] = StringVar()
                 variable_dict[key].set(str(parameters[key]))
                 if type(parameters[key]) is not bool:
-                    label_val = Entry(labelframe, textvariable=variable_dict[key])
-                    label_val.grid(column=2, columnspan=2, row=row_count, sticky=(E))
+                    if type(parameters[key]) is str and \
+                            parameters.get_key(key).type.options != []:
+                        drop_list = OptionMenu(labelframe, variable_dict[key],
+                                               parameters[key],
+                                               *parameters.get_key(key).type.options)
+                        drop_list.grid(column=2, columnspan=2, row=row_count, sticky=(E))
+                    else:
+                        label_val = Entry(labelframe, textvariable=variable_dict[key])
+                        label_val.grid(column=2, columnspan=2, row=row_count, sticky=(E))
                 else:
                     button_true = Radiobutton(labelframe, text='True',
                                               variable=variable_dict[key],
