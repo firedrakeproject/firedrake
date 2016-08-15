@@ -752,8 +752,7 @@ def compile_slate_expression(slate_expr):
                     assert exp.ufl_domain().coordinates == coords
                 else:
                     coords = exp.ufl_domain().coordinates
-                import ipdb
-                ipdb.set_trace()
+
                 # Extracting coefficients
                 for cindex in list(kinfo[4]):
                     coeff = exp.coefficients()[cindex]
