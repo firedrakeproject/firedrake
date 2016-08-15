@@ -10,7 +10,134 @@ from coffee.system import coffee_reconfigure
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
+class KeyType(object):
+    @staticmethod
+    def get_type(obj):
+        if type(obj) is int:
+            return IntType()
+        elif type(obj) is float:
+            return FloatType()
+        elif type(obj) is bool:
+            return BoolType()
+        elif type(obj) is str:
+            return StrType()
+        else:
+            return InstanceType(obj)
+
+
+class NumericType(KeyType):
+    def __init__(self, lower_bound=None, upper_bound=None):
+        self._lower_bound = lower_bound
+        self._upper_bound = upper_bound
+
+    def validate(self, numeric_value):
+        if self._lower_bound is not None:
+            if numeric_value < self._lower_bound:
+                return False
+        if self._upper_bound is not None:
+            if numeric_value > self._upper_bound:
+                return False
+        return True
+
+
+class IntType(NumericType):
+    def validate(self, value):
+        try:
+            int_val = int(value)
+            return super(IntType, self).validate(int_val)
+        except ValueError:
+            return False
+
+    def parse(self, value):
+        if self.validate(value):
+            return int(value)
+        else:
+            return None
+
+
+class FloatType(NumericType):
+    def validate(self, value):
+        try:
+            float_val = float(value)
+            return super(FloatType, self).validate(float_val)
+        except ValueError:
+            return False
+
+    def parse(self, value):
+        if self.validate(value):
+            return float(value)
+        else:
+            return None
+
+
+class BoolType(KeyType):
+    def validate(self, value):
+        return value in ["True", "False"] or type(value) is bool
+
+    def parse(self, value):
+        if self.validate(value):
+            if type(value) is bool:
+                return value
+            else:
+                return True if value == "True" else False
+
+
+class StrType(KeyType):
+    def __init__(self, *options):
+        if options == ():
+            self._options = []
+        else:
+            self._options = [str(x) for x in options]
+
+    def set_validate_function(self, callable):
+        self._validate_function = callable
+
+    def add_options(self, *options):
+        for option in options:
+            self._options.append(option)
+
+    def clear_options(self):
+        self._options = []
+
+    def validate(self, value):
+        if hasattr(self, "_validate_function"):
+            return self._validate_function(value)
+        elif self._options != []:
+            return value in self._options
+        else:
+            return True
+
+    def parse(self, value):
+        if self.validate(value):
+            return value
+        else:
+            return None
+
+
+class InstanceType(KeyType):
+    def __init__(self, obj):
+        self._class = obj.__class__
+
+    def validate(self, value):
+        return value.__class__ == self._class
+
+
+class UnsetType(KeyType):
+    def validate(self, value):
+        return True
+
+
 class TypedKey(str):
+
+    def __new__(self, key, val_type=None):
+        return super(TypedKey, self).__new__(self, key)
+
+    def __init__(self, key, val_type=None):
+        if val_type is not None:
+            self._type = val_type
+        else:
+            self._type = UnsetType()
+
     @property
     def help(self):
         try:
@@ -22,24 +149,19 @@ class TypedKey(str):
     def help(self, help):
         self._help = help
 
-    def set_validate_function(self, callable):
-        self._validate_function = callable
+    @property
+    def type(self):
+        return self._type
+
+    @type.setter
+    def type(self, new_type):
+        if isinstance(new_type, KeyType):
+            self._type = new_type
+        else:
+            raise ValueError(new_type + "is not a type!")
 
     def validate(self, value):
-        try:
-            return self._validate_function(value)
-        except AttributeError:
-            # no validation, accept all values
-            return True
-
-    def __getstate__(self):
-        # Remove non-picklable validate function slot
-        d = self.__dict__.copy()
-        try:
-            del d["_validate_function"]
-        except:
-            pass
-        return d
+        return self._type.validate(value)
 
 
 class Parameters(dict):
@@ -56,16 +178,19 @@ class Parameters(dict):
         elif isinstance(key, TypedKey):
             self[key] = value
         else:
-            self[TypedKey(key)] = value
+            self[TypedKey(key, KeyType.get_type(value))] = value
 
     def __setitem__(self, key, value):
         if isinstance(key, TypedKey):
             if key.validate(value):
                 super(Parameters, self).__setitem__(key, value)
             else:
-                raise ValueError("Invalid value for key %s:" % key + value)
+                raise ValueError("Invalid value for key %s:" % key +
+                                 str(value))
         else:
-            super(Parameters, self).__setitem__(TypedKey(key), value)
+            super(Parameters, self).__setitem__(TypedKey(key,
+                                                         KeyType.get_type(value)),
+                                                value)
         if self._update_function:
             self._update_function(key, value)
 
@@ -99,15 +224,15 @@ def fill_metadata(parameters):
     # COFFEE
     parameters["coffee"].get_key("optlevel").help = \
         """Optimization level, accepted values are `O0, `O1, `O2, `O3, `Ofast`"""
-    parameters["coffee"].get_key("optlevel").set_validate_function(
-        lambda x: x in ["O0", "O1", "O2", "O3", "Ofast"])
+    parameters["coffee"].get_key("optlevel").type.add_options(
+        "O0", "O1", "O2", "O3", "Ofast")
     # Form Compiler
 
     # PyOP2
     parameters["pyop2_options"].get_key("backend").help = \
         """Select the PyOP2 backend (one of `cuda`, `opencl`, `openmp` or `sequential`)."""
-    parameters["pyop2_options"].get_key("backend").set_validate_function(
-        lambda x: x in ["cuda", "opencl", "openmp", "sequential"])
+    parameters["pyop2_options"].get_key("backend").type.add_options(
+        "cuda", "opencl", "openmp", "sequential")
     parameters["pyop2_options"].get_key("debug").help = \
         """Turn on debugging for generated code (turns off compiler optimisations)."""
     parameters["pyop2_options"].get_key("type_check").help = \
@@ -116,8 +241,8 @@ def fill_metadata(parameters):
         """Should PyOP2 check that generated code is the same on all processes? (Default, yes).  Uses an allreduce."""
     parameters["pyop2_options"].get_key("log_level").help = \
         """How chatty should PyOP2 be?  Valid values are \"DEBUG\", \"INFO\", \"WARNING\", \"ERROR\", \"CRITICAL\"."""
-    parameters["pyop2_options"].get_key("log_level").set_validate_function(
-        lambda x: x in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
+    parameters["pyop2_options"].get_key("log_level").type.add_options(
+        "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
     parameters["pyop2_options"].get_key("lazy_evaluation").help = \
         """Should lazy evaluation be on or off?"""
     parameters["pyop2_options"].get_key("lazy_max_trace_length").help = \

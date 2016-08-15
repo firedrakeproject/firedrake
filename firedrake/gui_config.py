@@ -57,25 +57,9 @@ def show_config_gui(parameters):
                                                     variable_dict[key])
             else:
                 str_val = variable_dict[key].get()
-                try:
-                    if type(parameters[key]) is int:
-                        parsed_dict[key] = int(str_val)
-                    elif type(parameters[key]) is float:
-                        parsed_dict[key] = float(str_val)
-                    elif type(parameters[key]) is bool:
-                        if str_val == 'True' or str_val == 'true' or str_val == '1':
-                            parsed_dict[key] = True
-                        elif str_val == 'False' or str_val == 'false' or str_val == '0':
-                            parsed_dict[key] = False
-                        else:
-                            raise ValueError("invalid bool value %s" % str_val)
-                    elif type(parameters[key]) is str:
-                        parsed_dict[key] = str_val
-                    else:
-                        raise TypeError("unrecognisable type" + type(parameters[key]))
-                except ValueError as e:
-                    raise ValueError("Error when parsing parameter %s. %s"
-                                     % (key, e.message))
+                if not parameters.get_key(key).validate(str_val):
+                    raise ValueError("Invalid value for parameter %s" % key)
+                parsed_dict[key] = parameters.get_key(key).type.parse(str_val)
         return parsed_dict
 
     def generate_input(parameters, labelframe, variable_dict):
