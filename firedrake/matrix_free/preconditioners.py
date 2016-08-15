@@ -244,9 +244,25 @@ class PCDPC(PCBase):
         # Regularisation to avoid having to think about nullspaces.
         stiffness = inner(grad(p), grad(q))*dx + Constant(1e-6)*p*q*dx
 
+        opts = PETSc.Options()
+        # we're inverting Mp and Kp, so default them to assembled.
+        # Fp only needs its action, so default it to mat-free.
+        # These can of course be overridden.
+        Mpmattype = opts.getString(prefix+"Mp_mat_type", "")
+        Kpmattype = opts.getString(prefix+"Kp_mat_type", "")
+        Fpmattype = opts.getString(prefix+"Fp_mat_type", "matfree")
+
+        mpmatfree = (Mpmattype == "matfree")
+        kpmatfree = (Kpmattype == "matfree")
+        fpmatfree = (Fpmattype == "matfree")
+        self.fpmatfree = fpmatfree
+                                
+        
         # FIXME: allow these guys to be matrix-free
-        Mp = assemble(mass, form_compiler_parameters=context.fc_params)
-        Kp = assemble(stiffness, form_compiler_parameters=context.fc_params)
+        Mp = assemble(mass, form_compiler_parameters=context.fc_params,
+                      matfree=mpmatfree)
+        Kp = assemble(stiffness, form_compiler_parameters=context.fc_params,
+                      matfree=kpmatfree)
 
         Mp.force_evaluation()
         Kp.force_evaluation()
@@ -279,15 +295,14 @@ class PCDPC(PCBase):
         self.Re = Re
         # FIXME, allow assembled matrix here
         self.Fp = assemble(fp, form_compiler_parameters=context.fc_params,
-                           matfree=True)
+                           matfree=fpmatfree)
         self.Fp.force_evaluation()
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]
 
     def update(self, pc):
-        # FIXME, support assembled matrix too
         from firedrake import assemble
-        assemble(self.Fp.a, tensor=self.Fp, matfree=True)
+        assemble(self.Fp.a, tensor=self.Fp, matfree=self.fpmatfree)
         self.Fp.force_evaluation()
 
     def apply(self, pc, x, y):
