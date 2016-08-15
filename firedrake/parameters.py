@@ -67,6 +67,14 @@ coffee_opts = Parameters("coffee", optlevel=coffee_default_optlevel)
 coffee_opts.set_update_function(lambda k, v: coffee_reconfigure(**{k: v}))
 parameters.add(coffee_opts)
 
+# add flooddrake parameters
+parameters.add(Parameters("flooddrake",
+                          gravity=9.8,
+                          ubnd1=1e2,
+                          ubnd2=1e0,
+                          eps1=1e-6,
+                          eps2=1e-6))
+
 # Default to the values of PyOP2 configuration dictionary
 pyop2_opts = Parameters("pyop2_options",
                         **configuration)
