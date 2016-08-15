@@ -131,12 +131,16 @@ class NonlinearVariationalSolver(object):
                 parameters[k[len(self._opt_prefix):]] = v
 
         # Allow anything, interpret "matfree" as matrix_free.
-        mat_type = parameters.get("mat_type")
+        mat_type = parameters.get(self._opt_prefix+"mat_type")
+        pmat_type = parameters.get(self._opt_prefix+"pmat_type")
         matfree = mat_type == "matfree"
+        pmatfree = pmat_type == "matfree"
 
         appctx = kwargs.get("extra_ctx")
 
-        ctx = solving_utils._SNESContext(problem, matfree=matfree,
+        ctx = solving_utils._SNESContext(problem,
+                                         matfree=matfree,
+                                         pmatfree=pmatfree,
                                          appctx=appctx)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
@@ -144,7 +148,7 @@ class NonlinearVariationalSolver(object):
         self.snes.setOptionsPrefix(self._opt_prefix)
 
         # No preconditioner by default for matrix-free
-        if matfree:
+        if (problem.Jp is not None and pmatfree) or matfree:
             parameters.setdefault("pc_type", "none")
         elif ctx.is_mixed:
             # Mixed problem, use jacobi pc if user has not supplied

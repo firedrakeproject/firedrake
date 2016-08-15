@@ -85,7 +85,9 @@ class _SNESContext(object):
     Context holding information for SNES callbacks.
 
     :arg problems: a :class:`NonlinearVariationalProblem` or iterable thereof.
-    :arg matfree: Should the operators be assembled matrix-free (as
+    :arg matfree: Should the Jacobian be assembled matrix-free (as
+        :class:`~.ImplicitMatrix`\es).
+    :arg pmatfree: Should the preconditioner be assembled matrix-free (as
         :class:`~.ImplicitMatrix`\es).
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
@@ -97,7 +99,12 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems, matfree=False, appctx=None):
+    def __init__(self, problems, matfree=False, pmatfree=False, appctx=None):
+        # It doesn't make sense to set pmatfree unless there is a separate
+        # Jp bilinear form specified.
+        if pmatfree:
+            assert problems[-1].Jp is not None
+
         problems = as_tuple(problems)
         self._problems = problems
         # Build the jacobian with the correct sparsity pattern.  Note
@@ -114,12 +121,13 @@ class _SNESContext(object):
         
         appctxs = tuple(appctx.copy() for _ in problems)
 
-        if matfree:
+        if matfree or pmatfree:
             # We will want the newton state for some preconditioners
             for c, x in zip(appctxs, self._xs):
                 c["state"] = x
 
         self.matfree = matfree
+        self.pmatfree = pmatfree
         self.Fs = tuple(ufl.replace(problem.F, {problem.u: x})
                         for problem, x in zip(problems, self._xs))
         self.Js = tuple(ufl.replace(problem.J, {problem.u: x})
@@ -137,7 +145,7 @@ class _SNESContext(object):
             self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
                                          form_compiler_parameters=problem.form_compiler_parameters,
                                          nest=problem._nest,
-                                         matfree=matfree,
+                                         matfree=pmatfree,
                                          extra_ctx=ctx)
                                 for Jp, problem, ctx in zip(self.Jps, problems, appctxs))
         else:
@@ -254,5 +262,5 @@ class _SNESContext(object):
                      bcs=problem.bcs,
                      form_compiler_parameters=problem.form_compiler_parameters,
                      nest=problem._nest,
-                     matfree=ctx.matfree)
+                     matfree=ctx.pmatfree)
             ctx._pjacs[lvl].force_evaluation()
