@@ -159,7 +159,12 @@ class MassInvPC(PCBase):
         # Handle vector and tensor-valued spaces.
         a = inner(u, v)*dx
 
-        A = assemble(a, form_compiler_parameters=context.fc_params)
+        opts = PETSc.Options()
+        mattype = opts.getString(prefix+"Mp_mat_type", "")
+        matfree = mattype == "matfree"
+        
+        A = assemble(a, form_compiler_parameters=context.fc_params,
+                     matfree=matfree)
         A.force_evaluation()
 
         Pmat = A.petscmat
