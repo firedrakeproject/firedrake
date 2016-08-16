@@ -68,6 +68,7 @@ class KernelBuilderBase(object):
             return gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[restriction])
 
     def cell_orientation(self, restriction):
+        """Cell orientation as a GEM expression."""
         f = {None: 0, '+': 0, '-': 1}[restriction]
         co_int = gem.Indexed(self._cell_orientations, (f, 0))
         return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
@@ -160,6 +161,7 @@ class KernelBuilder(KernelBuilderBase):
             self._facet_number = {'+': 1, '-': 0}
 
     def facet_number(self, restriction):
+        """Facet number as a GEM index."""
         return self._facet_number[restriction]
 
     def set_arguments(self, arguments, indices):
