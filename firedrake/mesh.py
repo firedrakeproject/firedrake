@@ -936,6 +936,16 @@ values from f.)"""
 
         raise AttributeError(message)
 
+    def clear_spatial_index(self):
+        """Reset the :attr:`spatial_index` on this mesh geometry.
+
+        Use this if you move the mesh (for example by reassigning to
+        the coordinate field)."""
+        try:
+            del self.spatial_index
+        except AttributeError:
+            pass
+
     @utils.cached_property
     def spatial_index(self):
         """Spatial index to quickly find which cell contains a given point."""

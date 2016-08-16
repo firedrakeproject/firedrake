@@ -9,13 +9,11 @@ def slope(mesh, debug=False):
         * All available maps binding sets of mesh components
     """
     try:
-        import slope_python
+        from pyslope import slope
     except ImportError:
         return
 
     # Add coordinates
     if debug:
         coords = mesh.coordinates.dat
-        slope_python.set_debug_mode('VERY_LOW', (coords.dataset.set.name,
-                                                 coords._data,
-                                                 coords.shape[1]))
+        slope.set_debug_mode('MINIMAL', (coords.dataset.set.name, coords._data, coords.shape[1]))
