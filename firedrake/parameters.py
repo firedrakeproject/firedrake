@@ -189,12 +189,15 @@ class Parameters(dict):
             self[TypedKey(key, KeyType.get_type(value))] = value
 
     def __setitem__(self, key, value):
-        if isinstance(key, TypedKey):
-            if key.validate(value):
-                super(Parameters, self).__setitem__(key, value)
+        if key in self.keys():
+            if isinstance(key, TypedKey):
+                if key.validate(value):
+                    super(Parameters, self).__setitem__(key, value)
+                else:
+                    raise ValueError("Invalid value for key %s:" % key
+                                     + str(value))
             else:
-                raise ValueError("Invalid value for key %s:" % key +
-                                 str(value))
+                self.__setitem__(self.get_key(key), value)
         else:
             super(Parameters, self).__setitem__(TypedKey(key,
                                                          KeyType.get_type(value)),
