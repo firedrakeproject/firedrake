@@ -32,10 +32,10 @@ class NumericType(KeyType):
 
     def validate(self, numeric_value):
         if self._lower_bound is not None:
-            if numeric_value < self._lower_bound:
+            if not numeric_value >= self._lower_bound:
                 return False
         if self._upper_bound is not None:
-            if numeric_value > self._upper_bound:
+            if not numeric_value <= self._upper_bound:
                 return False
         return True
 
