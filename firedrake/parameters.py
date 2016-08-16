@@ -43,8 +43,10 @@ class NumericType(KeyType):
 class IntType(NumericType):
     def validate(self, value):
         try:
-            int_val = int(value)
-            return super(IntType, self).validate(int_val)
+            if type(value) is str or type(value) is int:
+                return super(IntType, self).validate(int(value))
+            else:
+                return False
         except ValueError:
             return False
 
@@ -58,8 +60,10 @@ class IntType(NumericType):
 class FloatType(NumericType):
     def validate(self, value):
         try:
-            float_val = float(value)
-            return super(FloatType, self).validate(float_val)
+            if type(value) is str or type(value) is float:
+                return super(FloatType, self).validate(float(value))
+            else:
+                return False
         except ValueError:
             return False
 
