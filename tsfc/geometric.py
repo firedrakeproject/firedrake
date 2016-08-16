@@ -50,22 +50,29 @@ def translate_reference_facet_volume(terminal, mt, params):
 @translate.register(CellFacetJacobian)
 def translate_cell_facet_jacobian(terminal, mt, params):
     cell = params.fiat_cell
-    dim = cell.get_spatial_dimension()
     facet_dim = params.integration_dim
-    facet_cell = cell.construct_subelement(facet_dim)
     assert facet_dim != cell.get_dimension()
-    xs = facet_cell.get_vertices()
 
     def callback(entity_id):
-        ys = cell.get_vertices_of_subcomplex(cell.get_topology()[facet_dim][entity_id])
-        # Use first 'dim' points to make an affine mapping
-        A, b = make_affine_mapping(xs[:dim], ys[:dim])
-        for x, y in zip(xs[dim:], ys[dim:]):
-            # The rest of the points are checked to make sure the
-            # mapping really *is* affine.
-            assert allclose(y, A.dot(x) + b)
-        return gem.Literal(A)
+        return gem.Literal(make_cell_facet_jacobian(cell, facet_dim, entity_id))
     return params.entity_selector(callback, mt.restriction)
+
+
+def make_cell_facet_jacobian(cell, facet_dim, facet_i):
+    facet_cell = cell.construct_subelement(facet_dim)
+    xs = facet_cell.get_vertices()
+    ys = cell.get_vertices_of_subcomplex(cell.get_topology()[facet_dim][facet_i])
+
+    # Use first 'dim' points to make an affine mapping
+    dim = cell.get_spatial_dimension()
+    A, b = make_affine_mapping(xs[:dim], ys[:dim])
+
+    for x, y in zip(xs[dim:], ys[dim:]):
+        # The rest of the points are checked to make sure the
+        # mapping really *is* affine.
+        assert allclose(y, A.dot(x) + b)
+
+    return A
 
 
 @translate.register(ReferenceNormal)
