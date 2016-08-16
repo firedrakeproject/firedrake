@@ -119,6 +119,7 @@ def show_config_gui(parameters):
         if mainframe.winfo_reqwidth() != canvas.winfo_width():
             canvas.itemconfigure(frame_id, width=canvas.winfo_width())
 
+    global root
     root = Tk()
     root.title("Configure")
 
@@ -189,10 +190,14 @@ def load_from_dict(parameters, dictionary):
             if isinstance(parameters[k], Parameters):
                 load_from_dict(parameters[k], dictionary[k])
             else:
-                if isinstance(dictionary[k], unicode):
-                    # change unicode type to str type
-                    parameters[k] = dictionary[k].encode('ascii', 'ignore')
-                else:
-                    parameters[k] = dictionary[k]
+                try:
+                    if isinstance(dictionary[k], unicode):
+                        # change unicode type to str type
+                        parameters[k] = dictionary[k].encode('ascii', 'ignore')
+                    else:
+                        parameters[k] = dictionary[k]
+                except ValueError as e:
+                    from tkMessageBox import showinfo
+                    showinfo(title="Error", message=e.message, icon="error", parent=root)
         else:
             warning(k + ' is not in the parameters and ignored')
