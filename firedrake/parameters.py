@@ -60,10 +60,7 @@ class IntType(NumericType):
 class FloatType(NumericType):
     def validate(self, value):
         try:
-            if type(value) is str or type(value) is float:
-                return super(FloatType, self).validate(float(value))
-            else:
-                return False
+            return super(FloatType, self).validate(float(value))
         except ValueError:
             return False
 
@@ -127,7 +124,7 @@ class InstanceType(KeyType):
         self._class = obj.__class__
 
     def validate(self, value):
-        return value.__class__ == self._class
+        return issubclass(self._class, value.__class__)
 
 
 class UnsetType(KeyType):
