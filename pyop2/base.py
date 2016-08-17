@@ -1170,7 +1170,6 @@ class GlobalDataSet(DataSet):
         self._global = global_
         self._globalset = GlobalSet(comm=self.comm)
 
-
     @classmethod
     def _cache_key(cls, *args):
         return None
@@ -2799,20 +2798,6 @@ class Global(DataCarrier, _EmptyDataMixin):
             raise RuntimeError("Illegal access: No data associated with this Global!")
         return self._data
 
-    @modifies_argn(0)
-    @collective
-    def copy(self, other):
-        """Copy the data in this :class:`Global` into another.
-
-        :arg other: The destination :class:`Dat`
-        """
-        other.data[...] = self.data_ro
-
-    @collective
-    def zero(self, subset=None):
-        """Zero this :class:`Global`."""
-        self.data[...] = 0
-
     @property
     def dtype(self):
         return self._dtype
@@ -2841,10 +2826,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         """
 
         return self.dtype.itemsize * self._cdim
-
-    @cached_property
-    def dataset(self):
-        return _make_object('GlobalDataSet', self)
 
     @property
     def soa(self):
