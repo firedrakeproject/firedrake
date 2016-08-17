@@ -1,6 +1,26 @@
-"""This is a system for linear algebra operations on algebraic tensor expressions.
+"""SLATE is a symbolic language defining a framework for
+performing linear algebra operations on finite element
+tensors. It is similar in principle to most linear algebra
+libraries in notation.
 
-Written by: Thomas Gibson
+The design of SLATE was heavily influenced by UFL, and
+utilizes much of UFLs functionality for FEM-specific form
+manipulation.
+
+Unlike UFL, however, once forms are assembled into SLATE
+`Tensor` objects, one can utilize the operations defined
+in SLATE to express complicated linear algebra operations.
+(Such as the Schur-complement reduction of a block-matrix
+system)
+
+All SLATE expressions are handled by a specialized form
+compiler, which interprets SLATE expressions and produces
+C++ kernels to be executed within the Firedrake architecture.
+
+A requirement for SLATE is the Eigen3 C++ library:
+(http://eigen.tuxfamily.org/)
+
+Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 """
 
 from __future__ import absolute_import
@@ -18,7 +38,6 @@ from ufl import Coefficient
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
 from ufl.algorithms.replace import replace
-from ufl.formtransformations import compute_form_action as action
 
 from coffee import base as ast
 from coffee.visitor import Visitor

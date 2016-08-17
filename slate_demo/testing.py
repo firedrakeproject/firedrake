@@ -1,6 +1,6 @@
 from firedrake import *
+from firedrake.static_condensation import slate
 import numpy as np
-import slate
 
 
 # Defining mesh, finite element spaces and forms
