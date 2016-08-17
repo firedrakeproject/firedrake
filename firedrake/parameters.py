@@ -85,10 +85,7 @@ class BoolType(KeyType):
 
 class StrType(KeyType):
     def __init__(self, *options):
-        if options == ():
-            self._options = []
-        else:
-            self._options = [str(x) for x in options]
+        self._options = [str(x) for x in options]
 
     def set_validate_function(self, callable):
         self._validate_function = callable
