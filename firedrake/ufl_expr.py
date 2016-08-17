@@ -219,7 +219,7 @@ def reconstruct_element(element, cell=None):
                             ufl.FacetElement)):
         return type(element)(reconstruct_element(element._element, cell=cell))
     if isinstance(element, ufl.TensorProductElement):
-        return ufl.TensorProductElement(element._A, element._B, cell=cell)
+        return ufl.TensorProductElement(*element.sub_elements(), cell=cell)
     if isinstance(element, ufl.MixedElement):
         eles = [reconstruct_element(e, cell=cell) for e in element.sub_elements()]
         return ufl.MixedElement(*eles)

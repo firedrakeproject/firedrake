@@ -13,6 +13,7 @@ from urllib2 import urlopen, HTTPError
 descriptions = OrderedDict([
     ("firedrake", "an automated finite element system"),
     ("PyOP2", "Framework for performance-portable parallel computations on unstructured meshes"),
+    ("SLOPE", "a library for fusing and tiling irregular loops."),
     ("tsfc", "The Two Stage Form Compiler"),
     ("COFFEE", "A Compiler for Fast Expression Evaluation"),
     ("ufl", "The Unified Form Language"),
@@ -23,6 +24,7 @@ descriptions = OrderedDict([
 projects = dict(
     [("firedrake", "firedrakeproject"),
      ("PyOP2", "OP2"),
+     ("SLOPE", "coneoproject"),
      ("tsfc", "firedrakeproject"),
      ("COFFEE", "coneoproject"),
      ("ufl", "firedrakeproject"),
@@ -31,6 +33,8 @@ projects = dict(
      ("petsc4py", "firedrakeproject")])
 
 components = descriptions.keys()
+
+optional_components = ("SLOPE",)
 
 parser = ArgumentParser(description="""Create Zenodo DOIs for specific versions of Firedrake components.
 
@@ -133,8 +137,12 @@ def collect_repo_shas():
                 sys.exit(0)
             shas[component] = check_output(["git", "rev-parse", "HEAD"]).strip()
         except:
-            log.error("Failed to retrieve git hash for %s" % component)
-            raise
+            if component in optional_components:
+                log.warning("Failed to retrieve git hash for optional "
+                            "component '%s', continuing without it" % component)
+            else:
+                log.error("Failed to retrieve git hash for %s" % component)
+                raise
     return shas
 
 if args.release_tag:
