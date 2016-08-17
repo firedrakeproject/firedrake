@@ -110,11 +110,11 @@ class StrType(KeyType):
         elif self._options != []:
             return value in self._options
         else:
-            return True
+            return isinstance(value, basestring)
 
     def parse(self, value):
         if self.validate(value):
-            return value
+            return str(value)
         else:
             return None
 
