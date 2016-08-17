@@ -9,28 +9,43 @@ __all__ = ['show_config_gui']
 
 
 def show_config_gui(parameters):
+    """Show the GUI for configuration
+
+    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters` class
+    """
     from firedrake import Parameters
 
     if not isinstance(parameters, Parameters):
         raise TypeError("Expected Type: Parameters")
 
     def load_json():
+        """Creates a dialog box prompting json input file, then import
+        parameters from json to current parameters
+        """
         import tkFileDialog
         filename = tkFileDialog.askopenfilename()
         import_params_from_json(parameters, filename)
         refresh_params(parameters, variable_dict)
 
     def save_json():
+        """Creates a dialog box prompting json output file, then validates
+        current parameters and export parameters to json file if validated
+        """
         import tkFileDialog
         if save_params():
             filename = tkFileDialog.asksaveasfilename()
             export_params_to_json(parameters, filename)
 
     def save_and_quit():
+        """Save the current input into current parameters and close the window
+        """
         if save_params():
             root.destroy()
 
     def save_params():
+        """Save the current parameters from input, pop out a message box if
+        there is an error
+        """
         try:
             parsed_dict = parse_input_dict(parameters, variable_dict)
             load_from_dict(parameters, parsed_dict)
@@ -41,6 +56,13 @@ def show_config_gui(parameters):
             return False
 
     def refresh_params(parameters, variable_dict):
+        """Refresh the GUI values from a given source
+
+        :arg paramaters: parameters as a
+            :class:`firedrake.parameters.Parameters` class
+        :arg variable_dict: a dictionary of key to :class:`Tkinter.StringVar`
+            mappings
+        """
         for key in parameters.keys():
             if isinstance(parameters[key], Parameters):
                 refresh_params(parameters[key], variable_dict[key])
@@ -48,6 +70,13 @@ def show_config_gui(parameters):
                 variable_dict[key].set(str(parameters[key]))
 
     def parse_input_dict(parameters, variable_dict):
+        """Generate a dictionary of values from variables
+
+        :arg parameters: Parameters as :class:`firedrake.parameters`
+        :arg variable_dict: a dictionary of key to :class:`Tkinter.StringVar`
+            mappings
+        :raises ValueError: when input value is invalid
+        """
         from firedrake import Parameters
 
         parsed_dict = {}
@@ -63,13 +92,22 @@ def show_config_gui(parameters):
         return parsed_dict
 
     def generate_input(parameters, labelframe, variable_dict):
+        """Generates GUI elements for parameters inside a label frame
+
+        :arg parameters: Parameters as :class:`firedrake.parameters`
+        :arg labelframe: :class:`ttk.Labelframe` to place the GUI elements
+        :arg variable_dict: a dictionary of key to :class:`Tkinter.StringVar`
+            mappings
+        """
         global row_count
         keys = sorted(parameters.keys())
         for key in keys:
             row_count += 1
             if isinstance(parameters[key], Parameters):
-                subframe = Labelframe(labelframe, text=key, padding='3 3 12 12')
-                subframe.grid(column=1, columnspan=4, row=row_count, sticky=(W, E))
+                subframe = Labelframe(labelframe, text=key,
+                                      padding='3 3 12 12')
+                subframe.grid(column=1, columnspan=4,
+                              row=row_count, sticky=(W, E))
                 subframe.columnconfigure(1, weight=1)
                 subframe.rowconfigure(0, weight=1)
                 variable_dict[key] = {}
@@ -84,11 +122,15 @@ def show_config_gui(parameters):
                             parameters.get_key(key).type.options != []:
                         drop_list = OptionMenu(labelframe, variable_dict[key],
                                                parameters[key],
-                                               *parameters.get_key(key).type.options)
-                        drop_list.grid(column=2, columnspan=2, row=row_count, sticky=(E))
+                                               *parameters.get_key(key)
+                                               .type.options)
+                        drop_list.grid(column=2, columnspan=2, row=row_count,
+                                       sticky=(E))
                     else:
-                        label_val = Entry(labelframe, textvariable=variable_dict[key])
-                        label_val.grid(column=2, columnspan=2, row=row_count, sticky=(E))
+                        label_val = Entry(labelframe,
+                                          textvariable=variable_dict[key])
+                        label_val.grid(column=2, columnspan=2,
+                                       row=row_count, sticky=(E))
                 else:
                     button_true = Radiobutton(labelframe, text='True',
                                               variable=variable_dict[key],
@@ -110,6 +152,7 @@ def show_config_gui(parameters):
                 help_button.grid(column=4, row=row_count, sticky=(E))
 
     def configure_frame(event):
+        """Callback for frame resizing"""
         size = (mainframe.winfo_reqwidth(), mainframe.winfo_reqheight())
         canvas.config(scrollregion="0 0 %s %s" % size)
         if mainframe.winfo_reqwidth() != canvas.winfo_width():
@@ -117,6 +160,7 @@ def show_config_gui(parameters):
         canvas.config(height=mainframe.winfo_reqheight())
 
     def configure_canvas(event):
+        """Callback for canvas resizing"""
         if mainframe.winfo_reqwidth() != canvas.winfo_width():
             canvas.itemconfigure(frame_id, width=canvas.winfo_width())
 
@@ -151,7 +195,8 @@ def show_config_gui(parameters):
     button_load.grid(column=1, row=row_count, sticky=W)
     button_save = Button(mainframe, text="Save to File", command=save_json)
     button_save.grid(column=3, row=row_count, sticky=S)
-    button_quit = Button(mainframe, text="Save and Quit", command=save_and_quit)
+    button_quit = Button(mainframe, text="Save and Quit",
+                         command=save_and_quit)
     button_quit.grid(column=4, row=row_count, sticky=E)
 
     mainframe.bind('<Configure>', configure_frame)
@@ -161,6 +206,12 @@ def show_config_gui(parameters):
 
 
 def export_params_to_json(parameters, filename):
+    """Export parameters to a JSON file
+
+    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
+        class
+    :arg filename: File name of the output file
+    """
     import json
 
     if filename == '':
@@ -171,6 +222,12 @@ def export_params_to_json(parameters, filename):
 
 
 def import_params_from_json(parameters, filename):
+    """Import parameters from a JSON file
+
+    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
+        class
+    :arg filename: File name of the input file
+    """
     import json
 
     if filename == '':
@@ -183,6 +240,12 @@ def import_params_from_json(parameters, filename):
 
 
 def load_from_dict(parameters, dictionary):
+    """Merge the parameters in a dictionary into Parameters class
+
+    :arg parameters: Parameters to be merged into as a
+        :class:`firedrake.parameters.Parameters` class
+    :arg dictionary: Dictionary of parameters to be merged
+    """
     from firedrake import Parameters
     from firedrake.logging import warning
 
@@ -194,11 +257,13 @@ def load_from_dict(parameters, dictionary):
                 try:
                     if isinstance(dictionary[k], unicode):
                         # change unicode type to str type
-                        parameters[k] = dictionary[k].encode('ascii', 'ignore')
+                        parameters[k] = dictionary[k].encode('ascii',
+                                                             'ignore')
                     else:
                         parameters[k] = dictionary[k]
                 except ValueError as e:
                     from tkMessageBox import showinfo
-                    showinfo(title="Error", message=e.message, icon="error", parent=root)
+                    showinfo(title="Error", message=e.message, icon="error",
+                             parent=root)
         else:
             warning(k + ' is not in the parameters and ignored')
