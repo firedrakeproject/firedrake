@@ -64,10 +64,24 @@ def restrict(fine, coarse):
     hierarchy, lvl = utils.get_level(cfs)
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
+    # for skipping hierarchies
+    if hasattr(hierarchy, '_full_hierarchy') == 1:
+        lvl = lvl * hierarchy._skip
+        hierarchy = hierarchy._full_hierarchy
     fhierarchy, flvl = utils.get_level(fine.function_space())
-    if flvl != lvl + 1:
-        raise ValueError("Can only restrict from level %d to level %d, not %d" %
-                         (flvl, flvl - 1, lvl))
+    # for skipping hierarchies
+    if hasattr(fhierarchy, '_full_hierarchy') == 1:
+        flvl = flvl * fhierarchy._skip
+        fhierarchy = fhierarchy._full_hierarchy
+    if flvl < lvl:
+        raise ValueError("Cannot restrict from level %d to level %d" %
+                         (flvl, lvl))
+    # if the same level, return current function
+    if lvl == flvl:
+        fine.assign(coarse)
+        return
+    # number of recursive prolongs
+    slvl = flvl - lvl
     if hierarchy is not fhierarchy:
         raise ValueError("Can't restrict between functions from different hierarchies")
     if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
@@ -98,15 +112,26 @@ def restrict(fine, coarse):
             weights[l].assign(1.0/weights[l])
         hierarchy._restriction_weights = weights
 
-    args = [coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
-            fine.dat(op2.READ, hierarchy.cell_node_map(lvl))]
+    finer = Function(hierarchy[flvl]).assign(fine)
+    # carry out recursive restrictions
+    for j in range(slvl):
+        if j == slvl - 1:  # at the bottom
+            intermediate = coarse
+        else:
+            intermediate = Function(hierarchy[flvl - j - 1])
 
-    if not hierarchy._discontinuous:
-        weight = weights[lvl+1]
-        args.append(weight.dat(op2.READ, hierarchy._restriction_weights.cell_node_map(lvl)))
-    coarse.dat.zero()
-    op2.par_loop(hierarchy._restrict_kernel, hierarchy._cell_sets[lvl],
-                 *args)
+        args = [intermediate.dat(op2.INC, intermediate.cell_node_map()[op2.i[0]]),
+                finer.dat(op2.READ, hierarchy.cell_node_map(flvl - j - 1))]
+
+        if not hierarchy._discontinuous:
+            weight = weights[flvl - j]
+            args.append(weight.dat(op2.READ, hierarchy._restriction_weights.cell_node_map(flvl - j - 1)))
+        intermediate.dat.zero()
+        op2.par_loop(hierarchy._restrict_kernel, hierarchy._cell_sets[flvl - j - 1],
+                     *args)
+        if j < slvl - 1:
+            finer = intermediate
+    coarse.assign(intermediate)
 
 
 @firedrake.utils.known_pyop2_safe
