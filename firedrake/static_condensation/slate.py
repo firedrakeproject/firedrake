@@ -14,13 +14,31 @@ import sys
 
 import firedrake
 from ufl.form import Form
+from ufl import Coefficient
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
+from ufl.algorithms.replace import replace
+from ufl.formtransformations import compute_form_action as action
 
 from coffee import base as ast
 from coffee.visitor import Visitor
 
-firedrake.parameters["pyop2_options"]["debug"] = True
+
+__all__ = ['AssembledTensor', 'Tensor', 'Scalar', 'Vector',
+           'Matrix', 'Inverse', 'Transpose', 'UnaryOp',
+           'Negative', 'Positive', 'BinaryOp', 'TensorAdd',
+           'TensorSub', 'TensorMul', 'compile_slate_expression',
+           'slate_assemble', 'slate_action']
+
+
+class AssembledTensor(Coefficient):
+    """Abstractly representing an already assembled
+    tensor object."""
+
+    def __init__(self, function):
+        V = function.function_space
+        self.function = function
+        self._function_space = V
 
 
 class CheckRestrictions(MultiFunction):
@@ -760,7 +778,11 @@ def compile_slate_expression(slate_expr):
 
                 # Defining tensor matrices of appropriate size
                 inc.extend(kernel._include_dirs)
-                row, col = ks[0]
+                try:
+                    row, col = ks[0]
+                except:
+                    row = ks[0][0]
+                    col = 0
                 rshape = exp.shapes[0][row]
                 rstart = sum(exp.shapes[0][:row])
                 try:
@@ -867,8 +889,6 @@ def compile_slate_expression(slate_expr):
                                      (result_type, result_sym,
                                       dtype, result_data_sym))
     statements.append(result_statement)
-#    statements.append(ast.FlatBlock("std::cout << T0 << std::endl;\n"))
-#    statements.append(ast.FlatBlock("std::cout << T1 << std::endl;\n"))
     c_string = ast.FlatBlock(get_c_str(slate_expr, temps))
     statements.append(ast.Assign(result_sym, c_string))
 
@@ -915,7 +935,7 @@ def slate_assemble(expr, bcs=None, nest=False):
     tensors, a :class:`.Function` for rank-1 tensors and a :class:`.Matrix`
     for rank-2 tensors. The result will be returned as a `tensor` of
     :class:`firedrake.Function` for rank-0 and rank-1 SLATE expressions and
-    :class:`firedrake.op2.Mat` for rank-2 SLATE expressions.
+    :class:`firedrake.matrix.Matrix` for rank-2 SLATE expressions.
 
     :arg expr: A SLATE object to assemble.
     :arg bcs: A tuple of :class:`.DirichletBC`\s to be applied.
@@ -936,8 +956,8 @@ def slate_assemble(expr, bcs=None, nest=False):
                                           maps,
                                           "%s_%s_sparsity" % fs_names,
                                           nest=nest)
-        tensor = firedrake.op2.Mat(sparsity, np.float64)
-        tensor_arg = tensor(firedrake.op2.INC, (test_function.cell_node_map()[firedrake.op2.i[0]],
+        tensor = firedrake.matrix.Matrix(expr, bcs, sparsity)
+        tensor_arg = tensor._M(firedrake.op2.INC, (test_function.cell_node_map()[firedrake.op2.i[0]],
                                                 trial_function.cell_node_map()[firedrake.op2.i[0]]),
                             flatten=True)
 
@@ -955,21 +975,42 @@ def slate_assemble(expr, bcs=None, nest=False):
     else:
         raise NotImplementedError("Not implemented for rank-%d tensors.", rank)
 
+    # Retrieve information from the slate form compiler
     coords, coefficients, need_cell_facets, kernel = compile_slate_expression(expr)
     mesh = coords.function_space().mesh()
     args = [kernel, mesh.cell_set, tensor_arg, coords.dat(firedrake.op2.READ,
                                                           coords.cell_node_map(),
                                                           flatten=True)]
+    # Append the coefficients associated with the slate expression
     for c in coefficients:
         args.append(c.dat(firedrake.op2.READ, c.cell_node_map(), flatten=True))
 
+    # Append the cell-to-facet mapping for facet integrals (if needed)
     if need_cell_facets:
         args.append(mesh.cell_to_facet_map(firedrake.op2.READ))
 
+    # Performs the cell-loop and generates the global tensor
     firedrake.op2.par_loop(*args)
+
+    # Apply boundary conditions afterwards and assemble
     if bcs is not None and rank == 2:
         for bc in bcs:
-            tensor.set_local_diagonal_entries(bc.nodes)
-
-    tensor.assemble()
+            tensor._M.set_local_diagonal_entries(bc.nodes)
+    if rank == 2:
+        tensor._M.assemble()
     return tensor
+
+
+def slate_action(expr, u):
+    assert isinstance(u, Coefficient)
+    coefficient = u
+    arguments = expr.arguments()
+    farg = arguments[-1]
+    fs = farg.ufl_function_space()
+    if coefficient is None:
+        coefficient = Coefficient(fs)
+    elif coefficient.ufl_function_space() != fs:
+        raise ValueError("Cannot comput form action on a coefficient from a different function space.")
+    newform = replace(expr.form, {farg: coefficient})
+
+    return TensorMul(expr, AssembledTensor(u))
