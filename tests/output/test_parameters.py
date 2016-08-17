@@ -197,3 +197,56 @@ def test_float_parse_bounded_invalid():
     assert float_type.parse("inf") is None
     assert float_type.parse("-inf") is None
     assert float_type.parse("NaN") is None
+
+
+def test_bool_validate_bools():
+    from firedrake.parameters import BoolType
+    bool_type = BoolType()
+    assert bool_type.validate(True)
+    assert bool_type.validate(False)
+
+
+def test_bool_validate_strs():
+    from firedrake.parameters import BoolType
+    bool_type = BoolType()
+    assert bool_type.validate("True")
+    assert bool_type.validate("False")
+
+
+def test_bool_validate_other():
+    from firedrake.parameters import BoolType
+    bool_type = BoolType()
+    assert not bool_type.validate(1)
+    assert not bool_type.validate(0)
+    assert not bool_type.validate(-1)
+    assert not bool_type.validate(1.0)
+    assert not bool_type.validate(0.0)
+    assert not bool_type.validate(-1.0)
+    assert not bool_type.validate(float("inf"))
+    assert not bool_type.validate(float("NaN"))
+    assert not bool_type.validate("random_stuff")
+    assert not bool_type.validate("true")
+
+
+def test_bool_parse_valid():
+    from firedrake.parameters import BoolType
+    bool_type = BoolType()
+    assert bool_type.parse(True)
+    assert not bool_type.parse(False)
+    assert bool_type.parse("True")
+    assert not bool_type.parse("False")
+
+
+def test_bool_parse_invalid():
+    from firedrake.parameters import BoolType
+    bool_type = BoolType()
+    assert bool_type.parse(1) is None
+    assert bool_type.parse(0) is None
+    assert bool_type.parse(-1) is None
+    assert bool_type.parse(1.0) is None
+    assert bool_type.parse(0.0) is None
+    assert bool_type.parse(-1.0) is None
+    assert bool_type.parse(float("inf")) is None
+    assert bool_type.parse(float("NaN")) is None
+    assert bool_type.parse("random_stuff") is None
+    assert bool_type.parse("true") is None
