@@ -135,18 +135,6 @@ class DataSet(base.DataSet):
         return dm
 
 
-class GlobalDataSet(base.GlobalDataSet):
-
-    @utils.cached_property
-    def layout_vec(self):
-        """A PETSc Vec compatible with the dof layout of this DataSet."""
-        vec = PETSc.Vec().create(comm=self.comm)
-        size = (None, self.size * self.cdim)
-        vec.setSizes(size, bsize=self.cdim)
-        vec.setUp()
-        return vec
-
-
 class MixedDataSet(DataSet, base.MixedDataSet):
 
     @utils.cached_property
@@ -261,7 +249,8 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         """
         return self.lgmap
 
-class _VecMixin(object):
+
+class Dat(base.Dat):
 
     @contextmanager
     def vec_context(self, readonly=True):
@@ -312,15 +301,6 @@ class _VecMixin(object):
 
         You're not allowed to modify the data you get back from this view."""
         return self.vec_context()
-
-
-
-class Dat(base.Dat, _VecMixin):
-    pass
-
-
-class Global(base.Global, _VecMixin):
-    pass
 
 
 class MixedDat(base.MixedDat):
