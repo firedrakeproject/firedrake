@@ -129,8 +129,8 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         quadrature_index = gem.Index(name='q')
         if interior_facet:
             def coefficient(ufl_coefficient, r):
-                return gem.partial_indexed(builder.coefficient(ufl_coefficient, r),
-                                           ({'+': 0, '-': 1}[restriction],))
+                assert r is None
+                return builder.coefficient(ufl_coefficient, restriction)
         else:
             assert restriction is None
             coefficient = builder.coefficient
