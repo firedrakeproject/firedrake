@@ -226,32 +226,59 @@ class Parameters(dict):
 
 
 def fill_metadata(parameters):
+    # Assembly Cache
+    parameters["assembly_cache"].get_key("enabled").help = \
+        """A boolean value used to disable the assembly cache if required."""
+    parameters["assembly_cache"].get_key("eviction").help = \
+        """A boolean value used to disable the cache eviction strategy. \
+Disabling cache eviction can lead to memory leaks so is discouraged in \
+almost all circumstances"""
+    parameters["assembly_cache"].get_key("max_misses").help = \
+        """Attempting to cache objects whose inputs change every time they \
+are assembled is a waste of memory. This parameter sets a maximum number of \
+consecutive misses beyond which a form will be marked as uncachable."""
+    parameters["assembly_cache"].get_key("max_bytes").help = \
+        """Absolute limit on the size of the assembly cache in bytes. This \
+defaults to float("inf")."""
+    parameters["assembly_cache"].get_key("max_factor").help = \
+        """Limit on the size of the assembly cache relative to the amount of \
+memory per core on the current system. This defaults to 0.6."""
     # COFFEE
     parameters["coffee"].get_key("optlevel").help = \
-        """Optimization level, accepted values are `O0, `O1, `O2, `O3, `Ofast`"""
+        """Optimization level, accepted values are `O0, `O1, `O2, `O3, \
+`Ofast`"""
     parameters["coffee"].get_key("optlevel").type.add_options(
         "O0", "O1", "O2", "O3", "Ofast")
     # Form Compiler
-
+    parameters["form_compiler"].get_key("unroll_indexsum").help = \
+        """Maximum extent to unroll index sums. Default is 3, so that loops \
+over geometric dimensions are unrolled; this improves assembly performance. \
+Can be disabled by setting it to 0; that makes compilation time much \
+shorter."""
     # PyOP2
     parameters["pyop2_options"].get_key("backend").help = \
-        """Select the PyOP2 backend (one of `cuda`, `opencl`, `openmp` or `sequential`)."""
+        """Select the PyOP2 backend (one of `cuda`, `opencl`, `openmp` or \
+`sequential`)."""
     parameters["pyop2_options"].get_key("backend").type.add_options(
         "cuda", "opencl", "openmp", "sequential")
     parameters["pyop2_options"].get_key("debug").help = \
-        """Turn on debugging for generated code (turns off compiler optimisations)."""
+        """Turn on debugging for generated code (turns off compiler \
+optimisations)."""
     parameters["pyop2_options"].get_key("type_check").help = \
         """Should PyOP2 type-check API-calls?  (Default, yes)"""
     parameters["pyop2_options"].get_key("check_src_hashes").help = \
-        """Should PyOP2 check that generated code is the same on all processes? (Default, yes).  Uses an allreduce."""
+        """Should PyOP2 check that generated code is the same on all \
+processes? (Default, yes).  Uses an allreduce."""
     parameters["pyop2_options"].get_key("log_level").help = \
-        """How chatty should PyOP2 be?  Valid values are \"DEBUG\", \"INFO\", \"WARNING\", \"ERROR\", \"CRITICAL\"."""
+        """How chatty should PyOP2 be?  Valid values are \"DEBUG\", \"INFO\",\
+\"WARNING\", \"ERROR\", \"CRITICAL\"."""
     parameters["pyop2_options"].get_key("log_level").type.add_options(
         "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
     parameters["pyop2_options"].get_key("lazy_evaluation").help = \
         """Should lazy evaluation be on or off?"""
     parameters["pyop2_options"].get_key("lazy_max_trace_length").help = \
-        """How many `par_loop`s should be queued lazily before forcing evaluation?  Pass \`0` for an unbounded length."""
+        """How many `par_loop`s should be queued lazily before forcing \
+evaluation?  Pass \`0` for an unbounded length."""
     parameters["pyop2_options"].get_key("loop_fusion").help = \
         """Should loop fusion be on or off?"""
     parameters["pyop2_options"].get_key("dump_gencode").help = \
