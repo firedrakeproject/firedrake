@@ -250,3 +250,131 @@ def test_bool_parse_invalid():
     assert bool_type.parse(float("NaN")) is None
     assert bool_type.parse("random_stuff") is None
     assert bool_type.parse("true") is None
+
+
+def test_str_no_options():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    assert str_type.options == []
+
+
+def test_str_with_options():
+    from firedrake.parameters import StrType
+    str_type = StrType("A", "B", "C", "D")
+    assert "A" in str_type.options
+    assert "B" in str_type.options
+    assert "C" in str_type.options
+    assert "D" in str_type.options
+    assert "E" not in str_type.options
+
+
+def test_str_clear_options():
+    from firedrake.parameters import StrType
+    str_type = StrType("A", "B", "C", "D")
+    assert "A" in str_type.options
+    assert "B" in str_type.options
+    assert "C" in str_type.options
+    assert "D" in str_type.options
+    assert "E" not in str_type.options
+    str_type.clear_options()
+    assert "A" not in str_type.options
+    assert "B" not in str_type.options
+    assert "C" not in str_type.options
+    assert "D" not in str_type.options
+    assert "E" not in str_type.options
+
+
+def test_str_add_options():
+    from firedrake.parameters import StrType
+    str_type = StrType("A", "B", "C", "D")
+    assert "A" in str_type.options
+    assert "B" in str_type.options
+    assert "C" in str_type.options
+    assert "D" in str_type.options
+    assert "E" not in str_type.options
+    str_type.add_options("E")
+    assert "A" in str_type.options
+    assert "B" in str_type.options
+    assert "C" in str_type.options
+    assert "D" in str_type.options
+    assert "E" in str_type.options
+
+
+def test_str_validate_str_with_validate_function():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    str_type.set_validate_function(lambda x: len(x) == 1)
+    assert str_type.validate("a")
+    assert str_type.validate("b")
+    assert str_type.validate("1")
+    assert str_type.validate("\"")
+    assert str_type.validate("-")
+    assert not str_type.validate("ab")
+    assert not str_type.validate("")
+
+
+def test_str_validate_str_no_options():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    assert str_type.validate("1")
+    assert str_type.validate("random stuff")
+    assert str_type.validate("")
+    assert str_type.validate("True")
+
+
+def test_str_validate_str_with_options():
+    from firedrake.parameters import StrType
+    str_type = StrType("A", "B", "")
+    assert str_type.validate("A")
+    assert str_type.validate("B")
+    assert str_type.validate("")
+    assert not str_type.validate("C")
+
+
+def test_str_validate_others():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    assert not str_type.validate(None)
+    assert not str_type.validate(1)
+    assert not str_type.validate(-1)
+    assert not str_type.validate(1.0)
+    assert not str_type.validate(float("NaN"))
+    assert not str_type.validate(True)
+
+
+def test_str_parse_valid():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    assert str_type.parse("1") == "1"
+    assert str_type.parse("random stuff") == "random stuff"
+    assert str_type.parse("") == ""
+    assert str_type.parse("True") == "True"
+
+
+def test_str_parse_invalid():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    assert str_type.parse(None) is None
+    assert str_type.parse(1) is None
+    assert str_type.parse(-1) is None
+    assert str_type.parse(1.0) is None
+    assert str_type.parse(float("NaN")) is None
+    assert str_type.parse(True) is None
+
+
+def test_str_validate_unicode():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    assert str_type.validate(u"1")
+    assert str_type.validate(u"random stuff")
+    assert str_type.validate(u"")
+    assert str_type.validate(u"True")
+
+
+def test_str_parse_unicode():
+    from firedrake.parameters import StrType
+    str_type = StrType()
+    assert str_type.parse(u"1") == "1"
+    assert str_type.parse(u"random stuff") == "random stuff"
+    assert str_type.parse(u"") == ""
+    assert str_type.parse(u"True") == "True"
