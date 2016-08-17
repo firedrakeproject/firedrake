@@ -114,6 +114,7 @@ def show_config_gui(parameters):
         canvas.config(scrollregion="0 0 %s %s" % size)
         if mainframe.winfo_reqwidth() != canvas.winfo_width():
             canvas.config(width=mainframe.winfo_reqwidth())
+        canvas.config(height=mainframe.winfo_reqheight())
 
     def configure_canvas(event):
         if mainframe.winfo_reqwidth() != canvas.winfo_width():
