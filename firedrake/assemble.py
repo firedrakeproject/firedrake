@@ -221,6 +221,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         # Ensure mesh is "initialised" (could have got here without
         # building a functionspace (e.g. if integrating a constant)).
         m.init()
+        if m.topology != domains[0].topology:
+            raise NotImplementedError("All integration domains must share a mesh topology.")
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
