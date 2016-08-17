@@ -76,6 +76,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         del parameters["quadrature_rule"]
 
     integral_type = integral_data.integral_type
+    interior_facet = integral_type.startswith("interior_facet")
     mesh = integral_data.domain
     cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
@@ -126,17 +127,18 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
-        if integral_type.startswith("interior_facet"):
-            def coefficient_mapper(coefficient):
-                return gem.partial_indexed(builder.coefficient_mapper(coefficient), ({'+': 0, '-': 1}[restriction],))
+        if interior_facet:
+            def coefficient(ufl_coefficient, r):
+                assert r is None
+                return builder.coefficient(ufl_coefficient, restriction)
         else:
             assert restriction is None
-            coefficient_mapper = builder.coefficient_mapper
+            coefficient = builder.coefficient
         ir = fem.compile_ufl(integrand,
                              cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
-                             coefficient_mapper=coefficient_mapper,
+                             coefficient=coefficient,
                              index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -166,12 +168,13 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
         ir = fem.compile_ufl(integrand,
-                             integral_type=integral_type,
-                             integration_dim=integration_dim,
                              cell=cell,
+                             integration_dim=integration_dim,
+                             entity_ids=entity_ids,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
-                             coefficient_mapper=builder.coefficient_mapper,
+                             coefficient=builder.coefficient,
+                             facet_number=builder.facet_number,
                              index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -206,14 +209,16 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         quadrature_index = gem.Index(name='ip')
         quadrature_indices.append(quadrature_index)
         ir = fem.compile_ufl(integrand,
-                             integral_type=integral_type,
+                             interior_facet=interior_facet,
                              cell=cell,
                              integration_dim=integration_dim,
                              entity_ids=entity_ids,
                              quadrature_rule=quad_rule,
                              point_index=quadrature_index,
                              argument_indices=argument_indices,
-                             coefficient_mapper=builder.coefficient_mapper,
+                             coefficient=builder.coefficient,
+                             cell_orientation=builder.cell_orientation,
+                             facet_number=builder.facet_number,
                              index_cache=index_cache,
                              cellvolume=cellvolume,
                              facetarea=facetarea)

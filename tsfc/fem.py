@@ -81,19 +81,14 @@ class TabulationManager(object):
     """Manages the generation of tabulation matrices for the different
     integral types."""
 
-    def __init__(self, integral_type, cell, points):
+    def __init__(self, entity_points):
         """Constructs a TabulationManager.
 
-        :arg integral_type: integral type
-        :arg cell: UFL cell
-        :arg points: points on the integration entity (e.g. points on
-                     an interval for facet integrals on a triangle)
+        :arg entity_points: An array of points in cell coordinates for
+                            each integration entity, i.e. an iterable
+                            of arrays of points.
         """
-        self.integral_type = integral_type
-        self.points = points
-
-        self.facet_manager = FacetManager(integral_type, cell)
-        self.tabulators = map(make_tabulator, self.facet_manager.facet_transform(points))
+        self.tabulators = map(make_tabulator, entity_points)
         self.tables = {}
 
     def tabulate(self, ufl_element, max_deriv):
@@ -108,89 +103,16 @@ class TabulationManager(object):
             for c, D, table in tabulator(ufl_element, max_deriv):
                 store[(ufl_element, c, D)].append(table)
 
-        if self.integral_type == 'cell':
-            for key, (table,) in store.iteritems():
-                self.tables[key] = table
-        else:
-            for key, tables in store.iteritems():
-                table = numpy.array(tables)
-                if len(table.shape) == 2:
-                    # Cellwise constant; must not depend on the facet
-                    assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
-                    table = table[0]
-                self.tables[key] = table
+        for key, tables in store.iteritems():
+            table = numpy.array(tables)
+            if len(table.shape) == 2:
+                # Cellwise constant; must not depend on the facet
+                assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
+                table = table[0]
+            self.tables[key] = table
 
     def __getitem__(self, key):
         return self.tables[key]
-
-
-class FacetManager(object):
-    """Collection of utilities for facet integrals."""
-
-    def __init__(self, integral_type, ufl_cell):
-        """Constructs a FacetManager.
-
-        :arg integral_type: integral type
-        :arg ufl_cell: UFL cell
-        """
-        self.integral_type = integral_type
-        self.ufl_cell = ufl_cell
-
-        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
-            self.facet = {None: gem.VariableIndex(gem.Indexed(gem.Variable('facet', (1,)), (0,)))}
-        elif integral_type in ['interior_facet', 'interior_facet_vert']:
-            self.facet = {'+': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (0,))),
-                          '-': gem.VariableIndex(gem.Indexed(gem.Variable('facet', (2,)), (1,)))}
-        elif integral_type == 'exterior_facet_bottom':
-            self.facet = {None: 0}
-        elif integral_type == 'exterior_facet_top':
-            self.facet = {None: 1}
-        elif integral_type == 'interior_facet_horiz':
-            self.facet = {'+': 1, '-': 0}
-        else:
-            self.facet = None
-
-    def facet_transform(self, points):
-        """Generator function that transforms points in integration cell
-        coordinates to cell coordinates for each facet.
-
-        :arg points: points in integration cell coordinates
-        """
-        dim = self.ufl_cell.topological_dimension()
-
-        if self.integral_type == 'cell':
-            yield points
-
-        elif self.integral_type in ['exterior_facet', 'interior_facet']:
-            for entity in range(self.ufl_cell.num_facets()):
-                t = as_fiat_cell(self.ufl_cell).get_entity_transform(dim-1, entity)
-                yield numpy.asarray(map(t, points))
-
-        elif self.integral_type in ['exterior_facet_bottom', 'exterior_facet_top', 'interior_facet_horiz']:
-            for entity in range(2):  # top and bottom
-                t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-1, 0), entity)
-                yield numpy.asarray(map(t, points))
-
-        elif self.integral_type in ['exterior_facet_vert', 'interior_facet_vert']:
-            for entity in range(self.ufl_cell.sub_cells()[0].num_facets()):  # "base cell" facets
-                t = as_fiat_cell(self.ufl_cell).get_entity_transform((dim-2, 1), entity)
-                yield numpy.asarray(map(t, points))
-
-        else:
-            raise NotImplementedError("integral type %s not supported" % self.integral_type)
-
-    def select_facet(self, tensor, restriction):
-        """Applies facet selection on a GEM tensor if necessary.
-
-        :arg tensor: GEM tensor
-        :arg restriction: restriction on the modified terminal
-        :returns: another GEM tensor
-        """
-        if self.integral_type == 'cell':
-            return tensor
-        else:
-            f = self.facet[restriction]
-            return gem.partial_indexed(tensor, (f,))
 
 
 # FIXME: copy-paste from PyOP2
@@ -212,8 +134,8 @@ class cached_property(object):
 
 
 class Parameters(object):
-    keywords = ('integral_type',
-                'cell',
+    keywords = ('cell',
+                'fiat_cell',
                 'integration_dim',
                 'entity_ids',
                 'quadrature_degree',
@@ -222,7 +144,9 @@ class Parameters(object):
                 'weights',
                 'point_index',
                 'argument_indices',
-                'coefficient_mapper',
+                'coefficient',
+                'cell_orientation',
+                'facet_number',
                 'cellvolume',
                 'facetarea',
                 'index_cache')
@@ -233,20 +157,19 @@ class Parameters(object):
             raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
         self.__dict__.update(kwargs)
 
-    # Defaults
-    integral_type = 'cell'
+    @cached_property
+    def fiat_cell(self):
+        return as_fiat_cell(self.cell)
 
     @cached_property
     def integration_dim(self):
-        fiat_cell = as_fiat_cell(self.cell)
-        return fiat_cell.get_dimension()
+        return self.fiat_cell.get_dimension()
 
-    entity_ids = [None]
+    entity_ids = [0]
 
     @cached_property
     def quadrature_rule(self):
-        fiat_cell = as_fiat_cell(self.cell)
-        integration_cell = fiat_cell.construct_subelement(self.integration_dim)
+        integration_cell = self.fiat_cell.construct_subelement(self.integration_dim)
         return create_quadrature(integration_cell, self.quadrature_degree)
 
     @cached_property
@@ -256,6 +179,53 @@ class Parameters(object):
     @cached_property
     def weights(self):
         return self.quadrature_rule.get_weights()
+
+    @cached_property
+    def entity_points(self):
+        """An array of points in cell coordinates for each entity,
+        i.e. a list of arrays of points."""
+        result = []
+        for entity_id in self.entity_ids:
+            t = self.fiat_cell.get_entity_transform(self.integration_dim, entity_id)
+            result.append(numpy.asarray(map(t, self.points)))
+        return result
+
+    def _selector(self, callback, opts, restriction):
+        """Helper function for selecting code for the correct entity
+        at run-time."""
+        if len(opts) == 1:
+            return callback(opts[0])
+        else:
+            results = gem.ListTensor(map(callback, opts))
+            f = self.facet_number(restriction)
+            return gem.partial_indexed(results, (f,))
+
+    def entity_selector(self, callback, restriction):
+        """Selects code for the correct entity at run-time.  Callback
+        generates code for a specified entity.
+
+        This function passes ``callback`` the entity number.
+
+        :arg callback: A function to be called with an entity number
+                       that generates code for that entity.
+        :arg restriction: Restriction of the modified terminal, used
+                          for entity selection.
+        """
+        return self._selector(callback, self.entity_ids, restriction)
+
+    def index_selector(self, callback, restriction):
+        """Selects code for the correct entity at run-time.  Callback
+        generates code for a specified entity.
+
+        This function passes ``callback`` an index of the entity
+        numbers array.
+
+        :arg callback: A function to be called with an entity index
+                       that generates code for that entity.
+        :arg restriction: Restriction of the modified terminal, used
+                          for entity selection.
+        """
+        return self._selector(callback, range(len(self.entity_ids)), restriction)
 
     argument_indices = ()
 
@@ -271,14 +241,7 @@ class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
 
-        if parameters.integral_type.startswith("interior_facet"):
-            parameters.cell_orientations = gem.Variable("cell_orientations", (2, 1))
-        else:
-            parameters.cell_orientations = gem.Variable("cell_orientations", (1, 1))
-
         parameters.tabulation_manager = tabulation_manager
-        parameters.facet_manager = tabulation_manager.facet_manager
-        parameters.select_facet = tabulation_manager.facet_manager.select_facet
         self.parameters = parameters
 
     def modified_terminal(self, o):
@@ -366,7 +329,7 @@ def translate_argument(terminal, mt, params):
             # Cellwise constant
             row = gem.Literal(table)
         else:
-            table = params.select_facet(gem.Literal(table), mt.restriction)
+            table = params.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
             row = gem.partial_indexed(table, (params.point_index,))
         return gem.Indexed(row, (argument_index,))
 
@@ -375,13 +338,11 @@ def translate_argument(terminal, mt, params):
 
 @translate.register(Coefficient)
 def translate_coefficient(terminal, mt, params):
-    kernel_arg = params.coefficient_mapper(terminal)
+    vec = params.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0
-        return kernel_arg
-
-    ka = gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[mt.restriction])
+        return vec
 
     def callback(key):
         table = params.tabulation_manager[key]
@@ -389,18 +350,18 @@ def translate_coefficient(terminal, mt, params):
             # Cellwise constant
             row = gem.Literal(table)
             if numpy.count_nonzero(table) <= 2:
-                assert row.shape == ka.shape
+                assert row.shape == vec.shape
                 return reduce(gem.Sum,
-                              [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(ka, (i,)))
+                              [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(vec, (i,)))
                                for i in range(row.shape[0])],
                               gem.Zero())
         else:
-            table = params.select_facet(gem.Literal(table), mt.restriction)
+            table = params.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
             row = gem.partial_indexed(table, (params.point_index,))
 
         r = params.index_cache[terminal.ufl_element()]
         return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)),
-                                        gem.Indexed(ka, (r,))), r)
+                                        gem.Indexed(vec, (r,))), r)
 
     return iterate_shape(mt, callback)
 
@@ -412,7 +373,7 @@ def _translate_constantvalue(terminal, mt, params):
     return params(terminal)
 
 
-def compile_ufl(expression, **kwargs):
+def compile_ufl(expression, interior_facet=False, **kwargs):
     params = Parameters(**kwargs)
 
     # Abs-simplification
@@ -431,12 +392,12 @@ def compile_ufl(expression, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(params.integral_type, params.cell, params.points)
+    tabulation_manager = TabulationManager(params.entity_points)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
 
-    if params.integral_type.startswith("interior_facet"):
+    if interior_facet:
         expressions = []
         for rs in itertools.product(("+", "-"), repeat=len(params.argument_indices)):
             expressions.append(map_expr_dag(PickRestriction(*rs), expression))
