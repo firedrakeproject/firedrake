@@ -45,13 +45,16 @@ def prolong(coarse, fine):
     # carry out recursive prolongs
     coarser = Function(fhierarchy[lvl]).assign(coarse)
     for j in range(slvl):
-        intermediate = Function(fhierarchy[lvl + j + 1])
+        if j == slvl - 1:  # at the top
+            intermediate = fine
+        else:
+            intermediate = Function(fhierarchy[lvl + j + 1])
         op2.par_loop(fhierarchy._prolong_kernel,
                      fhierarchy._cell_sets[lvl + j],
                      intermediate.dat(op2.WRITE, fhierarchy.cell_node_map(lvl + j)[op2.i[0]]),
                      coarser.dat(op2.READ, coarser.cell_node_map()))
         if j < slvl - 1:
-            coarser = Function(fhierarchy[lvl + j + 1]).assign(intermediate)
+            coarser = intermediate
     fine.assign(intermediate)
 
 
@@ -139,10 +142,13 @@ def inject(fine, coarse):
     # carry out recursive injections
     finer = Function(hierarchy[flvl]).assign(fine)
     for j in range(slvl):
-        intermediate = Function(hierarchy[flvl - j - 1])
+        if j == slvl - 1:  # at the bottom
+            intermediate = coarse
+        else:
+            intermediate = Function(hierarchy[flvl - j - 1])
         op2.par_loop(hierarchy._inject_kernel, hierarchy._cell_sets[flvl - j - 1],
                      intermediate.dat(op2.WRITE, intermediate.cell_node_map()[op2.i[0]]),
                      finer.dat(op2.READ, hierarchy.cell_node_map(flvl - j - 1)))
         if j < slvl - 1:
-            finer = Function(hierarchy[flvl - j - 1]).assign(intermediate)
+            finer = intermediate
     coarse.assign(intermediate)
