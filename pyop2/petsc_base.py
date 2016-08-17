@@ -448,7 +448,7 @@ class Global(base.Global):
             # But use getSizes to save an Allreduce in computing the
             # global size.
             size = self.dataset.layout_vec.getSizes()
-            if MPI.comm.rank == 0:
+            if self.comm.rank == 0:
                 self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
                                                         bsize=self.cdim)
             else:
@@ -462,7 +462,7 @@ class Global(base.Global):
         self._vec.stateIncrease()
         yield self._vec
         if not readonly:
-            MPI.comm.Bcast(acc(self), 0)
+            self.comm.Bcast(acc(self), 0)
 
     @property
     @modifies

@@ -707,8 +707,8 @@ class GlobalSet(Set):
     """A proxy set allowing a :class:`Global` to be used in place of a
     :class:`Dat` where appropriate."""
 
-    def __init__(self):
-        pass
+    def __init__(self, comm=None):
+        self.comm = dup_comm(comm)
 
     @cached_property
     def core_size(self):
@@ -716,7 +716,7 @@ class GlobalSet(Set):
 
     @cached_property
     def size(self):
-        return 1 if MPI.comm.rank == 0 else 0
+        return 1 if self.comm.rank == 0 else 0
 
     @cached_property
     def exec_size(self):
@@ -725,7 +725,7 @@ class GlobalSet(Set):
     @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
-        return 1 if MPI.comm.rank == 0 else 0
+        return 1 if self.comm.rank == 0 else 0
 
     @cached_property
     def sizes(self):
@@ -765,6 +765,10 @@ class GlobalSet(Set):
 
     def __repr__(self):
         return "GlobalSet()"
+
+    def __eq__(self, other):
+        # Currently all GlobalSets compare equal.
+        return isinstance(other, GlobalSet)
 
 
 class ExtrudedSet(Set):
@@ -1061,6 +1065,9 @@ class MixedSet(Set, ObjectCached):
     def __repr__(self):
         return "MixedSet(%r)" % (self._sets,)
 
+    def __eq__(self, other):
+        return self._sets == other._sets
+
 
 class DataSet(ObjectCached):
     """PyOP2 Data Set
@@ -1155,13 +1162,14 @@ class GlobalDataSet(DataSet):
     """A proxy :class:`DataSet` for use in a :class:`Sparsity` where the
     matrix has :class:`Global` rows or columns."""
     _globalcount = 0
-    _globalset = GlobalSet()
 
     def __init__(self, global_):
         """
         :param global_: The :class:`Global` on which this object is based."""
 
         self._global = global_
+        self._globalset = GlobalSet(comm=self.comm)
+
 
     @classmethod
     def _cache_key(cls, *args):
@@ -3266,7 +3274,7 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def toset(self):
         """:class:`MixedSet` mapped to."""
-        return MixedSet(tuple(GlobalDataSet._globalset if m is None else
+        return MixedSet(tuple(GlobalSet() if m is None else
                               m.toset for m in self._maps))
 
     @cached_property
