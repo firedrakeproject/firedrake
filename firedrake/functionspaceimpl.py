@@ -870,17 +870,17 @@ class RealFunctionSpace(FunctionSpace):
 
         self._node_count = 1
 
+        self.comm = mesh.comm
+
         """:class:`RealFunctionSpace` objects have no node set."""
         self.node_set = None
         """:class:`RealFunctionSpace` objects have no dof set."""
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
 
-        self.comm = mesh.comm
-
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.dim, val, valuetype, name)
+        return op2.Global(self.dim, val, valuetype, name, self.comm)
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."
