@@ -20,12 +20,12 @@ def prolong(coarse, fine):
         raise RuntimeError("Coarse function not from hierarchy")
     # for skipping hierarchies
     if hasattr(hierarchy, '_full_hierarchy') == 1:
-        lvl = lvl * hierarchy._skip
+        lvl = lvl * hierarchy._refinements_per_lvl
         hierarchy = hierarchy._full_hierarchy
     fhierarchy, flvl = utils.get_level(fine.function_space())
     # for skipping hierarchies
     if hasattr(fhierarchy, '_full_hierarchy') == 1:
-        flvl = flvl * fhierarchy._skip
+        flvl = flvl * fhierarchy._refinements_per_lvl
         fhierarchy = fhierarchy._full_hierarchy
     if flvl < lvl:
         raise ValueError("Cannot prolong from level %d to level %d" %
@@ -43,7 +43,7 @@ def prolong(coarse, fine):
             prolong(c, f)
         return
     # carry out recursive prolongs
-    coarser = Function(fhierarchy[lvl]).assign(coarse)
+    coarser = coarse
     for j in range(slvl):
         if j == slvl - 1:  # at the top
             intermediate = fine
@@ -66,12 +66,12 @@ def restrict(fine, coarse):
         raise RuntimeError("Coarse function not from hierarchy")
     # for skipping hierarchies
     if hasattr(hierarchy, '_full_hierarchy') == 1:
-        lvl = lvl * hierarchy._skip
+        lvl = lvl * hierarchy._refinements_per_lvl
         hierarchy = hierarchy._full_hierarchy
     fhierarchy, flvl = utils.get_level(fine.function_space())
     # for skipping hierarchies
     if hasattr(fhierarchy, '_full_hierarchy') == 1:
-        flvl = flvl * fhierarchy._skip
+        flvl = flvl * fhierarchy._refinements_per_lvl
         fhierarchy = fhierarchy._full_hierarchy
     if flvl < lvl:
         raise ValueError("Cannot restrict from level %d to level %d" %
@@ -112,7 +112,7 @@ def restrict(fine, coarse):
             weights[l].assign(1.0/weights[l])
         hierarchy._restriction_weights = weights
 
-    finer = Function(hierarchy[flvl]).assign(fine)
+    finer = fine
     # carry out recursive restrictions
     for j in range(slvl):
         if j == slvl - 1:  # at the bottom
@@ -142,12 +142,12 @@ def inject(fine, coarse):
         raise RuntimeError("Coarse function not from hierarchy")
     # for skipping hierarchies
     if hasattr(hierarchy, '_full_hierarchy') == 1:
-        lvl = lvl * hierarchy._skip
+        lvl = lvl * hierarchy._refinements_per_lvl
         hierarchy = hierarchy._full_hierarchy
     fhierarchy, flvl = utils.get_level(fine.function_space())
     # for skipping hierarchies
     if hasattr(fhierarchy, '_full_hierarchy') == 1:
-        flvl = flvl * fhierarchy._skip
+        flvl = flvl * fhierarchy._refinements_per_lvl
         fhierarchy = fhierarchy._full_hierarchy
     if lvl > flvl:
         raise ValueError("Cannot inject from level %d to level %d" %
@@ -165,7 +165,7 @@ def inject(fine, coarse):
             inject(f, c)
         return
     # carry out recursive injections
-    finer = Function(hierarchy[flvl]).assign(fine)
+    finer = fine
     for j in range(slvl):
         if j == slvl - 1:  # at the bottom
             intermediate = coarse
