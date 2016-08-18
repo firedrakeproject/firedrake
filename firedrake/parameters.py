@@ -146,6 +146,25 @@ class UnsetType(KeyType):
         return None
 
 
+class OrType(KeyType):
+    def __init__(self, *types):
+        self._types = list(types)
+        if not all(isinstance(type, KeyType) for type in types):
+            raise TypeError("Parameters must be instances of KeyType")
+
+    def validate(self, value):
+        for type in self._types:
+            if type.validate(value):
+                return True
+        return False
+
+    def parse(self, value):
+        for type in self._types:
+            if type.parse(value) is not None:
+                return type.parse(value)
+        return None
+
+
 class TypedKey(str):
 
     def __new__(self, key, val_type=None):
