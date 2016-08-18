@@ -90,11 +90,11 @@ def _plot_mult(functions, num_points=10, **kwargs):
 
 
 def plot(function,
-         num_sample_points=100,
+         num_sample_points=10,
          axes=None,
          **kwargs):
     """Plot a function or a list of functions and return a matplotlib
-    figure object.
+    figure object. Default number of sampling points per element will be 10.
 
     :arg function: The function to plot.
     :arg num_sample_points: Number of Sample points per element, ignored if
