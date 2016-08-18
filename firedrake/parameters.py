@@ -67,6 +67,9 @@ class IntType(NumericType):
         else:
             return None
 
+    def __str__(self):
+        return "int"
+
 
 class FloatType(NumericType):
     def validate(self, value):
@@ -81,6 +84,9 @@ class FloatType(NumericType):
         else:
             return None
 
+    def __str__(self):
+        return "float"
+
 
 class BoolType(KeyType):
     def validate(self, value):
@@ -92,6 +98,9 @@ class BoolType(KeyType):
                 return value
             else:
                 return True if value == "True" else False
+
+    def __str__(self):
+        return "bool"
 
 
 class StrType(KeyType):
@@ -125,6 +134,9 @@ class StrType(KeyType):
             return str(value)
         else:
             return None
+
+    def __str__(self):
+        return "str"
 
 
 class InstanceType(KeyType):
