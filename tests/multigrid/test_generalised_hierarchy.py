@@ -14,11 +14,11 @@ def test_generalised_mesh_hierarchy():
     MH = MeshHierarchy(mesh, L)
 
     assert len(MH) == L + 1
-    assert MH.refinements_per_lvl == 1
+    assert MH.refinements_per_level == 1
 
     L = 3
-    refinements_per_lvl = 2
-    MH = MeshHierarchy(mesh, L, refinements_per_lvl=refinements_per_lvl)
+    refinements_per_level = 2
+    MH = MeshHierarchy(mesh, L, refinements_per_level=refinements_per_level)
 
     assert len(MH) == L + 1
 
@@ -29,8 +29,8 @@ def test_attribute(fs_type):
 
     mesh = UnitSquareMesh(5, 5)
     L = 3
-    refinements_per_lvl = 2
-    MH = MeshHierarchy(mesh, L, refinements_per_lvl=refinements_per_lvl)
+    refinements_per_level = 2
+    MH = MeshHierarchy(mesh, L, refinements_per_level=refinements_per_level)
 
     assert hasattr(MH, '_full_hierarchy')
 
@@ -44,12 +44,12 @@ def test_attribute(fs_type):
         FSH = MixedFunctionSpaceHierarchy([fs_1, fs_2])
 
     assert hasattr(FSH, '_full_hierarchy')
-    assert hasattr(FSH, 'refinements_per_lvl')
+    assert hasattr(FSH, 'refinements_per_level')
 
     F = Function(FSH[0])
 
     assert hasattr(get_level(F.function_space())[0], '_full_hierarchy')
-    assert hasattr(get_level(F.function_space())[0], 'refinements_per_lvl')
+    assert hasattr(get_level(F.function_space())[0], 'refinements_per_level')
 
 
 @pytest.mark.parametrize("fs_type",
@@ -58,8 +58,8 @@ def test_get_level_1(fs_type):
 
     mesh = UnitSquareMesh(5, 5)
     L = 3
-    refinements_per_lvl = 2
-    MH = MeshHierarchy(mesh, L, refinements_per_lvl=refinements_per_lvl)
+    refinements_per_level = 2
+    MH = MeshHierarchy(mesh, L, refinements_per_level=refinements_per_level)
 
     if fs_type == "standard":
         FSH = FunctionSpaceHierarchy(MH, 'DG', 0)
@@ -72,7 +72,7 @@ def test_get_level_1(fs_type):
 
     for i in range(L + 1):
         F = Function(FSH[i])
-        assert get_level(F.function_space())[1] == (refinements_per_lvl * i)
+        assert get_level(F.function_space())[1] == (refinements_per_level * i)
 
 
 @pytest.mark.parametrize("fs_type",
@@ -103,8 +103,8 @@ def test_get_full_level(fs_type):
 
     mesh = UnitSquareMesh(5, 5)
     L = 3
-    refinements_per_lvl = 2
-    MH = MeshHierarchy(mesh, L, refinements_per_lvl=refinements_per_lvl)
+    refinements_per_level = 2
+    MH = MeshHierarchy(mesh, L, refinements_per_level=refinements_per_level)
 
     if fs_type == "standard":
         FSH = FunctionSpaceHierarchy(MH, 'DG', 0)
@@ -115,7 +115,7 @@ def test_get_full_level(fs_type):
         fs_2 = FunctionSpaceHierarchy(MH, 'CG', 1)
         FSH = MixedFunctionSpaceHierarchy([fs_1, fs_2])
 
-    for i in range((L * refinements_per_lvl) + 1):
+    for i in range((L * refinements_per_level) + 1):
         F = Function(FSH._full_hierarchy[i])
         assert get_level(F.function_space())[1] == i
 
@@ -124,8 +124,8 @@ def test_vector_fs_hierarchy():
 
     mesh = UnitSquareMesh(5, 5)
     L = 3
-    refinements_per_lvl = 2
-    MH = MeshHierarchy(mesh, L, refinements_per_lvl=refinements_per_lvl)
+    refinements_per_level = 2
+    MH = MeshHierarchy(mesh, L, refinements_per_level=refinements_per_level)
     dim = 3
 
     VFSH = VectorFunctionSpaceHierarchy(MH, 'DG', 0, dim=dim)
@@ -138,8 +138,8 @@ def test_mixed_fs_hierarchy():
 
     mesh = UnitSquareMesh(5, 5)
     L = 3
-    refinements_per_lvl = 2
-    MH = MeshHierarchy(mesh, L, refinements_per_lvl=refinements_per_lvl)
+    refinements_per_level = 2
+    MH = MeshHierarchy(mesh, L, refinements_per_level=refinements_per_level)
 
     VSH_1 = FunctionSpaceHierarchy(MH, 'DG', 0)
     VSH_2 = FunctionSpaceHierarchy(MH, 'DG', 1)

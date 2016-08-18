@@ -12,18 +12,18 @@ __all__ = ["MeshHierarchy", "ExtrudedMeshHierarchy"]
 
 
 class MeshHierarchy(object):
-    def __init__(self, m, refinement_levels, reorder=None, refinements_per_lvl=1):
+    def __init__(self, m, refinement_levels, reorder=None, refinements_per_level=1):
         """Build a hierarchy of meshes by uniformly refining a coarse mesh.
 
         :arg m: the coarse :func:`~.Mesh` to refine
         :arg refinement_levels: the number of levels of refinement
-        :arg refinements_per_lvl: optional number of refinements of mesh per level
+        :arg refinements_per_level: optional number of refinements of mesh per level
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
         """
 
         # readjust the number of refinements in total
-        refinement_levels = refinement_levels * refinements_per_lvl
+        refinement_levels = refinement_levels * refinements_per_level
 
         if m.ufl_cell().cellname() not in ["triangle", "interval"]:
             raise NotImplementedError("Only supported on intervals and triangles")
@@ -94,8 +94,8 @@ class MeshHierarchy(object):
 
         # reset the hierarchy with skipped refinements and set full hierarchy
         self._full_hierarchy = hierarchy
-        self._hierarchy = hierarchy[::refinements_per_lvl]
-        self.refinements_per_lvl = refinements_per_lvl
+        self._hierarchy = hierarchy[::refinements_per_level]
+        self.refinements_per_level = refinements_per_level
 
     def __iter__(self):
         """Iterate over the hierarchy of meshes from coarsest to finest"""
@@ -124,7 +124,7 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
         """
         self.comm = mesh_hierarchy.comm
         self._base_hierarchy = mesh_hierarchy
-        self.refinements_per_lvl = mesh_hierarchy.refinements_per_lvl
+        self.refinements_per_level = mesh_hierarchy.refinements_per_level
         hierarchy_ = [set_level(mesh.ExtrudedMesh(m, layers, kernel=kernel,
                                                   layer_height=layer_height,
                                                   extrusion_type=extrusion_type,
@@ -136,4 +136,4 @@ class ExtrudedMeshHierarchy(MeshHierarchy):
 
         # reset the hierarchy with skipped refinements and set full hierarchy
         self._full_hierarchy = hierarchy
-        self._hierarchy = hierarchy[::self.refinements_per_lvl]
+        self._hierarchy = hierarchy[::self.refinements_per_level]

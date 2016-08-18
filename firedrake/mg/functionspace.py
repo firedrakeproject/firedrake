@@ -44,7 +44,7 @@ class BaseHierarchy(object):
              build the function spaces.
         :arg fses: an iterable of :class:`~.FunctionSpace`\s.
         """
-        self.refinements_per_lvl = mesh_hierarchy.refinements_per_lvl
+        self.refinements_per_level = mesh_hierarchy.refinements_per_level
         self._mesh_hierarchy = mesh_hierarchy
         hierarchy = tuple([set_level(fs, self, lvl)
                           for lvl, fs in enumerate(fses)])
@@ -77,7 +77,7 @@ class BaseHierarchy(object):
 
         # reset the hierarchy with skipped refinements and set full hierarchy
         self._full_hierarchy = hierarchy
-        self._hierarchy = hierarchy[::self.refinements_per_lvl]
+        self._hierarchy = hierarchy[::self.refinements_per_level]
 
     def __len__(self):
         """Return the size of this function space hierarchy"""
@@ -222,9 +222,6 @@ class VectorFunctionSpaceHierarchy(BaseHierarchy):
         super(VectorFunctionSpaceHierarchy, self).__init__(mesh_hierarchy, fses)
 
 
-""" WE NEED TO MAKE THIS APPLICABLE FOR THE NEW TYPE OF FUNCTION SPACE HIERARCHIES """
-
-
 class MixedFunctionSpaceHierarchy(object):
 
     """Build a hierarchy of mixed function spaces.
@@ -242,7 +239,7 @@ class MixedFunctionSpaceHierarchy(object):
             spaces[s]._hierarchy = spaces[s]._full_hierarchy
 
         spaces = [x for x in flatten([s.split() for s in spaces])]
-        self.refinements_per_lvl = spaces[0].refinements_per_lvl
+        self.refinements_per_level = spaces[0].refinements_per_level
         assert all(isinstance(s, BaseHierarchy) for s in spaces)
         hierarchy = tuple([set_level(functionspace.MixedFunctionSpace(s), self, lvl)
                           for lvl, s in enumerate(zip(*spaces))])
@@ -259,7 +256,7 @@ class MixedFunctionSpaceHierarchy(object):
 
         # reset the hierarchy with skipped refinements and set full hierarchy
         self._full_hierarchy = hierarchy
-        self._hierarchy = hierarchy[::self.refinements_per_lvl]
+        self._hierarchy = hierarchy[::self.refinements_per_level]
 
     def __mul__(self, other):
         """Create a :class:`MixedFunctionSpaceHierarchy`.
