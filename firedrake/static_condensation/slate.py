@@ -49,7 +49,7 @@ __all__ = ['AssembledTensor', 'Tensor', 'Scalar', 'Vector',
            'Matrix', 'Inverse', 'Transpose', 'UnaryOp',
            'Negative', 'Positive', 'BinaryOp', 'TensorAdd',
            'TensorSub', 'TensorMul', 'compile_slate_expression',
-           'slate_action']
+           'slate_assemble', 'slate_action']
 
 
 class AssembledTensor(Coefficient):
@@ -160,18 +160,6 @@ class Tensor(Form):
                operator.mul: TensorMul}
         assert isinstance(other, Tensor)
         return ops[op](self, other)
-
-#    def tensor_integrals(self):
-#        """Return a sequence of all integrals
-#        associated with this tensor object."""
-#        return self._integrals
-#
-#    def tensor_integrals_by_type(self, integral_type):
-#        """Return a sequence of integrals of the
-#        associated form of the tensor with all
-#        particular domain types."""
-#        return tuple(integral for integral in self.tensor_integrals()
-#                     if integral.integral_type() == integral_type)
 
     def __hash__(self):
         """Hash code for use in dictionary objects."""
@@ -486,7 +474,8 @@ class TensorMul(BinaryOp):
 
     @classmethod
     def assemble_integrals(cls, A, B):
-        return get_integrals(A) + get_integrals(B)
+        # Contract over the integrals
+        return get_integrals(A)[:-1] + get_integrals(B)[1:]
 
 
 class TransformEigenKernel(Visitor):
@@ -543,8 +532,8 @@ class TransformEigenKernel(Visitor):
 
         pred = ["template <typename Derived>\nstatic", "inline"]
         body = ops[3]
-        args,_ = body.operands()
-        nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived> & %s = const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n"\
+        args, _ = body.operands()
+        nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived> & %s = const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n"
                                % (name, name))] + args
         ops[3] = nargs
         ops[4] = pred
@@ -697,6 +686,14 @@ def get_bop_integrals(expr):
     if isinstance(expr, TensorSub):
         return get_integrals(A) + get_integrals(Negative(B))
     return get_integrals(A) + get_integrals(B)
+
+
+@get_integrals.register(TensorMul)
+def get_mul_integrals(expr):
+    A = expr.children[0]
+    B = expr.children[1]
+    # Contract over the integrals
+    return get_integrals(A)[:-1] + get_integrals(B)[1:]
 
 
 def compile_slate_expression(slate_expr):
@@ -972,8 +969,9 @@ def compile_slate_expression(slate_expr):
                        needs_cell_facets=need_cell_facets)
 
     idx = tuple([0]*len(slate_expr.arguments()))
-    return coords, coeffs, need_cell_facets, op2kernel
-#    return (SplitKernel(idx, kinfo),)
+#    return coords, coeffs, need_cell_facets, op2kernel
+    return (SplitKernel(idx, kinfo),)
+
 
 def slate_assemble(expr, bcs=None, nest=False):
     """Assemble the SLATE expression `expr` and return a Firedrake object
@@ -1001,9 +999,7 @@ def slate_assemble(expr, bcs=None, nest=False):
                                           "%s_%s_sparsity" % fs_names,
                                           nest=nest)
         tensor = firedrake.matrix.Matrix(expr, bcs, sparsity)
-        tensor_arg = tensor._M(firedrake.op2.INC, (test_function.cell_node_map()[firedrake.op2.i[0]],
-                                                trial_function.cell_node_map()[firedrake.op2.i[0]]),
-                            flatten=True)
+        tensor_arg = tensor._M(firedrake.op2.INC, (test_function.cell_node_map()[firedrake.op2.i[0]], trial_function.cell_node_map()[firedrake.op2.i[0]]), flatten=True)
 
     # If the expression is a rank-1 tensor: vector
     elif rank == 1:
@@ -1044,6 +1040,7 @@ def slate_assemble(expr, bcs=None, nest=False):
         tensor._M.assemble()
     return tensor
 
+
 def slate_action(expr, u):
     assert isinstance(u, Coefficient)
     coefficient = u
@@ -1054,6 +1051,5 @@ def slate_action(expr, u):
         coefficient = Coefficient(fs)
     elif coefficient.ufl_function_space() != fs:
         raise ValueError("Cannot comput form action on a coefficient from a different function space.")
-    newform = replace(expr.form, {farg: coefficient})
-
+#    newform = replace(expr.form, {farg: coefficient})
     return TensorMul(expr, AssembledTensor(u))
