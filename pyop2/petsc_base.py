@@ -789,7 +789,6 @@ class Mat(base.Mat, CopyOnWrite):
         blocks in matrices."""
         try:
             # Usual case
-            path = as_tuple(path, Arg, 2)
             return super(Mat, self).__call__(access, path, flatten)
         except TypeError:
             # One of the path entries was not an Arg.
