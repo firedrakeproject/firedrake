@@ -59,19 +59,16 @@ operator.::
 To use the assembled matrix for the preconditioner we select a
 ``"python"`` type::
 
-  #
                                        "pc_type": "python",
 
 and set its type, by providing the name of the class constructor to
 PETSc.::
 
-  #
-                                       "pc_python_type": "firedrake.AssembledPC"
+                                       "pc_python_type": "firedrake.AssembledPC",
 
 Finally, we set the preconditioner type for the assembled operator::
 
-  #
-                                       "assembled_pc_type": "ilu"}
+                                       "assembled_pc_type": "ilu"})
 
 This demo is available as a runnable python file `here
 <poisson.py>`__.
