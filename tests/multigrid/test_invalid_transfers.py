@@ -20,6 +20,7 @@ def f2(mesh_hierarchy):
     return FunctionHierarchy(V)
 
 
+@pytest.mark.xfail(reason="now can do recursive transfers")
 @pytest.mark.parametrize("transfer",
                          ["prolong", "inject", "restrict"])
 def test_transfer_invalid_level_combo(transfer, f1):

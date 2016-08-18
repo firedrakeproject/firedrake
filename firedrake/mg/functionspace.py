@@ -44,19 +44,20 @@ class BaseHierarchy(object):
              build the function spaces.
         :arg fses: an iterable of :class:`~.FunctionSpace`\s.
         """
+        self.refinements_per_lvl = mesh_hierarchy.refinements_per_lvl
         self._mesh_hierarchy = mesh_hierarchy
-        self._hierarchy = tuple([set_level(fs, self, lvl)
-                                 for lvl, fs in enumerate(fses)])
+        hierarchy = tuple([set_level(fs, self, lvl)
+                          for lvl, fs in enumerate(fses)])
         self._map_cache = {}
-        self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
-        self._ufl_element = self[0].ufl_element()
+        self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy._full_hierarchy)
+        self._ufl_element = hierarchy[0].ufl_element()
         self._restriction_weights = None
         fiat_element = fses[0].fiat_element
         ncelldof = len(fiat_element.entity_dofs()[fses[0].mesh().cell_dimension()][0])
         self._discontinuous = ncelldof == fses[0].cell_node_map().arity
         try:
-            element = self[0].fiat_element
-            omap = self[1].cell_node_map().values
+            element = hierarchy[0].fiat_element
+            omap = hierarchy[1].cell_node_map().values
             c2f, vperm = self._mesh_hierarchy._cells_vperm[0]
             indices, _ = utils.get_unique_indices(element,
                                                   omap[c2f[0, :], ...].reshape(-1),
@@ -69,10 +70,14 @@ class BaseHierarchy(object):
         except:
             pass
 
-        for V in self:
+        for V in hierarchy:
             dm = V._dm
             dm.setCoarsen(coarsen)
             dm.setRefine(refine)
+
+        # reset the hierarchy with skipped refinements and set full hierarchy
+        self._full_hierarchy = hierarchy
+        self._hierarchy = hierarchy[::self.refinements_per_lvl]
 
     def __len__(self):
         """Return the size of this function space hierarchy"""
@@ -106,8 +111,8 @@ class BaseHierarchy(object):
             return self._map_cache[level]
         except KeyError:
             pass
-        Vc = self._hierarchy[level]
-        Vf = self._hierarchy[level + 1]
+        Vc = self._full_hierarchy[level]
+        Vf = self._full_hierarchy[level + 1]
 
         c2f, vperm = self._mesh_hierarchy._cells_vperm[level]
 
@@ -185,7 +190,7 @@ class FunctionSpaceHierarchy(BaseHierarchy):
         fses = [functionspace.FunctionSpace(m, family, degree=degree,
                                             name=name, vfamily=vfamily,
                                             vdegree=vdegree)
-                for m in mesh_hierarchy]
+                for m in mesh_hierarchy._full_hierarchy]
         self.dim = 1
         super(FunctionSpaceHierarchy, self).__init__(mesh_hierarchy, fses)
 
@@ -212,9 +217,12 @@ class VectorFunctionSpaceHierarchy(BaseHierarchy):
         fses = [functionspace.VectorFunctionSpace(m, family, degree,
                                                   dim=dim, name=name, vfamily=vfamily,
                                                   vdegree=vdegree)
-                for m in mesh_hierarchy]
+                for m in mesh_hierarchy._full_hierarchy]
         self.dim = fses[0].dim
         super(VectorFunctionSpaceHierarchy, self).__init__(mesh_hierarchy, fses)
+
+
+""" WE NEED TO MAKE THIS APPLICABLE FOR THE NEW TYPE OF FUNCTION SPACE HIERARCHIES """
 
 
 class MixedFunctionSpaceHierarchy(object):
@@ -229,20 +237,29 @@ class MixedFunctionSpaceHierarchy(object):
         """
         :arg spaces: A list of :class:`FunctionSpaceHierarchy`\s
         """
+        # swap full hierarchies will refined hierarchies
+        for s in range(len(spaces)):
+            spaces[s]._hierarchy = spaces[s]._full_hierarchy
+
         spaces = [x for x in flatten([s.split() for s in spaces])]
+        self.refinements_per_lvl = spaces[0].refinements_per_lvl
         assert all(isinstance(s, BaseHierarchy) for s in spaces)
-        self._hierarchy = tuple([set_level(functionspace.MixedFunctionSpace(s), self, lvl)
-                                for lvl, s in enumerate(zip(*spaces))])
+        hierarchy = tuple([set_level(functionspace.MixedFunctionSpace(s), self, lvl)
+                          for lvl, s in enumerate(zip(*spaces))])
         # Attach level info to the new ProxyFunctionSpaces inside the mixed spaces.
-        for lvl, mixed_space in enumerate(self._hierarchy):
+        for lvl, mixed_space in enumerate(hierarchy):
             for i, space in enumerate(mixed_space):
                 set_level(space, spaces[i], lvl)
         self._spaces = tuple(spaces)
-        self._ufl_element = self._hierarchy[0].ufl_element()
-        for V in self:
+        self._ufl_element = hierarchy[0].ufl_element()
+        for V in hierarchy:
             dm = V._dm
             dm.setCoarsen(coarsen)
             dm.setRefine(refine)
+
+        # reset the hierarchy with skipped refinements and set full hierarchy
+        self._full_hierarchy = hierarchy
+        self._hierarchy = hierarchy[::self.refinements_per_lvl]
 
     def __mul__(self, other):
         """Create a :class:`MixedFunctionSpaceHierarchy`.

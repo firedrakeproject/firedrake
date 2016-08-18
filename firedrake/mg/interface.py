@@ -18,15 +18,7 @@ def prolong(coarse, fine):
     hierarchy, lvl = utils.get_level(cfs)
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
-    # for skipping hierarchies
-    if hasattr(hierarchy, '_full_hierarchy') == 1:
-        lvl = lvl * hierarchy._refinements_per_lvl
-        hierarchy = hierarchy._full_hierarchy
     fhierarchy, flvl = utils.get_level(fine.function_space())
-    # for skipping hierarchies
-    if hasattr(fhierarchy, '_full_hierarchy') == 1:
-        flvl = flvl * fhierarchy._refinements_per_lvl
-        fhierarchy = fhierarchy._full_hierarchy
     if flvl < lvl:
         raise ValueError("Cannot prolong from level %d to level %d" %
                          (lvl, flvl))
@@ -48,7 +40,7 @@ def prolong(coarse, fine):
         if j == slvl - 1:  # at the top
             intermediate = fine
         else:
-            intermediate = Function(fhierarchy[lvl + j + 1])
+            intermediate = Function(fhierarchy._full_hierarchy[lvl + j + 1])
         op2.par_loop(fhierarchy._prolong_kernel,
                      fhierarchy._cell_sets[lvl + j],
                      intermediate.dat(op2.WRITE, fhierarchy.cell_node_map(lvl + j)[op2.i[0]]),
@@ -64,15 +56,7 @@ def restrict(fine, coarse):
     hierarchy, lvl = utils.get_level(cfs)
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
-    # for skipping hierarchies
-    if hasattr(hierarchy, '_full_hierarchy') == 1:
-        lvl = lvl * hierarchy._refinements_per_lvl
-        hierarchy = hierarchy._full_hierarchy
     fhierarchy, flvl = utils.get_level(fine.function_space())
-    # for skipping hierarchies
-    if hasattr(fhierarchy, '_full_hierarchy') == 1:
-        flvl = flvl * fhierarchy._refinements_per_lvl
-        fhierarchy = fhierarchy._full_hierarchy
     if flvl < lvl:
         raise ValueError("Cannot restrict from level %d to level %d" %
                          (flvl, lvl))
@@ -118,7 +102,7 @@ def restrict(fine, coarse):
         if j == slvl - 1:  # at the bottom
             intermediate = coarse
         else:
-            intermediate = Function(hierarchy[flvl - j - 1])
+            intermediate = Function(hierarchy._full_hierarchy[flvl - j - 1])
 
         args = [intermediate.dat(op2.INC, intermediate.cell_node_map()[op2.i[0]]),
                 finer.dat(op2.READ, hierarchy.cell_node_map(flvl - j - 1))]
@@ -140,15 +124,7 @@ def inject(fine, coarse):
     hierarchy, lvl = utils.get_level(cfs)
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
-    # for skipping hierarchies
-    if hasattr(hierarchy, '_full_hierarchy') == 1:
-        lvl = lvl * hierarchy._refinements_per_lvl
-        hierarchy = hierarchy._full_hierarchy
     fhierarchy, flvl = utils.get_level(fine.function_space())
-    # for skipping hierarchies
-    if hasattr(fhierarchy, '_full_hierarchy') == 1:
-        flvl = flvl * fhierarchy._refinements_per_lvl
-        fhierarchy = fhierarchy._full_hierarchy
     if lvl > flvl:
         raise ValueError("Cannot inject from level %d to level %d" %
                          (flvl, lvl))
@@ -170,7 +146,7 @@ def inject(fine, coarse):
         if j == slvl - 1:  # at the bottom
             intermediate = coarse
         else:
-            intermediate = Function(hierarchy[flvl - j - 1])
+            intermediate = Function(hierarchy._full_hierarchy[flvl - j - 1])
         op2.par_loop(hierarchy._inject_kernel, hierarchy._cell_sets[flvl - j - 1],
                      intermediate.dat(op2.WRITE, intermediate.cell_node_map()[op2.i[0]]),
                      finer.dat(op2.READ, hierarchy.cell_node_map(flvl - j - 1)))
