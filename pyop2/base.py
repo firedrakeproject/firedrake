@@ -3231,6 +3231,8 @@ class MixedMap(Map, ObjectCached):
         if self._initialized:
             return
         self._maps = maps
+        if not all(m is None or m.iterset == self.iterset for m in self._maps):
+            raise MapTypeError("All maps in a MixedMap need to share the same iterset")
         # TODO: Think about different communicators on maps (c.f. MixedSet)
         self.comm = maps[0].comm
         self._initialized = True
@@ -3253,7 +3255,7 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def iterset(self):
         """:class:`MixedSet` mapped from."""
-        return self._maps[0].iterset
+        return reduce(lambda a, b: a if a is None else a.iterset or b if b is None else b.iterset, self._maps)
 
     @cached_property
     def toset(self):
