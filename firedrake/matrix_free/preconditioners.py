@@ -203,10 +203,10 @@ class PCDPC(PCBase):
 
     .. math::
 
-       S^{-1} \approx K^{-1} F_p M^{-1}
+       S^{-1} \sim K^{-1} F_p M^{-1}
 
-    Where :math:`K = \nabla^2`, :math:`M = \mathbb{I}` and
-    :math:`F_p = 1/\mathrm{Re} \nabla^2 + u\cdot\grad`.
+    Where :math:`K = \\nabla^2`, :math:`M = \mathbb{I}` and
+    :math:`F_p = 1/\mathrm{Re} \\nabla^2 + u\cdot\\nabla`.
 
     The inverse of :math:`K` is approximated by a KSP which can be
     controlled using the options prefix ``pcd_Kp_``.
