@@ -176,6 +176,10 @@ class OrType(KeyType):
                 return type.parse(value)
         return None
 
+    @property
+    def types(self):
+        return self._types
+
 
 class ListType(KeyType):
     def __init__(self, elem_type, min_len=None, max_len=None):
