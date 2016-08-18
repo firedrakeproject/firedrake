@@ -5,12 +5,15 @@ from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
 from firedrake.citations import Citations
 from coffee.system import coffee_reconfigure
-
+import abc
 
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
 class KeyType(object):
+
+    __metaclass__ = abc.ABCMeta
+
     @staticmethod
     def get_type(obj):
         if type(obj) is int:
@@ -23,6 +26,14 @@ class KeyType(object):
             return StrType()
         else:
             return InstanceType(obj)
+
+    @abc.abstractmethod
+    def validate(self, value):
+        return True
+
+    @abc.abstractmethod
+    def parse(self, value):
+        return None
 
 
 class NumericType(KeyType):
@@ -123,10 +134,16 @@ class InstanceType(KeyType):
     def validate(self, value):
         return issubclass(self._class, value.__class__)
 
+    def parse(self, value):
+        return None
+
 
 class UnsetType(KeyType):
     def validate(self, value):
         return True
+
+    def parse(self, value):
+        return None
 
 
 class TypedKey(str):
