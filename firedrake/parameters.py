@@ -165,6 +165,34 @@ class OrType(KeyType):
         return None
 
 
+class ListType(KeyType):
+    def __init__(self, elem_type, min_len=None, max_len=None):
+        self._elem_type = elem_type
+        self._min_len = min_len
+        self._max_len = max_len
+        if not isinstance(elem_type, KeyType):
+            raise TypeError("Parameter must be instance of KeyType")
+
+    @property
+    def elem_type(self):
+        return self._elem_type
+
+    def validate(self, value):
+        if self._min_len is not None:
+            if len(value) < self._min_len:
+                return False
+        if self._max_len is not None:
+            if len(value) > self._max_len:
+                return False
+        return all(self._elem_type.validate(elem) for elem in value)
+
+    def parse(self, value):
+        if self.validate(value):
+            return value
+        else:
+            return None
+
+
 class TypedKey(str):
 
     def __new__(self, key, val_type=None):
