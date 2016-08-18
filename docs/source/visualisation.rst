@@ -159,8 +159,8 @@ If instead we want projection, we use
    projected = File("proj_output.pvd", project_output=True)
    projected.write(f)
 
-Plotting functions
-~~~~~~~~~~~~~~~~~~
+Plotting with `matplotlib`
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Plotting 1D and 2D functions could be as easy as calling the built-in plot
 function :func:`plot <firedrake.plot.plot>` with the :class:`~.Function` you wish to
@@ -176,13 +176,19 @@ For 1D functions with degree less than 4, the plot of the function would be
 exact using Bezier curves. For higher order 1D functions, the plot would be the
 linear approximation by sampling points of the function. The number of sample
 points per element could be specfied to when calling :func:`plot
-<~.plot.plot>`.
+<firedrake.plot.plot>`.
 
 For multiple 1D functions, for example, in the case of time-dependent functions
 at different times. They could be plotted together by passing the list of
 function when calling the function :func:`plot <firedrake.plot.plot>`. The returned
 figure will contain a slider and an autoplay button so that it could be viewed
-in a animated fashion.
+in a animated fashion. The plus and minus buttons can change the speed of the
+animation.
+
+When used in Jupyter Notebook, plotting multiple 1D functions using additional
+key word argument ``interactive=True`` when calling the function 
+:func:`plot <firedrake.plot.plot>` will generate an interactive slider for
+selecting the figures. 
 
 For 2D functions, both surface plots and contour plots are supported. By
 default, the :func:`plot <firedrake.plot.plot>` will return a surface plot in the
