@@ -18,11 +18,10 @@ def Q(mesh):
     return VectorFunctionSpace(mesh, "DG", 0)
 
 
-@pytest.mark.parametrize("nest", [False, True],
-                         ids=["Monolithic", "Nested"])
+@pytest.mark.parametrize("mat_type", ["nest", "aij"])
 @pytest.mark.parametrize("scalar", [False, True],
                          ids=["Vector", "Scalar"])
-def test_partially_mixed_mat(V, Q, nest, scalar):
+def test_partially_mixed_mat(V, Q, mat_type, scalar):
 
     W = V*Q
 
@@ -38,7 +37,7 @@ def test_partially_mixed_mat(V, Q, nest, scalar):
         idx = 0, 1
         other = 0, 0
 
-    A = assemble(a, nest=nest).M
+    A = assemble(a, mat_type=mat_type).M
 
     assert np.allclose(A[idx].values.diagonal(), 0.125)
     assert np.allclose(A[other].values, 0.0)
