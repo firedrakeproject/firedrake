@@ -96,12 +96,12 @@ We could use the built in plot function of firedrake by calling
 matplotlib.pyplot should be installed and imported::
 
   import matplotlib.pyplot as plt
-  plot(u, 2)
+  plot(u)
 
 For a contour plot, it could be plotted by adding an additional key word
 argument::
 
-  plot(u, 2, contour=True)
+  plot(u, contour=True)
 
 Don't forget to show the image::
   

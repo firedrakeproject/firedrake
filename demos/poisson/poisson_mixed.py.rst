@@ -149,7 +149,7 @@ We could use the built in plot function of firedrake by calling
 matplotlib.pyplot should be installed and imported::
 
   import matplotlib.pyplot as plt
-  plot(u, 1)
+  plot(u)
 
 Don't forget to show the image::
 
