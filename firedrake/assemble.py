@@ -20,7 +20,7 @@ __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, mat_type='aij', extra_ctx={}):
+             inverse=False, mat_type=None, appctx={}):
     """Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
@@ -39,8 +39,10 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     :arg mat_type: (optional) string indicating how a 2-form (matrix) should be
          assembled -- either as a monolithic matrix ('aij'), a block matrix
          ('nest'), or left as a :class:`.ImplicitMatrix` giving matrix-free
-         actions.  For a 1-form, 'aij' will refer to assembled
-         monolithic vectors and 'nest' blocked. 
+         actions ('matfree').  If not supplied, the default value in
+         ``parameters["default_matrix_type"]`` is used.
+    :arg appctx: Additional information to hang on the assembled
+         matrix if an implicit matrix is requested (mat_type "matfree").
 
     If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
@@ -66,7 +68,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse, mat_type=mat_type, extra_ctx=extra_ctx)
+                         inverse=inverse, mat_type=mat_type, appctx=appctx)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -75,7 +77,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 @utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-              inverse=False, mat_type='aij', extra_ctx={}):
+              inverse=False, mat_type=None, appctx={}):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -88,13 +90,16 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         the form compiler.
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
-    :arg nest: (optional) flag indicating if matrices on mixed spaces
-         should be built in blocks or monolithically.
-
+    :arg mat_type: (optional) type for assembled matrices, one of
+        "nest", "aij" or "matfree".
+    :arg appctx: Additional information to hang on the assembled
+         matrix if an implicit matrix is requested (mat_type "matfree").
     """
-    nest = mat_type == 'nest'
-    matfree = mat_type == 'matfree'
-    
+    if mat_type is None:
+        mat_type = parameters.parameters["default_matrix_type"]
+    if mat_type not in ["matfree", "aij", "nest"]:
+        raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
+
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
     else:
@@ -117,19 +122,19 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     integrals = f.integrals()
 
-    if nest is None:
-        nest = parameters.parameters["matnest"]
     # Pass this through for assembly caching purposes
-    form_compiler_parameters["matnest"] = nest
+    form_compiler_parameters["matrix_type"] = mat_type
 
     zero_tensor = lambda: None
 
+    matfree = mat_type == "matfree"
+    nest = mat_type == "nest"
     if is_mat:
         if matfree:  # intercept matrix-free matrices here
             if tensor is None:
                 return matrix.ImplicitMatrix(f, bcs,
                                              fc_params=form_compiler_parameters,
-                                             extra_ctx=extra_ctx)
+                                             appctx=appctx)
             if not isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting implicit matrix with matfree")
             tensor.assemble()

@@ -292,14 +292,14 @@ class ImplicitMatrix(MatrixBase):
         # sets self._a and self._bcs
         super(ImplicitMatrix, self).__init__(a, bcs)
 
-        extra_ctx = kwargs.get("extra_ctx", {})
+        appctx = kwargs.get("appctx", {})
 
         from firedrake.matrix_free.operators import ImplicitMatrixContext
         ctx = ImplicitMatrixContext(a,
                                     row_bcs=bcs,
                                     col_bcs=bcs,
                                     fc_params=kwargs["fc_params"],
-                                    context=extra_ctx)
+                                    context=appctx)
         self.petscmat = PETSc.Mat().create()
         self.petscmat.setType("python")
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),

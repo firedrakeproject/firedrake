@@ -76,7 +76,6 @@ def _extract_kwargs(**kwargs):
     nullspace = kwargs.get('nullspace', None)
     tnullspace = kwargs.get('transpose_nullspace', None)
     options_prefix = kwargs.get('options_prefix', None)
-
     return parameters, nullspace, tnullspace, options_prefix
 
 
@@ -87,10 +86,10 @@ class _SNESContext(object):
     :arg problems: a :class:`NonlinearVariationalProblem` or iterable thereof.
     :arg mat_type: Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es).
+        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es).
+        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -101,13 +100,12 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems, mat_type='aij', pmat_type='aij', appctx=None):
+    def __init__(self, problems, mat_type, pmat_type, appctx=None):
         self.mat_type = mat_type
         self.pmat_type = pmat_type
-        
+
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
-
 
         # It doesn't make sense to set pmatfree unless there is a separate
         # Jp bilinear form specified.
@@ -130,7 +128,6 @@ class _SNESContext(object):
 
         appctxs = tuple(appctx.copy() for _ in problems)
 
-      
         if matfree or pmatfree:
             # We will want the newton state for some preconditioners
             for c, x in zip(appctxs, self._xs):
@@ -145,7 +142,7 @@ class _SNESContext(object):
         self._jacs = tuple(assemble(J, bcs=problem.bcs,
                                     form_compiler_parameters=problem.form_compiler_parameters,
                                     mat_type=mat_type,
-                                    extra_ctx=ctx)
+                                    appctx=ctx)
                            for J, problem, ctx in zip(self.Js, problems, appctxs))
         self.is_mixed = self._jacs[-1].block_shape != (1, 1)
         if problems[-1].Jp is not None:
@@ -154,7 +151,7 @@ class _SNESContext(object):
             self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
                                          form_compiler_parameters=problem.form_compiler_parameters,
                                          mat_type=pmat_type,
-                                         extra_ctx=ctx)
+                                         appctx=ctx)
                                 for Jp, problem, ctx in zip(self.Jps, problems, appctxs))
         else:
             self.Jps = tuple(None for _ in problems)

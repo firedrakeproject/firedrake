@@ -81,27 +81,28 @@ class AssembledPC(PCBase):
     """
     def initialize(self, pc):
         from firedrake.assemble import assemble
+        from firedrake import parameters
 
         _, P = pc.getOperators()
 
         context = P.getPythonContext()
+        prefix = pc.getOptionsPrefix()
 
         # It only makes sense to preconditioner/invert a diagonal
         # block in general.  That's all we're going to allow.
         if not context.on_diag:
             raise ValueError("Only makes sense to invert diagonal block")
 
+        mat_type = PETSc.Options().getString(prefix + "assembled_mat_type", "aij")
         self.P = assemble(context.a, bcs=context.row_bcs,
                           form_compiler_parameters=context.fc_params,
-                          mat_type='aij')
+                          mat_type=mat_type)
         self.P.force_evaluation()
 
         # Transfer nullspace over
         Pmat = self.P.petscmat
         Pmat.setNullSpace(P.getNullSpace())
         Pmat.setTransposeNullSpace(P.getTransposeNullSpace())
-
-        prefix = pc.getOptionsPrefix()
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -141,7 +142,7 @@ class MassInvPC(PCBase):
     by options using the extra options prefix ``Mp_``.
     """
     def initialize(self, pc):
-        from firedrake import TrialFunction, TestFunction, dx, assemble, inner
+        from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
         prefix = pc.getOptionsPrefix()
 
         # we assume P has things stuffed inside of it
@@ -161,7 +162,7 @@ class MassInvPC(PCBase):
         a = inner(u, v)*dx
 
         opts = PETSc.Options()
-        mat_type = opts.getString(prefix+"Mp_mat_type", "")
+        mat_type = opts.getString(prefix+"Mp_mat_type", parameters["default_matrix_type"])
         
         A = assemble(a, form_compiler_parameters=context.fc_params,
                      mat_type=mat_type)
@@ -223,7 +224,7 @@ class PCDPC(PCBase):
     """
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, \
-            assemble, inner, grad, split, Constant
+            assemble, inner, grad, split, Constant, parameters
         prefix = pc.getOptionsPrefix() + "pcd_"
 
         # we assume P has things stuffed inside of it
@@ -250,12 +251,11 @@ class PCDPC(PCBase):
         # These can of course be overridden.
         # only Fp is referred to in update, so that's the only
         # one we stash.
-        Mp_mat_type = opts.getString(prefix+"Mp_mat_type", "")
-        Kp_mat_type = opts.getString(prefix+"Kp_mat_type", "")
+        default = parameters["default_matrix_type"]
+        Mp_mat_type = opts.getString(prefix+"Mp_mat_type", default)
+        Kp_mat_type = opts.getString(prefix+"Kp_mat_type", default)
         self.Fp_mat_type = opts.getString(prefix+"Fp_mat_type", "matfree")
 
-        
-        # FIXME: allow these guys to be matrix-free
         Mp = assemble(mass, form_compiler_parameters=context.fc_params,
                       mat_type=Mp_mat_type)
         Kp = assemble(stiffness, form_compiler_parameters=context.fc_params,
@@ -290,7 +290,6 @@ class PCDPC(PCBase):
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
         self.Re = Re
-        # FIXME, allow assembled matrix here
         self.Fp = assemble(fp, form_compiler_parameters=context.fc_params,
                            mat_type=self.Fp_mat_type)
         self.Fp.force_evaluation()

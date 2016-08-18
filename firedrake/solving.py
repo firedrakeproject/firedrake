@@ -130,6 +130,7 @@ def _solve_varproblem(*args, **kwargs):
         solver_parameters, nullspace, nullspace_T, \
         options_prefix = _extract_args(*args, **kwargs)
 
+    appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
 
@@ -141,7 +142,8 @@ def _solve_varproblem(*args, **kwargs):
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace,
                                             transpose_nullspace=nullspace_T,
-                                            options_prefix=options_prefix)
+                                            options_prefix=options_prefix,
+                                            appctx=appctx)
         solver.solve()
 
     # Solve nonlinear variational problem
@@ -152,13 +154,13 @@ def _solve_varproblem(*args, **kwargs):
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
                                                  form_compiler_parameters=form_compiler_parameters)
-                                                 
 
         # Create solver and call solve
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                                nullspace=nullspace,
                                                transpose_nullspace=nullspace_T,
-                                               options_prefix=options_prefix)
+                                               options_prefix=options_prefix,
+                                               appctx=appctx)
         solver.solve()
 
 
@@ -241,7 +243,7 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace",
-                    "options_prefix"]
+                    "options_prefix", "appctx"]
     for kwarg in kwargs.iterkeys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
