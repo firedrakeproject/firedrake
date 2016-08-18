@@ -81,7 +81,6 @@ class AssembledPC(PCBase):
     """
     def initialize(self, pc):
         from firedrake.assemble import assemble
-        from firedrake import parameters
 
         _, P = pc.getOperators()
 
@@ -163,7 +162,7 @@ class MassInvPC(PCBase):
 
         opts = PETSc.Options()
         mat_type = opts.getString(prefix+"Mp_mat_type", parameters["default_matrix_type"])
-        
+
         A = assemble(a, form_compiler_parameters=context.fc_params,
                      mat_type=mat_type)
         A.force_evaluation()
