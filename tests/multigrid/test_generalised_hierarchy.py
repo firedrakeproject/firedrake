@@ -155,6 +155,74 @@ def test_mixed_fs_hierarchy():
         assert F.function_space()[i].ufl_element().family() == 'Discontinuous Lagrange'
 
 
+@pytest.mark.parametrize("fs_type",
+                         ["standard", "vector", "mixed"])
+def test_generalised_prolong(fs_type):
+
+    refinements_per_level = 2
+
+    L = 2
+
+    MH = MeshHierarchy(UnitSquareMesh(10, 10), L, refinements_per_level=refinements_per_level)
+
+    if fs_type == "standard":
+        FSH = FunctionSpaceHierarchy(MH, 'DG', 0)
+    if fs_type == "vector":
+        FSH = VectorFunctionSpaceHierarchy(MH, 'DG', 0, dim=3)
+    if fs_type == "mixed":
+        fs_1 = FunctionSpaceHierarchy(MH, 'DG', 1)
+        fs_2 = FunctionSpaceHierarchy(MH, 'CG', 1)
+        FSH = MixedFunctionSpaceHierarchy([fs_1, fs_2])
+
+    # check by prolonging to finest level in generalised function hierarchy
+    F_1 = Function(FSH[0]).assign(3)
+    F_2 = Function(FSH[2]).assign(3)
+    G_1 = Function(FSH._full_hierarchy[0]).assign(3)
+    G_2 = Function(FSH._full_hierarchy[4]).assign(3)
+
+    prolong(F_1, F_2)
+    prolong(G_1, G_2)
+
+    assert get_level(F_2.function_space())[1] == 4
+    assert get_level(G_2.function_space())[1] == 4
+
+    assert norm(assemble(F_2 - G_2)) <= 0
+
+
+@pytest.mark.parametrize("fs_type",
+                         ["standard", "vector", "mixed"])
+def test_generalised_inject(fs_type):
+
+    refinements_per_level = 2
+
+    L = 2
+
+    MH = MeshHierarchy(UnitSquareMesh(10, 10), L, refinements_per_level=refinements_per_level)
+
+    if fs_type == "standard":
+        FSH = FunctionSpaceHierarchy(MH, 'DG', 0)
+    if fs_type == "vector":
+        FSH = VectorFunctionSpaceHierarchy(MH, 'DG', 0, dim=3)
+    if fs_type == "mixed":
+        fs_1 = FunctionSpaceHierarchy(MH, 'DG', 1)
+        fs_2 = FunctionSpaceHierarchy(MH, 'CG', 1)
+        FSH = MixedFunctionSpaceHierarchy([fs_1, fs_2])
+
+    # check by injecting to coarsest level in generalised function hierarchy
+    F_1 = Function(FSH[2]).assign(3)
+    F_2 = Function(FSH[0]).assign(3)
+    G_1 = Function(FSH._full_hierarchy[4]).assign(3)
+    G_2 = Function(FSH._full_hierarchy[0]).assign(3)
+
+    inject(F_1, F_2)
+    inject(G_1, G_2)
+
+    assert get_level(F_2.function_space())[1] == 0
+    assert get_level(G_2.function_space())[1] == 0
+
+    assert norm(assemble(G_2 - F_2)) <= 0
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))

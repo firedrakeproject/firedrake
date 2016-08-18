@@ -104,9 +104,9 @@ class BaseHierarchy(object):
 
         :arg level: the coarse level the map should be from.
         """
-        if not 0 <= level < len(self) - 1:
+        if not 0 <= level < len(self._full_hierarchy) - 1:
             raise RuntimeError("Requested coarse level %d outside permissible range [0, %d)" %
-                               (level, len(self) - 1))
+                               (level, len(self._full_hierarchy) - 1))
         try:
             return self._map_cache[level]
         except KeyError:
