@@ -1,3 +1,7 @@
+.. only:: html
+
+  .. contents::
+
 ==================================================================
  Support for matrix-free operator application and preconditioning
 ==================================================================
