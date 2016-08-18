@@ -192,6 +192,17 @@ def test_point_eval_forces_writes():
     assert np.allclose([1.0], f.at((0.3, 0.3)))
 
 
+def test_point_reset_works():
+    m = UnitTriangleMesh()
+    V = FunctionSpace(m, 'DG', 0)
+    f = Function(V)
+
+    assert np.allclose([0.0], f.at((0.3, 0.3)))
+    f.assign(1)
+    m.clear_spatial_index()
+    assert np.allclose([1.0], f.at((0.3, 0.3)))
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
