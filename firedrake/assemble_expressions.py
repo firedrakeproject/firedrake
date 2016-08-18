@@ -4,7 +4,7 @@ import weakref
 import ufl
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero, IntValue
-from ufl.indexing import MultiIndex
+from ufl.core.multiindex import MultiIndex
 from ufl.core.operator import Operator
 from ufl.mathfunctions import MathFunction
 from ufl.core.ufl_type import ufl_type as orig_ufl_type
@@ -297,7 +297,7 @@ class ExpressionSplitter(ReuseTransformer):
             # the indexed coefficient if its position matches the FixedIndex
             # Since we don't split rank-1 function spaces, we have to
             # reconstruct the fixed index expression for those (and only those)
-            if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
+            if isinstance(idx._indices[0], ufl.core.multiindex.FixedIndex):
                 if idx._indices[0]._value != i:
                     return self._identity
                 elif coeff.function_space().rank == 1:

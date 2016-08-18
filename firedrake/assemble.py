@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 import numpy
 import ufl
+from collections import defaultdict
 
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
@@ -224,6 +225,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     m.init()
     subdomain_data = subdomain_data[m]
 
+    # These will be used to correctly interpret the "otherwise"
+    # subdomain
+    all_integer_subdomain_ids = defaultdict(list)
+    for k in kernels:
+        if k.kinfo.subdomain_id != "otherwise":
+            all_integer_subdomain_ids[k.kinfo.integral_type].append(k.kinfo.subdomain_id)
+    for k, v in all_integer_subdomain_ids.items():
+        all_integer_subdomain_ids[k] = tuple(sorted(v))
+
     # Since applying boundary conditions to a matrix changes the
     # initial assembly, to support:
     #     A = assemble(a)
@@ -275,8 +285,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             extra_args = []
             # Decoration for applying to matrix maps in extruded case
             decoration = None
+            itspace = m.measure_set(integral_type, subdomain_id,
+                                    all_integer_subdomain_ids)
             if integral_type == "cell":
-                itspace = sdata or m.cell_subset(subdomain_id)
+                itspace = sdata or itspace
 
                 if subdomain_id not in ["otherwise", "everywhere"] and \
                    sdata is not None:
@@ -286,7 +298,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     return x.cell_node_map(bcs)
 
             elif integral_type in ("exterior_facet", "exterior_facet_vert"):
-                itspace = m.exterior_facets.measure_set(integral_type, subdomain_id)
                 extra_args.append(m.exterior_facets.local_facet_dat(op2.READ))
 
                 def get_map(x, bcs=None, decoration=None):
@@ -296,9 +307,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 # In the case of extruded meshes with horizontal facet integrals, two
                 # parallel loops will (potentially) get created and called based on the
                 # domain id: interior horizontal, bottom or top.
-                index, itspace = m.exterior_facets.measure_set(integral_type, subdomain_id)
-                decoration = index
-                kwargs["iterate"] = index
+                decoration = {"exterior_facet_top": op2.ON_TOP,
+                              "exterior_facet_bottom": op2.ON_BOTTOM}[integral_type]
+                kwargs["iterate"] = decoration
 
                 def get_map(x, bcs=None, decoration=None):
                     map_ = x.cell_node_map(bcs)
@@ -307,16 +318,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     return map_
 
             elif integral_type in ("interior_facet", "interior_facet_vert"):
-                itspace = m.interior_facets.set
                 extra_args.append(m.interior_facets.local_facet_dat(op2.READ))
 
                 def get_map(x, bcs=None, decoration=None):
                     return x.interior_facet_node_map(bcs)
 
             elif integral_type == "interior_facet_horiz":
-                itspace = m.interior_facets.measure_set(integral_type, subdomain_id)
                 decoration = op2.ON_INTERIOR_FACETS
-                kwargs["iterate"] = op2.ON_INTERIOR_FACETS
+                kwargs["iterate"] = decoration
 
                 def get_map(x, bcs=None, decoration=None):
                     map_ = x.cell_node_map(bcs)

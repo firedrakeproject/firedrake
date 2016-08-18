@@ -5,6 +5,7 @@ import subprocess
 import sys
 import os
 import shutil
+from glob import glob
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 from distutils import dir_util
@@ -34,6 +35,11 @@ branches = {}
 travis = "TRAVIS" in os.environ
 travis_testing_firedrake = "FIREDRAKE_TRAVIS_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
+
+# More generic hack for drone.io CI
+ci = "CI" in os.environ
+ci_event = os.environ.get("CI_EVENT", None)
+ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 
 if mode == "install":
     # Handle command line arguments.
@@ -66,8 +72,10 @@ honoured.""",
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
     parser.add_argument("--adjoint", action='store_true',
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slope", action='store_true',
+                        help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true",
-                        help="Install SLEPc along with PETSc")
+                        help="Install SLEPc along with PETSc.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--disable-ssh", "--disable_ssh", action="store_true",
@@ -110,6 +118,8 @@ else:
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
     parser.add_argument("--adjoint", action='store_true', dest="install_adjoint",
                         help="Also install firedrake-adjoint.")
+    parser.add_argument("--slope", action='store_true', dest="install_slope",
+                        help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true", dest="install_slepc",
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--honour-petsc-dir", action="store_true",
@@ -131,10 +141,24 @@ else:
     args.show_petsc_configure_options = False
     args.adjoint = False
     args.adjoint = args.adjoint or args.install_adjoint
+    args.slope = False
+    args.slope = args.slope or args.install_slope
     args.slepc = False
     args.slepc = args.slepc or args.install_slepc
     args.virtualenv_name = False
     args.virtualenv_name = args.virtualenv_name or "firedrake"
+
+class directory(object):
+    """Context manager that executes body in a given directory"""
+    def __init__(self, dir):
+        self.dir = dir
+
+    def __enter__(self):
+        self.olddir = os.path.abspath(os.getcwd())
+        os.chdir(self.dir)
+
+    def __exit__(self, *args):
+        os.chdir(self.olddir)
 
 
 # Where are packages installed relative to --root?
@@ -274,7 +298,6 @@ def git_url(plain_url, protocol):
     else:
         raise ValueError("Unknown git protocol: %s" % protocol)
 
-
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
@@ -286,17 +309,36 @@ def git_clone(url):
     try:
         if args.disable_ssh:
             raise Exception
-        check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "ssh")])
-        log.info("Successfully cloned %s branch %s." % (name, branch))
+        check_call(["git", "clone", "-q", git_url(plain_url, "ssh")])
+        log.info("Successfully cloned repository %s" % name)
     except:
         if not args.disable_ssh:
             log.warn("Failed to clone %s using ssh, falling back to https." % name)
         try:
-            check_call(["git", "clone", "-q", "-b", branch, git_url(plain_url, "https")])
-            log.info("Successfully cloned %s branch %s." % (name, branch))
+            check_call(["git", "clone", "-q", git_url(plain_url, "https")])
+            log.info("Successfully cloned repository %s." % name)
         except subprocess.CalledProcessError:
             log.error("Failed to clone %s branch %s." % (name, branch))
             raise
+    with directory(name):
+        if name == "firedrake" and ci and ci_testing_firedrake and ci_event == "pull_request":
+            try:
+                ci_pull_request = os.environ["CI_PULL_REQUEST"]
+                log.info("Checking out pull request %s" % ci_pull_request)
+                check_call(["git", "fetch", "origin", "pull/" + ci_pull_request + "/merge"])
+                check_call(["git", "checkout", "FETCH_HEAD"])
+                log.info("Successfully checked out pull request %s" % ci_pull_request)
+            except subprocess.CalledProcessError:
+                log.error("Failed to check out pull request %s" % ci_pull_request)
+                raise
+        else:
+            try:
+                log.info("Checking out branch %s" % branch)
+                check_call(["git", "checkout", "-q", branch])
+                log.info("Successfully checked out branch %s" % branch)
+            except subprocess.CalledProcessError:
+                log.error("Failed to check out branch %s" % branch)
+                raise
     return name
 
 
@@ -382,18 +424,6 @@ def pip_requirements(package):
 if travis:
     # Only enabled in travis mode
     # Utilise travis directory caching for petsc/petsc4py dependencies
-    class directory(object):
-        """Context manager that executes body in a given directory"""
-        def __init__(self, dir):
-            self.dir = dir
-
-        def __enter__(self):
-            self.olddir = os.path.abspath(os.getcwd())
-            os.chdir(self.dir)
-
-        def __exit__(self, *args):
-            os.chdir(self.olddir)
-
     def get_src_hash(dir):
         with directory(dir):
             try:
@@ -511,7 +541,7 @@ def clean(package):
 def get_h5py():
     log.info("Downloading h5py\n")
     import urllib
-    urllib.urlretrieve("https://github.com/h5py/h5py/archive/2.5.0.tar.gz",
+    urllib.urlretrieve("https://codeload.github.com/h5py/h5py/tar.gz/2.5.0",
                        "h5py.tar.gz")
     run_cmd(["tar", "-zxvf", "h5py.tar.gz"])
 
@@ -683,6 +713,31 @@ def build_and_install_adjoint():
     install("dolfin-adjoint/")
 
 
+def build_and_install_slope():
+    log.info("Installing SLOPE\n")
+    if os.path.exists("SLOPE"):
+        slope_changed = git_update("SLOPE")
+    else:
+        git_clone("git+https://github.com/coneoproject/SLOPE.git")
+        slope_changed = True
+
+    if slope_changed:
+        os.chdir("SLOPE")
+        # Clean source directory
+        check_call(["git", "reset", "--hard"])
+        check_call(["git", "clean", "-f", "-x", "-d"])
+        # Build and install (hack: need to do this manually as SLOPE is
+        # still stupid and doesn't have a proper configure+make+install system)
+        check_call(["make"])
+        check_call(["mv"] + glob(os.path.join('lib', '*')) + [os.path.join(sys.prefix, 'lib')])
+        include_dir = os.path.join(sys.prefix, 'include', 'SLOPE')
+        check_call(["mkdir", "-p", include_dir])
+        check_call(["cp"] + glob(os.path.join('sparsetiling', 'include', '*')) + [include_dir])
+        # Also install the Python interface
+        run_cmd(pyinstall)
+        os.chdir("..")
+
+
 def clean_obsolete_packages():
     dirs = os.listdir(".")
     for package in old_git_packages:
@@ -840,6 +895,101 @@ else:
     log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
 
+def fix_osx_virtualenv_python():
+    """Hack hack hack to convert the virtualenv python into a
+    "framework" build so it can access GUI components on MacOS.
+    """
+    # Mostly taken from
+    # https://github.com/gldnspud/virtualenv-pythonw-osx.
+    # Original license:
+    # Copyright (c) 2008 Matthew Scott and Contributors
+
+    # Permission is hereby granted, free of charge, to any person obtaining
+    # a copy of this software and associated documentation files (the
+    # "Software"), to deal in the Software without restriction, including
+    # without limitation the rights to use, copy, modify, merge, publish,
+    # distribute, sublicense, and/or sell copies of the Software, and to
+    # permit persons to whom the Software is furnished to do so, subject to
+    # the following conditions:
+
+    # The above copyright notice and this permission notice shall be
+    # included in all copies or substantial portions of the Software.
+
+    # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    # EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    # MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    # NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+    # LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+    # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    # WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+    import shutil
+    import platform
+    import tempfile
+    if osname != "Darwin":
+        return
+    new_binary = """
+/*
+ * This wrapper program executes a python executable hidden inside an
+ * application bundle inside the Python framework. This is needed to run
+ * GUI code: some GUI API's don't work unless the program is inside an
+ * application bundle.
+ */
+#include <unistd.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <err.h>
+
+int main(int argc, char **argv) {
+     char **a;
+     a = malloc((argc + 3) * sizeof(char *));
+     memcpy(a + 2, argv, argc * sizeof(char *));
+     a[0] = "/usr/bin/arch";
+     a[1] = sizeof(char *) == 4 ? "-i386" : "-x86_64";
+     a[2] = "%(Python)s";
+     a[argc+2] = NULL;
+     execv("/usr/bin/arch", a);
+     err(1, "execv: %%s", "arch");
+     /* NOTREACHED */
+}
+"""
+    pythonapp = os.path.abspath(os.path.join(".", "Python.app"))
+    dotpython = os.path.abspath(os.path.join(".", ".Python"))
+    dotsrc = os.readlink(dotpython)
+    if os.path.exists(pythonapp):
+        # Already fixed up.
+        log.info("MacOS framework python already exists, not creating")
+        return True
+    if not os.path.exists(dotpython):
+        log.warning("Unable to find .Python, can't build framework python")
+        return False
+    appsrc = os.path.join(os.path.dirname(dotsrc),
+                          "Resources", "Python.app")
+    if not os.path.exists(appsrc):
+        log.warning("Unable to find Python.app, can't build framework python")
+        return False
+    appdest = os.path.abspath(os.path.join(".", "Python.app"))
+    shutil.copytree(appsrc, appdest)
+    log.info("MacOS framework copied from '%s' to '%s'" % (appsrc, appdest))
+    execname = os.path.join(appdest,
+                            "Contents",
+                            "MacOS",
+                            "Python")
+    check_call(["install_name_tool", "-change", dotsrc,
+                dotpython, execname])
+    pyname = "python%s.%s" % platform.python_version_tuple()[:2]
+    for name in [pyname, "pythonw"]:
+        dest = os.path.abspath(os.path.join(".", "bin", name))
+        fd, tmpfile = tempfile.mkstemp(suffix=".c")
+        with os.fdopen(fd, "w") as f:
+            f.write(new_binary % {'Python': execname})
+        log.info("Building trampoline framework python as '%s'" % dest)
+        check_call(["cc", "-Wall", "-Werror", "-arch", platform.machine(),
+                    "-o", dest, tmpfile])
+        os.remove(tmpfile)
+    return True
+
+
 if mode == "install":
     try:
         import virtualenv
@@ -861,6 +1011,9 @@ execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
 os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir(firedrake_env)
+
+framework = fix_osx_virtualenv_python()
+
 if mode == "install":
     os.mkdir("src")
     os.chdir("src")
@@ -1002,6 +1155,8 @@ if args.adjoint:
     build_and_install_adjoint()
 if args.slepc:
     build_and_install_slepc()
+if args.slope:
+    build_and_install_slope()
 
 os.chdir("../..")
 
@@ -1014,6 +1169,11 @@ log.info("  . %s/bin/activate\n" % firedrake_env)
 log.info("The virtualenv can be deactivated by running:\n")
 log.info("  deactivate")
 
+if osname == "Darwin" and not framework:
+    log.warning("\n\n")
+    log.warning("It was not possible to create a framework build of python\n")
+    log.warning("You will not be able to use the MacOS backend of matplotlib\n")
+    log.warning("See http://matplotlib.org/faq/virtualenv_faq.html#osx for more details\n")
 
 if travis:
     travis_writer.terminate()

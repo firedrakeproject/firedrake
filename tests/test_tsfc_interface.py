@@ -54,10 +54,6 @@ class TestTSFCCache:
 
     """TSFC code generation cache tests."""
 
-    def test_tsfc_cache_dir_exists(self):
-        """Importing tsfc_interface should create TSFC Kernel cache dir."""
-        assert os.path.exists(tsfc_interface.TSFCKernel._cachedir)
-
     def test_tsfc_cache_persist_on_disk(self, cache_key):
         """TSFCKernel should be persisted on disk."""
         assert os.path.exists(

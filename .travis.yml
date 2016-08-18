@@ -1,11 +1,8 @@
 sudo: false
 notifications:
-  irc:
-    channels: "chat.freenode.net#firedrake"
-    skip_join: true
-    on_success: change
-    on_failure: always
-    template: "%{repository}#%{build_number} (%{branch} - %{commit} : %{author}): %{message} | %{build_url}"
+  slack:
+    secure: OvkwWFNZXlD9CkUZBMdhiMGERlHeImEcWpCUp0vk/Z8pS7iM3PjrWYF7iZtt1La6z9LrQXh15OhI1jn6VN8IzMeZmrJYv3cgAJiCUnRkOu2iQjW6MKsZNl9gccdxfUr7r5wrV3th+48d353T7W2WEd6ADJSeI5jKu37STwIjztM=
+
 # language: python
 language: c
 # We're not Python 2.6 compatible at the moment
@@ -38,6 +35,7 @@ env:
     - CACHE_DIRECTORY=$HOME/cached_dependencies_$TRAVIS_OS_NAME
     - FIREDRAKE_TRAVIS_TESTS=1
     - PACKAGE_MANAGER="--no-package-manager"
+    - SLEPC="--slepc"
   matrix:
     - PYOP2_BACKEND=none
 matrix:
@@ -47,7 +45,7 @@ matrix:
     - os: osx
       # Only test a few things on OSX until we can cache some of the
       # build dependencies, otherwise we often get timeouts.
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE" PACKAGE_MANAGER=""
+      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE" PACKAGE_MANAGER="" SLEPC=""
     - os: linux
       env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
     - os: linux
@@ -57,7 +55,7 @@ matrix:
     - os: linux
       env: OMP_NUM_THREADS=2 PYOP2_BACKEND=openmp PYOP2_TESTS="extrusion output multigrid benchmarks" TEST_ADJOINT="TRUE"
 before_install:
-  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; fi
+  - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ; brew upgrade libtool; fi
   - pip install -U --user pip
   - pip install -U --user virtualenv
   # Fail fast on lint errors
@@ -68,7 +66,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint ${PACKAGE_MANAGER}
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope ${PACKAGE_MANAGER}
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update

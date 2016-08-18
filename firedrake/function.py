@@ -8,9 +8,9 @@ from ctypes import POINTER, c_int, c_double, c_void_p
 import coffee.base as ast
 
 from pyop2 import op2
-from pyop2.logger import warning
 
 from firedrake import functionspaceimpl
+from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
 try:
@@ -48,7 +48,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.Dat` or
+            :class:`~.Vector`) providing initial values (optional).
+            This :class:`Function` will share data with the provided
+            value.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``valuetype``).
@@ -66,7 +69,10 @@ class CoordinatelessFunction(ufl.Coefficient):
         self._label = "a function"
         self._split = None
 
-        if isinstance(val, (op2.Dat, op2.DatView)):
+        if isinstance(val, vector.Vector):
+            # Allow constructing using a vector.
+            val = val.dat
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat)):
             assert val.comm == self.comm
             self.dat = val
         else:
@@ -76,6 +82,22 @@ class CoordinatelessFunction(ufl.Coefficient):
     def topological(self):
         """The underlying coordinateless function."""
         return self
+
+    def copy(self, deepcopy=False):
+        """Return a copy of this CoordinatelessFunction.
+
+        :kwarg deepcopy: If ``True``, the new
+            :class:`CoordinatelessFunction` will allocate new space
+            and copy values.  If ``False``, the default, then the new
+            :class:`CoordinatelessFunction` will share the dof values.
+        """
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(self.function_space(),
+                          val=val, name=self.name(),
+                          dtype=self.dat.dtype)
 
     def ufl_id(self):
         return self.uid
@@ -238,6 +260,17 @@ class Function(ufl.Coefficient):
         """The underlying coordinateless function."""
         return self._data
 
+    def copy(self, deepcopy=False):
+        """Return a copy of this Function.
+
+        :kwarg deepcopy: If ``True``, the new :class:`Function` will
+            allocate new space and copy values.  If ``False``, the
+            default, then the new :class:`Function` will share the dof
+            values.
+        """
+        val = self.topological.copy(deepcopy=deepcopy)
+        return type(self)(self.function_space(), val=val)
+
     def __getattr__(self, name):
         return getattr(self._data, name)
 
@@ -394,7 +427,7 @@ class Function(ufl.Coefficient):
         return self
 
     @utils.cached_property
-    def _ctypes(self):
+    def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
         mesh = function_space.mesh()
@@ -412,6 +445,12 @@ class Function(ufl.Coefficient):
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
         c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        return c_function
+
+    @property
+    def _ctypes(self):
+        mesh = self.ufl_domain()
+        c_function = self._constant_ctypes
         c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
 
         # Return pointer
@@ -432,6 +471,8 @@ class Function(ufl.Coefficient):
 
     def at(self, arg, *args, **kwargs):
         """Evaluate function at points."""
+        # Need to ensure data is up-to-date for reading
+        self.dat._force_evaluation(read=True, write=False)
         from mpi4py import MPI
 
         if args:

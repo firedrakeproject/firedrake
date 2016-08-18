@@ -661,6 +661,7 @@ def mark_entity_classes(PETSc.DM plex):
             if vStart <= closure[2*ci] < vEnd:
                 vertices[vi] = closure[2*ci]
                 vi += 1
+        v_per_cell = vi
 
         # Mark all cells in the star of each vertex
         for vi in range(v_per_cell):

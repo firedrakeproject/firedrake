@@ -795,7 +795,7 @@ class ProxyFunctionSpace(FunctionSpace):
         :raises ValueError: if :attr:`no_dats` is ``True``.
         """
         if self.no_dats:
-            raise ValueError("Can't build Function on %s function space" % self.typ)
+            raise ValueError("Can't build Function on %s function space" % self.identifier)
         return super(ProxyFunctionSpace, self).make_dat(*args, **kwargs)
 
 
@@ -839,5 +839,4 @@ def ComponentFunctionSpace(parent, component):
     new.identifier = "component"
     new.component = component
     new.parent = parent
-    new.no_dats = True
     return new

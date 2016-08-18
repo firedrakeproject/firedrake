@@ -9,7 +9,6 @@ from collections import defaultdict
 
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
-from pyop2.logger import info_red
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
 
@@ -19,6 +18,7 @@ import firedrake.dmplex as dmplex
 import firedrake.extrusion_utils as eutils
 import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
+from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
@@ -80,11 +80,6 @@ class _Facets(object):
         return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind),
                        comm=self.mesh.comm)
 
-    @property
-    def bottom_set(self):
-        '''Returns the bottom row of cells.'''
-        return self.mesh.cell_set
-
     @utils.cached_property
     def _null_subset(self):
         '''Empty subset for the case in which there are no facets with
@@ -93,30 +88,57 @@ class _Facets(object):
 
         return op2.Subset(self.set, [])
 
-    def measure_set(self, integral_type, subdomain_id):
-        '''Return the iteration set appropriate to measure. This will
-        either be for all the interior or exterior (as appropriate)
-        facets, or for a particular numbered subdomain.'''
+    def measure_set(self, integral_type, subdomain_id,
+                    all_integer_subdomain_ids=None):
+        """Return an iteration set appropriate for the requested integral type.
 
-        # ufl.Measure doesn't have enums for these any more :(
-        # FIXME: This is WRONG in the case of 1*(ds + ds(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
-            if integral_type == "exterior_facet_bottom":
-                return (op2.ON_BOTTOM, self.bottom_set)
-            elif integral_type == "exterior_facet_top":
-                return (op2.ON_TOP, self.bottom_set)
-            elif integral_type == "interior_facet_horiz":
-                return self.bottom_set
-            else:
+        :arg integral_type: The type of the integral (should be a facet measure).
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
+        if integral_type in ("exterior_facet_bottom",
+                             "exterior_facet_top",
+                             "interior_facet_horiz"):
+            # these iterate over the base cell set
+            return self.mesh.cell_subset(subdomain_id, all_integer_subdomain_ids)
+        elif not (integral_type.startswith("exterior_") or
+                  integral_type.startswith("interior_")):
+            raise ValueError("Don't know how to construct measure for '%s'" % integral_type)
+        if subdomain_id == "everywhere":
+            return self.set
+        if subdomain_id == "otherwise":
+            if all_integer_subdomain_ids is None:
                 return self.set
+            key = ("otherwise", ) + all_integer_subdomain_ids
+            try:
+                return self._subsets[key]
+            except KeyError:
+                ids = [np.where(self.markers == sid)[0]
+                       for sid in all_integer_subdomain_ids]
+                to_remove = np.unique(np.concatenate(ids))
+                indices = np.arange(self.set.total_size, dtype=np.int32)
+                indices = np.delete(indices, to_remove)
+                return self._subsets.setdefault(key, op2.Subset(self.set, indices))
         else:
             return self.subset(subdomain_id)
 
     def subset(self, markers):
         """Return the subset corresponding to a given marker value.
 
-        :param markers: integer marker id or an iterable of marker ids"""
+        :param markers: integer marker id or an iterable of marker ids
+            (or ``None``, for an empty subset).
+        """
         if self.markers is None:
             return self._null_subset
         markers = as_tuple(markers, int)
@@ -124,18 +146,15 @@ class _Facets(object):
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            for marker in markers:
-                if marker not in self.unique_markers:
-                    raise LookupError(
-                        '{0} is not a valid marker'.
-                        format(marker))
+            if len(set(markers).difference(self.unique_markers)) > 0:
+                invalid = set(markers).difference(self.unique_markers)
+                raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
 
             # build a list of indices corresponding to the subsets selected by
             # markers
             indices = np.concatenate([np.nonzero(self.markers == i)[0]
                                       for i in markers])
-            self._subsets[markers] = op2.Subset(self.set, indices)
-            return self._subsets[markers]
+            return self._subsets.setdefault(markers, op2.Subset(self.set, indices))
 
     @utils.cached_property
     def local_facet_dat(self):
@@ -148,7 +167,7 @@ class _Facets(object):
     @utils.cached_property
     def facet_cell_map(self):
         """Map from facets to cells."""
-        return op2.Map(self.set, self.bottom_set, self._rank, self.facet_cell,
+        return op2.Map(self.set, self.mesh.cell_set, self._rank, self.facet_cell,
                        "facet_to_cell_map")
 
 
@@ -617,20 +636,82 @@ class MeshTopology(object):
         size = list(self._entity_classes[self.cell_dimension(), :])
         return op2.Set(size, "%s_cells" % self.name, comm=self.comm)
 
-    def cell_subset(self, subdomain_id):
-        """Return a subset over cells with the given subdomain_id."""
-        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
+    def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
+        """Return a subset over cells with the given subdomain_id.
+
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
+        if subdomain_id == "everywhere":
             return self.cell_set
+        if subdomain_id == "otherwise":
+            if all_integer_subdomain_ids is None:
+                return self.cell_set
+            key = ("otherwise", ) + all_integer_subdomain_ids
+        else:
+            key = subdomain_id
         try:
-            return self._subsets[subdomain_id]
+            return self._subsets[key]
         except KeyError:
-            indices = dmplex.get_cell_markers(self._plex,
-                                              self._cell_numbering,
-                                              subdomain_id)
-            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
-            return self._subsets[subdomain_id]
+            if subdomain_id == "otherwise":
+                ids = tuple(dmplex.get_cell_markers(self._plex,
+                                                    self._cell_numbering,
+                                                    sid)
+                            for sid in all_integer_subdomain_ids)
+                to_remove = np.unique(np.concatenate(ids))
+                indices = np.arange(self.cell_set.total_size, dtype=np.int32)
+                indices = np.delete(indices, to_remove)
+            else:
+                indices = dmplex.get_cell_markers(self._plex,
+                                                  self._cell_numbering,
+                                                  subdomain_id)
+            return self._subsets.setdefault(key, op2.Subset(self.cell_set, indices))
+
+    def measure_set(self, integral_type, subdomain_id,
+                    all_integer_subdomain_ids=None):
+        """Return an iteration set appropriate for the requested integral type.
+
+        :arg integral_type: The type of the integral (should be a valid UFL measure).
+        :arg subdomain_id: The subdomain of the mesh to iterate over.
+             Either an integer, an iterable of integers or the special
+             subdomains ``"everywhere"`` or ``"otherwise"``.
+        :arg all_integer_subdomain_ids: Information to interpret the
+             ``"otherwise"`` subdomain.  ``"otherwise"`` means all
+             entities not explicitly enumerated by the integer
+             subdomains provided here.  For example, if
+             all_integer_subdomain_ids is empty, then ``"otherwise" ==
+             "everywhere"``.  If it contains ``(1, 2)``, then
+             ``"otherwise"`` is all entities except those marked by
+             subdomains 1 and 2.  This should be a dict mapping
+             ``integral_type`` to the explicitly enumerated subdomain ids.
+
+         :returns: A :class:`pyop2.Subset` for iteration.
+        """
+        if all_integer_subdomain_ids is not None:
+            all_integer_subdomain_ids = all_integer_subdomain_ids.get(integral_type, None)
+        if integral_type == "cell":
+            return self.cell_subset(subdomain_id, all_integer_subdomain_ids)
+        elif integral_type in ("exterior_facet", "exterior_facet_vert",
+                               "exterior_facet_top", "exterior_facet_bottom"):
+            return self.exterior_facets.measure_set(integral_type, subdomain_id,
+                                                    all_integer_subdomain_ids)
+        elif integral_type in ("interior_facet", "interior_facet_vert",
+                               "interior_facet_horiz"):
+            return self.interior_facets.measure_set(integral_type, subdomain_id,
+                                                    all_integer_subdomain_ids)
+        else:
+            raise ValueError("Unknown integral type '%s'" % integral_type)
 
 
 class ExtrudedMeshTopology(MeshTopology):
@@ -662,6 +743,7 @@ class ExtrudedMeshTopology(MeshTopology):
         # of responsibilities between mesh and function space.
         self._plex = mesh._plex
         self._plex_renumbering = mesh._plex_renumbering
+        self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
 
@@ -676,22 +758,6 @@ class ExtrudedMeshTopology(MeshTopology):
         Each row contains ordered cell entities for a cell, one row per cell.
         """
         return self._base_mesh.cell_closure
-
-    def cell_subset(self, subdomain_id):
-        """Return a subset over cells with the given subdomain_id."""
-        # FIXME: This is WRONG in the case of 1*(dx + dx(1))
-        # "otherwise" is "everywhere" - set(explicit subdomain ids)
-        if subdomain_id in ["everywhere", "otherwise"]:
-            return self.cell_set
-        try:
-            return self._subsets[subdomain_id]
-        except KeyError:
-            base = self._base_mesh
-            indices = dmplex.get_cell_markers(base._plex,
-                                              base._cell_numbering,
-                                              subdomain_id)
-            self._subsets[subdomain_id] = op2.Subset(self.cell_set, indices)
-            return self._subsets[subdomain_id]
 
     @utils.cached_property
     def exterior_facets(self):
@@ -869,6 +935,16 @@ object whose coordinates are f's values.  (This will not copy the
 values from f.)"""
 
         raise AttributeError(message)
+
+    def clear_spatial_index(self):
+        """Reset the :attr:`spatial_index` on this mesh geometry.
+
+        Use this if you move the mesh (for example by reassigning to
+        the coordinate field)."""
+        try:
+            del self.spatial_index
+        except AttributeError:
+            pass
 
     @utils.cached_property
     def spatial_index(self):

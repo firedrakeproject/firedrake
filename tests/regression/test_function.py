@@ -123,6 +123,33 @@ def test_function_name(V):
     f.rename(name="bar", label="baz")
     assert f.name() == "bar" and f.label() == "baz"
 
+
+def test_copy(V):
+    f = Function(V, name="foo")
+    f.assign(1)
+    g = f.copy(deepcopy=True)
+
+    assert f.name() == "foo"
+    assert g.name() == "foo"
+
+    assert np.allclose(f.dat.data_ro, 1.0)
+    assert np.allclose(g.dat.data_ro, 1.0)
+
+    g.assign(2)
+    assert np.allclose(g.dat.data_ro, 2.0)
+    assert np.allclose(f.dat.data_ro, 1.0)
+
+    h = f.copy()
+
+    assert np.allclose(h.dat.data_ro, 1.0)
+
+    h.assign(3.0)
+    assert np.allclose(h.dat.data_ro, 3.0)
+    assert np.allclose(f.dat.data_ro, 3.0)
+
+    assert h.name() == "foo"
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
