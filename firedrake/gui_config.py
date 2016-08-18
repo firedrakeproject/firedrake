@@ -113,25 +113,12 @@ def show_config_gui(parameters):
                 variable_dict[key] = {}
                 generate_input(parameters[key], subframe, variable_dict[key])
             else:
+                from firedrake.parameters import BoolType, OrType, StrType
                 label_key = Label(labelframe, text=key)
                 label_key.grid(column=1, row=row_count, sticky=(W))
                 variable_dict[key] = StringVar()
                 variable_dict[key].set(str(parameters[key]))
-                if type(parameters[key]) is not bool:
-                    if type(parameters[key]) is str and \
-                            parameters.get_key(key).type.options != []:
-                        drop_list = OptionMenu(labelframe, variable_dict[key],
-                                               parameters[key],
-                                               *parameters.get_key(key)
-                                               .type.options)
-                        drop_list.grid(column=2, columnspan=2, row=row_count,
-                                       sticky=(E))
-                    else:
-                        label_val = Entry(labelframe,
-                                          textvariable=variable_dict[key])
-                        label_val.grid(column=2, columnspan=2,
-                                       row=row_count, sticky=(E))
-                else:
+                if isinstance(parameters.get_key(key).type, BoolType):
                     button_true = Radiobutton(labelframe, text='True',
                                               variable=variable_dict[key],
                                               value="True")
@@ -140,6 +127,22 @@ def show_config_gui(parameters):
                                                variable=variable_dict[key],
                                                value="False")
                     button_false.grid(column=3, row=row_count, sticky=(E))
+                elif isinstance(parameters.get_key(key).type, StrType) \
+                        and parameters.get_key(key).type.options != []:
+                    drop_list = OptionMenu(labelframe, variable_dict[key],
+                                           parameters[key],
+                                           *parameters.get_key(key)
+                                           .type.options)
+                    drop_list.grid(column=2, columnspan=2, row=row_count,
+                                   sticky=(E))
+                elif isinstance(parameters.get_key(key).type, OrType):
+                    # FIXME: Implement this
+                    pass
+                else:
+                    label_val = Entry(labelframe,
+                                      textvariable=variable_dict[key])
+                    label_val.grid(column=2, columnspan=2,
+                                   row=row_count, sticky=(E))
 
                 def help_box(key):
                     def click():
