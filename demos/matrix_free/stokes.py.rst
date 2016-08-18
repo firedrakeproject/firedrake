@@ -10,7 +10,7 @@ As ever, we import firedrake and define a mesh.::
 
   from firedrake import *
 
-  N = 128
+  N = 64
 
   M = UnitSquareMesh(N, N)
 
@@ -51,11 +51,17 @@ the case that it is not, to do this we must import ``PETSc``::
 To factor the matrix from this mixed system, we must specify
 a ``mat_type`` of ``aij`` to the solve call.::
 
-  solve(a == L, up, bcs=bcs, nullspace=nullspace,
-        solver_parameters={"ksp_type": "gmres",
-                           "mat_type": "aij",
-                           "pc_type": "lu",
-                           "pc_factor_mat_solver_package": "mumps"})
+  try:
+      solve(a == L, up, bcs=bcs, nullspace=nullspace,
+            solver_parameters={"ksp_type": "gmres",
+                               "mat_type": "aij",
+                               "pc_type": "lu",
+                               "pc_factor_mat_solver_package": "mumps"})
+  except PETSc.Error as e:
+      if e.ierr == 92:
+          warning("MUMPS not installed, skipping direct solve")
+      else:
+          raise e
 
 Now we'll use a Schur complement preconditioner using unassembled
 matrices.  We can do all over this purely by changing the solver
@@ -133,7 +139,7 @@ modify them slightly. ::
 
 With an unassembled matrix, of course, we are not able to use standard
 preconditioners, so for this example, we will just invert the mass
-matrix using unpreconditioner conjugate gradients. ::
+matrix using unpreconditioned conjugate gradients. ::
 
   parameters["fieldsplit_1_Mp_ksp_type"] = "cg"
   parameters["fieldsplit_1_Mp_pc_type"] = "none"
