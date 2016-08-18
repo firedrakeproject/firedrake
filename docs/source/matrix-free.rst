@@ -15,7 +15,7 @@ construction of a sparse matrix ("aij" format) followed by traditional
 CSR algorithms.
 
 There are two ways of accessing this functionality.  One can either
-request a matrix-free operator by passing ``matfree=True`` to
+request a matrix-free operator by passing ``mat_type="matfree"`` to
 :func:`.assemble`.  In this case, the returned object is a
 :class:`.ImplicitMatrix`.  This object can be used in the normal way
 with a :class:`.LinearSolver`.  Alternately, when solving a

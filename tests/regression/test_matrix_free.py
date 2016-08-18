@@ -109,7 +109,7 @@ def test_matrixfree_action(a, V, bcs):
         bcs = None
     A = assemble(a, bcs=bcs)
     A.force_evaluation()
-    Amf = assemble(a, matfree=True, bcs=bcs)
+    Amf = assemble(a, mat_type="matfree", bcs=bcs)
     Amf.force_evaluation()
 
     with f.dat.vec_ro as x:
@@ -179,7 +179,7 @@ def test_fieldsplitting(mesh, preassembled, parameters):
     f = Function(W)
 
     if preassembled:
-        A = assemble(a, matfree=True)
+        A = assemble(a, mat_type="matfree")
         b = assemble(L)
         solve(A, f, b, solver_parameters=parameters)
     else:
