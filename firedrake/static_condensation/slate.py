@@ -33,6 +33,8 @@ import functools
 import sys
 
 import firedrake
+from firedrake.tsfc_interface import SplitKernel, KernelInfo
+
 from ufl.form import Form
 from ufl import Coefficient
 from ufl.algorithms.map_integrands import map_integrand_dags
@@ -47,7 +49,7 @@ __all__ = ['AssembledTensor', 'Tensor', 'Scalar', 'Vector',
            'Matrix', 'Inverse', 'Transpose', 'UnaryOp',
            'Negative', 'Positive', 'BinaryOp', 'TensorAdd',
            'TensorSub', 'TensorMul', 'compile_slate_expression',
-           'slate_assemble', 'slate_action']
+           'slate_action']
 
 
 class AssembledTensor(Coefficient):
@@ -84,12 +86,17 @@ class Tensor(Form):
     id_num = 0
 
     def __init__(self, arguments, coefficients, integrals):
+        """Constructor for the Tensor class.
+
+        :arg arguments: list of arguments of the associated form
+        :arg coefficients: list of coefficients of the associated form
+        :arg integrals: tuple of integrals of the associated form
+        """
+
+        super(Tensor, self).__init__(integrals)
         self.id = Tensor.id_num
-        self._arguments = tuple(arguments)
-        self._coefficients = tuple(coefficients)
-        self._integrals = tuple(integrals)
-        self._hash = None
-        self._ufl_domain = self._arguments[0].ufl_domain()
+        self._arguments = arguments
+        self._coefficients = coefficients
         shape = []
         shapes = {}
         for i, arg in enumerate(self._arguments):
@@ -104,9 +111,11 @@ class Tensor(Form):
         self.shape = tuple(shape)
 
     def arguments(self):
+        """Returns the tuple of arguments of the tensor."""
         return self._arguments
 
     def coefficients(self):
+        """Returns the tuple of coefficients of the tensor."""
         return self._coefficients
 
     def __add__(self, other):
@@ -152,28 +161,23 @@ class Tensor(Form):
         assert isinstance(other, Tensor)
         return ops[op](self, other)
 
-    def ufl_domain(self):
-        """Returns the ufl_domain of the tensor
-        object."""
-        return self._ufl_domain
-
-    def tensor_integrals(self):
-        """Return a sequence of all integrals
-        associated with this tensor object."""
-        return self._integrals
-
-    def tensor_integrals_by_type(self, integral_type):
-        """Return a sequence of integrals of the
-        associated form of the tensor with all
-        particular domain types."""
-        return tuple(integral for integral in self.tensor_integrals()
-                     if integral.integral_type() == integral_type)
+#    def tensor_integrals(self):
+#        """Return a sequence of all integrals
+#        associated with this tensor object."""
+#        return self._integrals
+#
+#    def tensor_integrals_by_type(self, integral_type):
+#        """Return a sequence of integrals of the
+#        associated form of the tensor with all
+#        particular domain types."""
+#        return tuple(integral for integral in self.tensor_integrals()
+#                     if integral.integral_type() == integral_type)
 
     def __hash__(self):
         """Hash code for use in dictionary objects."""
         if self._hash is None:
             self._hash = hash((type(self), )
-                              + tuple(hash(i) for i in self.tensor_integrals()))
+                              + tuple(hash(i) for i in self.integrals()))
         return self._hash
 
 
@@ -184,10 +188,7 @@ class Scalar(Tensor):
     __front__ = ('rank', 'form')
 
     def __init__(self, form):
-        r = len(form.arguments())
-        assert r == 0
-        self.rank = r
-        self.check_integrals(form.integrals())
+        self.rank = 0
         self.form = form
         Tensor.id_num += 1
         super(Scalar, self).__init__(arguments=(),
@@ -255,11 +256,10 @@ class Inverse(Tensor):
         if (tensor.shape[0] != tensor.shape[1]):
             raise ValueError("Cannot take the inverse of a non-square tensor.")
         self.children = tensor
-        reversedargs = tensor.arguments()[::-1]
         Tensor.id_num += 1
-        super(Inverse, self).__init__(arguments=reversedargs,
-                                      coefficients=tensor.coefficients(),
-                                      integrals=tensor.tensor_integrals())
+        super(Inverse, self).__init__(arguments=get_arguments(tensor)[::-1],
+                                      coefficients=get_coefficients(tensor),
+                                      integrals=get_integrals(tensor))
 
     def __str__(self):
         return "%s.inv" % self.children
@@ -279,11 +279,10 @@ class Transpose(Tensor):
 
     def __init__(self, tensor):
         self.children = tensor
-        reversedargs = tensor.arguments()[::-1]
         Tensor.id_num += 1
-        super(Transpose, self).__init__(arguments=reversedargs,
-                                        coefficients=tensor.coefficients(),
-                                        integrals=tensor.tensor_integrals())
+        super(Transpose, self).__init__(arguments=get_arguments(tensor)[::-1],
+                                        coefficients=get_coefficients(tensor),
+                                        integrals=get_integrals(tensor))
 
     def __str__(self):
         return "%s.T" % self.children
@@ -306,13 +305,14 @@ class UnaryOp(Tensor):
 
     def __init__(self, tensor):
         self.children = tensor
-        args = get_arguments(tensor)
-        coeffs = get_coefficients(tensor)
-        ints = get_integrals(tensor)
         Tensor.id_num += 1
-        super(UnaryOp, self).__init__(arguments=args,
-                                      coefficients=coeffs,
-                                      integrals=ints)
+        super(UnaryOp, self).__init__(arguments=get_arguments(tensor),
+                                      coefficients=get_coefficients(tensor),
+                                      integrals=self.assemble_integrals(tensor))
+
+    @classmethod
+    def assemble_integrals(cls, A):
+        pass
 
     def __str__(self, order_of_operation=None):
         ops = {operator.neg: '-',
@@ -339,6 +339,13 @@ class Negative(UnaryOp):
     order_of_operation = 1
     operation = operator.neg
 
+    @classmethod
+    def assemble_integrals(cls, A):
+        integs = []
+        for it in get_integrals(A):
+            integs.append(-it)
+        return tuple(integs)
+
 
 class Positive(UnaryOp):
     """Class for the positive operation on a tensor."""
@@ -346,6 +353,10 @@ class Positive(UnaryOp):
     # Class variables
     order_of_operation = 1
     operation = operator.pos
+
+    @classmethod
+    def assemble_integrals(cls, A):
+        return get_integrals(A)
 
 
 class BinaryOp(Tensor):
@@ -358,13 +369,10 @@ class BinaryOp(Tensor):
 
     def __init__(self, A, B):
         self.children = A, B
-        args = self.assemble_arguments(A, B)
-        coeffs = self.assemble_coefficients(A, B)
-        integs = self.assemble_integrals(A, B)
         Tensor.id_num += 1
-        super(BinaryOp, self).__init__(arguments=args,
-                                       coefficients=coeffs,
-                                       integrals=integs)
+        super(BinaryOp, self).__init__(arguments=self.assemble_arguments(A, B),
+                                       coefficients=self.assemble_coefficients(A, B),
+                                       integrals=self.assemble_integrals(A, B))
 
     @classmethod
     def assemble_arguments(cls, A, B):
@@ -451,7 +459,7 @@ class TensorSub(BinaryOp):
 
     @classmethod
     def assemble_integrals(cls, A, B):
-        return get_integrals(A) + get_integrals(B)
+        return get_integrals(A) + get_integrals(Negative(B))
 
 
 class TensorMul(BinaryOp):
@@ -471,13 +479,14 @@ class TensorMul(BinaryOp):
             return get_arguments(A)
         argsA = get_arguments(A)
         argsB = get_arguments(B)
+        # Contraction over middle indices: the first and last
+        # arguments must be in the same function space
+        assert argsA[-1].function_space() == argsB[0].function_space()
         return argsA[:-1] + argsB[1:]
 
     @classmethod
     def assemble_integrals(cls, A, B):
-        intsA = get_integrals(A)
-        intsB = get_integrals(B)
-        return intsA[:-1] + intsB[1:]
+        return get_integrals(A) + get_integrals(B)
 
 
 class TransformEigenKernel(Visitor):
@@ -617,7 +626,12 @@ def get_product_arguments(expr):
         return get_arguments(B)
     elif isinstance(B, Scalar):
         return get_arguments(A)
-    return get_arguments(A)[:-1] + get_arguments(B)[1:]
+    argsA = get_arguments(A)
+    argsB = get_arguments(B)
+    # Contraction over middle indices: first and last arguments
+    # of corresponding tensors must be in the same function space.
+    assert argsA[-1].function_space() == argsB[0].function_space()
+    return argsA[:-1] + argsB[1:]
 
 
 @singledispatch
@@ -661,29 +675,28 @@ def get_integrals(expr):
 @get_integrals.register(Vector)
 @get_integrals.register(Matrix)
 def get_tensor_integrals(tensor):
-    return tensor.tensor_integrals()
+    return tensor.integrals()
 
 
 @get_integrals.register(Inverse)
 @get_integrals.register(Transpose)
 @get_integrals.register(UnaryOp)
 def get_uop_integrals(expr):
+    if isinstance(expr, Negative):
+        integs = []
+        for it in get_integrals(expr.children):
+            integs.append(-it)
+        return tuple(integs)
     return get_integrals(expr.children)
 
 
-@get_integrals.register(TensorAdd)
-@get_integrals.register(TensorSub)
+@get_integrals.register(BinaryOp)
 def get_bop_integrals(expr):
     A = expr.children[0]
     B = expr.children[1]
+    if isinstance(expr, TensorSub):
+        return get_integrals(A) + get_integrals(Negative(B))
     return get_integrals(A) + get_integrals(B)
-
-
-@get_integrals.register(TensorMul)
-def get_product_integrals(expr):
-    A = expr.children[0]
-    B = expr.children[1]
-    return get_integrals(A)[:-1] + get_integrals(B)[1:]
 
 
 def compile_slate_expression(slate_expr):
@@ -784,11 +797,12 @@ def compile_slate_expression(slate_expr):
                 if typ in ["interior_facet", "exterior_facet"]:
                     need_cell_facets = True
 
-                # Extracting coordinates
+                coordinates = exp.form.ufl_domain().coordinates
+                # Checking coordinates
                 if coords is not None:
-                    assert exp.ufl_domain().coordinates == coords
+                    assert coordinates == coords
                 else:
-                    coords = exp.ufl_domain().coordinates
+                    coords = coordinates
 
                 # Extracting coefficients
                 for cindex in list(kinfo[4]):
@@ -927,9 +941,13 @@ def compile_slate_expression(slate_expr):
 
     klist = []
     transformkernel = TransformEigenKernel()
+    oriented = False
     for v in kernel_exprs.values():
         for (_, ks) in v:
             for k in ks:
+                oriented = oriented or k.kinfo.oriented
+                # TODO: think about these.
+                assert k.kinfo.subdomain_id == "otherwise"
                 kast = transformkernel.visit(k.kinfo.kernel._ast)
                 klist.append(kast)
 
@@ -945,8 +963,17 @@ def compile_slate_expression(slate_expr):
                                               '#include <iostream>',
                                               '#define restrict'])
 
-    return coords, coeffs, need_cell_facets, op2kernel
+    kinfo = KernelInfo(kernel=op2kernel,
+                       # TODO: Is this always right?
+                       integral_type="cell",
+                       oriented=oriented,
+                       subdomain_id="otherwise",
+                       coefficient_map=range(len(coeffs)),
+                       needs_cell_facets=need_cell_facets)
 
+    idx = tuple([0]*len(slate_expr.arguments()))
+    return coords, coeffs, need_cell_facets, op2kernel
+#    return (SplitKernel(idx, kinfo),)
 
 def slate_assemble(expr, bcs=None, nest=False):
     """Assemble the SLATE expression `expr` and return a Firedrake object
@@ -955,10 +982,8 @@ def slate_assemble(expr, bcs=None, nest=False):
     for rank-2 tensors. The result will be returned as a `tensor` of
     :class:`firedrake.Function` for rank-0 and rank-1 SLATE expressions and
     :class:`firedrake.matrix.Matrix` for rank-2 SLATE expressions.
-
     :arg expr: A SLATE object to assemble.
     :arg bcs: A tuple of :class:`.DirichletBC`\s to be applied.
-
     """
 
     arguments = expr.arguments()
@@ -1018,7 +1043,6 @@ def slate_assemble(expr, bcs=None, nest=False):
     if rank == 2:
         tensor._M.assemble()
     return tensor
-
 
 def slate_action(expr, u):
     assert isinstance(u, Coefficient)

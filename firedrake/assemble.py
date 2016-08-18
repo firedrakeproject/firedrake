@@ -16,6 +16,7 @@ from firedrake import matrix
 from firedrake import parameters
 from firedrake import solving
 from firedrake import utils
+from firedrake.static_condensation import slate
 
 
 __all__ = ["assemble"]
@@ -87,7 +88,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
-    if isinstance(f, ufl.form.Form):
+    if isinstance(f, (ufl.form.Form, slate.Tensor)):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
                          inverse=inverse, mat_type=mat_type,
@@ -178,7 +179,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
-    kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
+    if isinstance(f, slate.Tensor):
+        kernels = slate.compile_slate_expression(f)
+    else:
+        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
     rank = len(f.arguments())
 
     is_mat = rank == 2
@@ -361,10 +365,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             loops.append(zero_tensor)
         else:
             zero_tensor()
-        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map) in kernels:
+        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets) in kernels:
             m = domains[domain_number]
             subdomain_data = f.subdomain_data()[m]
-            # Find argument space indices
             if is_mat:
                 i, j = indices
             elif is_vec:
@@ -472,6 +475,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 c = coefficients[n]
                 for c_ in c.split():
                     args.append(c_.dat(op2.READ, get_map(c_), flatten=True))
+
+            if needs_cell_facets:
+                assert integral_type == "cell"
+                extra_args.append(m.cell_to_facet_map(op2.READ))
 
             args.extend(extra_args)
             try:

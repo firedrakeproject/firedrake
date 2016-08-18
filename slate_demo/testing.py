@@ -47,7 +47,10 @@ thunk = D - firedrake_schur
 A = slate.Matrix(mass1 + mass2 + div - grad)
 K = slate.Matrix(trace)
 schur = -K.T * A.inv * K
-slate_schur = slate.slate_assemble(schur, bcs=[bc])._M.values
+slate_schur = slate.slate_assemble(schur, bcs=[bc])
+print thunk
+print slate_schur._M.values
+print np.allclose(thunk, slate_schur._M.values)
 
 f = Function(DG)
 f.interpolate(Expression("(1+8+pi*pi)*sin(2*pi*x[0])*sin(2*pi*x[1])"))
@@ -55,7 +58,4 @@ L = f*v*dx
 F = slate.Vector(L)
 RHS = K.T*A*F
 assembledRHS = slate.slate_assemble(RHS).dat._data
-print thunk
-print slate_schur
 print assembledRHS
-print np.allclose(thunk, slate_schur)
