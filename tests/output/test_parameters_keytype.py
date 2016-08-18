@@ -184,6 +184,9 @@ def test_float_parse_valid():
     assert float_type.parse("1.0") == 1.0
     assert float_type.parse("0.0") == 0.0
     assert float_type.parse("-1.0") == -1.0
+    assert float_type.parse("1") == 1.0
+    assert float_type.parse("0") == 0.0
+    assert float_type.parse("-1") == -1.0
     assert isnan(float_type.parse("NaN"))
     assert float_type.parse("inf") == float("inf")
     assert float_type.parse("-inf") == float("-inf")
