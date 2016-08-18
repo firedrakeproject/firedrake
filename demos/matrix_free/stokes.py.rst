@@ -123,5 +123,23 @@ file.::
 
   File("stokes.pvd").write(u, p)
 
+By default, the mass matrix is assembled in the :class:`~.MassInvPC`
+preconditioner, however, this can be controlled using a ``mat_type``
+argument.  To do this, we must specify the ``mat_type`` inside the
+preconditioner.  We can use the previous set of parameters and just
+modify them slightly. ::
+
+  parameters["fieldsplit_1_Mp_mat_type"] = "matfree"
+
+With an unassembled matrix, of course, we are not able to use standard
+preconditioners, so for this example, we will just invert the mass
+matrix using unpreconditioner conjugate gradients. ::
+
+  parameters["fieldsplit_1_Mp_ksp_type"] = "cg"
+  parameters["fieldsplit_1_Mp_pc_type"] = "none"
+
+  up.assign(0)
+  solve(a == L, up, bcs=bcs, nullspace=nullspace, solver_parameters=parameters)
+
 A runnable python script implementing this demo file is available
 `here <stokes.py>`__.
