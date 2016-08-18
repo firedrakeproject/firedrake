@@ -230,8 +230,7 @@ And finally show the figure::
   plt.show()
 
 Alternatively, if running in Jupyter Notebook, an interactive interface will be
-displayed by calling `interactive_multiple_plot(all_us)
-<firedrake.plot.interactive_multiple_plot>`.
+displayed by adding the key word argument `interactive=True`
 
 Images of the solution at shown below.
 

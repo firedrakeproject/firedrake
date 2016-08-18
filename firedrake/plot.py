@@ -3,7 +3,7 @@ import numpy as np
 from ufl import Cell
 from firedrake import Function, SpatialCoordinate, FunctionSpace
 
-__all__ = ["plot", "interactive_multiple_plot"]
+__all__ = ["plot"]
 
 
 def _plot_mult(functions, num_points=10, **kwargs):
@@ -20,6 +20,10 @@ def _plot_mult(functions, num_points=10, **kwargs):
         raise RuntimeError("Matplotlib not importable, is it installed?")
     if len(functions) == 0:
         return None
+    interactive = kwargs.pop("interactive", False)
+    if interactive:
+        interactive_multiple_plot(functions, num_points, **kwargs)
+        return
     import os
     from firedrake import __file__ as firedrake__file__
     figure, ax = plt.subplots()
@@ -106,6 +110,8 @@ def plot(function,
         piece-wise linear
     :kwarg auto_resample: For 1D plotting for functions with degree >= 4,
         resample automatically when zoomed
+    :kwarg interactive: For 1D plotting for multiple functions, use an
+        interactive inferface in Jupyter Notebook
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
