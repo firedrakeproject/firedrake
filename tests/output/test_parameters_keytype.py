@@ -381,3 +381,29 @@ def test_str_parse_unicode():
     assert str_type.parse(u"random stuff") == "random stuff"
     assert str_type.parse(u"") == ""
     assert str_type.parse(u"True") == "True"
+
+
+def test_or_type_validate():
+    from firedrake.parameters import OrType, StrType, IntType
+    or_type = OrType(StrType("This"), IntType(1, 1))
+    assert or_type.validate("This")
+    assert or_type.validate(1)
+    assert not or_type.validate("That")
+    assert not or_type.validate("0")
+    assert not or_type.validate("2")
+    assert not or_type.validate(1.0)
+    assert not or_type.validate(float("inf"))
+    assert not or_type.validate(False)
+
+
+def test_or_type_parse():
+    from firedrake.parameters import OrType, StrType, IntType
+    or_type = OrType(StrType("This"), IntType(1, 1))
+    assert or_type.parse("This") == "This"
+    assert or_type.parse(1) == 1
+    assert or_type.parse("That") is None
+    assert or_type.parse("0") is None
+    assert or_type.parse("2") is None
+    assert or_type.parse(1.0) is None
+    assert or_type.parse(float("inf")) is None
+    assert or_type.parse(False) is None
