@@ -802,6 +802,8 @@ class Mat(base.Mat, CopyOnWrite):
                 return _make_object('Arg', data=self.handle.getPythonContext().dat,
                                     map=thispath.map, idx=thispath.idx,
                                     access=access, flatten=flatten)
+            else:
+                raise
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``

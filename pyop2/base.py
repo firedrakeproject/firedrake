@@ -1066,7 +1066,10 @@ class MixedSet(Set, ObjectCached):
         return "MixedSet(%r)" % (self._sets,)
 
     def __eq__(self, other):
-        return self._sets == other._sets
+        try:
+            return self._sets == other._sets
+        except AttributeError:
+            return False
 
 
 class DataSet(ObjectCached):
