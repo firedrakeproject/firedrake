@@ -226,3 +226,6 @@ Finally, we'll output the results for visualisation. ::
   T.rename("Temperature")
 
   File("benard.pvd").write(u, p, T)
+
+A runnable python script implementing this demo file is available
+`here <rayleigh-benard.py>`__.

@@ -135,3 +135,6 @@ And finally we write the results to a file for visualisation. ::
   p.rename("Pressure")
 
   File("cavity.pvd").write(u, p)
+
+A runnable python script implementing this demo file is available
+`here <navier_stokes.py>`__.

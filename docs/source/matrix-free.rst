@@ -95,3 +95,6 @@ Rayleigh-Benard convection.
 
 .. include:: demos/stokes.py.rst
 
+.. include:: demos/navier_stokes.py.rst
+
+.. include:: demos/rayleigh-benard.py.rst
