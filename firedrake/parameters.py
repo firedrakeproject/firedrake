@@ -11,11 +11,12 @@ __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 
 class KeyType(object):
-
+    """Abstract class for types for keys in the parameters"""
     __metaclass__ = abc.ABCMeta
 
     @staticmethod
     def get_type(obj):
+        """Infer the type of the key from a value"""
         if type(obj) is int:
             return IntType()
         elif type(obj) is float:
@@ -37,6 +38,8 @@ class KeyType(object):
 
 
 class NumericType(KeyType):
+    """type for numeric types, allowing numeric values to be bounded. The
+    bounds are inclusive"""
     def __init__(self, lower_bound=None, upper_bound=None):
         self._lower_bound = lower_bound
         self._upper_bound = upper_bound
@@ -52,7 +55,9 @@ class NumericType(KeyType):
 
 
 class IntType(NumericType):
+    """Type for integer values, boundaries allowed"""
     def validate(self, value):
+        # allow int values only
         try:
             if type(value) is str or type(value) is int:
                 return super(IntType, self).validate(int(value))
@@ -72,7 +77,9 @@ class IntType(NumericType):
 
 
 class FloatType(NumericType):
+    """Type for floating point values, boundaries allowed"""
     def validate(self, value):
+        # allow types convertible to floats (int inclusive)
         try:
             return super(FloatType, self).validate(float(value))
         except ValueError:
@@ -89,7 +96,9 @@ class FloatType(NumericType):
 
 
 class BoolType(KeyType):
+    """Type for bools"""
     def validate(self, value):
+        # allow strings of "True" or "False" only if the value is not bool
         return value in ["True", "False"] or type(value) is bool
 
     def parse(self, value):
@@ -104,6 +113,8 @@ class BoolType(KeyType):
 
 
 class StrType(KeyType):
+    """String type. Allow strings to be limited to given options, also allow a
+    user-specified validation function"""
     def __init__(self, *options):
         self._options = [str(x) for x in options]
 
@@ -122,8 +133,10 @@ class StrType(KeyType):
         return self._options
 
     def validate(self, value):
+        # if validation function is set, use it
         if hasattr(self, "_validate_function"):
             return self._validate_function(value)
+        # if options are set, check value is in allowed options
         elif self._options != []:
             return value in self._options
         else:
@@ -140,10 +153,12 @@ class StrType(KeyType):
 
 
 class InstanceType(KeyType):
+    """Type for instances"""
     def __init__(self, obj):
         self._class = obj.__class__
 
     def validate(self, value):
+        # allow superclasses
         return issubclass(self._class, value.__class__)
 
     def parse(self, value):
@@ -151,6 +166,7 @@ class InstanceType(KeyType):
 
 
 class UnsetType(KeyType):
+    """type for unset values. Parse method will not return anything"""
     def validate(self, value):
         return True
 
@@ -159,6 +175,7 @@ class UnsetType(KeyType):
 
 
 class OrType(KeyType):
+    """Type for combinations of types"""
     def __init__(self, *types):
         self._types = list(types)
         self._curr_type = None
@@ -166,6 +183,9 @@ class OrType(KeyType):
             raise TypeError("Parameters must be instances of KeyType")
 
     def validate(self, value):
+        # if current type is set, validate value for current type
+        # otherwise, try to validate current value according to the order
+        # of type options in the order as given
         if self._curr_type is None:
             for type in self._types:
                 if type.validate(value):
@@ -197,6 +217,7 @@ class OrType(KeyType):
 
 
 class ListType(KeyType):
+    """Type for lists, allows single type in the list only"""
     def __init__(self, elem_type, min_len=None, max_len=None):
         self._elem_type = elem_type
         self._min_len = min_len
@@ -225,7 +246,8 @@ class ListType(KeyType):
 
 
 class TypedKey(str):
-
+    """A class for parameter keys with additional metadata including help
+    text and type data"""
     def __new__(self, key, val_type=None):
         return super(TypedKey, self).__new__(self, key)
 
@@ -321,6 +343,7 @@ class Parameters(dict):
 
 
 def fill_metadata(parameters):
+    """Add metadata for firedrake parameters"""
     # Assembly Cache
     parameters["assembly_cache"].get_key("enabled").help = \
         """A boolean value used to disable the assembly cache if required."""
