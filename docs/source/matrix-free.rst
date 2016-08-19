@@ -21,7 +21,9 @@ request a matrix-free operator by passing ``mat_type="matfree"`` to
 with a :class:`.LinearSolver`.  Alternately, when solving a
 variational problem, an :class:`.ImplicitMatrix` is requested through
 the ``solver_parameters`` dict, by setting the option ``mat_type`` to
-``matfree``.
+``matfree``.  The type of the preconditioning matrix can be controlled
+separately (if a separate preconditioning form is provided) by setting
+``pmat_type``.
 
 Generically, one can expect such a matrix to be cheaper to "assemble"
 and to use less memory, especially for high-order
