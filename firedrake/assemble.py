@@ -20,7 +20,7 @@ __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, mat_type=None, appctx={}):
+             inverse=False, mat_type=None, appctx={}, **kwargs):
     """Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
@@ -64,6 +64,16 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     1-form, the vector entries at boundary nodes are set to the
     boundary condition values.
     """
+
+    if "nest" in kwargs:
+        nest = kwargs.pop("nest")
+        from firedrake.logging import warning, RED
+        warning(RED % "The 'nest' argument is deprecated, please set 'mat_type' instead")
+        if nest is not None:
+            mat_type = "nest" if nest else "aij"
+
+    if len(kwargs) > 0:
+        raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
