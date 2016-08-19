@@ -136,8 +136,51 @@ def show_config_gui(parameters):
                     drop_list.grid(column=2, columnspan=2, row=row_count,
                                    sticky=(E))
                 elif isinstance(parameters.get_key(key).type, OrType):
-                    # FIXME: Implement this
-                    pass
+
+                    def config_or_type():
+                        def callback():
+                            window = Toplevel(root)
+                            type_idx = IntVar()
+                            var = [StringVar() for t in parameters.get_key(key).type.types]
+                            row = 0
+                            for type in parameters.get_key(key).type.types:
+                                type_selector = Radiobutton(window, text=str(type),
+                                                            variable=type_idx,
+                                                            value=row)
+                                type_selector.grid(column=1, row=row)
+                                if isinstance(type, BoolType):
+                                    button_true = Radiobutton(window, text='True',
+                                                              variable=var[row])
+                                    button_true.grid(column=2, row=row)
+                                    button_false = Radiobutton(window, text='False',
+                                                               variable=var[row])
+                                    button_false.grid(column=3, row=row)
+                                elif isinstance(type, StrType) and type.options != []:
+                                    drop_list = OptionMenu(window, var[row],
+                                                           type.options[0],
+                                                           *type.options)
+                                    drop_list.grid(column=2, columnspan=2, row=row)
+                                else:
+                                    label_val = Entry(window, textvariable=var[row])
+                                    label_val.grid(column=2, columnspan=2, row=row)
+                                row += 1
+                            type_idx.set("0")
+
+                            def save():
+                                def callback():
+                                    variable_dict[key].set(var[type_idx.get()].get())
+                                    parameters.get_key(key).type.curr_type = type_idx.get()
+                                    window.destroy()
+                                return callback
+
+                            ok = Button(window, text='OK', command=save())
+                            ok.grid(column=2, row=row)
+                        return callback
+
+                    button = Button(labelframe, text='Configure',
+                                    command=config_or_type())
+                    button.grid(column=2, columnspan=2, row=row_count,
+                                sticky=(E))
                 else:
                     label_val = Entry(labelframe,
                                       textvariable=variable_dict[key])
