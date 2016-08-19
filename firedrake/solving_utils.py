@@ -5,7 +5,6 @@ from pyop2.utils import as_tuple
 
 from firedrake.mg import utils
 from firedrake import function
-from firedrake.logging import warning, RED
 from firedrake.petsc import PETSc
 
 
@@ -65,11 +64,7 @@ Reason:
 def _extract_kwargs(**kwargs):
     parameters = kwargs.get('solver_parameters', None)
     if 'parameters' in kwargs:
-        warning(RED % "The 'parameters' keyword is deprecated, use 'solver_parameters' instead.")
-        parameters = kwargs['parameters']
-        if 'solver_parameters' in kwargs:
-            warning(RED % "'parameters' and 'solver_parameters' passed, using the latter")
-            parameters = kwargs['solver_parameters']
+        raise TypeError("Use solver_parameters, not parameters")
 
     # Make sure we don't stomp on a dict the user has passed in.
     parameters = parameters.copy() if parameters is not None else {}
