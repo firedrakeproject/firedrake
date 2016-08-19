@@ -52,16 +52,6 @@ __all__ = ['AssembledTensor', 'Tensor', 'Scalar', 'Vector',
            'slate_assemble', 'slate_action']
 
 
-class AssembledTensor(Coefficient):
-    """Abstractly representing an already assembled
-    tensor object."""
-
-    def __init__(self, function):
-        V = function.function_space
-        self.function = function
-        self._function_space = V
-
-
 class CheckRestrictions(MultiFunction):
     expr = MultiFunction.reuse_if_untouched
 
@@ -167,6 +157,22 @@ class Tensor(Form):
             self._hash = hash((type(self), )
                               + tuple(hash(i) for i in self.integrals()))
         return self._hash
+
+
+class AssembledTensor(Tensor):
+    """An abstract slate representation of an already assembled
+    vector."""
+
+    __slots__ = ('rank', 'form')
+    __front__ = ('rank', 'form')
+
+    def __init__(self, function, arguments, coefficients):
+        self.rank = len(arguments)
+        self.form = function
+        Tensor.id_num += 1
+        super(AssembledTensor, self).__init__(arguments=arguments,
+                                              coefficients=coefficients,
+                                              integrals=())
 
 
 class Scalar(Tensor):
@@ -576,6 +582,7 @@ def get_arguments(expr):
     raise ValueError("Tensors of type %s are not supported." % type(expr))
 
 
+@get_arguments.register(AssembledTensor)
 @get_arguments.register(Scalar)
 @get_arguments.register(Vector)
 @get_arguments.register(Matrix)
@@ -628,6 +635,7 @@ def get_coefficients(expr):
     raise ValueError("Tensors of type %s is not supported." % type(expr))
 
 
+@get_coefficients.register(AssembledTensor)
 @get_coefficients.register(Scalar)
 @get_coefficients.register(Vector)
 @get_coefficients.register(Matrix)
@@ -739,6 +747,7 @@ def compile_slate_expression(slate_expr):
         raise NotImplementedError("Expression of type %s not supported",
                                   type(expr).__name__)
 
+    @get_kernel_expr.register(AssembledTensor)
     @get_kernel_expr.register(Scalar)
     @get_kernel_expr.register(Vector)
     @get_kernel_expr.register(Matrix)
@@ -750,6 +759,7 @@ def compile_slate_expression(slate_expr):
             temps[expr] = temp
             statements.append(ast.Decl(temp_type, temp))
 
+            # TODO: How are firedrake.Functions assembled?
             integrands = expr.integrals()
             kernel_exprs[expr] = []
             mapper = RemoveRestrictions()
@@ -873,6 +883,7 @@ def compile_slate_expression(slate_expr):
         raise NotImplementedError("Expression of type %s not supported",
                                   type(expr).__name__)
 
+    @get_c_str.register(AssembledTensor)
     @get_c_str.register(Scalar)
     @get_c_str.register(Vector)
     @get_c_str.register(Matrix)
@@ -1041,15 +1052,25 @@ def slate_assemble(expr, bcs=None, nest=False):
     return tensor
 
 
-def slate_action(expr, u):
-    assert isinstance(u, Coefficient)
-    coefficient = u
+def slate_action(expr, b):
+    """Performs the symbolic action of a SLATE Tensor
+    operating on an already assembled tensor of lower rank.
+    Examples include: Matrix-Vector products, Scalar-Matrix,
+    or Scalar-Vector."""
+
+    assert isinstance(expr, Tensor)
+    assert isinstance(b, Coefficient)
+    coeff = b
     arguments = expr.arguments()
-    farg = arguments[-1]
-    fs = farg.ufl_function_space()
-    if coefficient is None:
-        coefficient = Coefficient(fs)
-    elif coefficient.ufl_function_space() != fs:
-        raise ValueError("Cannot comput form action on a coefficient from a different function space.")
-#    newform = replace(expr.form, {farg: coefficient})
-    return TensorMul(expr, AssembledTensor(u))
+    fs = arguments[-1].ufl_function_space()
+    if coeff is None:
+        coeff = firedrake.Function(fs)
+    elif coeff.ufl_function_space() != fs:
+        raise ValueError("Cannot compute the action of a SLATE tensor on a coefficient from a different function space.")
+
+    argslist = list(arguments)
+    del argslist[-1]
+    newarguments = tuple(argslist)
+    newcoefficients = expr.coefficients().append(coeff)
+
+    return AssembledTensor(b, newarguments, newcoefficients)

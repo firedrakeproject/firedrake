@@ -7,6 +7,7 @@ import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
 from firedrake.petsc import PETSc
+from firedrake.static_condensation import slate
 from firedrake.utils import cached_property
 
 
@@ -118,7 +119,10 @@ class LinearSolver(solving_utils.ParametersMixin):
         for bc in self.A.bcs:
             bc.apply(b)
         from firedrake.assemble import _assemble
-        return _assemble(ufl.action(self.A.a, b))
+        if isinstance(self.A.a, slate.Tensor):
+            return _assemble(slate.slate_action(self.A.a, b))
+        else:
+            return _assemble(ufl.action(self.A.a, b))
 
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
