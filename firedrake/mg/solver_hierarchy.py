@@ -206,7 +206,12 @@ class NLVSHierarchy(object):
         else:
             # User has provided list of problems
             problems = problem
-        ctx = firedrake.solving_utils._SNESContext(problems)
+
+        mat_type = parameters.get("mat_type")
+        pmat_type = parameters.get("pmat_type")
+        ctx = firedrake.solving_utils._SNESContext(problems,
+                                                   mat_type=mat_type,
+                                                   pmat_type=pmat_type)
 
         if nullspace is not None or tnullspace is not None:
             raise NotImplementedError("Coarsening nullspaces not yet implemented")
