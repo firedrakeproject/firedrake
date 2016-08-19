@@ -427,7 +427,7 @@ class Function(ufl.Coefficient):
         return self
 
     @utils.cached_property
-    def _ctypes(self):
+    def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
         mesh = function_space.mesh()
@@ -445,6 +445,12 @@ class Function(ufl.Coefficient):
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
         c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        return c_function
+
+    @property
+    def _ctypes(self):
+        mesh = self.ufl_domain()
+        c_function = self._constant_ctypes
         c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
 
         # Return pointer
