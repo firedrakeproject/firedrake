@@ -243,26 +243,6 @@ class Matrix(MatrixBase):
                              for bc in self.bcs))
         return old_subdomains != new_subdomains
 
-    def add_bc(self, bc):
-        """Add a boundary condition to this :class:`Matrix`.
-
-        :arg bc: the :class:`.DirichletBC` to add.
-
-        If the subdomain this boundary condition is applied over is
-        the same as the subdomain of an existing boundary condition on
-        the :class:`Matrix`, the existing boundary condition is
-        replaced with this new one.  Otherwise, this boundary
-        condition is added to the set of boundary conditions on the
-        :class:`Matrix`.
-
-        """
-        new_bcs = [bc]
-        for existing_bc in self.bcs:
-            # New BC doesn't override existing one, so keep it.
-            if bc.sub_domain != existing_bc.sub_domain:
-                new_bcs.append(existing_bc)
-        self.bcs = new_bcs
-
     def force_evaluation(self):
         "Ensures that the matrix is fully assembled."
         self.assemble()
