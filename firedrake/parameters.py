@@ -161,24 +161,39 @@ class UnsetType(KeyType):
 class OrType(KeyType):
     def __init__(self, *types):
         self._types = list(types)
+        self._curr_type = None
         if not all(isinstance(type, KeyType) for type in types):
             raise TypeError("Parameters must be instances of KeyType")
 
     def validate(self, value):
-        for type in self._types:
-            if type.validate(value):
-                return True
-        return False
+        if self._curr_type is None:
+            for type in self._types:
+                if type.validate(value):
+                    return True
+            return False
+        else:
+            return self._curr_type.validate(value)
 
     def parse(self, value):
-        for type in self._types:
-            if type.parse(value) is not None:
-                return type.parse(value)
-        return None
+        if self._curr_type is None:
+            for type in self._types:
+                if type.parse(value) is not None:
+                    return type.parse(value)
+            return None
+        else:
+            return self._curr_type.parse(value)
 
     @property
     def types(self):
         return self._types
+
+    @property
+    def curr_type(self):
+        return self._curr_type
+
+    @curr_type.setter
+    def curr_type(self, idx):
+        self._curr_type = self._types[idx]
 
 
 class ListType(KeyType):
