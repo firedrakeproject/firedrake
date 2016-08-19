@@ -97,8 +97,10 @@ vector laplacian using a single multigrid V-cycle.::
 For the Schur complement block, we approximate the inverse of the
 schur complement with a pressure mass inverse.  For constant viscosity
 this works well.  For variable, but low-contrast viscosity, one should
-use a viscosity-weighted mass-matrix.  Whereas for high viscosity
-contrasts this preconditioner is mesh-dependent and should be replaced
+use a viscosity-weighted mass-matrix.  This is achievable by passing a
+dictionary with "mu" associated with the viscosity into solve.  The
+MassInvPC will choose a default value of 1.0 if not set.  For high viscosity
+contrasts, this preconditioner is mesh-dependent and should be replaced
 by some form of approximate commutator.::
 
       "fieldsplit_1_ksp_type": "preonly",

@@ -155,10 +155,14 @@ class MassInvPC(PCBase):
 
         V = test.function_space()
 
+        mu = context.context.get("mu", 1.0)
+
         u = TrialFunction(V)
         v = TestFunction(V)
         # Handle vector and tensor-valued spaces.
-        a = inner(u, v)*dx
+
+        # 1/mu goes into the inner product in case it varies spatially.
+        a = inner(1/mu * u, v)*dx
 
         opts = PETSc.Options()
         mat_type = opts.getString(prefix+"Mp_mat_type", parameters["default_matrix_type"])
