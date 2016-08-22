@@ -112,6 +112,13 @@ def show_config_gui(parameters):
                     type_idx = IntVar()
                     var = [StringVar() for t in key.type.types]
                     sub_row = 0
+
+                    # infer current type from value and clear current type
+                    key.type.parse(key.variable.get())
+                    curr_type_idx = key.type.types.index(key.type.curr_type)
+                    type_idx.set(curr_type_idx)
+                    var[curr_type_idx].set(str(key.variable.get()))
+
                     for type in key.type.types:
                         type_selector = Radiobutton(window, text=str(type),
                                                     variable=type_idx,
@@ -127,7 +134,7 @@ def show_config_gui(parameters):
                         else:
                             create_text_entry(window, var[sub_row], sub_row)
                         sub_row += 1
-                    type_idx.set("0")
+                    key.type.clear_curr_type()
 
                     def save():
                         def callback():
@@ -137,7 +144,7 @@ def show_config_gui(parameters):
                         return callback
 
                     ok = Button(window, text='OK', command=save())
-                    ok.grid(column=2, row=row)
+                    ok.grid(column=2, row=sub_row)
                 return callback
 
             button = Button(parent, text='Configure',
