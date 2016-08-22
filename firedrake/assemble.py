@@ -214,16 +214,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             tensor = op2.Global(1, [0.0])
         result = lambda: tensor.data[0]
 
-    subdomain_data = f.subdomain_data()
     coefficients = f.coefficients()
     domains = f.ufl_domains()
-    if len(domains) != 1:
-        raise NotImplementedError("Assembly of forms with more than one domain not supported")
-    m = domains[0]
-    # Ensure mesh is "initialised" (could have got here without
-    # building a functionspace (e.g. if integrating a constant)).
-    m.init()
-    subdomain_data = subdomain_data[m]
+
+    for m in domains:
+        # Ensure mesh is "initialised" (could have got here without
+        # building a functionspace (e.g. if integrating a constant)).
+        m.init()
+        if m.topology != domains[0].topology:
+            raise NotImplementedError("All integration domains must share a mesh topology.")
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
@@ -247,7 +246,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # assemble it.
     def thunk(bcs):
         zero_tensor()
-        for indices, (kernel, integral_type, needs_orientations, subdomain_id, coeff_map) in kernels:
+        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map) in kernels:
+            m = domains[domain_number]
+            subdomain_data = f.subdomain_data()[m]
             # Find argument space indices
             if is_mat:
                 i, j = indices
