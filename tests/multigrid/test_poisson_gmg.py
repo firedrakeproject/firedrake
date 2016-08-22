@@ -63,9 +63,9 @@ def run_poisson(typ):
 
     V = FunctionSpaceHierarchy(mh, 'CG', 2)
 
-    u = FunctionHierarchy(V)
+    u = tuple([function.Function(f) for f in V])
     u_ = u[-1]
-    f = FunctionHierarchy(V)
+    f = tuple([function.Function(f) for f in V])
     f_ = f[-1]
     v = TestFunction(V[-1])
     F = dot(grad(u_), grad(v))*dx - f_*v*dx

@@ -45,16 +45,12 @@ class CoarsenIntegrand(MultiFunction):
             return firedrake.Constant(value=val,
                                       domain=new_mesh)
         elif isinstance(o, firedrake.Function):
-            hierarchy, level = utils.get_level(o)
+            # find level of function space to be sure
+            hierarchy, level = utils.get_level(o.function_space())
             if level == -1:
-                # Not found, disgusting hack, maybe it's the coords?
-                if o is o.function_space().mesh().coordinates:
-                    h, l = utils.get_level(o.function_space().mesh())
-                    new_fn = h[l-1].coordinates
-                else:
-                    raise RuntimeError("Didn't find a coarse version of %r", o)
+                raise RuntimeError("Didn't find a coarse version of %r", o)
             else:
-                new_fn = hierarchy[level-1]
+                new_fn = firedrake.Function(hierarchy[level-1])
             return new_fn
         else:
             raise RuntimeError("Don't know how to handle %r", o)
@@ -118,8 +114,14 @@ def coarsen_thing(thing):
         hierarchy, level = utils.get_level(val)
         new_val = hierarchy[level-1]
         return new_val.sub(idx)
-    hierarchy, level = utils.get_level(thing)
-    return hierarchy[level-1]
+    # check that we find the level of a hierarchy
+    if isinstance(thing, firedrake.Function):
+        hierarchy, level = utils.get_level(thing.function_space())
+        new_thing = firedrake.Function(hierarchy[level-1])
+    else:
+        hierarchy, level = utils.get_level(thing)
+        new_thing = hierarchy[level-1]
+    return new_thing
 
 
 def coarsen_bc(bc):

@@ -11,13 +11,13 @@ def mesh_hierarchy():
 @pytest.fixture(scope="module")
 def f1(mesh_hierarchy):
     V = FunctionSpaceHierarchy(mesh_hierarchy, "DG", 0)
-    return FunctionHierarchy(V)
+    return tuple([Function(f) for f in V])
 
 
 @pytest.fixture(scope="module")
 def f2(mesh_hierarchy):
     V = FunctionSpaceHierarchy(mesh_hierarchy, "CG", 1)
-    return FunctionHierarchy(V)
+    return tuple([Function(f) for f in V])
 
 
 @pytest.mark.parametrize("transfer",

@@ -18,7 +18,7 @@ def _fs_from_dm(x):
 
 def coarsen_problem(problem):
     u = problem.u
-    h, lvl = utils.get_level(u)
+    h, lvl = utils.get_level(u.function_space())
     if lvl == -1:
         raise RuntimeError("No hierarchy to coarsen")
     if lvl == 0:

@@ -66,9 +66,9 @@ def run_two_poisson(typ):
     P1 = FunctionSpaceHierarchy(mh, 'CG', 1)
     W = P2*P1
 
-    u = FunctionHierarchy(W)
+    u = tuple([function.Function(f) for f in W])
     u_, p = split(u[-1])
-    f = FunctionHierarchy(W)
+    f = tuple([function.Function(f) for f in W])
     f_, g = split(f[-1])
 
     v, q = TestFunctions(W[-1])
