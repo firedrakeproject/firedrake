@@ -245,6 +245,16 @@ class ListType(KeyType):
         return all(self._elem_type.validate(elem) for elem in value)
 
     def parse(self, value):
+        if type(value) is str:
+            try:
+                import ast
+                lst = ast.literal_eval(value)
+                if self.validate(lst):
+                    return lst
+                else:
+                    return None
+            except:
+                return None
         if self.validate(value):
             return value
         else:
