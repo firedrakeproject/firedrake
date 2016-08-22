@@ -233,7 +233,9 @@ class ListType(KeyType):
     def elem_type(self):
         return self._elem_type
 
-    def validate(self, value):
+    def validate(self, value, single_elem=False):
+        if single_elem:
+            return self._elem_type.validate(value)
         if self._min_len is not None:
             if len(value) < self._min_len:
                 return False
