@@ -15,7 +15,7 @@ def test_pyop2_custom_init():
     import logging
     logger = logging.getLogger('pyop2')
     assert logger.getEffectiveLevel() == CRITICAL
-    assert op2.configuration['debug'] == True
+    assert op2.configuration['debug'] is True
     op2.configuration.reset()
 
 if __name__ == '__main__':
