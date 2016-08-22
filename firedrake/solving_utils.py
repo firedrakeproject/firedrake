@@ -96,16 +96,13 @@ class _SNESContext(object):
     Firedrake level information.
     """
     def __init__(self, problems, mat_type, pmat_type, appctx=None):
+        if pmat_type is None:
+            pmat_type = mat_type
         self.mat_type = mat_type
         self.pmat_type = pmat_type
 
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
-
-        # It doesn't make sense to set pmatfree unless there is a separate
-        # Jp bilinear form specified.
-        if pmatfree:
-            assert problems[-1].Jp is not None
 
         problems = as_tuple(problems)
         self._problems = problems
@@ -140,15 +137,22 @@ class _SNESContext(object):
                                     appctx=ctx)
                            for J, problem, ctx in zip(self.Js, problems, appctxs))
         self.is_mixed = self._jacs[-1].block_shape != (1, 1)
-        if problems[-1].Jp is not None:
-            self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x})
-                             for problem, x in zip(problems, self._xs))
+
+        if mat_type != pmat_type or problems[-1].Jp is not None:
+            # Need separate pmat if either Jp is different or we want
+            # a different pmat type to the mat type.
+            if problems[-1].Jp is None:
+                self.Jps = self.Js
+            else:
+                self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x})
+                                 for problem, x in zip(problems, self._xs))
             self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
                                          form_compiler_parameters=problem.form_compiler_parameters,
                                          mat_type=pmat_type,
                                          appctx=ctx)
                                 for Jp, problem, ctx in zip(self.Jps, problems, appctxs))
         else:
+            # pmat_type == mat_type and Jp is None
             self.Jps = tuple(None for _ in problems)
             self._pjacs = self._jacs
 
