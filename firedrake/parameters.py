@@ -198,6 +198,7 @@ class OrType(KeyType):
         if self._curr_type is None:
             for type in self._types:
                 if type.parse(value) is not None:
+                    self._curr_type = type
                     return type.parse(value)
             return None
         else:
@@ -214,6 +215,9 @@ class OrType(KeyType):
     @curr_type.setter
     def curr_type(self, idx):
         self._curr_type = self._types[idx]
+
+    def clear_curr_type(self):
+        self._curr_type = None
 
 
 class ListType(KeyType):
