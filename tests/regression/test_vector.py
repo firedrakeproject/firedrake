@@ -1,5 +1,6 @@
 from firedrake import *
 import pytest
+import numpy as np
 
 
 @pytest.fixture
@@ -40,6 +41,30 @@ def test_vector_returns_copy(f):
     assert v.array() is not a
     assert (v.array() == 1.0).all()
     assert (a == 5.0).all()
+
+
+def test_mixed_vector_copy():
+    mesh = UnitIntervalMesh(2)
+    V = FunctionSpace(mesh, "CG", 1)
+    W = V*V
+    f = Function(W)
+    f.assign(1)
+
+    v = f.vector()
+    assert np.allclose(v.array(), 1.0)
+
+    copy = v.copy()
+
+    assert isinstance(copy, Vector)
+    assert np.allclose(copy.array(), 1.0)
+
+    local = copy.get_local()
+    local[:] = 10.0
+    copy.set_local(local)
+
+    assert np.allclose(copy.array(), 10.0)
+
+    assert np.allclose(v.array(), 1.0)
 
 
 def test_vector_gather_works(f):
