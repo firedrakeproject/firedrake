@@ -87,6 +87,72 @@ def show_config_gui(parameters):
                     parsed_dict[key] = key.type.parse(str_val)
         return parsed_dict
 
+    def create_ui_element(parameters, parent, key, row):
+
+        def create_true_false_button(parent, variable, row):
+            button_true = Radiobutton(parent, text='True',
+                                      variable=variable, value="True")
+            button_true.grid(column=2, row=row, sticky=(E))
+            button_false = Radiobutton(parent, text='False',
+                                       variable=variable, value="False")
+            button_false.grid(column=3, row=row, sticky=(E))
+
+        def create_options_drop_list(parent, variable, default, options, row):
+            drop_list = OptionMenu(parent, variable, default, *options)
+            drop_list.grid(column=2, columnspan=2, row=row, sticky=(E))
+
+        def create_text_entry(parent, variable, row):
+            label_val = Entry(parent, textvariable=variable)
+            label_val.grid(column=2, columnspan=2, row=row, sticky=(E))
+
+        from firedrake.parameters import BoolType, OrType, StrType
+        if isinstance(key.type, BoolType):
+            create_true_false_button(parent, key.variable, row_count)
+        elif isinstance(key.type, StrType) and key.type.options != []:
+            create_options_drop_list(parent, key.variable, parameters[key],
+                                     key.type.options, row_count)
+        elif isinstance(key.type, OrType):
+
+            def config_or_type():
+                def callback():
+                    window = Toplevel(root)
+                    type_idx = IntVar()
+                    var = [StringVar() for t in key.type.types]
+                    row = 0
+                    for type in key.type.types:
+                        type_selector = Radiobutton(window, text=str(type),
+                                                    variable=type_idx,
+                                                    value=row)
+                        type_selector.grid(column=1, row=row)
+                        if isinstance(type, BoolType):
+                            create_true_false_button(window, var[row], row)
+                        elif isinstance(type, StrType) and type.options != []:
+                            create_options_drop_list(window, var[row],
+                                                     type.options[0],
+                                                     type.options, row)
+                        else:
+                            create_text_entry(window, var[row], row)
+                        row += 1
+                    type_idx.set("0")
+
+                    def save():
+                        def callback():
+                            key.variable.set(var[type_idx.get()].get())
+                            key.type.curr_type = type_idx.get()
+                            window.destroy()
+                        return callback
+
+                    ok = Button(window, text='OK', command=save())
+                    ok.grid(column=2, row=row)
+                return callback
+
+            button = Button(parent, text='Configure',
+                            command=config_or_type())
+            button.grid(column=2, columnspan=2, row=row_count,
+                        sticky=(E))
+        else:
+            create_text_entry(parent, key.variable, row_count)
+
     def generate_input(parameters, labelframe):
         """Generates GUI elements for parameters inside a label frame
 
@@ -107,77 +173,11 @@ def show_config_gui(parameters):
                 key.variable = {}
                 generate_input(parameters[key], subframe)
             else:
-                from firedrake.parameters import BoolType, OrType, StrType
                 label_key = Label(labelframe, text=key)
                 label_key.grid(column=1, row=row_count, sticky=(W))
                 key.variable = StringVar()
                 key.variable.set(str(parameters[key]))
-                if isinstance(key.type, BoolType):
-                    button_true = Radiobutton(labelframe, text='True',
-                                              variable=key.variable,
-                                              value="True")
-                    button_true.grid(column=2, row=row_count, sticky=(E))
-                    button_false = Radiobutton(labelframe, text='False',
-                                               variable=key.variable,
-                                               value="False")
-                    button_false.grid(column=3, row=row_count, sticky=(E))
-                elif isinstance(key.type, StrType) and key.type.options != []:
-                    drop_list = OptionMenu(labelframe, key.variable,
-                                           parameters[key],
-                                           *key.type.options)
-                    drop_list.grid(column=2, columnspan=2, row=row_count,
-                                   sticky=(E))
-                elif isinstance(key.type, OrType):
-
-                    def config_or_type():
-                        def callback():
-                            window = Toplevel(root)
-                            type_idx = IntVar()
-                            var = [StringVar() for t in key.type.types]
-                            row = 0
-                            for type in key.type.types:
-                                type_selector = Radiobutton(window, text=str(type),
-                                                            variable=type_idx,
-                                                            value=row)
-                                type_selector.grid(column=1, row=row)
-                                if isinstance(type, BoolType):
-                                    button_true = Radiobutton(window, text='True',
-                                                              variable=var[row])
-                                    button_true.grid(column=2, row=row)
-                                    button_false = Radiobutton(window, text='False',
-                                                               variable=var[row])
-                                    button_false.grid(column=3, row=row)
-                                elif isinstance(type, StrType) and type.options != []:
-                                    drop_list = OptionMenu(window, var[row],
-                                                           type.options[0],
-                                                           *type.options)
-                                    drop_list.grid(column=2, columnspan=2, row=row)
-                                else:
-                                    label_val = Entry(window, textvariable=var[row])
-                                    label_val.grid(column=2, columnspan=2, row=row)
-                                row += 1
-                            type_idx.set("0")
-
-                            def save():
-                                def callback():
-                                    variable_dict[key].set(var[type_idx.get()].get())
-                                    parameters.get_key(key).type.curr_type = type_idx.get()
-                                    window.destroy()
-                                return callback
-
-                            ok = Button(window, text='OK', command=save())
-                            ok.grid(column=2, row=row)
-                        return callback
-
-                    button = Button(labelframe, text='Configure',
-                                    command=config_or_type())
-                    button.grid(column=2, columnspan=2, row=row_count,
-                                sticky=(E))
-                else:
-                    label_val = Entry(labelframe,
-                                      textvariable=key.variable)
-                    label_val.grid(column=2, columnspan=2,
-                                   row=row_count, sticky=(E))
+                create_ui_element(parameters, labelframe, key, row_count)
 
                 def help_box(key):
                     def click():
