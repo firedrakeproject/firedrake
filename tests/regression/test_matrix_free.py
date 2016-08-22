@@ -54,12 +54,13 @@ def bcs(problem, V):
 @pytest.mark.parametrize("pc_type", ("none",
                                      "ilu",
                                      "lu"))
-def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type):
+@pytest.mark.parametrize("pmat_type", ("matfree", "aij"))
+def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type, pmat_type):
 
     u = Function(V)
 
-    assembled = str("assembled")
-    matrixfree = str("matrixfree")
+    assembled = str(tmpdir.join("assembled"))
+    matrixfree = str(tmpdir.join("matrixfree"))
 
     assembled_parameters = {"ksp_type": "cg",
                             "pc_type": pc_type,
@@ -68,12 +69,16 @@ def test_assembled_pc_equivalence(V, a, L, bcs, tmpdir, pc_type):
     solve(a == L, u, bcs=bcs, solver_parameters=assembled_parameters)
 
     matrixfree_parameters = {"mat_type": "matfree",
+                             "pmat_type": pmat_type,
                              "ksp_type": "cg",
-                             "pc_type": "python",
-                             "pc_python_type": "firedrake.AssembledPC",
-                             "assembled_pc_type": pc_type,
-                             "ksp_monitor_short": "ascii:%s:" % matrixfree,
-                             "options_left": True}
+                             "ksp_monitor_short": "ascii:%s:" % matrixfree}
+
+    if pmat_type == "aij":
+        matrixfree_parameters["pc_type"] = pc_type
+    else:
+        matrixfree_parameters["pc_type"] = "python"
+        matrixfree_parameters["pc_python_type"] = "firedrake.AssembledPC"
+        matrixfree_parameters["assembled_pc_type"] = pc_type
 
     u.assign(0)
     solve(a == L, u, bcs=bcs, solver_parameters=matrixfree_parameters)
