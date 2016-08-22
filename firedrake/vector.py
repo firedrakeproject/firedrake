@@ -51,7 +51,7 @@ class Vector(object):
                 This copies the underlying data in the :class:`pyop2.Dat`.
         """
         if isinstance(x, Vector):
-            self.dat = op2.Dat(x.dat)
+            self.dat = type(x.dat)(x.dat)
         elif isinstance(x, op2.base.Dat):  # ugh
             self.dat = x
         else:
@@ -117,7 +117,7 @@ class Vector(object):
 
     def copy(self):
         """Return a copy of this vector."""
-        return Vector(op2.Dat(self.dat))
+        return type(self)(self)
 
     def get_local(self):
         """Return a copy of the process local data as a numpy array"""
