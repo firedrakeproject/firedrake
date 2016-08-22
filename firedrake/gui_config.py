@@ -151,7 +151,67 @@ def show_config_gui(parameters):
                             command=config_or_type())
             button.grid(column=2, columnspan=2, row=row, sticky=(E))
 
-        from firedrake.parameters import BoolType, OrType, StrType
+        def create_config_box_list(parent, key, row):
+            def config_list_type():
+                def callback():
+                    window = Toplevel(root)
+                    list_box = Listbox(window, selectmode=SINGLE, height=10)
+                    list_box.grid(row=1, columnspan=3, column=1)
+
+                    for elem in parameters[key]:
+                        list_box.insert(END, elem)
+
+                    def save():
+                        def callback():
+                            # TODO: Implement this
+                            window.destroy()
+                        return callback
+
+                    def add_elem():
+                        def callback():
+                            str_val = new_var.get()
+                            if key.type.elem_type.validate(str_val):
+                                list_box.insert(END, key.type.elem_type.parse(str_val))
+                            else:
+                                # TODO: Dialog box
+                                pass
+                        return callback
+
+                    def del_elem():
+                        def callback():
+                            list_box.delete(ANCHOR)
+                        return callback
+                    new_var = StringVar()
+                    if isinstance(key.type.elem_type, BoolType):
+                        create_true_false_button(window, new_var, 2)
+                    elif isinstance(key.type.elem_type, StrType) and \
+                            key.type.elem_type.options != []:
+                        create_options_drop_list(window, new_var,
+                                                 key.type.elem_type.options[0],
+                                                 key.type.elem_type.options, 2)
+                    elif isinstance(key.type.elem_type, OrType):
+                        # TODO: Implement this
+                        pass
+                    elif isinstance(key.type.elem_type, ListType):
+                        # TODO: Implement this
+                        pass
+                    else:
+                        create_text_entry(window, new_var, 2)
+                    label = Label(window, text="New Value:")
+                    label.grid(column=1, row=2)
+                    ok = Button(window, text='OK', command=save())
+                    ok.grid(column=2, row=3)
+                    add = Button(window, text='+', command=add_elem())
+                    add.grid(column=1, row=3)
+                    minus = Button(window, text='-', command=del_elem())
+                    minus.grid(column=3, row=3)
+                return callback
+
+            button = Button(parent, text='Configure',
+                            command=config_list_type())
+            button.grid(column=2, columnspan=2, row=row, sticky=(E))
+
+        from firedrake.parameters import BoolType, OrType, StrType, ListType
         if isinstance(key.type, BoolType):
             create_true_false_button(parent, key.variable, row_count)
         elif isinstance(key.type, StrType) and key.type.options != []:
@@ -159,6 +219,8 @@ def show_config_gui(parameters):
                                      key.type.options, row_count)
         elif isinstance(key.type, OrType):
             create_config_box_or(parent, key, row_count)
+        elif isinstance(key.type, ListType):
+            create_config_box_list(parent, key, row_count)
         else:
             create_text_entry(parent, key.variable, row_count)
 
