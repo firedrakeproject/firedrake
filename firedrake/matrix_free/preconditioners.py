@@ -139,6 +139,12 @@ class MassInvPC(PCBase):
 
     Internally this creates a PETSc KSP object that can be controlled
     by options using the extra options prefix ``Mp_``.
+
+    For Stokes problems, to be spectrally equivalent to the Schur
+    complement, the mass matrix should be weighted by the viscosity.
+    This can be provided (defaulting to constant viscosity) by
+    providing a field defining the viscosity in the application
+    context, keyed on ``"mu"``.
     """
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, assemble, inner, parameters
