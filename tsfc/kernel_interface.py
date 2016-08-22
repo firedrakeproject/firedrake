@@ -14,6 +14,7 @@ from tsfc.coffee import SCALAR_TYPE
 
 class Kernel(object):
     __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
+                 "domain_number",
                  "coefficient_numbers", "__weakref__")
     """A compiled Kernel object.
 
@@ -21,15 +22,20 @@ class Kernel(object):
     :kwarg integral_type: The type of integral.
     :kwarg oriented: Does the kernel require cell_orientations.
     :kwarg subdomain_id: What is the subdomain id for this kernel.
+    :kwarg domain_number: Which domain number in the original form
+        does this kernel correspond to (can be used to index into
+        original_form.ufl_domains() to get the correct domain).
     :kwarg coefficient_numbers: A list of which coefficients from the
         form the kernel needs.
     """
     def __init__(self, ast=None, integral_type=None, oriented=False,
-                 subdomain_id=None, coefficient_numbers=()):
+                 subdomain_id=None, domain_number=None,
+                 coefficient_numbers=()):
         # Defaults
         self.ast = ast
         self.integral_type = integral_type
         self.oriented = oriented
+        self.domain_number = domain_number
         self.subdomain_id = subdomain_id
         self.coefficient_numbers = coefficient_numbers
         super(Kernel, self).__init__()
@@ -137,11 +143,12 @@ class KernelBuilderBase(object):
 class KernelBuilder(KernelBuilderBase):
     """Helper class for building a :class:`Kernel` object."""
 
-    def __init__(self, integral_type, subdomain_id):
+    def __init__(self, integral_type, subdomain_id, domain_number):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(integral_type.startswith("interior_facet"))
 
-        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id)
+        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
+                             domain_number=domain_number)
         self.local_tensor = None
         self.coordinates_arg = None
         self.coefficient_args = []
