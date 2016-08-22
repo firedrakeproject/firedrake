@@ -25,7 +25,7 @@ def show_config_gui(parameters):
         import tkFileDialog
         filename = tkFileDialog.askopenfilename()
         import_params_from_json(parameters, filename)
-        refresh_params(parameters, variable_dict)
+        refresh_params(parameters)
 
     def save_json():
         """Creates a dialog box prompting json output file, then validates
@@ -47,7 +47,7 @@ def show_config_gui(parameters):
         there is an error
         """
         try:
-            parsed_dict = parse_input_dict(parameters, variable_dict)
+            parsed_dict = parse_input_dict(parameters)
             load_from_dict(parameters, parsed_dict)
             return True
         except ValueError as e:
@@ -55,49 +55,43 @@ def show_config_gui(parameters):
             showinfo(title="Error", message=e.message, icon="error", parent=root)
             return False
 
-    def refresh_params(parameters, variable_dict):
+    def refresh_params(parameters):
         """Refresh the GUI values from a given source
 
         :arg paramaters: parameters as a
             :class:`firedrake.parameters.Parameters` class
-        :arg variable_dict: a dictionary of key to :class:`Tkinter.StringVar`
-            mappings
         """
         for key in parameters.keys():
             if isinstance(parameters[key], Parameters):
-                refresh_params(parameters[key], variable_dict[key])
+                refresh_params(parameters[key])
             else:
-                variable_dict[key].set(str(parameters[key]))
+                key.variable.set(str(parameters[key]))
 
-    def parse_input_dict(parameters, variable_dict):
+    def parse_input_dict(parameters):
         """Generate a dictionary of values from variables
 
         :arg parameters: Parameters as :class:`firedrake.parameters`
-        :arg variable_dict: a dictionary of key to :class:`Tkinter.StringVar`
-            mappings
         :raises ValueError: when input value is invalid
         """
         from firedrake import Parameters
 
         parsed_dict = {}
-        for key in variable_dict.keys():
+        for key in parameters.keys():
             if isinstance(parameters[key], Parameters):
-                parsed_dict[key] = parse_input_dict(parameters[key],
-                                                    variable_dict[key])
+                parsed_dict[key] = parse_input_dict(parameters[key])
             else:
-                str_val = variable_dict[key].get()
-                if not parameters.get_key(key).validate(str_val):
-                    raise ValueError("Invalid value for parameter %s" % key)
-                parsed_dict[key] = parameters.get_key(key).type.parse(str_val)
+                if hasattr(key, "variable"):
+                    str_val = key.variable.get()
+                    if not key.validate(str_val):
+                        raise ValueError("Invalid value for parameter %s" % key)
+                    parsed_dict[key] = key.type.parse(str_val)
         return parsed_dict
 
-    def generate_input(parameters, labelframe, variable_dict):
+    def generate_input(parameters, labelframe):
         """Generates GUI elements for parameters inside a label frame
 
         :arg parameters: Parameters as :class:`firedrake.parameters`
         :arg labelframe: :class:`ttk.Labelframe` to place the GUI elements
-        :arg variable_dict: a dictionary of key to :class:`Tkinter.StringVar`
-            mappings
         """
         global row_count
         keys = sorted(parameters.keys())
@@ -110,40 +104,38 @@ def show_config_gui(parameters):
                               row=row_count, sticky=(W, E))
                 subframe.columnconfigure(1, weight=1)
                 subframe.rowconfigure(0, weight=1)
-                variable_dict[key] = {}
-                generate_input(parameters[key], subframe, variable_dict[key])
+                key.variable = {}
+                generate_input(parameters[key], subframe)
             else:
                 from firedrake.parameters import BoolType, OrType, StrType
                 label_key = Label(labelframe, text=key)
                 label_key.grid(column=1, row=row_count, sticky=(W))
-                variable_dict[key] = StringVar()
-                variable_dict[key].set(str(parameters[key]))
-                if isinstance(parameters.get_key(key).type, BoolType):
+                key.variable = StringVar()
+                key.variable.set(str(parameters[key]))
+                if isinstance(key.type, BoolType):
                     button_true = Radiobutton(labelframe, text='True',
-                                              variable=variable_dict[key],
+                                              variable=key.variable,
                                               value="True")
                     button_true.grid(column=2, row=row_count, sticky=(E))
                     button_false = Radiobutton(labelframe, text='False',
-                                               variable=variable_dict[key],
+                                               variable=key.variable,
                                                value="False")
                     button_false.grid(column=3, row=row_count, sticky=(E))
-                elif isinstance(parameters.get_key(key).type, StrType) \
-                        and parameters.get_key(key).type.options != []:
-                    drop_list = OptionMenu(labelframe, variable_dict[key],
+                elif isinstance(key.type, StrType) and key.type.options != []:
+                    drop_list = OptionMenu(labelframe, key.variable,
                                            parameters[key],
-                                           *parameters.get_key(key)
-                                           .type.options)
+                                           *key.type.options)
                     drop_list.grid(column=2, columnspan=2, row=row_count,
                                    sticky=(E))
-                elif isinstance(parameters.get_key(key).type, OrType):
+                elif isinstance(key.type, OrType):
 
                     def config_or_type():
                         def callback():
                             window = Toplevel(root)
                             type_idx = IntVar()
-                            var = [StringVar() for t in parameters.get_key(key).type.types]
+                            var = [StringVar() for t in key.type.types]
                             row = 0
-                            for type in parameters.get_key(key).type.types:
+                            for type in key.type.types:
                                 type_selector = Radiobutton(window, text=str(type),
                                                             variable=type_idx,
                                                             value=row)
@@ -183,7 +175,7 @@ def show_config_gui(parameters):
                                 sticky=(E))
                 else:
                     label_val = Entry(labelframe,
-                                      textvariable=variable_dict[key])
+                                      textvariable=key.variable)
                     label_val.grid(column=2, columnspan=2,
                                    row=row_count, sticky=(E))
 
@@ -194,7 +186,7 @@ def show_config_gui(parameters):
                     return click
 
                 help_button = Button(labelframe, text='Help',
-                                     command=help_box(parameters.get_key(key)))
+                                     command=help_box(key))
                 help_button.grid(column=4, row=row_count, sticky=(E))
 
     def configure_frame(event):
@@ -231,8 +223,7 @@ def show_config_gui(parameters):
     global row_count
     row_count = 1
 
-    variable_dict = {}
-    generate_input(parameters, mainframe, variable_dict)
+    generate_input(parameters, mainframe)
 
     row_count += 1
     button_load = Button(mainframe,
