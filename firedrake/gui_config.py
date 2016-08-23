@@ -124,15 +124,8 @@ def show_config_gui(parameters):
                                                     variable=type_idx,
                                                     value=sub_row)
                         type_selector.grid(column=1, row=sub_row)
-                        if isinstance(type, BoolType):
-                            create_true_false_button(window, var[sub_row],
-                                                     sub_row)
-                        elif isinstance(type, StrType) and type.options != []:
-                            create_options_drop_list(window, var[sub_row],
-                                                     type.options[0],
-                                                     type.options, sub_row)
-                        else:
-                            create_text_entry(window, var[sub_row], sub_row)
+                        generate_ui_type_selector(window, type,
+                                                  var[sub_row], sub_row)
                         sub_row += 1
                     key_type.clear_curr_type()
 
@@ -196,21 +189,8 @@ def show_config_gui(parameters):
                             list_box.delete(ANCHOR)
                         return callback
                     new_var = StringVar()
-                    if isinstance(key_type.elem_type, BoolType):
-                        create_true_false_button(window, new_var, 2)
-                    elif isinstance(key_type.elem_type, StrType) and \
-                            key_type.elem_type.options != []:
-                        create_options_drop_list(window, new_var,
-                                                 None,
-                                                 key_type.elem_type.options, 2)
-                    elif isinstance(key_type.elem_type, OrType):
-                        create_config_box_or(window, new_var,
-                                             key_type.elem_type, 2)
-                    elif isinstance(key_type.elem_type, ListType):
-                        create_config_box_list(window, new_var,
-                                               key_type.elem_type, 2)
-                    else:
-                        create_text_entry(window, new_var, 2)
+                    generate_ui_type_selector(window, key_type.elem_type,
+                                              new_var, 2)
                     label = Label(window, text="New Value:")
                     label.grid(column=1, row=2)
                     ok = Button(window, text='OK', command=save())
@@ -229,18 +209,21 @@ item, then click - button to delete from list", wraplength=250)
                             command=config_list_type())
             button.grid(column=2, columnspan=2, row=row, sticky=(E))
 
-        from firedrake.parameters import BoolType, OrType, StrType, ListType
-        if isinstance(key.type, BoolType):
-            create_true_false_button(parent, key.variable, row_count)
-        elif isinstance(key.type, StrType) and key.type.options != []:
-            create_options_drop_list(parent, key.variable, key.variable.get(),
-                                     key.type.options, row_count)
-        elif isinstance(key.type, OrType):
-            create_config_box_or(parent, key.variable, key.type, row_count)
-        elif isinstance(key.type, ListType):
-            create_config_box_list(parent, key.variable, key.type, row_count)
-        else:
-            create_text_entry(parent, key.variable, row_count)
+        def generate_ui_type_selector(parent, type, variable, row):
+            from firedrake.parameters import BoolType, OrType, StrType, ListType
+            if isinstance(type, BoolType):
+                create_true_false_button(parent, variable, row)
+            elif isinstance(type, StrType) and type.options != []:
+                create_options_drop_list(parent, variable, variable.get(),
+                                         type.options, row)
+            elif isinstance(type, OrType):
+                create_config_box_or(parent, variable, type, row)
+            elif isinstance(type, ListType):
+                create_config_box_list(parent, variable, type, row)
+            else:
+                create_text_entry(parent, variable, row)
+
+        generate_ui_type_selector(parent, key.type, key.variable, row_count)
 
     def generate_input(parameters, labelframe):
         """Generates GUI elements for parameters inside a label frame
