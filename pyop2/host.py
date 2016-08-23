@@ -756,22 +756,18 @@ class JITModule(base.JITModule):
                    'header': headers}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
-        _const_decs = '\n'.join([const._format_declaration()
-                                for const in Const._definitions()]) + '\n'
-
         code_to_compile = """
         #include <petsc.h>
         #include <stdbool.h>
         #include <math.h>
         %(sys_headers)s
-        %(consts)s
 
         %(kernel)s
 
         %(externc_open)s
         %(wrapper)s
         %(externc_close)s
-        """ % {'consts': _const_decs, 'kernel': kernel_code,
+        """ % {'kernel': kernel_code,
                'wrapper': code_to_compile,
                'externc_open': externc_open,
                'externc_close': externc_close,
@@ -881,13 +877,6 @@ def wrapper_snippets(itspace, args,
     _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in args])
 
     _vec_decs = ';\n'.join([arg.c_vec_dec(is_facet=is_facet) for arg in args if arg._is_vec_map])
-
-    if len(Const._defs) > 0:
-        _const_args = ', '
-        _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
-    else:
-        _const_args = ''
-    _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
 
     _intermediate_globals_decl = ';\n'.join(
         [arg.c_intermediate_globals_decl(count)
@@ -1053,8 +1042,6 @@ def wrapper_snippets(itspace, args,
             'wrapper_args': _wrapper_args,
             'user_code': user_code,
             'wrapper_decs': indent(_wrapper_decs, 1),
-            'const_args': _const_args,
-            'const_inits': indent(_const_inits, 1),
             'vec_inits': indent(_vec_inits, 2),
             'layer_arg': _layer_arg,
             'map_decl': indent(_map_decl, 2),

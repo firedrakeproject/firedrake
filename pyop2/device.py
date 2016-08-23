@@ -263,32 +263,6 @@ class Dat(DeviceDataMixin, base.Dat):
         self._device_data.ravel()[_lim:].set(self._data[self.dataset.size:])
 
 
-class Const(DeviceDataMixin, base.Const):
-
-    def __init__(self, dim, data, name, dtype=None):
-        base.Const.__init__(self, dim, data, name, dtype)
-        self.state = DeviceDataMixin.HOST
-
-    @property
-    def data(self):
-        """Numpy array containing the data values."""
-        self.state = DeviceDataMixin.HOST
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = verify_reshape(value, self.dtype, self.dim)
-        self.state = DeviceDataMixin.HOST
-
-    def _to_device(self):
-        """Upload data array from host to device."""
-        raise RuntimeError("Abstract device class can't do this")
-
-    def _from_device(self):
-        """Download data array from device to host."""
-        raise RuntimeError("Copying Const %s from device not allowed" % self)
-
-
 class Global(DeviceDataMixin, base.Global):
 
     def __init__(self, dim, data=None, dtype=None, name=None):

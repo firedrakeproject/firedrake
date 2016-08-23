@@ -142,11 +142,9 @@ void %(wrapper_name)s(int boffset,
                       int *nelems,
                       %(ssinds_arg)s
                       %(wrapper_args)s
-                      %(const_args)s
                       %(layer_arg)s) {
   %(user_code)s
   %(wrapper_decs)s;
-  %(const_inits)s;
   #pragma omp parallel shared(boffset, nblocks, nelems, blkmap)
   {
     %(map_decl)s
@@ -204,9 +202,6 @@ void %(wrapper_name)s(int boffset,
                     for m in map:
                         argtypes.append(m._argtype)
 
-        for c in Const._definitions():
-            argtypes.append(c._argtype)
-
         if iterset._extruded:
             argtypes.append(ctypes.c_int)
             argtypes.append(ctypes.c_int)
@@ -250,8 +245,6 @@ class ParLoop(device.ParLoop, host.ParLoop):
                 for map in maps:
                     for m in map:
                         arglist.append(m._values.ctypes.data)
-        for c in Const._definitions():
-            arglist.append(c._data.ctypes.data)
 
         if iterset._extruded:
             region = self.iteration_region

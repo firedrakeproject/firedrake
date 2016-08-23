@@ -222,11 +222,9 @@ extern "C" void %(wrapper_name)s(%(executor_arg)s,
                       %(const_args)s);
 void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
-                      %(wrapper_args)s
-                      %(const_args)s) {
+                      %(wrapper_args)s) {
   %(user_code)s
   %(wrapper_decs)s;
-  %(const_inits)s;
 
   %(executor_code)s;
 }
@@ -286,8 +284,6 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                 for map in maps:
                     for m in map:
                         argtypes.append(m._argtype)
-        for c in Const._definitions():
-            argtypes.append(c._argtype)
 
         return argtypes
 
@@ -331,17 +327,9 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
         # Construct the wrapper
         _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in self._args])
         _wrapper_decs = ';\n'.join([arg.c_wrapper_dec() for arg in self._args])
-        if len(Const._defs) > 0:
-            _const_args = ', '
-            _const_args += ', '.join([c_const_arg(c) for c in Const._definitions()])
-        else:
-            _const_args = ''
-        _const_inits = ';\n'.join([c_const_init(c) for c in Const._definitions()])
 
         code_dict['wrapper_args'] = _wrapper_args
-        code_dict['const_args'] = _const_args
         code_dict['wrapper_decs'] = indent(_wrapper_decs, 1)
-        code_dict['const_inits'] = indent(_const_inits, 1)
 
         # Construct kernels invocation
         _loop_chain_body, _user_code, _ssinds_arg = [], [], []
@@ -387,7 +375,7 @@ class ParLoop(host.ParLoop):
         read_args = [a.data for a in args if a.access in [READ, RW]]
         written_args = [a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]
         inc_args = [a.data for a in args if a.access in [INC]]
-        LazyComputation.__init__(self, set(read_args) | Const._defs,
+        LazyComputation.__init__(self, set(read_args),
                                  set(written_args), set(inc_args))
 
         self._kernel = kernel
@@ -437,9 +425,6 @@ class ParLoop(host.ParLoop):
                 for map in maps:
                     for m in map:
                         arglist.append(m._values.ctypes.data)
-
-        for c in Const._definitions():
-            arglist.append(c._data.ctypes.data)
 
         return arglist
 
