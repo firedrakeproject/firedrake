@@ -173,8 +173,10 @@ def show_config_gui(parameters):
                             if key.type.elem_type.validate(str_val):
                                 list_box.insert(END, key.type.elem_type.parse(str_val))
                             else:
-                                # TODO: Dialog box
-                                pass
+                                from tkMessageBox import showinfo
+                                showinfo(title="Error",
+                                         message="Invalid new value",
+                                         parent=window)
                         return callback
 
                     def del_elem():
