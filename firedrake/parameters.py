@@ -236,13 +236,20 @@ class ListType(KeyType):
     def validate(self, value, single_elem=False):
         if single_elem:
             return self._elem_type.validate(value)
+        lst = value
+        if type(value) is str:
+            try:
+                import ast
+                lst = ast.literal_eval(value)
+            except:
+                return False
         if self._min_len is not None:
-            if len(value) < self._min_len:
+            if len(lst) < self._min_len:
                 return False
         if self._max_len is not None:
-            if len(value) > self._max_len:
+            if len(lst) > self._max_len:
                 return False
-        return all(self._elem_type.validate(elem) for elem in value)
+        return all(self._elem_type.validate(elem) for elem in lst)
 
     def parse(self, value):
         if type(value) is str:
