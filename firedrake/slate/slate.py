@@ -21,23 +21,25 @@ executed within the Firedrake architecture.
 Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 """
 
-from __future__ import absolute_import
-
+import hashlib
 import operator
 import itertools
 
 from slate_assertions import *
 from slate_equation import SlateEquation
 
+from ufl.algorithms.domain_analysis import canonicalize_metadata
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
+from ufl.algorithms.signature import compute_expression_hashdata, compute_terminal_hashdata
 from ufl.domain import join_domains, sort_domains
 from ufl.form import _sorted_integrals
 
-__all__ = ['Tensor', 'Scalar', 'Vector', 'Matrix',
-           'Inverse', 'Transpose', 'UnaryOp', 'BinaryOp',
-           'Negative', 'Positive',
-           'TensorAdd', 'TensorSub', 'TensorMul']
+
+__all__ = ['CheckRestrictions', 'RemoveRestrictions',
+           'SlateIntegral', 'Tensor', 'Scalar', 'Vector', 'Matrix',
+           'Inverse', 'Transpose', 'UnaryOp', 'Negative', 'Positive',
+           'BinaryOp', 'TensorAdd', 'TensorSub', 'TensorMul']
 
 
 class CheckRestrictions(MultiFunction):
@@ -60,22 +62,26 @@ class RemoveRestrictions(MultiFunction):
 
 
 class SlateIntegral(object):
-    """An integral class that behaves like a UFL integral, but doesn't have
-    integrands in the same way. Its purpose is to provide the appropriate
-    integration domains."""
+    """An integral wrapping class that behaves like a UFL integral,
+    but doesn't have integrands in the same way. Its purpose is to
+    provide the appropriate integration domains and subdomain data."""
 
-    def __init__(self, integral_type):
+    def __init__(self, ufl_integral):
         """Constructor for the SlateIntegral class.
 
-        :arg integral_type: the integral type defining its
-        domain of integration, ie 'cell', 'interior_facet', etc."""
+        :arg ufl_integral: a ufl integral object."""
 
-        self._itype = integral_type
+        self._itype = ufl_integral.integral_type()
+        self._subdomain_data = ufl_integral.subdomain_data()
         super(SlateIntegral, self).__init__()
 
     def integral_type(self):
         """Returns the integral type of the "integral"."""
         return self._itype
+
+    def subdomain_data(self):
+        """Returns the subdomain data of the "integral"."""
+        return self._subdomain_data
 
 
 class Tensor(object):
@@ -98,6 +104,11 @@ class Tensor(object):
         self._coefficients = coefficients
         self._integrals = _sorted_integrals(integrals)
 
+        slate_integrals = []
+        for integral in self._integrals:
+            slate_integrals.append(SlateIntegral(integral))
+        self._slate_integrals = tuple(slate_integrals)
+
         # Compute Tensor shape information
         shape = []
         shapes = {}
@@ -105,7 +116,6 @@ class Tensor(object):
         for i, arg in enumerate(self._arguments):
             V = arg.function_space()
             shapelist = []
-            shapes = {}
 
             for fs in V:
                 shapelist.append(fs.fiat_element.space_dimension() * fs.dim)
@@ -121,7 +131,12 @@ class Tensor(object):
         integral_domains = join_domains([it.ufl_domain() for it in self._integrals])
         self._integral_domains = sort_domains(integral_domains)
 
+        # Compute relevant attributes for signature computation
+        self._coefficient_numbering = dict((c, i) for i, c in enumerate(self._coefficients))
+        self._domain_numering = dict((d, i) for i, d in enumerate(self._integral_domains))
+
         self._hash = None
+        self._signature = None
 
     # Overloaded operations for the tensor algebra
     def __add__(self, other):
@@ -216,11 +231,8 @@ class Tensor(object):
         return self._integrals
 
     def integrals(self):
-        """Returns a tuple of integrals associated with the tensor.
-
-        Note that SLATE expressions alway dictate cell-wise mesh iteration.
-        Therefore the only integral type provided is 'cell'."""
-        return (SlateIntegral("cell"), )
+        """Returns a tuple of SlateIntegrals associated with the tensor."""
+        return self._slate_integrals
 
     def integrals_by_type(self, integral_type):
         """Returns a tuple of integrals corresponding with a particular domain type."""
@@ -276,6 +288,56 @@ class Tensor(object):
                              "Integrals in the tensor must have the same subdomain_data objects.")
 
         return subdomain_data
+
+    # Signature and hash methods
+    def _compute_renumbering(self):
+        """Renumbers coefficients by including integration domains."""
+
+        dn = self._domain_numering
+        cn = self._coefficient_numbering
+        renumbering = {}
+        renumbering.update(dn)
+        renumbering.update(cn)
+
+        n = len(dn)
+        for c in cn:
+            d = c.ufl_domain()
+            if d is not None and d not in renumbering:
+                renumbering[d] = n
+                n += 1
+
+        return renumbering
+
+    def _compute_signature(self, renumbering):
+        """Computes the signature of the tensor from the integrals."""
+        # TODO: Is there a better/cheaper way of doing this?!
+
+        integrals = self._integrals
+        integrands = [integral.integrand() for integral in integrals]
+
+        terminal_hashdata = compute_terminal_hashdata(integrands, renumbering)
+
+        hashdata = []
+        for integral in integrals:
+            integrand_hashdata = compute_expression_hashdata(integral.integrand(),
+                                                             terminal_hashdata)
+            domain_hashdata = integral.ufl_domain()._ufl_signature_data_(renumbering)
+
+            integral_hashdata = (integrand_hashdata, domain_hashdata,
+                                 integral.integral_type(),
+                                 integral.subdomain_id(),
+                                 canonicalize_metadata(integral.metadata()), )
+            hashdata.append(integral_hashdata)
+
+        return hashlib.sha512(str(hashdata).encode('utf-8')).hexdigest()
+
+    def signature(self):
+        """Signature for use in caching. Reproduced from ufl."""
+
+        if self._signature is None:
+            self._signature = self._compute_signature(self._compute_renumbering())
+
+        return self._signature
 
     def __hash__(self):
         """Returns a hash code for use in dictionary objects."""

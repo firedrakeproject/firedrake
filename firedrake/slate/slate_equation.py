@@ -1,4 +1,8 @@
-"""The SlateEquation class for SLATE objects. This is used to express equations like A == B."""
+"""The SlateEquation class for SLATE objects. This is used to express
+equations like A == B."""
+
+
+__all__ = ['SlateEquation']
 
 
 class SlateEquation(object):

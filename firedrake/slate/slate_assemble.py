@@ -7,13 +7,14 @@ This module is primarily use for testing.
 Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 """
 
-from __future__ import absolute_import
-
 import firedrake
 
 from hfc import compile_slate_expression
 from slate_assertions import expecting_slate_expr
 from slate import *
+
+
+__all__ = ['slate_assemble']
 
 
 def slate_assemble(expr, bcs=None, nest=False):
@@ -46,7 +47,7 @@ def slate_assemble(expr, bcs=None, nest=False):
                                           "%s_%s_sparsity" % fs_names,
                                           nest=nest)
         tensor = firedrake.matrix.Matrix(expr, bcs, sparsity)
-        tensor_arg = tensor._M(firedrake.op2.INC, (test_function.cell_node_map()[firedrake.op2.i[0]], trial_function.cell_node_map()[firedrake.op2.i[0]]), flatten=True)
+        tensor_arg = tensor._M(firedrake.op2.INC, (test_function.cell_node_map(bcs)[firedrake.op2.i[0]], trial_function.cell_node_map(bcs)[firedrake.op2.i[0]]), flatten=True)
 
     # If the expression is a rank-1 tensor: vector
     elif rank == 1:

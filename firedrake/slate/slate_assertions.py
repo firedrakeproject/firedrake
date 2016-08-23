@@ -2,9 +2,8 @@
 They are designed to provide specific and standardized error messages.
 """
 
-__all__ = ['dimension_error',
-           'expecting_slate_object', 'expecting_slate_expr',
-           'rank_error', 'slate_assert']
+__all__ = ['dimension_error', 'expecting_slate_object',
+           'expecting_slate_expr', 'rank_error', 'slate_assert']
 
 
 def dimension_error(shape_A, shape_B):

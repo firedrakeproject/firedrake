@@ -1,4 +1,4 @@
-"""This is The Hybridized Form Compiler (HFC). This moduel is responsible
+"""This is The Hybridized Form Compiler (HFC). This module is responsible
 for interpreting SLATE expressions and generating C++ kernel functions
 for assembly in Firedrake.
 
@@ -15,10 +15,9 @@ the `Eigen::Matrix` methods built into Eigen.
 Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 """
 
-from __future__ import absolute_import
-
 import sys
 import firedrake
+import operator
 
 from coffee import base as ast
 from coffee.visitor import Visitor
@@ -26,13 +25,15 @@ from coffee.visitor import Visitor
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 
 from slate import *
-from slate import RemoveRestrictions
 from slate_assertions import *
 
 from singledispatch import singledispatch
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.form import Form
+
+
+__all__ = ['compile_slate_expression']
 
 
 class Transformer(Visitor):
@@ -80,7 +81,7 @@ class Transformer(Visitor):
         name = kwargs.get("name", "A")
         new = self.visit_Node(o, *args, **kwargs)
         ops, okwargs = new.operands()
-        if all(new is old for new, old in zip(ops, o.perands()[0])):
+        if all(new is old for new, old in zip(ops, o.operands()[0])):
             return o
 
         pred = ["template <typename Derived>\nstatic", "inline"]
@@ -100,7 +101,7 @@ class Transformer(Visitor):
         """
 
         name = kwargs.get("name", "A")
-        if o.symbol != name:
+        if o.sym.symbol != name:
             return o
         newtype = "Eigen::MatrixBase<Derived> const &"
 
@@ -252,7 +253,7 @@ def compile_slate_expression(slate_expr, testing=False):
                     coords = coordinates
 
                 # Extracting coefficients
-                for cindex in list(kinfo[4]):
+                for cindex in list(kinfo[5]):
                     coeff = exp.coefficients()[cindex]
                     clist.append(coeffmap[coeff])
 
@@ -444,7 +445,7 @@ def compile_slate_expression(slate_expr, testing=False):
                        oriented=oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=range(coeffs),
+                       coefficient_map=range(len(coeffs)),
                        needs_cell_facets=need_cell_facets)
     idx = tuple([0]*len(slate_expr.arguments()))
 
