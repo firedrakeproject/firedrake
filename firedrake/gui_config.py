@@ -156,7 +156,7 @@ def show_config_gui(parameters):
                 def callback():
                     window = Toplevel(root)
                     list_box = Listbox(window, selectmode=SINGLE, height=10)
-                    list_box.grid(row=1, columnspan=3, column=1)
+                    list_box.grid(row=1, columnspan=3, column=1, sticky=(N, S, W, E))
 
                     for elem in parameters[key]:
                         list_box.insert(END, elem)
@@ -192,11 +192,11 @@ def show_config_gui(parameters):
                                                  key_type.elem_type.options[0],
                                                  key_type.elem_type.options, 2)
                     elif isinstance(key_type.elem_type, OrType):
-                        # TODO: Implement this
-                        pass
+                        create_config_box_or(window, new_var,
+                                             key_type.elem_type, 2)
                     elif isinstance(key_type.elem_type, ListType):
-                        # TODO: Implement this
-                        pass
+                        create_config_box_list(window, new_var,
+                                               key_type.elem_type, 2)
                     else:
                         create_text_entry(window, new_var, 2)
                     label = Label(window, text="New Value:")
@@ -207,6 +207,10 @@ def show_config_gui(parameters):
                     add.grid(column=1, row=3)
                     minus = Button(window, text='-', command=del_elem())
                     minus.grid(column=3, row=3)
+                    help_text = Label(window, text="Enter a new value or \
+click on config button, then click + button to add into list.\n Click on an \
+item, then click - button to delete from list", wraplength=250)
+                    help_text.grid(column=1, columnspan=3, row=4)
                 return callback
 
             button = Button(parent, text='Configure',
