@@ -70,16 +70,16 @@ class ImplicitMatrixContext(object):
     :arg fcparams: A dictionary of parameters to pass on to the form
        compiler.
 
-    :arg context: Any extra user-supplied context, available to
+    :arg appctx: Any extra user-supplied context, available to
        preconditioners and the like.
 
     """
     def __init__(self, a, row_bcs=[], col_bcs=[],
-                 fc_params=None, context=None):
+                 fc_params=None, appctx=None):
         self.a = a
         self.aT = adjoint(a)
         self.fc_params = fc_params
-        self.context = context
+        self.appctx = appctx
 
         self.row_bcs = row_bcs
         self.col_bcs = col_bcs
@@ -245,7 +245,7 @@ class ImplicitMatrixContext(object):
                                            row_bcs=row_bcs,
                                            col_bcs=col_bcs,
                                            fc_params=self.fc_params,
-                                           context=self.context)
+                                           appctx=self.appctx)
         submat_ctx.on_diag = self.on_diag and row_inds == col_inds
         submat = PETSc.Mat().create()
         submat.setType("python")

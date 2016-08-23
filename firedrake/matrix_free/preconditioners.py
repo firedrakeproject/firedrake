@@ -161,7 +161,7 @@ class MassInvPC(PCBase):
 
         V = test.function_space()
 
-        mu = context.context.get("mu", 1.0)
+        mu = context.appctx.get("mu", 1.0)
 
         u = TrialFunction(V)
         v = TestFunction(V)
@@ -289,11 +289,11 @@ class PCDPC(PCBase):
         Kksp.setFromOptions()
         self.Kksp = Kksp
 
-        state = context.context["state"]
+        state = context.appctx["state"]
 
-        Re = context.context.get("Re", 1.0)
+        Re = context.appctx.get("Re", 1.0)
 
-        velid = context.context["velocity_space"]
+        velid = context.appctx["velocity_space"]
 
         u0 = split(state)[velid]
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
