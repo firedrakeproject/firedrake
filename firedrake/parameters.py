@@ -198,11 +198,14 @@ class OrType(KeyType):
         if self._curr_type is None:
             for type in self._types:
                 if type.parse(value) is not None:
-                    self._curr_type = type
+                    self._curr_type = None
                     return type.parse(value)
             return None
         else:
-            return self._curr_type.parse(value)
+            val = self._curr_type.parse(value)
+            if val is not None:
+                self._curr_type = None
+            return None
 
     @property
     def types(self):
@@ -214,6 +217,8 @@ class OrType(KeyType):
 
     @curr_type.setter
     def curr_type(self, idx):
+        # Set a type for next parsing
+        # Consumed after a single successful parse
         self._curr_type = self._types[idx]
 
     def clear_curr_type(self):
