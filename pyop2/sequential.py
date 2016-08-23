@@ -51,11 +51,9 @@ class JITModule(host.JITModule):
 void %(wrapper_name)s(int start, int end,
                       %(ssinds_arg)s
                       %(wrapper_args)s
-                      %(const_args)s
                       %(layer_arg)s) {
   %(user_code)s
   %(wrapper_decs)s;
-  %(const_inits)s;
   %(map_decl)s
   %(vec_decs)s;
   for ( int n = start; n < end; n++ ) {
@@ -91,9 +89,6 @@ void %(wrapper_name)s(int start, int end,
                     for m in map:
                         argtypes.append(m._argtype)
 
-        for c in Const._definitions():
-            argtypes.append(c._argtype)
-
         if iterset._extruded:
             argtypes.append(ctypes.c_int)
             argtypes.append(ctypes.c_int)
@@ -120,9 +115,6 @@ class ParLoop(host.ParLoop):
                 for map in arg._map:
                     for m in map:
                         arglist.append(m._values.ctypes.data)
-
-        for c in Const._definitions():
-            arglist.append(c._data.ctypes.data)
 
         if iterset._extruded:
             region = self.iteration_region
@@ -189,11 +181,10 @@ def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrap
     snippets['wrapper_fargs'] = "".join("{1} farg{0}, ".format(i, arg) for i, arg in enumerate(forward_args))
     snippets['kernel_fargs'] = "".join("farg{0}, ".format(i) for i in xrange(len(forward_args)))
 
-    template = """static inline void %(wrapper_name)s(%(wrapper_fargs)s%(wrapper_args)s%(const_args)s%(nlayers_arg)s, int cell)
+    template = """static inline void %(wrapper_name)s(%(wrapper_fargs)s%(wrapper_args)s%(nlayers_arg)s, int cell)
 {
     %(user_code)s
     %(wrapper_decs)s;
-    %(const_inits)s;
     %(map_decl)s
     %(vec_decs)s;
     %(index_exprs)s

@@ -780,51 +780,6 @@ void kernel_swap(unsigned int* x[2])
         op2.base._trace.evaluate(set([x2]), set())
         assert len(self.cache) == 1
 
-    def test_change_const_dim_matters(self, backend, iterset, diterset):
-        d = op2.Dat(diterset, range(nelems), numpy.uint32)
-        self.cache.clear()
-        assert len(self.cache) == 0
-
-        k = op2.Kernel("""void k(unsigned int *x) {}""", 'k')
-        c = op2.Const(1, 1, name='c', dtype=numpy.uint32)
-
-        op2.par_loop(k, iterset, d(op2.WRITE))
-
-        op2.base._trace.evaluate(set([d]), set())
-        assert len(self.cache) == 1
-
-        c.remove_from_namespace()
-
-        c = op2.Const(2, (1, 1), name='c', dtype=numpy.uint32)
-
-        op2.par_loop(k, iterset, d(op2.WRITE))
-
-        op2.base._trace.evaluate(set([d]), set())
-        assert len(self.cache) == 2
-
-        c.remove_from_namespace()
-
-    def test_change_const_data_doesnt_matter(self, backend, iterset, diterset):
-        d = op2.Dat(diterset, range(nelems), numpy.uint32)
-        self.cache.clear()
-        assert len(self.cache) == 0
-
-        k = op2.Kernel("""void k(unsigned int *x) {}""", 'k')
-        c = op2.Const(1, 1, name='c', dtype=numpy.uint32)
-
-        op2.par_loop(k, iterset, d(op2.WRITE))
-
-        op2.base._trace.evaluate(set([d]), set())
-        assert len(self.cache) == 1
-
-        c.data = 2
-        op2.par_loop(k, iterset, d(op2.WRITE))
-
-        op2.base._trace.evaluate(set([d]), set())
-        assert len(self.cache) == 1
-
-        c.remove_from_namespace()
-
     def test_change_dat_dtype_matters(self, backend, iterset, diterset):
         d = op2.Dat(diterset, range(nelems), numpy.uint32)
         self.cache.clear()

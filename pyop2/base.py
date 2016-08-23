@@ -1490,7 +1490,7 @@ class DataCarrier(Versioned):
     """Abstract base class for OP2 data.
 
     Actual objects will be :class:`DataCarrier` objects of rank 0
-    (:class:`Const` and :class:`Global`), rank 1 (:class:`Dat`), or rank 2
+    (:class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
 
     class Snapshot(object):
@@ -2566,113 +2566,6 @@ class MixedDat(Dat):
     def __idiv__(self, other):
         """Pointwise division or scaling of fields."""
         return self._iop(other, operator.idiv)
-
-
-class Const(DataCarrier):
-
-    """Data that is constant for any element of any set."""
-
-    class Snapshot(object):
-        """Overridden from DataCarrier; a snapshot is always valid as long as
-        the Const object still exists"""
-        def __init__(self, obj):
-            self._original = weakref.ref(obj)
-
-        def is_valid(self):
-            objref = self._original()
-            if objref is not None:
-                return True
-            return False
-
-    class NonUniqueNameError(ValueError):
-
-        """The Names of const variables are required to be globally unique.
-        This exception is raised if the name is already in use."""
-
-    _defs = set()
-    _globalcount = 0
-
-    @validate_type(('name', str, NameTypeError))
-    def __init__(self, dim, data=None, name=None, dtype=None):
-        self._dim = as_tuple(dim, int)
-        self._cdim = np.asscalar(np.prod(self._dim))
-        self._data = verify_reshape(data, dtype, self._dim, allow_none=True)
-        self._name = name or "const_%d" % Const._globalcount
-        if any(self._name is const._name for const in Const._defs):
-            raise Const.NonUniqueNameError(
-                "OP2 Constants are globally scoped, %s is already in use" % self._name)
-        Const._defs.add(self)
-        Const._globalcount += 1
-
-    def duplicate(self):
-        """A Const duplicate can always refer to the same data vector, since
-        it's read-only"""
-        return type(self)(self.dim, data=self._data, dtype=self.dtype, name=self.name)
-
-    @property
-    def _argtype(self):
-        """Ctypes argtype for this :class:`Const`"""
-        return ctypes.c_voidp
-
-    @property
-    def data(self):
-        """Data array."""
-        if len(self._data) is 0:
-            raise RuntimeError("Illegal access: No data associated with this Const!")
-        return self._data
-
-    @data.setter
-    def data(self, value):
-        self._data = verify_reshape(value, self.dtype, self.dim)
-
-    def __iter__(self):
-        """Yield self when iterated over."""
-        yield self
-
-    def __len__(self):
-        """This is not a mixed type and therefore of length 1."""
-        return 1
-
-    def __str__(self):
-        return "OP2 Const: %s of dim %s and type %s with value %s" \
-               % (self._name, self._dim, self._data.dtype.name, self._data)
-
-    def __repr__(self):
-        return "Const(%r, %r, %r)" \
-               % (self._dim, self._data, self._name)
-
-    @classmethod
-    def _definitions(cls):
-        if Const._defs:
-            return sorted(Const._defs, key=lambda c: c.name)
-        return ()
-
-    def remove_from_namespace(self):
-        """Remove this Const object from the namespace
-
-        This allows the same name to be redeclared with a different shape."""
-        _trace.evaluate(set(), set([self]))
-        Const._defs.discard(self)
-
-    def _format_declaration(self):
-        d = {'type': self.ctype,
-             'name': self.name,
-             'dim': self.cdim}
-
-        if self.cdim == 1:
-            return "static %(type)s %(name)s;" % d
-
-        return "static %(type)s %(name)s[%(dim)s];" % d
-
-    @classmethod
-    def fromhdf5(cls, f, name):
-        """Construct a :class:`Const` from const named ``name`` in HDF5 data ``f``"""
-        slot = f[name]
-        dim = slot.shape
-        data = slot.value
-        if len(dim) < 1:
-            raise DimTypeError("Invalid dimension value %s" % dim)
-        return cls(dim, data, name)
 
 
 class Global(DataCarrier, _EmptyDataMixin):
@@ -3959,11 +3852,6 @@ class JITModule(Cached):
         if iterate is not None:
             key += ((iterate,))
 
-        # The currently defined Consts need to be part of the cache key, since
-        # these need to be uploaded to the device before launching the kernel
-        for c in Const._definitions():
-            key += (c.name, c.dtype, c.cdim)
-
         return key
 
     def _dump_generated_code(self, src, ext=None):
@@ -4046,7 +3934,7 @@ class ParLoop(LazyComputation):
                    ('iterset', Set, SetTypeError))
     def __init__(self, kernel, iterset, *args, **kwargs):
         LazyComputation.__init__(self,
-                                 set([a.data for a in args if a.access in [READ, RW, INC]]) | Const._defs,
+                                 set([a.data for a in args if a.access in [READ, RW, INC]]),
                                  set([a.data for a in args if a.access in [RW, WRITE, MIN, MAX, INC]]),
                                  set([a.data for a in args if a.access in [INC]]))
         # INCs into globals need to start with zero and then sum back

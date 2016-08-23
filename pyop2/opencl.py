@@ -64,11 +64,10 @@ class Kernel(device.Kernel):
              - adds a separate function declaration for user kernel
         """
 
-        def instrument(self, ast, kernel_name, instrument, constants):
+        def instrument(self, ast, kernel_name, instrument):
             self._kernel_name = kernel_name
             self._instrument = instrument
             self._ast = ast
-            self._constants = constants
             self.generic_visit(ast)
             ast.ext.insert(0, self._func_node.decl)
 
@@ -90,18 +89,9 @@ class Kernel(device.Kernel):
                     p.type.quals.append(self._instrument[i][1])
                 self.visit(p)
 
-            for cst in self._constants:
-                if cst._is_scalar:
-                    t = c_ast.TypeDecl(cst._name, [], c_ast.IdentifierType([cst._cl_type]))
-                else:
-                    t = c_ast.PtrDecl([], c_ast.TypeDecl(cst._name, ["__constant"],
-                                      c_ast.IdentifierType([cst._cl_type])))
-                decl = c_ast.Decl(cst._name, [], [], [], t, None, 0)
-                node.params.append(decl)
-
-    def instrument(self, instrument, constants):
+    def instrument(self, instrument):
         ast = c_parser.CParser().parse(self._code)
-        Kernel.Instrument().instrument(ast, self._name, instrument, constants)
+        Kernel.Instrument().instrument(ast, self._name, instrument)
         return c_generator.CGenerator().visit(ast)
 
 
@@ -258,17 +248,6 @@ class Mat(device.Mat, DeviceDataMixin):
 
     def __init__(self, *args, **kwargs):
         raise NotImplementedError("OpenCL backend does not implement matrices")
-
-
-class Const(device.Const, DeviceDataMixin):
-
-    """OP2 OpenCL data that is constant for any element of any set."""
-
-    @property
-    def _array(self):
-        if not hasattr(self, '__array'):
-            setattr(self, '__array', array.to_device(_queue, self._data))
-        return getattr(self, '__array')
 
 
 class Global(device.Global, DeviceDataMixin):
@@ -522,7 +501,7 @@ class JITModule(base.JITModule):
             for i in self._parloop._it_space.extents:
                 inst.append(("__private", None))
 
-            return self._parloop._kernel.instrument(inst, Const._definitions())
+            return self._parloop._kernel.instrument(inst)
 
         # do codegen
         user_kernel = instrument_user_kernel()
@@ -533,7 +512,6 @@ class JITModule(base.JITModule):
                                'user_kernel': user_kernel,
                                'launch': self._conf,
                                'codegen': {'amd': _AMD_fixes},
-                               'op2const': Const._definitions()
                                }).encode("ascii")
         self._dump_generated_code(src, ext="cl")
         prg = cl.Program(_ctx, src).build()
@@ -685,9 +663,6 @@ class ParLoop(device.ParLoop):
         for a in self._all_global_reduction_args:
             a.data._allocate_reduction_array(conf['work_group_count'])
             args.append(a.data._d_reduc_array.data)
-
-        for cst in Const._definitions():
-            args.append(cst._array.data)
 
         for m in self._unique_matrix:
             args.append(m._dev_array.data)
