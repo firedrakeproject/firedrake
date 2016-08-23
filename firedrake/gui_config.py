@@ -19,8 +19,10 @@ def show_config_gui(parameters):
         raise TypeError("Expected Type: Parameters")
 
     def load_json():
-        """Creates a dialog box prompting json input file, then import
-        parameters from json to current parameters
+        """Callback for load JSON button
+
+        Create a dialog box prompting json input file, then import
+        parameters from json to current parameters.
         """
         import tkFileDialog
         filename = tkFileDialog.askopenfilename()
@@ -28,8 +30,11 @@ def show_config_gui(parameters):
         refresh_params(parameters)
 
     def save_json():
-        """Creates a dialog box prompting json output file, then validates
-        current parameters and export parameters to json file if validated
+        """Callback for save JSON button
+
+        Create a dialog box prompting json output file, then validate
+        current parameters and export parameters to json file if
+        validated.
         """
         import tkFileDialog
         if save_params():
@@ -37,14 +42,19 @@ def show_config_gui(parameters):
             export_params_to_json(parameters, filename)
 
     def save_and_quit():
-        """Save the current input into current parameters and close the window
+        """Callback for save and quit button
+
+        Save the current input into current parameters and close the
+        window.
         """
         if save_params():
             root.destroy()
 
     def save_params():
-        """Save the current parameters from input, pop out a message box if
-        there is an error
+        """Save current inputs to parameters
+
+        Save the current parameters from input, pop out a message box if
+        there is an error.
         """
         try:
             parsed_dict = parse_input_dict(parameters)
@@ -52,7 +62,8 @@ def show_config_gui(parameters):
             return True
         except ValueError as e:
             from tkMessageBox import showinfo
-            showinfo(title="Error", message=e.message, icon="error", parent=root)
+            showinfo(title="Error", message=e.message,
+                     icon="error", parent=root)
             return False
 
     def refresh_params(parameters):
@@ -83,13 +94,21 @@ def show_config_gui(parameters):
                 if hasattr(key, "variable"):
                     str_val = key.variable.get()
                     if not key.validate(str_val):
-                        raise ValueError("Invalid value for parameter %s" % key)
+                        raise ValueError("Invalid value for parameter %s" %
+                                         key)
                     parsed_dict[key] = key.type.parse(str_val)
         return parsed_dict
 
     def create_ui_element(parent, key, row):
+        """Create the UI element for a key.
 
+        :arg parent: the parent of UI element
+        :arg key: the key of the input as
+            :class:`firedrake.parameters.TypedKey`
+        :arg row: the row number of the UI element
+        """
         def create_true_false_button(parent, variable, row):
+            """Create two Radiobuttons for boolean input type."""
             button_true = Radiobutton(parent, text='True',
                                       variable=variable, value="True")
             button_true.grid(column=2, row=row, sticky=(E))
@@ -98,14 +117,24 @@ def show_config_gui(parameters):
             button_false.grid(column=3, row=row, sticky=(E))
 
         def create_options_drop_list(parent, variable, default, options, row):
+            """Create an optionmenu for enum input type.
+
+            (represented as string).
+            """
             drop_list = OptionMenu(parent, variable, default, *options)
             drop_list.grid(column=2, columnspan=2, row=row, sticky=(E))
 
         def create_text_entry(parent, variable, row):
+            """Create a text entry for input."""
             label_val = Entry(parent, textvariable=variable)
             label_val.grid(column=2, columnspan=2, row=row, sticky=(E))
 
         def create_config_box_or(parent, variable, key_type, row):
+            """Create a configure button for OrType.
+
+            On clicking, pop out a config dialog for choosing multiple input
+            types.
+            """
             def config_or_type():
                 def callback():
                     window = Toplevel(root)
@@ -134,10 +163,12 @@ def show_config_gui(parameters):
                             variable.set(var[type_idx.get()].get())
                             key_type.curr_type = type_idx.get()
                             window.destroy()
+
                         return callback
 
                     ok = Button(window, text='OK', command=save())
                     ok.grid(column=2, row=sub_row)
+
                 return callback
 
             button = Button(parent, text='Configure',
@@ -145,6 +176,10 @@ def show_config_gui(parameters):
             button.grid(column=2, columnspan=2, row=row, sticky=(E))
 
         def create_config_box_list(parent, variable, key_type, row):
+            """Create a configure button for ListType.
+
+            On clicking, pop out a config dialog box for list inputs.
+            """
             def config_list_type():
                 def callback():
                     window = Toplevel(root)
@@ -167,7 +202,9 @@ def show_config_gui(parameters):
                                 window.destroy()
                             else:
                                 from tkMessageBox import showinfo
-                                showinfo(title="Error", message="Input is invalid")
+                                showinfo(title="Error",
+                                         message="Input is invalid")
+
                         return callback
 
                     def add_elem():
@@ -182,12 +219,15 @@ def show_config_gui(parameters):
                                 showinfo(title="Error",
                                          message="Invalid new value",
                                          parent=window)
+
                         return callback
 
                     def del_elem():
                         def callback():
                             list_box.delete(ANCHOR)
+
                         return callback
+
                     new_var = StringVar()
                     generate_ui_type_selector(window, key_type.elem_type,
                                               new_var, 2)
@@ -199,10 +239,13 @@ def show_config_gui(parameters):
                     add.grid(column=1, row=3)
                     minus = Button(window, text='-', command=del_elem())
                     minus.grid(column=3, row=3)
-                    help_text = Label(window, text="Enter a new value or \
+                    help_text = Label(window,
+                                      text="Enter a new value or \
 click on config button, then click + button to add into list.\n Click on an \
-item, then click - button to delete from list", wraplength=250)
+item, then click - button to delete from list",
+                                      wraplength=250)
                     help_text.grid(column=1, columnspan=3, row=4)
+
                 return callback
 
             button = Button(parent, text='Configure',
@@ -210,6 +253,11 @@ item, then click - button to delete from list", wraplength=250)
             button.grid(column=2, columnspan=2, row=row, sticky=(E))
 
         def generate_ui_type_selector(parent, type, variable, row):
+            """Create UI element for input.
+
+            Select the UI element creation function according to the type
+            of the key given.
+            """
             from firedrake.parameters import BoolType, OrType, StrType, ListType
             if isinstance(type, BoolType):
                 create_true_false_button(parent, variable, row)
@@ -226,7 +274,7 @@ item, then click - button to delete from list", wraplength=250)
         generate_ui_type_selector(parent, key.type, key.variable, row_count)
 
     def generate_input(parameters, labelframe):
-        """Generates GUI elements for parameters inside a label frame
+        """Generate GUI elements for parameters inside a label frame
 
         :arg parameters: Parameters as :class:`firedrake.parameters`
         :arg labelframe: :class:`ttk.Labelframe` to place the GUI elements
@@ -255,6 +303,7 @@ item, then click - button to delete from list", wraplength=250)
                     def click():
                         from tkMessageBox import showinfo
                         showinfo(title="Help", message=key.help, parent=root)
+
                     return click
 
                 help_button = Button(labelframe, text='Help',

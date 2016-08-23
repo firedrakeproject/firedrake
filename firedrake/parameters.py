@@ -12,6 +12,7 @@ __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
 class KeyType(object):
     """Abstract class for types for keys in the parameters"""
+
     __metaclass__ = abc.ABCMeta
 
     @staticmethod
@@ -38,8 +39,9 @@ class KeyType(object):
 
 
 class NumericType(KeyType):
-    """type for numeric types, allowing numeric values to be bounded. The
+    """Type for numeric types, allowing numeric values to be bounded. The
     bounds are inclusive"""
+
     def __init__(self, lower_bound=None, upper_bound=None):
         self._lower_bound = lower_bound
         self._upper_bound = upper_bound
@@ -56,6 +58,7 @@ class NumericType(KeyType):
 
 class IntType(NumericType):
     """Type for integer values, boundaries allowed"""
+
     def validate(self, value):
         # allow int values only
         try:
@@ -78,6 +81,7 @@ class IntType(NumericType):
 
 class FloatType(NumericType):
     """Type for floating point values, boundaries allowed"""
+
     def validate(self, value):
         # allow types convertible to floats (int inclusive)
         try:
@@ -97,6 +101,7 @@ class FloatType(NumericType):
 
 class BoolType(KeyType):
     """Type for bools"""
+
     def validate(self, value):
         # allow strings of "True" or "False" only if the value is not bool
         return value in ["True", "False"] or type(value) is bool
@@ -115,6 +120,7 @@ class BoolType(KeyType):
 class StrType(KeyType):
     """String type. Allow strings to be limited to given options, also allow a
     user-specified validation function"""
+
     def __init__(self, *options):
         self._options = [str(x) for x in options]
 
@@ -154,6 +160,7 @@ class StrType(KeyType):
 
 class InstanceType(KeyType):
     """Type for instances"""
+
     def __init__(self, obj):
         self._class = obj.__class__
 
@@ -166,7 +173,8 @@ class InstanceType(KeyType):
 
 
 class UnsetType(KeyType):
-    """type for unset values. Parse method will not return anything"""
+    """Type for unset values. Parse method will not return anything"""
+
     def validate(self, value):
         return True
 
@@ -176,6 +184,7 @@ class UnsetType(KeyType):
 
 class OrType(KeyType):
     """Type for combinations of types"""
+
     def __init__(self, *types):
         self._types = list(types)
         self._curr_type = None
@@ -227,6 +236,7 @@ class OrType(KeyType):
 
 class ListType(KeyType):
     """Type for lists, allows single type in the list only"""
+
     def __init__(self, elem_type, min_len=None, max_len=None):
         self._elem_type = elem_type
         self._min_len = min_len
@@ -274,6 +284,7 @@ class ListType(KeyType):
 class TypedKey(str):
     """A class for parameter keys with additional metadata including help
     text and type data"""
+
     def __new__(self, key, val_type=None):
         return super(TypedKey, self).__new__(self, key)
 
