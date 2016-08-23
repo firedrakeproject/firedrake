@@ -100,21 +100,14 @@ class ImplicitMatrixContext(object):
         self._xbc = function.Function(trial_space)
         self._ybc = function.Function(test_space)
 
-        with self._x.dat.vec_ro as xx:
-            self.col_sizes = xx.getSizes()
-        with self._y.dat.vec_ro as yy:
-            self.row_sizes = yy.getSizes()
+        # Get size information from template vecs on test and trial spaces
+        trial_vec = trial_space.dof_dset.layout_vec
+        test_vec = test_space.dof_dset.layout_vec
+        self.col_sizes = trial_vec.getSizes()
+        self.row_sizes = test_vec.getSizes()
 
-        if len(test_space) == 1:
-            rbsize = test_space.dim
-        else:
-            rbsize = 1
-        if len(trial_space) == 1:
-            cbsize = trial_space.dim
-        else:
-            cbsize = 1
+        self.block_size = (test_vec.getBlockSize(), trial_vec.getBlockSize())
 
-        self.block_size = (rbsize, cbsize)
         self.action = action(self.a, self._x)
         self.actionT = action(self.aT, self._y)
 
