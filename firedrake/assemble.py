@@ -16,7 +16,7 @@ from firedrake import matrix
 from firedrake import parameters
 from firedrake import solving
 from firedrake import utils
-from firedrake.static_condensation import slate
+# from firedrake.static_condensation import slate
 
 
 __all__ = ["assemble"]

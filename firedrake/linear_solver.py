@@ -7,7 +7,7 @@ import firedrake.vector as vector
 import firedrake.matrix as matrix
 import firedrake.solving_utils as solving_utils
 from firedrake.petsc import PETSc
-from firedrake.static_condensation import slate
+# from firedrake.static_condensation import slate
 from firedrake.utils import cached_property
 
 
