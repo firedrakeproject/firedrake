@@ -87,7 +87,7 @@ def show_config_gui(parameters):
                     parsed_dict[key] = key.type.parse(str_val)
         return parsed_dict
 
-    def create_ui_element(parameters, parent, key, row):
+    def create_ui_element(parent, key, row):
 
         def create_true_false_button(parent, variable, row):
             button_true = Radiobutton(parent, text='True',
@@ -201,7 +201,7 @@ def show_config_gui(parameters):
                     elif isinstance(key_type.elem_type, StrType) and \
                             key_type.elem_type.options != []:
                         create_options_drop_list(window, new_var,
-                                                 key_type.elem_type.options[0],
+                                                 None,
                                                  key_type.elem_type.options, 2)
                     elif isinstance(key_type.elem_type, OrType):
                         create_config_box_or(window, new_var,
@@ -233,7 +233,7 @@ item, then click - button to delete from list", wraplength=250)
         if isinstance(key.type, BoolType):
             create_true_false_button(parent, key.variable, row_count)
         elif isinstance(key.type, StrType) and key.type.options != []:
-            create_options_drop_list(parent, key.variable, parameters[key],
+            create_options_drop_list(parent, key.variable, key.variable.get(),
                                      key.type.options, row_count)
         elif isinstance(key.type, OrType):
             create_config_box_or(parent, key.variable, key.type, row_count)
@@ -266,7 +266,7 @@ item, then click - button to delete from list", wraplength=250)
                 label_key.grid(column=1, row=row_count, sticky=(W))
                 key.variable = StringVar()
                 key.variable.set(str(parameters[key]))
-                create_ui_element(parameters, labelframe, key, row_count)
+                create_ui_element(labelframe, key, row_count)
 
                 def help_box(key):
                     def click():
