@@ -240,7 +240,7 @@ class ImplicitMatrixContext(object):
                                            fc_params=self.fc_params,
                                            appctx=self.appctx)
         submat_ctx.on_diag = self.on_diag and row_inds == col_inds
-        submat = PETSc.Mat().create()
+        submat = PETSc.Mat().create(comm=mat.comm)
         submat.setType("python")
         submat.setSizes((submat_ctx.row_sizes, submat_ctx.col_sizes),
                         bsize=submat_ctx.block_size)

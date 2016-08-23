@@ -280,7 +280,7 @@ class ImplicitMatrix(MatrixBase):
                                     col_bcs=bcs,
                                     fc_params=kwargs["fc_params"],
                                     appctx=appctx)
-        self.petscmat = PETSc.Mat().create()
+        self.petscmat = PETSc.Mat().create(comm=self.comm)
         self.petscmat.setType("python")
         self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
                                bsize=ctx.block_size)
