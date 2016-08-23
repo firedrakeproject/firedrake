@@ -105,21 +105,21 @@ def show_config_gui(parameters):
             label_val = Entry(parent, textvariable=variable)
             label_val.grid(column=2, columnspan=2, row=row, sticky=(E))
 
-        def create_config_box_or(parent, key, row):
+        def create_config_box_or(parent, variable, key_type, row):
             def config_or_type():
                 def callback():
                     window = Toplevel(root)
                     type_idx = IntVar()
-                    var = [StringVar() for t in key.type.types]
+                    var = [StringVar() for t in key_type.types]
                     sub_row = 0
 
                     # infer current type from value and clear current type
-                    key.type.parse(key.variable.get())
-                    curr_type_idx = key.type.types.index(key.type.curr_type)
+                    key_type.parse(variable.get())
+                    curr_type_idx = key_type.types.index(key_type.curr_type)
                     type_idx.set(curr_type_idx)
-                    var[curr_type_idx].set(str(key.variable.get()))
+                    var[curr_type_idx].set(str(variable.get()))
 
-                    for type in key.type.types:
+                    for type in key_type.types:
                         type_selector = Radiobutton(window, text=str(type),
                                                     variable=type_idx,
                                                     value=sub_row)
@@ -134,12 +134,12 @@ def show_config_gui(parameters):
                         else:
                             create_text_entry(window, var[sub_row], sub_row)
                         sub_row += 1
-                    key.type.clear_curr_type()
+                    key_type.clear_curr_type()
 
                     def save():
                         def callback():
-                            key.variable.set(var[type_idx.get()].get())
-                            key.type.curr_type = type_idx.get()
+                            variable.set(var[type_idx.get()].get())
+                            key_type.curr_type = type_idx.get()
                             window.destroy()
                         return callback
 
@@ -151,7 +151,7 @@ def show_config_gui(parameters):
                             command=config_or_type())
             button.grid(column=2, columnspan=2, row=row, sticky=(E))
 
-        def create_config_box_list(parent, key, row):
+        def create_config_box_list(parent, variable, key_type, row):
             def config_list_type():
                 def callback():
                     window = Toplevel(root)
@@ -170,8 +170,8 @@ def show_config_gui(parameters):
                     def add_elem():
                         def callback():
                             str_val = new_var.get()
-                            if key.type.elem_type.validate(str_val):
-                                list_box.insert(END, key.type.elem_type.parse(str_val))
+                            if key_type.elem_type.validate(str_val):
+                                list_box.insert(END, key_type.elem_type.parse(str_val))
                             else:
                                 from tkMessageBox import showinfo
                                 showinfo(title="Error",
@@ -184,17 +184,17 @@ def show_config_gui(parameters):
                             list_box.delete(ANCHOR)
                         return callback
                     new_var = StringVar()
-                    if isinstance(key.type.elem_type, BoolType):
+                    if isinstance(key_type.elem_type, BoolType):
                         create_true_false_button(window, new_var, 2)
-                    elif isinstance(key.type.elem_type, StrType) and \
-                            key.type.elem_type.options != []:
+                    elif isinstance(key_type.elem_type, StrType) and \
+                            key_type.elem_type.options != []:
                         create_options_drop_list(window, new_var,
-                                                 key.type.elem_type.options[0],
-                                                 key.type.elem_type.options, 2)
-                    elif isinstance(key.type.elem_type, OrType):
+                                                 key_type.elem_type.options[0],
+                                                 key_type.elem_type.options, 2)
+                    elif isinstance(key_type.elem_type, OrType):
                         # TODO: Implement this
                         pass
-                    elif isinstance(key.type.elem_type, ListType):
+                    elif isinstance(key_type.elem_type, ListType):
                         # TODO: Implement this
                         pass
                     else:
@@ -220,9 +220,9 @@ def show_config_gui(parameters):
             create_options_drop_list(parent, key.variable, parameters[key],
                                      key.type.options, row_count)
         elif isinstance(key.type, OrType):
-            create_config_box_or(parent, key, row_count)
+            create_config_box_or(parent, key.variable, key.type, row_count)
         elif isinstance(key.type, ListType):
-            create_config_box_list(parent, key, row_count)
+            create_config_box_list(parent, key.variable, key.type, row_count)
         else:
             create_text_entry(parent, key.variable, row_count)
 
