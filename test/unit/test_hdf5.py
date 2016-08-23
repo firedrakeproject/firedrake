@@ -107,13 +107,6 @@ class TestHDF5:
         assert d.soa
         assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
-    def test_const_hdf5(self, backend, h5file):
-        "Constant should be correctly populated from hdf5 file."
-        c = op2.Const.fromhdf5(h5file, 'myconstant')
-        c.remove_from_namespace()
-        assert c.data.sum() == 3
-        assert c.dim == (3,)
-
     def test_map_hdf5(self, backend, iterset, toset, h5file):
         "Should be able to create Map from hdf5 file."
         m = op2.Map.fromhdf5(iterset, toset, h5file, name="map")

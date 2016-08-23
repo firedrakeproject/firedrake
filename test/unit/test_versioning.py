@@ -114,9 +114,6 @@ class TestVersioning:
         assert mat._version == 0
         assert g._version == 1
         assert x._version == 1
-        c = op2.Const(1, 1, name='c2', dtype=numpy.uint32)
-        assert c._version == 1
-        c.remove_from_namespace()
 
     def test_dat_modified(self, backend, x):
         x += 1
