@@ -233,9 +233,7 @@ class ListType(KeyType):
     def elem_type(self):
         return self._elem_type
 
-    def validate(self, value, single_elem=False):
-        if single_elem:
-            return self._elem_type.validate(value)
+    def validate(self, value):
         lst = value
         if type(value) is str:
             try:
