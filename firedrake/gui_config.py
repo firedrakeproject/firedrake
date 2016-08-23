@@ -164,8 +164,17 @@ def show_config_gui(parameters):
 
                     def save():
                         def callback():
-                            # TODO: Implement this
-                            window.destroy()
+                            values = list_box.get(0, END)
+                            lst = []
+                            for value in values:
+                                if key_type.elem_type.validate(value):
+                                    lst.append(key_type.elem_type.parse(value))
+                            if key_type.validate(lst):
+                                variable.set(str(lst))
+                                window.destroy()
+                            else:
+                                from tkMessageBox import showinfo
+                                showinfo(title="Error", message="Input is invalid")
                         return callback
 
                     def add_elem():
