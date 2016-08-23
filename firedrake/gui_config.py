@@ -156,10 +156,11 @@ def show_config_gui(parameters):
                 def callback():
                     window = Toplevel(root)
                     list_box = Listbox(window, selectmode=SINGLE, height=10)
-                    list_box.grid(row=1, columnspan=3, column=1, sticky=(N, S, W, E))
+                    list_box.grid(row=1, columnspan=3,
+                                  column=1, sticky=(N, S, W, E))
 
                     for elem in parameters[key]:
-                        list_box.insert(END, elem)
+                        list_box.insert(END, str(elem))
 
                     def save():
                         def callback():
@@ -171,7 +172,9 @@ def show_config_gui(parameters):
                         def callback():
                             str_val = new_var.get()
                             if key_type.elem_type.validate(str_val):
-                                list_box.insert(END, key_type.elem_type.parse(str_val))
+                                list_box.insert(END,
+                                                str(key_type.elem_type
+                                                    .parse(str_val)))
                             else:
                                 from tkMessageBox import showinfo
                                 showinfo(title="Error",
