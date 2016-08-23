@@ -51,7 +51,7 @@ class Vector(object):
                 This copies the underlying data in the :class:`pyop2.Dat`.
         """
         if isinstance(x, Vector):
-            self.dat = op2.Dat(x.dat)
+            self.dat = type(x.dat)(x.dat)
         elif isinstance(x, op2.base.Dat):  # ugh
             self.dat = x
         else:
@@ -117,7 +117,7 @@ class Vector(object):
 
     def copy(self):
         """Return a copy of this vector."""
-        return Vector(op2.Dat(self.dat))
+        return type(self)(self)
 
     def get_local(self):
         """Return a copy of the process local data as a numpy array"""
@@ -138,8 +138,7 @@ class Vector(object):
         """Return the global indices of the start and end of the local part of
         this vector."""
 
-        with self.dat.vec_ro as v:
-            return v.getOwnershipRange()
+        return self.dat.dataset.layout_vec.getOwnershipRange()
 
     def max(self):
         """Return the maximum entry in the vector."""
@@ -148,11 +147,7 @@ class Vector(object):
 
     def size(self):
         """Return the global size of the data"""
-        if hasattr(self, '_size'):
-            return self._size
-        lsize = self.local_size()
-        self._size = self.comm.allreduce(lsize, op=MPI.SUM)
-        return self._size
+        return self.dat.dataset.layout_vec.getSizes()[1]
 
     def inner(self, other):
         """Return the l2-inner product of self with other"""

@@ -132,6 +132,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "integral_type",
                                      "oriented",
                                      "subdomain_id",
+                                     "domain_number",
                                      "coefficient_map"])
 
 
@@ -194,7 +195,7 @@ class TSFCKernel(Cached):
         return md5(form.signature() + name + Kernel._backend.__name__
                    + str(default_parameters["coffee"])
                    + str(parameters)
-                   + str(number_map)).hexdigest(), form.ufl_domain().comm
+                   + str(number_map)).hexdigest(), form.ufl_domains()[0].comm
 
     def __init__(self, form, name, parameters, number_map):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
@@ -220,6 +221,7 @@ class TSFCKernel(Cached):
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
+                                      domain_number=kernel.domain_number,
                                       coefficient_map=numbers))
         self.kernels = tuple(kernels)
         self._initialized = True
