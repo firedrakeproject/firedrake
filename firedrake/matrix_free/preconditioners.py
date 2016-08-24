@@ -230,6 +230,11 @@ class PCDPC(PCBase):
     ``pcd_velocity_space`` which should be the index into the full
     space that gives velocity field.
 
+    .. note::
+
+       Currently, the boundary conditions applied to the PCD operator
+       are correct for characteristic velocity boundary conditions,
+       but sub-optimal for in and outflow boundaries.
     """
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, \
