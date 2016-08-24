@@ -177,6 +177,7 @@ def compile_slate_expression(slate_expr, testing=False):
         raise NotImplementedError("Expression of type %s not supported.",
                                   type(expr).__name__)
 
+    @get_kernel_expr.register(ActionTensor)
     @get_kernel_expr.register(Scalar)
     @get_kernel_expr.register(Vector)
     @get_kernel_expr.register(Matrix)
@@ -329,6 +330,7 @@ def compile_slate_expression(slate_expr, testing=False):
         raise NotImplementedError("Expression of type %s not supported.",
                                   type(expr).__name__)
 
+    @get_c_str.register(ActionTensor)
     @get_c_str.register(Scalar)
     @get_c_str.register(Vector)
     @get_c_str.register(Matrix)
