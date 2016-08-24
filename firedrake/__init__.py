@@ -69,5 +69,5 @@ check()
 del check
 
 from firedrake._version import get_versions
-__version__ = get_versions(default={"version": ver, "full": ""})['version']
+__version__ = get_versions()['version']
 del get_versions

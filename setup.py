@@ -28,11 +28,6 @@ http://firedrakeproject.org/obtaining_pyop2.html#petsc
 """)
 
 import versioneer
-versioneer.versionfile_source = 'firedrake/_version.py'
-versioneer.versionfile_build = 'firedrake/_version.py'
-versioneer.tag_prefix = 'v'
-versioneer.parentdir_prefix = 'firedrake-'
-versioneer.VCS = "git"
 
 cmdclass = versioneer.get_cmdclass()
 
