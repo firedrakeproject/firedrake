@@ -26,8 +26,13 @@ def show_config_gui(parameters):
         """
         import tkFileDialog
         filename = tkFileDialog.askopenfilename()
-        import_params_from_json(parameters, filename)
-        refresh_params(parameters)
+        try:
+            import_params_from_json(parameters, filename)
+            refresh_params(parameters)
+        except ValueError as e:
+            from tkMessageBox import showinfo
+            showinfo(title="Error", message=e.message, icon="error",
+                     parent=root)
 
     def save_json():
         """Callback for save JSON button
@@ -323,7 +328,6 @@ item, then click - button to delete from list",
         if mainframe.winfo_reqwidth() != canvas.winfo_width():
             canvas.itemconfigure(frame_id, width=canvas.winfo_width())
 
-    global root
     root = Tk()
     root.title("Configure")
 
@@ -412,16 +416,11 @@ def load_from_dict(parameters, dictionary):
             if isinstance(parameters[k], Parameters):
                 load_from_dict(parameters[k], dictionary[k])
             else:
-                try:
-                    if isinstance(dictionary[k], unicode):
-                        # change unicode type to str type
-                        parameters[k] = dictionary[k].encode('ascii',
-                                                             'ignore')
-                    else:
-                        parameters[k] = dictionary[k]
-                except ValueError as e:
-                    from tkMessageBox import showinfo
-                    showinfo(title="Error", message=e.message, icon="error",
-                             parent=root)
+                if isinstance(dictionary[k], unicode):
+                    # change unicode type to str type
+                    parameters[k] = dictionary[k].encode('ascii',
+                                                         'ignore')
+                else:
+                    parameters[k] = dictionary[k]
         else:
             warning(k + ' is not in the parameters and ignored')
