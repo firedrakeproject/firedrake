@@ -95,7 +95,7 @@ we invert the velocity block with LU::
 and invert the schur complement inexactly using GMRES, preconditioned
 with PCD. ::
 
-               "fieldsplit_1_ksp_type": "preonly",
+               "fieldsplit_1_ksp_type": "gmres",
                "fieldsplit_1_ksp_rtol": 1e-4,
                "fieldsplit_1_pc_type": "python",
                "fieldsplit_1_pc_python_type": "firedrake.PCDPC",

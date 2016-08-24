@@ -64,7 +64,7 @@ a ``mat_type`` of ``aij`` to the solve call.::
           raise e
 
 Now we'll use a Schur complement preconditioner using unassembled
-matrices.  We can do all over this purely by changing the solver
+matrices.  We can do all of this purely by changing the solver
 options.  We'll define the parameters separately to run through the
 options.::
 
@@ -81,6 +81,7 @@ the configured Krylov solver object.::
 
       "ksp_type": "gmres",
       "ksp_monitor_true_residual": True,
+      "ksp_view": True,
       "pc_type": "fieldsplit",
       "pc_fieldsplit_type": "schur",
       "pc_fieldsplit_schur_fact_type": "diag",

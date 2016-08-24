@@ -16,14 +16,13 @@ CSR algorithms.
 
 There are two ways of accessing this functionality.  One can either
 request a matrix-free operator by passing ``mat_type="matfree"`` to
-:func:`.assemble`.  In this case, the returned object is a
+:func:`.assemble`.  In this case, the returned object is an
 :class:`.ImplicitMatrix`.  This object can be used in the normal way
 with a :class:`.LinearSolver`.  Alternately, when solving a
 variational problem, an :class:`.ImplicitMatrix` is requested through
 the ``solver_parameters`` dict, by setting the option ``mat_type`` to
 ``matfree``.  The type of the preconditioning matrix can be controlled
-separately (if a separate preconditioning form is provided) by setting
-``pmat_type``.
+separately by setting ``pmat_type``.
 
 Generically, one can expect such a matrix to be cheaper to "assemble"
 and to use less memory, especially for high-order
@@ -69,12 +68,13 @@ Firedrake provides a few problem-specific preconditioners for the
 Stokes and Navier-Stokes equations.  Particularly, the
 :class:`.MassInvPC` and :class:`.PCDPC` preconditioners.  The former
 is useful for Stokes problems where, in the absence of high viscosity
-contrasts, the Schur complement is well-approximated by the pressure
-mass matrix.  The latter implements the pressure-convection-diffusion
-approximation for the Navier-Stokes Schur complement, which
-approximates the inverse of the Schur complement by a mass matrix
-solve, the application of a scalar convection-diffusion operator using
-the current velocity of the Newton step, and a Poisson solve.
+contrasts, the Schur complement is spectrally equivalent to the
+viscosity-weighted pressure mass matrix.  The latter implements the
+pressure-convection-diffusion approximation for the Navier-Stokes
+Schur complement, which approximates the inverse of the Schur
+complement by a mass matrix solve, the application of a scalar
+convection-diffusion operator using the current velocity of the Newton
+step, and a Poisson solve.
 
 Providing application context to preconditioners
 ------------------------------------------------
@@ -83,19 +83,21 @@ Frequently, such custom preconditioners require some additional
 information that will not be fully available from the UFL description
 in :class:`.ImplicitMatrixContext`.  For example, it is not possible
 to extract physical parameters such as the Reynolds number from a UFL
-bilinear form.  In this case, the :class:`.NonlinearVariationalSolver`
-takes a dictionary ``"appctx"`` as an optional keyword argument.
-Firedrake passes that down into the :class:`.ImplicitMatrixContext` so
-that it is accessible to preconditioners.
+bilinear form.  In this case, the solver accepts a dictionary
+``"appctx"`` as an optional keyword argument, the same argument may
+also be passed to :func:`~.assemble` in the case of preassembled
+solves.  Firedrake passes that down into the
+:class:`.ImplicitMatrixContext` so that it is accessible to
+preconditioners.
 
 Example usage
 =============
 
 To demonstrate some use cases for matrix-free operators and
 preconditioners, we will now move on to some examples.  These range
-from a simple primal Poisson equation and build up the complexity,
-ending with a scalable preconditioner for the simulation of
-Rayleigh-Benard convection.
+start with a simple primal Poisson equation and build up the
+complexity, ending with a scalable preconditioner for the simulation
+of Rayleigh-Benard convection.
 
 .. include:: demos/poisson.py.rst
 
