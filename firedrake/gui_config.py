@@ -381,7 +381,7 @@ def export_params_to_json(parameters, filename):
     if filename == '':
         return
     output_file = open(filename, 'w')
-    output_file.write(json.dumps(parameters))
+    json.dump(parameters, output_file)
     output_file.close()
 
 
@@ -397,7 +397,7 @@ def import_params_from_json(parameters, filename):
     if filename == '':
         return
     input_file = open(filename, 'r')
-    dictionary = json.loads(input_file.read())
+    dictionary = json.load(input_file)
     input_file.close()
     load_from_dict(parameters, dictionary)
     return parameters
