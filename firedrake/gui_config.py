@@ -5,7 +5,9 @@ from __future__ import absolute_import
 from Tkinter import *
 from ttk import *
 
-__all__ = ['show_config_gui']
+__all__ = ['show_config_gui',
+           "export_params_to_json",
+           "import_params_from_json"]
 
 
 def show_config_gui(parameters):
