@@ -95,17 +95,30 @@ We could use the built in plot function of firedrake by calling
 :func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
 matplotlib.pyplot should be installed and imported::
 
-  import matplotlib.pyplot as plt
-  plot(u)
+  try:
+    import matplotlib.pyplot as plt
+  except:
+    warning("Matplotlib not imported")
+
+  try:
+    plot(u)
+  except Exception as e:
+    warning("Cannot plot figure. Error msg: '%s'" % e.message)
 
 For a contour plot, it could be plotted by adding an additional key word
 argument::
 
-  plot(u, contour=True)
+  try:
+    plot(u, contour=True)
+  except Exception as e:
+    warning("Cannot plot figure. Error msg: '%s'" % e.message)
 
 Don't forget to show the image::
-  
-  plt.show()
+
+  try:
+    plt.show()
+  except Exception as e:
+    warning("Cannot show figure. Error msg: '%s'" % e.message)
 
 Alternatively, since we have an analytic solution, we can check the
 :math:`L_2` norm of the error in the solution::

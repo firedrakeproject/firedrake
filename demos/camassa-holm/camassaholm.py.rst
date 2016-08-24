@@ -63,10 +63,13 @@ Firedrake namespace. ::
 
   from firedrake import *
 
-To visualise the output, we also need to import matplotlib.python to display
+To visualise the output, we also need to import matplotlib.pyplot to display
 the visual output ::
 
-  import matplotlib.pyplot as plt
+  try:
+    import matplotlib.pyplot as plt
+  except:
+    warning("Matplotlib not imported")
 
 The following code is currently required to ensure
 reevaluation of the energy for output. ::
@@ -223,11 +226,17 @@ momentum is transferred to the right peakon.
 At last, we call the :func:`plot(all_us) <firedrake.plot.plot>` to plot the
 image::
 
-  plot(all_us)
+  try:
+    plot(all_us)
+  except Exception as e:
+    warning("Cannot plot figure. Error msg: '%s'" % e.message)
 
 And finally show the figure::
 
-  plt.show()
+  try:
+    plt.show()
+  except Exception as e:
+    warning("Cannot show figure. Error msg: '%s'" % e.message)
 
 Alternatively, if running in Jupyter Notebook, an interactive interface will be
 displayed by adding the key word argument `interactive=True`

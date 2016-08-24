@@ -148,13 +148,22 @@ We could use the built in plot function of firedrake by calling
 :func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
 matplotlib.pyplot should be installed and imported::
 
-  import matplotlib.pyplot as plt
-  plot(u)
+  try:
+    import matplotlib.pyplot as plt
+  except:
+    warning("Matplotlib not imported")
+
+  try:
+    plot(u)
+  except Exception as e:
+    warning("Cannot plot figure. Error msg '%s'" % e.message)
 
 Don't forget to show the image::
 
-  plt.show()
-
+  try:
+    plt.show()
+  except Exception as e:
+    warning("Cannot show figure. Error msg '%s'" % e.message)
 
 This demo is based on the corresponding `DOLFIN mixed Poisson demo
 <http://fenicsproject.org/documentation/dolfin/1.3.0/python/demo/documented/mixed-poisson/python/documentation.html>`__
