@@ -21,7 +21,7 @@ def A(W):
 
     a = inner(u, v)*dx
 
-    return assemble(a, nest=False)
+    return assemble(a, mat_type="aij")
 
 
 @pytest.fixture

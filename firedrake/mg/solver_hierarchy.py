@@ -34,8 +34,7 @@ def coarsen_problem(problem):
                                                         bcs=new_bcs,
                                                         J=new_J,
                                                         Jp=new_Jp,
-                                                        form_compiler_parameters=problem.form_compiler_parameters,
-                                                        nest=problem._nest)
+                                                        form_compiler_parameters=problem.form_compiler_parameters)
     return new_problem
 
 
@@ -207,7 +206,12 @@ class NLVSHierarchy(object):
         else:
             # User has provided list of problems
             problems = problem
-        ctx = firedrake.solving_utils._SNESContext(problems)
+
+        mat_type = parameters.get("mat_type")
+        pmat_type = parameters.get("pmat_type")
+        ctx = firedrake.solving_utils._SNESContext(problems,
+                                                   mat_type=mat_type,
+                                                   pmat_type=pmat_type)
 
         if nullspace is not None or tnullspace is not None:
             raise NotImplementedError("Coarsening nullspaces not yet implemented")

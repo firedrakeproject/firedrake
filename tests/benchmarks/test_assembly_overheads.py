@@ -94,10 +94,10 @@ def test_assemble_mixed_mass(fresh_tensor, nspaces, benchmark):
     L = inner(u, v)*dx
 
     if fresh_tensor:
-        call = lambda: assemble(L, nest=False).M
+        call = lambda: assemble(L, mat_type="aij").M
     else:
         g = assemble(L)
-        call = lambda: assemble(L, nest=False, tensor=g).M
+        call = lambda: assemble(L, mat_type="aij", tensor=g).M
     benchmark(lambda: call())
 
 

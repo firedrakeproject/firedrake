@@ -1,4 +1,3 @@
-from math import pi
 import pytest
 import numpy as np
 
