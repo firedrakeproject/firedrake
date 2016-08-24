@@ -124,6 +124,8 @@ def plot(function,
         import matplotlib.pyplot as plt
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
+    if function.ufl_shape != ():
+        raise RuntimeError("Unsupported Functionality")
     if function.function_space().mesh().geometric_dimension() \
             == function.function_space().mesh().topological_dimension() \
             == 1:
