@@ -135,12 +135,15 @@ def compile_slate_expression(slate_expr, testing=False):
     if not isinstance(slate_expr, Tensor):
         expecting_slate_expr(slate_expr)
 
+    if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
+        raise NotImplementedError("Compiling mixed slate expressions")
     # Initialize variables: dtype and associated data structures.
     dtype = "double"
     shape = slate_expr.shape
     temps = {}
     kernel_exprs = {}
     coeffs = slate_expr.coefficients()
+    coeffmap = dict((c, ast.Symbol("w%d" % i)) for i, c in enumerate(coeffs))
     statements = []
     need_cell_facets = False
 
@@ -177,7 +180,6 @@ def compile_slate_expression(slate_expr, testing=False):
         raise NotImplementedError("Expression of type %s not supported.",
                                   type(expr).__name__)
 
-    @get_kernel_expr.register(ActionTensor)
     @get_kernel_expr.register(Scalar)
     @get_kernel_expr.register(Vector)
     @get_kernel_expr.register(Matrix)
@@ -191,7 +193,7 @@ def compile_slate_expression(slate_expr, testing=False):
             temps[expr] = temp
             statements.append(ast.Decl(temp_type, temp))
 
-            # TODO: How are firedrake.Function objects assembled?
+            # Compile integrals using TSFC
             integrals = expr.get_ufl_integrals()
             kernel_exprs[expr] = []
             mapper = RemoveRestrictions()
@@ -211,6 +213,13 @@ def compile_slate_expression(slate_expr, testing=False):
                 kernel_exprs[expr].append((typ, tsfc_compiled_form))
         return
 
+    @get_kernel_expr.register(Action)
+    def get_kernel_expr_action(expr):
+        """Gets the input coefficient and acting tensor."""
+
+        tensor = expr.tensor
+        get_kernel_expr(tensor)
+
     @get_kernel_expr.register(UnaryOp)
     @get_kernel_expr.register(BinaryOp)
     @get_kernel_expr.register(Transpose)
@@ -222,8 +231,7 @@ def compile_slate_expression(slate_expr, testing=False):
         map(get_kernel_expr, expr.operands)
         return
 
-    # Coefficient mapping and initialize coordinate and facet symbols
-    coeffmap = dict((c, ast.Symbol("w%d" % i)) for i, c in enumerate(coeffs))
+    # initialize coordinate and facet symbols
     coordsym = ast.Symbol("coords")
     coords = None
     cellfacetsym = ast.Symbol("cell_facets")
@@ -330,7 +338,7 @@ def compile_slate_expression(slate_expr, testing=False):
         raise NotImplementedError("Expression of type %s not supported.",
                                   type(expr).__name__)
 
-    @get_c_str.register(ActionTensor)
+    @get_c_str.register(Action)
     @get_c_str.register(Scalar)
     @get_c_str.register(Vector)
     @get_c_str.register(Matrix)

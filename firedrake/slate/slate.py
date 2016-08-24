@@ -38,7 +38,7 @@ from ufl.form import _sorted_integrals
 
 
 __all__ = ['CheckRestrictions', 'RemoveRestrictions',
-           'SlateIntegral', 'ActionTensor', 'Tensor',
+           'SlateIntegral', 'Action', 'Tensor',
            'Scalar', 'Vector', 'Matrix', 'Inverse',
            'Transpose', 'UnaryOp', 'Negative', 'Positive',
            'BinaryOp', 'TensorAdd', 'TensorSub', 'TensorMul',
@@ -351,17 +351,26 @@ class Tensor(object):
         return self._hash
 
 
-class ActionTensor(Tensor):
+class Action(Tensor):
     """The resulting tensor from computing the action of a SLATE
     Tensor on a Coefficient."""
 
-    def __init__(self, arguments, coefficients, integrals):
-        """Constructor for the ActionTensor class."""
+    def __init__(self, tensor, coefficient):
+        """Constructor for the Action class."""
+        self.tensor = tensor
+        self.input_coefficient = coefficient
+        args = tensor.arguments()
+        u = args[-1]
+        fs = u.ufl_function_space()
+        slate_assert(coefficient.ufl_function_space() == fs,
+                     "Action coefficient doesn't match with argument function space.")
+
+        coefficients = tensor.coefficients() + (coefficient, )
 
         Tensor.tensor_id += 1
-        super(ActionTensor, self).__init__(arguments=arguments,
+        super(ActionTensor, self).__init__(arguments=args[:-1],
                                            coefficients=coefficients,
-                                           integrals=integrals)
+                                           integrals=tensor.get_ufl_integrals())
 
     def __str__(self, prec=None):
         """String representation of ActionTensor."""
@@ -779,23 +788,4 @@ class TensorMul(BinaryOp):
 def compute_slate_tensor_action(tensor, coefficient):
     """Computes the action of a SLATE tensor on a ufl
     coefficient."""
-
-    args = tensor.arguments()
-
-    # Last argument of the tensor
-    u = args[-1]
-
-    fs = u.ufl_function_space()
-    if coefficient is None:
-        coefficient = Coefficient(fs)
-    slate_assert(coefficient.ufl_function_space() == fs,
-                 "Cannot compute the action of a SLATE tensor on a coefficient in a different function space.")
-
-    # New arguments are all arguments minus the last entry
-    nargs = args[0:-1]
-    ncoefficients = tensor.coefficients() + (coefficient, )
-
-    slate_assert(len(nargs) == 1, "Currently only support matrix-vector actions.")
-    return ActionTensor(arguments=nargs,
-                        coefficients=ncoefficients,
-                        integrals=tensor.get_ufl_integrals())
+    return Action(tensor, coefficient)
