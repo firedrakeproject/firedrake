@@ -9,7 +9,6 @@ from ufl.algorithms.multifunction import MultiFunction
 import firedrake
 
 from . import utils
-from .interface import inject, prolong, restrict
 
 
 __all__ = ["coarsen_form", "coarsen_thing"]
@@ -53,7 +52,7 @@ class CoarsenIntegrand(MultiFunction):
             elif level != -1:
                 new_fn = firedrake.Function(hierarchy[level-1])
                 # restrict state to coarse grid
-                inject(o, new_fn)
+                firedrake.inject(o, new_fn)
                 return new_fn
             else:
                 raise RuntimeError("Doesnt have level")
@@ -124,7 +123,7 @@ def coarsen_thing(thing):
         hierarchy, level = utils.get_level(thing.function_space())
         new_thing = firedrake.Function(hierarchy[level-1])
         # restrict state to coarse grid
-        inject(thing, new_thing)
+        firedrake.inject(thing, new_thing)
     else:
         hierarchy, level = utils.get_level(thing)
         new_thing = hierarchy[level-1]
