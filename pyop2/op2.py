@@ -53,7 +53,7 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo',
-           'Dat', 'MixedDat', 'Mat', 'Const', 'Global', 'Map', 'MixedMap',
+           'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
            'Sparsity', 'Solver', 'par_loop', 'solve',
            'DatView']
 
@@ -175,10 +175,6 @@ class MixedDat(base.MixedDat):
 
 
 class Mat(base.Mat):
-    __metaclass__ = backends._BackendSelector
-
-
-class Const(base.Const):
     __metaclass__ = backends._BackendSelector
 
 

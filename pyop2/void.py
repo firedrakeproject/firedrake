@@ -72,12 +72,6 @@ class Mat(object):
         raise RuntimeError("Please call op2.init to select a backend")
 
 
-class Const(object):
-
-    def __init__(self, *args, **kwargs):
-        raise RuntimeError("Please call op2.init to select a backend")
-
-
 class Global(object):
 
     def __init__(self, *args, **kwargs):

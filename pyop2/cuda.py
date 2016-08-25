@@ -376,30 +376,6 @@ class Mat(DeviceDataMixin, op2.Mat):
         return other
 
 
-class Const(DeviceDataMixin, op2.Const):
-
-    def _format_declaration(self):
-        d = {'dim': self.cdim,
-             'type': self.ctype,
-             'name': self.name}
-
-        if self.cdim == 1:
-            return "__constant__ %(type)s %(name)s;" % d
-        return "__constant__ %(type)s %(name)s[%(dim)s];" % d
-
-    def _to_device(self, module):
-        ptr, size = module.get_global(self.name)
-        if size != self.data.nbytes:
-            raise RuntimeError("Const %s needs %d bytes, but only space for %d" %
-                               (self, self.data.nbytes, size))
-        if self.state is DeviceDataMixin.HOST:
-            driver.memcpy_htod(ptr, self._data)
-            self.state = DeviceDataMixin.BOTH
-
-    def _from_device(self):
-        raise RuntimeError("Copying Const %s from device makes no sense" % self)
-
-
 class Global(DeviceDataMixin, op2.Global):
 
     def _allocate_reduction_buffer(self, grid_size, op):
@@ -745,8 +721,7 @@ class JITModule(base.JITModule):
             argtypes += "P"  # subset's indices
 
         d = {'parloop': self._parloop,
-             'launch': self._config,
-             'constants': Const._definitions()}
+             'launch': self._config}
 
         if self._parloop._is_direct:
             src = _direct_loop_template.render(d).encode('ascii')
@@ -770,10 +745,6 @@ class JITModule(base.JITModule):
 
         self._module = SourceModule(src, options=compiler_opts)
         self._dump_generated_code(src, ext="cu")
-
-        # Upload Const data.
-        for c in Const._definitions():
-            c._to_device(self._module)
 
         self._fun = self._module.get_function(self._parloop._stub_name)
         self._fun.prepare(argtypes)

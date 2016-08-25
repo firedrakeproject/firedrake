@@ -137,7 +137,7 @@ p_r = op2.Dat(nodes, data=r, name="p_r")
 p_u = op2.Dat(nodes, data=u, name="p_u")
 p_du = op2.Dat(nodes, data=du, name="p_du")
 
-alpha = op2.Const(1, data=1.0, name="alpha", dtype=fp_type)
+alpha = op2.Global(1, data=1.0, name="alpha", dtype=fp_type)
 
 beta = op2.Global(1, data=1.0, name="beta", dtype=fp_type)
 

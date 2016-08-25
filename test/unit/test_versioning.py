@@ -114,9 +114,6 @@ class TestVersioning:
         assert mat._version == 0
         assert g._version == 1
         assert x._version == 1
-        c = op2.Const(1, 1, name='c2', dtype=numpy.uint32)
-        assert c._version == 1
-        c.remove_from_namespace()
 
     def test_dat_modified(self, backend, x):
         x += 1
@@ -131,6 +128,23 @@ class TestVersioning:
         mat.zero()  # 0
         mat.zero_rows([2], 1.0)  # 3
         assert mat._version == 3
+
+    def test_dat_zero(self, backend, x):
+        x += 1
+        version = x._version
+        assert x._version != 0
+        x.zero()
+        assert x._version == 0
+        x += 1
+        assert x._version > version
+
+    def test_dat_zero_subset(self, backend, x):
+        subset = x.dataset.set([0])
+        version = x._version
+        assert x._version != 0
+        x.zero(subset=subset)
+        assert x._version != 0
+        assert x._version > version
 
     def test_dat_copy_increases_version(self, backend, x):
         old_version = x._version

@@ -72,7 +72,7 @@ class Configuration(dict):
         "backend": ("PYOP2_BACKEND", str, "sequential"),
         "compiler": ("PYOP2_BACKEND_COMPILER", str, "gnu"),
         "simd_isa": ("PYOP2_SIMD_ISA", str, "sse"),
-        "debug": ("PYOP2_DEBUG", int, 0),
+        "debug": ("PYOP2_DEBUG", bool, False),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),

@@ -66,12 +66,6 @@ class Mat(object):
         raise RuntimeError("op2.exit has been called")
 
 
-class Const(object):
-
-    def __init__(self, *args):
-        raise RuntimeError("op2.exit has been called")
-
-
 class Global(object):
 
     def __init__(self, *args):

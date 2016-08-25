@@ -387,18 +387,15 @@ class TilingJITModule(sequential.JITModule):
 extern "C" void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
                       %(wrapper_args)s
-                      %(const_args)s
                       %(rank)s
                       %(region_flag)s);
 void %(wrapper_name)s(%(executor_arg)s,
                       %(ssinds_arg)s
                       %(wrapper_args)s
-                      %(const_args)s
                       %(rank)s
                       %(region_flag)s) {
   %(user_code)s
   %(wrapper_decs)s;
-  %(const_inits)s;
 
   %(executor_code)s;
 }
@@ -464,8 +461,6 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
                 for map in maps:
                     for m in map:
                         argtypes.append(m._argtype)
-        for c in base.Const._definitions():
-            argtypes.append(c._argtype)
 
         # MPI related stuff (rank, region)
         argtypes.append(ctypes.c_int)
@@ -518,7 +513,6 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
 
         # 2) Construct the kernel invocations
         _loop_body, _user_code, _ssinds_arg = [], [], []
-        _const_args, _const_inits = set(), set()
         # For each kernel ...
         for i, (kernel, it_space, args) in enumerate(zip(self._all_kernels,
                                                          self._all_itspaces,
@@ -584,16 +578,12 @@ for (int n = %(tile_start)s; n < %(tile_end)s; n++) {
             if _ssind_arg:
                 loop_code_dict['tile_iter'] = '%s[%s]' % (_ssind_arg, loop_code_dict['tile_iter'])
 
-            # ... concatenate the rest, i.e., body, user code, constants, ...
+            # ... concatenate the rest, i.e., body, user code, ...
             _loop_body.append(strip(TilingJITModule._kernel_wrapper % loop_code_dict))
             _user_code.append(kernel._user_code)
             _ssinds_arg.append(_ssind_decl)
-            _const_args.add(loop_code_dict['const_args'])
-            _const_inits.add(loop_code_dict['const_inits'])
 
         _loop_chain_body = indent("\n\n".join(_loop_body), 2)
-        code_dict['const_args'] = "".join(_const_args)
-        code_dict['const_inits'] = indent("".join(_const_inits), 1)
         code_dict['user_code'] = indent("\n".join(_user_code), 1)
         code_dict['ssinds_arg'] = "".join(["%s," % s for s in _ssinds_arg if s])
         code_dict['executor_code'] = indent(self._executor.c_code(_loop_chain_body), 1)
@@ -607,7 +597,7 @@ class TilingParLoop(ParLoop):
 
     def __init__(self, kernel, it_space, *args, **kwargs):
         base.LazyComputation.__init__(self,
-                                      kwargs['read_args'] | base.Const._defs,
+                                      kwargs['read_args'],
                                       kwargs['written_args'],
                                       kwargs['inc_args'])
 
@@ -675,9 +665,6 @@ class TilingParLoop(ParLoop):
                 for map in maps:
                     for m in map:
                         arglist.append(m._values.ctypes.data)
-
-        for c in base.Const._definitions():
-            arglist.append(c._data.ctypes.data)
 
         arglist.append(self.it_space.comm.rank)
 
