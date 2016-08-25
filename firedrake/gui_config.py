@@ -122,6 +122,7 @@ def show_config_gui(parameters):
             button_false = Radiobutton(parent, text='False',
                                        variable=variable, value="False")
             button_false.grid(column=3, row=row, sticky=(E))
+            return [button_true, button_false]
 
         def create_options_drop_list(parent, variable, default, options, row):
             """Create an optionmenu for enum input type.
@@ -130,11 +131,13 @@ def show_config_gui(parameters):
             """
             drop_list = OptionMenu(parent, variable, default, *options)
             drop_list.grid(column=2, columnspan=2, row=row, sticky=(E))
+            return [drop_list]
 
         def create_text_entry(parent, variable, row):
             """Create a text entry for input."""
             label_val = Entry(parent, textvariable=variable)
             label_val.grid(column=2, columnspan=2, row=row, sticky=(E))
+            return [label_val]
 
         def create_config_box_or(parent, variable, key_type, row):
             """Create a configure button for OrType.
@@ -181,6 +184,7 @@ def show_config_gui(parameters):
             button = Button(parent, text='Configure',
                             command=config_or_type())
             button.grid(column=2, columnspan=2, row=row, sticky=(E))
+            return button
 
         def create_config_box_list(parent, variable, key_type, row):
             """Create a configure button for ListType.
@@ -258,6 +262,7 @@ item, then click - button to delete from list",
             button = Button(parent, text='Configure',
                             command=config_list_type())
             button.grid(column=2, columnspan=2, row=row, sticky=(E))
+            return [button]
 
         def generate_ui_type_selector(parent, type, variable, row):
             """Create UI element for input.
@@ -267,18 +272,20 @@ item, then click - button to delete from list",
             """
             from firedrake.parameters import BoolType, OrType, StrType, ListType
             if isinstance(type, BoolType):
-                create_true_false_button(parent, variable, row)
+                return create_true_false_button(parent, variable, row)
             elif isinstance(type, StrType) and type.options != []:
-                create_options_drop_list(parent, variable, variable.get(),
-                                         type.options, row)
+                return create_options_drop_list(parent, variable,
+                                                variable.get(),
+                                                type.options, row)
             elif isinstance(type, OrType):
-                create_config_box_or(parent, variable, type, row)
+                return create_config_box_or(parent, variable, type, row)
             elif isinstance(type, ListType):
-                create_config_box_list(parent, variable, type, row)
+                return create_config_box_list(parent, variable, type, row)
             else:
-                create_text_entry(parent, variable, row)
+                return create_text_entry(parent, variable, row)
 
-        generate_ui_type_selector(parent, key.type, key.variable, row_count)
+        return generate_ui_type_selector(parent, key.type,
+                                         key.variable, row_count)
 
     def generate_input(parameters, labelframe):
         """Generate GUI elements for parameters inside a label frame
@@ -288,23 +295,49 @@ item, then click - button to delete from list",
         """
         global row_count
         keys = sorted(parameters.keys())
+        ui_elems = []
         for key in keys:
             row_count += 1
             if isinstance(parameters[key], Parameters):
+                def show_hide_labelframe(elems, frame):
+
+                    def callback():
+                        if not frame.is_hidden:
+                            map(lambda x: x.grid_remove(), elems)
+                            frame.config(height=30)
+                            frame.is_hidden = True
+                            configure_canvas(None)
+                            configure_frame(None)
+                        else:
+                            map(lambda x: x.grid(), elems)
+                            frame.is_hidden = False
+                            configure_canvas(None)
+                            configure_frame(None)
+                    return callback
+
                 subframe = Labelframe(labelframe, text=key,
                                       padding='3 3 12 12')
                 subframe.grid(column=1, columnspan=4,
                               row=row_count, sticky=(W, E))
+                subframe.is_hidden = False
+                ui_elems.append(subframe)
                 subframe.columnconfigure(1, weight=1)
                 subframe.rowconfigure(0, weight=1)
                 key.variable = {}
-                generate_input(parameters[key], subframe)
+                sub_elems = generate_input(parameters[key], subframe)
+                ui_elems.extend(sub_elems)
+                show_hide = Button(labelframe, text='Show/Hide',
+                                   command=show_hide_labelframe(sub_elems,
+                                                                subframe))
+                show_hide.grid(column=4, row=row_count, sticky=NE)
+                ui_elems.append(show_hide)
             else:
                 label_key = Label(labelframe, text=key)
                 label_key.grid(column=1, row=row_count, sticky=(W))
+                ui_elems.append(label_key)
                 key.variable = StringVar()
                 key.variable.set(str(parameters.unwrapped_dict[key]))
-                create_ui_element(labelframe, key, row_count)
+                ui_elems.extend(create_ui_element(labelframe, key, row_count))
 
                 def help_box(key):
                     def click():
@@ -316,6 +349,8 @@ item, then click - button to delete from list",
                 help_button = Button(labelframe, text='Help',
                                      command=help_box(key))
                 help_button.grid(column=4, row=row_count, sticky=(E))
+                ui_elems.append(help_button)
+        return ui_elems
 
     def configure_frame(event):
         """Callback for frame resizing"""
@@ -324,6 +359,7 @@ item, then click - button to delete from list",
         if mainframe.winfo_reqwidth() != canvas.winfo_width():
             canvas.config(width=mainframe.winfo_reqwidth())
         canvas.config(height=mainframe.winfo_reqheight())
+        root.geometry("%sx%s" % size)
 
     def configure_canvas(event):
         """Callback for canvas resizing"""
