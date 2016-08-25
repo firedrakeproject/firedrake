@@ -1,9 +1,6 @@
 from __future__ import absolute_import
 
 import firedrake
-from . import functionspace
-from . import interface
-from .utils import set_level
 
 __all__ = ["FunctionHierarchy"]
 
