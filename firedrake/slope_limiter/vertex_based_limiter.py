@@ -3,27 +3,27 @@ from firedrake import dx, assemble, LinearSolver, MIN, MAX, project, Projector
 from firedrake.interpolation import Interpolator
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
-from firedrake.parloops import par_loop, READ, RW
+from firedrake.parloops import par_loop, READ, RW, WRITE
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
 from firedrake.constant import Constant
 import numpy as np
 
-__all__ = ("VertexBasedLimiter",)
+__all__ = ("KuzminLimiter",)
 
 
-def VertexBasedLimiter(space):
+def KuzminLimiter(space):
     # Returns a P1DG or P2DG limiter as determined by the given space
     if space.ufl_element().degree() == 1:
-        return VertexBasedLimiter1(space)
+        return KuzminLimiter1(space)
     elif space.ufl_element().degree() == 2:
-        return VertexBasedLimiter2(space)
+        return KuzminLimiter2(space)
     else:
         raise NotImplementedError("Given FunctionSpace instance "
                                   "must be of degree one or 2")
 
 
-class VertexBasedLimiter1(Limiter):
+class KuzminLimiter1(Limiter):
     """
     A vertex based limiter for P1DG fields.
 
@@ -62,6 +62,7 @@ for (int i=0; i < q.dofs; i++) {
     else if (q[i][0] < qavg)
         alpha = fmin(alpha, fmin(1, (qavg - qmin[i][0])/(qavg - q[i][0])));
 }
+
 for (int i=0; i<q.dofs; i++) {
     q[i][0] = qavg + alpha*(q[i][0] - qavg);
 }
@@ -106,11 +107,77 @@ for (int i=0; i<q.dofs; i++) {
         """
         Only applies limiting loop on the given field
         """
+        # alpha_0 = Function(self.P0)
+
         par_loop(self._limit_kernel, dx,
                  {"qbar": (self.centroids, READ),
                   "q": (field, RW),
                   "qmax": (self.max_field, READ),
                   "qmin": (self.min_field, READ)})
+
+        # self.ts = FunctionSpace(self.P1DG.mesh(), "Discontinuous Taylor", 1)
+        # self.tf = Function(self.ts)
+        # self.tf.project(field)
+        # self._create_tables()
+        # self.min_field.assign(1e8)
+        # self.max_field.assign(-1e8)
+        # par_loop("""
+        # for(int i = 0; i < min.dofs; i++ ) {
+        #     min[i][0] = fmin(min[i][0], t[0][0]/scale[0]);
+        #     max[i][0] = fmax(max[i][0], t[0][0]/scale[0]);
+        # }
+        # """, dx,
+        #          {"min": (self.min_field, RW),
+        #           "max": (self.max_field, RW),
+        #           "scale": (self.volume, READ),
+        #           "t": (self.tf, READ)})
+        #
+        # par_loop("""
+        # %s
+        # double alpha = 1.0;
+        # double qavg = t[0][0]/scale[0];
+        # for(int i = 0; i < qmax.dofs; i++) {
+        #     // interpolate the cell to the vertex
+        #     double ci = 0;
+        #     for ( int j = 0; j < t.dofs; j++ ) {
+        #         ci += table[i][j] * t[j][0];
+        #     }
+        #     //ci = q[i][0];
+        #     if (ci > qavg)
+        #         alpha = fmin(alpha, fmin(1, (qmax[i][0] - qavg)/(ci - qavg)));
+        #     else if (ci < qavg)
+        #         alpha = fmin(alpha, fmin(1, (qavg - qmin[i][0])/(qavg - ci)));
+        # }
+        # for(int i = 1; i < t.dofs; i++) {
+        #     t[i][0] *= alpha;
+        # }
+        #
+        # /* if(abs(alpha_0[0][0]- alpha) > 0.001) {
+        #     printf("qbar[0][0], t[0][0]: %%g %%g diff %%g\\n", qbar[0][0], qavg, qbar[0][0] - qavg);
+        #     printf("%%f %%f \\n", alpha_0[0][0], alpha);
+        # } */
+        # """ % self.str_table, dx,
+        #          {"qbar": (self.centroids, READ),
+        #           "q": (field, RW),
+        #           "t": (self.tf, RW),
+        #           "qmax": (self.max_field, READ),
+        #           "qmin": (self.min_field, READ),
+        #           "scale": (self.volume, READ),
+        #           "alpha_0": (alpha_0, RW)})
+        #
+        # field.project(self.tf)
+
+    def _create_tables(self):
+        taylor_element = self.ts.fiat_element
+        cell = taylor_element.get_reference_element()
+        self.volume = Constant(cell.volume())
+        vertices = cell.get_vertices()
+        dim = cell.get_spatial_dimension()
+        key = {1: (0, ),
+               2: (0, 0),
+               3: (0, 0, 0)}[dim]
+        table = taylor_element.tabulate(0, vertices)[key]
+        self.str_table = create_c_table(table, "table")
 
     def apply(self, field):
         """
@@ -123,7 +190,13 @@ for (int i=0; i<q.dofs; i++) {
         self.apply_limiter(field)
 
 
-class VertexBasedLimiter2(Limiter):
+def create_c_table(table, name):
+    # Returns a C compatible string to be pasted in the kernel
+    return "static const double %s[%d][%d] = %s;" % \
+            ((name,) + table.T.shape + ("{{" + "}, \n{".join([", ".join(map(str, x)) for x in table.T]) + "}}", ))
+
+
+class KuzminLimiter2(Limiter):
     """
     A vertex based limiter for P2DG fields.
 
@@ -143,145 +216,270 @@ class VertexBasedLimiter2(Limiter):
         self.P1DG = FunctionSpace(self.P2DG.mesh(), 'DG', 1)
         self.P1CG = FunctionSpace(self.P2DG.mesh(), 'CG', 1)
         self.P2TG = FunctionSpace(self.P2DG.mesh(), 'Discontinuous Taylor', 2)
+        self.P1TG = FunctionSpace(self.P2DG.mesh(), 'Discontinuous Taylor', 1)
+        self.P0 = FunctionSpace(self.P1DG.mesh(), 'DG', 0)  # for centroids
 
         # Create fields
         self.taylor_field = Function(self.P2TG)
-        self.linear_field = Function(self.P1DG)
+        self.lin_taylor_field = Function(self.P1TG)
+        self.lin_taylor_fieldx = Function(self.P1TG)
+        self.lin_taylor_fieldy = Function(self.P1TG)
 
-        # field bound containers
+        # field gradients bound containers
+        self.max_field = Function(self.P1CG)
+        self.min_field = Function(self.P1CG)
         self.dx_max_field = Function(self.P1CG)
         self.dx_min_field = Function(self.P1CG)
         self.dy_max_field = Function(self.P1CG)
         self.dy_min_field = Function(self.P1CG)
 
+        # TESTING
+        self.taylor2 = Function(self.P2TG)
         # P1DG limiter
-        self.p1dg_limiter = VertexBasedLimiter1(self.P1DG)
+        self.p1dg_limiter = KuzminLimiter1(self.P1DG)
 
         self._init_projections()
         self._create_tables()
+        self.alpha1 = Function(self.P0)
+        self.alpha2 = Function(self.P0)
+        self.centroids = Function(self.P0)
+        self.p1f = Function(self.P1DG)
+        self.p1fx = Function(self.P1DG)
+        self.p1fy = Function(self.P1DG)
+        self._limit_kernel = """
+%s
+%s
+%s
+double alpha = 1.0;
+double alpha_x = 1.0;
+double alpha_y = 1.0;
+double t_c = t[0][0] / scale[0];
+double t_x = t[1][0];
+double t_y = t[2][0];
 
-    def revert(self, field):
+void calculate_alpha(double* alpha, double** max_field, double** min_field,
+                     double vertex_value, double center_value, int i) {
+    if(fabs(vertex_value - center_value) > 0.00001) {
+        if (vertex_value > center_value && vertex_value > max_field[i][0]) {
+            *alpha = fmin(*alpha, fmin(1, (max_field[i][0] - center_value)/(vertex_value - center_value)));
+        } else if (vertex_value < center_value && vertex_value < min_field[i][0]) {
+            *alpha = fmin(*alpha, fmin(1, (min_field[i][0] - center_value)/(vertex_value - center_value)));
+        }
+    }
+}
 
-        # project back and apply to original field
-        self._project(f_in=self.taylor_field, f_out=field,
-                      space=self.P2DG, projector=self.P2DG_projector)
+void unconstrained_vertex(double* vertex, double center, double dx, double dy, int i) {
+    *vertex = center;
+    *vertex += table[i][1] * dx;
+    *vertex += table[i][2] * dy;
+}
+
+//remove higher
+for (int i=0; i < max.dofs; i++) {
+    double u_c = 0;
+    double u_x = 0;
+    double u_y = 0;
+
+    for(int j= 0; j < 3; j++) {
+        u_c += table[i][j] * t[j][0];
+    }
+
+    /*
+    u_x = t_x + table_x[i][1] * t[3][0] + table_y[i][2] * t[4][0];
+
+    u_y = t_y + table_x[i][1] * t[4][0] + table_y[i][2] * t[5][0];
+    */
+
+    for(int j= 0; j < t.dofs; j++) {
+        u_x += table_x[i][j] * t[j][0];
+        u_y += table_y[i][j] * t[j][0];
+    }
+
+    //printf("%%g ", u_c);
+    //unconstrained_vertex(&u_c, t_c, t[1][0], t[2][0], i);
+    //printf("%%g\\n", u_c);
+    //unconstrained_vertex(&u_x, t_x, t[3][0], t[4][0], i);
+    //unconstrained_vertex(&u_y, t_y, t[4][0], t[5][0], i);
+
+    //Find alpha
+    calculate_alpha(&alpha, max, min, u_c, t_c, i);
+    calculate_alpha(&alpha_x, max_x, min_x, u_x, t_x, i);
+    calculate_alpha(&alpha_y, max_y, min_y, u_y, t_y, i);
+
+    printf("alpha_x: %%g, avg %%g, max %%g min %%g vert %%g \\n", alpha, t_x, max_x[i][0], min_x[i][0], u_x);
+
+/*
+    unconstrained_vertex(&u_c, t_c, t[1][0]*alpha, t[2][0]*alpha, i);
+    unconstrained_vertex(&u_x, t_x, t[3][0]*alpha_x, t[4][0]*alpha_x, i);
+    unconstrained_vertex(&u_y, t_y, t[4][0]*alpha_y, t[5][0]*alpha_y, i);
+
+    if((abs(u_c - max[i][0]) > 1e-10 && u_c > max[i][0]) || (u_c < min[i][0] && abs(u_c - min[i][0]) > 1e-10)) {
+        puts("error c");
+        printf("max: %%g min: %%g val%%g\\n", max[i][0], min[i][0],u_c);
+    }
+    if((abs(u_x - max_x[i][0]) > 1e-10 && u_x > max_x[i][0]) || (u_x < min_x[i][0] && abs(u_x - min_x[i][0]) > 1e-10)) {
+        puts("error x");
+        printf("max: %%g min: %%g val%%g\\n", max_x[i][0], min_x[i][0],u_x);
+    }
+    if(u_y > max_y[i][0] + 1e-10 || u_y < min_y[i][0] - 1e-10) {
+        puts("error y");
+        printf("max: %%g min: %%g val%%g\\n", max_y[i][0], min_y[i][0],u_y);
+    }
+    */
+}
+
+alpha_x = fmin(alpha_x, alpha_y);
+alpha = fmax(alpha, alpha_x);
+
+
+t[1][0] *= alpha;
+t[2][0] *= alpha;
+t[3][0] *= alpha_x;
+t[4][0] *= alpha_x;
+t[5][0] *= alpha_x;
+""" % (self.str_table, self.str_table_x, self.str_table_y)
 
     def apply_limiter(self, field):
         """
         Apply the limiter
         Must compute bounds before calling this method.
+
+        Parameters
+        ----------
+        field: Function which belongs to P2DG space that will be limited
         """
-        par_loop("""
-        %(table_x)s
-        %(table_y)s
-        double alpha_x = 1.0;
-        double alpha_y = 1.0;
-        double dx_avg = q[1][0];
-        double dy_avg = q[2][0];
+        # Find dimension of mesh
+        dim = self.P1DG.mesh().topological_dimension()
 
-        // Loop over degrees of freedom
-        for ( int i = 0; i < dx_maxf.dofs; i++ ) {
+        if dim == 1:
+            p1f = Function(self.P1DG).project(field)
+            par_loop("""
+            %s
+            %s
+            double alpha = 1.0;
+            double alpha_x = 1.0;
+            double qavg = t[0][0] / scale[0];
+            double t_x = t[1][0] / scale[0];
+            for(int i = 0; i < qmax.dofs; i++) {
+                // interpolate the cell to the vertex
+                double ci = 0;
+                double dxi = 0;
+                for ( int j = 0; j < 2; j++ ) {
+                    ci += table[i][j] * t[j][0];
+                }
+                for ( int j = 1; j < t.dofs; j++ ) {
+                    dxi += table_x[i][j] * t[j][0];
+                }
+                /* ci = q[i][0]; */
+                //Find alpha
+                if (ci > qavg)
+                    alpha = fmin(alpha, fmin(1, (qmax[i][0] - qavg)/(ci - qavg)));
+                else if (ci < qavg)
+                    alpha = fmin(alpha, fmin(1, (qmin[i][0] - qavg)/(ci - qavg)));
 
-            // interpolate the cell to the vertices
-            double dxi = 0;
-            double dyi = 0;
-            for ( int j = 0; j < q.dofs; j++ ) {
-                dxi += dx_table[i][j] * q[j][0];
-                dyi += dy_table[i][j] * q[j][0];
+                //Find alpha_x
+                if (dxi > t_x)
+                    alpha_x = fmin(alpha_x, fmin(1, (max_x[i][0] - t_x)/(dxi - t_x)));
+                else if (dxi < t_x)
+                    alpha_x = fmin(alpha_x, fmin(1, (min_x[i][0] - t_x)/(dxi - t_x)));
             }
 
-            // Calculate alpha_x
-            if (dxi > dx_avg) {
-                alpha_x = fmin(alpha_x, fmin(1, (dx_maxf[i][0] - dx_avg)/(dxi - dx_avg)));
-            } else if (dxi < dx_avg) {
-                alpha_x = fmin(alpha_x, fmin(1, (dx_avg - dx_minf[i][0])/(dx_avg - dxi)));
-            }
+            t[1][0] *= fmax(alpha, alpha_x);
+            t[2][0] *= alpha_x;
+            """ % (self.str_table, self.str_table_x), dx,
+                     {"q": (p1f, RW),
+                      "t": (self.taylor_field, RW),
+                      "scale": (self.volume, READ),
+                      "qmax": (self.max_field, READ),
+                      "max_x": (self.dx_max_field, READ),
+                      "min_x": (self.dx_min_field, READ),
+                      "qmin": (self.min_field, READ)})
 
-            // Calculate alpha_y
-            if (dyi > dy_avg) {
-                alpha_y = fmin(alpha_y, fmin(1, (dy_maxf[i][0] - dy_avg)/(dyi - dy_avg)));
-            } else if (dyi < dy_avg) {
-                alpha_y = fmin(alpha_y, fmin(1, (dy_avg - dy_minf[i][0])/(dy_avg - dyi)));
-            }
+            self._project(f_in=self.taylor_field, f_out=field, space=self.P2DG, projector=self.P2DG_projector)
 
-        }
+        else:  # dim==2
+            # self._project(self.taylor_field, self.p1f, self.P1DG, self.P1DG_projector)
+            par_loop(self._limit_kernel,
+                     dx, {"t": (self.taylor_field, RW),
+                          "scale": (self.volume, READ),
+                          "max": (self.max_field, READ),
+                          "min": (self.min_field, READ),
+                          "max_x": (self.dx_max_field, READ),
+                          "min_x": (self.dx_min_field, READ),
+                          "max_y": (self.dy_max_field, READ),
+                          "min_y": (self.dy_min_field, READ)})
 
-        // Calculate alpha_e1 (Same as P1DG limiter)
-        double alpha_e1 = 1.0;
-        double qavg = qbar[0][0];
-        for (int i=0; i < q_lin.dofs; i++) {
-            if (q_lin[i][0] > qavg)
-                alpha_e1 = fmin(alpha_e1, fmin(1, (qmax[i][0] - qavg)/(q_lin[i][0] - qavg)));
-            else if (q_lin[i][0] < qavg)
-                alpha_e1 = fmin(alpha_e1, fmin(1, (qavg - qmin[i][0])/(qavg - q_lin[i][0])));
-        }
+            self._project(self.taylor_field, field, self.P2DG, self.P2DG_projector)
 
-        double alpha_e2 = fmin(alpha_x, alpha_y);
-        alpha_e1 = fmax(alpha_e1, alpha_e2);
-
-        // Apply the values of alpha to limit function
-        q[1][0] = alpha_e1 * q[1][0];
-        q[2][0] = alpha_e1 * q[2][0];
-        for(int i = 3; i < q.dofs; i++) {
-            q[i][0] = alpha_e2 * q[i][0];
-        }
-
-                 """ % {'table_x': self.str_table_x, 'table_y': self.str_table_y},
-                 dx,
-                 {"q": (self.taylor_field, RW),
-                  "q_lin": (self.linear_field, RW),
-                  "qbar": (self.p1dg_limiter.centroids, READ),
-                  "qmax": (self.p1dg_limiter.max_field, READ),
-                  "qmin": (self.p1dg_limiter.min_field, READ),
-                  "dx_maxf": (self.dx_max_field, READ),
-                  "dx_minf": (self.dx_min_field, READ),
-                  "dy_maxf": (self.dy_max_field, READ),
-                  "dy_minf": (self.dy_min_field, READ)})
-
-    def compute_bounds(self, field, taylor_field=None):
+    def compute_bounds(self, field):
 
         # Project to taylor basis
-        # self.taylor_field = project(field, self.P2TG)
-        self._project(f_in=field, f_out=self.taylor_field,
-                      space=self.P2TG, projector=self.P2TG_projector)
+        # self.taylor_field.interpolate(field)
+        # self._project(f_in=field, f_out=self.taylor_field,
+        #               space=self.P2TG, projector=self.P2TG_projector)
+        self.taylor_field.project(field, solver_parameters={'ksp_type': 'preonly', 'pc_type': 'lu'})
 
-        # Make copy so can zero out higher derivatives
-        copy_field = Function(self.taylor_field)
-
-        # higher derivatives
-        self.dx_max_field.assign(-1.0e50)  # small number
-        self.dx_min_field.assign(1.0e50)  # big number
-
-        self.dy_max_field.assign(-1.0e50)  # small number
-        self.dy_min_field.assign(1.0e50)  # big number
+        dim = self.P1DG.mesh().topological_dimension()
 
         # Throw away higher derivatives and calculate max/min at vertices
-        par_loop("""
-                 for(int i = 3; i < q.dofs; i++) {
-                     q[i][0] = 0;
-                 }
+        if dim == 1:
+            # Setup fields
+            self.min_field.assign(1.0e20)
+            self.max_field.assign(-1.0e20)
 
-                 for(int i = 0; i < dx_maxf.dofs; i++) {
-                    dx_maxf[i][0] = fmax(dx_maxf[i][0], q[1][0]);
-                    dx_minf[i][0] = fmin(dx_minf[i][0], q[1][0]);
+            self.dx_min_field.assign(1.0e20)
+            self.dx_max_field.assign(-1.0e20)
+            # Calculate max/min of cell gradients at vertices
+            par_loop("""
+                     for(int i = 0; i < max.dofs; i++) {
+                        min[i][0] = fmin(q[0][0], min[i][0]);
+                        max[i][0] = fmax(q[0][0], max[i][0]);
 
-                    dy_maxf[i][0] = fmax(dy_maxf[i][0], q[2][0]);
-                    dy_minf[i][0] = fmin(dy_minf[i][0], q[2][0]);
-                 }
-                 """,
-                 dx,
-                 {"q": (copy_field, RW),
-                  "dx_maxf": (self.dx_max_field, RW),
-                  "dx_minf": (self.dx_min_field, RW),
-                  "dy_maxf": (self.dy_max_field, RW),
-                  "dy_minf": (self.dy_min_field, RW)})
+                        dx_maxf[i][0] = fmax(dx_maxf[i][0], q[1][0]);
+                        dx_minf[i][0] = fmin(dx_minf[i][0], q[1][0]);
+                     }
+                     """,
+                     dx,
+                     {"dx_maxf": (self.dx_max_field, RW),
+                      "dx_minf": (self.dx_min_field, RW),
+                      "min": (self.min_field, RW),
+                      "max": (self.max_field, RW),
+                      "q": (self.taylor_field, RW)})
 
-        # Project back to linear field to apply limiter
-        self._project(f_in=copy_field, f_out=self.linear_field,
-                      space=self.P1DG, projector=self.P1DG_projector)
+        elif dim == 2:
+            # Calculate max/min of cell gradients at vertices
+            self.min_field.assign(1.0e20)
+            self.dx_min_field.assign(1.0e20)
+            self.dy_min_field.assign(1.0e20)
 
-        # Compute max and min fields using P1DG limiter
-        self.p1dg_limiter.compute_bounds(self.linear_field)
+            self.max_field.assign(-1.0e20)
+            self.dx_max_field.assign(-1.0e20)
+            self.dy_max_field.assign(-1.0e20)
+
+            # Center of the cell is scaled by volume of the cell
+            par_loop("""
+                    //printf("center val: %g\\n", q[0][0] / scale[0]);
+                     for(int i = 0; i < dx_max.dofs; i++) {
+                        //printf("maxsofar: %g, center val: %g\\n",max[i][0], q[0][0] / scale[0]);
+                        min[i][0] = fmin(q[0][0] / scale[0], min[i][0]);
+                        max[i][0] = fmax(q[0][0] / scale[0], max[i][0]);
+
+                        dx_max[i][0] = fmax(dx_max[i][0], q[1][0]);
+                        dx_min[i][0] = fmin(dx_min[i][0], q[1][0]);
+
+                        dy_max[i][0] = fmax(dy_max[i][0], q[2][0]);
+                        dy_min[i][0] = fmin(dy_min[i][0], q[2][0]);
+                     }
+                     """,
+                     dx,
+                     {"dx_max": (self.dx_max_field, RW),
+                      "dx_min": (self.dx_min_field, RW),
+                      "dy_max": (self.dy_max_field, RW),
+                      "dy_min": (self.dy_min_field, RW),
+                      "min": (self.min_field, RW),
+                      "max": (self.max_field, RW),
+                      "scale": (self.volume, READ),
+                      "q": (self.taylor_field, RW)})
 
     def _project(self, f_in, f_out, space, projector):
         v = TestFunction(space)
@@ -300,24 +498,37 @@ class VertexBasedLimiter2(Limiter):
         # Create Projections
         self.P1DG_projector = self._create_projection(self.P1DG)
         self.P2DG_projector = self._create_projection(self.P2DG)
+        self.P1TG_projector = self._create_projection(self.P1TG)
         self.P2TG_projector = self._create_projection(self.P2TG)
 
     def _create_tables(self):
         taylor_element = self.P2TG.fiat_element
-        dim = self.P1DG.mesh().topological_dimension()
-        if dim == 2:
-            tables = taylor_element.tabulate(1, [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
-            dx_table = tables[(0, 1)]
-            dy_table = tables[(1, 0)]
-        elif dim == 1:
-            tables = taylor_element.tabulate(2, [[0.0], [1.0]])
-            dx_table = tables[(1,)]
-            dy_table = tables[(2,)]
-        else:
-            raise NotImplementedError("Only 1 and 2 dimensional meshes supported")
+        cell = taylor_element.get_reference_element()
+        self.volume = Constant(cell.volume())
+        vertices = cell.get_vertices()
+        dim = cell.get_spatial_dimension()
+        key = {1: (0, ),
+               2: (0, 0),
+               3: (0, 0, 0)}[dim]
 
-        self.str_table_x = create_c_table(dx_table, "dx_table")
-        self.str_table_y = create_c_table(dy_table, "dy_table")
+        key_x = {1: (1, ),
+                 2: (1, 0),
+                 3: (1, 0, 0)}[dim]
+
+        if dim >= 2:
+            key_y = {2: (0, 1), 3: (0, 1, 0)}[dim]
+            key_xy = {2: (1, 1), 3: (1, 1, 0)}[dim]
+            table_y = taylor_element.tabulate(1, vertices).get(key_y, None)
+            table_xy = taylor_element.tabulate(2, vertices)[key_xy]
+            self.str_table_y = create_c_table(table_y, "table_y")
+            self.str_table_xy = create_c_table(table_xy, "table_xy")
+            if dim >= 3:
+                key_z = {3: (0, 0, 1)}[dim]
+
+        table = taylor_element.tabulate(2, vertices)[key]
+        table_x = taylor_element.tabulate(1, vertices)[key_x]
+        self.str_table = create_c_table(table, "table")
+        self.str_table_x = create_c_table(table_x, "table_x")
 
     def apply(self, field):
         assert field.function_space() == self.P2DG, \
@@ -325,10 +536,4 @@ class VertexBasedLimiter2(Limiter):
 
         self.compute_bounds(field)
         self.apply_limiter(field)
-        self.revert(field)
 
-
-def create_c_table(table, name):
-    # Returns a C compatible string to be pasted in the kernel
-    return "static const double %s[%d][%d] = %s;" % \
-            ((name,) + table.T.shape + ("{{" + "}, \n{".join([", ".join(map(str, x)) for x in table.T]) + "}}", ))
