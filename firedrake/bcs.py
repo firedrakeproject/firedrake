@@ -5,6 +5,7 @@ from ufl import as_ufl, UFLException
 
 import pyop2 as op2
 from pyop2.profiling import timed_function
+from pyop2 import exceptions
 
 import firedrake.expression as expression
 import firedrake.function as function
@@ -66,6 +67,24 @@ class DirichletBC(object):
 
         if V.extruded and V.component is not None:
             raise NotImplementedError("Indexed VFS bcs not implemented on extruded meshes")
+        # If this BC is defined on a subspace (IndexedFunctionSpace or
+        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
+        # indices.
+        indices = []
+        fs = self._function_space
+        while True:
+            # Add index to indices if found
+            if fs.index is not None:
+                indices.append(fs.index)
+            if fs.component is not None:
+                indices.append(fs.component)
+            # Now try the parent
+            if fs.parent is not None:
+                fs = fs.parent
+            else:
+                # All done
+                break
+        self._indices = tuple(reversed(indices))
 
     @property
     def function_arg(self):
@@ -189,7 +208,7 @@ class DirichletBC(object):
 
         """
 
-        if isinstance(r, matrix.Matrix):
+        if isinstance(r, matrix.MatrixBase):
             r.add_bc(self)
             return
         fs = self._function_space
@@ -210,26 +229,8 @@ class DirichletBC(object):
             else:
                 raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
-        # If this BC is defined on a subspace (IndexedFunctionSpace or
-        # ComponentFunctionSpace, possibly recursively), pull out the appropriate
-        # indices.
-        indices = []
-        fs = self._function_space
-        while True:
-            # Add index to indices if found
-            if fs.index is not None:
-                indices.append(fs.index)
-            if fs.component is not None:
-                indices.append(fs.component)
-            # Now try the parent
-            if fs.parent is not None:
-                fs = fs.parent
-            else:
-                # All done
-                break
-
         # Apply the indexing to r (and u if supplied)
-        for idx in reversed(indices):
+        for idx in self._indices:
             r = r.sub(idx)
             if u:
                 u = u.sub(idx)
@@ -245,16 +246,25 @@ class DirichletBC(object):
             boundary condition should be applied.
 
         """
-        if isinstance(r, matrix.Matrix):
+        if isinstance(r, matrix.MatrixBase):
             raise NotImplementedError("Zeroing bcs on a Matrix is not supported")
 
-        # Record whether we are homogenized on entry.
-        currently_zeroed = self._currently_zeroed
+        for idx in self._indices:
+            r = r.sub(idx)
+        try:
+            r.dat.zero(subset=self.node_set)
+        except exceptions.MapValueError:
+            raise RuntimeError("%r defined on incompatible FunctionSpace!" % r)
 
-        self.homogenize()
-        self.apply(r)
-        if not currently_zeroed:
-            self.restore()
+    def set(self, r, val):
+        """Set the boundary nodes to a prescribed (external) value.
+        :arg r: the :class:`Function` to which the value should be applied.
+        :arg val: the prescribed value.
+        """
+        for idx in self._indices:
+            r = r.sub(idx)
+            val = val.sub(idx)
+        r.assign(val, subset=self.node_set)
 
 
 def homogenize(bc):

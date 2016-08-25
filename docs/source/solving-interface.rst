@@ -472,11 +472,13 @@ Recursive fieldsplits
 +++++++++++++++++++++
 
 If your system contains more than two fields, it is possible to
-recursively define block preconditioners by specifying the
-fields which should belong to each split.  Note that at present this
-only works for "monolithically assembled" matrices, so you should
-either specify ``nest=False`` when solving your system or assembling
-your matrix, or else set the global parameter ``parameters["matnest"] = False``.
+recursively define block preconditioners by specifying the fields
+which should belong to each split.  Note that at present this only
+works for "monolithically assembled" matrices, so you should set the
+solver parameter ``"mat_type"`` to ``"aij"`` when solving your system
+or assembling your matrix.  To change the default assembly from nested
+matrices to monolithically assembled matrices, set the global
+parameter ``parameters["default_matrix_type"] = "aij"``.
 
 As an example, consider a three field system which we wish to
 precondition by forming a schur complement of the first two fields
@@ -864,8 +866,8 @@ specify that the nonlinear solver we want PETSc to employ should be of
 type ``test``.  PETSc will then go away, compute an approximate
 Jacobian by finite differencing the residual and compare it to our
 provided exact Jacobian.  The only thing we need to be aware of is
-that if the problem to be solved is in a mixed space, we need to pass
-``nest=False`` to the solve call.
+that if the problem to be solved is in a mixed space, we need to set
+the solver parameter ``"mat_type"`` to ``"aij"`` in the solve call.
 
 To make things concrete, consider the following, somewhat contrived,
 example where we attempt to solve a Galerkin projection in a mixed
@@ -919,8 +921,9 @@ but pass some additional options:
 
 .. code-block:: python
 
-   solve(F == 0, f, J=J, nest=False,
-         solver_parameters={'snes_type': 'test'})
+   solve(F == 0, f, J=J,
+         solver_parameters={'snes_type': 'test',
+                            'mat_type': 'aij'})
 
 This time we get the following output
 
@@ -935,7 +938,7 @@ This time we get the following output
    Norm of matrix ratio 0.75, difference 1.32288 (constant state -1.0)
    Norm of matrix ratio 0.75, difference 1.32288 (constant state 1.0)
    Traceback (most recent call last):
-       solve(F == 0, u, J=J, nest=False, solver_parameters={'snes_type': 'test'})
+       solve(F == 0, u, J=J, solver_parameters={'snes_type': 'test', 'mat_type': 'aij'})
      File "firedrake/solving.py", line 120, in solve
        _solve_varproblem(*args, **kwargs)
      File "firedrake/solving.py", line 162, in _solve_varproblem
@@ -975,7 +978,7 @@ correct Jacobian:
 
 .. code-block:: python
 
-   solve(F == 0, f, solver_parameters={'snes_type': 'test'})
+   solve(F == 0, f, solver_parameters={'snes_type': 'test', 'mat_type': 'aij'})
 
    Testing hand-coded Jacobian, if the ratio is
    O(1.e-8), the hand-coded Jacobian is probably correct.

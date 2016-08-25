@@ -3,7 +3,7 @@ sympy
 psutil
 cachetools
 singledispatch
-pytest
+pytest ~=2.9
 pytest-xdist
 pytest-benchmark
 ipython

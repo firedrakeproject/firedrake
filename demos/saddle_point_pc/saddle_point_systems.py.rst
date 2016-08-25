@@ -122,13 +122,17 @@ if ``aP`` is provided. ::
 Now we have all the pieces to build our linear system.  We will return
 a :class:`~.LinearSolver` object from this function, so we preassemble
 the operators to build it.  It is here that we must specify whether we
-want a monolithic matrix or not, by passing the optional ``nest``
+want a monolithic matrix or not, by setting the matrix type
 parameter to :func:`~.assemble`.  ::
-
+  
     #
-        A = assemble(a, nest=block_matrix)
+        if block_matrix:
+	    mat_type = 'nest'
+	else:
+	    mat_type = 'aij'
+        A = assemble(a, mat_type=mat_type)
         if aP is not None:
-            P = assemble(aP, nest=block_matrix)
+            P = assemble(aP, mat_type=mat_type)
         else:
             P = None
 

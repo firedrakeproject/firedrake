@@ -1,0 +1,22 @@
+-mat_type matfree
+-snes_monitor
+-ksp_type gmres
+-ksp_gmres_restart 30
+-ksp_gmres_modifiedgramschmidt
+-ksp_monitor_true_residual
+-pc_type fieldsplit
+-pc_fieldsplit_type multiplicative
+# Split Navier-Stokes from temperature
+-pc_fieldsplit_0_fields 0,1
+-pc_fieldsplit_1_fields 2
+# Assemble Navier-Stokes and hit it with mumps
+-fieldsplit_0_ksp_type preonly
+-fieldsplit_0_pc_type python
+-fieldsplit_0_pc_python_type firedrake.AssembledPC
+-fieldsplit_0_assembled_pc_type lu
+-fieldsplit_0_assembled_pc_factor_mat_solver_package mumps
+# Assemble and factor temperature convection-diffusion
+-fieldsplit_1_ksp_type preonly
+-fieldsplit_1_pc_type python
+-fieldsplit_1_pc_python_type firedrake.AssembledPC
+-fieldsplit_1_assembled_pc_type lu

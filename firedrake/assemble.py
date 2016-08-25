@@ -20,7 +20,7 @@ __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, nest=None):
+             inverse=False, mat_type=None, appctx={}, **kwargs):
     """Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
@@ -36,14 +36,18 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
          the measure, the latter will be used.
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
-    :arg nest: (optional) flag indicating if a 2-form (matrix) on a
-         mixed space should be assembled as a block matrix (if
-         ``nest`` is ``True``) or not.  The default value is
-         taken from the parameters dict, ``parameters["matnest"]``.
+    :arg mat_type: (optional) string indicating how a 2-form (matrix) should be
+         assembled -- either as a monolithic matrix ('aij'), a block matrix
+         ('nest'), or left as a :class:`.ImplicitMatrix` giving matrix-free
+         actions ('matfree').  If not supplied, the default value in
+         ``parameters["default_matrix_type"]`` is used.
+    :arg appctx: Additional information to hang on the assembled
+         matrix if an implicit matrix is requested (mat_type "matfree").
 
     If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
+    :class:`.Function` for 1-forms and a :class:`.Matrix` or :class:`.ImplicitMatrix`
+    for 2-forms.
 
     If f is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
@@ -61,10 +65,20 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     boundary condition values.
     """
 
+    if "nest" in kwargs:
+        nest = kwargs.pop("nest")
+        from firedrake.logging import warning, RED
+        warning(RED % "The 'nest' argument is deprecated, please set 'mat_type' instead")
+        if nest is not None:
+            mat_type = "nest" if nest else "aij"
+
+    if len(kwargs) > 0:
+        raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
+
     if isinstance(f, ufl.form.Form):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse, nest=nest)
+                         inverse=inverse, mat_type=mat_type, appctx=appctx)
     elif isinstance(f, ufl.core.expr.Expr):
         return assemble_expressions.assemble_expression(f)
     else:
@@ -73,7 +87,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 @utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-              inverse=False, nest=None):
+              inverse=False, mat_type=None, appctx={}):
     """Assemble the form f and return a Firedrake object representing the
     result. This will be a :class:`float` for 0-forms, a
     :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
@@ -86,10 +100,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         the form compiler.
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
-    :arg nest: (optional) flag indicating if matrices on mixed spaces
-         should be built in blocks or monolithically.
-
+    :arg mat_type: (optional) type for assembled matrices, one of
+        "nest", "aij" or "matfree".
+    :arg appctx: Additional information to hang on the assembled
+         matrix if an implicit matrix is requested (mat_type "matfree").
     """
+    if mat_type is None:
+        mat_type = parameters.parameters["default_matrix_type"]
+    if mat_type not in ["matfree", "aij", "nest"]:
+        raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
 
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
@@ -113,14 +132,23 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     integrals = f.integrals()
 
-    if nest is None:
-        nest = parameters.parameters["matnest"]
     # Pass this through for assembly caching purposes
-    form_compiler_parameters["matnest"] = nest
+    form_compiler_parameters["matrix_type"] = mat_type
 
     zero_tensor = lambda: None
 
+    matfree = mat_type == "matfree"
+    nest = mat_type == "nest"
     if is_mat:
+        if matfree:  # intercept matrix-free matrices here
+            if tensor is None:
+                return matrix.ImplicitMatrix(f, bcs,
+                                             fc_params=form_compiler_parameters,
+                                             appctx=appctx)
+            if not isinstance(tensor, matrix.ImplicitMatrix):
+                raise ValueError("Expecting implicit matrix with matfree")
+            tensor.assemble()
+            return tensor
         test, trial = f.arguments()
 
         map_pairs = []
@@ -181,6 +209,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
         else:
+            if isinstance(tensor, matrix.ImplicitMatrix):
+                raise ValueError("Expecting matfree with implicit matrix")
+
             result_matrix = tensor
             # Replace any bcs on the tensor we passed in
             result_matrix.bcs = bcs
@@ -214,16 +245,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             tensor = op2.Global(1, [0.0])
         result = lambda: tensor.data[0]
 
-    subdomain_data = f.subdomain_data()
     coefficients = f.coefficients()
     domains = f.ufl_domains()
-    if len(domains) != 1:
-        raise NotImplementedError("Assembly of forms with more than one domain not supported")
-    m = domains[0]
-    # Ensure mesh is "initialised" (could have got here without
-    # building a functionspace (e.g. if integrating a constant)).
-    m.init()
-    subdomain_data = subdomain_data[m]
+
+    for m in domains:
+        # Ensure mesh is "initialised" (could have got here without
+        # building a functionspace (e.g. if integrating a constant)).
+        m.init()
+        if m.topology != domains[0].topology:
+            raise NotImplementedError("All integration domains must share a mesh topology.")
 
     # These will be used to correctly interpret the "otherwise"
     # subdomain
@@ -247,7 +277,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     # assemble it.
     def thunk(bcs):
         zero_tensor()
-        for indices, (kernel, integral_type, needs_orientations, subdomain_id, coeff_map) in kernels:
+        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map) in kernels:
+            m = domains[domain_number]
+            subdomain_data = f.subdomain_data()[m]
             # Find argument space indices
             if is_mat:
                 i, j = indices
@@ -263,7 +295,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # Extract block from tensor and test/trial spaces
             # FIXME Ugly variable renaming required because functions are not
             # lexical closures in Python and we're writing to these variables
-            if is_mat and tensor.sparsity.shape > (1, 1):
+            if is_mat and result_matrix.block_shape > (1, 1):
                 tsbc = []
                 trbc = []
                 # Unwind ComponentFunctionSpace to check for matching BCs
@@ -371,7 +403,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                 fs = bc.function_space()
                 if len(fs) > 1:
                     raise RuntimeError("""Cannot apply boundary conditions to full mixed space. Did you forget to index it?""")
-                shape = tensor.sparsity.shape
+                shape = result_matrix.block_shape
                 for i in range(shape[0]):
                     for j in range(shape[1]):
                         # Set diagonal entries on bc nodes to 1 if the current

@@ -193,7 +193,6 @@ def _interpolator(V, dat, expr, subset):
 
 
 def compile_ufl_kernel(expression, to_pts, to_element, fs):
-    import collections
     from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
     from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
     from ufl.algorithms.apply_derivatives import apply_derivatives

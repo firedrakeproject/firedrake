@@ -1,0 +1,22 @@
+# This uses a Schur-complement preconditioner, using only the diagonal
+# blocks of the block factorisation.
+# A single multigrid V-cycle is used to invert he velocity block
+# A "matrix-free" mass inverse is used to precondition the schur
+# complement solve.  This works well for constant viscosity, but is
+# bad for variable viscosity, where an approximate commutator should
+# be used.
+-mat_type matfree
+-ksp_type gmres
+-ksp_monitor_true_residual
+-pc_type fieldsplit
+-pc_fieldsplit_type schur
+-pc_fieldsplit_schur_fact_type diag
+-fieldsplit_0_ksp_type preonly
+-fieldsplit_0_pc_type python
+-fieldsplit_0_pc_python_type firedrake.AssembledPC
+-fieldsplit_0_assembled_pc_type hypre
+-fieldsplit_1_ksp_type preonly
+-fieldsplit_1_pc_type python
+-fieldsplit_1_pc_python_type firedrake.MassInvPC
+-fieldsplit_1_Mp_ksp_type preonly
+-fieldsplit_1_Mp_pc_type jacobi

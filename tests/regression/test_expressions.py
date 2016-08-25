@@ -5,7 +5,7 @@ from itertools import permutations
 import pytest
 
 import numpy as np
-import ufl  # noqa: used in eval'd expressions
+import ufl  # noqa: F401
 
 from firedrake import *
 
@@ -521,7 +521,7 @@ def test_math_functions(expr, value):
     actual = Function(V)
 
     actual.assign(eval(expr))
-    from math import *
+    from math import *          # noqa: F401
     f = value
     expect = eval(expr)
     assert np.allclose(actual.dat.data_ro, expect)
