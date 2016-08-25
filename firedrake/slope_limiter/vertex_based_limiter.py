@@ -306,7 +306,7 @@ for (int i=0; i < max.dofs; i++) {
     calculate_alpha(&alpha_x, max_x, min_x, u_x, t_x, i);
     calculate_alpha(&alpha_y, max_y, min_y, u_y, t_y, i);
 
-    printf("alpha_x: %%g, avg %%g, max %%g min %%g vert %%g \\n", alpha, t_x, max_x[i][0], min_x[i][0], u_x);
+    //printf("alpha_x: %%g, avg %%g, max %%g min %%g vert %%g \\n", alpha, t_x, max_x[i][0], min_x[i][0], u_x);
 
 /*
     unconstrained_vertex(&u_c, t_c, t[1][0]*alpha, t[2][0]*alpha, i);

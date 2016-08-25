@@ -23,6 +23,8 @@ def interpolate(expr, V, subset=None, access=None):
         an existing :class:`.Function`).
     :kwarg subset: An optional :class:`pyop2.Subset` to apply the
         interpolation over.
+    :kwarg access: An optional pyop2 MIN/MAX access descriptor on interpolation
+        between expression and this :class `Function`
 
     Returns a new :class:`.Function` in the space ``V`` (or ``V`` if
     it was a Function).

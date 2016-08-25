@@ -325,6 +325,10 @@ class Function(ufl.Coefficient):
         """Interpolate an expression onto this :class:`Function`.
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
+        :kwarg subset: An optional :class:`pyop2.Subset` to apply the
+            interpolation over.
+        :kwarg access: An optional pyop2 MIN/MAX access descriptor on interpolation
+            between expression and this :class `Function`
         :returns: this :class:`Function` object"""
         from firedrake import interpolation
         return interpolation.interpolate(expression, self, subset=subset, access=access)
