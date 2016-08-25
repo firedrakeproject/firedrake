@@ -83,7 +83,7 @@ def show_config_gui(parameters):
             if isinstance(parameters[key], Parameters):
                 refresh_params(parameters[key])
             else:
-                key.variable.set(str(parameters[key]))
+                key.variable.set(str(parameters.unwrapped_dict[key]))
 
     def parse_input_dict(parameters):
         """Generate a dictionary of values from variables
@@ -303,7 +303,7 @@ item, then click - button to delete from list",
                 label_key = Label(labelframe, text=key)
                 label_key.grid(column=1, row=row_count, sticky=(W))
                 key.variable = StringVar()
-                key.variable.set(str(parameters[key]))
+                key.variable.set(str(parameters.unwrapped_dict[key]))
                 create_ui_element(labelframe, key, row_count)
 
                 def help_box(key):
@@ -381,7 +381,7 @@ def export_params_to_json(parameters, filename):
     if filename == '':
         return
     output_file = open(filename, 'w')
-    json.dump(parameters, output_file)
+    json.dump(parameters.unwrapped_dict, output_file)
     output_file.close()
 
 
@@ -418,11 +418,10 @@ def load_from_dict(parameters, dictionary):
             if isinstance(parameters[k], Parameters):
                 load_from_dict(parameters[k], dictionary[k])
             else:
-                if isinstance(dictionary[k], unicode):
+                val = dictionary[k]
+                if isinstance(val, unicode):
                     # change unicode type to str type
-                    parameters[k] = dictionary[k].encode('ascii',
-                                                         'ignore')
-                else:
-                    parameters[k] = dictionary[k]
+                    val = val.encode('ascii', 'ignore')
+                parameters[k] = parameters.get_key(k).wrap(val)
         else:
             warning(k + ' is not in the parameters and ignored')

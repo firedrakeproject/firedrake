@@ -319,6 +319,33 @@ class TypedKey(str):
     def validate(self, value):
         return self._type.validate(value)
 
+    def set_wrapper(self, callable):
+        self._wrapper = callable
+
+    def set_unwrapper(self, callable):
+        self._unwrapper = callable
+
+    def wrap(self, value):
+        if hasattr(self, "_wrapper"):
+            return self._wrapper(value)
+        else:
+            return value
+
+    def unwrap(self, value):
+        if hasattr(self, "_unwrapper"):
+            return self._unwrapper(value)
+        else:
+            return value
+
+    def __getstate__(self):
+        # Remove non-picklable wrapper and unwrapper functions
+        d = self.__dict__.copy()
+        if hasattr(self, "_wrapper"):
+            del d["_wrapper"]
+        if hasattr(self, "_unwrapper"):
+            del d["_unwrapper"]
+        return d
+
 
 class Parameters(dict):
     def __init__(self, name=None, **kwargs):
@@ -377,6 +404,10 @@ class Parameters(dict):
     def get_key(self, key_name):
         idx = self.keys().index(key_name)
         return self.keys()[idx]
+
+    @property
+    def unwrapped_dict(self):
+        return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()}
 
 
 def fill_metadata(parameters):
