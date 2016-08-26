@@ -51,10 +51,25 @@
         <form>
             {% for param in parameters %}
             <div class="form-horizontal row">
-                    <label for="{{ param.key }}" class="col-sm-2 control-label">{{ param.key }}</label>
-                    <div class="col-sm-10">
-                        <input type="{{ param.type }}" class="form-control" name="{{ param.key }}" value="{{ param.value }}">
+                    <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
+                    {% if param.type is equalto "str" %}
+                    <div class="col-sm-8">
+                        <input type="text" class="form-control" name="{{ param.key }}">
                     </div>
+                    {% elif param.type is equalto "bool" %}
+                    <div class="col-sm-8">
+                        <label class="radio-inline">
+                            <input type="radio" name="{{ param.key }}" value="True">
+                            True
+                        </label>
+                        <label class="radio-inline">
+                            <input type="radio" name="{{ param.key }}" value="False">
+                            False
+                        </label>
+                    </div>
+                    {% else %}
+                    <p> Unsupported Input Type </p>
+                    {% endif %}
             </div>
             {% endfor %}
             <br>

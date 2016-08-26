@@ -8,7 +8,7 @@ def web_config(parameters):
     @app.route('/')
     def index():
         params = [{"key": k,
-                   "type": "text",
+                   "type": str(parameters.get_key(k).type),
                    "value": v} for k, v in parameters.iteritems()]
         return render_template('index.html', parameters=params)
 
