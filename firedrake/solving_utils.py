@@ -8,23 +8,79 @@ from firedrake import function
 from firedrake.petsc import PETSc
 
 
-def update_parameters(obj, petsc_obj):
-    """Update parameters on a petsc object
+class ParametersMixin(object):
+    count = 0
 
-    :arg obj: An object with a parameters dict (mapping to petsc options).
-    :arg petsc_obj: The PETSc object to set parameters on."""
-    # Skip if parameters haven't changed
-    if hasattr(obj, '_set_parameters') and obj.parameters == obj._set_parameters:
-        return
-    opts = PETSc.Options(obj._opt_prefix)
-    for k, v in obj.parameters.iteritems():
-        if type(v) is bool:
-            if v:
-                opts[k] = None
+    """Mixin class that helps with managing setting petsc options on solvers.
+
+    :arg parameters: The dictionary of parameters to use."""
+    def __init__(self, parameters, options_prefix):
+        if parameters is None:
+            self.parameters = {}
         else:
-            opts[k] = v
-    petsc_obj.setFromOptions()
-    obj._set_parameters = obj.parameters.copy()
+            self.parameters = parameters.copy()
+        self.options_prefix = options_prefix
+        # Remember the user prefix, so we can see what's happening
+        prefix = "firedrake_%d_" % ParametersMixin.count
+        if options_prefix is not None:
+            prefix = options_prefix + prefix
+        self._prefix = prefix
+        ParametersMixin.count += 1
+        self._setfromoptions = False
+        super(ParametersMixin, self).__init__()
+
+    def update_parameters_from_options(self):
+        """Update the parameters with any matching values in the petsc
+        options database.
+
+        :arg options_prefix: The prefix to use to look up values.  If
+           ``None``, no values will match.
+
+        This is used for pull options from the commandline."""
+        if self.options_prefix is None:
+            return
+        opts = PETSc.Options(self.options_prefix)
+        for k, v in opts.getAll().iteritems():
+            # Copy appropriately prefixed options to parameters
+            self.parameters[k] = v
+
+    def set_from_options(self, petsc_obj):
+        """Set up petsc_obj from the options database.
+
+        :arg petsc_obj: The PETSc object to call setFromOptions on.
+
+        Matt says: "Only ever call setFromOptions once".  This
+        function ensures we do so.
+        """
+        if not self._setfromoptions:
+            petsc_obj.setOptionsPrefix(self._prefix)
+            self.update_parameters_from_options()
+            # Call setfromoptions inserting appropriate options into
+            # the options database.
+            opts = PETSc.Options(self._prefix)
+            for k, v in self.parameters.iteritems():
+                if type(v) is bool:
+                    if v:
+                        opts[k] = None
+                else:
+                    opts[k] = v
+            petsc_obj.setFromOptions()
+            self._setfromoptions = True
+
+    def clear_options(self):
+        """Clear the auto-generated options from the options database.
+
+        This is necessary to ensure the options database doesn't overflow."""
+        if hasattr(self, "_prefix") and hasattr(self, "parameters"):
+            prefix = self._prefix
+            opts = PETSc.Options()
+            for k in self.parameters.iterkeys():
+                opts.delValue(prefix + k)
+            delattr(self, "_prefix")
+            delattr(self, "parameters")
+
+    def __del__(self):
+        self.clear_options()
 
 
 def _make_reasons(reasons):
@@ -49,7 +105,7 @@ def check_snes_convergence(snes):
             inner = True
             reason = KSPReasons[r]
         except KeyError:
-            reason = 'unknown reason (petsc4py enum incomplete?)'
+            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_convered_reason and -ksp_converged_reason"
     if r < 0:
         if inner:
             msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
@@ -59,19 +115,6 @@ def check_snes_convergence(snes):
         raise RuntimeError("""Nonlinear solve failed to converge after %d nonlinear iterations.
 Reason:
    %s""" % (snes.getIterationNumber(), msg))
-
-
-def _extract_kwargs(**kwargs):
-    parameters = kwargs.get('solver_parameters', None)
-    if 'parameters' in kwargs:
-        raise TypeError("Use solver_parameters, not parameters")
-
-    # Make sure we don't stomp on a dict the user has passed in.
-    parameters = parameters.copy() if parameters is not None else {}
-    nullspace = kwargs.get('nullspace', None)
-    tnullspace = kwargs.get('transpose_nullspace', None)
-    options_prefix = kwargs.get('options_prefix', None)
-    return parameters, nullspace, tnullspace, options_prefix
 
 
 class _SNESContext(object):

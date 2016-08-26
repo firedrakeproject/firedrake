@@ -196,8 +196,10 @@ class NLVSHierarchy(object):
         """
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__
-        parameters, nullspace, tnullspace, options_prefix \
-            = firedrake.solving_utils._extract_kwargs(**kwargs)
+        parameters = kwargs.get("solver_parameters")
+        nullspace = kwargs.get("nullspace")
+        tnullspace = kwargs.get("transpose_nullspace")
+        options_prefix = kwargs.get("options_prefix")
 
         if options_prefix is not None:
             self._opt_prefix = options_prefix
