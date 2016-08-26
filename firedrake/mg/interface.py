@@ -7,7 +7,7 @@ from pyop2 import op2
 import firedrake
 import firedrake.utils
 from . import utils
-
+from firedrake.function import Function
 
 __all__ = ["prolong", "restrict", "inject"]
 
@@ -19,19 +19,35 @@ def prolong(coarse, fine):
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
     fhierarchy, flvl = utils.get_level(fine.function_space())
-    if flvl != lvl + 1:
-        raise ValueError("Can only prolong from level %d to level %d, not %d" %
-                         (lvl, lvl + 1, flvl))
+    if flvl < lvl:
+        raise ValueError("Cannot prolong from level %d to level %d" %
+                         (lvl, flvl))
+    # if the same level, return current function
+    if lvl == flvl:
+        fine.assign(coarse)
+        return
+    # number of recursive prolongs
+    slvl = flvl - lvl
     if hierarchy is not fhierarchy:
         raise ValueError("Can't prolong between functions from different hierarchies")
     if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
         for c, f in zip(coarse.split(), fine.split()):
             prolong(c, f)
         return
-    op2.par_loop(hierarchy._prolong_kernel,
-                 hierarchy._cell_sets[lvl],
-                 fine.dat(op2.WRITE, hierarchy.cell_node_map(lvl)[op2.i[0]]),
-                 coarse.dat(op2.READ, coarse.cell_node_map()))
+    # carry out recursive prolongs
+    coarser = coarse
+    for j in range(slvl):
+        if j == slvl - 1:  # at the top
+            intermediate = fine
+        else:
+            intermediate = Function(fhierarchy._full_hierarchy[lvl + j + 1])
+        op2.par_loop(fhierarchy._prolong_kernel,
+                     fhierarchy._cell_sets[lvl + j],
+                     intermediate.dat(op2.WRITE, fhierarchy.cell_node_map(lvl + j)[op2.i[0]]),
+                     coarser.dat(op2.READ, coarser.cell_node_map()))
+        if j < slvl - 1:
+            coarser = intermediate
+    fine.assign(intermediate)
 
 
 @firedrake.utils.known_pyop2_safe
@@ -41,9 +57,15 @@ def restrict(fine, coarse):
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
     fhierarchy, flvl = utils.get_level(fine.function_space())
-    if flvl != lvl + 1:
-        raise ValueError("Can only restrict from level %d to level %d, not %d" %
-                         (flvl, flvl - 1, lvl))
+    if flvl < lvl:
+        raise ValueError("Cannot restrict from level %d to level %d" %
+                         (flvl, lvl))
+    # if the same level, return current function
+    if lvl == flvl:
+        fine.assign(coarse)
+        return
+    # number of recursive prolongs
+    slvl = flvl - lvl
     if hierarchy is not fhierarchy:
         raise ValueError("Can't restrict between functions from different hierarchies")
     if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
@@ -74,15 +96,26 @@ def restrict(fine, coarse):
             weights[l].assign(1.0/weights[l])
         hierarchy._restriction_weights = weights
 
-    args = [coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
-            fine.dat(op2.READ, hierarchy.cell_node_map(lvl))]
+    finer = fine
+    # carry out recursive restrictions
+    for j in range(slvl):
+        if j == slvl - 1:  # at the bottom
+            intermediate = coarse
+        else:
+            intermediate = Function(hierarchy._full_hierarchy[flvl - j - 1])
 
-    if not hierarchy._discontinuous:
-        weight = weights[lvl+1]
-        args.append(weight.dat(op2.READ, hierarchy._restriction_weights.cell_node_map(lvl)))
-    coarse.dat.zero()
-    op2.par_loop(hierarchy._restrict_kernel, hierarchy._cell_sets[lvl],
-                 *args)
+        args = [intermediate.dat(op2.INC, intermediate.cell_node_map()[op2.i[0]]),
+                finer.dat(op2.READ, hierarchy.cell_node_map(flvl - j - 1))]
+
+        if not hierarchy._discontinuous:
+            weight = weights[flvl - j]
+            args.append(weight.dat(op2.READ, hierarchy._restriction_weights.cell_node_map(flvl - j - 1)))
+        intermediate.dat.zero()
+        op2.par_loop(hierarchy._restrict_kernel, hierarchy._cell_sets[flvl - j - 1],
+                     *args)
+        if j < slvl - 1:
+            finer = intermediate
+    coarse.assign(intermediate)
 
 
 @firedrake.utils.known_pyop2_safe
@@ -92,15 +125,31 @@ def inject(fine, coarse):
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
     fhierarchy, flvl = utils.get_level(fine.function_space())
-    if flvl != lvl + 1:
-        raise ValueError("Can only inject from level %d to level %d, not %d" %
-                         (flvl, flvl - 1, lvl))
+    if lvl > flvl:
+        raise ValueError("Cannot inject from level %d to level %d" %
+                         (flvl, lvl))
+    # if the same level, return current function
+    if lvl == flvl:
+        coarse.assign(fine)
+        return
+    # number of recursive injections
+    slvl = flvl - lvl
     if hierarchy is not fhierarchy:
         raise ValueError("Can't prolong between functions from different hierarchies")
     if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
         for f, c in zip(fine.split(), coarse.split()):
             inject(f, c)
         return
-    op2.par_loop(hierarchy._inject_kernel, hierarchy._cell_sets[lvl],
-                 coarse.dat(op2.WRITE, coarse.cell_node_map()[op2.i[0]]),
-                 fine.dat(op2.READ, hierarchy.cell_node_map(lvl)))
+    # carry out recursive injections
+    finer = fine
+    for j in range(slvl):
+        if j == slvl - 1:  # at the bottom
+            intermediate = coarse
+        else:
+            intermediate = Function(hierarchy._full_hierarchy[flvl - j - 1])
+        op2.par_loop(hierarchy._inject_kernel, hierarchy._cell_sets[flvl - j - 1],
+                     intermediate.dat(op2.WRITE, intermediate.cell_node_map()[op2.i[0]]),
+                     finer.dat(op2.READ, hierarchy.cell_node_map(flvl - j - 1)))
+        if j < slvl - 1:
+            finer = intermediate
+    coarse.assign(intermediate)

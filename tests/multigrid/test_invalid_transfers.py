@@ -32,8 +32,7 @@ def test_transfer_invalid_level_combo(transfer, f1):
         transfer = prolong
     elif transfer == "inject":
         transfer = inject
-    with pytest.raises(ValueError):
-        transfer(a, b)
+    transfer(a, b)
 
 
 @pytest.mark.parametrize("transfer",
