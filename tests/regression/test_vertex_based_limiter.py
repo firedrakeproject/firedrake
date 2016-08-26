@@ -3,12 +3,12 @@ from firedrake import *
 import numpy as np
 
 
-@pytest.fixture(params=["periodic-square-tri"])
+@pytest.fixture(params=["periodic-interval", "periodic-square-tri"])
 def mesh(request):
     if request.param == "periodic-interval":
         return PeriodicUnitIntervalMesh(30)
     elif request.param == "periodic-square-tri":
-        return UnitSquareMesh(3, 3)
+        return PeriodicUnitSquareMesh(30, 30)
     elif request.param == "periodic-square-quad":
         return PeriodicUnitSquareMesh(3, 3, quadrilateral=True)
 
@@ -35,13 +35,13 @@ def test_constant_field(mesh, degree):
 
     limiter.apply(u)
     diff = assemble((u - u_old) ** 2 * dx) ** 0.5
-    print diff
     assert diff < 1.0e-10, "Failed on Constant function"
+    assert np.max(u.dat.data_ro) <= 1.0 + 1e-10, "Failed by exceeding max values"
+    assert np.min(u.dat.data_ro) >= 0.0 - 1e-10, "Failed by exceeding min values"
 
 
 def test_step_function_bounds(mesh, degree):
     x = SpatialCoordinate(mesh)
-    file = File("nameful2.pvd")
 
     # test function space
     v = FunctionSpace(mesh, "DG", degree)
@@ -53,22 +53,13 @@ def test_step_function_bounds(mesh, degree):
     u0 = conditional(x[0] < 0.5, 1., 0.)
     u = Function(v).interpolate(u0)
     u_old = Function(u)
-    file.write(u)
 
     limiter.apply(u)
-    file.write(u)
     diff1 = assemble((u - u_old) ** 2 * dx) ** 0.5
     limiter.apply(u)
-    file.write(u)
     diff = assemble((u - u_old) ** 2 * dx) ** 0.5
-    print "diffs", diff1, diff
-    i_max = np.argmax(u.dat.data_ro)
-    i_min = np.argmin(u.dat.data_ro)
-    s = np.sort(u.dat.data_ro)
-    print "mins", s[:80]
-    print "min:", u.dat.data_ro[i_min], "max:",  u.dat.data_ro[i_max]
-    assert u.dat.data_ro[i_max] <= 1.0 + 1e-10, "Failed by exceeding max values"
-    assert u.dat.data_ro[i_min] >= 0.0 - 1e-10, "Failed by exceeding min values"
+    assert np.max(u.dat.data_ro) <= 1.0 + 1e-10, "Failed by exceeding max values"
+    assert np.min(u.dat.data_ro) >= 0.0 - 1e-10, "Failed by exceeding min values"
 
 
 def test_step_function_loop(mesh, degree, iterations=100):
@@ -82,7 +73,6 @@ def test_step_function_loop(mesh, degree, iterations=100):
     else:
         u0 = as_vector([1, 0])
     u = Function(m).interpolate(u0)
-    print "here"
 
     # advection problem
     dt = 1. / iterations
@@ -114,7 +104,6 @@ def test_step_function_loop(mesh, degree, iterations=100):
 
     # Make slope limiter
     limiter = KuzminLimiter(v)
-    limiter.apply(D1)
 
     while t < (T - dt / 2):
         D1.assign(D)
@@ -132,12 +121,11 @@ def test_step_function_loop(mesh, degree, iterations=100):
 
         t += dt
 
-    print len(D1.dat.data) / 6
     diff = assemble((D1 - D1_old) ** 2 * dx) ** 0.5
-    print "Error:", diff
     max = np.max(D1.dat.data_ro)
     min = np.min(D1.dat.data_ro)
     print "Max:", max, "Min:", min
+    print diff
     assert max <= 1.0 + 1e-2, "Failed by exceeding max values"
     assert min >= 0.0 - 1e-2, "Failed by exceeding min values"
 
