@@ -180,6 +180,7 @@ def compile_slate_expression(slate_expr, testing=False):
         raise NotImplementedError("Expression of type %s not supported.",
                                   type(expr).__name__)
 
+    @get_kernel_expr.register(Action)
     @get_kernel_expr.register(Scalar)
     @get_kernel_expr.register(Vector)
     @get_kernel_expr.register(Matrix)
@@ -213,12 +214,12 @@ def compile_slate_expression(slate_expr, testing=False):
                 kernel_exprs[expr].append((typ, tsfc_compiled_form))
         return
 
-    @get_kernel_expr.register(Action)
-    def get_kernel_expr_action(expr):
-        """Gets the input coefficient and acting tensor."""
-
-        tensor = expr.tensor
-        get_kernel_expr(tensor)
+#    @get_kernel_expr.register(Action)
+#    def get_kernel_expr_action(expr):
+#        """Gets the input coefficient and acting tensor."""
+#
+#        tensor = expr.tensor
+#        get_kernel_expr(tensor)
 
     @get_kernel_expr.register(UnaryOp)
     @get_kernel_expr.register(BinaryOp)

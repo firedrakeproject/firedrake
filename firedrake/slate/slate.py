@@ -23,7 +23,6 @@ Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 
 import hashlib
 import operator
-import itertools
 
 from ufl import Coefficient
 from slate_assertions import *
@@ -384,6 +383,7 @@ class Scalar(Tensor):
 
     def __init__(self, coefficient):
         """Constructor for the Scalar class."""
+        slate_assert(isinstance(coefficient, Coefficient), "Scalars need a coefficient as an argument.")
 
         self.coefficient = coefficient
         Tensor.tensor_id += 1
