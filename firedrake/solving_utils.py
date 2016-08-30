@@ -1,9 +1,6 @@
 from __future__ import absolute_import
 import ufl
 
-from pyop2.utils import as_tuple
-
-from firedrake.mg import utils
 from firedrake import function
 from firedrake.petsc import PETSc
 
@@ -121,7 +118,7 @@ class _SNESContext(object):
     """
     Context holding information for SNES callbacks.
 
-    :arg problems: a :class:`NonlinearVariationalProblem` or iterable thereof.
+    :arg problem: a :class:`NonlinearVariationalProblem`.
     :arg mat_type: Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
         matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
@@ -138,7 +135,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems, mat_type, pmat_type, appctx=None):
+    def __init__(self, problem, mat_type, pmat_type, appctx=None):
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -147,8 +144,7 @@ class _SNESContext(object):
         matfree = mat_type == 'matfree'
         pmatfree = pmat_type == 'matfree'
 
-        problems = as_tuple(problems)
-        self._problems = problems
+        self._problem = problem
         # Build the jacobian with the correct sparsity pattern.  Note
         # that since matrix assembly is lazy this doesn't actually
         # force an additional assembly of the matrix since in
@@ -156,79 +152,65 @@ class _SNESContext(object):
         # computation on the floor.
         from firedrake.assemble import assemble
         # Function to hold current guess
-        self._xs = tuple(function.Function(problem.u) for problem in problems)
+        self._x = function.Function(problem.u.function_space())
 
         if appctx is None:
             appctx = {}
 
-        appctxs = tuple(appctx.copy() for _ in problems)
-
         if matfree or pmatfree:
-            # We will want the newton state for some preconditioners
-            for c, x in zip(appctxs, self._xs):
-                c["state"] = x
+            appctx["state"] = self._x
 
         self.matfree = matfree
         self.pmatfree = pmatfree
-        self.Fs = tuple(ufl.replace(problem.F, {problem.u: x})
-                        for problem, x in zip(problems, self._xs))
-        self.Js = tuple(ufl.replace(problem.J, {problem.u: x})
-                        for problem, x in zip(problems, self._xs))
-        self._jacs = tuple(assemble(J, bcs=problem.bcs,
-                                    form_compiler_parameters=problem.form_compiler_parameters,
-                                    mat_type=mat_type,
-                                    appctx=ctx)
-                           for J, problem, ctx in zip(self.Js, problems, appctxs))
-        self.is_mixed = self._jacs[-1].block_shape != (1, 1)
+        self.F = ufl.replace(problem.F, {problem.u: self._x})
+        self.J = ufl.replace(problem.J, {problem.u: self._x})
+        self._jac = assemble(self.J, bcs=problem.bcs,
+                             form_compiler_parameters=problem.form_compiler_parameters,
+                             mat_type=mat_type,
+                             appctx=appctx)
+        self.is_mixed = self._jac.block_shape != (1, 1)
 
-        if mat_type != pmat_type or problems[-1].Jp is not None:
+        if mat_type != pmat_type or problem.Jp is not None:
             # Need separate pmat if either Jp is different or we want
             # a different pmat type to the mat type.
-            if problems[-1].Jp is None:
-                self.Jps = self.Js
+            if problem.Jp is None:
+                self.Jp = self.J
             else:
-                self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x})
-                                 for problem, x in zip(problems, self._xs))
-            self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
-                                         form_compiler_parameters=problem.form_compiler_parameters,
-                                         mat_type=pmat_type,
-                                         appctx=ctx)
-                                for Jp, problem, ctx in zip(self.Jps, problems, appctxs))
+                self.Jp = ufl.replace(problem.Jp, {problem.u: self._x})
+            self._pjac = assemble(self.Jp, bcs=problem.bcs,
+                                  form_compiler_parameters=problem.form_compiler_parameters,
+                                  mat_type=pmat_type,
+                                  appctx=appctx)
         else:
             # pmat_type == mat_type and Jp is None
-            self.Jps = tuple(None for _ in problems)
-            self._pjacs = self._jacs
+            self.Jp = None
+            self._pjac = self._jac
 
-        self._Fs = tuple(function.Function(F.arguments()[0].function_space())
-                         for F in self.Fs)
-        self._jacobians_assembled = [False for _ in problems]
+        self._F = function.Function(self.F.arguments()[0].function_space())
+        self._jacobian_assembled = False
 
     def set_function(self, snes):
         """Set the residual evaluation function"""
-        with self._Fs[-1].dat.vec as v:
+        with self._F.dat.vec as v:
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
-        snes.setJacobian(self.form_jacobian, J=self._jacs[-1].petscmat,
-                         P=self._pjacs[-1].petscmat)
+        snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
+                         P=self._pjac.petscmat)
 
     def set_nullspace(self, nullspace, ises=None, transpose=False):
         if nullspace is None:
             return
-        nullspace._apply(self._jacs[-1], transpose=transpose)
-        if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1], transpose=transpose)
+        nullspace._apply(self._jac, transpose=transpose)
+        if self.Jp is not None:
+            nullspace._apply(self._pjac, transpose=transpose)
         if ises is not None:
             nullspace._apply(ises, transpose=transpose)
-
-    def __len__(self):
-        return len(self._problems)
 
     @classmethod
     def create_matrix(cls, dm):
         ctx = dm.getAppCtx()
-        _, lvl = utils.get_level(dm)
-        return ctx._jacs[lvl].petscmat
+        return ctx._jac.petscmat
 
     @classmethod
     def form_function(self, snes, X, F):
@@ -242,28 +224,21 @@ class _SNESContext(object):
 
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        _, lvl = utils.get_level(dm)
-
-        # FIXME: Think about case where DM is refined but we don't
-        # have a hierarchy of problems better.
-        if len(ctx._problems) == 1:
-            lvl = -1
-        problem = ctx._problems[lvl]
+        problem = ctx._problem
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._xs[lvl].dat.vec as v:
-            if v != X:
-                X.copy(v)
+        with ctx._x.dat.vec as v:
+            X.copy(v)
 
-        assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
+        assemble(ctx.F, tensor=ctx._F,
                  form_compiler_parameters=problem.form_compiler_parameters)
         # no mat_type -- it's a vector!
         for bc in problem.bcs:
-            bc.zero(ctx._Fs[lvl])
+            bc.zero(ctx._F)
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.
-        with ctx._Fs[lvl].dat.vec_ro as v:
+        with ctx._F.dat.vec_ro as v:
             v.copy(F)
 
     @classmethod
@@ -279,33 +254,27 @@ class _SNESContext(object):
 
         dm = snes.getDM()
         ctx = dm.getAppCtx()
-        _, lvl = utils.get_level(dm)
-
-        # FIXME: Think about case where DM is refined but we don't
-        # have a hierarchy of problems better.
-        if len(ctx._problems) == 1:
-            lvl = -1
-        problem = ctx._problems[lvl]
-        if problem._constant_jacobian and ctx._jacobians_assembled[lvl]:
+        problem = ctx._problem
+        if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
             return
-        ctx._jacobians_assembled[lvl] = True
+        ctx._jacobian_assembled = True
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._xs[lvl].dat.vec as v:
+        with ctx._x.dat.vec as v:
             X.copy(v)
-        assemble(ctx.Js[lvl],
-                 tensor=ctx._jacs[lvl],
+        assemble(ctx.J,
+                 tensor=ctx._jac,
                  bcs=problem.bcs,
                  form_compiler_parameters=problem.form_compiler_parameters,
                  mat_type=ctx.mat_type)
-        ctx._jacs[lvl].force_evaluation()
-        if ctx.Jps[lvl] is not None:
-            assemble(ctx.Jps[lvl],
-                     tensor=ctx._pjacs[lvl],
+        ctx._jac.force_evaluation()
+        if ctx.Jp is not None:
+            assemble(ctx.Jp,
+                     tensor=ctx._pjac,
                      bcs=problem.bcs,
                      form_compiler_parameters=problem.form_compiler_parameters,
                      mat_type=ctx.pmat_type)
-            ctx._pjacs[lvl].force_evaluation()
+            ctx._pjac.force_evaluation()
