@@ -1,13 +1,12 @@
 from __future__ import absolute_import
-from firedrake import dx, assemble, LinearSolver, MIN, MAX, project, Projector
+from firedrake import dx, assemble, LinearSolver, MIN, MAX
 from firedrake.interpolation import Interpolator
 from firedrake.function import Function
-from firedrake.functionspace import FunctionSpace, VectorFunctionSpace
-from firedrake.parloops import par_loop, READ, RW, WRITE
+from firedrake.functionspace import FunctionSpace
+from firedrake.parloops import par_loop, READ, RW
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
 from firedrake.constant import Constant
-import numpy as np
 
 __all__ = ("KuzminLimiter",)
 
@@ -129,7 +128,7 @@ for (int i=0; i<q.dofs; i++) {
 def create_c_table(table, name):
     # Returns a C compatible string to be pasted in the kernel
     return "static const double %s[%d][%d] = %s;" % \
-            ((name,) + table.T.shape + ("{{" + "}, \n{".join([", ".join(map(str, x)) for x in table.T]) + "}}", ))
+           ((name,) + table.T.shape + ("{{" + "}, \n{".join([", ".join(map(str, x)) for x in table.T]) + "}}", ))
 
 
 class KuzminLimiter2D(Limiter):
@@ -221,12 +220,12 @@ class KuzminLimiter2D(Limiter):
             t[1][0] *= fmax(alpha, alpha_x);
             t[2][0] *= alpha_x;
             """ % (self.str_table, self.str_table_x), dx,
-                     {"t": (self.taylor_field, RW),
-                      "scale": (self.volume, READ),
-                      "qmax": (self.max_field, READ),
-                      "max_x": (self.dx_max_field, READ),
-                      "min_x": (self.dx_min_field, READ),
-                      "qmin": (self.min_field, READ)})
+                {"t": (self.taylor_field, RW),
+                 "scale": (self.volume, READ),
+                 "qmax": (self.max_field, READ),
+                 "max_x": (self.dx_max_field, READ),
+                 "min_x": (self.dx_min_field, READ),
+                 "qmin": (self.min_field, READ)})
 
             self._project(f_in=self.taylor_field, f_out=field, space=self.P2DG, projector=self.P2DG_projector)
 
@@ -289,15 +288,15 @@ t[4][0] *= alpha_x;
 t[5][0] *= alpha_x;
 """ % (self.str_table, self.str_table_x, self.str_table_y)
 
-            par_loop(self._limit_kernel, dx, 
-                    {"t": (self.taylor_field, RW),
-                     "scale": (self.volume, READ),
-                     "max": (self.max_field, READ),
-                     "min": (self.min_field, READ),
-                     "max_x": (self.dx_max_field, READ),
-                     "min_x": (self.dx_min_field, READ),
-                     "max_y": (self.dy_max_field, READ),
-                     "min_y": (self.dy_min_field, READ)})
+            par_loop(self._limit_kernel, dx,
+                     {"t": (self.taylor_field, RW),
+                      "scale": (self.volume, READ),
+                      "max": (self.max_field, READ),
+                      "min": (self.min_field, READ),
+                      "max_x": (self.dx_max_field, READ),
+                      "min_x": (self.dx_min_field, READ),
+                      "max_y": (self.dy_max_field, READ),
+                      "min_y": (self.dy_min_field, READ)})
 
             # Project limited field back on to original P2DG field
             self._project(self.taylor_field, field, self.P2DG, self.P2DG_projector)
@@ -410,8 +409,6 @@ t[5][0] *= alpha_x;
             table_xy = taylor_element.tabulate(2, vertices)[key_xy]
             self.str_table_y = create_c_table(table_y, "table_y")
             self.str_table_xy = create_c_table(table_xy, "table_xy")
-            if dim >= 3:
-                key_z = {3: (0, 0, 1)}[dim]
 
         table = taylor_element.tabulate(0, vertices)[key]
         table_x = taylor_element.tabulate(1, vertices)[key_x]
@@ -424,4 +421,3 @@ t[5][0] *= alpha_x;
 
         self.compute_bounds(field)
         self.apply_limiter(field)
-

@@ -52,12 +52,8 @@ def test_step_function_bounds(mesh, degree):
     # Generate step function
     u0 = conditional(x[0] < 0.5, 1., 0.)
     u = Function(v).interpolate(u0)
-    u_old = Function(u)
 
     limiter.apply(u)
-    diff1 = assemble((u - u_old) ** 2 * dx) ** 0.5
-    limiter.apply(u)
-    diff = assemble((u - u_old) ** 2 * dx) ** 0.5
     assert np.max(u.dat.data_ro) <= 1.0 + 1e-10, "Failed by exceeding max values"
     assert np.min(u.dat.data_ro) >= 0.0 - 1e-10, "Failed by exceeding min values"
 

@@ -6,8 +6,7 @@ import numpy as np
 def run_advection(degree):
     l2error = []
     nx = lambda n: 2**n
-    ny = lambda n: 2
-    u = Constant((1,0 ))
+    u = Constant((1, 0))
     exact_expr = "exp(-(x[0] - 0.5 -t )*(x[0] - 0.5 -t)*100.0)"
 
     # Advect a sine wave with a constant, unit velocity for 200
