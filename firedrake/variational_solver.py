@@ -1,13 +1,11 @@
 from __future__ import absolute_import
 import ufl
 
-
-from firedrake.mg.ufl_utils import create_interpolation, create_injection, coarsen_problem
 from firedrake.mg.utils import get_level
 from firedrake import solving_utils
 from firedrake import ufl_expr
+from firedrake.logging import warning, RED
 from firedrake.petsc import PETSc
-
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -152,15 +150,17 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         V = problem.dm.getAttr("__fs__")()
         Vh, _ = get_level(V)
         if Vh is not None:
+            from firedrake.mg.ufl_utils import coarsen, CoarseningError
             # We've got a hierarchy, make some coarse problems
             self._coarse_ctxs = []
             for V in reversed(Vh[:-1]):
-                problem = coarsen_problem(problem)
-                # TODO correctly coarsen any state in appctx.
-                ctx = solving_utils._SNESContext(problem, mat_type=mat_type,
-                                                 pmat_type=pmat_type,
-                                                 appctx=appctx)
-                self._coarse_ctxs.append(ctx)
+                try:
+                    ctx = coarsen(ctx)
+                    self._coarse_ctxs.append(ctx)
+                except CoarseningError as e:
+                    self._coarse_ctxs = []
+                    warning(RED % "Was not able to coarsen problem, despite hierarchy.")
+                    break
             self._coarse_ctxs.reverse()
 
     def solve(self):
@@ -172,6 +172,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         V = dm.getAttr("__fs__")()
         Vh, _ = get_level(V)
         if Vh is not None:
+            from firedrake.mg.ufl_utils import create_interpolation, create_injection
             for ctx, V in zip(self._coarse_ctxs, Vh[:-1]):
                 dm = V._dm
                 dm.setAppCtx(ctx)

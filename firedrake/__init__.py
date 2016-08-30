@@ -42,7 +42,6 @@ from firedrake.mesh import *
 from firedrake.mg.mesh import *
 from firedrake.mg.function import *
 from firedrake.mg.functionspace import *
-from firedrake.mg.ufl_utils import *
 from firedrake.mg.interface import *
 from firedrake.norms import *
 from firedrake.nullspace import *
