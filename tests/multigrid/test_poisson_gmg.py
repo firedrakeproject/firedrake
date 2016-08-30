@@ -73,11 +73,7 @@ def run_poisson(typ):
     # iterations of ilu fails to converge this problem sufficiently.
     f_.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
 
-    problem = NonlinearVariationalProblem(F, u_, bcs=bcs)
-
-    solver = NLVSHierarchy(problem, solver_parameters=parameters)
-
-    solver.solve()
+    solve(F == 0, u_, bcs=bcs, solver_parameters=parameters)
 
     exact = Function(V[-1])
     exact.interpolate(Expression("sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])"))

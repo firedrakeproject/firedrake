@@ -72,6 +72,12 @@ class WithGeometry(ufl.FunctionSpace):
         return WithGeometry(self.topological.sub(i), self.mesh())
 
     @property
+    def _dm(self):
+        dm = self.topological._dm
+        dm.setAttr("__fs__", weakref.ref(self))
+        return dm
+
+    @property
     def num_work_functions(self):
         """The number of checked out work functions."""
         from firedrake.functionspacedata import get_work_function_cache
@@ -724,7 +730,7 @@ class MixedFunctionSpace(object):
             except KeyError:
                 pass
             # Need to build an MFS for the subspace
-            subspace = MixedFunctionSpace([W[f] for f in fields])
+            subspace = MixedFunctionSpace([W.topological[f] for f in fields])
             # Index set mapping from W into subspace.
             iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
                                                                for f in fields]),

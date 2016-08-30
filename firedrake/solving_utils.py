@@ -160,6 +160,7 @@ class _SNESContext(object):
         if matfree or pmatfree:
             appctx["state"] = self._x
 
+        self.appctx = appctx
         self.matfree = matfree
         self.pmatfree = pmatfree
         self.F = ufl.replace(problem.F, {problem.u: self._x})
@@ -207,13 +208,13 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises, transpose=transpose)
 
-    @classmethod
-    def create_matrix(cls, dm):
+    @staticmethod
+    def create_matrix(dm):
         ctx = dm.getAppCtx()
         return ctx._jac.petscmat
 
-    @classmethod
-    def form_function(self, snes, X, F):
+    @staticmethod
+    def form_function(snes, X, F):
         """Form the residual for this problem
 
         :arg snes: a PETSc SNES object
@@ -241,8 +242,8 @@ class _SNESContext(object):
         with ctx._F.dat.vec_ro as v:
             v.copy(F)
 
-    @classmethod
-    def form_jacobian(cls, snes, X, J, P):
+    @staticmethod
+    def form_jacobian(snes, X, J, P):
         """Form the Jacobian for this problem
 
         :arg snes: a PETSc SNES object

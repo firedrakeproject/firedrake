@@ -1,8 +1,9 @@
 from __future__ import absolute_import
-import weakref
 import ufl
 
 
+from firedrake.mg.ufl_utils import create_interpolation, create_injection, coarsen_problem
+from firedrake.mg.utils import get_level
 from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake.petsc import PETSc
@@ -147,11 +148,36 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
                           transpose=True)
 
+        # Set up any multilevel-specific stuff
+        V = problem.dm.getAttr("__fs__")()
+        Vh, _ = get_level(V)
+        if Vh is not None:
+            # We've got a hierarchy, make some coarse problems
+            self._coarse_ctxs = []
+            for V in reversed(Vh[:-1]):
+                problem = coarsen_problem(problem)
+                # TODO correctly coarsen any state in appctx.
+                ctx = solving_utils._SNESContext(problem, mat_type=mat_type,
+                                                 pmat_type=pmat_type,
+                                                 appctx=appctx)
+                self._coarse_ctxs.append(ctx)
+            self._coarse_ctxs.reverse()
+
     def solve(self):
         self.set_from_options(self.snes)
         dm = self.snes.getDM()
-        dm.setAppCtx(weakref.proxy(self._ctx))
+        dm.setAppCtx(self._ctx)
         dm.setCreateMatrix(self._ctx.create_matrix)
+
+        V = dm.getAttr("__fs__")()
+        Vh, _ = get_level(V)
+        if Vh is not None:
+            for ctx, V in zip(self._coarse_ctxs, Vh[:-1]):
+                dm = V._dm
+                dm.setAppCtx(ctx)
+                dm.setCreateMatrix(ctx.create_matrix)
+                dm.setCreateInterpolation(create_interpolation)
+                dm.setCreateInjection(create_injection)
 
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
@@ -162,6 +188,10 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
 
         # Remove appctx
         dm.setAppCtx(None)
+
+        if Vh is not None:
+            for V in Vh:
+                V._dm.setAppCtx(None)
 
         solving_utils.check_snes_convergence(self.snes)
 

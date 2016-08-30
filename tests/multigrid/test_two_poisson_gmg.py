@@ -83,7 +83,7 @@ def run_two_poisson(typ):
 
     problem = NonlinearVariationalProblem(F, u, bcs=bcs)
 
-    solver = NLVSHierarchy(problem, solver_parameters=parameters)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
 
     solver.solve()
 

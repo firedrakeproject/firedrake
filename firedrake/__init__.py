@@ -44,7 +44,6 @@ from firedrake.mg.function import *
 from firedrake.mg.functionspace import *
 from firedrake.mg.ufl_utils import *
 from firedrake.mg.interface import *
-from firedrake.mg.solver_hierarchy import *
 from firedrake.norms import *
 from firedrake.nullspace import *
 from firedrake.optimizer import *

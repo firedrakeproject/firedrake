@@ -5,6 +5,7 @@ from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
 
 import firedrake
+from firedrake.petsc import PETSc
 
 from . import utils
 
@@ -159,3 +160,147 @@ def coarsen_bc(bc):
         new_bc.homogenize()
 
     return new_bc
+
+
+def coarsen_problem(problem):
+    u = problem.u
+    h, lvl = utils.get_level(u.function_space())
+    if lvl == -1:
+        raise RuntimeError("No hierarchy to coarsen")
+    if lvl == 0:
+        return None
+
+    # Build set of coefficients we need to coarsen
+    coefficients = set()
+    coefficients.update(problem.F.coefficients())
+    coefficients.update(problem.J.coefficients())
+    if problem.Jp is not None:
+        coefficients.update(problem.Jp.coefficients())
+
+    # Coarsen them, and remember where from.
+    mapping = {}
+    for c in coefficients:
+        mapping[c] = coarsen_thing(c)
+
+    new_u = mapping[problem.u]
+
+    new_bcs = [coarsen_thing(bc) for bc in problem.bcs]
+    new_J = coarsen_form(problem.J, coefficient_mapping=mapping)
+    new_Jp = coarsen_form(problem.Jp, coefficient_mapping=mapping)
+    new_F = coarsen_form(problem.F, coefficient_mapping=mapping)
+
+    new_problem = firedrake.NonlinearVariationalProblem(new_F,
+                                                        new_u,
+                                                        bcs=new_bcs,
+                                                        J=new_J,
+                                                        Jp=new_Jp,
+                                                        form_compiler_parameters=problem.form_compiler_parameters)
+    return new_problem
+
+
+class Interpolation(object):
+    def __init__(self, cfn, ffn, cbcs=None, fbcs=None):
+        self.cfn = cfn
+        self.ffn = ffn
+        self.cbcs = cbcs or []
+        self.fbcs = fbcs or []
+
+    def mult(self, mat, x, y, inc=False):
+        with self.cfn.dat.vec as v:
+            x.copy(v)
+        firedrake.prolong(self.cfn, self.ffn)
+        for bc in self.fbcs:
+            bc.zero(self.ffn)
+        with self.ffn.dat.vec_ro as v:
+            if inc:
+                y.axpy(1.0, v)
+            else:
+                v.copy(y)
+
+    def multAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.mult(mat, x, w, inc=True)
+        else:
+            self.mult(mat, x, w)
+            w.axpy(1.0, y)
+
+    def multTranspose(self, mat, x, y, inc=False):
+        with self.ffn.dat.vec as v:
+            x.copy(v)
+        firedrake.restrict(self.ffn, self.cfn)
+        for bc in self.cbcs:
+            bc.zero(self.cfn)
+        with self.cfn.dat.vec_ro as v:
+            if inc:
+                y.axpy(1.0, v)
+            else:
+                v.copy(y)
+
+    def multTransposeAdd(self, mat, x, y, w):
+        if y.handle == w.handle:
+            self.multTranspose(mat, x, w, inc=True)
+        else:
+            self.multTranspose(mat, x, w)
+            w.axpy(1.0, y)
+
+
+class Injection(object):
+    def __init__(self, cfn, ffn, cbcs=None):
+        self.cfn = cfn
+        self.ffn = ffn
+        self.cbcs = cbcs or []
+
+    def multTranspose(self, mat, x, y):
+        with self.ffn.dat.vec as v:
+            x.copy(v)
+        firedrake.inject(self.ffn, self.cfn)
+        for bc in self.cbcs:
+            bc.apply(self.cfn)
+        with self.cfn.dat.vec_ro as v:
+            v.copy(y)
+
+
+def create_interpolation(dmc, dmf):
+    cctx = dmc.getAppCtx()
+    fctx = dmf.getAppCtx()
+
+    V_c = dmc.getAttr("__fs__")()
+    V_f = dmf.getAttr("__fs__")()
+
+    row_size = V_f.dof_dset.layout_vec.getSizes()
+    col_size = V_c.dof_dset.layout_vec.getSizes()
+
+    cfn = firedrake.Function(V_c)
+    ffn = firedrake.Function(V_f)
+    cbcs = cctx._problem.bcs
+    fbcs = fctx._problem.bcs
+
+    ctx = Interpolation(cfn, ffn, cbcs, fbcs)
+    mat = PETSc.Mat().create(comm=dmc.comm)
+    mat.setSizes((row_size, col_size))
+    mat.setType(mat.Type.PYTHON)
+    mat.setPythonContext(ctx)
+    mat.setUp()
+    return mat, None
+
+
+def create_injection(dmc, dmf):
+    cctx = dmc.getAppCtx()
+
+    V_c = dmc.getAttr("__fs__")()
+    V_f = dmf.getAttr("__fs__")()
+
+    row_size = V_f.dof_dset.layout_vec.getSizes()
+    col_size = V_c.dof_dset.layout_vec.getSizes()
+
+    cfn = firedrake.Function(V_c)
+    ffn = firedrake.Function(V_f)
+    cbcs = cctx._problem.bcs
+
+    ctx = Injection(cfn, ffn, cbcs)
+    mat = PETSc.Mat().create(comm=dmc.comm)
+    mat.setSizes((row_size, col_size))
+    mat.setType(mat.Type.PYTHON)
+    mat.setPythonContext(ctx)
+    mat.setUp()
+    return mat
