@@ -7,11 +7,10 @@ from firedrake import functionspace
 from . import impl
 from . import utils
 from .utils import set_level, get_level
-from . import interface
 
 
 __all__ = ["FunctionSpaceHierarchy", "VectorFunctionSpaceHierarchy",
-           "MixedFunctionSpaceHierarchy"]
+           "TensorFunctionSpaceHierarchy", "MixedFunctionSpaceHierarchy"]
 
 
 def coarsen(dm, comm):
@@ -36,38 +35,40 @@ def refine(dm, comm):
 
 class BaseHierarchy(object):
 
-    def __init__(self, mesh_hierarchy, fses):
+    def __init__(self, spaces):
         """
         Build a hierarchy of function spaces
 
-        :arg mesh_hierarchy: a :class:`~.MeshHierarchy` on which to
-             build the function spaces.
-        :arg fses: an iterable of :class:`~.FunctionSpace`\s.
+        :arg spaces: The spaces to use.
         """
-        self._mesh_hierarchy = mesh_hierarchy
-        self._hierarchy = tuple([set_level(fs, self, lvl)
-                                 for lvl, fs in enumerate(fses)])
+        self._mesh_hierarchy, _ = get_level(spaces[0].ufl_domain())
+        if self._mesh_hierarchy is None:
+            raise ValueError("Provided spaces are not from a hierarchy")
+
+        self._hierarchy = tuple([set_level(V, self, lvl)
+                                 for lvl, V in enumerate(spaces)])
         self._map_cache = {}
         self._cell_sets = tuple(op2.LocalSet(m.cell_set) for m in self._mesh_hierarchy)
         self._ufl_element = self[0].ufl_element()
         self._restriction_weights = None
-        fiat_element = fses[0].fiat_element
-        ncelldof = len(fiat_element.entity_dofs()[fses[0].mesh().cell_dimension()][0])
-        self._discontinuous = ncelldof == fses[0].cell_node_map().arity
-        try:
-            element = self[0].fiat_element
-            omap = self[1].cell_node_map().values
-            c2f, vperm = self._mesh_hierarchy._cells_vperm[0]
-            indices, _ = utils.get_unique_indices(element,
-                                                  omap[c2f[0, :], ...].reshape(-1),
-                                                  vperm[0, :],
-                                                  offset=None)
-            self._prolong_kernel = utils.get_prolongation_kernel(element, indices, self.dim)
-            self._restrict_kernel = utils.get_restriction_kernel(element, indices, self.dim,
-                                                                 no_weights=self._discontinuous)
-            self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
-        except:
-            pass
+        fiat_element = spaces[0].fiat_element
+        ncelldof = len(fiat_element.entity_dofs()[spaces[0].mesh().cell_dimension()][0])
+        self._discontinuous = ncelldof == spaces[0].cell_node_map().arity
+        element = self[0].fiat_element
+        omap = self[1].cell_node_map().values
+        c2f, vperm = self._mesh_hierarchy._cells_vperm[0]
+
+        self.dim = spaces[0].dim
+        self.shape = spaces[0].shape
+
+        indices, _ = utils.get_unique_indices(element,
+                                              omap[c2f[0, :], ...].reshape(-1),
+                                              vperm[0, :],
+                                              offset=None)
+        self._prolong_kernel = utils.get_prolongation_kernel(element, indices, self.dim)
+        self._restrict_kernel = utils.get_restriction_kernel(element, indices, self.dim,
+                                                             no_weights=self._discontinuous)
+        self._inject_kernel = utils.get_injection_kernel(element, indices, self.dim)
 
         for V in self:
             dm = V._dm
@@ -135,91 +136,61 @@ class BaseHierarchy(object):
              mixed space."""
         return MixedFunctionSpaceHierarchy([self, other])
 
-    def restrict(self, residual, level):
-        """
-        Restrict a residual (a dual quantity) from level to level-1
 
-        :arg residual: the residual to restrict
-        :arg level: the fine level to restrict from
-        """
-        coarse = residual[level-1]
-        fine = residual[level]
-        interface.restrict(fine, coarse)
-
-    def inject(self, state, level):
-        """
-        Inject state (a primal quantity) from level to level - 1
-
-        :arg state: the state to inject
-        :arg level: the fine level to inject from
-        """
-        coarse = state[level-1]
-        fine = state[level]
-        interface.inject(fine, coarse)
-
-    def prolong(self, solution, level):
-        """
-        Prolong a solution (a primal quantity) from level - 1 to level
-
-        :arg solution: the solution to prolong
-        :arg level: the coarse level to prolong from
-        """
-        coarse = solution[level]
-        fine = solution[level+1]
-        interface.prolong(coarse, fine)
-
-
-class FunctionSpaceHierarchy(BaseHierarchy):
+def FunctionSpaceHierarchy(mesh_hierarchy, family, degree=None,
+                           name=None, vfamily=None, vdegree=None):
     """Build a hierarchy of function spaces.
 
-    Given a hierarchy of meshes, this constructs a hierarchy of
-    function spaces, with the property that every coarse space is a
-    subspace of the fine spaces that are a refinement of it.
+    :arg mesh_hierarchy: A :class:`~.MeshHierarchy` on which to build
+        the spaces.
+
+    See :func:`~.FunctionSpace` for a description of the
+    remaining arguments.
     """
-    def __init__(self, mesh_hierarchy, family, degree=None,
-                 name=None, vfamily=None, vdegree=None):
-        """
-        :arg mesh_hierarchy: a :class:`~.MeshHierarchy` to build the
-             function spaces on.
-        :arg family: the function space family
-        :arg degree: the degree of the function space
-
-        See :class:`~.FunctionSpace` for more details on the form of
-        the remaining parameters.
-        """
-        fses = [functionspace.FunctionSpace(m, family, degree=degree,
-                                            name=name, vfamily=vfamily,
-                                            vdegree=vdegree)
-                for m in mesh_hierarchy]
-        self.dim = 1
-        super(FunctionSpaceHierarchy, self).__init__(mesh_hierarchy, fses)
+    spaces = [functionspace.FunctionSpace(mesh, family, degree=degree,
+                                          name=name, vfamily=vfamily,
+                                          vdegree=vdegree)
+              for mesh in mesh_hierarchy]
+    return BaseHierarchy(spaces)
 
 
-class VectorFunctionSpaceHierarchy(BaseHierarchy):
-
+def VectorFunctionSpaceHierarchy(mesh_hierarchy, family, degree=None,
+                                 dim=None, name=None, vfamily=None,
+                                 vdegree=None):
     """Build a hierarchy of vector function spaces.
 
-    Given a hierarchy of meshes, this constructs a hierarchy of vector
-    function spaces, with the property that every coarse space is a
-    subspace of the fine spaces that are a refinement of it.
+    :arg mesh_hierarchy: A :class:`~.MeshHierarchy` on which to build
+        the spaces.
 
+    See :func:`~.VectorFunctionSpace` for a description of the
+    remaining arguments.
     """
-    def __init__(self, mesh_hierarchy, family, degree, dim=None, name=None, vfamily=None, vdegree=None):
-        """
-        :arg mesh_hierarchy: a :class:`~.MeshHierarchy` to build the
-             function spaces on.
-        :arg family: the function space family
-        :arg degree: the degree of the function space
+    spaces = [functionspace.VectorFunctionSpace(mesh, family, degree,
+                                                dim=dim, name=name,
+                                                vfamily=vfamily,
+                                                vdegree=vdegree)
+              for mesh in mesh_hierarchy]
+    return BaseHierarchy(spaces)
 
-        See :class:`~.VectorFunctionSpace` for more details on the form of
-        the remaining parameters.
-        """
-        fses = [functionspace.VectorFunctionSpace(m, family, degree,
-                                                  dim=dim, name=name, vfamily=vfamily,
-                                                  vdegree=vdegree)
-                for m in mesh_hierarchy]
-        self.dim = fses[0].dim
-        super(VectorFunctionSpaceHierarchy, self).__init__(mesh_hierarchy, fses)
+
+def TensorFunctionSpaceHierarchy(mesh_hierarchy, family, degree=None,
+                                 shape=None, symmetry=None, name=None,
+                                 vfamily=None, vdegree=None):
+    """Build a hierarchy of tensor function spaces.
+
+    :arg mesh_hierarchy: A :class:`~.MeshHierarchy` on which to build
+        the spaces.
+
+    See :func:`~.TensorFunctionSpace` for a description of the
+    remaining arguments.
+    """
+    spaces = [functionspace.TensorFunctionSpace(mesh, family, degree,
+                                                shape=shape, symmetry=symmetry,
+                                                name=name,
+                                                vfamily=vfamily,
+                                                vdegree=vdegree)
+              for mesh in mesh_hierarchy]
+    return BaseHierarchy(spaces)
 
 
 class MixedFunctionSpaceHierarchy(object):
@@ -288,30 +259,3 @@ class MixedFunctionSpaceHierarchy(object):
         :arg level: the coarse level the map should be from.
         """
         return op2.MixedMap(s.cell_node_map(level) for s in self.split())
-
-    def restrict(self, residual, level):
-        """
-        Restrict a residual (a dual quantity) from level to level-1
-
-        :arg residual: the residual to restrict
-        :arg level: the fine level to restrict from
-        """
-        interface.restrict(residual[level], residual[level-1])
-
-    def prolong(self, solution, level):
-        """
-        Prolong a solution (a primal quantity) from level - 1 to level
-
-        :arg solution: the solution to prolong
-        :arg level: the coarse level to prolong from
-        """
-        interface.prolong(solution[level], solution[level+1])
-
-    def inject(self, state, level):
-        """
-        Inject state (a primal quantity) from level to level - 1
-
-        :arg state: the state to inject
-        :arg level: the fine level to inject from
-        """
-        interface.inject(state[level], state[level-1])
