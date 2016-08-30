@@ -2,6 +2,8 @@ from __future__ import absolute_import
 
 import firedrake
 
+from firedrake.logging import warning, RED
+
 __all__ = ["FunctionHierarchy"]
 
 
@@ -13,16 +15,15 @@ class FunctionHierarchy(object):
         :arg fs_hierarchy: the :class:`~.FunctionSpaceHierarchy` to build on.
         :arg functions: optional :class:`~.Function` for each level.
         """
-        self._function_space = fs_hierarchy
 
         if functions is not None:
             assert all(isinstance(f, firedrake.Function) for f in functions)
-            assert len(functions) == len(self._function_space)
+            assert len(functions) == len(fs_hierarchy)
             self._list = tuple([f for f in functions])
         else:
             self._list = tuple([firedrake.Function(f) for f in fs_hierarchy])
 
-        Warning('FunctionHierarchy is depreceated. Falls back by returning list of functions')
+        warning(RED % "FunctionHierarchy is obsolete. Falls back by returning list of functions")
 
     def __iter__(self):
         """Iterate over the :class:`Function`\s in this list (from
