@@ -1,20 +1,17 @@
-import pytest
 from firedrake import *
 import numpy as np
 
 
-def run_advection(degree):
+def run_advection(degree, iterations):
     l2error = []
     nx = lambda n: 2**n
-    u = Constant((1, 0))
+    u = Constant((1, ))
     exact_expr = "exp(-(x[0] - 0.5 -t )*(x[0] - 0.5 -t)*100.0)"
 
-    # Advect a sine wave with a constant, unit velocity for 200
-    # timesteps (dt = 5e-5)
-    for n in range(7, 9):
-        print n
-        # mesh = PeriodicIntervalMesh(nx(n), 1)
-        mesh = PeriodicUnitSquareMesh(nx(n), nx(n))
+    # Test P(degree)DG limiter with Interval Mesh
+    for n in range(7, 7 + iterations):
+        # print n
+        mesh = PeriodicIntervalMesh(nx(n), 1)
         V = FunctionSpace(mesh, "DG", degree)
         D = TrialFunction(V)
         phi = TestFunction(V)
@@ -78,7 +75,10 @@ def run_advection(degree):
     return np.asarray(l2error)
 
 
-errors = run_advection(2)
+def test_convergence_rate():
+    iterations = 2
+    errors = run_advection(2, iterations)
 
-print errors
-print np.log2(errors[:-1]/errors[1:])
+    # Errors should converge at ~3rd order
+    order = np.log2(errors[:-1]/errors[1:])
+    assert(order[iterations-2] > 2.8)
