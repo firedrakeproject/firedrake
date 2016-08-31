@@ -9,7 +9,7 @@ import firedrake.utils
 from . import utils
 
 
-__all__ = ["prolong", "restrict", "inject"]
+__all__ = ["prolong", "restrict", "inject", "FunctionHierarchy"]
 
 
 @firedrake.utils.known_pyop2_safe
@@ -104,3 +104,23 @@ def inject(fine, coarse):
     op2.par_loop(hierarchy._inject_kernel, hierarchy._cell_sets[lvl],
                  coarse.dat(op2.WRITE, coarse.cell_node_map()[op2.i[0]]),
                  fine.dat(op2.READ, hierarchy.cell_node_map(lvl)))
+
+
+def FunctionHierarchy(fs_hierarchy, functions=None):
+    """ outdated and returns warning & list of functions corresponding to each level
+    of a functionspace hierarchy
+
+        :arg fs_hierarchy: the :class:`~.FunctionSpaceHierarchy` to build on.
+        :arg functions: optional :class:`~.Function` for each level.
+
+    """
+    from firedrake.logging import warning, RED
+    warning(RED % "FunctionHierarchy is obsolete. Falls back by returning list of functions")
+
+    if functions is not None:
+        assert len(functions) == len(fs_hierarchy)
+        for f, V in zip(functions, fs_hierarchy):
+            assert f.function_space() == V
+        return tuple(functions)
+    else:
+        return tuple([firedrake.Function(f) for f in fs_hierarchy])
