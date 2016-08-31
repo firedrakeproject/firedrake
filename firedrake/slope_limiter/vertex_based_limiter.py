@@ -6,7 +6,6 @@ from firedrake.functionspace import FunctionSpace
 from firedrake.parloops import par_loop, READ, RW
 from firedrake.ufl_expr import TrialFunction, TestFunction
 from firedrake.slope_limiter.limiter import Limiter
-from firedrake.constant import Constant
 
 __all__ = ("KuzminLimiter",)
 
@@ -124,7 +123,6 @@ for (int i=0; i<q.dofs; i++) {
         self.apply_limiter(field)
 
 
-
 class KuzminLimiter2D(Limiter):
     """
     A vertex based limiter for P2DG fields.
@@ -164,9 +162,9 @@ class KuzminLimiter2D(Limiter):
         self.calculate_alpha = """
 void calculate_alpha(double* alpha, double** max_field, double** min_field,
                      double vertex_value, double center_value, int i) {
-    if (vertex_value > center_value && vertex_value > max_field[i][0]) {
+    if (vertex_value > max_field[i][0]) {
         *alpha = fmin(*alpha, fmin(1, (max_field[i][0] - center_value)/(vertex_value - center_value)));
-    } else if (vertex_value < center_value && vertex_value < min_field[i][0]) {
+    } else if (vertex_value < min_field[i][0]) {
         *alpha = fmin(*alpha, fmin(1, (min_field[i][0] - center_value)/(vertex_value - center_value)));
     }
 }
@@ -272,10 +270,9 @@ void calculate_alpha(double* alpha, double** max_field, double** min_field,
         return assemble(u*v*dx, inverse=True)
 
     def _create_tables(self):
-        # Field fiat element, dimension and cell volume
+        # Field fiat element, dimension and cell
         fiat_element = self.P2DT.fiat_element
         cell = fiat_element.get_reference_element()
-        volume = Constant(cell.volume())
         vertices = cell.get_vertices()
 
         key = {1: (0, ),
