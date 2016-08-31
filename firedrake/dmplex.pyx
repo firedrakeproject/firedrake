@@ -740,6 +740,13 @@ def mark_entity_classes(PETSc.DM plex):
                         non_exec = PETSC_FALSE
         if non_exec:
             CHKERR(DMLabelSetValue(lbl_non_exec, facets[f], 1))
+
+    # Remove exec marks from facets in non-exec label
+    for f in range(nfacets):
+        if not (fStart <= facets[f] < fEnd):
+            continue
+        CHKERR(DMLabelHasPoint(lbl_non_exec, facets[f], &has_point))
+        if has_point:
             # Remove facet from exec-halo label
             CHKERR(DMLabelClearValue(lbl_exec, facets[f], 1))
 
