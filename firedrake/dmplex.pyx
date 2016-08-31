@@ -535,20 +535,20 @@ def label_facets(PETSc.DM plex, label_boundary=True):
     fStart, fEnd = plex.getHeightStratum(1)
     plex.createLabel(ext_label)
     CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
-    CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
 
     # Mark boundaries as exterior_facets
     if label_boundary:
         plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
     CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
-    CHKERR(DMLabelCreateIndex(lbl_int, fStart, fEnd))
 
+    CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
     for facet in range(fStart, fEnd):
         CHKERR(DMLabelHasPoint(lbl_ext, facet, &has_point))
         # Not marked, must be interior
         if not has_point:
             CHKERR(DMLabelSetValue(lbl_int, facet, 1))
+    CHKERR(DMLabelDestroyIndex(lbl_ext))
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -623,11 +623,6 @@ def mark_entity_classes(PETSc.DM plex):
     CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
     CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
 
-    CHKERR(DMLabelCreateIndex(lbl_core, pStart, pEnd))
-    CHKERR(DMLabelCreateIndex(lbl_non_core, pStart, pEnd))
-    CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
-    CHKERR(DMLabelCreateIndex(lbl_non_exec, pStart, pEnd))
-
     if plex.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
@@ -647,6 +642,8 @@ def mark_entity_classes(PETSc.DM plex):
     ncells = plex.getStratumSize("op2_exec_halo", 1)
     cell_is = plex.getStratumIS("op2_exec_halo", 1)
     CHKERR(ISGetIndices(cell_is.iset, &cells))
+    CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
+
     for c in range(ncells):
         if not (cStart <= cells[c] < cEnd):
             continue
@@ -697,11 +694,13 @@ def mark_entity_classes(PETSc.DM plex):
 
     # Mark all remaining points as core
     pStart, pEnd = plex.getChart()
+    CHKERR(DMLabelCreateIndex(lbl_non_core, pStart, pEnd))
     for p in range(pStart, pEnd):
         CHKERR(DMLabelHasPoint(lbl_non_core, p, &is_non_core))
         CHKERR(DMLabelHasPoint(lbl_exec, p, &is_exec))
         if not is_exec and not is_non_core:
             CHKERR(DMLabelSetValue(lbl_core, p, 1))
+    CHKERR(DMLabelDestroyIndex(lbl_non_core))
 
     # Halo facets that only touch halo vertices and halo cells need to
     # be marked as non-exec.
@@ -741,6 +740,8 @@ def mark_entity_classes(PETSc.DM plex):
         if non_exec:
             CHKERR(DMLabelSetValue(lbl_non_exec, facets[f], 1))
 
+    CHKERR(DMLabelDestroyIndex(lbl_exec))
+    CHKERR(DMLabelCreateIndex(lbl_non_exec, fStart, fEnd))
     # Remove exec marks from facets in non-exec label
     for f in range(nfacets):
         if not (fStart <= facets[f] < fEnd):
@@ -868,6 +869,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     """
     cdef:
         PetscInt dim, fi, ci, nfacets, nclass, lbl_val, o, f, fStart, fEnd
+        PetscInt pStart, pEnd
         PetscInt *indices = NULL
         PETSc.IS class_is = None
         char *class_chr = NULL
@@ -878,6 +880,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     label_chr = <char*>label
     dim = plex.getDimension()
     fStart, fEnd = plex.getHeightStratum(1)
+    pStart, pEnd = plex.getChart()
     CHKERR(DMGetLabel(plex.dm, label, &lbl_facets))
     CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
@@ -890,6 +893,7 @@ def get_facets_by_class(PETSc.DM plex, label,
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
         CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
+        CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
         nclass = plex.getStratumSize(op2class, 1)
         if nclass > 0:
             for o in range(ordering.shape[0]):
@@ -900,7 +904,8 @@ def get_facets_by_class(PETSc.DM plex, label,
                     facets[fi] = f
                     fi += 1
         facet_classes[i] = fi
-
+        CHKERR(DMLabelDestroyIndex(lbl_class))
+    CHKERR(DMLabelDestroyIndex(lbl_facets))
     return facets, facet_classes
 
 
@@ -997,6 +1002,8 @@ def plex_renumbering(PETSc.DM plex,
     CHKERR(DMGetLabel(plex.dm, "op2_non_core", &labels[1]))
     CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
     CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
+    for l in range(4):
+        CHKERR(DMLabelCreateIndex(labels[l], pStart, pEnd))
     lidx = np.zeros(4, dtype=np.int32)
     lidx[1] = sum(entity_classes[:, 0])
     lidx[2] = sum(entity_classes[:, 1])
@@ -1038,6 +1045,9 @@ def plex_renumbering(PETSc.DM plex,
                         PetscBTSet(seen, p)
                         perm[lidx[l]] = p
                         lidx[l] += 1
+
+    for c in range(4):
+        CHKERR(DMLabelDestroyIndex(labels[c]))
 
     if closure != NULL:
         CHKERR(DMPlexRestoreTransitiveClosure(plex.dm, 0, PETSC_TRUE,
