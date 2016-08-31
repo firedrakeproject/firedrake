@@ -3,26 +3,22 @@ from firedrake import *
 import numpy as np
 
 
-@pytest.fixture(params=["periodic-interval", "periodic-square-tri"])
-def mesh(request):
-    if request.param == "periodic-interval":
-        return PeriodicUnitIntervalMesh(30)
-    elif request.param == "periodic-square-tri":
-        return PeriodicUnitSquareMesh(30, 30)
-    elif request.param == "periodic-square-quad":
-        return PeriodicUnitSquareMesh(3, 3, quadrilateral=True)
+@pytest.fixture(params=["periodic-interval1", "periodic-interval2",
+                        "periodic-square-tri1", "periodic-square-quad1"])
+def mesh_degree(request):
+    if request.param == "periodic-interval1":
+        return (PeriodicUnitIntervalMesh(30), 1)
+    if request.param == "periodic-interval2":
+        return (PeriodicUnitIntervalMesh(30), 2)
+    elif request.param == "periodic-square-tri1":
+        return (PeriodicUnitSquareMesh(30, 30), 1)
+    elif request.param == "periodic-square-quad1":
+        return (PeriodicUnitSquareMesh(30, 30, quadrilateral=True), 1)
 
 
-@pytest.fixture(params=["P1DG", "PDG2"])
-def degree(request):
-    if request.param == "P1DG":
-        return 1
-    if request.param == "PDG2":
-        return 2
-
-
-def test_constant_field(mesh, degree):
+def test_constant_field(mesh_degree):
     # test function space
+    mesh, degree = mesh_degree
     v = FunctionSpace(mesh, "DG", degree)
 
     # Create limiter
@@ -40,7 +36,8 @@ def test_constant_field(mesh, degree):
     assert np.min(u.dat.data_ro) >= 0.0 - 1e-10, "Failed by exceeding min values"
 
 
-def test_step_function_bounds(mesh, degree):
+def test_step_function_bounds(mesh_degree):
+    mesh, degree = mesh_degree
     x = SpatialCoordinate(mesh)
 
     # test function space
@@ -58,7 +55,8 @@ def test_step_function_bounds(mesh, degree):
     assert np.min(u.dat.data_ro) >= 0.0 - 1e-10, "Failed by exceeding min values"
 
 
-def test_step_function_loop(mesh, degree, iterations=100):
+def test_step_function_loop(mesh_degree, iterations=100):
+    mesh, degree = mesh_degree
     # test function space
     v = FunctionSpace(mesh, "DG", degree)
     m = VectorFunctionSpace(mesh, "CG", 1)
