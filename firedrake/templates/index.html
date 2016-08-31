@@ -25,45 +25,48 @@
         <br><br><br>
         <h1>Configurations</h1>
         <form>
-            {% macro render_dictionary(parameters) -%}
-                {% for param in parameters %}
+            {% macro get_name(key, prefix) -%}
+                {% if prefix is equalto "" -%}{{ key }}{% else %}{{ prefix + "[" + key + "]" }}{%- endif %}
+            {%- endmacro %}
+            {% macro render_dictionary(parameters, prefix) -%}
+                {% for param in parameters -%}
                 <div class="form-horizontal row">
                         <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
-                        {% if param.type is equalto "str" %}
+                        {% if param.type is equalto "str" -%}
                             <div class="col-sm-8">
-                                <input type="text" class="form-control" name="{{ param.key }}">
+                                <input type="text" class="form-control" name="{{ get_name(param.key, prefix) }}">
                             </div>
                         {% elif (param.type is equalto "int") or (param.type is equalto "float") %}
                             <div class="col-sm-8">
-                                <input type="number" class="form-control" name="{{ param.key }}">
+                                <input type="number" class="form-control" name="{{ get_name(param.key, prefix) }}">
                             </div>
                         {% elif param.type is equalto "bool" %}
                             <div class="col-sm-8">
                                 <label class="radio-inline">
-                                    <input type="radio" name="{{ param.key }}" value="True">
+                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="True">
                                         True
                                 </label>
                                 <label class="radio-inline">
-                                    <input type="radio" name="{{ param.key }}" value="False">
+                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="False">
                                         False
                                 </label>
                             </div>
                         {% elif param.type is equalto "dict" %}
-                            <button type="button" class="btn btn-default btn-sm" aria-label="toggle" onclick='$("#{{ param.key }}").toggle("hidden")'>
+                            <button type="button" class="btn btn-default btn-sm" aria-label="toggle" onclick='$("#{{ get_name(param.key, prefix) }}").toggle("hidden")'>
                                 Show/Hide
                             </button>
-                            <div id="{{ param.key }}">
-                                {{ render_dictionary(param.value) }}
+                            <div id="{{ get_name(param.key, prefix) }}">
+                                {{ render_dictionary(param.value, get_name(param.key, prefix)) }}
                                 <br>
                             </div>
                         {% else %}
                             <p> Unsupported Input Type </p>
-                        {% endif %}
+                        {%- endif %}
                 </div>
-                {% endfor %}
+                {%- endfor %}
             {%- endmacro %}
             
-            {{ render_dictionary(parameters) }}
+            {{ render_dictionary(parameters, "") }}
             <br>
             <div class="row" style="text-align: center">
                 <button type="button" class="btn btn-default" aria-label="Load from JSON">
@@ -85,27 +88,38 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
     <!-- Include all compiled plugins (below), or include individual files as needed -->
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+    <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js">
+    </script>
     <script>
-        function fill_data(data) {
+        //$.getScript("https://raw.github.com/username/repo/master/src/script.js");
+        function get_name(key, prefix) {
+            if (prefix != "") {
+                return prefix + "[" + key + "]";
+            } else {
+                return key;
+            }
+        }
+        function fill_data(data, prefix) {
             $.each(data, function(key, val) {
                 if (val instanceof Object) {
-                    fill_data(val)
+                    fill_data(val, get_name(key, prefix))
                 } else if (val.constructor === Boolean){
                     if (val) {
                         // select "True"
-                        $("input[name=" + key + "][value=True]").prop("checked", true);
+                        $("input[name=\"" + get_name(key, prefix) + "\"][value=True]").prop("checked", true);
                     } else {
                         // select "False"
-                        $("input[name=" + key + "][value=False]").prop("checked", true);
+                        $("input[name=\"" + get_name(key, prefix) + "\"][value=False]").prop("checked", true);
                     }
                 } else {
-                    $("input[name=" + key + "]").val(val);
-                    console.log("Key: " + key + " Val:" + val)
+                    $("input[name=\"" + get_name(key, prefix) + "\"]").val(val);
                 }
             })
         }
         $(document).ready(function() {
-            $.get("fetch", fill_data)
+            $.get("fetch", function(data) {
+                fill_data(data, "")
+            })
         })
     </script>
 </body>
