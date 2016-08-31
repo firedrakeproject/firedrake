@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify
 
 app = Flask(__name__)
 
@@ -26,5 +26,9 @@ def web_config(parameters):
     @app.route('/validate')
     def validate():
         pass
+
+    @app.route('/fetch')
+    def fetch():
+        return jsonify(**parameters.unwrapped_dict)
 
     app.run()

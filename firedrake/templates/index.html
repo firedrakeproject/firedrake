@@ -54,6 +54,7 @@
                             </button>
                             <div id="{{ param.key }}">
                                 {{ render_dictionary(param.value) }}
+                                <br>
                             </div>
                         {% else %}
                             <p> Unsupported Input Type </p>
@@ -84,6 +85,29 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
     <!-- Include all compiled plugins (below), or include individual files as needed -->
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+    <script>
+        function fill_data(data) {
+            $.each(data, function(key, val) {
+                if (val instanceof Object) {
+                    fill_data(val)
+                } else if (val.constructor === Boolean){
+                    if (val) {
+                        // select "True"
+                        $("input[name=" + key + "][value=True]").prop("checked", true);
+                    } else {
+                        // select "False"
+                        $("input[name=" + key + "][value=False]").prop("checked", true);
+                    }
+                } else {
+                    $("input[name=" + key + "]").val(val);
+                    console.log("Key: " + key + " Val:" + val)
+                }
+            })
+        }
+        $(document).ready(function() {
+            $.get("fetch", fill_data)
+        })
+    </script>
 </body>
 
 </html>
