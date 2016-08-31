@@ -61,24 +61,24 @@ def run_poisson(typ):
 
     mh = MeshHierarchy(mesh, nlevel)
 
-    V = FunctionSpaceHierarchy(mh, 'CG', 2)
+    V = FunctionSpace(mh[-1], 'CG', 2)
 
-    u_ = function.Function(V[-1])
-    f_ = function.Function(V[-1])
-    v = TestFunction(V[-1])
-    F = dot(grad(u_), grad(v))*dx - f_*v*dx
-    bcs = DirichletBC(V[-1], 0.0, (1, 2, 3, 4))
+    u = function.Function(V)
+    f = function.Function(V)
+    v = TestFunction(V)
+    F = dot(grad(u), grad(v))*dx - f*v*dx
+    bcs = DirichletBC(V, 0.0, (1, 2, 3, 4))
     # Choose a forcing function such that the exact solution is not an
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10
     # iterations of ilu fails to converge this problem sufficiently.
-    f_.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
+    f.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
 
-    solve(F == 0, u_, bcs=bcs, solver_parameters=parameters)
+    solve(F == 0, u, bcs=bcs, solver_parameters=parameters)
 
     exact = Function(V[-1])
     exact.interpolate(Expression("sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])"))
 
-    return norm(assemble(exact - u_))
+    return norm(assemble(exact - u))
 
 
 @pytest.mark.parametrize("typ",

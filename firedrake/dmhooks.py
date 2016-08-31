@@ -1,0 +1,255 @@
+"""
+Firedrake uses PETSc for its linear and nonlinear solvers.  The
+interaction is carried out through DM objects.  These carry around any
+user-defined application context and can be used to inform the solvers
+how to create field decompositions (for fieldsplit preconditioning) as
+well as creating sub-DMs (which only contain some fields), along with
+multilevel information (for geometric multigrid)
+
+The way Firedrake interacts with these DMs is, broadly, as follows:
+
+A DM is tied to a :class:`~.FunctionSpace` and remembers what function
+space that is.  To avoid reference cycles defeating the garbage
+collector, the DM holds a weakref to the FunctionSpace (which holds a
+strong reference to the DM).  Use :func:`get_function_space` to get
+the function space attached to the DM, and :func:`set_function_space`
+to attach it.
+
+Similarly, when a DM is used in a solver, an application context is
+attached to it, such that when PETSc calls back into Firedrake, we can
+grab the relevant information (how to make the Jacobian, etc...).
+This functions in a similar way using :func:`set_appctx` and
+:func:`get_appctx` on the DM.  You can set whatever you like in here,
+but most of the rest of Firedrake expects to find either ``None`` or
+else a :class:`firedrake.solving_utils._SNESContext` object.
+
+A crucial part of this, for composition with multi-level solvers
+(``-pc_type mg`` and ``-snes_type fas``) is decomposing the DMs.  When
+a field decomposition is created, the callback
+:func:`create_field_decomposition` checks to see if an application
+context exists.  If so, it splits it apart (one for each of fields)
+and attaches these split contexts to the subdms returned to PETSc.
+This facilitates runtime composition with multilevel solvers.  When
+coarsening a DM, the application context is coarsened and transferred
+to the coarse DM.  The combination of these two symbolic transfer
+operations allow us to nest geometric multigrid preconditioning inside
+fieldsplit preconditioning, without having to set everything up in
+advance.
+"""
+from __future__ import absolute_import
+
+import weakref
+import numpy
+
+import firedrake
+from firedrake.petsc import PETSc
+
+
+def get_function_space(dm):
+    """Get the :class:`~.FunctionSpace` attached to this DM.
+    :arg dm: The DM to get the function space from.
+    :raises RuntimeError: if no function space was found.
+    """
+    V = dm.getAttr("__fs_info__")()
+    if V is None:
+        raise RuntimeError("FunctionSpace not found on DM")
+    return V
+
+
+def set_function_space(dm, V):
+    """Set the :class:`~.FunctionSpace` on this DM.
+    :arg dm: The DM
+    :arg V: The function space.
+
+    .. note::
+
+       This stores a weakref to the function space in the DM, so you
+       should hold a strong reference somewhere else.
+
+    """
+    dm.setAttr("__fs_info__", weakref.ref(V))
+
+
+def set_appctx(dm, ctx):
+    """Set an application context on a DM.
+    :arg DM: The DM.
+    :arg ctx: The context.
+
+    .. note::
+
+       This stores a weakref to the context in the DM, so you should
+       hold a strong reference somewhere else.
+    """
+    dm.setAppCtx(weakref.ref(ctx))
+
+
+def get_appctx(dm):
+    """Get an application context from a DM.
+    :arg DM: The DM.
+    :returns: Either the stored application context, or ``None`` if
+        none was found.
+    """
+    ctx = dm.getAppCtx()
+    if ctx is None:
+        return None
+    else:
+        return ctx()
+
+
+def create_matrix(dm):
+    """
+    Callback to create a matrix from this DM.
+    :arg DM: The DM.
+
+    .. note::
+
+       This only works if an application context is set, in which case
+       it returns the stored Jacobian.  This *does not* make a new
+       matrix.
+    """
+    ctx = dm.getAppCtx()()
+    if ctx is None:
+        raise ValueError("Cannot create matrix from DM with no AppCtx")
+    # TODO, should make new matrix and change solver
+    # form_function/jacobian to be able to assemble into a provided
+    # PETSc matrix.
+    return ctx._jac.petscmat
+
+
+def create_field_decomposition(dm, *args, **kwargs):
+    """Callback to decompose a DM.
+    :arg DM: The DM.
+
+    This grabs the function space in the DM, splits it apart (only
+    makes sense for mixed function spaces) and returns the DMs on each
+    of the subspaces.  If an application context is present on the
+    input DM, it is split into individual field contexts and set on
+    the appropriate subdms as well.
+    """
+    W = get_function_space(dm)
+    # Don't pass split number if name is None (this way the
+    # recursively created splits have the names you want)
+    names = [s.name for s in W]
+    dms = [V.dm for V in W]
+    ctx = get_appctx(dm)
+    if ctx is not None:
+        # Inside a solve, ctx to split.
+        ctxs = ctx.split([i for i in range(len(W))])
+        for d, c in zip(dms, ctxs):
+            set_appctx(d, c)
+    return names, W._ises, dms
+
+
+def create_subdm(dm, fields, *args, **kwargs):
+    """Callback to create a sub-DM describing the specified fields.
+    :arg DM: The DM.
+    :arg fields: The fields in the new sub-DM.
+
+    .. note::
+
+       This should, but currently does not, transfer appropriately
+       split application contexts onto the sub-DMs.
+    """
+    W = get_function_space(dm)
+    # TODO: Correct splitting of SNESContext for len(fields) > 1 case
+    if len(fields) == 1:
+        # Subspace is just a single FunctionSpace.
+        idx = fields[0]
+        subdm = W[idx].dm
+        iset = W._ises[idx]
+        return iset, subdm
+    else:
+        try:
+            # Look up the subspace in the cache
+            iset, subspace = W._subspaces[tuple(fields)]
+            return iset, subspace.dm
+        except KeyError:
+            pass
+        # Need to build an MFS for the subspace
+        subspace = firedrake.MixedFunctionSpace([W[f] for f in fields])
+        # Index set mapping from W into subspace.
+        iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
+                                                           for f in fields]),
+                                        comm=W.comm)
+        # Keep hold of strong reference to created subspace (given we
+        # only hold a weakref in the shell DM), and so we can
+        # reuse it later.
+        W._subspaces[tuple(fields)] = iset, subspace
+        return iset, subspace.dm
+
+
+def coarsen(dm, comm):
+    """Callback to coarsen a DM.
+    :arg DM: The DM to coarsen.
+    :arg comm: The communicator for the new DM (ignored)
+
+    This transfers a coarse application context over to the coarsened
+    DM (if found on the input DM).
+    """
+    from firedrake.mg.utils import get_level
+    from firedrake.mg.ufl_utils import coarsen
+    V = get_function_space(dm)
+    if V is None:
+        raise RuntimeError("No functionspace found on DM")
+    hierarchy, level = get_level(V.mesh())
+    if level < 1:
+        raise RuntimeError("Cannot coarsen coarsest DM")
+    if hasattr(V, "_coarse"):
+        return V._coarse.dm
+    V._coarse = firedrake.FunctionSpace(hierarchy[level - 1], V.ufl_element())
+    cdm = V._coarse.dm
+    ctx = get_appctx(dm)
+    if ctx is not None:
+        set_appctx(cdm, coarsen(ctx))
+        # Necessary for MG inside a fieldsplit in a SNES.
+        cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
+    return V._coarse.dm
+
+
+def refine(dm, comm):
+    """Callback to refine a DM.
+    :arg DM: The DM to refine.
+    :arg comm: The communicator for the new DM (ignored)
+    """
+    from firedrake.mg.utils import get_level
+    V = get_function_space(dm)
+    if V is None:
+        raise RuntimeError("No functionspace found on DM")
+    hierarchy, level = get_level(V.mesh())
+    if level >= len(hierarchy) - 1:
+        raise RuntimeError("Cannot refine finest DM")
+    if hasattr(V, "_fine"):
+        return V._fine.dm
+    V._fine = firedrake.FunctionSpace(hierarchy[level + 1], V.ufl_element())
+    return V._fine.dm
+
+
+def attach_hooks(dm, level=None, sf=None, section=None):
+    """Attach callback hooks to a DM.
+
+    :arg DM: The DM to attach callbacks to.
+    :arg level: Optional refinement level.
+    :arg sf: Optional PETSc SF object describing the DM's ``points``.
+    :arg section: Optional PETSc Section object describing the DM's
+        data layout.
+    """
+    from firedrake.mg.ufl_utils import create_interpolation, create_injection
+    # Data layout
+    if sf is not None:
+        dm.setPointSF(sf)
+    if section is not None:
+        dm.setDefaultSection(section)
+
+    # Multilevel hierarchies
+    dm.setRefine(refine)
+    dm.setCoarsen(coarsen)
+    dm.setCreateMatrix(create_matrix)
+    dm.setCreateInterpolation(create_interpolation)
+    dm.setCreateInjection(create_injection)
+    if level is not None:
+        dm.setRefineLevel(level)
+
+    # Field splitting (these will never be called if the DM references
+    # a non-mixed space)
+    dm.setCreateFieldDecomposition(create_field_decomposition)
+    dm.setCreateSubDM(create_subdm)

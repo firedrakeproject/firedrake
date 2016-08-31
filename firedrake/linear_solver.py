@@ -65,7 +65,7 @@ class LinearSolver(solving_utils.ParametersMixin):
 
         W = self.A.a.arguments()[0].function_space()
         # DM provides fieldsplits (but not operators)
-        self.ksp.setDM(W._dm)
+        self.ksp.setDM(W.dm)
         self.ksp.setDMActive(False)
 
         if nullspace is not None:

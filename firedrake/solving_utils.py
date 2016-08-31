@@ -1,8 +1,9 @@
 from __future__ import absolute_import
-import ufl
+import numpy
 
-from firedrake import function
+from firedrake import function, dmhooks
 from firedrake.petsc import PETSc
+from firedrake.formmanipulation import ExtractSubBlock
 
 
 class ParametersMixin(object):
@@ -152,7 +153,7 @@ class _SNESContext(object):
         # computation on the floor.
         from firedrake.assemble import assemble
         # Function to hold current guess
-        self._x = function.Function(problem.u.function_space())
+        self._x = problem.u
 
         if appctx is None:
             appctx = {}
@@ -163,8 +164,8 @@ class _SNESContext(object):
         self.appctx = appctx
         self.matfree = matfree
         self.pmatfree = pmatfree
-        self.F = ufl.replace(problem.F, {problem.u: self._x})
-        self.J = ufl.replace(problem.J, {problem.u: self._x})
+        self.F = problem.F
+        self.J = problem.J
         self._jac = assemble(self.J, bcs=problem.bcs,
                              form_compiler_parameters=problem.form_compiler_parameters,
                              mat_type=mat_type,
@@ -177,7 +178,7 @@ class _SNESContext(object):
             if problem.Jp is None:
                 self.Jp = self.J
             else:
-                self.Jp = ufl.replace(problem.Jp, {problem.u: self._x})
+                self.Jp = problem.Jp
             self._pjac = assemble(self.Jp, bcs=problem.bcs,
                                   form_compiler_parameters=problem.form_compiler_parameters,
                                   mat_type=pmat_type,
@@ -189,6 +190,9 @@ class _SNESContext(object):
 
         self._F = function.Function(self.F.arguments()[0].function_space())
         self._jacobian_assembled = False
+        self._splits = {}
+        self._coarse = None
+        self._fine = None
 
     def set_function(self, snes):
         """Set the residual evaluation function"""
@@ -208,10 +212,53 @@ class _SNESContext(object):
         if ises is not None:
             nullspace._apply(ises, transpose=transpose)
 
-    @staticmethod
-    def create_matrix(dm):
-        ctx = dm.getAppCtx()
-        return ctx._jac.petscmat
+    def split(self, fields):
+        from ufl import as_vector, replace
+        from firedrake import NonlinearVariationalProblem as NLVP, FunctionSpace
+        splits = self._splits.get(tuple(fields))
+        if splits is not None:
+            return splits
+
+        splits = []
+        problem = self._problem
+        splitter = ExtractSubBlock()
+        for field in fields:
+            try:
+                if len(field) > 1:
+                    raise NotImplementedError("Can't split into subblock")
+            except TypeError:
+                # Just a single field, we can handle that
+                pass
+            F = splitter.split(problem.F, argument_indices=(field, ))
+            J = splitter.split(problem.J, argument_indices=(field, field))
+            us = problem.u.split()
+            subu = us[field]
+            vec = []
+            for i, u in enumerate(us):
+                for idx in numpy.ndindex(u.ufl_shape):
+                    vec.append(u[idx])
+            u = as_vector(vec)
+            F = replace(F, {problem.u: u})
+            J = replace(J, {problem.u: u})
+            if problem.Jp is not None:
+                Jp = splitter.split(problem.Jp, argument_indices=(field, field))
+                Jp = replace(Jp, {problem.u: u})
+            else:
+                Jp = None
+            bcs = []
+            for bc in problem.bcs:
+                if bc.function_space().index == field:
+                    V = FunctionSpace(subu.ufl_domain(), subu.ufl_element())
+                    bcs.append(type(bc)(V,
+                                        bc.function_arg,
+                                        bc.sub_domain,
+                                        method=bc.method))
+            new_problem = NLVP(F, subu, bcs=bcs, J=J, Jp=None,
+                               form_compiler_parameters=problem.form_compiler_parameters)
+            new_problem._constant_jacobian = problem._constant_jacobian
+            splits.append(type(self)(new_problem, mat_type=self.mat_type, pmat_type=self.pmat_type,
+                                     appctx=self.appctx))
+        return self._splits.setdefault(tuple(fields), splits)
 
     @staticmethod
     def form_function(snes, X, F):
@@ -224,7 +271,7 @@ class _SNESContext(object):
         from firedrake.assemble import assemble
 
         dm = snes.getDM()
-        ctx = dm.getAppCtx()
+        ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
@@ -254,8 +301,10 @@ class _SNESContext(object):
         from firedrake.assemble import assemble
 
         dm = snes.getDM()
-        ctx = dm.getAppCtx()
+        ctx = dmhooks.get_appctx(dm)
         problem = ctx._problem
+
+        assert J.handle == ctx._jac.petscmat.handle
         if problem._constant_jacobian and ctx._jacobian_assembled:
             # Don't need to do any work with a constant jacobian
             # that's already assembled
@@ -273,6 +322,49 @@ class _SNESContext(object):
                  mat_type=ctx.mat_type)
         ctx._jac.force_evaluation()
         if ctx.Jp is not None:
+            assert P.handle == ctx._pjac.petscmat.handle
+            assemble(ctx.Jp,
+                     tensor=ctx._pjac,
+                     bcs=problem.bcs,
+                     form_compiler_parameters=problem.form_compiler_parameters,
+                     mat_type=ctx.pmat_type)
+            ctx._pjac.force_evaluation()
+
+    @staticmethod
+    def compute_operators(ksp, J, P):
+        """Form the Jacobian for this problem
+
+        :arg ksp: a PETSc KSP object
+        :arg J: the Jacobian (a Mat)
+        :arg P: the preconditioner matrix (a Mat)
+        """
+        from firedrake.assemble import assemble
+        from firedrake import inject
+        dm = ksp.getDM()
+        ctx = dmhooks.get_appctx(dm)
+        problem = ctx._problem
+
+        assert J.handle == ctx._jac.petscmat.handle
+        if problem._constant_jacobian and ctx._jacobian_assembled:
+            # Don't need to do any work with a constant jacobian
+            # that's already assembled
+            return
+        ctx._jacobian_assembled = True
+
+        fine = ctx._fine
+        if fine is not None:
+            inject(fine._x, ctx._x)
+            for bc in ctx._problem.bcs:
+                bc.apply(ctx._x)
+
+        assemble(ctx.J,
+                 tensor=ctx._jac,
+                 bcs=problem.bcs,
+                 form_compiler_parameters=problem.form_compiler_parameters,
+                 mat_type=ctx.mat_type)
+        ctx._jac.force_evaluation()
+        if ctx.Jp is not None:
+            assert P.handle == ctx._pjac.petscmat.handle
             assemble(ctx.Jp,
                      tensor=ctx._pjac,
                      bcs=problem.bcs,

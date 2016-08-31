@@ -208,10 +208,10 @@ def run_mixed_prolongation():
     m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
-    V = VectorFunctionSpaceHierarchy(mh, "CG", 2)
-    P = FunctionSpaceHierarchy(mh, "CG", 1)
+    V = VectorElement("CG", m.ufl_cell(), 2)
+    P = FiniteElement("CG", m.ufl_cell(), 1)
 
-    W = V*P
+    W = MixedFunctionSpaceHierarchy(mh, V*P)
 
     expected = tuple([function.Function(f) for f in W])
 

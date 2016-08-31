@@ -37,6 +37,9 @@ class CoarsenIntegrand(MultiFunction):
     def coefficient(self, o):
         return coarsen(o, coefficient_mapping=self.coefficient_mapping)
 
+    def geometric_quantity(self, o):
+        return type(o)(coarsen(o.ufl_domain()))
+
     def circumradius(self, o):
         mesh = coarsen(o.ufl_domain())
         return firedrake.Circumradius(mesh)
@@ -98,7 +101,7 @@ def coarsen_bc(bc, coefficient_mapping=None):
     subdomain = bc.sub_domain
     method = bc.method
 
-    bc = firedrake.DirichletBC(V, val, subdomain, method=method)
+    bc = type(bc)(V, val, subdomain, method=method)
 
     if zeroed:
         bc.homogenize()
@@ -109,7 +112,6 @@ def coarsen_bc(bc, coefficient_mapping=None):
 @coarsen.register(firedrake.functionspaceimpl.FunctionSpace)
 @coarsen.register(firedrake.functionspaceimpl.WithGeometry)
 def coarsen_function_space(V, coefficient_mapping=None):
-    oV = V
     indices = []
     while True:
         if V.index is not None:
@@ -121,12 +123,9 @@ def coarsen_function_space(V, coefficient_mapping=None):
         else:
             break
 
-    hierarchy, level = utils.get_level(V)
+    mesh = coarsen(V.mesh())
 
-    if hierarchy is None:
-        raise CoarseningError("Unable to coarsen %s, not a hierarchy" % V)
-
-    V = hierarchy[level - 1]
+    V = firedrake.FunctionSpace(mesh, V.ufl_element())
     for i in reversed(indices):
         V = V.sub(i)
     return V
@@ -162,17 +161,18 @@ def coarsen_constant(expr, coefficient_mapping=None):
 @coarsen.register(firedrake.NonlinearVariationalProblem)
 def coarsen_nlvp(problem, coefficient_mapping=None):
     # Build set of coefficients we need to coarsen
-    coefficients = set()
-    coefficients.update(problem.F.coefficients())
-    coefficients.update(problem.J.coefficients())
+    seen = set()
+    coefficients = problem.F.coefficients() + problem.J.coefficients()
     if problem.Jp is not None:
-        coefficients.update(problem.Jp.coefficients())
+        coefficients = coefficients + problem.Jp.coefficients()
 
     # Coarsen them, and remember where from.
     if coefficient_mapping is None:
         coefficient_mapping = {}
     for c in coefficients:
-        coefficient_mapping[c] = coarsen(c)
+        if c not in seen:
+            coefficient_mapping[c] = coarsen(c, coefficient_mapping=coefficient_mapping)
+            seen.add(c)
 
     u = coefficient_mapping[problem.u]
 
@@ -191,10 +191,16 @@ def coarsen_snescontext(context, coefficient_mapping=None):
     if coefficient_mapping is None:
         coefficient_mapping = {}
 
+    # Have we already done this?
+    coarse = context._coarse
+    if coarse is not None:
+        return coarse
+
     problem = coarsen(context._problem, coefficient_mapping=coefficient_mapping)
     appctx = context.appctx
     new_appctx = {}
-    for k, v in appctx.items():
+    for k in sorted(appctx.keys()):
+        v = appctx[k]
         if k != "state":
             # Constructor makes this one.
             try:
@@ -202,10 +208,13 @@ def coarsen_snescontext(context, coefficient_mapping=None):
             except CoarseningError:
                 # Assume not something that needs coarsening (e.g. float)
                 new_appctx[k] = v
-    return firedrake.solving_utils._SNESContext(problem,
-                                                mat_type=context.mat_type,
-                                                pmat_type=context.pmat_type,
-                                                appctx=new_appctx)
+    coarse = type(context)(problem,
+                           mat_type=context.mat_type,
+                           pmat_type=context.pmat_type,
+                           appctx=new_appctx)
+    coarse._fine = context
+    context._coarse = coarse
+    return coarse
 
 
 class Interpolation(object):
@@ -271,11 +280,11 @@ class Injection(object):
 
 
 def create_interpolation(dmc, dmf):
-    cctx = dmc.getAppCtx()
-    fctx = dmf.getAppCtx()
+    cctx = firedrake.dmhooks.get_appctx(dmc)
+    fctx = firedrake.dmhooks.get_appctx(dmf)
 
-    V_c = dmc.getAttr("__fs__")()
-    V_f = dmf.getAttr("__fs__")()
+    V_c = cctx._problem.u.function_space()
+    V_f = fctx._problem.u.function_space()
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()
@@ -295,10 +304,11 @@ def create_interpolation(dmc, dmf):
 
 
 def create_injection(dmc, dmf):
-    cctx = dmc.getAppCtx()
+    cctx = firedrake.dmhooks.get_appctx(dmc)
+    fctx = firedrake.dmhooks.get_appctx(dmf)
 
-    V_c = dmc.getAttr("__fs__")()
-    V_f = dmf.getAttr("__fs__")()
+    V_c = cctx._problem.u.function_space()
+    V_f = fctx._problem.u.function_space()
 
     row_size = V_f.dof_dset.layout_vec.getSizes()
     col_size = V_c.dof_dset.layout_vec.getSizes()

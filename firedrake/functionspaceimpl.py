@@ -7,7 +7,6 @@ classes for attaching extra information to instances of these.
 from __future__ import absolute_import
 
 import numpy
-import weakref
 
 import ufl
 
@@ -15,8 +14,8 @@ from pyop2 import op2
 from tsfc.fiatinterface import create_element
 
 from firedrake.functionspacedata import get_shared_data
-from firedrake.petsc import PETSc
 from firedrake import utils
+from firedrake import dmhooks
 
 
 class WithGeometry(ufl.FunctionSpace):
@@ -69,12 +68,12 @@ class WithGeometry(ufl.FunctionSpace):
         return self._split
 
     def sub(self, i):
-        return WithGeometry(self.topological.sub(i), self.mesh())
+        return type(self)(self.topological.sub(i), self.mesh())
 
-    @property
-    def _dm(self):
-        dm = self.topological._dm
-        dm.setAttr("__fs__", weakref.ref(self))
+    @utils.cached_property
+    def dm(self):
+        dm = self._dm()
+        dmhooks.set_function_space(dm, self)
         return dm
 
     @property
@@ -196,8 +195,7 @@ class WithGeometry(ufl.FunctionSpace):
         return "WithGeometry(%s, %s)" % (self.topological, self.mesh())
 
     def __iter__(self):
-        for subspace in self.topological:
-            yield WithGeometry(subspace, self.mesh())
+        return iter(self._split)
 
     def __getitem__(self, i):
         return self._split[i]
@@ -316,13 +314,21 @@ class FunctionSpace(object):
         return not self.__eq__(other)
 
     @utils.cached_property
-    def _dm(self):
+    def dm(self):
         """A PETSc DM describing the data layout for this FunctionSpace."""
-        dm = PETSc.DMShell().create(comm=self.comm)
-        dm.setAttr('__fs__', weakref.ref(self))
-        dm.setPointSF(self.mesh()._plex.getPointSF())
-        dm.setDefaultSection(self._shared_data.global_numbering)
-        dm.setGlobalVector(self.dof_dset.layout_vec)
+        dm = self._dm()
+        dmhooks.set_function_space(dm, self)
+        return dm
+
+    def _dm(self):
+        from firedrake.mg.utils import get_level
+        dm = self.dof_dset.dm
+        _, level = get_level(self.mesh())
+        dmhooks.attach_hooks(dm, level=level,
+                             sf=self.mesh()._plex.getPointSF(),
+                             section=self._shared_data.global_numbering)
+        # Remember the function space so we can get from DM back to FunctionSpace.
+        dmhooks.set_function_space(dm, self)
         return dm
 
     @utils.cached_property
@@ -586,8 +592,7 @@ class MixedFunctionSpace(object):
         return self._spaces[i]
 
     def __iter__(self):
-        for s in self._spaces:
-            yield s
+        return iter(self._spaces)
 
     def __repr__(self):
         return "MixedFunctionSpace(%s, name=%r)" % \
@@ -700,55 +705,22 @@ class MixedFunctionSpace(object):
                             for i, (s, v) in enumerate(zip(self._spaces, val)))
 
     @utils.cached_property
-    def _dm(self):
+    def dm(self):
         """A PETSc DM describing the data layout for fieldsplit solvers."""
-        dm = PETSc.DMShell().create(comm=self.comm)
-        dm.setAttr('__fs__', weakref.ref(self))
-        dm.setCreateFieldDecomposition(self.create_field_decomp)
-        dm.setCreateSubDM(self.create_subdm)
-        dm.setGlobalVector(self.dof_dset.layout_vec)
+        dm = self._dm()
+        dmhooks.set_function_space(dm, self)
+        return dm
+
+    def _dm(self):
+        from firedrake.mg.utils import get_level
+        dm = self.dof_dset.dm
+        _, level = get_level(self.mesh())
+        dmhooks.attach_hooks(dm, level=level)
         return dm
 
     @utils.cached_property
     def _ises(self):
         return self.dof_dset.field_ises
-
-    @classmethod
-    def create_subdm(cls, dm, fields, *args, **kwargs):
-        W = dm.getAttr('__fs__')()
-        if len(fields) == 1:
-            # Subspace is just a single FunctionSpace.
-            field = fields[0]
-            subdm = W[field]._dm
-            iset = W._ises[field]
-            return iset, subdm
-        else:
-            try:
-                # Look up the subspace in the cache
-                iset, subspace = W._subspaces[tuple(fields)]
-                return iset, subspace._dm
-            except KeyError:
-                pass
-            # Need to build an MFS for the subspace
-            subspace = MixedFunctionSpace([W.topological[f] for f in fields])
-            # Index set mapping from W into subspace.
-            iset = PETSc.IS().createGeneral(numpy.concatenate([W._ises[f].indices
-                                                               for f in fields]),
-                                            comm=W.comm)
-            # Keep hold of strong reference to created subspace (given we
-            # only hold a weakref in the shell DM), and so we can
-            # reuse it later.
-            W._subspaces[tuple(fields)] = iset, subspace
-            return iset, subspace._dm
-
-    @classmethod
-    def create_field_decomp(cls, dm, *args, **kwargs):
-        W = dm.getAttr('__fs__')()
-        # Don't pass split number if name is None (this way the
-        # recursively created splits have the names you want)
-        names = [s.name for s in W]
-        dms = [V._dm for V in W]
-        return names, W._ises, dms
 
 
 class ProxyFunctionSpace(FunctionSpace):

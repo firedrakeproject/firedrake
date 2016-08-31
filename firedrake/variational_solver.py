@@ -1,10 +1,11 @@
 from __future__ import absolute_import
+
+import weakref
 import ufl
 
-from firedrake.mg.utils import get_level
 from firedrake import solving_utils
 from firedrake import ufl_expr
-from firedrake.logging import warning, RED
+from firedrake import utils
 from firedrake.petsc import PETSc
 
 __all__ = ["LinearVariationalProblem",
@@ -64,9 +65,9 @@ class NonlinearVariationalProblem(object):
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
 
-    @property
+    @utils.cached_property
     def dm(self):
-        return self.u.function_space()._dm
+        return self.u.function_space().dm
 
 
 class NonlinearVariationalSolver(solving_utils.ParametersMixin):
@@ -137,6 +138,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self._problem = problem
 
         self._ctx = ctx
+        self._work = type(problem.u)(problem.u.function_space())
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -146,53 +148,20 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
                           transpose=True)
 
-        # Set up any multilevel-specific stuff
-        V = problem.dm.getAttr("__fs__")()
-        Vh, _ = get_level(V)
-        if Vh is not None:
-            from firedrake.mg.ufl_utils import coarsen, CoarseningError
-            # We've got a hierarchy, make some coarse problems
-            self._coarse_ctxs = []
-            for V in reversed(Vh[:-1]):
-                try:
-                    ctx = coarsen(ctx)
-                    self._coarse_ctxs.append(ctx)
-                except CoarseningError as e:
-                    self._coarse_ctxs = []
-                    warning(RED % "Was not able to coarsen problem, despite hierarchy.")
-                    break
-            self._coarse_ctxs.reverse()
-
     def solve(self):
         self.set_from_options(self.snes)
         dm = self.snes.getDM()
-        dm.setAppCtx(self._ctx)
-        dm.setCreateMatrix(self._ctx.create_matrix)
-
-        V = dm.getAttr("__fs__")()
-        Vh, _ = get_level(V)
-        if Vh is not None:
-            from firedrake.mg.ufl_utils import create_interpolation, create_injection
-            for ctx, V in zip(self._coarse_ctxs, Vh[:-1]):
-                dm = V._dm
-                dm.setAppCtx(ctx)
-                dm.setCreateMatrix(ctx.create_matrix)
-                dm.setCreateInterpolation(create_interpolation)
-                dm.setCreateInjection(create_injection)
+        dm.setAppCtx(weakref.ref(self._ctx))
 
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)
 
-        with self._problem.u.dat.vec as v:
+        work = self._work.dat
+        self._problem.u.dat.copy(work)
+        with work.vec as v:
             self.snes.solve(None, v)
-
-        # Remove appctx
-        dm.setAppCtx(None)
-
-        if Vh is not None:
-            for V in Vh:
-                V._dm.setAppCtx(None)
+        work.copy(self._problem.u.dat)
 
         solving_utils.check_snes_convergence(self.snes)
 
