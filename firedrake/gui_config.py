@@ -458,6 +458,7 @@ def load_from_dict(parameters, dictionary):
                 if isinstance(val, unicode):
                     # change unicode type to str type
                     val = val.encode('ascii', 'ignore')
+                    val = parameters.get_key(k).parse(val)
                 parameters[k] = parameters.get_key(k).wrap(val)
         else:
             warning(k + ' is not in the parameters and ignored')
