@@ -75,7 +75,7 @@
                 <button type="button" class="btn btn-default" aria-label="Save to JSON">
                     Save to JSON
                 </button>
-                <button type="button" class="btn btn-default" aria-label="Save to Firedrake">
+                <button type="button" class="btn btn-default" onclick="save()" aria-label="Save to Firedrake">
                     Save to Firedrake
                 </button>
             </div>
@@ -114,6 +114,13 @@
                 } else {
                     $("input[name=\"" + get_name(key, prefix) + "\"]").val(val);
                 }
+            })
+        }
+        function save() {
+            $.post("save", {
+                'parameters': JSON.stringify($("form").serializeJSON())
+            }).done(function() {
+                alert("Successfully saved!")
             })
         }
         $(document).ready(function() {

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 
 app = Flask(__name__)
 
@@ -23,9 +23,16 @@ def web_config(parameters):
         params = format_dict(parameters)
         return render_template('index.html', parameters=params)
 
-    @app.route('/validate')
-    def validate():
-        pass
+    @app.route('/save', methods=["GET", "POST"])
+    def save():
+        import json
+        dictionary = json.loads(request.form['parameters'])
+        from firedrake.gui_config import load_from_dict
+        try:
+            load_from_dict(parameters, dictionary)
+        except Exception as e:
+            return e.message, 400
+        return jsonify(successful=True)
 
     @app.route('/fetch')
     def fetch():
