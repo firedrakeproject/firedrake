@@ -56,7 +56,7 @@ parameters = Parameters()
 parameters.add(Parameters("assembly_cache",
                           enabled=True,
                           eviction=True,
-                          max_bytes=float("Inf"),
+                          max_bytes=2**64,
                           max_factor=0.6,
                           max_misses=3))
 

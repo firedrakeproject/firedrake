@@ -24,7 +24,7 @@ assembly_cache:
 
 - ``parameters["assembly_cache"]["max_bytes"]``
   absolute limit on the size of the assembly cache in bytes. This
-  defaults to ``float("inf")``.
+  defaults to ``2**64``.
 
 - ``parameters["assembly_cache"]["max_factor"]``
   limit on the size of the assembly cache relative to the amount of
@@ -236,12 +236,12 @@ guaranteed to result in the same evictions on each processor.
         if not parameters["assembly_cache"]["eviction"]:
             return
 
-        max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or float("inf"),
-                             (memory or float("inf"))
+        max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or 2**64,
+                             (memory or 2**64)
                              * parameters["assembly_cache"]["max_factor"]
                              )
 
-        if max_cache_size == float("inf"):
+        if max_cache_size == 2**64:
             if not self.evictwarned:
                 warning("No maximum assembly cache size. Install psutil >= 2.0.0 or risk leaking memory!")
                 self.evictwarned = True
