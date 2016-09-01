@@ -137,7 +137,8 @@
             $.post("save", {
                 'parameters': JSON.stringify($("form").serializeJSON())
             }).done(function() {
-                alert("Successfully saved!")
+                $("#success-msg").remove();
+                $("#buttons").before('<div class="alert alert-success" id="success-msg">Saved successfully to Firedrake!</div>')
             })
         }
         function save_json() {
