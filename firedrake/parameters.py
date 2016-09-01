@@ -23,7 +23,7 @@ class KeyType(object):
             return FloatType()
         elif type(obj) is bool:
             return BoolType()
-        elif type(obj) is str:
+        elif isinstance(obj, basestring):
             return StrType()
         else:
             return InstanceType(obj)
@@ -61,7 +61,7 @@ class IntType(NumericType):
     def validate(self, value):
         # allow int values only
         try:
-            if type(value) is str or type(value) is int:
+            if isinstance(value, basestring) or type(value) is int:
                 return super(IntType, self).validate(int(value))
             else:
                 return False
@@ -249,7 +249,7 @@ class ListType(KeyType):
 
     def validate(self, value):
         lst = value
-        if type(value) is str:
+        if isinstance(value, basestring):
             try:
                 import ast
                 lst = ast.literal_eval(value)
@@ -264,7 +264,7 @@ class ListType(KeyType):
         return all(self._elem_type.validate(elem) for elem in lst)
 
     def parse(self, value):
-        if type(value) is str:
+        if isinstance(value, basestring):
             try:
                 import ast
                 lst = ast.literal_eval(value)
