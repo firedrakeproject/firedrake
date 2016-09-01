@@ -68,11 +68,11 @@
             
             {{ render_dictionary(parameters, "") }}
             <br>
-            <div class="row" style="text-align: center">
+            <div id="buttons" class="row" style="text-align: center">
                 <button type="button" class="btn btn-default" aria-label="Load from JSON">
                     Load from JSON
                 </button>
-                <button type="button" class="btn btn-default" aria-label="Save to JSON">
+                <button type="button" class="btn btn-default" onclick="save_json()" aria-label="Save to JSON">
                     Save to JSON
                 </button>
                 <button type="button" class="btn btn-default" onclick="save()" aria-label="Save to Firedrake">
@@ -121,6 +121,25 @@
                 'parameters': JSON.stringify($("form").serializeJSON())
             }).done(function() {
                 alert("Successfully saved!")
+            })
+        }
+        function save_json() {
+            $.post("validate", {
+                'parameters':JSON.stringify($("form").serializeJSON())
+            }, function() {
+                $("#errors").remove();
+                $("#download-link").remove();
+                var blob = new Blob([JSON.stringify($("form").serializeJSON())], {type: "application/json"});
+                var url = URL.createObjectURL(blob);
+                $("#buttons").before('<div class="alert alert-info" id="download-link"><a href='+url+' download="parameters.json">Download Parameters as JSON</a></div>');
+            })
+            .fail(function(data) {
+                $("#errors").remove();
+                $("#download-link").remove();
+                $("#buttons").before('<div class="alert alert-danger" id="errors"><ul></ul></div>')
+                $.each(data['responseJSON']['err'], function(id, err) {
+                    $("#errors").find("ul").append('<li>' + err + '</li>');
+                })
             })
         }
         $(document).ready(function() {
