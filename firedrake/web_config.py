@@ -11,7 +11,8 @@ def web_config(parameters):
             if not isinstance(v, dict):
                 ret.append({"key": k,
                             "type": str(parameters.get_key(k).type),
-                            "value": v})
+                            "value": v,
+                            "help": k.help})
             else:
                 ret.append({"key": k,
                             "type": "dict",

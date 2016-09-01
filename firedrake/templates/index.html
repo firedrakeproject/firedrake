@@ -72,6 +72,7 @@
                         {% else %}
                             <p> Unsupported Input Type </p>
                         {%- endif %}
+                        <p class="col-sm-8 col-sm-offset-4 help-block">{{ param.help }}</p>
                 </div>
                 {%- endfor %}
             {%- endmacro %}
