@@ -1459,17 +1459,11 @@ def readGmfMesh(meshName, dim, bdLabelName):
 def readGmfSol(mesh, sol, solName, solType, section):
 
     solVec = dmplex.petscReadGmfSol(mesh._plex, solName, solType, section)
+    
+    vStart, vEnd = mesh._plex.getDepthStratum(0)
+    numVertices = vEnd - vStart
+#    print "DEBUG  NumVertices: %d" % numVertices
+#    numVertices = mesh.topology.num_vertices()
 
-    numVertices = mesh.topology.num_vertices()
-    dim = mesh._plex.getDimension()
-    if solType == 1:
-        newshape = (numVertices)
-    elif solType == 2:
-        newshape = (numVertices, dim)
-    elif solType == 3:
-        newshape = (numVertices, dim,dim)
-    elif solType == 5:
-        newshape = (numVertices, dim,dim)
-  
-
-    sol.dat.data[...] = np.array(solVec.getArray(readonly=True)).reshape(newshape)
+    
+    sol.dat.data[...] = np.array(solVec.getArray(readonly=True)).reshape(sol.dat.data.shape)
