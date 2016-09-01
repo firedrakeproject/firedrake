@@ -17,7 +17,7 @@ class KeyType(object):
     @staticmethod
     def get_type(obj):
         """Infer the type of the key from a value"""
-        if type(obj) is int:
+        if type(obj) is int or type(obj) is long:
             return IntType()
         elif type(obj) is float:
             return FloatType()
