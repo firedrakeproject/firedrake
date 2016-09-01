@@ -43,7 +43,7 @@ from pyop2.base import READ, RW, WRITE, MIN, MAX, INC, _LazyMatOp, IterationInde
 from pyop2.mpi import MPI
 from pyop2.caching import Cached
 from pyop2.profiling import timed_region
-from pyop2.utils import flatten, as_tuple
+from pyop2.utils import flatten, as_tuple, tuplify
 from pyop2.logger import warning
 from pyop2 import compilation
 
@@ -70,19 +70,23 @@ class Inspector(Cached):
     @classmethod
     def _cache_key(cls, name, loop_chain, **options):
         key = (name,)
+
         if name != lazy_trace_name:
             # Special case: the Inspector comes from a user-defined /loop_chain/
             key += (options['mode'], options['tile_size'], options['seed_loop'],
                     options['use_glb_maps'], options['use_prefetch'], options['coloring'])
             key += (loop_chain[0].kernel.cache_key,)
             return key
+
         # Inspector extracted from lazy evaluation trace
+        all_dats = []
         for loop in loop_chain:
             if isinstance(loop, _LazyMatOp):
                 continue
             key += (loop.kernel.cache_key,)
             key += (loop.it_space.cache_key, loop.it_space.iterset.sizes)
             for arg in loop.args:
+                all_dats.append(arg.data)
                 if arg._is_global:
                     key += (arg.data.dim, arg.data.dtype, arg.access)
                 elif arg._is_dat:
@@ -90,13 +94,25 @@ class Inspector(Cached):
                         idx = (arg.idx.__class__, arg.idx.index)
                     else:
                         idx = arg.idx
-                    map_arity = arg.map.arity if arg.map else None
-                    key += (arg.data.dim, arg.data.dtype, map_arity, idx, arg.access)
+                    map_arity = arg.map and (tuplify(arg.map.offset) or arg.map.arity)
+                    view_idx = arg.data.index if arg._is_dat_view else None
+                    key += (arg.data.dim, arg.data.dtype, map_arity, idx,
+                            view_idx, arg.access)
                 elif arg._is_mat:
-                    idxs = (arg.idx[0].__class__, arg.idx[0].index,
-                            arg.idx[1].index)
-                    map_arities = (arg.map[0].arity, arg.map[1].arity)
-                    key += (arg.data.dims, arg.data.dtype, idxs, map_arities, arg.access)
+                    idxs = (arg.idx[0].__class__, arg.idx[0].index, arg.idx[1].index)
+                    map_arities = (tuplify(arg.map[0].offset) or arg.map[0].arity,
+                                   tuplify(arg.map[1].offset) or arg.map[1].arity)
+                    # Implicit boundary conditions (extruded "top" or
+                    # "bottom") affect generated code, and therefore need
+                    # to be part of cache key
+                    map_bcs = (arg.map[0].implicit_bcs, arg.map[1].implicit_bcs)
+                    map_cmpts = (arg.map[0].vector_index, arg.map[1].vector_index)
+                    key += (arg.data.dims, arg.data.dtype, idxs,
+                            map_arities, map_bcs, map_cmpts, arg.access)
+
+        # Take repeated dats into account
+        key += (tuple(all_dats.index(i) for i in all_dats),)
+
         return key
 
     def __init__(self, name, loop_chain, **options):
