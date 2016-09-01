@@ -23,6 +23,27 @@ def web_config(parameters):
         params = format_dict(parameters)
         return render_template('index.html', parameters=params)
 
+    def validate_input(parameters, dictionary):
+        from firedrake.parameters import Parameters
+        err = []
+        for k in parameters.keys():
+            if isinstance(parameters[k], Parameters):
+                err.extend(validate_input(parameters[k], dictionary[k]))
+            else:
+                if not parameters.get_key(k).validate(dictionary[k]):
+                    err.append("Invalid value for %s" % k)
+        return err
+
+    @app.route('/validate', methods=["GET", "POST"])
+    def validate():
+        import json
+        dictionary = json.loads(request.form['parameters'])
+        validate_result = validate_input(parameters, dictionary)
+        if validate_result == []:
+            return jsonify(successful=True)
+        else:
+            return jsonify(successful=False, err=validate_result), 400
+
     @app.route('/save', methods=["GET", "POST"])
     def save():
         import json
@@ -31,7 +52,7 @@ def web_config(parameters):
         try:
             load_from_dict(parameters, dictionary)
         except Exception as e:
-            return e.message, 400
+            return jsonify(successful=False, errmsg=e.message), 400
         return jsonify(successful=True)
 
     @app.route('/fetch')
