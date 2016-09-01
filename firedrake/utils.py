@@ -1,7 +1,7 @@
 # Some generic python utilities not really specific to our work.
 from __future__ import absolute_import
 from decorator import decorator
-from pyop2.utils import cached_property  # noqa: imported from here elsewhere
+from pyop2.utils import cached_property  # noqa: F401
 
 
 _current_uid = 0

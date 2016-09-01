@@ -131,12 +131,6 @@ def test_assemble_with_bcs_multiple_subdomains(a, V):
     assert not A._needs_reassembly
 
 
-def test_form_action(a, V):
-    A = assemble(a)
-    u1 = A._form_action(Function(V).assign(1.0))
-    u2 = A._form_action(Function(V).assign(2.0))
-    assert (2.0*u1.dat.data == u2.dat.data).all()
-
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

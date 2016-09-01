@@ -3,7 +3,6 @@ from __future__ import absolute_import
 
 from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
-from firedrake.citations import Citations
 from coffee.system import coffee_reconfigure
 import abc
 
@@ -514,7 +513,8 @@ parameters.add(Parameters("form_compiler", **default_parameters()))
 
 parameters["reorder_meshes"] = True
 
-parameters["matnest"] = True
+# One of nest, aij or matfree
+parameters["default_matrix_type"] = "nest"
 
 parameters["type_check_safe_par_loops"] = False
 

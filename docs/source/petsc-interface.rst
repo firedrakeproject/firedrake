@@ -4,7 +4,7 @@
 
 
 =================================
- Matrix-free operators and PETSc
+ Interfacing directly with PETSc
 =================================
 
 Introduction
@@ -15,7 +15,10 @@ terms of a sum of weak forms that we can then assemble.  Or else, it
 might be, but the resulting assembled operator would be dense.  In
 this chapter, we will see how to solve such problems in a
 "matrix-free" manner, using Firedrake to assemble the pieces and then
-providing a matrix object to PETSc which is unassembled.
+providing a matrix object to PETSc which is unassembled.  Note that
+this is a lower-level interface than that described in
+:doc:`matrix-free`, so you should try that first to see if it suits
+your needs.
 
 To take a concrete example, let us consider a linear system obtained
 from a normal variational problem, augmented with a rank-1
@@ -189,8 +192,8 @@ one of two ways.
    efficient than the previous method.
 
 
-Providing a "matrix-free" preconditioner
-----------------------------------------
+Providing a custom preconditioner
+---------------------------------
 
 Recall that we do not explicitly form :math:`B` since it is dense,
 and subsequently its inverse is as well.  However, since we know that

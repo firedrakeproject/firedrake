@@ -67,7 +67,6 @@ def test_store_load_parallel(mesh, fs, degree, dumpfile):
 
 @pytest.mark.parallel(nprocs=2)
 def test_serial_checkpoint_parallel_load_fails(f, dumpfile):
-    from firedrake.petsc import PETSc
     # Write on COMM_SELF (size == 1)
     chk = DumbCheckpoint("%s.%d" % (dumpfile, f.comm.rank),
                          mode=FILE_CREATE, comm=COMM_SELF)

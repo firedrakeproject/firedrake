@@ -1,10 +1,7 @@
 from __future__ import absolute_import
 import numpy as np
-import os
-import tempfile
-from shutil import rmtree
 
-from pyop2.mpi import MPI, COMM_WORLD
+from pyop2.mpi import COMM_WORLD
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ

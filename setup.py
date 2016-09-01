@@ -28,11 +28,6 @@ http://firedrakeproject.org/obtaining_pyop2.html#petsc
 """)
 
 import versioneer
-versioneer.versionfile_source = 'firedrake/_version.py'
-versioneer.versionfile_build = 'firedrake/_version.py'
-versioneer.tag_prefix = 'v'
-versioneer.parentdir_prefix = 'firedrake-'
-versioneer.VCS = "git"
 
 cmdclass = versioneer.get_cmdclass()
 
@@ -66,7 +61,8 @@ setup(name='firedrake',
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter"],
+      packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter",
+                "firedrake.matrix_free"],
       package_data={"firedrake": ["firedrake_geometry.h",
                                   "evaluate.h",
                                   "locate.c"]},

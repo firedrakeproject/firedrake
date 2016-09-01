@@ -27,17 +27,17 @@ def run_prolongation(mtype, vector, space, degree):
         elif mtype == "square":
             expr = Expression("pow(x[0], d) - pow(x[1], d)", d=degree)
 
-    expected = FunctionHierarchy(V)
+    expected = tuple([function.Function(f) for f in V])
 
     for e in expected:
         e.interpolate(expr)
 
-    actual = FunctionHierarchy(V)
+    actual = tuple([function.Function(f) for f in V])
 
     actual[0].assign(expected[0])
 
     for i in range(len(actual)-1):
-        actual.prolong(i)
+        prolong(actual[i], actual[i + 1])
 
     for e, a in zip(expected, actual):
         assert np.allclose(e.dat.data, a.dat.data)
@@ -126,18 +126,18 @@ def run_extruded_prolongation(mtype, vector, space, degree):
         # Exactly represented on coarsest grid
         expr = Expression("pow(x[0], d)", d=degree)
 
-    expected = FunctionHierarchy(V)
+    expected = tuple([function.Function(f) for f in V])
 
     for e in expected:
         # Exactly represented on coarsest grid
         e.interpolate(expr)
 
-    actual = FunctionHierarchy(V)
+    actual = tuple([function.Function(f) for f in V])
 
     actual[0].assign(expected[0])
 
     for i in range(len(actual)-1):
-        actual.prolong(i)
+        prolong(actual[i], actual[i + 1])
 
     for e, a in zip(expected, actual):
         assert np.allclose(e.dat.data, a.dat.data)
@@ -213,19 +213,19 @@ def run_mixed_prolongation():
 
     W = V*P
 
-    expected = FunctionHierarchy(W)
+    expected = tuple([function.Function(f) for f in W])
 
     for e in expected:
         # Exactly represented on coarsest grid
         e.interpolate(Expression(("x[0]*x[1]", "-x[1]*x[0]",
                                   "x[0] - x[1]")))
 
-    actual = FunctionHierarchy(W)
+    actual = tuple([function.Function(f) for f in W])
 
     actual[0].assign(expected[0])
 
     for i in range(len(actual)-1):
-        actual.prolong(i)
+        prolong(actual[i], actual[i + 1])
 
     for e, a in zip(expected, actual):
         for e_, a_ in zip(e.split(), a.split()):

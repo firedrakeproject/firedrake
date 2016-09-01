@@ -20,8 +20,8 @@ class LinearSolver(object):
                  options_prefix=None):
         """A linear solver for assembled systems (Ax = b).
 
-        :arg A: a :class:`~.Matrix` (the operator).
-        :arg P: an optional :class:`~.Matrix` to construct any
+        :arg A: a :class:`~.MatrixBase` (the operator).
+        :arg P: an optional :class:`~.MatrixBase` to construct any
              preconditioner from; if none is supplied ``A`` is
              used to construct the preconditioner.
         :kwarg parameters: (optional) dict of solver parameters.
@@ -51,10 +51,10 @@ class LinearSolver(object):
             self._auto_prefix = True
             LinearSolver._id += 1
 
-        if not isinstance(A, matrix.Matrix):
-            raise TypeError("Provided operator is a '%s', not a Matrix" % type(A).__name__)
-        if P is not None and not isinstance(P, matrix.Matrix):
-            raise TypeError("Provided preconditioner is a '%s', not a Matrix" % type(P).__name__)
+        if not isinstance(A, matrix.MatrixBase):
+            raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
+        if P is not None and not isinstance(P, matrix.MatrixBase):
+            raise TypeError("Provided preconditioner is a '%s', not a MatrixBase" % type(P).__name__)
 
         self.A = A
         self.comm = A.comm
@@ -63,8 +63,13 @@ class LinearSolver(object):
         parameters = solver_parameters.copy() if solver_parameters is not None else {}
         parameters.setdefault("ksp_rtol", "1e-7")
 
-        if self.P._M.sparsity.shape != (1, 1):
-            parameters.setdefault('pc_type', 'jacobi')
+        # If preconditioning matrix is matrix-free, then default to no
+        # preconditioning.
+        if isinstance(self.P, matrix.ImplicitMatrix):
+            parameters.setdefault("pc_type", "none")
+        elif self.P.block_shape != (1, 1):
+            # Otherwise, mixed problems default to jacobi.
+            parameters.setdefault("pc_type", "jacobi")
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
         self.ksp.setOptionsPrefix(self._opt_prefix)
@@ -83,14 +88,14 @@ class LinearSolver(object):
         self.ksp.setDMActive(False)
 
         if nullspace is not None:
-            nullspace._apply(self.A._M)
+            nullspace._apply(self.A)
             if P is not None:
-                nullspace._apply(self.P._M)
+                nullspace._apply(self.P)
 
         if transpose_nullspace is not None:
-            transpose_nullspace._apply(self.A._M, transpose=True)
+            transpose_nullspace._apply(self.A, transpose=True)
             if P is not None:
-                transpose_nullspace._apply(self.P._M, transpose=True)
+                transpose_nullspace._apply(self.P, transpose=True)
 
         self.nullspace = nullspace
         self.transpose_nullspace = transpose_nullspace
@@ -98,7 +103,9 @@ class LinearSolver(object):
         # Operator setting must come after null space has been
         # applied
         # Force evaluation here
-        self.ksp.setOperators(A=self.A.M.handle, P=self.P.M.handle)
+        self.A.force_evaluation()
+        self.P.force_evaluation()
+        self.ksp.setOperators(A=self.A.petscmat, P=self.P.petscmat)
 
     @cached_property
     def _b(self):

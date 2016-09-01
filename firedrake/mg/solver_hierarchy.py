@@ -18,24 +18,37 @@ def _fs_from_dm(x):
 
 def coarsen_problem(problem):
     u = problem.u
-    h, lvl = utils.get_level(u)
+    h, lvl = utils.get_level(u.function_space())
     if lvl == -1:
         raise RuntimeError("No hierarchy to coarsen")
     if lvl == 0:
         return None
-    new_u = ufl_utils.coarsen_thing(problem.u)
+
+    # Build set of coefficients we need to coarsen
+    coefficients = set()
+    coefficients.update(problem.F.coefficients())
+    coefficients.update(problem.J.coefficients())
+    if problem.Jp is not None:
+        coefficients.update(problem.Jp.coefficients())
+
+    # Coarsen them, and remember where from.
+    mapping = {}
+    for c in coefficients:
+        mapping[c] = ufl_utils.coarsen_thing(c)
+
+    new_u = mapping[problem.u]
+
     new_bcs = [ufl_utils.coarsen_thing(bc) for bc in problem.bcs]
-    new_J = ufl_utils.coarsen_form(problem.J)
-    new_Jp = ufl_utils.coarsen_form(problem.Jp)
-    new_F = ufl_utils.coarsen_form(problem.F)
+    new_J = ufl_utils.coarsen_form(problem.J, coefficient_mapping=mapping)
+    new_Jp = ufl_utils.coarsen_form(problem.Jp, coefficient_mapping=mapping)
+    new_F = ufl_utils.coarsen_form(problem.F, coefficient_mapping=mapping)
 
     new_problem = firedrake.NonlinearVariationalProblem(new_F,
                                                         new_u,
                                                         bcs=new_bcs,
                                                         J=new_J,
                                                         Jp=new_Jp,
-                                                        form_compiler_parameters=problem.form_compiler_parameters,
-                                                        nest=problem._nest)
+                                                        form_compiler_parameters=problem.form_compiler_parameters)
     return new_problem
 
 
@@ -207,7 +220,12 @@ class NLVSHierarchy(object):
         else:
             # User has provided list of problems
             problems = problem
-        ctx = firedrake.solving_utils._SNESContext(problems)
+
+        mat_type = parameters.get("mat_type")
+        pmat_type = parameters.get("pmat_type")
+        ctx = firedrake.solving_utils._SNESContext(problems,
+                                                   mat_type=mat_type,
+                                                   pmat_type=pmat_type)
 
         if nullspace is not None or tnullspace is not None:
             raise NotImplementedError("Coarsening nullspaces not yet implemented")

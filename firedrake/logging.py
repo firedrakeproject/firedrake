@@ -3,9 +3,9 @@ from __future__ import absolute_import
 import logging
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 # Ensure that the relevant loggers have been created.
-import tsfc.logging
-import pyop2.logger
-import coffee.logger
+import tsfc.logging             # noqa: F401
+import pyop2.logger             # noqa: F401
+import coffee.logger            # noqa: F401
 from ufl.log import ufl_logger
 
 from pyop2.mpi import COMM_WORLD

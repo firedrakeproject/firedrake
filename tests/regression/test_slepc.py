@@ -5,7 +5,8 @@ from firedrake.petsc import PETSc
 
 
 def topetsc(A):
-    return A.M.handle
+    A.force_evaluation()
+    return A.petscmat
 
 
 def test_laplace_physical_ev(parallel=False):

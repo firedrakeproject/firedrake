@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 
 
-def run_stokes_mini(nest, n):
+def run_stokes_mini(mat_type, n):
     length = 10
     mesh = RectangleMesh(2**n, 2**n, length, 1)
 
@@ -49,8 +49,8 @@ def run_stokes_mini(nest, n):
                              'fieldsplit_0_pc_type': 'redundant',
                              'fieldsplit_0_redundant_pc_type': 'lu',
                              'fieldsplit_1_pc_type': 'none',
-                             'ksp_monitor_true_residual': True},
-          nest=nest)
+                             'ksp_monitor_true_residual': True,
+                             'mat_type': mat_type})
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
     # field and a linearly decreasing pressure.
@@ -61,13 +61,13 @@ def run_stokes_mini(nest, n):
     return errornorm(u, uexact, degree_rise=0), errornorm(p, pexact, degree_rise=0)
 
 
-@pytest.mark.parametrize('nest', [True, False])
-def test_stokes_mini(nest):
+@pytest.mark.parametrize('mat_type', ["aij", "nest"])
+def test_stokes_mini(mat_type):
     u_err = []
     p_err = []
 
     for n in range(3, 6):
-        errs = run_stokes_mini(nest, n)
+        errs = run_stokes_mini(mat_type, n)
         u_err.append(errs[0])
         p_err.append(errs[1])
 

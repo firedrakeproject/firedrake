@@ -5,8 +5,6 @@ import ufl
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 
-import coffee.base as ast
-
 from pyop2 import op2
 
 from firedrake import functionspaceimpl
