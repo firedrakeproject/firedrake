@@ -24,7 +24,17 @@
     <div class="container" style="max-width:730px">
         <br><br><br>
         <h1>Configurations</h1>
-        <form>
+        {% if err is not equalto [] -%}
+        <div class="alert alert-danger">
+            <strong>Errors:</strong>
+            <ul>
+                {% for error in err -%}
+                <li>{{ error }}</li>
+                {%- endfor %}
+            </ul>
+        </div>
+        {%- endif %}
+        <form action="#" method="post" enctype="multipart/form-data">
             {% macro get_name(key, prefix) -%}
                 {% if prefix is equalto "" -%}{{ key }}{% else %}{{ prefix + "[" + key + "]" }}{%- endif %}
             {%- endmacro %}
@@ -38,7 +48,7 @@
                             </div>
                         {% elif (param.type is equalto "int") or (param.type is equalto "float") %}
                             <div class="col-sm-8">
-                                <input type="number" class="form-control" name="{{ get_name(param.key, prefix) }}">
+                                <input type="number" step="any" class="form-control" name="{{ get_name(param.key, prefix) }}">
                             </div>
                         {% elif param.type is equalto "bool" %}
                             <div class="col-sm-8">
@@ -69,7 +79,7 @@
             {{ render_dictionary(parameters, "") }}
             <br>
             <div id="buttons" class="row" style="text-align: center">
-                <button type="button" class="btn btn-default" aria-label="Load from JSON">
+                <button type="button" class="btn btn-default" onclick="load_json()" aria-label="Load from JSON">
                     Load from JSON
                 </button>
                 <button type="button" class="btn btn-default" onclick="save_json()" aria-label="Save to JSON">
@@ -78,6 +88,11 @@
                 <button type="button" class="btn btn-default" onclick="save()" aria-label="Save to Firedrake">
                     Save to Firedrake
                 </button>
+            </div>
+            <br>
+            <div id="load-input" class="alert alert-info hidden">
+                <input type="file" accept="application/json" name="json">
+                <input type="submit" class="btn btn-default">
             </div>
         </form>
     </div>
@@ -91,7 +106,6 @@
     <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js">
     </script>
     <script>
-        //$.getScript("https://raw.github.com/username/repo/master/src/script.js");
         function get_name(key, prefix) {
             if (prefix != "") {
                 return prefix + "[" + key + "]";
@@ -115,6 +129,9 @@
                     $("input[name=\"" + get_name(key, prefix) + "\"]").val(val);
                 }
             })
+        }
+        function load_json() {
+            $("#load-input").removeClass("hidden")
         }
         function save() {
             $.post("save", {

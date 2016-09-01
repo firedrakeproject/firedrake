@@ -18,10 +18,20 @@ def web_config(parameters):
                             "value": format_dict(v)})
         return ret
 
-    @app.route('/')
+    @app.route('/', methods=["GET", "POST"])
     def index():
+        err = []
+        if request.method == "POST":
+            import json
+            json_file = request.files['json']
+            dictionary = json.loads(json_file.read())
+            json_file.close()
+            from firedrake.gui_config import load_from_dict
+            err.extend(validate_input(parameters, dictionary))
+            if err == []:
+                load_from_dict(parameters, dictionary)
         params = format_dict(parameters)
-        return render_template('index.html', parameters=params)
+        return render_template('index.html', parameters=params, err=err)
 
     def validate_input(parameters, dictionary):
         from firedrake.parameters import Parameters
