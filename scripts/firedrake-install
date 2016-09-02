@@ -173,6 +173,16 @@ else:
     args.slepc = args.slepc or args.install_slepc
     args.virtualenv_name = False
     args.virtualenv_name = args.virtualenv_name or "firedrake"
+    try:
+        import firedrake_configuration
+        config = firedrake_configuration.get_config()
+    except:
+        config = FiredrakeConfiguration(args)
+    if not config:
+        config = FiredrakeConfiguration(args)
+
+    if args.install_adjoint:
+        config["options"]["adjoint"] = True
 
 class directory(object):
     """Context manager that executes body in a given directory"""
@@ -185,14 +195,6 @@ class directory(object):
 
     def __exit__(self, *args):
         os.chdir(self.olddir)
-
-    import firedrake_configuration
-    config = firedrake_configuration.get_config()
-    if not config:
-        config = FiredrakeConfiguration(args)
-
-    if args.install_adjoint:
-        config["options"]["adjoint"] = True
 
 options = config["options"]
 
