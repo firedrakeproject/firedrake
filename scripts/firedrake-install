@@ -1204,6 +1204,15 @@ log.info("  . %s/bin/activate\n" % firedrake_env)
 log.info("The virtualenv can be deactivated by running:\n")
 log.info("  deactivate")
 
+try:
+    import firedrake_configuration
+    firedrake_configuration.write_config(config)
+    log.info("Configurations saved to configuration.json")
+except Exception as e:
+    log.info("Unable to save configuations to a JSON file")
+    log.info("Error Message:")
+    log.info(e.message)
+
 if osname == "Darwin" and not framework:
     log.warning("\n\n")
     log.warning("It was not possible to create a framework build of python\n")
