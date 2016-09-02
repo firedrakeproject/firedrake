@@ -10,7 +10,8 @@ import os
 
 # Attempt to read configuration from file.
 try:
-    with file(os.path.join(__file__, "configuration.json"), "r") as f:
+    with file(os.path.join(os.path.dirname(__file__),
+                           "configuration.json"), "r") as f:
         _config = json.load(f)
 except IOError:
     _config = None
@@ -23,7 +24,8 @@ def write_config(config):
 
     # Create the json as a separate step
     json_output = json.dumps(_config)
-    with file(os.path.join(__file__, "configuration.json"), "w") as f:
+    with file(os.path.join(os.path.dirname(__file__),
+                           "configuration.json"), "w") as f:
         f.write(json_output)
 
 
