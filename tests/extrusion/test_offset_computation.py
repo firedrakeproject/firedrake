@@ -52,7 +52,7 @@ def run_offset_parallel():
 
     offset = V.exterior_facet_boundary_node_map("topological").offset
 
-    offsets = op2.MPI.comm.allgather(offset)
+    offsets = m.comm.allgather(offset)
     assert all((o == offset).all() for o in offsets)
 
 

@@ -83,6 +83,16 @@ When any point is outside the domain of the function,
    to the difficulty of specifying a physical point on the manifold.
 
 
+Evaluation on a moving mesh
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you move the mesh, by :doc:`changing the mesh coordinates
+<mesh-coordinates>`, then the bounding box tree that Firedrake
+maintains to ensure fast point evaluation must be rebuilt.  To do
+this, after moving the mesh, call
+:meth:`~.MeshGeometry.clear_spatial_index` on the mesh you have just
+moved.
+
 Evaluation with a distributed mesh
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

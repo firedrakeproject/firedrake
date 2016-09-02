@@ -1,0 +1,9 @@
+# Uses matrix-free action for CG, but the preconditioner assembles
+# the matrix and performs ILU factorization.
+-mat_type matfree
+-ksp_type cg
+-ksp_converged_reason
+-ksp_monitor_true_residual
+-pc_type python
+-pc_python_type firedrake.AssembledPC
+-assembled_pc_type ilu

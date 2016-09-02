@@ -87,7 +87,7 @@ of the manual on :doc:`solving PDEs <../solving-interface>`.
 Next, we might want to look at the result, so we output our solution
 to a file::
 
-  File("helmholtz.pvd") << u
+  File("helmholtz.pvd").write(u)
 
 This file can be visualised using `paraview <http://www.paraview.org/>`__.
 

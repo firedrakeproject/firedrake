@@ -1,0 +1,3 @@
+# This is a traditionally assembled matrix with a direct solve.
+-ksp_type preonly
+-pc_type lu

@@ -18,6 +18,11 @@ import pytest
 cwd = abspath(dirname(__file__))
 
 
+@pytest.fixture
+def mesh():
+    return Mesh(join(cwd, "..", "meshes", "annulus.msh"))
+
+
 @pytest.mark.parametrize(('space'),
                          [(("CG", 1), ("RT", 1), ("DG", 0)),
                           (("CG", 2), ("RT", 2), ("DG", 1)),
@@ -26,13 +31,12 @@ cwd = abspath(dirname(__file__))
                           (("CG", 3), ("BDM", 2), ("DG", 1)),
                           (("CG", 4), ("BDM", 3), ("DG", 2)),
                           (("CG", 2, "B", 3), ("BDFM", 2), ("DG", 1))])
-def test_betti0(space):
+def test_betti0(space, mesh):
     """
     Verify that the 0-form Hodge Laplacian with strong Dirichlet
     boundary conditions has kernel of dimension equal to the 2nd Betti
     number of the annulus mesh, i.e. 0.
     """
-    mesh = Mesh(join(cwd, "annulus.msh"))
     V0tag, V1tag, V2tag = space
 
     if(len(V0tag) == 2):
@@ -67,13 +71,12 @@ def test_betti0(space):
                           (("CG", 3), ("BDM", 2), ("DG", 1)),
                           (("CG", 4), ("BDM", 3), ("DG", 2)),
                           (("CG", 2, "B", 3), ("BDFM", 2), ("DG", 1))])
-def test_betti1(space):
+def test_betti1(space, mesh):
     """
     Verify that the 1-form Hodge Laplacian with strong Dirichlet
     boundary conditions has kernel of dimension equal to the 1st Betti
     number of the annulus mesh, i.e. 1.
     """
-    mesh = Mesh(join(cwd, "annulus.msh"))
     V0tag, V1tag, V2tag = space
 
     if(len(V0tag) == 2):
@@ -133,13 +136,12 @@ def test_betti1(space):
                           (("CG", 3), ("BDM", 2), ("DG", 1)),
                           (("CG", 4), ("BDM", 3), ("DG", 2)),
                           (("CG", 2, "B", 3), ("BDFM", 2), ("DG", 1))])
-def test_betti2(space):
+def test_betti2(space, mesh):
     """
     Verify that the 2-form Hodge Laplacian with strong Dirichlet
     boundary conditions has kernel of dimension equal to the 2nd Betti
     number of the annulus mesh, i.e. 1.
     """
-    mesh = Mesh(join(cwd, "annulus.msh"))
     V0tag, V1tag, V2tag = space
 
     V1 = FunctionSpace(mesh, V1tag[0], V1tag[1])

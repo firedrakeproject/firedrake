@@ -63,18 +63,15 @@ def run_poisson(typ):
 
     V = FunctionSpaceHierarchy(mh, 'CG', 2)
 
-    u = FunctionHierarchy(V)
-    u_ = u[-1]
-    f = FunctionHierarchy(V)
-    f_ = f[-1]
+    u_ = function.Function(V[-1])
+    f_ = function.Function(V[-1])
     v = TestFunction(V[-1])
     F = dot(grad(u_), grad(v))*dx - f_*v*dx
     bcs = DirichletBC(V[-1], 0.0, (1, 2, 3, 4))
     # Choose a forcing function such that the exact solution is not an
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10
     # iterations of ilu fails to converge this problem sufficiently.
-    for f_ in f:
-        f_.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
+    f_.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
 
     problem = NonlinearVariationalProblem(F, u_, bcs=bcs)
 

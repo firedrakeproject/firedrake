@@ -1,0 +1,6 @@
+# unpreconditioned CG.  With matrix-free actions
+-mat_type matfree
+-ksp_type cg
+-ksp_converged_reason
+-ksp_monitor_true_residual
+-pc_type none

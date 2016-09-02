@@ -70,7 +70,9 @@ def test_periodic_rectangle_advection(degree, threshold,
 
         # Since DG mass-matrix is block diagonal, just assemble the
         # inverse and then "solve" is a matvec.
-        mass_inv = assemble(a_mass, inverse=True).M.handle
+        mass_inv = assemble(a_mass, inverse=True)
+        mass_inv.force_evaluation()
+        mass_inv = mass_inv.petscmat
 
         def solve(mass_inv, arhs, rhs, update):
             with assemble(arhs, tensor=rhs).dat.vec_ro as x:

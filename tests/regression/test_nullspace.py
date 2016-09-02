@@ -1,5 +1,6 @@
 from firedrake import *
 import pytest
+import numpy as np
 
 
 @pytest.fixture(scope='module', params=[False, True])
@@ -23,6 +24,34 @@ def test_nullspace(V):
     exact = Function(V)
     exact.interpolate(Expression('x[1] - 0.5'))
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+
+
+def test_transpose_nullspace():
+    errors = []
+    for n in range(4, 10):
+        mesh = UnitIntervalMesh(2**n)
+        V = FunctionSpace(mesh, "CG", 1)
+        u = TrialFunction(V)
+        v = TestFunction(V)
+
+        a = inner(grad(u), grad(v))*dx
+        L = v*dx
+
+        nullspace = VectorSpaceBasis(constant=True)
+        u = Function(V)
+        u.interpolate(SpatialCoordinate(mesh)[0])
+        # Solver diverges with indefinite PC if we don't remove
+        # transpose nullspace.
+        solve(a == L, u, nullspace=nullspace,
+              transpose_nullspace=nullspace,
+              solver_parameters={"ksp_type": "cg",
+                                 "ksp_initial_guess_non_zero": True,
+                                 "pc_type": "gamg"})
+        # Solution should integrate to 0.5
+        errors.append(assemble(u*dx) - 0.5)
+    errors = np.asarray(errors)
+    rate = np.log2(errors[:-1] / errors[1:])
+    assert (rate > 1.9).all()
 
 
 def test_nullspace_preassembled(V):

@@ -35,19 +35,24 @@ direct = _DirectLoop()
 of the measure in order to indicate that the loop is a direct loop
 over degrees of freedom."""
 
+
+def indirect_measure(mesh, measure):
+    return mesh.measure_set(measure.integral_type(),
+                            measure.subdomain_id())
+
 """Map a measure to the correct maps."""
 _maps = {
     'cell': {
         'nodes': lambda x: x.cell_node_map(),
-        'itspace': lambda mesh, measure: mesh.cell_set
+        'itspace': indirect_measure
     },
     'interior_facet': {
         'nodes': lambda x: x.interior_facet_node_map(),
-        'itspace': lambda mesh, measure: mesh.interior_facets.measure_set(measure.integral_type(), measure.subdomain_id())
+        'itspace': indirect_measure
     },
     'exterior_facet': {
         'nodes': lambda x: x.exterior_facet_node_map(),
-        'itspace': lambda mesh, measure: mesh.exterior_facets.measure_set(measure.integral_type(), measure.subdomain_id())
+        'itspace': indirect_measure
     },
     'direct': {
         'nodes': lambda x: None,
@@ -73,7 +78,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
         else:
             # Do we have a component of a mixed function?
             if isinstance(func, Indexed):
-                c, i = func.operands()
+                c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 ndof = c.function_space()[idx].fiat_element.space_dimension()
             else:
@@ -219,7 +224,7 @@ def par_loop(kernel, measure, args, **kwargs):
         mesh = None
         for (func, intent) in args.itervalues():
             if isinstance(func, Indexed):
-                c, i = func.operands()
+                c, i = func.ufl_operands
                 idx = i._indices[0]._value
                 if mesh and c.node_set[idx] is not mesh:
                     raise ValueError("Cannot mix sets in direct loop.")
@@ -249,7 +254,7 @@ def par_loop(kernel, measure, args, **kwargs):
 
     def mkarg(f, intent):
         if isinstance(func, Indexed):
-            c, i = func.operands()
+            c, i = func.ufl_operands
             idx = i._indices[0]._value
             m = _map['nodes'](c)
             return c.dat[idx](intent, m.split[idx] if m else None)

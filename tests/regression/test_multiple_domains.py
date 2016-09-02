@@ -1,0 +1,92 @@
+from firedrake import *
+import pytest
+import numpy as np
+from functools import partial
+
+
+@pytest.fixture(params=["interval", "tri", "quad", "tet"])
+def typ(request):
+    return {"interval": partial(UnitIntervalMesh, 1),
+            "tri": UnitTriangleMesh,
+            "quad": partial(UnitSquareMesh, 1, 1, quadrilateral=True),
+            "tet": UnitTetrahedronMesh}[request.param]
+
+
+@pytest.fixture
+def mesh1(typ):
+    return typ()
+
+
+@pytest.fixture
+def mesh2(mesh1):
+    new_coords = Function(mesh1.coordinates)
+    new_coords *= 0.5
+    return Mesh(new_coords)
+
+
+@pytest.fixture
+def mesh3(typ):
+    return typ()
+
+
+def test_mismatching_topologies(mesh1, mesh3):
+    with pytest.raises(NotImplementedError):
+        assemble(1*dx(domain=mesh1) + 2*dx(domain=mesh3))
+
+
+def test_functional(mesh1, mesh2):
+    c = Constant(1)
+
+    val = assemble(c*dx(domain=mesh1))
+
+    cell_volume = mesh1.coordinates.function_space().fiat_element.get_reference_element().volume()
+    assert np.allclose(val, cell_volume)
+
+    val = assemble(c*dx(domain=mesh2))
+
+    assert np.allclose(val, cell_volume * (0.5**mesh1.topological_dimension()))
+
+    val = assemble(c*dx(domain=mesh1) + c*dx(domain=mesh2))
+
+    assert np.allclose(val, cell_volume * (1 + 0.5**mesh1.topological_dimension()))
+
+
+@pytest.mark.parametrize("form,expect", [
+    (lambda v, mesh1, mesh2: v*dx(domain=mesh1), lambda vol, dim: vol),
+    pytest.mark.xfail(reason="UFL domain numbering error")((lambda v, mesh1, mesh2: v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim))),
+    (lambda v, mesh1, mesh2: v*dx(domain=mesh1) + v*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+], ids=["v*dx(mesh1)", "v*dx(mesh2)", "v*(dx(mesh1) + dx(mesh2)"])
+def test_one_form(mesh1, mesh2, form, expect):
+    V = FunctionSpace(mesh1, "DG", 0)
+
+    v = TestFunction(V)
+
+    cell_volume = mesh1.coordinates.function_space().fiat_element.get_reference_element().volume()
+    dim = mesh1.topological_dimension()
+
+    form = form(v, mesh1, mesh2)
+    expect = expect(cell_volume, dim)
+    val = assemble(form).dat.data_ro
+
+    assert np.allclose(val, expect)
+
+
+@pytest.mark.parametrize("form,expect", [
+    (lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh1), lambda vol, dim: vol),
+    pytest.mark.xfail(reason="UFL domain numbering error")((lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh2), lambda vol, dim: vol*(0.5**dim))),
+    (lambda u, v, mesh1, mesh2: u*v*dx(domain=mesh1) + u*v*dx(domain=mesh2), lambda vol, dim: vol*(1 + 0.5**dim))
+], ids=["u*v*dx(mesh1)", "u*v*dx(mesh2)", "u*v*(dx(mesh1) + dx(mesh2)"])
+def test_two_form(mesh1, mesh2, form, expect):
+    V = FunctionSpace(mesh1, "DG", 0)
+
+    v = TestFunction(V)
+    u = TrialFunction(V)
+
+    cell_volume = mesh1.coordinates.function_space().fiat_element.get_reference_element().volume()
+    dim = mesh1.topological_dimension()
+
+    form = form(u, v, mesh1, mesh2)
+    expect = expect(cell_volume, dim)
+    val = assemble(form).M.values
+
+    assert np.allclose(val, expect)

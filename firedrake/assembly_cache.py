@@ -35,9 +35,9 @@ import numpy as np
 import weakref
 from collections import defaultdict
 
-from pyop2.logger import debug, warning
-from pyop2.mpi import MPI, _MPI
+from pyop2.mpi import COMM_WORLD, MPI, dup_comm, free_comm
 
+from firedrake.logging import debug, warning
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
@@ -45,8 +45,10 @@ try:
     # Estimate the amount of memory per core may use.
     import psutil
     memory = np.array([psutil.virtual_memory().total/psutil.cpu_count()])
-    if MPI.comm.size > 1:
-        MPI.comm.Allreduce(_MPI.IN_PLACE, memory, _MPI.MIN)
+    if COMM_WORLD.size > 1:
+        comm = dup_comm(COMM_WORLD)
+        comm.Allreduce(MPI.IN_PLACE, memory, MPI.MIN)
+        free_comm(comm)
 except (ImportError, AttributeError):
     memory = None
 
@@ -63,8 +65,8 @@ class _DependencySnapshot(object):
 
         deps = []
 
-        coords = form.integrals()[0].ufl_domain().coordinates
-        deps.append(ref(coords))
+        for d in form.ufl_domains():
+            deps.append(ref(d.coordinates))
 
         for c in form.coefficients():
             deps.append(ref(c))
@@ -74,20 +76,12 @@ class _DependencySnapshot(object):
     def valid(self, form):
         """Check whether form is valid with respect to this dependency snapshot."""
 
-        original_coords = self.dependencies[0][0]()
-        if original_coords:
-            coords = form.integrals()[0].ufl_domain().coordinates
-            if coords is not original_coords or \
-               coords.dat._version != self.dependencies[0][1]:
-                return False
-        else:
-            return False
-
         # Since UFL sorts the coefficients by count (creation index),
         # further sorting here is not required.
-        deps = form.coefficients()
+        deps = tuple(d.coordinates for d in form.ufl_domains()) + \
+            form.coefficients()
 
-        for original_d, dep in zip(self.dependencies[1:], deps):
+        for original_d, dep in zip(self.dependencies, deps):
             original_dep = original_d[0]()
             if original_dep:
                 if dep is not original_dep or dep.dat._version != original_d[1]:
@@ -141,9 +135,11 @@ class _CacheEntry(object):
         global _assemble_count
         self._assemble_count += 1
         self.value = self._assemble_count
-        if MPI.comm.size > 1:
+        # Assumption: all domains are on the same communicator.
+        comm = form.ufl_domains()[0].comm
+        if comm.size > 1:
             tmp = np.array([obj.nbytes])
-            MPI.comm.Allreduce(_MPI.IN_PLACE, tmp, _MPI.MAX)
+            comm.Allreduce(MPI.IN_PLACE, tmp, MPI.MAX)
             self.nbytes = tmp[0]
         else:
             self.nbytes = obj.nbytes

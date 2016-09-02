@@ -1,7 +1,6 @@
 """Global test configuration."""
 
 import pytest
-import os
 from subprocess import check_call
 from mpi4py import MPI
 
@@ -71,23 +70,3 @@ def pytest_runtest_call(item):
     if item.get_marker("parallel") and MPI.COMM_WORLD.size == 1:
         # Spawn parallel processes to run test
         parallel(item)
-
-
-def pytest_cmdline_preparse(config, args):
-    if 'PYTEST_VERBOSE' in os.environ and '-v' not in args:
-        args.insert(0, '-v')
-    if 'PYTEST_EXITFIRST' in os.environ and '-x' not in args:
-        args.insert(0, '-x')
-    if 'PYTEST_NOCAPTURE' in os.environ and '-s' not in args:
-        args.insert(0, '-s')
-    if 'PYTEST_TBNATIVE' in os.environ:
-        args.insert(0, '--tb=native')
-    if 'PYTEST_WATCH' in os.environ and '-f' not in args:
-        args.insert(0, '-f')
-    try:
-        import pytest_benchmark   # noqa: Checking for availability of plugin
-        # Set number of warmup iteration to 1
-        if "--benchmark-warmup-iterations" not in args:
-            args.insert(0, "--benchmark-warmup-iterations=1")
-    except ImportError:
-        pass

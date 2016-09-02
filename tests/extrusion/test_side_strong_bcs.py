@@ -31,9 +31,9 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
 
     L = v * f * dx
 
-    out = Function(V)
+    out = Function(V, name="computed")
 
-    exact = Function(V)
+    exact = Function(V, name="exact")
     exact.interpolate(exp)
 
     solve(a == L, out, bcs=bcs)
@@ -42,10 +42,8 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
 
     if not test_mode:
         print "The error is ", res
-        file = File("side-bcs-computed.pvd")
-        file << out
-        file = File("side-bcs-expected.pvd")
-        file << exact
+        file = File("side-bcs.pvd")
+        file.write(out, exact)
     return res
 
 
@@ -72,9 +70,9 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
     L = v * f * dx
 
-    out = Function(V)
+    out = Function(V, name="computed")
 
-    exact = Function(V)
+    exact = Function(V, name="exact")
     exact.interpolate(exp)
 
     solve(a == L, out, bcs=bcs)
@@ -83,10 +81,8 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
 
     if not test_mode:
         print "The error is ", res
-        file = File("side-bcs-computed.pvd")
-        file << out
-        file = File("side-bcs-expected.pvd")
-        file << exact
+        file = File("side-bcs.pvd")
+        file.write(out, exact)
     return res
 
 

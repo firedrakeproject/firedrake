@@ -54,10 +54,6 @@ class TestTSFCCache:
 
     """TSFC code generation cache tests."""
 
-    def test_tsfc_cache_dir_exists(self):
-        """Importing tsfc_interface should create TSFC Kernel cache dir."""
-        assert os.path.exists(tsfc_interface.TSFCKernel._cachedir)
-
     def test_tsfc_cache_persist_on_disk(self, cache_key):
         """TSFCKernel should be persisted on disk."""
         assert os.path.exists(
@@ -66,7 +62,7 @@ class TestTSFCCache:
     def test_tsfc_cache_read_from_disk(self, cache_key):
         """Loading an TSFCKernel from disk should yield the right object."""
         assert tsfc_interface.TSFCKernel._read_from_disk(
-            cache_key).cache_key == cache_key
+            cache_key, COMM_WORLD).cache_key == cache_key
 
     def test_tsfc_same_form(self, mass):
         """Compiling the same form twice should load kernels from cache."""

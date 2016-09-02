@@ -2,7 +2,6 @@ from __future__ import absolute_import
 import weakref
 import ufl
 
-from pyop2.profiling import timed_function, profile
 
 from firedrake import solving_utils
 from firedrake import ufl_expr
@@ -20,8 +19,7 @@ class NonlinearVariationalProblem(object):
 
     def __init__(self, F, u, bcs=None, J=None,
                  Jp=None,
-                 form_compiler_parameters=None,
-                 nest=None):
+                 form_compiler_parameters=None):
         """
         :param F: the nonlinear form
         :param u: the :class:`.Function` to solve for
@@ -32,11 +30,6 @@ class NonlinearVariationalProblem(object):
                  will be used.
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
-        :param nest: indicate if matrices on mixed spaces should be
-               built as monolithic operators (suitable for direct
-               solves), or as nested blocks (suitable for fieldsplit
-               preconditioning).  If not provided, uses the default
-               given by ``parameters["matnest"]``.
         """
         from firedrake import solving
         from firedrake import function
@@ -68,7 +61,6 @@ class NonlinearVariationalProblem(object):
         if self.Jp is not None and len(self.Jp.arguments()) != 2:
             raise ValueError("Provided preconditioner is not a bilinear form")
 
-        self._nest = nest
         # Store form compiler parameters
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
@@ -89,6 +81,8 @@ class NonlinearVariationalSolver(object):
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
                space of the operator.
+        :kwarg transpose_nullspace: as for the nullspace, but used to
+               make the right hand side consistent.
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
@@ -109,7 +103,7 @@ class NonlinearVariationalSolver(object):
 
             {'snes_monitor': True}
         """
-        parameters, nullspace, options_prefix = solving_utils._extract_kwargs(**kwargs)
+        parameters, nullspace, nullspace_T, options_prefix = solving_utils._extract_kwargs(**kwargs)
 
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__
@@ -123,21 +117,36 @@ class NonlinearVariationalSolver(object):
 
         assert isinstance(problem, NonlinearVariationalProblem)
 
-        ctx = solving_utils._SNESContext(problem)
-
-        self.snes = PETSc.SNES().create()
-
-        self.snes.setOptionsPrefix(self._opt_prefix)
-
-        # Mixed problem, use jacobi pc if user has not supplied one.
-        if ctx.is_mixed:
-            parameters.setdefault('pc_type', 'jacobi')
-
         # Allow command-line arguments to override dict parameters
         opts = PETSc.Options()
         for k, v in opts.getAll().iteritems():
             if k.startswith(self._opt_prefix):
                 parameters[k[len(self._opt_prefix):]] = v
+
+        # Allow anything, interpret "matfree" as matrix_free.
+        mat_type = parameters.get("mat_type")
+        pmat_type = parameters.get("pmat_type")
+        matfree = mat_type == "matfree"
+        pmatfree = pmat_type == "matfree"
+
+        appctx = kwargs.get("appctx")
+
+        ctx = solving_utils._SNESContext(problem,
+                                         mat_type=mat_type,
+                                         pmat_type=pmat_type,
+                                         appctx=appctx)
+
+        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
+
+        self.snes.setOptionsPrefix(self._opt_prefix)
+
+        # No preconditioner by default for matrix-free
+        if (problem.Jp is not None and pmatfree) or matfree:
+            parameters.setdefault("pc_type", "none")
+        elif ctx.is_mixed:
+            # Mixed problem, use jacobi pc if user has not supplied
+            # one.
+            parameters.setdefault("pc_type", "jacobi")
 
         self._problem = problem
 
@@ -146,7 +155,10 @@ class NonlinearVariationalSolver(object):
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
-        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises)
+        ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
+                          transpose=False)
+        ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
+                          transpose=True)
 
         self.parameters = parameters
 
@@ -169,8 +181,6 @@ class NonlinearVariationalSolver(object):
         self._parameters = val
         solving_utils.update_parameters(self, self.snes)
 
-    @timed_function("SNES solver execution")
-    @profile
     def solve(self):
         dm = self.snes.getDM()
         dm.setAppCtx(weakref.proxy(self._ctx))
@@ -195,7 +205,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
 
     def __init__(self, a, L, u, bcs=None, aP=None,
                  form_compiler_parameters=None,
-                 nest=None,
                  constant_jacobian=True):
         """
         :param a: the bilinear form
@@ -207,11 +216,6 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
                  computed from ``a``)
         :param dict form_compiler_parameters: parameters to pass to the form
             compiler (optional)
-        :param nest: indicate if matrices on mixed spaces should be
-               built as monolithic operators (suitable for direct
-               solves), or as nested blocks (suitable for fieldsplit
-               preconditioning).  If not provided, uses the default
-               given by ``parameters["matnest"]``.
         :param constant_jacobian: (optional) flag indicating that the
                  Jacobian is constant (i.e. does not depend on
                  varying fields).  If your Jacobian can change, set
@@ -228,7 +232,7 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         F = ufl.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
-                                                       form_compiler_parameters=form_compiler_parameters, nest=nest)
+                                                       form_compiler_parameters=form_compiler_parameters)
         self._constant_jacobian = constant_jacobian
 
 
@@ -243,14 +247,17 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
                :class:`.MixedVectorSpaceBasis`) spanning the null
                space of the operator.
+        :kwarg transpose_nullspace: as for the nullspace, but used to
+               make the right hand side consistent.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
         """
+        parameters = {}
+        parameters.update(kwargs.get("solver_parameters", {}))
+        parameters.setdefault('snes_type', 'ksponly')
+        parameters.setdefault('ksp_rtol', 1.0e-7)
+        kwargs["solver_parameters"] = parameters
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
-
-        self.parameters.setdefault('snes_type', 'ksponly')
-        self.parameters.setdefault('ksp_rtol', 1.0e-7)
-        solving_utils.update_parameters(self, self.snes)

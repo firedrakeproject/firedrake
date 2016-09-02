@@ -154,12 +154,13 @@ expression. ::
   )
 
 Since we are in one dimension, we use a direct solver for the linear
-system within the Newton algorithm. The function space is mixed, so
-we must specify ``nest=False`` when defining the variational problem. ::
+system within the Newton algorithm. To do this, we assemble a monolithic
+rather than blocked system. ::
 
-  uprob = NonlinearVariationalProblem(L, w1, nest=False)
+  uprob = NonlinearVariationalProblem(L, w1)
   usolver = NonlinearVariationalSolver(uprob, solver_parameters=
-     {'ksp_type': 'preonly',
+     {'mat_type': 'aij',
+      'ksp_type': 'preonly',
       'pc_type': 'lu'})
 
 Next we use the other form of :meth:`~.Function.split`, ``w0.split()``,
@@ -174,8 +175,8 @@ storing ``u``. ::
 
   T = 100.0
   ufile = File('u.pvd')
-  ufile << u1
   t = 0.0
+  ufile.write(u1, time=t)
 
 We also initialise a dump counter so we only dump every 10 timesteps. ::
 
@@ -206,7 +207,7 @@ Finally, we check if it is time to dump the data. ::
      dumpn += 1
      if dumpn == ndump:
         dumpn -= ndump
-        ufile << u1
+        ufile.write(u1, time=t)
 
 This solution leads to emergent peakons (peaked solitons); the left
 peakon is travelling faster than the right peakon, so they collide and

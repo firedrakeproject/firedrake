@@ -4,10 +4,7 @@ import pytest
 
 
 @pytest.mark.parametrize("opt_level",
-                         ["O0", "O1", "O2",
-                          # Not testing "O3" since it takes too long
-                          # to do the code transformation
-                          pytest.mark.xfail(reason="COFFEE O4 not working")("O4")])
+                         ["O0", "O1", "O2", "O3", "O4"])
 def test_hyperelastic_convergence(opt_level):
     val = parameters["coffee"]
     try:

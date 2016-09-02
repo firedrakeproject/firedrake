@@ -4,7 +4,7 @@ import weakref
 import ufl
 from ufl.algorithms import ReuseTransformer
 from ufl.constantvalue import ConstantValue, Zero, IntValue
-from ufl.indexing import MultiIndex
+from ufl.core.multiindex import MultiIndex
 from ufl.core.operator import Operator
 from ufl.mathfunctions import MathFunction
 from ufl.core.ufl_type import ufl_type as orig_ufl_type
@@ -12,6 +12,7 @@ from ufl import classes
 
 import coffee.base as ast
 from pyop2 import op2
+from pyop2.profiling import timed_function
 
 from firedrake import constant
 from firedrake import function
@@ -296,7 +297,7 @@ class ExpressionSplitter(ReuseTransformer):
             # the indexed coefficient if its position matches the FixedIndex
             # Since we don't split rank-1 function spaces, we have to
             # reconstruct the fixed index expression for those (and only those)
-            if isinstance(idx._indices[0], ufl.indexing.FixedIndex):
+            if isinstance(idx._indices[0], ufl.core.multiindex.FixedIndex):
                 if idx._indices[0]._value != i:
                     return self._identity
                 elif coeff.function_space().rank == 1:
@@ -581,6 +582,7 @@ def evaluate_expression(expr, subset=None):
         result._expression_cache[key] = vals
 
 
+@timed_function("AssembleExpression")
 def assemble_expression(expr, subset=None):
     """Evaluates UFL expressions on :class:`.Function`\s pointwise and assigns
     into a new :class:`.Function`."""
@@ -596,9 +598,9 @@ _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
 _ast_map = {
     MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
-    ufl.algebra.Sum: (lambda e: ast.Par(_to_sum(e.ufl_operands))),
-    ufl.algebra.Product: (lambda e: ast.Par(_to_prod(e.ufl_operands))),
-    ufl.algebra.Division: (lambda e: ast.Par(ast.Div(*[_ast(o) for o in e.ufl_operands]))),
+    ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
+    ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
+    ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
     ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
     Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),

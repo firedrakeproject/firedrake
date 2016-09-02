@@ -1,7 +1,5 @@
 from __future__ import absolute_import
 
-from operator import add
-
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
@@ -18,6 +16,10 @@ class CoarsenIntegrand(MultiFunction):
 
     """'Coarsen' a :class:`ufl.Expr` by replacing coefficients,
     arguments and domain data with coarse mesh equivalents."""
+
+    def __init__(self, coefficient_mapping):
+        self.coefficient_mapping = coefficient_mapping or {}
+        super(CoarsenIntegrand, self).__init__()
 
     expr = MultiFunction.reuse_if_untouched
 
@@ -45,17 +47,20 @@ class CoarsenIntegrand(MultiFunction):
             return firedrake.Constant(value=val,
                                       domain=new_mesh)
         elif isinstance(o, firedrake.Function):
-            hierarchy, level = utils.get_level(o)
+            # find level of function space to be sure
+            hierarchy, level = utils.get_level(o.function_space())
             if level == -1:
-                # Not found, disgusting hack, maybe it's the coords?
-                if o is o.function_space().mesh().coordinates:
-                    h, l = utils.get_level(o.function_space().mesh())
-                    new_fn = h[l-1].coordinates
-                else:
-                    raise RuntimeError("Didn't find a coarse version of %r", o)
+                raise RuntimeError("Didn't find a coarse version of %r", o)
+            elif level != -1:
+                new_fn = self.coefficient_mapping.get(o)
+                if new_fn is not None:
+                    return new_fn
+                new_fn = firedrake.Function(hierarchy[level-1])
+                # restrict state to coarse grid
+                firedrake.inject(o, new_fn)
+                return new_fn
             else:
-                new_fn = hierarchy[level-1]
-            return new_fn
+                raise RuntimeError("Doesnt have level")
         else:
             raise RuntimeError("Don't know how to handle %r", o)
 
@@ -72,10 +77,12 @@ class CoarsenIntegrand(MultiFunction):
         return firedrake.FacetNormal(new_mesh.ufl_domain())
 
 
-def coarsen_form(form):
+def coarsen_form(form, coefficient_mapping=None):
     """Return a coarse mesh version of a form
 
     :arg form: The :class:`~ufl.classes.Form` to coarsen.
+    :kwarg mapping: an optional map from coefficients to their
+        coarsened equivalents.
 
     This maps over the form and replaces coefficients and arguments
     with their coarse mesh equivalents."""
@@ -84,8 +91,8 @@ def coarsen_form(form):
     assert isinstance(form, ufl.Form), \
         "Don't know how to coarsen %r" % type(form)
 
-    mapper = CoarsenIntegrand()
-    forms = []
+    mapper = CoarsenIntegrand(coefficient_mapping)
+    integrals = []
     # Ugh, visitors can't deal with measures (they're not actual
     # Exprs) so we need to map the transformer over the integrand and
     # reconstruct the integral by building the measure by hand.
@@ -94,15 +101,14 @@ def coarsen_form(form):
         mesh = it.ufl_domain()
         hierarchy, level = utils.get_level(mesh)
         new_mesh = hierarchy[level-1]
-
-        measure = ufl.Measure(it.integral_type(),
-                              domain=new_mesh,
-                              subdomain_id=it.subdomain_id(),
-                              subdomain_data=it.subdomain_data(),
-                              metadata=it.metadata())
-
-        forms.append(integrand * measure)
-    return reduce(add, forms)
+        if isinstance(integrand, ufl.classes.Zero):
+            continue
+        if it.subdomain_data() is not None:
+            raise ValueError("Don't know how to coarsen subdomain data")
+        new_itg = it.reconstruct(integrand=integrand,
+                                 domain=new_mesh)
+        integrals.append(new_itg)
+    return ufl.Form(integrals)
 
 
 def coarsen_thing(thing):
@@ -118,8 +124,16 @@ def coarsen_thing(thing):
         hierarchy, level = utils.get_level(val)
         new_val = hierarchy[level-1]
         return new_val.sub(idx)
-    hierarchy, level = utils.get_level(thing)
-    return hierarchy[level-1]
+    # check that we find the level of a hierarchy
+    if isinstance(thing, firedrake.Function):
+        hierarchy, level = utils.get_level(thing.function_space())
+        new_thing = firedrake.Function(hierarchy[level-1])
+        # restrict state to coarse grid
+        firedrake.inject(thing, new_thing)
+    else:
+        hierarchy, level = utils.get_level(thing)
+        new_thing = hierarchy[level-1]
+    return new_thing
 
 
 def coarsen_bc(bc):

@@ -9,6 +9,7 @@ from __future__ import absolute_import
 import ufl
 
 from pyop2.utils import flatten
+from pyop2.profiling import timed_function
 
 from firedrake import functionspaceimpl as impl
 
@@ -86,7 +87,7 @@ def check_element(element, top=True):
     elif type(element) is ufl.EnrichedElement:
         inner = element._elements
     elif type(element) is ufl.TensorProductElement:
-        inner = element._A, element._B
+        inner = element.sub_elements()
     elif isinstance(element, ufl.MixedElement):
         if not top:
             raise ValueError("%s modifier must be outermost" % type(element))
@@ -98,6 +99,7 @@ def check_element(element, top=True):
         check_element(e, top=False)
 
 
+@timed_function("CreateFunctionSpace")
 def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
                   vdegree=None):
     """Create a :class:`.FunctionSpace`.

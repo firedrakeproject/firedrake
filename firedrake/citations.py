@@ -133,3 +133,36 @@ Citations().add("Luporini2015", """
   doi =          {10.1145/2687415},
 }
 """)
+
+Citations().add("Luporini2016", """
+@article{Luporini2016,
+  author =       {Fabio Luporini and David A. Ham and Paul H. J. Kelly},
+  title =        {An algorithm for the optimization of finite element
+                  integration loops},
+  journal =      {Submitted to ACM TOMS},
+  year =         2016,
+  archiveprefix ={arXiv},
+  eprint =       {1604.05872},
+  url =          {http://arxiv.org/abs/1604.05872}
+}
+""")
+
+Citations().add("Bercea2016", """
+@article{Bercea2016,
+  author    = {Gheorghe{-}Teodor Bercea and
+               Andrew T. T. McRae and
+               David A. Ham and
+               Lawrence Mitchell and
+               Florian Rathgeber and
+               Luigi Nardi and
+               Fabio Luporini and
+               Paul H. J. Kelly},
+  title     = {A numbering algorithm for finite element on extruded meshes which
+               avoids the unstructured mesh penalty},
+  journal   = {Submitted to Geoscientific Model Development (GMD)},
+  year      = {2016},
+  archiveprefix ={arXiv},
+  eprint =       {1604.05937},
+  url       = {http://arxiv.org/abs/1604.05937}
+}
+""")

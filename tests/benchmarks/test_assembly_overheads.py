@@ -2,7 +2,10 @@ from firedrake import *
 import pytest
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+benchmark = pytest.mark.benchmark(warmup=True, disable_gc=True, warmup_iterations=1)
+
+
+@benchmark
 @pytest.mark.parametrize("fresh_form",
                          [False, True],
                          ids=["reuse_form", "fresh_form"])
@@ -29,7 +32,7 @@ def test_assemble_residual(fresh_tensor, fresh_form, benchmark):
     benchmark(lambda: call())
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("fresh_form",
                          [False, True],
                          ids=["reuse_form", "fresh_form"])
@@ -56,7 +59,7 @@ def test_assemble_mass(fresh_tensor, fresh_form, benchmark):
     benchmark(lambda: call())
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("fresh_tensor",
                          [False, True],
                          ids=["reuse_tensor", "fresh_tensor"])
@@ -77,7 +80,7 @@ def test_assemble_mass_with_bcs(fresh_tensor, benchmark):
     benchmark(lambda: call())
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("nspaces", range(2, 6))
 @pytest.mark.parametrize("fresh_tensor",
                          [False, True],
@@ -91,14 +94,14 @@ def test_assemble_mixed_mass(fresh_tensor, nspaces, benchmark):
     L = inner(u, v)*dx
 
     if fresh_tensor:
-        call = lambda: assemble(L, nest=False).M
+        call = lambda: assemble(L, mat_type="aij").M
     else:
         g = assemble(L)
-        call = lambda: assemble(L, nest=False, tensor=g).M
+        call = lambda: assemble(L, mat_type="aij", tensor=g).M
     benchmark(lambda: call())
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 def test_dat_zero(benchmark):
     m = UnitTriangleMesh()
     V = FunctionSpace(m, 'DG', 0)
@@ -106,7 +109,7 @@ def test_dat_zero(benchmark):
     benchmark(lambda: f.dat.zero())
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 def test_assign_zero(benchmark):
     m = UnitTriangleMesh()
     V = FunctionSpace(m, 'DG', 0)
@@ -114,7 +117,7 @@ def test_assign_zero(benchmark):
     benchmark(lambda: f.assign(0))
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 def test_assign_function(benchmark):
     m = UnitTriangleMesh()
     V = FunctionSpace(m, 'DG', 0)
@@ -123,7 +126,7 @@ def test_assign_function(benchmark):
     benchmark(lambda: f.assign(g))
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("fresh_expr",
                          [False, True],
                          ids=["reuse_expr", "fresh_expr"])
@@ -140,7 +143,7 @@ def test_assign_complicated(fresh_expr, benchmark):
     benchmark(lambda: f.assign(expr()))
 
 
-@pytest.mark.benchmark(warmup=True, disable_gc=True)
+@benchmark
 @pytest.mark.parametrize("val",
                          [lambda V: Constant(0),
                           lambda V: Expression("0"),

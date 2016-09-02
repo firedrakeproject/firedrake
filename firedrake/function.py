@@ -1,17 +1,14 @@
 from __future__ import absolute_import
 import numpy as np
-import FIAT
+import sys
 import ufl
 import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 
-import coffee.base as ast
-
 from pyop2 import op2
-from pyop2.logger import warning
 
-from firedrake import expression as expression_t
 from firedrake import functionspaceimpl
+from firedrake.logging import warning
 from firedrake import utils
 from firedrake import vector
 try:
@@ -21,21 +18,10 @@ except ImportError:
     cachetools = None
 
 
-__all__ = ['Function', 'interpolate', 'PointNotInDomainError']
+__all__ = ['Function', 'PointNotInDomainError']
 
 
 valuetype = np.float64
-
-
-def interpolate(expr, V):
-    """Interpolate an expression onto a new function in V.
-
-    :arg expr: an :class:`.Expression`.
-    :arg V: the :class:`.FunctionSpace` to interpolate into.
-
-    Returns a new :class:`.Function` in the space ``V``.
-    """
-    return Function(V).interpolate(expr)
 
 
 class _CFunction(ctypes.Structure):
@@ -60,7 +46,10 @@ class CoordinatelessFunction(ufl.Coefficient):
 
             Alternatively, another :class:`Function` may be passed here and its function space
             will be used to build this :class:`Function`.
-        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+        :param val: NumPy array-like (or :class:`pyop2.Dat` or
+            :class:`~.Vector`) providing initial values (optional).
+            This :class:`Function` will share data with the provided
+            value.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``valuetype``).
@@ -71,13 +60,18 @@ class CoordinatelessFunction(ufl.Coefficient):
 
         ufl.Coefficient.__init__(self, function_space.ufl_element())
 
+        self.comm = function_space.comm
         self._function_space = function_space
         self.uid = utils._new_uid()
         self._name = name or 'function_%d' % self.uid
         self._label = "a function"
         self._split = None
 
-        if isinstance(val, (op2.Dat, op2.DatView)):
+        if isinstance(val, vector.Vector):
+            # Allow constructing using a vector.
+            val = val.dat
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat)):
+            assert val.comm == self.comm
             self.dat = val
         else:
             self.dat = function_space.make_dat(val, dtype, self.name(), uid=self.uid)
@@ -86,6 +80,22 @@ class CoordinatelessFunction(ufl.Coefficient):
     def topological(self):
         """The underlying coordinateless function."""
         return self
+
+    def copy(self, deepcopy=False):
+        """Return a copy of this CoordinatelessFunction.
+
+        :kwarg deepcopy: If ``True``, the new
+            :class:`CoordinatelessFunction` will allocate new space
+            and copy values.  If ``False``, the default, then the new
+            :class:`CoordinatelessFunction` will share the dof values.
+        """
+        if deepcopy:
+            val = type(self.dat)(self.dat)
+        else:
+            val = self.dat
+        return type(self)(self.function_space(),
+                          val=val, name=self.name(),
+                          dtype=self.dat.dtype)
 
     def ufl_id(self):
         return self.uid
@@ -248,6 +258,17 @@ class Function(ufl.Coefficient):
         """The underlying coordinateless function."""
         return self._data
 
+    def copy(self, deepcopy=False):
+        """Return a copy of this Function.
+
+        :kwarg deepcopy: If ``True``, the new :class:`Function` will
+            allocate new space and copy values.  If ``False``, the
+            default, then the new :class:`Function` will share the dof
+            values.
+        """
+        val = self.topological.copy(deepcopy=deepcopy)
+        return type(self)(self.function_space(), val=val)
+
     def __getattr__(self, name):
         return getattr(self._data, name)
 
@@ -303,285 +324,8 @@ class Function(ufl.Coefficient):
 
         :param expression: :class:`.Expression` or a UFL expression to interpolate
         :returns: this :class:`Function` object"""
-        assert isinstance(expression, ufl.classes.Expr)
-
-        # Make sure we have an expression of the right length i.e. a value for
-        # each component in the value shape of each function space
-        dims = [np.prod(fs.ufl_element().value_shape(), dtype=int)
-                for fs in self.function_space()]
-        if np.prod(expression.ufl_shape, dtype=int) != sum(dims):
-            raise RuntimeError('Expression of length %d required, got length %d'
-                               % (sum(dims), np.prod(expression.ufl_shape, dtype=int)))
-
-        fs = self.function_space()
-        if not isinstance(expression, expression_t.Expression):
-            if len(fs) > 1:
-                raise NotImplementedError(
-                    "UFL expressions for mixed functions are not yet supported.")
-            self._interpolate(fs, self.dat, expression, subset)
-        elif hasattr(expression, 'eval'):
-            if len(fs) > 1:
-                raise NotImplementedError(
-                    "Python expressions for mixed functions are not yet supported.")
-            self._interpolate(fs, self.dat, expression, subset)
-        else:
-            # Slice the expression and pass in the right number of values for
-            # each component function space of this function
-            d = 0
-            for fs, dat, dim in zip(self.function_space(), self.dat, dims):
-                idx = d if fs.rank == 0 else slice(d, d+dim)
-                if fs.rank == 0:
-                    code = expression.code[idx]
-                else:
-                    # Reshape so the sub-expression we build has the right shape.
-                    code = expression.code[idx].reshape(fs.ufl_element().value_shape())
-                self._interpolate(fs, dat,
-                                  expression_t.Expression(code,
-                                                          **expression._kwargs),
-                                  subset)
-                d += dim
-        return self
-
-    @utils.known_pyop2_safe
-    def _interpolate(self, fs, dat, expression, subset):
-        """Interpolate expression onto a :class:`FunctionSpace`.
-
-        :param fs: :class:`.FunctionSpace`
-        :param dat: :class:`pyop2.Dat`
-        :param expression: :class:`.Expression`
-        """
-        to_element = fs.fiat_element
-        to_pts = []
-
-        # TODO very soon: look at the mapping associated with the UFL element;
-        # this needs to be "identity" (updated from "affine")
-        if to_element.mapping()[0] != "affine":
-            raise NotImplementedError("Can only interpolate onto elements \
-                with affine mapping. Try projecting instead")
-
-        for dual in to_element.dual_basis():
-            if not isinstance(dual, FIAT.functional.PointEvaluation):
-                raise NotImplementedError("Can only interpolate onto point \
-                    evaluation operators. Try projecting instead")
-            to_pts.append(dual.pt_dict.keys()[0])
-
-        if len(expression.ufl_shape) != len(fs.ufl_element().value_shape()):
-            raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
-                               % (len(expression.ufl_shape), len(fs.ufl_element().value_shape())))
-
-        if expression.ufl_shape != fs.ufl_element().value_shape():
-            raise RuntimeError('Shape mismatch: Expression shape %r, FunctionSpace shape %r'
-                               % (expression.ufl_shape, fs.ufl_element().value_shape()))
-
-        coords = fs.mesh().coordinates
-
-        if not isinstance(expression, expression_t.Expression):
-            kernel, oriented, coefficients = self._interpolate_ufl_expression(expression, to_pts, to_element, fs)
-            args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]])]
-            if oriented:
-                co = fs.mesh().cell_orientations()
-                args.append(co.dat(op2.READ, co.cell_node_map(), flatten=True))
-            for coefficient in coefficients:
-                args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=True))
-        elif hasattr(expression, "eval"):
-            kernel = self._interpolate_python_kernel(expression,
-                                                     to_pts, to_element, fs, coords)
-            args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()),
-                    coords.dat(op2.READ, coords.cell_node_map())]
-        elif expression.code is not None:
-            kernel = self._interpolate_c_kernel(expression,
-                                                to_pts, to_element, fs, coords)
-            args = [kernel, subset or self.cell_set,
-                    dat(op2.WRITE, fs.cell_node_map()[op2.i[0]]),
-                    coords.dat(op2.READ, coords.cell_node_map())]
-        else:
-            raise RuntimeError(
-                "Attempting to evaluate an Expression which has no value.")
-
-        if isinstance(expression, expression_t.Expression):
-            for _, arg in expression._user_args:
-                args.append(arg(op2.READ))
-
-        op2.par_loop(*args)
-
-    def _interpolate_ufl_expression(self, expression, to_pts, to_element, fs):
-        import collections
-        from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
-        from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
-        from ufl.algorithms.apply_derivatives import apply_derivatives
-        from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
-        from ufl.algorithms import extract_arguments, extract_coefficients
-        from tsfc import driver, fem, gem
-
-        # Imitate the compute_form_data processing pipeline
-        #
-        # Unfortunately, we cannot call compute_form_data here, since
-        # we only have an expression, not a form
-        expression = apply_algebra_lowering(expression)
-        expression = apply_derivatives(expression)
-        expression = apply_function_pullbacks(expression)
-        expression = apply_geometry_lowering(expression)
-        expression = apply_derivatives(expression)
-        expression = apply_geometry_lowering(expression)
-        expression = apply_derivatives(expression)
-
-        # Replace coordinates (if any)
-        if expression.ufl_domain():
-            assert fs.mesh() == expression.ufl_domain()
-            expression = fem.replace_coordinates(expression, fs.mesh().coordinates)
-
-        if extract_arguments(expression):
-            return ValueError("Cannot interpolate UFL expression with Arguments!")
-
-        # Prepare Coefficients
-        arglist = []
-        prepare = []
-        coefficient_map = {}
-
-        coefficients = extract_coefficients(expression)
-        for i, coefficient in enumerate(coefficients):
-            funarg, prepare_, variable = driver.prepare_coefficient('cell', coefficient, "w_%d" % i)
-            arglist.append(funarg)
-            prepare.extend(prepare_)
-            coefficient_map[coefficient] = variable
-
-        point_index = gem.Index(name='p')
-        tabulation_manager = fem.TabulationManager('cell', fs.mesh().ufl_cell(), to_pts)
-        nonfem = fem.process('cell', expression, tabulation_manager,
-                             None, point_index, (), coefficient_map,
-                             collections.defaultdict(gem.Index))
-        assert len(nonfem) == 1 and set(nonfem[0].free_indices) <= set([point_index])
-
-        # Deal with non-scalar expressions
-        tensor_indices = ()
-        if fs.shape:
-            tensor_indices = tuple(gem.Index() for s in fs.shape)
-            nonfem = [gem.Indexed(nonfem[0], tensor_indices)]
-
-        # Build kernel body
-        return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
-        return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
-        body, oriented = driver.build_kernel_body([return_expr], nonfem, [point_index],
-                                                  index_names={point_index: 'p'})
-        if oriented:
-            decl = ast.Decl("int *restrict *restrict",
-                            ast.Symbol("cell_orientations"),
-                            qualifiers=["const"])
-            arglist.insert(0, decl)
-
-        # Build kernel
-        arglist.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
-        kernel_code = ast.FunDecl("void", "expression_kernel", arglist,
-                                  ast.Block(prepare + [body]),
-                                  pred=["static", "inline"])
-
-        return op2.Kernel(kernel_code, "expression_kernel"), oriented, coefficients
-
-    def _interpolate_python_kernel(self, expression, to_pts, to_element, fs, coords):
-        """Produce a :class:`PyOP2.Kernel` wrapping the eval method on the
-        function provided."""
-
-        coords_space = coords.function_space()
-        coords_element = coords_space.fiat_element
-
-        X_remap = coords_element.tabulate(0, to_pts).values()[0]
-
-        # The par_loop will just pass us arguments, since it doesn't
-        # know about keyword args at all so unpack into a dict that we
-        # can pass to the user's eval method.
-        def kernel(output, x, *args):
-            kwargs = {}
-            for (slot, _), arg in zip(expression._user_args, args):
-                kwargs[slot] = arg
-            X = np.dot(X_remap.T, x)
-
-            for i in range(len(output)):
-                # Pass a slice for the scalar case but just the
-                # current vector in the VFS case. This ensures the
-                # eval method has a Dolfin compatible API.
-                expression.eval(output[i:i+1, ...] if np.rank(output) == 1 else output[i, ...],
-                                X[i:i+1, ...] if np.rank(X) == 1 else X[i, ...], **kwargs)
-
-        return kernel
-
-    def _interpolate_c_kernel(self, expression, to_pts, to_element, fs, coords):
-        """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
-
-        coords_space = coords.function_space()
-        coords_element = coords_space.fiat_element
-
-        names = {v[0] for v in expression._user_args}
-
-        X = coords_element.tabulate(0, to_pts).values()[0]
-
-        # Produce C array notation of X.
-        X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
-
-        A = utils.unique_name("A", names)
-        X = utils.unique_name("X", names)
-        x_ = utils.unique_name("x_", names)
-        k = utils.unique_name("k", names)
-        d = utils.unique_name("d", names)
-        i_ = utils.unique_name("i", names)
-        # x is a reserved name.
-        x = "x"
-        if "x" in names:
-            raise ValueError("cannot use 'x' as a user-defined Expression variable")
-        ass_exp = [ast.Assign(ast.Symbol(A, (k,), ((len(expression.code), i),)),
-                              ast.FlatBlock("%s" % code))
-                   for i, code in enumerate(expression.code)]
-        vals = {
-            "X": X,
-            "x": x,
-            "x_": x_,
-            "k": k,
-            "d": d,
-            "i": i_,
-            "x_array": X_str,
-            "dim": coords_space.dim,
-            "xndof": coords_element.space_dimension(),
-            # FS will always either be a functionspace or
-            # vectorfunctionspace, so just accessing dim here is safe
-            # (we don't need to go through ufl_element.value_shape())
-            "nfdof": to_element.space_dimension() * np.prod(fs.dim, dtype=int),
-            "ndof": to_element.space_dimension(),
-            "assign_dim": np.prod(expression.value_shape(), dtype=int)
-        }
-        init = ast.FlatBlock("""
-const double %(X)s[%(ndof)d][%(xndof)d] = %(x_array)s;
-
-double %(x)s[%(dim)d];
-const double pi = 3.141592653589793;
-
-""" % vals)
-        block = ast.FlatBlock("""
-for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
-  %(x)s[%(d)s] = 0;
-  for (unsigned int %(i)s=0; %(i)s < %(xndof)d; %(i)s++) {
-        %(x)s[%(d)s] += %(X)s[%(k)s][%(i)s] * %(x_)s[%(i)s][%(d)s];
-  };
-};
-
-""" % vals)
-        loop = ast.c_for(k, "%(ndof)d" % vals, ast.Block([block] + ass_exp,
-                                                         open_scope=True))
-        user_args = []
-        user_init = []
-        for _, arg in expression._user_args:
-            if arg.shape == (1, ):
-                user_args.append(ast.Decl("double *", "%s_" % arg.name))
-                user_init.append(ast.FlatBlock("const double %s = *%s_;" %
-                                               (arg.name, arg.name)))
-            else:
-                user_args.append(ast.Decl("double *", arg.name))
-        kernel_code = ast.FunDecl("void", "expression_kernel",
-                                  [ast.Decl("double", ast.Symbol(A, (int("%(nfdof)d" % vals),))),
-                                   ast.Decl("double**", x_)] + user_args,
-                                  ast.Block(user_init + [init, loop],
-                                            open_scope=False))
-        return op2.Kernel(kernel_code, "expression_kernel")
+        from firedrake import interpolation
+        return interpolation.interpolate(expression, self, subset=subset)
 
     @utils.known_pyop2_safe
     def assign(self, expr, subset=None):
@@ -681,7 +425,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         return self
 
     @utils.cached_property
-    def _ctypes(self):
+    def _constant_ctypes(self):
         # Retrieve data from Python object
         function_space = self.function_space()
         mesh = function_space.mesh()
@@ -699,6 +443,12 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
         c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
         c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        return c_function
+
+    @property
+    def _ctypes(self):
+        mesh = self.ufl_domain()
+        c_function = self._constant_ctypes
         c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
 
         # Return pointer
@@ -719,12 +469,9 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
 
     def at(self, arg, *args, **kwargs):
         """Evaluate function at points."""
+        # Need to ensure data is up-to-date for reading
+        self.dat._force_evaluation(read=True, write=False)
         from mpi4py import MPI
-        halo = self.dof_dset.halo
-        if isinstance(halo, tuple):
-            # mixed function space
-            halo = halo[0]
-        comm = halo.comm.tompi4py()
 
         if args:
             arg = (arg,) + args
@@ -751,9 +498,9 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             raise ValueError("Point dimension (%d) does not match geometric dimension (%d)." % (arg.shape[-1], gdim))
 
         # Check if we have got the same points on each process
-        root_arg = comm.bcast(arg, root=0)
+        root_arg = self.comm.bcast(arg, root=0)
         same_arg = arg.shape == root_arg.shape and np.allclose(arg, root_arg)
-        diff_arg = comm.allreduce(int(not same_arg), op=MPI.SUM)
+        diff_arg = self.comm.allreduce(int(not same_arg), op=MPI.SUM)
         if diff_arg:
             raise ValueError("Points to evaluate are inconsistent among processes.")
 
@@ -797,7 +544,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
             else:
                 return np.allclose(a, b)
 
-        all_results = comm.allgather(l_result)
+        all_results = self.comm.allgather(l_result)
         g_result = [None] * len(points)
         for results in all_results:
             for i, result in results:
@@ -852,5 +599,9 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
 
     if ldargs is None:
         ldargs = []
-    ldargs += ["-lspatialindex"]
-    return compilation.load(src, "cpp", c_name, cppargs=["-I%s" % path.dirname(__file__)], ldargs=ldargs)
+    ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
+    return compilation.load(src, "c", c_name,
+                            cppargs=["-I%s" % path.dirname(__file__),
+                                     "-I%s/include" % sys.prefix],
+                            ldargs=ldargs,
+                            comm=function.comm)

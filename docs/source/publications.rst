@@ -24,14 +24,14 @@ If you cannot use this approach, there are a number of papers.  Those
 which are relevant depend a little on which functionality you used.
 
 For Firedrake itself, please cite :cite:`Rathgeber2015`.  If you use
-the :doc:`extruded mesh </extruded-meshes>` functionality, or
-quadrilateral meshes, please cite :cite:`McRae2014`.  Additionally,
-when using quadrilateral meshes, please also cite :cite:`Homolya2016`.
+the :doc:`extruded mesh </extruded-meshes>` functionality please cite
+:cite:`McRae2014` and :cite:`Bercea2016`. When using quadrilateral meshes,
+please cite :cite:`Homolya2016` and :cite:`McRae2014`.
 
 If your work relies on the kernel-level performance optimisations that
 Firedrake performs using `COFFEE
 <http://github.com/coneoproject/COFFEE>`_, please cite the
-COFFEE paper :cite:`Luporini2015`.
+COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2016`.
 
 .. bibliography:: _static/bibliography.bib
 
@@ -52,8 +52,15 @@ references to the exact versions of Firedrake and its dependencies
 which you used. Firedrake supports this through :doc:`Zenodo integration <zenodo>`.
 
 
-Journal papers and conference proceedings about or using Firedrake
-------------------------------------------------------------------
+Journal papers and conference proceedings about Firedrake
+---------------------------------------------------------
+
+.. raw:: html
+
+   <script src="http://www.bibbase.org/show?bib=http%3A%2F%2Fwww.firedrakeproject.org%2F_static%2Fbibliography.bib&jsonp=1"></script>
+
+Journal papers and conference proceedings using Firedrake
+---------------------------------------------------------
 
 .. rst-class:: emphasis
 
@@ -62,4 +69,4 @@ Journal papers and conference proceedings about or using Firedrake
 
 .. raw:: html
 
-   <script src="http://www.bibbase.org/show?bib=http%3A%2F%2Fwww.firedrakeproject.org%2F_static%2Fbibliography.bib&jsonp=1"></script>
+   <script src="http://www.bibbase.org/show?bib=http%3A%2F%2Fwww.firedrakeproject.org%2F_static%2Ffiredrake-apps.bib&jsonp=1"></script>

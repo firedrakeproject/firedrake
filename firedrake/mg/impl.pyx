@@ -13,7 +13,7 @@ cimport petsc4py.PETSc as PETSc
 
 np.import_array()
 
-include "../dmplex.pxi"
+include "../dmplexinc.pxi"
 include "firedrakeimpl.pxi"
 
 
@@ -70,7 +70,7 @@ def create_lgmap(PETSc.DM dm):
         PetscInt start, end
 
     # Not necessary on one process
-    if MPI.comm.size == 1:
+    if dm.comm.size == 1:
         return None
     CHKERR(DMPlexCreatePointNumbering(dm.dm, &iset.iset))
     CHKERR(ISLocalToGlobalMappingCreateIS(iset.iset, &lgmap.lgm))
@@ -164,7 +164,7 @@ def coarse_to_fine_cells(mc, mf):
     # Walk owned fine cells:
     fStart, fEnd = 0, nfine
 
-    if MPI.comm.size > 1:
+    if mc.comm.size > 1:
         # Compute global numbers of original cell numbers
         mf._overlapped_lgmap.apply(fn2o, result=fn2o)
         # Compute local numbers of original cells on non-overlapped mesh
@@ -248,7 +248,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
 
     cvertices = P1c.cell_node_map().values
     fvertices = P1f.cell_node_map().values
-    if MPI.comm.size > 1:
+    if coarse.comm.size > 1:
         # Convert values in indices to points in the overlapped
         # (rather than non-overlapped) mesh.
         # Convert to global numbers
@@ -457,7 +457,8 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
 
     cell = coarse.fiat_element.get_reference_element()
     if isinstance(cell, FIAT.reference_element.TensorProductCell):
-        tdim = cell.A.get_spatial_dimension()
+        basecell, _ = cell.cells
+        tdim = basecell.get_spatial_dimension()
     else:
         tdim = cell.get_spatial_dimension()
 
@@ -513,8 +514,11 @@ def filter_exterior_facet_labels(PETSc.DM plex):
     receives its label.  But we want the facet label to really only
     apply to facets, so clear the labels from everything else."""
     cdef:
-        PetscInt pStart, pEnd, fStart, fEnd, p, ext_val
+        PetscInt pStart, pEnd, fStart, fEnd, p, value
         PetscBool has_bdy_ids, has_bdy_faces
+        DMLabel exterior_facets = NULL
+        DMLabel boundary_ids = NULL
+        DMLabel boundary_faces = NULL
 
     pStart, pEnd = plex.getChart()
     fStart, fEnd = plex.getHeightStratum(1)
@@ -525,16 +529,21 @@ def filter_exterior_facet_labels(PETSc.DM plex):
     has_bdy_ids = plex.hasLabel("boundary_ids")
     has_bdy_faces = plex.hasLabel("boundary_faces")
 
+    CHKERR(DMGetLabel(plex.dm, <char*>"exterior_facets", &exterior_facets))
+    if has_bdy_ids:
+        CHKERR(DMGetLabel(plex.dm, <char*>"boundary_ids", &boundary_ids))
+    if has_bdy_faces:
+        CHKERR(DMGetLabel(plex.dm, <char*>"boundary_faces", &boundary_faces))
     for p in range(pStart, pEnd):
         if p < fStart or p >= fEnd:
-            CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"exterior_facets", p, &ext_val))
-            if ext_val >= 0:
-                CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"exterior_facets", p, ext_val))
+            CHKERR(DMLabelGetValue(exterior_facets, p, &value))
+            if value >= 0:
+                CHKERR(DMLabelClearValue(exterior_facets, p, value))
             if has_bdy_ids:
-                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_ids", p, &ext_val))
-                if ext_val >= 0:
-                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_ids", p, ext_val))
+                CHKERR(DMLabelGetValue(boundary_ids, p, &value))
+                if value >= 0:
+                    CHKERR(DMLabelClearValue(boundary_ids, p, value))
             if has_bdy_faces:
-                CHKERR(DMPlexGetLabelValue(plex.dm, <char *>"boundary_faces", p, &ext_val))
-                if ext_val >= 0:
-                    CHKERR(DMPlexClearLabelValue(plex.dm, <char *>"boundary_faces", p, ext_val))
+                CHKERR(DMLabelGetValue(boundary_faces, p, &value))
+                if value >= 0:
+                    CHKERR(DMLabelClearValue(boundary_faces, p, value))

@@ -62,6 +62,21 @@ def test_refining_overlapped_mesh_fails_parallel():
         MeshHierarchy(m, 1)
 
 
+def test_function_hierarchy_warning():
+    m = UnitSquareMesh(4, 4)
+
+    mh = MeshHierarchy(m, 1)
+
+    fsh = FunctionSpaceHierarchy(mh, 'DG', 1)
+
+    fh = FunctionHierarchy(fsh)
+
+    with pytest.raises(AttributeError):
+        fh._function_space
+
+    assert len(fh) == len(fsh)
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))

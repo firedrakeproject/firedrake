@@ -1,6 +1,5 @@
 # Utility functions to derive global and local numbering from DMPlex
 from petsc import PETSc
-from pyop2 import MPI as _MPI
 import numpy as np
 cimport numpy as np
 import cython
@@ -17,7 +16,7 @@ np.import_array()
 cdef extern from "mpi-compat.h":
     pass
 
-include "dmplex.pxi"
+include "dmplexinc.pxi"
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -535,14 +534,14 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
     fStart, fEnd = plex.getHeightStratum(1)
     plex.createLabel(ext_label)
-    CHKERR(DMPlexGetLabel(plex.dm, ext_label, &lbl_ext))
+    CHKERR(DMGetLabel(plex.dm, ext_label, &lbl_ext))
     CHKERR(DMLabelCreateIndex(lbl_ext, fStart, fEnd))
 
     # Mark boundaries as exterior_facets
     if label_boundary:
         plex.markBoundaryFaces(ext_label)
     plex.createLabel(int_label)
-    CHKERR(DMPlexGetLabel(plex.dm, int_label, &lbl_int))
+    CHKERR(DMGetLabel(plex.dm, int_label, &lbl_int))
     CHKERR(DMLabelCreateIndex(lbl_int, fStart, fEnd))
 
     for facet in range(fStart, fEnd):
@@ -619,17 +618,17 @@ def mark_entity_classes(PETSc.DM plex):
     plex.createLabel("op2_exec_halo")
     plex.createLabel("op2_non_exec_halo")
 
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &lbl_core))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
+    CHKERR(DMGetLabel(plex.dm, "op2_core", &lbl_core))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &lbl_non_core))
+    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &lbl_exec))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &lbl_non_exec))
 
     CHKERR(DMLabelCreateIndex(lbl_core, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_non_core, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_exec, pStart, pEnd))
     CHKERR(DMLabelCreateIndex(lbl_non_exec, pStart, pEnd))
 
-    if _MPI.comm.size > 1:
+    if plex.comm.size > 1:
         # Mark exec_halo from point overlap SF
         point_sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(point_sf.sf, &nroots, &nleaves,
@@ -662,6 +661,7 @@ def mark_entity_classes(PETSc.DM plex):
             if vStart <= closure[2*ci] < vEnd:
                 vertices[vi] = closure[2*ci]
                 vi += 1
+        v_per_cell = vi
 
         # Mark all cells in the star of each vertex
         for vi in range(v_per_cell):
@@ -795,6 +795,40 @@ def get_entity_classes(PETSc.DM plex):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
+                     subdomain_id):
+    """Get the cells marked by a given subdomain_id.
+
+    :arg plex: The DM for the mesh topology
+    :arg cell_numbering: Section mapping plex cell points to firedrake cell indices.
+    :arg subdomain_id: The subdomain_id to look for.
+
+    :raises ValueError: if the subdomain_id is not valid.
+    :returns: A numpy array (possibly empty) of the cell ids.
+    """
+    cdef:
+        PetscInt i, cEnd, offset, c
+        np.ndarray[np.int32_t, ndim=1, mode="c"] cells
+        np.ndarray[PetscInt, ndim=1, mode="c"] indices
+
+    if not plex.hasLabel("Cell Sets"):
+        return np.empty(0, dtype=np.int32)
+    vals = plex.getLabelIdIS("Cell Sets").indices
+    if subdomain_id not in vals:
+        raise ValueError("Invalid subdomain_id %d not in %s" % (subdomain_id, vals))
+
+    indices = plex.getStratumIS("Cell Sets", subdomain_id).indices
+    cells = np.empty(indices.shape[0], dtype=np.int32)
+    cEnd = indices.shape[0]
+    for i in range(cEnd):
+        c = indices[i]
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &offset))
+        cells[i] = offset
+    return cells
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
     """Builds a list of all facets ordered according to the given numbering.
 
@@ -837,7 +871,7 @@ def get_facets_by_class(PETSc.DM plex, label,
     label_chr = <char*>label
     dim = plex.getDimension()
     fStart, fEnd = plex.getHeightStratum(1)
-    CHKERR(DMPlexGetLabel(plex.dm, label, &lbl_facets))
+    CHKERR(DMGetLabel(plex.dm, label, &lbl_facets))
     CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=np.int32)
@@ -848,7 +882,7 @@ def get_facets_by_class(PETSc.DM plex, label,
                                   "op2_non_core",
                                   "op2_exec_halo",
                                   "op2_non_exec_halo"]):
-        CHKERR(DMPlexGetLabel(plex.dm, op2class, &lbl_class))
+        CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
         nclass = plex.getStratumSize(op2class, 1)
         if nclass > 0:
             for o in range(ordering.shape[0]):
@@ -932,6 +966,7 @@ def plex_renumbering(PETSc.DM plex,
     """
     cdef:
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
+        PetscInt pStart, pEnd, cell
         np.ndarray[np.int32_t, ndim=1, mode="c"] lidx, ncells
         PetscInt *facets = NULL
         PetscInt *closure = NULL
@@ -951,10 +986,10 @@ def plex_renumbering(PETSc.DM plex,
     ncells = np.zeros(4, dtype=np.int32)
 
     # Get label pointers and label-specific array indices
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_core", &labels[0]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_core", &labels[1]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
-    CHKERR(DMPlexGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
+    CHKERR(DMGetLabel(plex.dm, "op2_core", &labels[0]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_core", &labels[1]))
+    CHKERR(DMGetLabel(plex.dm, "op2_exec_halo", &labels[2]))
+    CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
     lidx = np.zeros(4, dtype=np.int32)
     lidx[1] = sum(entity_classes[:, 0])
     lidx[2] = sum(entity_classes[:, 1])
@@ -1018,7 +1053,7 @@ def plex_renumbering(PETSc.DM plex,
         CHKERR(ISRestoreIndices(facet_is.iset, &facets))
 
     CHKERR(PetscBTDestroy(&seen))
-    perm_is = PETSc.IS().create()
+    perm_is = PETSc.IS().create(comm=plex.comm)
     perm_is.setType("general")
     CHKERR(ISGeneralSetIndices(perm_is.iset, pEnd - pStart,
                                perm, PETSC_OWN_POINTER))
@@ -1044,7 +1079,7 @@ def get_cell_remote_ranks(PETSc.DM plex):
     ncells = cEnd - cStart
 
     result = np.full(ncells, -1, dtype=np.int32)
-    if _MPI.comm.size > 1:
+    if plex.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
@@ -1163,7 +1198,7 @@ cdef inline void get_communication_lists(
                       buffer, inverse of 'facets' (return value)
     """
     cdef:
-        int comm_size = _MPI.comm.size
+        int comm_size = plex.comm.size
         PetscInt cStart, cEnd
         PetscInt nfacets, fStart, fEnd, f
         PetscInt i, k, support_size
@@ -1535,7 +1570,8 @@ cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
 cdef inline void exchange_edge_orientation_data(
     np.int32_t nranks, np.int32_t *ranks, np.int32_t *offsets,
     np.ndarray[np.int32_t, ndim=1, mode="c"] ours,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] theirs):
+    np.ndarray[np.int32_t, ndim=1, mode="c"] theirs,
+    MPI.Comm comm):
 
     """Exchange edge orientation data between neighbouring MPI nodes.
 
@@ -1544,18 +1580,19 @@ cdef inline void exchange_edge_orientation_data(
     :arg offsets: Offset for each neighbour in the data buffer
     :arg ours: Local data, to be sent to neigbours
     :arg theirs: Remote data, to be received from neighbours (return value)
+    :arg comm: MPI Communicator.
     """
     cdef np.int32_t ri
 
     # Initiate receiving
     recv_reqs = []
     for ri in range(nranks):
-        recv_reqs.append(_MPI.comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        recv_reqs.append(comm.Irecv(theirs[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Initiate sending
     send_reqs = []
     for ri in range(nranks):
-        send_reqs.append(_MPI.comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
+        send_reqs.append(comm.Isend(ours[offsets[ri] : offsets[ri+1]], ranks[ri]))
 
     # Wait for completion
     for req in recv_reqs:
@@ -1584,6 +1621,7 @@ def quadrilateral_facet_orientations(
         np.int32_t *facets = NULL
         np.int32_t *facet2index = NULL
 
+        MPI.Comm comm = plex.comm.tompi4py()
         PetscInt nfacets, nfacets_shared, fStart, fEnd
 
         np.ndarray[np.int32_t, ndim=1, mode="c"] affects
@@ -1619,7 +1657,7 @@ def quadrilateral_facet_orientations(
     # the sign tells the edge direction. Positive sign implies that the edge
     # points from the vertex with the smaller global number to the vertex with
     # the greater global number, negative implies otherwise.
-    ours = _MPI.comm.size * np.arange(nfacets_shared, dtype=np.int32) + _MPI.comm.rank
+    ours = comm.size * np.arange(nfacets_shared, dtype=np.int32) + comm.rank
 
     # We update these values based on the local connections
     # before we do any communication.
@@ -1637,10 +1675,10 @@ def quadrilateral_facet_orientations(
     theirs = np.empty_like(ours)
 
     # Synchronise shared edge directions in parallel
-    conflict = int(_MPI.comm.size > 1)
+    conflict = int(comm.size > 1)
     while conflict != 0:
         # Populate 'theirs' by communication from the 'ours' of others.
-        exchange_edge_orientation_data(nranks, ranks, offsets, ours, theirs)
+        exchange_edge_orientation_data(nranks, ranks, offsets, ours, theirs, comm)
 
         conflict = 0
         for i in range(nfacets_shared):
@@ -1677,7 +1715,7 @@ def quadrilateral_facet_orientations(
 
         # If there was a conflict anywhere, do another round
         # of communication everywhere.
-        conflict = _MPI.comm.allreduce(conflict)
+        conflict = comm.allreduce(conflict)
 
     CHKERR(PetscFree(ranks))
     CHKERR(PetscFree(offsets))
@@ -1837,11 +1875,11 @@ def exchange_cell_orientations(
 
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
-    if _MPI.comm.size > 1:
+    if plex.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
 
-        new_section = PETSc.Section().create()
+        new_section = PETSc.Section().create(comm=plex.comm)
         CHKERR(DMPlexDistributeData(plex.dm, sf.sf, section.sec,
                                     dtype.ob_mpi, <void *>orientations.data,
                                     new_section.sec, <void **>&new_values))
@@ -1860,13 +1898,15 @@ def exchange_cell_orientations(
         CHKERR(PetscFree(new_values))
 
 
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
     """Build an array of global numbers for local dofs
 
     :arg lsec: Section describing local dof layout and numbers.
     :arg gsec: Section describing global dof layout and numbers."""
     cdef:
-        PetscInt p, pStart, pEnd, dof, loff, goff
+        PetscInt c, p, pStart, pEnd, dof, loff, goff
         np.ndarray[PetscInt, ndim=1, mode="c"] val
 
     val = np.empty(lsec.getStorageSize(), dtype=PETSc.IntType)
@@ -1915,7 +1955,7 @@ def prune_sf(PETSc.SF sf):
             new_iremote[j].index = iremote[i].index
             j += 1
 
-    pruned_sf = PETSc.SF().create()
+    pruned_sf = PETSc.SF().create(comm=sf.comm)
     CHKERR(PetscSFSetGraph(pruned_sf.sf, nroots, new_nleaves,
                            new_ilocal, PETSC_OWN_POINTER,
                            new_iremote, PETSC_OWN_POINTER))

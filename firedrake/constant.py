@@ -90,6 +90,9 @@ class Constant(ufl.Coefficient):
         """Return a null function space."""
         return None
 
+    def split(self):
+        return (self,)
+
     def cell_node_map(self, bcs=None):
         """Return a null cell to node map."""
         if bcs is not None:

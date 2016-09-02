@@ -28,11 +28,6 @@ http://firedrakeproject.org/obtaining_pyop2.html#petsc
 """)
 
 import versioneer
-versioneer.versionfile_source = 'firedrake/_version.py'
-versioneer.versionfile_build = 'firedrake/_version.py'
-versioneer.tag_prefix = 'v'
-versioneer.parentdir_prefix = 'firedrake-'
-versioneer.VCS = "git"
 
 cmdclass = versioneer.get_cmdclass()
 
@@ -43,20 +38,15 @@ try:
     spatialindex_sources = ["firedrake/spatialindex.pyx"]
     h5iface_sources = ["firedrake/hdf5interface.pyx"]
     mg_sources = ["firedrake/mg/impl.pyx"]
-    evtk_sources = ['evtk/cevtk.pyx']
 except ImportError:
     # No cython, dmplex.c must be generated in distributions.
     dmplex_sources = ["firedrake/dmplex.c"]
     spatialindex_sources = ["firedrake/spatialindex.cpp"]
     h5iface_sources = ["firedrake/hdf5interface.c"]
     mg_sources = ["firedrake/mg/impl.c"]
-    evtk_sources = ['evtk/cevtk.c']
 
 if 'CC' not in env:
     env['CC'] = "mpicc"
-
-if 'CXX' not in env:
-    env['CXX'] = "mpic++"
 
 petsc_dirs = get_petsc_dir()
 include_dirs = [np.get_include(), petsc4py.get_include()]
@@ -71,10 +61,11 @@ setup(name='firedrake',
       author="Imperial College London and others",
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
-      packages=["firedrake", "evtk", "firedrake.mg", "firedrake_configuration"],
+      packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter",
+                "firedrake.matrix_free", "firedrake_configuration"],
       package_data={"firedrake": ["firedrake_geometry.h",
                                   "evaluate.h",
-                                  "locate.cpp"]},
+                                  "locate.c"]},
       scripts=glob('scripts/*'),
       ext_modules=[Extension('firedrake.dmplex',
                              sources=dmplex_sources,
@@ -92,15 +83,15 @@ setup(name='firedrake',
                              ["-Wl,-rpath,%s/lib" % sys.prefix]),
                    Extension('firedrake.spatialindex',
                              sources=spatialindex_sources,
-                             include_dirs=[np.get_include()],
-                             libraries=["spatialindex"],
-                             language="c++"),
+                             include_dirs=[np.get_include(),
+                                           "%s/include" % sys.prefix],
+                             libraries=["spatialindex_c"],
+                             extra_link_args=["-L%s/lib" % sys.prefix,
+                                              "-Wl,-rpath,%s/lib" % sys.prefix]),
                    Extension('firedrake.mg.impl',
                              sources=mg_sources,
                              include_dirs=include_dirs,
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
-                   Extension('evtk.cevtk', evtk_sources,
-                             include_dirs=[np.get_include()])])
+                             ["-Wl,-rpath,%s/lib" % sys.prefix])])
