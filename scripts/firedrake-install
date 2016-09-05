@@ -41,7 +41,7 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["developer", "sudo", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
-                           "virtualenv_name", "slepc", "slope"]
+                           "virtualenv_name", "slepc", "slope", "packages"]
 
 
 if os.path.basename(__file__) == "firedrake-install":
@@ -122,6 +122,8 @@ honoured.""",
     parser.add_argument("--virtualenv-name", default="firedrake",
                         type=str, action="store",
                         help="Name of the virtualenv to create (default is 'firedrake')")
+    parser.add_argument("--install", action="append", dest="packages",
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
 
     if travis:
         parser.add_argument("--write-cache", action="store_true",
@@ -132,6 +134,7 @@ honoured.""",
         branches = {package: branch for package, branch in args.package_branch}
 
     args.prefix = False  # Disabled as untested
+    args.packages = args.packages or []
 
     config = FiredrakeConfiguration(args)
 else:
@@ -156,6 +159,8 @@ else:
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
+    parser.add_argument("--install", action="append", dest="packages",
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
 
     args = parser.parse_args()
     # The following args modifications are retained for backwards compatibility.
@@ -175,6 +180,7 @@ else:
     args.slepc = args.slepc or args.install_slepc
     args.virtualenv_name = False
     args.virtualenv_name = args.virtualenv_name or "firedrake"
+    args.packages = args.packages or []
 
     config = None
     if not args.ignore_saved_config:
@@ -384,17 +390,23 @@ def git_clone(url):
 def list_cloned_dependencies(name):
     log.info("Finding dependencies of %s\n" % name)
     deps = OrderedDict()
-    for dep in open(name + "/requirements-git.txt", "r"):
-        name = split_requirements_url(dep.strip())[0]
-        deps[name] = dep.strip()
+    try:
+        for dep in open(name + "/requirements-git.txt", "r"):
+            name = split_requirements_url(dep.strip())[0]
+            deps[name] = dep.strip()
+    except IOError:
+        pass
     return deps
 
 
 def clone_dependencies(name):
     log.info("Cloning the dependencies of %s" % name)
     deps = []
-    for dep in open(name + "/requirements-git.txt", "r"):
-        deps.append(git_clone(dep.strip()))
+    try:
+        for dep in open(name + "/requirements-git.txt", "r"):
+            deps.append(git_clone(dep.strip()))
+    except IOError:
+        pass
     return deps
 
 
@@ -1071,6 +1083,11 @@ if mode == "install":
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]
 
+    for p in options["packages"]:
+        name = git_clone(p)
+        packages.extend(clone_dependencies(name))
+        packages += [name]
+
     if args.honour_petsc_dir:
         packages.remove("petsc")
 
@@ -1128,6 +1145,10 @@ else:
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
+    for p in options["packages"]:
+        name = split_requirements_url(p)[0]
+        deps.update(list_cloned_dependencies(name))
+        deps[name] = p
     packages = deps.keys()
     packages += ["firedrake"]
 
