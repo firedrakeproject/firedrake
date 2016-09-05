@@ -216,7 +216,7 @@ pyinstall = ["python", "setup.py", "install"]
 pipinstall = sudopip + ["install"]
 # virtualenv install
 # Use the pip from the virtualenv
-firedrake_env = args.virtualenv_name
+firedrake_env = options["virtualenv_name"]
 sudopip = [os.getcwd() + "/%s/bin/pip" % firedrake_env]
 pipinstall = sudopip + ["install"]
 python = [os.getcwd() + "/%s/bin/python" % firedrake_env]
@@ -1190,9 +1190,9 @@ else:
 
 if options["adjoint"]:
     build_and_install_adjoint()
-if args.slepc:
+if options["slepc"]:
     build_and_install_slepc()
-if args.slope:
+if options["slope"]:
     build_and_install_slope()
 
 os.chdir("../..")
