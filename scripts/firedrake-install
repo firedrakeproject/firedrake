@@ -137,6 +137,8 @@ honoured.""",
 else:
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument("--ignore-saved-config", "--ignore_saved_config",action="store_true",
+                        help="Do not load saved configurations from configuration.json")
     parser.add_argument("--no-update-script", action="store_false", dest="update_script",
                         help="Do not update script before updating Firedrake.")
     parser.add_argument("--rebuild", action="store_true",
@@ -173,11 +175,14 @@ else:
     args.slepc = args.slepc or args.install_slepc
     args.virtualenv_name = False
     args.virtualenv_name = args.virtualenv_name or "firedrake"
-    try:
-        import firedrake_configuration
-        config = firedrake_configuration.get_config()
-    except:
-        config = FiredrakeConfiguration(args)
+
+    config = None
+    if not args.ignore_saved_config:
+        try:
+            import firedrake_configuration
+            config = firedrake_configuration.get_config()
+        except:
+            config = FiredrakeConfiguration(args)
     if not config:
         config = FiredrakeConfiguration(args)
 
