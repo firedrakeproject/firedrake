@@ -41,7 +41,7 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["developer", "sudo", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
-                           "virtualenv_name"]
+                           "virtualenv_name", "slepc", "slope"]
 
 
 if os.path.basename(__file__) == "firedrake-install":
@@ -180,9 +180,6 @@ else:
         config = FiredrakeConfiguration(args)
     if not config:
         config = FiredrakeConfiguration(args)
-
-    if args.install_adjoint:
-        config["options"]["adjoint"] = True
 
 class directory(object):
     """Context manager that executes body in a given directory"""
