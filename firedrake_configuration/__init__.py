@@ -23,7 +23,7 @@ def write_config(config):
     `firedrake-update`."""
 
     # Create the json as a separate step
-    json_output = json.dumps(_config)
+    json_output = json.dumps(config)
     with file(os.path.join(os.path.dirname(__file__),
                            "configuration.json"), "w") as f:
         f.write(json_output)
