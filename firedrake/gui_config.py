@@ -79,11 +79,12 @@ def show_config_gui(parameters):
         :arg paramaters: parameters as a
             :class:`firedrake.parameters.Parameters` class
         """
+        parameters = parameters.unwrapped_dict
         for key in parameters.keys():
             if isinstance(parameters[key], Parameters):
                 refresh_params(parameters[key])
             else:
-                key.variable.set(str(parameters.unwrapped_dict[key]))
+                key.variable.set(str(parameters[key]))
 
     def parse_input_dict(parameters):
         """Generate a dictionary of values from variables
@@ -294,6 +295,7 @@ item, then click - button to delete from list",
         :arg labelframe: :class:`ttk.Labelframe` to place the GUI elements
         """
         global row_count
+        parameters = parameters.unwrapped_dict
         keys = sorted(parameters.keys())
         ui_elems = []
         for key in keys:
@@ -336,7 +338,7 @@ item, then click - button to delete from list",
                 label_key.grid(column=1, row=row_count, sticky=(W))
                 ui_elems.append(label_key)
                 key.variable = StringVar()
-                key.variable.set(str(parameters.unwrapped_dict[key]))
+                key.variable.set(str(parameters[key]))
                 ui_elems.extend(create_ui_element(labelframe, key, row_count))
 
                 def help_box(key):
