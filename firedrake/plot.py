@@ -103,7 +103,10 @@ def plot(function,
     :arg function: The function to plot.
     :arg num_sample_points: Number of Sample points per element, ignored if
         degree < 4 where an exact Bezier curve will be used instead of
-        sampling at points
+        sampling at points.  For 2D plots, the number of sampling
+        points per element will not exactly this value.  Instead, it
+        is used as a guide to the number of subdivisions to use when
+        triangulating the surface.
     :arg axes: Axes to be plotted on
     :kwarg contour: For 2D plotting, True for a contour plot
     :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
@@ -314,9 +317,11 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
     """Calculate the triangulation and function values for a given 2D function
 
     :arg function: 2D function
-    :arg num_sample_points: Number of sampling points
+    :arg num_sample_points: Number of sampling points.  This is not
+       obeyed exactly, but a linear triangulation is created which
+       matches it reasonably well.
     """
-    from math import log, sqrt
+    from math import log
     try:
         from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
@@ -331,7 +336,7 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
         raise RuntimeError("Unsupported Functionality")
     base_tri = Triangulation(x, y)
     refiner = UniformTriRefiner(base_tri)
-    sub_triangles = int(log(sqrt(num_sample_points), 4))
+    sub_triangles = int(log(num_sample_points, 4))
     tri = refiner.refine_triangulation(False, sub_triangles)
     triangles = tri.get_masked_triangles()
     x_ref = tri.x
@@ -364,7 +369,7 @@ def two_dimension_surface(function,
     """
     try:
         import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
         from matplotlib import cm
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
@@ -393,7 +398,7 @@ def two_dimension_contour(function,
     """
     try:
         import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
     triangulation, Z = _two_dimension_triangle_func_val(function,
