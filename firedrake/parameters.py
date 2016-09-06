@@ -417,8 +417,11 @@ class Parameters(dict):
         return self.keys()[idx]
 
     def unwrapped_dict(self, level=0):
-        return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()
-                if k.visible_level <= level}
+        if (level >= 0):
+            return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()
+                    if k.visible_level <= level}
+        else:
+            return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()}
 
 
 def fill_metadata(parameters):
