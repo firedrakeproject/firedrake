@@ -66,6 +66,10 @@ class Configuration(dict):
     :param print_summary: Should PyOP2 print a summary of timings at
         program exit?
     :param matnest: Should matrices on mixed maps be built as nests? (Default yes)
+    :param block_sparsity: Should sparsity patterns on datasets with
+        cdim > 1 be built as block sparsities, or dof sparsities.  The
+        former saves memory but changes which preconditioners are
+        available for the resulting matrices.  (Default yes)
     """
     # name, env variable, type, default, write once
     DEFAULTS = {
@@ -89,6 +93,7 @@ class Configuration(dict):
         "dump_gencode_path": ("PYOP2_DUMP_GENCODE_PATH", str,
                               os.path.join(gettempdir(), "pyop2-gencode")),
         "matnest": ("PYOP2_MATNEST", bool, True),
+        "block_sparsity": ("PYOP2_BLOCK_SPARSITY", bool, True),
     }
     """Default values for PyOP2 configuration parameters"""
     READONLY = ['backend']
