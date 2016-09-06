@@ -27,6 +27,7 @@ class ParametersMixin(object):
         self._prefix = prefix
         ParametersMixin.count += 1
         self._setfromoptions = False
+        self.update_parameters_from_options()
         super(ParametersMixin, self).__init__()
 
     def update_parameters_from_options(self):
@@ -54,7 +55,6 @@ class ParametersMixin(object):
         """
         if not self._setfromoptions:
             petsc_obj.setOptionsPrefix(self._prefix)
-            self.update_parameters_from_options()
             # Call setfromoptions inserting appropriate options into
             # the options database.
             opts = PETSc.Options(self._prefix)
