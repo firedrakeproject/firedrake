@@ -663,12 +663,18 @@ def build_and_install_slepc():
     env["PETSC_ARCH"] = petsc_arch
     env["PETSC_DIR"] = petsc_dir
 
-    git_clone("git+https://bitbucket.org/slepc/slepc.git")
     log.info("Installing SLEPc.")
+    if os.path.exists("slepc"):
+        git_update("slepc")
+    else:
+        git_clone("git+https://bitbucket.org/slepc/slepc.git")
     install("slepc/")
 
-    git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
     log.info("Installing slepc4py.")
+    if os.path.exists("slepc4py"):
+        git_update("slepc4py")
+    else:
+        git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
     install("slepc4py/")
 
 
