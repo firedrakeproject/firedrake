@@ -36,6 +36,7 @@ common to backends executing on the host."""
 
 from textwrap import dedent
 from copy import deepcopy as dcopy
+from collections import OrderedDict
 
 import base
 import compilation
@@ -55,7 +56,6 @@ class Kernel(base.Kernel):
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
         string of code (C syntax) suitable to CPU execution."""
-        self._original_ast = dcopy(ast)
         ast_handler = ASTKernel(ast, self._include_dirs)
         ast_handler.plan_cpu(self._opts)
         return ast_handler.gencode()
@@ -122,10 +122,11 @@ class Arg(base.Arg):
                                                      'iname': self.c_arg_name(0, 0)}
         return val
 
-    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None):
-        return "%(name)s + (%(map_name)s[i * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
+    def c_ind_data(self, idx, i, j=0, is_top=False, offset=None, var=None):
+        return "%(name)s + (%(map_name)s[%(var)s * %(arity)s + %(idx)s]%(top)s%(off_mul)s%(off_add)s)* %(dim)s%(off)s" % \
             {'name': self.c_arg_name(i),
              'map_name': self.c_map_name(i, 0),
+             'var': var if var else 'i',
              'arity': self.map.split[i].arity,
              'idx': idx,
              'top': ' + start_layer' if is_top else '',
@@ -369,7 +370,8 @@ class Arg(base.Arg):
                     'rows': rows_str,
                     'cols': cols_str,
                     'insert': "INSERT_VALUES" if self.access == WRITE else "ADD_VALUES"})
-        return "\n".join(ret)
+        ret = " "*16 + "{\n" + "\n".join(ret) + "\n" + " "*16 + "}"
+        return ret
 
     def c_local_tensor_dec(self, extents, i, j):
         if self._is_mat:
@@ -710,17 +712,19 @@ class JITModule(base.JITModule):
         self.comm = itspace.comm
         self._kernel = kernel
         self._fun = None
+        self._code_dict = None
         self._itspace = itspace
         self._args = args
         self._direct = kwargs.get('direct', False)
         self._iteration_region = kwargs.get('iterate', ALL)
-        self._initialized = True
         # Copy the class variables, so we don't overwrite them
         self._cppargs = dcopy(type(self)._cppargs)
         self._libraries = dcopy(type(self)._libraries)
         self._system_headers = dcopy(type(self)._system_headers)
         self.set_argtypes(itspace.iterset, *args)
-        self.compile()
+        if not kwargs.get('delay', False):
+            self.compile()
+            self._initialized = True
 
     @collective
     def __call__(self, *args):
@@ -808,12 +812,13 @@ class JITModule(base.JITModule):
         return self._fun
 
     def generate_code(self):
-        snippets = wrapper_snippets(self._itspace, self._args,
-                                    kernel_name=self._kernel._name,
-                                    user_code=self._kernel._user_code,
-                                    wrapper_name=self._wrapper_name,
-                                    iteration_region=self._iteration_region)
-        return snippets
+        if not self._code_dict:
+            self._code_dict = wrapper_snippets(self._itspace, self._args,
+                                               kernel_name=self._kernel._name,
+                                               user_code=self._kernel._user_code,
+                                               wrapper_name=self._wrapper_name,
+                                               iteration_region=self._iteration_region)
+        return self._code_dict
 
 
 def wrapper_snippets(itspace, args,
@@ -925,7 +930,8 @@ def wrapper_snippets(itspace, args,
     # In particular, if:
     # - X is written or incremented, then BUFFER is initialized to 0
     # - X is read, then BUFFER gathers data expected by X
-    _buf_name, _buf_decl, _buf_gather, _tmp_decl, _tmp_name = {}, {}, {}, {}, {}
+    _buf_name, _tmp_decl, _tmp_name = {}, {}, {}
+    _buf_decl, _buf_gather = OrderedDict(), OrderedDict()  # Deterministic code generation
     for count, arg in enumerate(args):
         if not arg._uses_itspace:
             continue
@@ -934,7 +940,7 @@ def wrapper_snippets(itspace, args,
         _buf_size = list(itspace._extents)
         if not arg._is_mat:
             # Readjust size to take into account the size of a vector space
-            _dat_size = (arg.data.cdim, )
+            _dat_size = (arg.data.cdim,)
             # Only adjust size if not flattening (in which case the buffer is extents*dat.dim)
             if not arg._flatten:
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
@@ -967,7 +973,7 @@ def wrapper_snippets(itspace, args,
 """
         nloops = len(shape)
         mult = 1 if not is_facet else 2
-        _buf_scatter = {}
+        _buf_scatter = OrderedDict()  # Deterministic code generation
         for count, arg in enumerate(args):
             if not (arg._uses_itspace and arg.access in [WRITE, INC]):
                 continue
@@ -976,14 +982,13 @@ def wrapper_snippets(itspace, args,
             elif arg._is_mat:
                 continue
             elif arg._is_dat and not arg._flatten:
-                shape = shape[0]
-                loop_size = shape*mult
+                loop_size = shape[0]*mult
                 _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
                 _scatter_stmts = arg.c_buffer_scatter_vec(count, i, j, offsets, _buf_name[arg])
                 _buf_offset, _buf_offset_decl = '', ''
             elif arg._is_dat:
-                dim, shape = arg.data.split[i].cdim, shape[0]
-                loop_size = shape*mult/dim
+                dim = arg.data.split[i].cdim
+                loop_size = shape[0]*mult/dim
                 _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
                 _buf_offset_name = 'offset_%d[%s]' % (count, '%s')
                 _buf_offset_decl = 'int %s' % _buf_offset_name % loop_size

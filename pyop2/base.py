@@ -56,7 +56,7 @@ from profiling import timed_region, timed_function
 from sparsity import build_sparsity
 from version import __version__ as version
 
-from coffee.base import Node
+from coffee.base import Node, FlatBlock
 from coffee.visitors import FindInstances, EstimateFlops
 from coffee import base as ast
 
@@ -165,11 +165,10 @@ class ExecutionTrace(object):
         self._trace = new_trace
 
         if configuration['loop_fusion']:
-            from fusion import fuse
-            to_run = fuse('from_trace', to_run, 0)
-        with timed_region("Trace: eval"):
-            for comp in to_run:
-                comp._run()
+            from pyop2.fusion.interface import fuse, lazy_trace_name
+            to_run = fuse(lazy_trace_name, to_run)
+        for comp in to_run:
+            comp._run()
 
 
 _trace = ExecutionTrace()
@@ -1887,7 +1886,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         loop = loops.get(iterset, None)
         if loop is None:
             k = ast.FunDecl("void", "zero",
-                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
+                            [ast.Decl(self.ctype, ast.Symbol("self"), pointers=[""])],
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("self", ("n", )),
                                                       ast.Symbol("(%s)0" % self.ctype)),
@@ -1914,9 +1913,9 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         """Create the :class:`ParLoop` implementing copy."""
         if not hasattr(self, '_copy_kernel'):
             k = ast.FunDecl("void", "copy",
-                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
-                                      qualifiers=["const"]),
-                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"))],
+                            [ast.Decl(self.ctype, ast.Symbol("self"),
+                                      qualifiers=["const"], pointers=[""]),
+                             ast.Decl(other.ctype, ast.Symbol("other"), pointers=[""])],
                             body=ast.c_for("n", self.cdim,
                                            ast.Assign(ast.Symbol("other", ("n", )),
                                                       ast.Symbol("self", ("n", ))),
@@ -2016,11 +2015,11 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         if np.isscalar(other):
             other = _make_object('Global', 1, data=other)
             k = ast.FunDecl("void", name,
-                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
-                                      qualifiers=["const"]),
-                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
-                                      qualifiers=["const"]),
-                             ast.Decl(self.ctype, ast.Symbol("*ret"))],
+                            [ast.Decl(self.ctype, ast.Symbol("self"),
+                                      qualifiers=["const"], pointers=[""]),
+                             ast.Decl(other.ctype, ast.Symbol("other"),
+                                      qualifiers=["const"], pointers=[""]),
+                             ast.Decl(self.ctype, ast.Symbol("ret"), pointers=[""])],
                             ast.c_for("n", self.cdim,
                                       ast.Assign(ast.Symbol("ret", ("n", )),
                                                  ops[op](ast.Symbol("self", ("n", )),
@@ -2031,11 +2030,11 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         else:
             self._check_shape(other)
             k = ast.FunDecl("void", name,
-                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
-                                      qualifiers=["const"]),
-                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
-                                      qualifiers=["const"]),
-                             ast.Decl("%s*" % self.ctype, ast.Symbol("ret"))],
+                            [ast.Decl(self.ctype, ast.Symbol("self"),
+                                      qualifiers=["const"], pointers=[""]),
+                             ast.Decl(other.ctype, ast.Symbol("other"),
+                                      qualifiers=["const"], pointers=[""]),
+                             ast.Decl(self.ctype, ast.Symbol("ret"), pointers=[""])],
                             ast.c_for("n", self.cdim,
                                       ast.Assign(ast.Symbol("ret", ("n", )),
                                                  ops[op](ast.Symbol("self", ("n", )),
@@ -2056,9 +2055,9 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         if np.isscalar(other):
             other = _make_object('Global', 1, data=other)
             k = ast.FunDecl("void", name,
-                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self")),
-                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
-                                      qualifiers=["const"])],
+                            [ast.Decl(self.ctype, ast.Symbol("self"), pointers=[""]),
+                             ast.Decl(other.ctype, ast.Symbol("other"),
+                                      qualifiers=["const"], pointers=[""])],
                             ast.c_for("n", self.cdim,
                                       ops[op](ast.Symbol("self", ("n", )),
                                               ast.Symbol("other", ("0", ))),
@@ -2068,9 +2067,9 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             self._check_shape(other)
             quals = ["const"] if self is not other else []
             k = ast.FunDecl("void", name,
-                            [ast.Decl("%s*" % self.ctype, ast.Symbol("self")),
-                             ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
-                                      qualifiers=quals)],
+                            [ast.Decl(self.ctype, ast.Symbol("self"), pointers=[""]),
+                             ast.Decl(other.ctype, ast.Symbol("other"),
+                                      qualifiers=quals, pointers=[""])],
                             ast.c_for("n", self.cdim,
                                       ops[op](ast.Symbol("self", ("n", )),
                                               ast.Symbol("other", ("n", ))),
@@ -2083,7 +2082,7 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         ops = {operator.sub: ast.Neg}
         name = "uop_%s" % op.__name__
         k = ast.FunDecl("void", name,
-                        [ast.Decl("%s*" % self.ctype, ast.Symbol("self"))],
+                        [ast.Decl(self.ctype, ast.Symbol("self"), pointers=[""])],
                         ast.c_for("n", self.cdim,
                                   ast.Assign(ast.Symbol("self", ("n", )),
                                              ops[op](ast.Symbol("self", ("n", )))),
@@ -2103,11 +2102,11 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         ret = _make_object('Global', 1, data=0, dtype=self.dtype)
 
         k = ast.FunDecl("void", "inner",
-                        [ast.Decl("%s*" % self.ctype, ast.Symbol("self"),
-                                  qualifiers=["const"]),
-                         ast.Decl("%s*" % other.ctype, ast.Symbol("other"),
-                                  qualifiers=["const"]),
-                         ast.Decl(self.ctype, ast.Symbol("*ret"))],
+                        [ast.Decl(self.ctype, ast.Symbol("self"),
+                                  qualifiers=["const"], pointers=[""]),
+                         ast.Decl(other.ctype, ast.Symbol("other"),
+                                  qualifiers=["const"], pointers=[""]),
+                         ast.Decl(self.ctype, ast.Symbol("ret"), pointers=[""])],
                         ast.c_for("n", self.cdim,
                                   ast.Incr(ast.Symbol("ret", (0, )),
                                            ast.Prod(ast.Symbol("self", ("n", )),
@@ -3769,24 +3768,22 @@ class Kernel(Cached):
         self._ldargs = ldargs if ldargs is not None else []
         self._headers = headers
         self._user_code = user_code
-        if not isinstance(code, Node):
+        if isinstance(code, (str, FlatBlock)):
             # Got a C string, nothing we can do, just use it as Kernel body
             self._ast = None
             self._code = code
-            self._attached_info = True
-        elif isinstance(code, Node) and configuration['loop_fusion']:
-            # Got an AST and loop fusion is enabled, so code generation needs
-            # be deferred because optimisation of a kernel in a fused chain of
-            # loops may differ from optimisation in a non-fusion context
+            self._attached_info = {'fundecl': None, 'attached': False}
+        else:
             self._ast = code
-            self._code = None
-            self._attached_info = False
-        elif isinstance(code, Node) and not configuration['loop_fusion']:
-            # Got an AST, need to go through COFFEE for optimization and
-            # code generation
-            self._ast = code
-            self._code = self._ast_to_c(self._ast, self._opts)
-            self._attached_info = False
+            self._code = self._ast_to_c(self._ast, opts)
+            search = FindInstances(ast.FunDecl, ast.FlatBlock).visit(self._ast)
+            fundecls, flatblocks = search[ast.FunDecl], search[ast.FlatBlock]
+            assert len(fundecls) == 1, "Illegal Kernel"
+            self._attached_info = {
+                'fundecl': fundecls[0],
+                'attached': False,
+                'flatblocks': len(flatblocks) > 0
+            }
         self._initialized = True
 
     @property
@@ -3797,8 +3794,6 @@ class Kernel(Cached):
     def code(self):
         """String containing the c code for this kernel routine. This
         code must conform to the OP2 user kernel API."""
-        if not self._code:
-            self._code = self._ast_to_c(self._ast, self._opts)
         return self._code
 
     @cached_property
@@ -3833,6 +3828,7 @@ class JITModule(Cached):
     def _cache_key(cls, kernel, itspace, *args, **kwargs):
         key = (kernel.cache_key, itspace.cache_key)
         for arg in args:
+            key += (arg.__class__,)
             if arg._is_global:
                 key += (arg.data.dim, arg.data.dtype, arg.access)
             elif arg._is_dat:
@@ -3994,19 +3990,19 @@ class ParLoop(LazyComputation):
                 if arg._is_dat and arg.access not in [INC, READ, WRITE]:
                     raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
 
-        self._it_space = build_itspace(self.args, iterset)
+        self._it_space = self._build_itspace(iterset)
 
         # Attach semantic information to the kernel's AST
         # Only need to do this once, since the kernel "defines" the
         # access descriptors, if they were to have changed, the kernel
         # would be invalid for this par_loop.
-        if not self._kernel._attached_info and hasattr(self._kernel, '_ast') and self._kernel._ast:
-            fundecl = FindInstances(ast.FunDecl).visit(self._kernel._ast)[ast.FunDecl]
-            if len(fundecl) == 1:
-                for arg, f_arg in zip(self._actual_args, fundecl[0].args):
-                    if arg._uses_itspace and arg._is_INC:
-                        f_arg.pragma = set([ast.WRITE])
-            self._kernel._attached_info = True
+        fundecl = kernel._attached_info['fundecl']
+        attached = kernel._attached_info['attached']
+        if fundecl and not attached:
+            for arg, f_arg in zip(self._actual_args, fundecl.args):
+                if arg._uses_itspace and arg._is_INC:
+                    f_arg.pragma = set([ast.WRITE])
+            kernel._attached_info['attached'] = True
 
     def _run(self):
         return self.compute()
@@ -4084,6 +4080,7 @@ class ParLoop(LazyComputation):
             arg.halo_exchange_begin(update_inc=self._only_local)
 
     @collective
+    @timed_function("ParLoopHaloEnd")
     def halo_exchange_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
@@ -4101,6 +4098,7 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_begin(reverse=True)
 
     @collective
+    @timed_function("ParLoopReverseHaloEnd")
     def reverse_halo_exchange_end(self):
         """Finish reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
@@ -4217,6 +4215,20 @@ class ParLoop(LazyComputation):
         a certain part of an extruded mesh, for example on top cells, bottom cells or
         interior facets."""
         return self._iteration_region
+
+    def _build_itspace(self, iterset):
+        """Creates an class:`IterationSpace` for the :class:`ParLoop` from the
+        given iteration set.
+
+        Also checks that the iteration set of the :class:`ParLoop` matches the
+        iteration set of all its arguments. A :class:`MapValueError` is raised
+        if this condition is not met.
+
+        Also determines the size of the local iteration space and checks all
+        arguments using an :class:`IterationIndex` for consistency.
+
+        :return: class:`IterationSpace` for this :class:`ParLoop`"""
+        return build_itspace(self.args, iterset)
 
 
 def build_itspace(args, iterset):
