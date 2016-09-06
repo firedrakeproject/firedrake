@@ -79,7 +79,7 @@ def show_config_gui(parameters):
         :arg paramaters: parameters as a
             :class:`firedrake.parameters.Parameters` class
         """
-        parameters = parameters.unwrapped_dict
+        parameters = parameters.unwrapped_dict()
         for key in parameters.keys():
             if isinstance(parameters[key], Parameters):
                 refresh_params(parameters[key])
@@ -295,7 +295,7 @@ item, then click - button to delete from list",
         :arg labelframe: :class:`ttk.Labelframe` to place the GUI elements
         """
         global row_count
-        parameters = parameters.unwrapped_dict
+        parameters = parameters.unwrapped_dict()
         keys = sorted(parameters.keys())
         ui_elems = []
         for key in keys:
@@ -419,7 +419,7 @@ def export_params_to_json(parameters, filename):
     if filename == '':
         return
     output_file = open(filename, 'w')
-    json.dump(parameters.unwrapped_dict, output_file)
+    json.dump(parameters.unwrapped_dict(), output_file)
     output_file.close()
 
 

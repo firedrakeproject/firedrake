@@ -416,7 +416,6 @@ class Parameters(dict):
         idx = self.keys().index(key_name)
         return self.keys()[idx]
 
-    @property
     def unwrapped_dict(self, level=0):
         return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()
                 if k.visible_level <= level}
