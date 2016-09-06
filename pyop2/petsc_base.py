@@ -595,7 +595,7 @@ class Mat(base.Mat, CopyOnWrite):
         col_lg = self.sparsity.dsets[1].lgmap
         rdim, cdim = self.dims[0][0]
 
-        if rdim == cdim and rdim > 1:
+        if rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
             # Size is total number of rows and columns, but the
             # /sparsity/ is the block sparsity.
             block_sparse = True

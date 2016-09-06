@@ -3180,7 +3180,7 @@ class Sparsity(ObjectCached):
     .. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
     """
 
-    def __init__(self, dsets, maps, name=None, nest=None):
+    def __init__(self, dsets, maps, name=None, nest=None, block_sparse=None):
         """
         :param dsets: :class:`DataSet`\s for the left and right function
             spaces this :class:`Sparsity` maps between
@@ -3190,13 +3190,18 @@ class Sparsity(ObjectCached):
             row and column maps - if a single :class:`Map` is passed, it is
             used as both a row map and a column map
         :param string name: user-defined label (optional)
+        :param nest: Should the sparsity over mixed set be built as nested blocks?
+        :param block_sparse: Should the sparsity for datasets with
+            cdim > 1 be built as a block sparsity?
         """
         # Protect against re-initialization when retrieved from cache
         if self._initialized:
             return
 
         if not hasattr(self, '_block_sparse'):
-            self._block_sparse = True
+            # CUDA Sparsity overrides this attribute because it never
+            # wants block sparse matrices.
+            self._block_sparse = block_sparse
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
@@ -3235,7 +3240,9 @@ class Sparsity(ObjectCached):
             for i, rds in enumerate(dsets[0]):
                 row = []
                 for j, cds in enumerate(dsets[1]):
-                    row.append(Sparsity((rds, cds), [(rm.split[i], cm.split[j]) for rm, cm in maps]))
+                    row.append(Sparsity((rds, cds), [(rm.split[i], cm.split[j]) for
+                                                     rm, cm in maps],
+                                        block_sparse=block_sparse))
                 self._blocks.append(row)
             self._rowptr = tuple(s._rowptr for s in self)
             self._colidx = tuple(s._colidx for s in self)
@@ -3258,7 +3265,7 @@ class Sparsity(ObjectCached):
     @validate_type(('dsets', (Set, DataSet, tuple, list), DataSetTypeError),
                    ('maps', (Map, tuple, list), MapTypeError),
                    ('name', str, NameTypeError))
-    def _process_args(cls, dsets, maps, name=None, nest=None, *args, **kwargs):
+    def _process_args(cls, dsets, maps, name=None, nest=None, block_sparse=None, *args, **kwargs):
         "Turn maps argument into a canonical tuple of pairs."
 
         # A single data set becomes a pair of identical data sets
@@ -3316,7 +3323,9 @@ class Sparsity(ObjectCached):
             cache = dsets[0].set
         if nest is None:
             nest = configuration["matnest"]
-        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name, nest), {}
+        if block_sparse is None:
+            block_sparse = configuration["block_sparsity"]
+        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name, nest, block_sparse), {}
 
     @classmethod
     def _cache_key(cls, dsets, maps, name, nest, *args, **kwargs):
@@ -3661,9 +3670,12 @@ class Mat(SetAssociated):
         Note that this is the process local memory usage, not the sum
         over all MPI processes.
         """
-
+        if self._sparsity._block_sparse:
+            mult = np.sum(np.prod(self._sparsity.dims))
+        else:
+            mult = 1
         return (self._sparsity.nz + self._sparsity.onz) \
-            * self.dtype.itemsize * np.sum(np.prod(self._sparsity.dims))
+            * self.dtype.itemsize * mult
 
     def __iter__(self):
         """Yield self when iterated over."""
