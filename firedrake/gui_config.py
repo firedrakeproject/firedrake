@@ -10,10 +10,12 @@ __all__ = ['show_config_gui',
            "import_params_from_json"]
 
 
-def show_config_gui(parameters):
+def show_config_gui(parameters, visible_level=0):
     """Show the GUI for configuration
 
     :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters` class
+    :arg visible_level: visible level of parameters displayed. Parameter with
+        higher than given value will not be displayed.
     """
     from firedrake import Parameters
 
@@ -79,7 +81,7 @@ def show_config_gui(parameters):
         :arg paramaters: parameters as a
             :class:`firedrake.parameters.Parameters` class
         """
-        parameters = parameters.unwrapped_dict()
+        parameters = parameters.unwrapped_dict(visible_level)
         for key in parameters.keys():
             if isinstance(parameters[key], Parameters):
                 refresh_params(parameters[key])
@@ -295,7 +297,7 @@ item, then click - button to delete from list",
         :arg labelframe: :class:`ttk.Labelframe` to place the GUI elements
         """
         global row_count
-        parameters = parameters.unwrapped_dict()
+        parameters = parameters.unwrapped_dict(visible_level)
         keys = sorted(parameters.keys())
         ui_elems = []
         for key in keys:
@@ -419,7 +421,7 @@ def export_params_to_json(parameters, filename):
     if filename == '':
         return
     output_file = open(filename, 'w')
-    json.dump(parameters.unwrapped_dict(), output_file)
+    json.dump(parameters.unwrapped_dict(-1), output_file)
     output_file.close()
 
 
