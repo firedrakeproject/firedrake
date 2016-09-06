@@ -24,7 +24,7 @@ assembly_cache:
 
 - ``parameters["assembly_cache"]["max_bytes"]``
   absolute limit on the size of the assembly cache in bytes. This
-  defaults to ``float("inf")``.
+  defaults to maximum float.
 
 - ``parameters["assembly_cache"]["max_factor"]``
   limit on the size of the assembly cache relative to the amount of
@@ -33,6 +33,7 @@ assembly_cache:
 from __future__ import absolute_import
 import numpy as np
 import weakref
+import sys
 from collections import defaultdict
 
 from pyop2.mpi import COMM_WORLD, MPI, dup_comm, free_comm
@@ -40,6 +41,8 @@ from pyop2.mpi import COMM_WORLD, MPI, dup_comm, free_comm
 from firedrake.logging import debug, warning
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
+
+max_float = sys.float_info[0]
 
 try:
     # Estimate the amount of memory per core may use.
@@ -236,12 +239,12 @@ guaranteed to result in the same evictions on each processor.
         if not parameters["assembly_cache"]["eviction"]:
             return
 
-        max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or float("inf"),
-                             (memory or float("inf"))
+        max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or max_float,
+                             (memory or max_float)
                              * parameters["assembly_cache"]["max_factor"]
                              )
 
-        if max_cache_size == float("inf"):
+        if max_cache_size == max_float:
             if not self.evictwarned:
                 warning("No maximum assembly cache size. Install psutil >= 2.0.0 or risk leaking memory!")
                 self.evictwarned = True
