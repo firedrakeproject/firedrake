@@ -287,14 +287,15 @@ class TypedKey(str):
     """A class for parameter keys with additional metadata including help
     text and type data"""
 
-    def __new__(self, key, val_type=None):
+    def __new__(self, key, val_type=None, visible_level=0):
         return super(TypedKey, self).__new__(self, key)
 
-    def __init__(self, key, val_type=None):
+    def __init__(self, key, val_type=None, visible_level=0):
         if val_type is not None:
             self._type = val_type
         else:
             self._type = UnsetType()
+        self._visible_level = visible_level
 
     @property
     def help(self):
@@ -317,6 +318,14 @@ class TypedKey(str):
             self._type = new_type
         else:
             raise ValueError(new_type + "is not a type!")
+
+    @property
+    def visible_level(self):
+        return self._visible_level
+
+    @visible_level.setter
+    def visible_level(self, new_level):
+        self._visible_level = new_level
 
     def validate(self, value):
         return self._type.validate(value)
@@ -407,9 +416,12 @@ class Parameters(dict):
         idx = self.keys().index(key_name)
         return self.keys()[idx]
 
-    @property
-    def unwrapped_dict(self):
-        return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()}
+    def unwrapped_dict(self, level=0):
+        if (level >= 0):
+            return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()
+                    if k.visible_level <= level}
+        else:
+            return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()}
 
 
 def fill_metadata(parameters):
