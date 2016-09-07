@@ -20,7 +20,33 @@
 </head>
 
 <body>
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+    <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js">
+    </script>
 
+    <style>
+        .round-border{
+            color: #555;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .row{
+            margin: 10px 5px 10px 5px;
+            padding-top: 8px;
+        }
+        .glyphicon-triangle-bottom{
+            transition: transform .3s ease-in;
+        }
+        .glyphicon-triangle-bottom.rotate-90{
+            transform: rotate(-90deg);
+        }
+        .form-horizonal, .control-label{
+            text-align: left !important;
+        }
+    </style>
     <div class="container" style="max-width:730px">
         <br><br><br>
         <h1>Configurations</h1>
@@ -40,7 +66,7 @@
             {%- endmacro %}
             {% macro render_dictionary(parameters, prefix) -%}
                 {% for param in parameters -%}
-                <div class="form-horizontal row" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
+                <div class="form-horizontal row round-border" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
                         <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
                         {% if param.type is equalto "str" -%}
                             <div class="col-sm-8">
@@ -62,12 +88,14 @@
                                 </label>
                             </div>
                         {% elif param.type is equalto "dict" %}
-                            <button type="button" class="btn btn-default btn-sm" aria-label="toggle" onclick='$("#{{ get_name(param.key, prefix) }}").toggle("hidden")'>
-                                Show/Hide
-                            </button>
-                            <div id="{{ get_name(param.key, prefix) }}">
+                            <script>
+                                $("label[for={{ get_name(param.key, prefix) }}]").prepend('<a aria-label="toggle" onclick=\'$("#{{ get_name(param.key, prefix) }}").toggle("hidden");$(\"label[for={{ get_name(param.key, prefix) }}]\").children().children().toggleClass("rotate-90");\'><span class="glyphicon glyphicon-triangle-bottom" aria-hidden="true"></span></a>&nbsp;&nbsp;')
+                            </script>
+                            <div class="col-sm-8">
+                                <p class="control-label"><br></p>
+                            </div>
+                            <div id="{{ get_name(param.key, prefix) }}" class="col-sm-12">
                                 {{ render_dictionary(param.value, get_name(param.key, prefix)) }}
-                                <br>
                             </div>
                         {% else %}
                             <p> Unsupported Input Type </p>
@@ -106,12 +134,6 @@
     <!-- /.container -->
 
 
-    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
-    <!-- Include all compiled plugins (below), or include individual files as needed -->
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
-    <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js">
-    </script>
     <script>
         var visible_level = 0;
         function show_input(name) {
