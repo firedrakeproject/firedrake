@@ -72,4 +72,4 @@ def web_config(parameters):
     def fetch():
         return jsonify(**parameters.unwrapped_dict())
 
-    app.run()
+    app.run(host="0.0.0.0")
