@@ -357,6 +357,17 @@ class TypedKey(str):
             del d["_unwrapper"]
         return d
 
+    @property
+    def depends(self):
+        if hasattr(self, "_depends"):
+            return self._depends
+        else:
+            return None
+
+    @depends.setter
+    def depends(self, key):
+        self._depends = key
+
 
 class Parameters(dict):
     def __init__(self, name=None, **kwargs):

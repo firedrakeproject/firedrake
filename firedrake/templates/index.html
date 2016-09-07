@@ -40,7 +40,7 @@
             {%- endmacro %}
             {% macro render_dictionary(parameters, prefix) -%}
                 {% for param in parameters -%}
-                <div class="form-horizontal row">
+                <div class="form-horizontal row" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
                         <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
                         {% if param.type is equalto "str" -%}
                             <div class="col-sm-8">
@@ -53,11 +53,11 @@
                         {% elif param.type is equalto "bool" %}
                             <div class="col-sm-8">
                                 <label class="radio-inline">
-                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="True">
+                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="True" onclick="show_input('{{ get_name(param.key, prefix) }}')">
                                         True
                                 </label>
                                 <label class="radio-inline">
-                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="False">
+                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="False" onclick="hide_input('{{ get_name(param.key, prefix) }}')">
                                         False
                                 </label>
                             </div>
@@ -107,6 +107,12 @@
     <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js">
     </script>
     <script>
+        function show_input(name) {
+            $('div[depends=\"' + name +'\"]').each(function(idx, elem){$(elem).fadeIn()});
+        }
+        function hide_input(name) {
+            $('div[depends=\"' + name +'\"]').each(function(idx, elem){$(elem).fadeOut()});
+        }
         function get_name(key, prefix) {
             if (prefix != "") {
                 return prefix + "[" + key + "]";
