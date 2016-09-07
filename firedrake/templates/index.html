@@ -169,8 +169,9 @@
         }
         $(document).ready(function() {
             $.get("fetch", function(data) {
-                fill_data(data, "")
-            })
+                fill_data(data, "");
+                $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            });
         })
     </script>
 </body>
