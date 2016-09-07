@@ -40,7 +40,7 @@
             {%- endmacro %}
             {% macro render_dictionary(parameters, prefix) -%}
                 {% for param in parameters -%}
-                <div class="form-horizontal row" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
+                <div class="form-horizontal row" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
                         <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
                         {% if param.type is equalto "str" -%}
                             <div class="col-sm-8">
@@ -80,6 +80,12 @@
             {{ render_dictionary(parameters, "") }}
             <br>
             <div id="buttons" class="row" style="text-align: center">
+                <button type="button" class="btn btn-default" onclick="increase_visible_level()" aria-label="Show more options">
+                    Show more options
+                </button>
+                <button type="button" class="btn btn-default" onclick="decrease_visible_level()" aria-label="Show fewer options">
+                    Show fewer options
+                </button>
                 <button type="button" class="btn btn-default" onclick="load_json()" aria-label="Load from JSON">
                     Load from JSON
                 </button>
@@ -107,8 +113,12 @@
     <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js">
     </script>
     <script>
+        var visible_level = 0;
         function show_input(name) {
-            $('div[depends=\"' + name +'\"]').each(function(idx, elem){$(elem).fadeIn()});
+            $('div[depends=\"' + name +'\"]').each(function(idx, elem){
+                var v = $(elem).attr("visible_level");
+                if (v <= visible_level) $(elem).fadeIn()
+            });
         }
         function hide_input(name) {
             $('div[depends=\"' + name +'\"]').each(function(idx, elem){$(elem).fadeOut()});
@@ -167,10 +177,38 @@
                 })
             })
         }
+        function update_visible_level(new_level) {
+            $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            $("div").each(function(idx, elem) {
+                var v = $(elem).attr("visible_level");
+                if (new_level >= 0 && v > new_level) {
+                    $(elem).fadeOut();
+                } else {
+                    $(elem).fadeIn();
+                }
+            });
+        }
+        function increase_visible_level() {
+            visible_level++;
+            $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { 
+                var depends = $(elem).attr("depends");
+                var val = $('input[type=radio][name=' + depends + ']:checked').attr("value");
+                console.log(val);
+                if (val == 'True' || val == undefined) $(elem).fadeIn(); 
+            });
+            $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+        }
+        function decrease_visible_level() {
+            if (visible_level > 0) {
+                $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { $(elem).fadeOut() });
+                visible_level--;
+                $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            }
+        }
         $(document).ready(function() {
             $.get("fetch", function(data) {
                 fill_data(data, "");
-                $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+                update_visible_level(visible_level);
             });
         })
     </script>

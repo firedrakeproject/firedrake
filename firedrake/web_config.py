@@ -13,11 +13,13 @@ def web_config(parameters):
                             "type": str(parameters.get_key(k).type),
                             "value": v,
                             "depends": k.depends if k.depends is not None else '',
+                            "visible_level": k.visible_level,
                             "help": k.help})
             else:
                 ret.append({"key": k,
                             "type": "dict",
                             "depends": k.depends if k.depends is not None else '',
+                            "visible_level": k.visible_level,
                             "value": format_dict(v)})
         return ret
 
@@ -33,7 +35,7 @@ def web_config(parameters):
             err.extend(validate_input(parameters, dictionary))
             if err == []:
                 load_from_dict(parameters, dictionary)
-        params = format_dict(parameters.unwrapped_dict())
+        params = format_dict(parameters.unwrapped_dict(-1))
         return render_template('index.html', parameters=params, err=err)
 
     def validate_input(parameters, dictionary):
@@ -70,6 +72,6 @@ def web_config(parameters):
 
     @app.route('/fetch')
     def fetch():
-        return jsonify(**parameters.unwrapped_dict())
+        return jsonify(**parameters.unwrapped_dict(-1))
 
     app.run(host="0.0.0.0")
