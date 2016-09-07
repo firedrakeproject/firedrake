@@ -375,19 +375,19 @@ class Parameters(dict):
             self[TypedKey(key, KeyType.get_type(value))] = value
 
     def __setitem__(self, key, value):
-        if key in self.keys():
-            if isinstance(key, TypedKey):
-                if key.validate(value):
-                    super(Parameters, self).__setitem__(key, value)
-                else:
-                    raise ValueError("Invalid value for key %s:" % key
-                                     + str(value))
+        if isinstance(key, TypedKey):
+            if key.validate(value):
+                super(Parameters, self).__setitem__(key, value)
             else:
-                self.__setitem__(self.get_key(key), value)
+                raise ValueError("Invalid value for key %s:" % key
+                                 + str(value))
         else:
-            super(Parameters, self).__setitem__(TypedKey(key,
-                                                         KeyType.get_type(value)),
-                                                value)
+            if key in self.keys():
+                self.__setitem__(self.get_key(key), value)
+            else:
+                super(Parameters, self).__setitem__(TypedKey(key,
+                                                    KeyType.get_type(value)),
+                                                    value)
         if self._update_function:
             self._update_function(key, value)
 
@@ -417,11 +417,12 @@ class Parameters(dict):
         return self.keys()[idx]
 
     def unwrapped_dict(self, level=0):
-        if (level >= 0):
-            return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()
-                    if k.visible_level <= level}
-        else:
-            return {k: self.get_key(k).unwrap(v) for k, v in self.iteritems()}
+        d = Parameters()
+        for k in self.keys():
+            d[k] = self.get_key(k).unwrap(self[k])
+            if (level >= 0 and self.get_key(k).visible_level > level):
+                del d[k]
+        return d
 
 
 def fill_metadata(parameters):
