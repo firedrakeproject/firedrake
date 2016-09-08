@@ -813,9 +813,6 @@ def build_update_script():
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
-    for switch in FiredrakeConfiguration._persistent_options:
-        update_script = update_script.replace("args.%s = False" % switch,
-                                              "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
         os.mkdir("../bin")
     except:
