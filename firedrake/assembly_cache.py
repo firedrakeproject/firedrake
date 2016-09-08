@@ -127,7 +127,6 @@ class _CacheEntry(object):
     """
 
     def __init__(self, obj, form, bcs):
-        self.form = form
         self.dependencies = _DependencySnapshot(form)
         self.bcs = _BCSnapshot(bcs)
         if isinstance(obj, float):
