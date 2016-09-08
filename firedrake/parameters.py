@@ -4,7 +4,9 @@ from __future__ import absolute_import
 from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
 from coffee.system import coffee_reconfigure
+import sys
 
+max_float = sys.float_info[0]
 
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
 
@@ -56,7 +58,7 @@ parameters = Parameters()
 parameters.add(Parameters("assembly_cache",
                           enabled=True,
                           eviction=True,
-                          max_bytes=float("Inf"),
+                          max_bytes=max_float,
                           max_factor=0.6,
                           max_misses=3))
 

@@ -21,6 +21,7 @@ addons:
         - liblapack-dev
         - gfortran
         - gmsh
+        - python-tk
 os:
     - linux
     - osx

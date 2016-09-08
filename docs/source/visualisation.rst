@@ -9,6 +9,9 @@ Having run a simulation, it is likely that we will want to look at the
 results.  To do this, Firedrake supports saving data in VTK_
 format, suitable for visualisation in Paraview_ (amongst others).
 
+In addition, 1D and 2D function could be plotted and displayed using the python
+library of matplotlib (an optional dependency of firedrake)
+
 Creating output files
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -156,6 +159,42 @@ If instead we want projection, we use
    projected = File("proj_output.pvd", project_output=True)
    projected.write(f)
 
+Plotting with `matplotlib`
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Plotting 1D and 2D functions could be as easy as calling the built-in plot
+function :func:`plot <firedrake.plot.plot>` with the :class:`~.Function` you wish to
+plot.
+
+Currently, firedrake supports plotting 1D and 2D functions, this is made
+possible with an optional dependency matplotlib package.
+
+To install matplotlib_, please look at the installation instructions of
+matplotlib.
+
+For 1D functions with degree less than 4, the plot of the function would be
+exact using Bezier curves. For higher order 1D functions, the plot would be the
+linear approximation by sampling points of the function. The number of sample
+points per element could be specfied to when calling :func:`plot
+<firedrake.plot.plot>`.
+
+For multiple 1D functions, for example, in the case of time-dependent functions
+at different times. They could be plotted together by passing the list of
+function when calling the function :func:`plot <firedrake.plot.plot>`. The returned
+figure will contain a slider and an autoplay button so that it could be viewed
+in a animated fashion. The plus and minus buttons can change the speed of the
+animation.
+
+When used in Jupyter Notebook, plotting multiple 1D functions using additional
+key word argument ``interactive=True`` when calling the function 
+:func:`plot <firedrake.plot.plot>` will generate an interactive slider for
+selecting the figures. 
+
+For 2D functions, both surface plots and contour plots are supported. By
+default, the :func:`plot <firedrake.plot.plot>` will return a surface plot in the
+colour map of coolwarm. Contour plotting could be enabled by passing the key
+work argument ``contour=True``.
+
 
 Selecting the output space when outputting multiple functions
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -173,3 +212,4 @@ space.
 .. _Paraview: http://www.paraview.org
 .. _VTK: http://www.vtk.org
 .. _PVD: http://www.paraview.org/Wiki/ParaView/Data_formats#PVD_File_Format
+.. _matplotlib: http://matplotlib.org

@@ -33,6 +33,7 @@ cdef extern from "petscdmlabel.h":
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
     int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
+    int DMLabelDestroyIndex(DMLabel)
     int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
     int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
