@@ -29,12 +29,15 @@ def web_config(parameters):
         if request.method == "POST":
             import json
             json_file = request.files['json']
-            dictionary = json.loads(json_file.read())
-            json_file.close()
-            from firedrake.gui_config import load_from_dict
-            err.extend(validate_input(parameters, dictionary))
-            if err == []:
-                load_from_dict(parameters, dictionary)
+            try:
+                dictionary = json.loads(json_file.read())
+                json_file.close()
+                from firedrake.gui_config import load_from_dict
+                err.extend(validate_input(parameters, dictionary))
+                if err == []:
+                    load_from_dict(parameters, dictionary)
+            except:
+                pass
         params = format_dict(parameters.unwrapped_dict(-1))
         return render_template('index.html', parameters=params, err=err)
 
@@ -42,6 +45,8 @@ def web_config(parameters):
         from firedrake.parameters import Parameters
         err = []
         for k in parameters.keys():
+            if (k not in dictionary.keys()):
+                continue
             if isinstance(parameters[k], Parameters):
                 err.extend(validate_input(parameters[k], dictionary[k]))
             else:
