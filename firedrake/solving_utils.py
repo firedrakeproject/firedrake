@@ -159,7 +159,12 @@ class _SNESContext(object):
             appctx = {}
 
         if matfree or pmatfree:
-            appctx["state"] = self._x
+            # A split context will already get the full state.
+            # TODO, a better way of doing this.
+            # Now we don't have a temporary state inside the snes
+            # context we could just require the user to pass in the
+            # full state on the outside (or maybe just the velocity field).
+            appctx.setdefault("state", self._x)
 
         self.appctx = appctx
         self.matfree = matfree
