@@ -44,6 +44,15 @@ class FiredrakeConfiguration(dict):
                            "show_petsc_configure_options", "adjoint",
                            "virtualenv_name", "slepc", "slope", "packages"]
 
+def deep_update(this, that):
+    import collections
+    for k, v in that.iteritems():
+        if isinstance(v, collections.Mapping):
+            this[k] = deep_update(this[k], v)
+        else:
+            this[k] = v
+    return this
+
 
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
@@ -200,7 +209,7 @@ else:
 
     args.packages = list(set(args.packages))  # remove duplicates
 
-    config = FiredrakeConfiguration(args)
+    deep_update(config, FiredrakeConfiguration(args))
     if legacy:
         del legacy_args["adjoint"]
         del legacy_args["slope"]
@@ -222,6 +231,7 @@ class directory(object):
         os.chdir(self.olddir)
 
 options = config["options"]
+
 
 # Where are packages installed relative to --root?
 # This is a bit of a hack.
