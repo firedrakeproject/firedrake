@@ -195,15 +195,16 @@ def coarsen(dm, comm):
     if level < 1:
         raise RuntimeError("Cannot coarsen coarsest DM")
     if hasattr(V, "_coarse"):
-        return V._coarse.dm
-    V._coarse = firedrake.FunctionSpace(hierarchy[level - 1], V.ufl_element())
-    cdm = V._coarse.dm
+        cdm = V._coarse.dm
+    else:
+        V._coarse = firedrake.FunctionSpace(hierarchy[level - 1], V.ufl_element())
+        cdm = V._coarse.dm
     ctx = get_appctx(dm)
     if ctx is not None:
         set_appctx(cdm, coarsen(ctx))
         # Necessary for MG inside a fieldsplit in a SNES.
         cdm.setKSPComputeOperators(firedrake.solving_utils._SNESContext.compute_operators)
-    return V._coarse.dm
+    return cdm
 
 
 def refine(dm, comm):
@@ -219,9 +220,11 @@ def refine(dm, comm):
     if level >= len(hierarchy) - 1:
         raise RuntimeError("Cannot refine finest DM")
     if hasattr(V, "_fine"):
-        return V._fine.dm
-    V._fine = firedrake.FunctionSpace(hierarchy[level + 1], V.ufl_element())
-    return V._fine.dm
+        fdm = V._fine.dm
+    else:
+        V._fine = firedrake.FunctionSpace(hierarchy[level + 1], V.ufl_element())
+        fdm = V._fine.dm
+    return fdm
 
 
 def attach_hooks(dm, level=None, sf=None, section=None):
