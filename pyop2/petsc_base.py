@@ -127,6 +127,12 @@ class DataSet(base.DataSet):
         vec.setUp()
         return vec
 
+    @utils.cached_property
+    def dm(self):
+        dm = PETSc.DMShell().create(comm=self.comm)
+        dm.setGlobalVector(self.layout_vec)
+        return dm
+
 
 class MixedDataSet(DataSet, base.MixedDataSet):
 
