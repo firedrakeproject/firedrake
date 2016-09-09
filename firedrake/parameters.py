@@ -373,9 +373,10 @@ class TypedKey(str):
 
 
 class Parameters(dict):
-    def __init__(self, name=None, **kwargs):
+    def __init__(self, name=None, summary="", **kwargs):
         self._name = name
         self._update_function = None
+        self._summary = summary
 
         for key, value in kwargs.iteritems():
             self.add(key, value)
@@ -437,6 +438,14 @@ class Parameters(dict):
             if (level >= 0 and self.get_key(k).visible_level > level):
                 del d[k]
         return d
+
+    @property
+    def summary(self):
+        return self._summary
+
+    @summary.setter
+    def summary(self, new_summary):
+        self._summary = new_summary
 
 
 def fill_metadata(parameters):

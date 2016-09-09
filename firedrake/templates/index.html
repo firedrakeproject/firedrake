@@ -24,8 +24,8 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
     <!-- Include all compiled plugins (below), or include individual files as needed -->
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
-    <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js">
-    </script>
+    <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML"></script>
 
     <style>
         .round-border{
@@ -46,6 +46,11 @@
         .form-horizonal, .control-label{
             text-align: left !important;
         }
+        .panel-default{
+            margin-left: -15px;
+            margin-right: -15px;
+            margin-top: 15px;
+        }
     </style>
     <div class="container" style="max-width:730px">
         <br><br><br>
@@ -64,7 +69,17 @@
             {% macro get_name(key, prefix) -%}
                 {% if prefix is equalto "" -%}{{ key }}{% else %}{{ prefix + "[" + key + "]" }}{%- endif %}
             {%- endmacro %}
-            {% macro render_dictionary(parameters, prefix) -%}
+            {% macro render_dictionary(parameters, prefix, summary) -%}
+                {% if summary is not equalto '' -%}
+                <div class="panel panel-default round-border">
+                    <div class="panel-heading">
+                        <p class="panel-title">Summary</p>
+                    </div>
+                    <div class="panel-body">
+                        {% autoescape false %} {{ summary }} {% endautoescape %}
+                    </div>
+                </div>
+                {%- endif %}
                 {% for param in parameters -%}
                 <div class="form-group round-border" name="{{ get_name(param.key, prefix) }}" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
                         <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
@@ -91,7 +106,7 @@
                                 <p class="control-label"><br></p>
                             </div>
                             <div id="{{ get_name(param.key, prefix) }}" class="col-sm-12">
-                                {{ render_dictionary(param.value, get_name(param.key, prefix)) }}
+                                {{ render_dictionary(param.value, get_name(param.key, prefix), param.summary) }}
                             </div>
                         {% else %}
                             <div class="col-sm-8">
@@ -103,7 +118,7 @@
                 {%- endfor %}
             {%- endmacro %}
             
-            {{ render_dictionary(parameters, "") }}
+            {{ render_dictionary(parameters, "", summary) }}
             <br>
             <div id="buttons" class="row" style="text-align: center">
                 <button type="button" class="btn btn-default" onclick="increase_visible_level()" aria-label="Show more options">

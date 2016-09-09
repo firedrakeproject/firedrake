@@ -28,6 +28,7 @@ def web_config(parameters):
                             "type": "dict",
                             "depends": k.depends if k.depends is not None else '',
                             "visible_level": k.visible_level,
+                            "summary": render_docstring(v.summary),
                             "value": format_dict(v)})
         return ret
 
@@ -52,7 +53,8 @@ def web_config(parameters):
             except:
                 pass
         params = format_dict(parameters.unwrapped_dict(-1))
-        return render_template('index.html', parameters=params, err=err)
+        return render_template('index.html', parameters=params, err=err,
+                               summary=render_docstring(parameters.summary))
 
     def validate_input(parameters, dictionary):
         """Validate inputs using the validation information in Parameters"""
@@ -95,5 +97,13 @@ def web_config(parameters):
     def fetch():
         """Fetch current Parameter setting"""
         return jsonify(**parameters.unwrapped_dict(-1))
+
+    def render_docstring(docstring):
+        if docstring == "":
+            return ""
+        from docrepr.sphinxify import sphinxify
+        import tempfile
+        srcdir = tempfile.mkdtemp(dir=tempfile.gettempdir())
+        return sphinxify(docstring, srcdir)
 
     app.run(host="0.0.0.0")
