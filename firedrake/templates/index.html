@@ -68,13 +68,9 @@
                 {% for param in parameters -%}
                 <div class="form-group round-border" name="{{ get_name(param.key, prefix) }}" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
                         <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
-                        {% if param.type is equalto "str" -%}
+                        {% if (param.type is equalto "int") or (param.type is equalto "float") %}
                             <div class="col-sm-8">
-                                <input type="text" class="form-control" name="{{ get_name(param.key, prefix) }}">
-                            </div>
-                        {% elif (param.type is equalto "int") or (param.type is equalto "float") %}
-                            <div class="col-sm-8">
-                                <input type="number" step="any" class="form-control" name="{{ get_name(param.key, prefix) }}">
+                                <input type="number" {% if param.type is equalto "float" -%} step="any" {%- endif %}class="form-control" name="{{ get_name(param.key, prefix) }}">
                             </div>
                         {% elif param.type is equalto "bool" %}
                             <div class="col-sm-8">
@@ -98,7 +94,9 @@
                                 {{ render_dictionary(param.value, get_name(param.key, prefix)) }}
                             </div>
                         {% else %}
-                            <p> Unsupported Input Type </p>
+                            <div class="col-sm-8">
+                                <input type="text" class="form-control" name="{{ get_name(param.key, prefix) }}">
+                            </div>
                         {%- endif %}
                         <p class="col-sm-8 col-sm-offset-4 help-block">{{ param.help }}</p>
                 </div>
