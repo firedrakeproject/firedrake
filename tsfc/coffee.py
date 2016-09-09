@@ -314,3 +314,39 @@ def _expression_indexed(expr, parameters):
             rank.append(index)
     return _coffee_symbol(expression(expr.children[0], parameters),
                           rank=tuple(rank))
+
+
+@_expression.register(gem.FlexiblyIndexed)
+def _expression_flexiblyindexed(expr, parameters):
+    rank = []
+    offset = []
+    for off, idxs in expr.dim2idxs:
+        if idxs:
+            indices, strides = zip(*idxs)
+            strides = list(reversed(strides[1:]))
+            strides = list(reversed(numpy.cumprod(strides))) + [1]
+        else:
+            indices = ()
+            strides = ()
+
+        iss = []
+        for i, s in zip(indices, strides):
+            if isinstance(i, int):
+                off += i * s
+            elif isinstance(i, gem.Index):
+                iss.append((i, s))
+            else:
+                raise AssertionError("Unexpected index type!")
+
+        if len(iss) == 0:
+            rank.append(off)
+            offset.append((1, 0))
+        elif len(iss) == 1:
+            (i, s), = iss
+            rank.append(parameters.index_names[i])
+            offset.append((s, off))
+        else:
+            raise NotImplementedError("General case not implemented yet")
+
+    return coffee.Symbol(expression(expr.children[0], parameters),
+                         rank=tuple(rank), offset=tuple(offset))

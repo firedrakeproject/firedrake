@@ -277,50 +277,37 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-
-        shape = coefficient.ufl_shape or (1,)
-
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                             pointers=[("restrict",)],
                              qualifiers=["const"])
-        expression = gem.Variable(name, shape)
-        if coefficient.ufl_shape == ():
-            expression = gem.Indexed(expression, (0,))
+
+        expression = gem.reshape(gem.Variable(name, (None,)),
+                                 coefficient.ufl_shape)
 
         return funarg, [], expression
 
     fiat_element = create_element(coefficient.ufl_element())
+    size = fiat_element.space_dimension()
 
     if not interior_facet:
         # Simple case
-
-        shape = (fiat_element.space_dimension(),)
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
-                             pointers=[("restrict",)],
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
 
-        i = gem.Index()
-        expression = gem.ComponentTensor(
-            gem.Indexed(gem.Variable(name, shape + (1,)),
-                        (i, 0)),
-            (i,))
+        expression = gem.reshape(gem.Variable(name, (size, 1)), (size,), ())
 
         return funarg, [], expression
 
     if not isinstance(fiat_element, MixedElement):
         # Interior facet integral
-
-        shape = (2, fiat_element.space_dimension())
-
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
-                             pointers=[("restrict",)],
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
-        expression = gem.Variable(name, shape + (1,))
 
-        f, i = gem.Index(), gem.Index()
-        expression = gem.ComponentTensor(
-            gem.Indexed(gem.Variable(name, shape + (1,)),
-                        (f, i, 0)),
-            (f, i,))
+        expression = gem.reshape(
+            gem.Variable(name, (2 * size, 1)), (2, size), ()
+        )
 
         return funarg, [], expression
 
@@ -343,10 +330,10 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         # to reorder the values.  A whole E[n]{+,-} block is copied by
         # a single loop.
         name_ = name + "_"
-        shape = (2, fiat_element.space_dimension())
+        shape = (2, size)
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name_),
-                             pointers=[("restrict",), ("restrict",)],
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
         prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
         expression = gem.Variable(name, shape)
@@ -377,10 +364,10 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         # reordering.  Every single element in a E[n]{+,-} block is
         # referenced separately.
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
-                             pointers=[("restrict",), ("restrict",)],
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
 
-        variable = gem.Variable(name, (2 * fiat_element.space_dimension(), 1))
+        variable = gem.Variable(name, (2 * size, 1))
 
         facet_0 = []
         facet_1 = []
