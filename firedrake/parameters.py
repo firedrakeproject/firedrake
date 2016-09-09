@@ -321,6 +321,7 @@ class TypedKey(str):
 
     @property
     def visible_level(self):
+        """Visible level of the key, default to be 0"""
         return self._visible_level
 
     @visible_level.setter
@@ -359,6 +360,8 @@ class TypedKey(str):
 
     @property
     def depends(self):
+        """Specify whether a key is dependent on another key, the depended key
+            must be in the same Parameters class and must be of BoolType"""
         if hasattr(self, "_depends"):
             return self._depends
         else:

@@ -2,10 +2,18 @@ from flask import Flask, render_template, jsonify, request
 
 app = Flask(__name__)
 
+__all__ = ["web_config"]
+
 
 def web_config(parameters):
+    """Start a web server for configuring the Parameters on port 5000
+
+    :arg parameters: a :class `firedrake.parameters.Parameters: class to be
+        configured
+    """
 
     def format_dict(parameters):
+        """Format the parameters to a dictionary for rendering"""
         ret = []
         for k, v in parameters.iteritems():
             if not isinstance(v, dict):
@@ -25,6 +33,11 @@ def web_config(parameters):
 
     @app.route('/', methods=["GET", "POST"])
     def index():
+        """Entry point of webpage
+
+        Show a form with inputs. If a JSON file is posted, the data in JSON
+        will be loaded into the current Parameters instance
+        """
         err = []
         if request.method == "POST":
             import json
@@ -42,6 +55,7 @@ def web_config(parameters):
         return render_template('index.html', parameters=params, err=err)
 
     def validate_input(parameters, dictionary):
+        """Validate inputs using the validation information in Parameters"""
         from firedrake.parameters import Parameters
         err = []
         for k in parameters.keys():
@@ -56,6 +70,7 @@ def web_config(parameters):
 
     @app.route('/validate', methods=["GET", "POST"])
     def validate():
+        """Validate inputs posted in JSON format"""
         import json
         dictionary = json.loads(request.form['parameters'])
         validate_result = validate_input(parameters, dictionary)
@@ -66,6 +81,7 @@ def web_config(parameters):
 
     @app.route('/save', methods=["GET", "POST"])
     def save():
+        """Save inputs posted in JSON format into Parameters"""
         import json
         dictionary = json.loads(request.form['parameters'])
         from firedrake.gui_config import load_from_dict
@@ -77,6 +93,7 @@ def web_config(parameters):
 
     @app.route('/fetch')
     def fetch():
+        """Fetch current Parameter setting"""
         return jsonify(**parameters.unwrapped_dict(-1))
 
     app.run(host="0.0.0.0")
