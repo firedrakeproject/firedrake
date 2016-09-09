@@ -21,7 +21,7 @@ def coarse_to_fine_node_map(coarse, fine):
         return op2.MixedMap(coarse_to_fine_node_map(c, f) for c, f in zip(coarse, fine))
     mesh = coarse.mesh()
     assert hasattr(mesh, "_shared_data_cache")
-    if coarse.fiat_element != fine.fiat_element:
+    if not (coarse.ufl_element() == fine.ufl_element()):
         raise ValueError("Can't transfer between different spaces")
     ch, level = get_level(mesh)
     fh, fine_level = get_level(fine.mesh())
@@ -54,7 +54,7 @@ def get_transfer_kernel(coarse, fine, typ=None):
     try:
         return cache[key]
     except KeyError:
-        if coarse.fiat_element != fine.fiat_element:
+        if not (coarse.ufl_element() == fine.ufl_element()):
             raise ValueError("Can't transfer between different spaces")
         ch, level = get_level(coarse.mesh())
         fh, fine_level = get_level(fine.mesh())
@@ -92,7 +92,7 @@ def get_restriction_weights(coarse, fine):
         # elementwise over the coarse cells.  So we need a count of
         # how many times we did this to weight the final contribution
         # appropriately.
-        if coarse.fiat_element != fine.fiat_element:
+        if not (coarse.ufl_element() == fine.ufl_element()):
             raise ValueError("Can't transfer between different spaces")
         if coarse.fiat_element.entity_dofs() == coarse.fiat_element.entity_closure_dofs():
             return cache.setdefault(key, None)
