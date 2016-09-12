@@ -6,6 +6,7 @@ import coffee.base as coffee
 
 import gem
 from gem.node import traversal
+from gem.gem import FlexiblyIndexed as gem_FlexiblyIndexed
 
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
@@ -404,7 +405,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
          finalise    - list of COFFEE nodes to be appended to the
                        kernel body
     """
-    from itertools import chain, product
+    from itertools import product
     assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
@@ -427,18 +428,18 @@ def prepare_arguments(arguments, indices, interior_facet=False):
 
     if not any(isinstance(element, MixedElement) for element in elements):
         # Interior facet integral, but no vector (mixed) arguments
-        shape = []
-        for element in elements:
-            shape += [2, element.space_dimension()]
-        shape = tuple(shape)
+        shape = tuple(2 * element.space_dimension() for element in elements)
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
         varexp = gem.Variable("A", shape)
 
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
-            is_ = tuple(chain(*zip(restrictions, indices)))
-            expressions.append(gem.Indexed(varexp, is_))
+            expressions.append(gem_FlexiblyIndexed(
+                varexp,
+                tuple((r * e.space_dimension(), ((i, e.space_dimension()),))
+                      for e, i, r in zip(elements, indices, restrictions))
+            ))
 
         return funarg, [], expressions, []
 

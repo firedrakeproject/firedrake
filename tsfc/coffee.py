@@ -348,5 +348,9 @@ def _expression_flexiblyindexed(expr, parameters):
         else:
             raise NotImplementedError("General case not implemented yet")
 
-    return coffee.Symbol(expression(expr.children[0], parameters),
+    variable = expression(expr.children[0], parameters)
+    assert isinstance(variable, coffee.Symbol)
+    assert not variable.rank
+    assert not variable.offset
+    return coffee.Symbol(variable.symbol,
                          rank=tuple(rank), offset=tuple(offset))
