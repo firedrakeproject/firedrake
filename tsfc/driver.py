@@ -92,7 +92,10 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              for arg in arguments)
     quadrature_indices = []
 
-    builder = KernelBuilder(integral_type, integral_data.subdomain_id)
+    # Dict mapping domains to index in original_form.ufl_domains()
+    domain_numbering = form_data.original_form.domain_numbering()
+    builder = KernelBuilder(integral_type, integral_data.subdomain_id,
+                            domain_numbering[integral_data.domain])
     return_variables = builder.set_arguments(arguments, argument_indices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
