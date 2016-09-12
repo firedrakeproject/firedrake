@@ -316,15 +316,24 @@ def _expression_indexed(expr, parameters):
                           rank=tuple(rank))
 
 
+def cumulative_strides(strides):
+    temp = numpy.flipud(numpy.cumprod(numpy.flipud(list(strides)[1:])))
+    return list(temp) + [1]
+
+
 @_expression.register(gem.FlexiblyIndexed)
 def _expression_flexiblyindexed(expr, parameters):
+    var = expression(expr.children[0], parameters)
+    assert isinstance(var, coffee.Symbol)
+    assert not var.rank
+    assert not var.offset
+
     rank = []
     offset = []
     for off, idxs in expr.dim2idxs:
         if idxs:
             indices, strides = zip(*idxs)
-            strides = list(reversed(strides[1:]))
-            strides = list(reversed(numpy.cumprod(strides))) + [1]
+            strides = cumulative_strides(strides)
         else:
             indices = ()
             strides = ()
@@ -346,11 +355,6 @@ def _expression_flexiblyindexed(expr, parameters):
             rank.append(parameters.index_names[i])
             offset.append((s, off))
         else:
-            raise NotImplementedError("General case not implemented yet")
+            raise NotImplementedError("COFFEE may break in this case.")
 
-    variable = expression(expr.children[0], parameters)
-    assert isinstance(variable, coffee.Symbol)
-    assert not variable.rank
-    assert not variable.offset
-    return coffee.Symbol(variable.symbol,
-                         rank=tuple(rank), offset=tuple(offset))
+    return coffee.Symbol(var.symbol, rank=tuple(rank), offset=tuple(offset))
