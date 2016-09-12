@@ -764,7 +764,7 @@ def build_update_script():
 
     for switch in ["developer", "sudo", "package_manager", "minimal_petsc",
                    "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint",
-                   "virtualenv_name"]:
+                   "virtualenv_name", "slepc"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
