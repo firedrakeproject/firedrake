@@ -192,14 +192,13 @@ def _(element, vector_is_mixed):
                                                                vector_is_mixed))
 
 
-# Now for the OPE-specific stuff
+# Now for the TPE-specific stuff
 @convert.register(ufl.TensorProductElement)  # noqa
 def _(element, vector_is_mixed):
     cell = element.cell()
     if type(cell) is not ufl.TensorProductCell:
-        raise ValueError("OPE not on OPC?")
-    A = element._A
-    B = element._B
+        raise ValueError("TPE not on TPC?")
+    A, B = element.sub_elements()
     return FIAT.TensorProductElement(create_element(A, vector_is_mixed),
                                      create_element(B, vector_is_mixed))
 

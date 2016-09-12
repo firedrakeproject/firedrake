@@ -2,6 +2,8 @@ from __future__ import absolute_import
 
 import operator
 
+import numpy
+
 import coffee.base as coffee
 
 import gem
@@ -45,7 +47,33 @@ class KernelBuilderBase(object):
         assert isinstance(interior_facet, bool)
         self.interior_facet = interior_facet
 
+        # Coefficients
         self.coefficient_map = {}
+
+        # Cell orientation
+        if interior_facet:
+            self._cell_orientations = gem.Variable("cell_orientations", (2, 1))
+        else:
+            self._cell_orientations = gem.Variable("cell_orientations", (1, 1))
+
+    def coefficient(self, ufl_coefficient, restriction):
+        """A function that maps :class:`ufl.Coefficient`s to GEM
+        expressions."""
+        kernel_arg = self.coefficient_map[ufl_coefficient]
+        if ufl_coefficient.ufl_element().family() == 'Real':
+            return kernel_arg
+        else:
+            return gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[restriction])
+
+    def cell_orientation(self, restriction):
+        """Cell orientation as a GEM expression."""
+        f = {None: 0, '+': 0, '-': 1}[restriction]
+        co_int = gem.Indexed(self._cell_orientations, (f, 0))
+        return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
+                               gem.Literal(-1),
+                               gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),
+                                               gem.Literal(1),
+                                               gem.Literal(numpy.nan)))
 
     def construct_kernel(self, name, args, body):
         """Construct a COFFEE function declaration with the
@@ -59,12 +87,6 @@ class KernelBuilderBase(object):
         assert isinstance(body, coffee.Block)
         return coffee.FunDecl("void", name, args, body, pred=["static", "inline"])
 
-    @property
-    def coefficient_mapper(self):
-        """A function that maps :class:`ufl.Coefficient`s to GEM
-        expressions."""
-        return lambda coefficient: self.coefficient_map[coefficient]
-
     def arguments(self, arguments, indices):
         """Prepare arguments. Adds glue code for the arguments.
 
@@ -76,7 +98,7 @@ class KernelBuilderBase(object):
         funarg, expressions = prepare_arguments(arguments, indices, interior_facet=self.interior_facet)
         return funarg, expressions
 
-    def coefficient(self, coefficient, name):
+    def _coefficient(self, coefficient, name):
         """Prepare a coefficient. Adds glue code for the coefficient
         and adds the coefficient to the coefficient map.
 
@@ -102,6 +124,23 @@ class KernelBuilder(KernelBuilderBase):
         self.coefficient_args = []
         self.coefficient_split = {}
 
+        # Facet number
+        if integral_type in ['exterior_facet', 'exterior_facet_vert']:
+            facet = gem.Variable('facet', (1,))
+            self._facet_number = {None: gem.VariableIndex(gem.Indexed(facet, (0,)))}
+        elif integral_type in ['interior_facet', 'interior_facet_vert']:
+            facet = gem.Variable('facet', (2,))
+            self._facet_number = {
+                '+': gem.VariableIndex(gem.Indexed(facet, (0,))),
+                '-': gem.VariableIndex(gem.Indexed(facet, (1,)))
+            }
+        elif integral_type == 'interior_facet_horiz':
+            self._facet_number = {'+': 1, '-': 0}
+
+    def facet_number(self, restriction):
+        """Facet number as a GEM index."""
+        return self._facet_number[restriction]
+
     def set_arguments(self, arguments, indices):
         """Process arguments.
 
@@ -118,7 +157,7 @@ class KernelBuilder(KernelBuilderBase):
         :arg coefficient: :class:`ufl.Coefficient`
         :arg name: coordinate coefficient name
         """
-        self.coordinates_arg = self.coefficient(coefficient, name)
+        self.coordinates_arg = self._coefficient(coefficient, name)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -148,7 +187,7 @@ class KernelBuilder(KernelBuilderBase):
                 coefficient_numbers.append(form_data.original_coefficient_positions[i])
         for i, coefficient in enumerate(coefficients):
             self.coefficient_args.append(
-                self.coefficient(coefficient, "w_%d" % i))
+                self._coefficient(coefficient, "w_%d" % i))
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     def require_cell_orientations(self):
