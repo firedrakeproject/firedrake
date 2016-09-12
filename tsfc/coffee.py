@@ -317,6 +317,13 @@ def _expression_indexed(expr, parameters):
 
 
 def cumulative_strides(strides):
+    """Calculate cumulative strides from per-dimension capacities.
+
+    For example:
+
+        [2, 3, 4] ==> [12, 4, 1]
+
+    """
     temp = numpy.flipud(numpy.cumprod(numpy.flipud(list(strides)[1:])))
     return list(temp) + [1]
 
