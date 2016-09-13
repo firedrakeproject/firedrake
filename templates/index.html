@@ -26,7 +26,7 @@
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
     <script src="https://cdn.rawgit.com/marioizquierdo/jquery.serializeJSON/master/jquery.serializejson.js"></script>
     <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS_HTML"></script>
-
+    {% include 'header.html' %}
     <style>
         .round-border{
             color: #555;
@@ -51,9 +51,18 @@
             margin-right: -15px;
             margin-top: 15px;
         }
+        .footer{
+            color: #aaa;
+            width: 100%;
+            padding: 13px 0;
+            text-align: center;
+            font-size: 13px;
+            background: #000;
+            clear:both;
+        }
     </style>
     <div class="container" style="max-width:730px">
-        <br><br><br>
+        <br>
         <h1>Configurations</h1>
         {% if err is not equalto [] -%}
         <div class="alert alert-danger">
@@ -145,7 +154,7 @@
         </form>
     </div>
     <!-- /.container -->
-
+    {% include 'footer.html' %}
 
     <script>
         var visible_level = 0;
