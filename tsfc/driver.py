@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 import collections
 import time
+from itertools import chain
 
 from ufl.classes import Form, CellVolume, FacetArea
 from ufl.algorithms import compute_form_data
@@ -246,7 +247,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         builder.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
-                                        tuple(quadrature_indices) + argument_indices,
+                                        tuple(quadrature_indices) + tuple(chain(*argument_indices)),
                                         remove_zeros=True)
 
     # Generate COFFEE
