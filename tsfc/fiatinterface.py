@@ -25,7 +25,6 @@ from __future__ import absolute_import
 from __future__ import print_function
 
 from singledispatch import singledispatch
-from functools import partial
 import weakref
 
 import FIAT
@@ -35,8 +34,6 @@ from FIAT.quadrature import QuadratureRule  # noqa
 
 import ufl
 from ufl.algorithms.elementtransformations import reconstruct_element
-
-from .mixedelement import MixedElement
 
 
 __all__ = ("create_element", "create_quadrature", "supported_elements", "as_fiat_cell")
@@ -222,19 +219,7 @@ def _(element, vector_is_mixed):
                                     ufl.TensorElement))
         return create_element(element.sub_elements()[0], vector_is_mixed)
 
-    elements = []
-
-    def rec(eles):
-        for ele in eles:
-            if ele.num_sub_elements() > 0:
-                rec(ele.sub_elements())
-            else:
-                elements.append(ele)
-
-    rec(element.sub_elements())
-    fiat_elements = map(partial(create_element, vector_is_mixed=vector_is_mixed),
-                        elements)
-    return MixedElement(fiat_elements)
+    raise NotImplementedError("ffc.MixedElement removed.")
 
 
 quad_opc = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
