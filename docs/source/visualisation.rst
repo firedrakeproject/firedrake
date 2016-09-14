@@ -159,6 +159,21 @@ If instead we want projection, we use
    projected = File("proj_output.pvd", project_output=True)
    projected.write(f)
 
+
+Selecting the output space when outputting multiple functions
++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+All functions that are output to the same file must be represented in
+the same space, the rules for selecting the output space are as
+follows.  If *all* the functions, including the mesh's coordinate
+field are continuous (i.e. they live in :math:`H^1`), then the output
+will be decimated to a piecewise linear Lagrange space.  If any of the
+functions are at least partially discontinuous, again including the
+coordinate field (this occurs when using periodic meshes), then the
+output will be decimated to a piecewise linear discontinuous Lagrange
+space.
+
+
 Plotting with `matplotlib`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -186,28 +201,15 @@ in a animated fashion. The plus and minus buttons can change the speed of the
 animation.
 
 When used in Jupyter Notebook, plotting multiple 1D functions using additional
-key word argument ``interactive=True`` when calling the function 
+key word argument ``interactive=True`` when calling the function
 :func:`plot <firedrake.plot.plot>` will generate an interactive slider for
-selecting the figures. 
+selecting the figures.
 
 For 2D functions, both surface plots and contour plots are supported. By
 default, the :func:`plot <firedrake.plot.plot>` will return a surface plot in the
 colour map of coolwarm. Contour plotting could be enabled by passing the key
-work argument ``contour=True``.
+word argument ``contour=True``.
 
-
-Selecting the output space when outputting multiple functions
-+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-All functions that are output to the same file must be represented in
-the same space, the rules for selecting the output space are as
-follows.  If *all* the functions, including the mesh's coordinate
-field are continuous (i.e. they live in :math:`H^1`), then the output
-will be decimated to a piecewise linear Lagrange space.  If any of the
-functions are at least partially discontinuous, again including the
-coordinate field (this occurs when using periodic meshes), then the
-output will be decimated to a piecewise linear discontinuous Lagrange
-space.
 
 .. _Paraview: http://www.paraview.org
 .. _VTK: http://www.vtk.org

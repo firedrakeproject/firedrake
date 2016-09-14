@@ -7,7 +7,8 @@ __all__ = ["plot"]
 
 
 def _plot_mult(functions, num_points=10, **kwargs):
-    """Plot multiple functions on a figure, return a matplotlib figure
+    """Plot multiple functions on a figure, return a
+        :class:`matplotlib.figure.Figure`
 
     :arg functions: Functions to be plotted
     :arg num_points: Number of points per element
@@ -97,8 +98,9 @@ def plot(function,
          num_sample_points=10,
          axes=None,
          **kwargs):
-    """Plot a function or a list of functions and return a matplotlib
-    figure object. Default number of sampling points per element will be 10.
+    """Plot a function or a list of functions and return a
+    :class:`matplotlib.figure.Figure` object. Default number of sampling
+    points per element will be 10.
 
     :arg function: The function to plot.
     :arg num_sample_points: Number of Sample points per element, ignored if
@@ -107,7 +109,7 @@ def plot(function,
         points per element will not exactly this value.  Instead, it
         is used as a guide to the number of subdivisions to use when
         triangulating the surface.
-    :arg axes: Axes to be plotted on
+    :arg axes: :class:`matplotlib.axes.Axes` to be plotted on
     :kwarg contour: For 2D plotting, True for a contour plot
     :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
         piece-wise linear
@@ -116,7 +118,7 @@ def plot(function,
     :kwarg interactive: For 1D plotting for multiple functions, use an
         interactive inferface in Jupyter Notebook
     :arg kwargs: Additional keyword arguments passed to
-        ``matplotlib.plot``.
+        :func:`matplotlib.pyplot.plot`.
     """
     if not isinstance(function, Function):
         if isinstance(function, list) and \
@@ -206,7 +208,7 @@ def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
     :arg num_sample_points: Number of sample points per element, ignore if
         degree < 4 where Bezier curve is used for an exact plot
     :arg kwargs: Additional key word arguments to be passed to
-        ``matplotlib.plot``
+        :func:`matplotlib.pyplot.plot`
     """
     try:
         from ipywidgets import interact, IntSlider
@@ -222,11 +224,12 @@ def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
 
 def piecewise_linear(points, axes=None, **kwargs):
     """Plot a piece-wise linear plot for the given points, returns a
-    matplotlib figure
+    :class:`matplotlib.figure.Figure`
 
     :arg points: Points to be plotted
-    :arg axes: Axes to be plotted on
-    :arg kwargs: Additional key word arguments passed to plot
+    :arg axes: :class:`matplotlib.axes.Axes` to be plotted on
+    :arg kwargs: Additional key word arguments passed to
+        :func:`matplotlib.pyplot.plot`
     """
     try:
         import matplotlib.pyplot as plt
@@ -241,8 +244,8 @@ def piecewise_linear(points, axes=None, **kwargs):
 def _calculate_values(function, points, dimension, cell_mask=None):
     """Calculate function values at given reference points
 
-    :arg function: function to be sampled
-    :arg points: points to be sampled in reference space
+    :arg function: Function to be sampled
+    :arg points: Points to be sampled in reference space
     :arg cell_mask: Masks for cell node list
     """
     import numpy.ma as ma
@@ -269,9 +272,9 @@ def _calculate_points(function, num_points, dimension, cell_mask=None):
     """Calculate points in physical space of given function with given number
     of sampling points at given dimension
 
-    :arg function: function to be sampled
-    :arg num_points: number of sampling points
-    :arg dimension: dimension of the function
+    :arg function: Function to be sampled
+    :arg num_points: Number of sampling points
+    :arg dimension: Dimension of the function
     :arg cell_mask: Masks for cell node list
     """
     function_space = function.function_space()
@@ -298,7 +301,7 @@ def _calculate_points(function, num_points, dimension, cell_mask=None):
 
 def calculate_one_dim_points(function, num_points, cell_mask=None):
     """Calculate a set of points for plotting for a one-dimension function as
-    a numpy array
+    a :class:`numpy.ndarray`
 
     :arg function: 1D function for plotting
     :arg num_points: Number of points per element
@@ -361,11 +364,12 @@ def two_dimension_surface(function,
                           num_sample_points,
                           axes=None,
                           **kwargs):
-    """Plot a 2D function as surface plotting, return a matplotlib figure
+    """Plot a 2D function as surface plotting, return a
+        :class:`matplotlib.figure.Figure`
 
     :arg function: 2D function for plotting
     :arg num_sample_points: Number of sample points per element
-    :arg axes: Axes to be plotted on
+    :arg axes: :class:`matplotlib.axes.Axes` to be plotted on
     """
     try:
         import matplotlib.pyplot as plt
@@ -390,11 +394,12 @@ def two_dimension_contour(function,
                           num_sample_points,
                           axes=None,
                           **kwargs):
-    """Plot a 2D function as contour plotting, return a matplotlib figure
+    """Plot a 2D function as contour plotting, return a
+        :class:`matplotlib.figure.Figure`
 
     :arg function: 2D function for plotting
     :arg num_sample_points: Number of sample points per element
-    :arg axes: Axes to be plotted on
+    :arg axes: :class:`matplotlib.axes.Axes` to be plotted on
     """
     try:
         import matplotlib.pyplot as plt
@@ -431,11 +436,11 @@ def _bezier_calculate_points(function):
 
 def bezier_plot(function, axes=None, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
-    Bezier curve within each cell, return a matplotlib figure
+    Bezier curve within each cell, return a :class:`matplotlib.figure.Figure`
 
     :arg function: 1D function for plotting
-    :arg axes: Axes for plotting, if None, a new one will be created
-    :arg kwargs: additional key work arguments to plot
+    :arg axes: :class:`matplotlib.axes.Axes` for plotting
+    :arg kwargs: additional key work arguments to :func:`matplotlib.pyplot.plot`
     """
     try:
         import matplotlib.pyplot as plt
@@ -475,10 +480,11 @@ def bezier_plot(function, axes=None, **kwargs):
 def interp_bezier(pts, num_cells, axes=None, **kwargs):
     """Interpolate points of a 1D function into piece-wise Bezier curves
 
-    :arg pts: Points of the 1D function evaluated by _calculate_one_dim_points
+    :arg pts: Points of the 1D function evaluated by
+        `firedrake.plot._calculate_one_dim_points`
     :arg num_cells: Number of cells containing the points
-    :arg axes: Axes to be plotted on
-    :arg kwargs: Addition key word argument for plotting
+    :arg axes: :class:`matplotlib.axes.Axes` to be plotted on
+    :arg kwargs: Addition key word argument for :func:`matplotlib.pyplot.plot`
     """
     try:
         import matplotlib.pyplot as plt
@@ -552,8 +558,8 @@ def _get_cell_boundary(function):
 def _detect_intersection(interval1, interval2):
     """Detect intersection of two intervals
 
-    :arg interval1: Interval 1 as numpy array [x1, x2]
-    :arg interval2: Interval 2 as numpy array [y1, y2]
+    :arg interval1: Interval 1 as :class:`numpy.ndarray` [x1, x2]
+    :arg interval2: Interval 2 as :class:`numpy.ndarray` [y1, y2]
     """
     return np.less_equal(np.amax([interval1[0], interval2[0]]),
                          np.amin([interval1[1], interval2[1]]))

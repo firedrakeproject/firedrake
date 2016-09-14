@@ -63,7 +63,7 @@ Firedrake namespace. ::
 
   from firedrake import *
 
-To visualise the output, we also need to import matplotlib.pyplot to display
+To visualise the output, we also need to import ``matplotlib.pyplot`` to display
 the visual output ::
 
   try:

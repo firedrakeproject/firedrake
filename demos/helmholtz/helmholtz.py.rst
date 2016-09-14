@@ -93,7 +93,7 @@ This file can be visualised using `paraview <http://www.paraview.org/>`__.
 
 We could use the built in plot function of firedrake by calling 
 :func:`plot <firedrake.plot.plot>` to plot a surface graph. Before that,
-matplotlib.pyplot should be installed and imported::
+``matplotlib.pyplot`` should be installed and imported::
 
   try:
     import matplotlib.pyplot as plt
