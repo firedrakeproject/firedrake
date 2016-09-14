@@ -129,6 +129,11 @@
             
             {{ render_dictionary(parameters, "", summary) }}
             <br>
+            <div id="load-input" class="alert alert-info hidden">
+                <input type="file" accept="application/json" name="json">
+                <input type="submit" class="btn btn-default">
+            </div>
+            <br>
             <div id="buttons" class="row" style="text-align: center">
                 <button type="button" class="btn btn-default" onclick="increase_visible_level()" aria-label="Show more options">
                     Show more options
@@ -136,21 +141,14 @@
                 <button type="button" class="btn btn-default" onclick="decrease_visible_level()" aria-label="Show fewer options">
                     Show fewer options
                 </button>
-                <button type="button" class="btn btn-default" onclick="load_json()" aria-label="Load from JSON">
-                    Load from JSON
+                <button type="button" class="btn btn-default" onclick="load_json()" aria-label="Load">
+                    Load
                 </button>
-                <button type="button" class="btn btn-default" onclick="save_json()" aria-label="Save to JSON">
-                    Save to JSON
-                </button>
-                <button type="button" class="btn btn-default" onclick="save()" aria-label="Save to Firedrake">
-                    Save to Firedrake
+                <button type="button" class="btn btn-default" onclick="save()" aria-label="Save">
+                    Save
                 </button>
             </div>
             <br>
-            <div id="load-input" class="alert alert-info hidden">
-                <input type="file" accept="application/json" name="json">
-                <input type="submit" class="btn btn-default">
-            </div>
         </form>
     </div>
     <!-- /.container -->
@@ -200,19 +198,7 @@
             }).done(function() {
                 $("#success-msg").remove();
                 $("#buttons").before('<div class="alert alert-success" id="success-msg">Saved successfully to Firedrake!</div>')
-            })
-        }
-        function save_json() {
-            $.post("validate", {
-                'parameters': JSON.stringify($("form").serializeJSON())
-            }, function() {
-                $("#errors").remove();
-                $("#download-link").remove();
-                var blob = new Blob([JSON.stringify($("form").serializeJSON())], {type: "application/json"});
-                var url = URL.createObjectURL(blob);
-                $("#buttons").before('<div class="alert alert-info" id="download-link"><a href='+url+' download="parameters.json">Download Parameters as JSON</a></div>');
-            })
-            .fail(function(data) {
+            }).fail(function(data) {
                 $("#errors").remove();
                 $("#download-link").remove();
                 $("#buttons").before('<div class="alert alert-danger" id="errors"><ul></ul></div>')

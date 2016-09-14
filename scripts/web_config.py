@@ -50,6 +50,7 @@ def web_config(parameters):
                 err.extend(validate_input(parameters, dictionary))
                 if err == []:
                     load_from_dict(parameters, dictionary)
+                json.dump(dictionary, open(config_file, 'w'))
             except:
                 pass
         params = format_dict(parameters.unwrapped_dict(-1))
@@ -86,11 +87,12 @@ def web_config(parameters):
         """Save inputs posted in JSON format into Parameters"""
         import json
         dictionary = json.loads(request.form['parameters'])
+        validate_result = validate_input(parameters, dictionary)
+        if validate_result != []:
+            return jsonify(successful=False, err=validate_result), 400
         from firedrake.gui_config import load_from_dict
-        try:
-            load_from_dict(parameters, dictionary)
-        except Exception as e:
-            return jsonify(successful=False, errmsg=e.message), 400
+        load_from_dict(parameters, dictionary)
+        json.dump(dictionary, open(config_file, 'w'))
         return jsonify(successful=True)
 
     @app.route('/fetch')
@@ -117,7 +119,10 @@ if __name__ == '__main__':
     parser.add_argument("module_name", help="The name of the module, it must \
                         contain an attribute of type `firedrake.parameters.Parameters` \
                         of name `parameters`")
+    parser.add_argument("--config_file", default="parameters.json",
+                        help="The path of file storing the configuration file")
     args = parser.parse_args()
     module_name = args.module_name
+    config_file = args.config_file
     module = importlib.import_module(module_name)
     web_config(module.parameters)
