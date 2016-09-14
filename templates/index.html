@@ -61,97 +61,107 @@
             clear:both;
         }
     </style>
-    <div class="container" style="max-width:730px">
-        <br>
-        <h1>Configurations</h1>
-        {% if err is not equalto [] -%}
-        <div class="alert alert-danger">
-            <strong>Errors:</strong>
-            <ul>
-                {% for error in err -%}
-                <li>{{ error }}</li>
-                {%- endfor %}
+    <div class="row">
+        <div class="col-xs-offset-1 col-xs-1" style="text-align: center;">
+            <ul class="nav affix" style="margin-top: 100px;">
+                <li><button type="button" class="btn btn-default btn-block" onclick="increase_visible_level()" aria-label="Show more options">
+                    Show more options
+                </button></li>
+                <br>
+                <li><button type="button" class="btn btn-default btn-block" onclick="decrease_visible_level()" aria-label="Show fewer options">
+                    Show fewer options
+                </button></li>
+                <br>
+                <li><button type="button" class="btn btn-default btn-block" onclick="load_json()" aria-label="Load">
+                    Load
+                </button></li>
+                <br>
+                <li><button type="button" class="btn btn-default btn-block" onclick="save()" aria-label="Save">
+                    Save
+                </button></li>
             </ul>
         </div>
-        {%- endif %}
-        <form action="#" class="form-horizontal" method="post" enctype="multipart/form-data">
-            {% macro get_name(key, prefix) -%}
-                {% if prefix is equalto "" -%}{{ key }}{% else %}{{ prefix + "[" + key + "]" }}{%- endif %}
-            {%- endmacro %}
-            {% macro render_dictionary(parameters, prefix, summary) -%}
-                {% if summary is not equalto '' -%}
-                <div class="panel panel-default round-border">
-                    <div class="panel-heading">
-                        <p class="panel-title">Summary</p>
-                    </div>
-                    <div class="panel-body">
-                        {% autoescape false %} {{ summary }} {% endautoescape %}
-                    </div>
-                </div>
-                {%- endif %}
-                {% for param in parameters -%}
-                <div class="form-group round-border" name="{{ get_name(param.key, prefix) }}" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
-                        <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
-                        {% if (param.type is equalto "int") or (param.type is equalto "float") %}
-                            <div class="col-sm-8">
-                                <input type="number" {% if param.type is equalto "float" -%} step="any" {%- endif %}class="form-control" name="{{ get_name(param.key, prefix) }}">
-                            </div>
-                        {% elif param.type is equalto "bool" %}
-                            <div class="col-sm-8">
-                                <label class="radio-inline">
-                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="True" onclick="show_input('{{ get_name(param.key, prefix) }}')">
-                                        True
-                                </label>
-                                <label class="radio-inline">
-                                    <input type="radio" name="{{ get_name(param.key, prefix) }}" value="False" onclick="hide_input('{{ get_name(param.key, prefix) }}')">
-                                        False
-                                </label>
-                            </div>
-                        {% elif param.type is equalto "dict" %}
-                            <script>
-                                $("label[for={{ get_name(param.key, prefix) }}]").prepend('<a aria-label="toggle" onclick=\'$("#{{ get_name(param.key, prefix) }}").toggle("hidden");$(\"label[for={{ get_name(param.key, prefix) }}]\").children().children().toggleClass("rotate-90");\'><span class="glyphicon glyphicon-triangle-bottom" aria-hidden="true"></span></a>&nbsp;&nbsp;')
-                            </script>
-                            <div class="col-sm-8">
-                                <p class="control-label"><br></p>
-                            </div>
-                            <div id="{{ get_name(param.key, prefix) }}" class="col-sm-12">
-                                {{ render_dictionary(param.value, get_name(param.key, prefix), param.summary) }}
-                            </div>
-                        {% else %}
-                            <div class="col-sm-8">
-                                <input type="text" class="form-control" name="{{ get_name(param.key, prefix) }}">
-                            </div>
-                        {%- endif %}
-                        <p class="col-sm-8 col-sm-offset-4 help-block">{{ param.help }}</p>
-                </div>
-                {%- endfor %}
-            {%- endmacro %}
-            
-            {{ render_dictionary(parameters, "", summary) }}
+        <div class="container" style="max-width:730px">
             <br>
-            <div id="load-input" class="alert alert-info hidden">
-                <input type="file" accept="application/json" name="json">
-                <input type="submit" class="btn btn-default">
+            <h1>Configurations</h1>
+            {% if err is not equalto [] -%}
+            <div class="alert alert-danger">
+                <strong>Errors:</strong>
+                <ul>
+                    {% for error in err -%}
+                    <li>{{ error }}</li>
+                    {%- endfor %}
+                </ul>
             </div>
-            <br>
-            <div id="buttons" class="row" style="text-align: center">
-                <button type="button" class="btn btn-default" onclick="increase_visible_level()" aria-label="Show more options">
-                    Show more options
-                </button>
-                <button type="button" class="btn btn-default" onclick="decrease_visible_level()" aria-label="Show fewer options">
-                    Show fewer options
-                </button>
-                <button type="button" class="btn btn-default" onclick="load_json()" aria-label="Load">
-                    Load
-                </button>
-                <button type="button" class="btn btn-default" onclick="save()" aria-label="Save">
-                    Save
-                </button>
-            </div>
-            <br>
-        </form>
+            {%- endif %}
+            <form action="#" class="form-horizontal" method="post" enctype="multipart/form-data">
+                {% macro get_name(key, prefix) -%}
+                    {% if prefix is equalto "" -%}{{ key }}{% else %}{{ prefix + "[" + key + "]" }}{%- endif %}
+                {%- endmacro %}
+                {% macro render_dictionary(parameters, prefix, summary) -%}
+                    {% if summary is not equalto '' -%}
+                    <div class="panel panel-default round-border">
+                        <div class="panel-heading">
+                            <p class="panel-title">Summary</p>
+                        </div>
+                        <div class="panel-body">
+                            {% autoescape false %} {{ summary }} {% endautoescape %}
+                        </div>
+                    </div>
+                    {%- endif %}
+                    {% for param in parameters -%}
+                    <div class="form-group round-border" name="{{ get_name(param.key, prefix) }}" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
+                            <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
+                            {% if (param.type is equalto "int") or (param.type is equalto "float") %}
+                                <div class="col-sm-8">
+                                    <input type="number" {% if param.type is equalto "float" -%} step="any" {%- endif %}class="form-control" name="{{ get_name(param.key, prefix) }}">
+                                </div>
+                            {% elif param.type is equalto "bool" %}
+                                <div class="col-sm-8">
+                                    <label class="radio-inline">
+                                        <input type="radio" name="{{ get_name(param.key, prefix) }}" value="True" onclick="show_input('{{ get_name(param.key, prefix) }}')">
+                                            True
+                                    </label>
+                                    <label class="radio-inline">
+                                        <input type="radio" name="{{ get_name(param.key, prefix) }}" value="False" onclick="hide_input('{{ get_name(param.key, prefix) }}')">
+                                            False
+                                    </label>
+                                </div>
+                            {% elif param.type is equalto "dict" %}
+                                <script>
+                                    $("label[for={{ get_name(param.key, prefix) }}]").prepend('<a aria-label="toggle" onclick=\'$("#{{ get_name(param.key, prefix) }}").toggle("hidden");$(\"label[for={{ get_name(param.key, prefix) }}]\").children().children().toggleClass("rotate-90");\'><span class="glyphicon glyphicon-triangle-bottom" aria-hidden="true"></span></a>&nbsp;&nbsp;')
+                                </script>
+                                <div class="col-sm-8">
+                                    <p class="control-label"><br></p>
+                                </div>
+                                <div id="{{ get_name(param.key, prefix) }}" class="col-sm-12">
+                                    {{ render_dictionary(param.value, get_name(param.key, prefix), param.summary) }}
+                                </div>
+                            {% else %}
+                                <div class="col-sm-8">
+                                    <input type="text" class="form-control" name="{{ get_name(param.key, prefix) }}">
+                                </div>
+                            {%- endif %}
+                            <p class="col-sm-8 col-sm-offset-4 help-block">{{ param.help }}</p>
+                    </div>
+                    {%- endfor %}
+                {%- endmacro %}
+                <div id="load-input" class="alert alert-info hidden">
+                    <input type="file" accept="application/json" name="json">
+                    <input type="submit" class="btn btn-default">
+                </div>
+                <div id="parameters">
+                    {{ render_dictionary(parameters, "", summary) }}
+                </div>
+                <br>
+                <br>
+                <div id="buttons" class="row" style="text-align: center">
+                </div>
+                <br>
+            </form>
+        </div>
+        <!-- /.container -->
     </div>
-    <!-- /.container -->
     {% include 'footer.html' %}
 
     <script>
@@ -197,11 +207,12 @@
                 'parameters': JSON.stringify($("form").serializeJSON())
             }).done(function() {
                 $("#success-msg").remove();
-                $("#buttons").before('<div class="alert alert-success" id="success-msg">Saved successfully to Firedrake!</div>')
-            }).fail(function(data) {
                 $("#errors").remove();
-                $("#download-link").remove();
-                $("#buttons").before('<div class="alert alert-danger" id="errors"><ul></ul></div>')
+                $("#parameters").before('<div class="alert alert-success" id="success-msg">Saved successfully to Firedrake!</div>')
+            }).fail(function(data) {
+                $("#success-msg").remove();
+                $("#errors").remove();
+                $("#parameters").before('<div class="alert alert-danger" id="errors"><ul></ul></div>')
                 $.each(data['responseJSON']['err'], function(id, err) {
                     $("#errors").find("ul").append('<li>' + err + '</li>');
                 })
