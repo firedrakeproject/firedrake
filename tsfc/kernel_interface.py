@@ -6,6 +6,7 @@ import coffee.base as coffee
 
 import gem
 from gem.node import traversal
+from gem.gem import FlexiblyIndexed as gem_FlexiblyIndexed
 
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
@@ -277,50 +278,37 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-
-        shape = coefficient.ufl_shape or (1,)
-
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                             pointers=[("restrict",)],
                              qualifiers=["const"])
-        expression = gem.Variable(name, shape)
-        if coefficient.ufl_shape == ():
-            expression = gem.Indexed(expression, (0,))
+
+        expression = gem.reshape(gem.Variable(name, (None,)),
+                                 coefficient.ufl_shape)
 
         return funarg, [], expression
 
     fiat_element = create_element(coefficient.ufl_element())
+    size = fiat_element.space_dimension()
 
     if not interior_facet:
         # Simple case
-
-        shape = (fiat_element.space_dimension(),)
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
-                             pointers=[("restrict",)],
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
 
-        i = gem.Index()
-        expression = gem.ComponentTensor(
-            gem.Indexed(gem.Variable(name, shape + (1,)),
-                        (i, 0)),
-            (i,))
+        expression = gem.reshape(gem.Variable(name, (size, 1)), (size,), ())
 
         return funarg, [], expression
 
     if not isinstance(fiat_element, MixedElement):
         # Interior facet integral
-
-        shape = (2, fiat_element.space_dimension())
-
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
-                             pointers=[("restrict",)],
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
-        expression = gem.Variable(name, shape + (1,))
 
-        f, i = gem.Index(), gem.Index()
-        expression = gem.ComponentTensor(
-            gem.Indexed(gem.Variable(name, shape + (1,)),
-                        (f, i, 0)),
-            (f, i,))
+        expression = gem.reshape(
+            gem.Variable(name, (2 * size, 1)), (2, size), ()
+        )
 
         return funarg, [], expression
 
@@ -343,10 +331,10 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         # to reorder the values.  A whole E[n]{+,-} block is copied by
         # a single loop.
         name_ = name + "_"
-        shape = (2, fiat_element.space_dimension())
+        shape = (2, size)
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name_),
-                             pointers=[("restrict",), ("restrict",)],
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
         prepare = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape))]
         expression = gem.Variable(name, shape)
@@ -377,10 +365,10 @@ def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         # reordering.  Every single element in a E[n]{+,-} block is
         # referenced separately.
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
-                             pointers=[("restrict",), ("restrict",)],
+                             pointers=[("const", "restrict"), ("restrict",)],
                              qualifiers=["const"])
 
-        variable = gem.Variable(name, (2 * fiat_element.space_dimension(), 1))
+        variable = gem.Variable(name, (2 * size, 1))
 
         facet_0 = []
         facet_1 = []
@@ -417,7 +405,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
          finalise    - list of COFFEE nodes to be appended to the
                        kernel body
     """
-    from itertools import chain, product
+    from itertools import product
     assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
@@ -440,18 +428,18 @@ def prepare_arguments(arguments, indices, interior_facet=False):
 
     if not any(isinstance(element, MixedElement) for element in elements):
         # Interior facet integral, but no vector (mixed) arguments
-        shape = []
-        for element in elements:
-            shape += [2, element.space_dimension()]
-        shape = tuple(shape)
+        shape = tuple(2 * element.space_dimension() for element in elements)
 
         funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
         varexp = gem.Variable("A", shape)
 
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
-            is_ = tuple(chain(*zip(restrictions, indices)))
-            expressions.append(gem.Indexed(varexp, is_))
+            expressions.append(gem_FlexiblyIndexed(
+                varexp,
+                tuple((r * e.space_dimension(), ((i, e.space_dimension()),))
+                      for e, i, r in zip(elements, indices, restrictions))
+            ))
 
         return funarg, [], expressions, []
 
