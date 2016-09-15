@@ -88,6 +88,11 @@
         <div class="container" style="max-width:730px">
             <br>
             <h1>Configurations</h1>
+            <div class="alert alert-warning hidden" id="unsaved_warning" role="alert">
+                <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>
+                <span class="sr-only"> Warning: </span>
+                You have unsaved settings!
+            </div>
             {% if err is not equalto [] -%}
             <div class="alert alert-danger">
                 <strong>Errors:</strong>
@@ -222,6 +227,7 @@
                     $("#errors").find("ul").append('<li>' + err + '</li>');
                 })
             })
+            $("#unsaved_warning").addClass("hidden");
         }
         function save_as() {
             $.post("validate", {
@@ -284,6 +290,8 @@
                     $("div[name='" + name + "']").addClass("has-success");
                     $("div[name='" + name + "']").removeClass("has-error");
                 })
+                $("#success-msg").remove();
+                $("#unsaved_warning").removeClass("hidden");
             });
         })
     </script>
