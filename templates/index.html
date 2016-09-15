@@ -257,7 +257,6 @@
             $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { 
                 var depends = $(elem).attr("depends");
                 var val = $('input[type=radio][name=' + depends + ']:checked').attr("value");
-                console.log(val);
                 if (val == 'True' || val == undefined) $(elem).fadeIn(); 
             });
             $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
@@ -276,15 +275,12 @@
             });
             $('input').change(function() {
                 var name = $(this).attr('name');
-                console.log(name);
                 $.post('validate', {
                     'parameters': JSON.stringify($(this).serializeJSON())
                 }).fail(function() {
-                    console.log($(this));
                     $("div[name='" + name + "']").removeClass("has-success");
                     $("div[name='" + name + "']").addClass("has-error");
                 }).done(function() {
-                    console.log($(this));
                     $("div[name='" + name + "']").addClass("has-success");
                     $("div[name='" + name + "']").removeClass("has-error");
                 })
