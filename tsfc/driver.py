@@ -69,12 +69,6 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     :arg parameters: parameters object
     :returns: a kernel, or None if the integral simplifies to zero
     """
-    # Remove these here, they're handled below.
-    if parameters.get("quadrature_degree") == "auto":
-        del parameters["quadrature_degree"]
-    if parameters.get("quadrature_rule") == "auto":
-        del parameters["quadrature_rule"]
-
     integral_type = integral_data.integral_type
     interior_facet = integral_type.startswith("interior_facet")
     mesh = integral_data.domain
@@ -97,12 +91,17 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     if ufl_utils.is_element_affine(mesh.ufl_coordinate_element()):
         # For affine mesh geometries we prefer code generation that
         # composes well with optimisations.
-        builder.set_coordinates(coordinates, "coords", mode='list_tensor')
+        #builder.set_coordinates(coordinates, "coords", mode='list_tensor')
+        builder.set_coordinates(coordinates, "coordinate_dofs", mode='list_tensor')
     else:
         # Otherwise we use the approach that might be faster (?)
-        builder.set_coordinates(coordinates, "coords")
+        #builder.set_coordinates(coordinates, "coords")
+        builder.set_coordinates(coordinates, "coordinate_dofs")
 
     builder.set_coefficients(integral_data, form_data)
+
+    builder.set_cell_orientations()
+    builder.set_facets()
 
     # Map from UFL FiniteElement objects to Index instances.  This is
     # so we reuse Index instances when evaluating the same coefficient
@@ -196,12 +195,13 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
         # Check if the integral has a quad degree attached, otherwise use
         # the estimated polynomial degree attached by compute_form_data
-        quadrature_degree = params.get("quadrature_degree",
-                                       params["estimated_polynomial_degree"])
+        quad_degree = params.get("quadrature_degree")
+        if quad_degree in [None, "auto", "default", -1, "-1"]:
+            quad_degree = params["estimated_polynomial_degree"]
         integration_cell = fiat_cell.construct_subelement(integration_dim)
-        quad_rule = params.get("quadrature_rule",
-                               create_quadrature(integration_cell,
-                                                 quadrature_degree))
+        quad_rule = params.get("quadrature_rule")
+        if quad_rule in [None, "auto", "default"]:
+            quad_rule = create_quadrature(integration_cell, quad_degree)
 
         if not isinstance(quad_rule, QuadratureRule):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
@@ -225,7 +225,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              index_cache=index_cache,
                              cellvolume=cellvolume,
                              facetarea=facetarea)
-        if parameters["unroll_indexsum"]:
+        if parameters.get("unroll_indexsum"):
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)
                      if quadrature_index in expr.free_indices
