@@ -3255,7 +3255,7 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def iterset(self):
         """:class:`MixedSet` mapped from."""
-        return reduce(lambda a, b: a if a is None else a.iterset or b if b is None else b.iterset, self._maps)
+        return reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.iterset, self._maps))
 
     @cached_property
     def toset(self):
