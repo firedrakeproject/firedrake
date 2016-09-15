@@ -1,7 +1,5 @@
 from __future__ import absolute_import
 
-import operator
-
 import numpy
 
 import coffee.base as coffee
@@ -244,54 +242,38 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-
-        shape = coefficient.ufl_shape or (1,)
-
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=shape),
-                             qualifiers=["const"])
-        expression = gem.Variable(name, shape)
-        if coefficient.ufl_shape == ():
-            expression = gem.Indexed(expression, (0,))
-
-        return funarg, expression
-
-    import ufl
-    pyop2_scalar = not isinstance(coefficient.ufl_element(), (ufl.VectorElement, ufl.TensorElement))
-    finat_element = create_element(coefficient.ufl_element())
-
-    if not interior_facet:
-        # Simple case
-
-        shape = finat_element.index_shape
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=(shape if pyop2_scalar else shape[:-1])),
+        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
                              pointers=[("restrict",)],
                              qualifiers=["const"])
 
-        if pyop2_scalar:
-            alpha = tuple(gem.Index() for d in shape)
-            expression = gem.ComponentTensor(
-                gem.Indexed(gem.Variable(name, shape + (1,)),
-                            alpha + (0,)),
-                alpha)
-        else:
-            expression = gem.Variable(name, shape)
+        expression = gem.reshape(gem.Variable(name, (None,)),
+                                 coefficient.ufl_shape)
 
         return funarg, expression
 
-    # Interior facet integral
-    shape = (2,) + finat_element.index_shape
+    finat_element = create_element(coefficient.ufl_element())
 
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name, rank=(shape if pyop2_scalar else shape[:-1])),
-                         pointers=[("restrict",)],
-                         qualifiers=["const"])
-    if pyop2_scalar:
-        alpha = tuple(gem.Index() for d in shape)
-        expression = gem.ComponentTensor(
-            gem.Indexed(gem.Variable(name, shape + (1,)),
-                        alpha + (0,)),
-            alpha)
+    # TODO: move behind the FInAT interface!
+    if hasattr(finat_element, '_base_element'):
+        scalar_shape = finat_element._base_element.index_shape
+        tensor_shape = finat_element.index_shape[len(scalar_shape):]
     else:
-        expression = gem.Variable(name, shape)
+        scalar_shape = finat_element.index_shape
+        tensor_shape = ()
+
+    if interior_facet:
+        scalar_shape = (2,) + scalar_shape
+
+    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+                         pointers=[("const", "restrict"), ("restrict",)],
+                         qualifiers=["const"])
+
+    scalar_size = numpy.prod(scalar_shape)
+    tensor_size = numpy.prod(tensor_shape)
+    expression = gem.reshape(
+        gem.Variable(name, (scalar_size, tensor_size)),
+        scalar_shape, tensor_shape
+    )
 
     return funarg, expression
 
@@ -309,7 +291,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
          expressions - GEM expressions referring to the argument
                        tensor
     """
-    from itertools import chain, product
+    from itertools import product
     assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
@@ -320,31 +302,32 @@ def prepare_arguments(arguments, indices, interior_facet=False):
         return funarg, [expression]
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
+    shapes = tuple(element.index_shape for element in elements)
+
+    c_shape = numpy.array([numpy.prod(shape) for shape in shapes])
+    if interior_facet:
+        c_shape *= 2
+    c_shape = tuple(c_shape)
+
+    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=c_shape))
+    varexp = gem.Variable("A", c_shape)
 
     if not interior_facet:
-        # Not an interior facet integral
-        shape = reduce(operator.add, [element.index_shape for element in elements], ())
-
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
-        expression = gem.Indexed(gem.Variable("A", shape), tuple(chain(*indices)))
-
+        expression = gem.FlexiblyIndexed(
+            varexp,
+            tuple((0, tuple(zip(alpha, shape)))
+                  for shape, alpha in zip(shapes, indices))
+        )
         return funarg, [expression]
-
-    # Interior facet integral
-    shape = []
-    for element in elements:
-        shape += [2] + list(element.index_shape)
-    shape = tuple(shape)
-
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=shape))
-    varexp = gem.Variable("A", shape)
-
-    expressions = []
-    for restrictions in product(((0,), (1,)), repeat=len(arguments)):
-        is_ = tuple(chain(*chain(*zip(restrictions, indices))))
-        expressions.append(gem.Indexed(varexp, is_))
-
-    return funarg, expressions
+    else:
+        expressions = []
+        for restrictions in product((0, 1), repeat=len(arguments)):
+            expressions.append(gem.FlexiblyIndexed(
+                varexp,
+                tuple((0, ((r, 2),) + tuple(zip(alpha, shape)))
+                      for r, shape, alpha in zip(restrictions, shapes, indices))
+            ))
+        return funarg, expressions
 
 
 def needs_cell_orientations(ir):
