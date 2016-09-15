@@ -172,6 +172,7 @@
 
     <script>
         var visible_level = 0;
+        var unsaved = false;
         function show_input(name) {
             $('div[depends=\"' + name +'\"]').each(function(idx, elem){
                 var v = $(elem).attr("visible_level");
@@ -224,6 +225,7 @@
                 })
             })
             $("#unsaved_warning").addClass("hidden");
+            unsaved = true;
         }
         function save_as() {
             $.post("validate", {
@@ -288,8 +290,12 @@
                 })
                 $("#success-msg").remove();
                 $("#unsaved_warning").removeClass("hidden");
+                unsaved = true;
             });
         })
+        window.onbeforeunload = function() {
+            if (unsaved) return 1;
+        }
     </script>
 </body>
 
