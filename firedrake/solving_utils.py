@@ -71,7 +71,8 @@ def _extract_kwargs(**kwargs):
     nullspace = kwargs.get('nullspace', None)
     tnullspace = kwargs.get('transpose_nullspace', None)
     options_prefix = kwargs.get('options_prefix', None)
-    return parameters, nullspace, tnullspace, options_prefix
+    pre_apply_bcs = kwargs.get('pre_apply_bcs', True)
+    return parameters, nullspace, tnullspace, options_prefix, pre_apply_bcs
 
 
 class _SNESContext(object):
@@ -85,6 +86,8 @@ class _SNESContext(object):
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
         matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+    :arg pre_apply_bcs: Indicates whether we should use the initial guess as-is,
+        or pre-apply the boundary conditions.
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -95,7 +98,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems, mat_type, pmat_type, appctx=None):
+    def __init__(self, problems, mat_type, pmat_type, pre_apply_bcs, appctx=None):
         if pmat_type is None:
             pmat_type = mat_type
         self.mat_type = mat_type
@@ -127,6 +130,7 @@ class _SNESContext(object):
 
         self.matfree = matfree
         self.pmatfree = pmatfree
+        self.pre_apply_bcs = pre_apply_bcs
         self.Fs = tuple(ufl.replace(problem.F, {problem.u: x})
                         for problem, x in zip(problems, self._xs))
         self.Js = tuple(ufl.replace(problem.J, {problem.u: x})
@@ -214,9 +218,13 @@ class _SNESContext(object):
 
         assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
                  form_compiler_parameters=problem.form_compiler_parameters)
-        # no mat_type -- it's a vector!
-        for bc in problem.bcs:
-            bc.zero(ctx._Fs[lvl])
+
+        if ctx.pre_apply_bcs:
+            for bc in problem.bcs:
+                bc.zero(ctx._Fs[lvl])
+        else:
+            for bc in problem.bcs:
+                bc.apply(ctx._Fs[lvl], ctx._xs[lvl])
 
         # F may not be the same vector as self._F, so copy
         # residual out to F.

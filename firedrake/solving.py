@@ -128,7 +128,7 @@ def _solve_varproblem(*args, **kwargs):
     # Extract arguments
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, \
-        options_prefix = _extract_args(*args, **kwargs)
+        options_prefix, pre_apply_bcs = _extract_args(*args, **kwargs)
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
@@ -160,6 +160,7 @@ def _solve_varproblem(*args, **kwargs):
                                                nullspace=nullspace,
                                                transpose_nullspace=nullspace_T,
                                                options_prefix=options_prefix,
+                                               pre_apply_bcs=pre_apply_bcs,
                                                appctx=appctx)
         solver.solve()
 
@@ -243,7 +244,7 @@ def _extract_args(*args, **kwargs):
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace",
-                    "options_prefix", "appctx"]
+                    "options_prefix", "appctx", "pre_apply_bcs"]
     transfer_nest = False
     if "nest" in kwargs:
         from firedrake.logging import warning, RED
@@ -292,13 +293,14 @@ def _extract_args(*args, **kwargs):
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
+    pre_apply_bcs = kwargs.get("pre_apply_bcs", True)
 
     if transfer_nest and nest is not None:
         solver_parameters["mat_type"] = "nest" if nest else "aij"
         if Jp is not None:
             solver_parameters["pmat_type"] = solver_parameters["mat_type"]
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
-        solver_parameters, nullspace, nullspace_T, options_prefix
+        solver_parameters, nullspace, nullspace_T, options_prefix, pre_apply_bcs
 
 
 def _extract_bcs(bcs):

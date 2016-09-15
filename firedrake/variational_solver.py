@@ -83,6 +83,8 @@ class NonlinearVariationalSolver(object):
                space of the operator.
         :kwarg transpose_nullspace: as for the nullspace, but used to
                make the right hand side consistent.
+        :kwarg pre_apply_bcs: if True (default), apply the BCs to the
+               initial guess. Set to False for consistency with DOLFIN.
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
@@ -103,7 +105,8 @@ class NonlinearVariationalSolver(object):
 
             {'snes_monitor': True}
         """
-        parameters, nullspace, nullspace_T, options_prefix = solving_utils._extract_kwargs(**kwargs)
+        parameters, nullspace, nullspace_T, options_prefix, pre_apply_bcs = solving_utils._extract_kwargs(**kwargs)
+        self._pre_apply_bcs = pre_apply_bcs
 
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__
@@ -134,6 +137,7 @@ class NonlinearVariationalSolver(object):
         ctx = solving_utils._SNESContext(problem,
                                          mat_type=mat_type,
                                          pmat_type=pmat_type,
+                                         pre_apply_bcs=pre_apply_bcs,
                                          appctx=appctx)
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
@@ -187,8 +191,9 @@ class NonlinearVariationalSolver(object):
         dm.setCreateMatrix(self._ctx.create_matrix)
 
         # Apply the boundary conditions to the initial guess.
-        for bc in self._problem.bcs:
-            bc.apply(self._problem.u)
+        if self._pre_apply_bcs:
+            for bc in self._problem.bcs:
+                bc.apply(self._problem.u)
 
         # User might have updated parameters dict before calling
         # solve, ensure these are passed through to the snes.
