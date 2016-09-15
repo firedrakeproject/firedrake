@@ -72,8 +72,8 @@
                     Show fewer options
                 </button></li>
                 <br>
-                <li><button type="button" class="btn btn-default btn-block" onclick="load_json()" aria-label="Load">
-                    Load
+                <li><button type="button" class="btn btn-default btn-block" onclick="load_json()" aria-label="Load from File">
+                    Load from File
                 </button></li>
                 <br>
                 <li><button type="button" class="btn btn-default btn-block" onclick="save()" aria-label="Save">
@@ -152,7 +152,8 @@
                 {%- endmacro %}
                 <div id="load-input" class="alert alert-info hidden">
                     <input type="file" accept="application/json" name="json">
-                    <input type="submit" class="btn btn-default">
+                    <input type="submit" class="btn btn-default btn-sm">
+                    <p>Note: the file will not be loaded until "Submit" button is clicked</p>
                 </div>
                 <div id="parameters">
                     {{ render_dictionary(parameters, "", summary) }}
