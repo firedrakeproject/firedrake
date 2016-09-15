@@ -2,10 +2,6 @@
 
 from flask import Flask, render_template, jsonify, request
 
-app = Flask(__name__, template_folder="../templates")
-
-__all__ = ["web_config"]
-
 
 def web_config(parameters):
     """Start a web server for configuring the Parameters on port 5000
@@ -13,6 +9,24 @@ def web_config(parameters):
     :arg parameters: a :class `firedrake.parameters.Parameters: class to be
         configured
     """
+
+    from jinja2 import FileSystemLoader
+    import os
+
+    app = Flask(__name__)
+    template_paths = [os.path.join(os.path.dirname(module.__file__), '../templates')]
+    if hasattr(parameters, 'header_path'):
+        header_path = os.path.join(os.path.dirname(module.__file__),
+                                   parameters.header_path)
+        if header_path not in template_paths:
+            template_paths.append(header_path)
+    if hasattr(parameters, 'footer_path'):
+        footer_path = os.path.join(os.path.dirname(module.__file__),
+                                   parameters.footer_path)
+        if footer_path not in template_paths:
+            template_paths.append(footer_path)
+    template_paths.reverse()
+    app.jinja_loader = FileSystemLoader(template_paths)
 
     def format_dict(parameters):
         """Format the parameters to a dictionary for rendering"""
