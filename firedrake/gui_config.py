@@ -5,9 +5,7 @@ from __future__ import absolute_import
 from Tkinter import *
 from ttk import *
 
-__all__ = ['show_config_gui',
-           "export_params_to_json",
-           "import_params_from_json"]
+__all__ = ['show_config_gui']
 
 
 def show_config_gui(parameters, visible_level=0):
@@ -65,6 +63,7 @@ def show_config_gui(parameters, visible_level=0):
         Save the current parameters from input, pop out a message box if
         there is an error.
         """
+        from firedrake.parameters import load_from_dict
         try:
             parsed_dict = parse_input_dict(parameters)
             load_from_dict(parameters, parsed_dict)
@@ -407,62 +406,3 @@ item, then click - button to delete from list",
     canvas.bind('<Configure>', configure_canvas)
 
     root.mainloop()
-
-
-def export_params_to_json(parameters, filename):
-    """Export parameters to a JSON file
-
-    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
-        class
-    :arg filename: File name of the output file
-    """
-    import json
-
-    if filename == '':
-        return
-    output_file = open(filename, 'w')
-    json.dump(parameters.unwrapped_dict(-1), output_file)
-    output_file.close()
-
-
-def import_params_from_json(parameters, filename):
-    """Import parameters from a JSON file
-
-    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
-        class
-    :arg filename: File name of the input file
-    """
-    import json
-
-    if filename == '':
-        return
-    input_file = open(filename, 'r')
-    dictionary = json.load(input_file)
-    input_file.close()
-    load_from_dict(parameters, dictionary)
-    return parameters
-
-
-def load_from_dict(parameters, dictionary):
-    """Merge the parameters in a dictionary into Parameters class
-
-    :arg parameters: Parameters to be merged into as a
-        :class:`firedrake.parameters.Parameters` class
-    :arg dictionary: Dictionary of parameters to be merged
-    """
-    from firedrake import Parameters
-    from firedrake.logging import warning
-
-    for k in dictionary:
-        if k in parameters:
-            if isinstance(parameters[k], Parameters):
-                load_from_dict(parameters[k], dictionary[k])
-            else:
-                val = dictionary[k]
-                if isinstance(val, unicode):
-                    # change unicode type to str type
-                    val = val.encode('ascii', 'ignore')
-                    val = parameters.get_key(k).type.parse(val)
-                parameters[k] = parameters.get_key(k).wrap(val)
-        else:
-            warning(k + ' is not in the parameters and ignored')

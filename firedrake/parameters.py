@@ -9,7 +9,8 @@ import sys
 
 max_float = sys.float_info[0]
 
-__all__ = ['Parameters', 'parameters', 'disable_performance_optimisations']
+__all__ = ['Parameters', 'parameters', 'disable_performance_optimisations',
+           'import_params_from_json', 'export_params_to_json']
 
 
 class KeyType(object):
@@ -596,3 +597,62 @@ def disable_performance_optimisations():
     parameters["assembly_cache"]["enabled"] = False
 
     return restore
+
+
+def export_params_to_json(parameters, filename):
+    """Export parameters to a JSON file
+
+    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
+        class
+    :arg filename: File name of the output file
+    """
+    import json
+
+    if filename == '':
+        return
+    output_file = open(filename, 'w')
+    json.dump(parameters.unwrapped_dict(-1), output_file)
+    output_file.close()
+
+
+def import_params_from_json(parameters, filename):
+    """Import parameters from a JSON file
+
+    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
+        class
+    :arg filename: File name of the input file
+    """
+    import json
+
+    if filename == '':
+        return
+    input_file = open(filename, 'r')
+    dictionary = json.load(input_file)
+    input_file.close()
+    load_from_dict(parameters, dictionary)
+    return parameters
+
+
+def load_from_dict(parameters, dictionary):
+    """Merge the parameters in a dictionary into Parameters class
+
+    :arg parameters: Parameters to be merged into as a
+        :class:`firedrake.parameters.Parameters` class
+    :arg dictionary: Dictionary of parameters to be merged
+    """
+    from firedrake import Parameters
+    from firedrake.logging import warning
+
+    for k in dictionary:
+        if k in parameters:
+            if isinstance(parameters[k], Parameters):
+                load_from_dict(parameters[k], dictionary[k])
+            else:
+                val = dictionary[k]
+                if isinstance(val, unicode):
+                    # change unicode type to str type
+                    val = val.encode('ascii', 'ignore')
+                    val = parameters.get_key(k).type.parse(val)
+                parameters[k] = parameters.get_key(k).wrap(val)
+        else:
+            warning(k + ' is not in the parameters and ignored')
