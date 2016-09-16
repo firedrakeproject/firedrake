@@ -15,7 +15,7 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.fiatinterface import QuadratureRule, as_fiat_cell, create_quadrature
-from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
+from tsfc.kernel_interface import KernelBuilder
 from tsfc.logging import logger
 
 
@@ -60,13 +60,15 @@ def compile_form(form, prefix="form", parameters=None):
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters):
+def compile_integral(integral_data, form_data, prefix, parameters,
+                     backend="pyop2"):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
     :arg form_data: UFL form data
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
+    :arg backend: output format
     :returns: a kernel, or None if the integral simplifies to zero
     """
     integral_type = integral_data.integral_type
@@ -83,7 +85,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = KernelBuilder(integral_type, integral_data.subdomain_id,
+    builder = KernelBuilder(backend, integral_type, integral_data.subdomain_id,
                             domain_numbering[integral_data.domain])
     return_variables = builder.set_arguments(arguments, argument_indices)
 
@@ -91,12 +93,10 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     if ufl_utils.is_element_affine(mesh.ufl_coordinate_element()):
         # For affine mesh geometries we prefer code generation that
         # composes well with optimisations.
-        #builder.set_coordinates(coordinates, "coords", mode='list_tensor')
-        builder.set_coordinates(coordinates, "coordinate_dofs", mode='list_tensor')
+        builder.set_coordinates(coordinates, mode='list_tensor')
     else:
         # Otherwise we use the approach that might be faster (?)
-        #builder.set_coordinates(coordinates, "coords")
-        builder.set_coordinates(coordinates, "coordinate_dofs")
+        builder.set_coordinates(coordinates)
 
     builder.set_coefficients(integral_data, form_data)
 
@@ -142,7 +142,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              point_index=quadrature_index,
                              coefficient=coefficient,
                              index_cache=index_cache)
-        if parameters["unroll_indexsum"]:
+        if parameters.get("unroll_indexsum"):
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
         if quadrature_index in expr.free_indices:
@@ -178,7 +178,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
                              coefficient=builder.coefficient,
                              facet_number=builder.facet_number,
                              index_cache=index_cache)
-        if parameters["unroll_indexsum"]:
+        if parameters.get("unroll_indexsum"):
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
         if quadrature_index in expr.free_indices:
@@ -239,7 +239,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     ir = opt.remove_componenttensors(ir)
 
     # Look for cell orientations in the IR
-    if needs_cell_orientations(ir):
+    if builder.needs_cell_orientations(ir):
         builder.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
