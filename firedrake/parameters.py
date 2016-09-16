@@ -10,7 +10,8 @@ import sys
 max_float = sys.float_info[0]
 
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations',
-           'import_params_from_json', 'export_params_to_json']
+           'import_params_from_json', 'export_params_to_json', 'KeyType',
+           'TypedKey']
 
 
 class KeyType(object):
@@ -34,10 +35,12 @@ class KeyType(object):
 
     @abc.abstractmethod
     def validate(self, value):
+        """Validate a value or a stringified value"""
         return True
 
     @abc.abstractmethod
     def parse(self, value):
+        """Parse a value or a stringified value. Returns None for invalid input"""
         return None
 
 
@@ -300,6 +303,7 @@ class TypedKey(str):
 
     @property
     def help(self):
+        """Help information for the key"""
         try:
             return self._help
         except AttributeError:
@@ -311,6 +315,8 @@ class TypedKey(str):
 
     @property
     def type(self):
+        """Type information for the key. Must be subclass of
+            :class:`firedrake.Parameter.KeyType`"""
         return self._type
 
     @type.setter
@@ -330,21 +336,26 @@ class TypedKey(str):
         self._visible_level = new_level
 
     def validate(self, value):
+        """Validate a input value for current key"""
         return self._type.validate(value)
 
     def set_wrapper(self, callable):
+        """Set a wrapper of input value"""
         self._wrapper = callable
 
     def set_unwrapper(self, callable):
+        """Set an unwrapper for the input value for display"""
         self._unwrapper = callable
 
     def wrap(self, value):
+        """Wrap a value if wrapper is set, else return the value unmodified"""
         if hasattr(self, "_wrapper"):
             return self._wrapper(value)
         else:
             return value
 
     def unwrap(self, value):
+        """Unwrap a value if unwrapper is set, else return the value unmodified"""
         if hasattr(self, "_unwrapper"):
             return self._unwrapper(value)
         else:

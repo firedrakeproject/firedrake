@@ -83,6 +83,7 @@ finite element problems in Firedrake.
    petsc-interface
    parallelism
    configuration
+   parameters
 
 Advanced tutorials
 ==================
