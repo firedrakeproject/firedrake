@@ -3,8 +3,7 @@ from __future__ import absolute_import
 import collections
 import time
 
-from ufl.classes import Form, CellVolume, FacetArea
-from ufl.algorithms import compute_form_data
+from ufl.classes import Form
 from ufl.log import GREEN
 
 import gem
@@ -38,13 +37,7 @@ def compile_form(form, prefix="form", parameters=None):
         _.update(parameters)
         parameters = _
 
-    fd = compute_form_data(form,
-                           do_apply_function_pullbacks=True,
-                           do_apply_integral_scaling=True,
-                           do_apply_geometry_lowering=True,
-                           do_apply_restrictions=True,
-                           preserve_geometry_types=(CellVolume, FacetArea),
-                           do_estimate_degrees=True)
+    fd = ufl_utils.compute_form_data(form)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     kernels = []
@@ -114,12 +107,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     def cellvolume(restriction):
         from ufl import dx
         form = 1 * dx(domain=mesh)
-        fd = compute_form_data(form,
-                               do_apply_function_pullbacks=True,
-                               do_apply_integral_scaling=True,
-                               do_apply_geometry_lowering=True,
-                               do_apply_restrictions=True,
-                               do_estimate_degrees=True)
+        fd = ufl_utils.compute_form_data(form, preserve_geometry_types=())
         itg_data, = fd.integral_data
         integral, = itg_data.integrals
 
@@ -154,12 +142,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         from ufl import Measure
         assert integral_type != 'cell'
         form = 1 * Measure(integral_type, domain=mesh)
-        fd = compute_form_data(form,
-                               do_apply_function_pullbacks=True,
-                               do_apply_integral_scaling=True,
-                               do_apply_geometry_lowering=True,
-                               do_apply_restrictions=True,
-                               do_estimate_degrees=True)
+        fd = ufl_utils.compute_form_data(form, preserve_geometry_types=())
         itg_data, = fd.integral_data
         integral, = itg_data.integrals
 
