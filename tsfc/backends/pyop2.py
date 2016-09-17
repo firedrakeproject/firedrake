@@ -73,7 +73,6 @@ class KernelBuilder(KernelBuilderBase):
         self.coefficient_map[coefficient] = expression
         return funarg
 
-
     def set_arguments(self, arguments, indices):
         """Process arguments.
 
@@ -162,7 +161,6 @@ class KernelBuilder(KernelBuilderBase):
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
         return self.kernel
 
-
     @staticmethod
     def needs_cell_orientations(ir):
         """Does a multi-root GEM expression DAG references cell
@@ -175,6 +173,7 @@ class KernelBuilder(KernelBuilderBase):
     @staticmethod
     def prepare_arguments(arguments, indices, interior_facet=False):
         return _prepare_arguments(arguments, indices, interior_facet=interior_facet)
+
 
 def _prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for

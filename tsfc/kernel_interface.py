@@ -159,7 +159,7 @@ class KernelBuilderBase(object):
 
 
 # Avoid circular import
-from tsfc.backends import pyop2, ufc
+from tsfc.backends import pyop2, ufc  # noqa: E402
 
 
 class KernelBuilder(KernelBuilderBase):

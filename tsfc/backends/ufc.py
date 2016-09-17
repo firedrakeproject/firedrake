@@ -83,7 +83,6 @@ class KernelBuilder(KernelBuilderBase):
         self.facet_mapper = expressions
         return funargs
 
-
     def set_arguments(self, arguments, indices):
         """Process arguments.
 
@@ -157,7 +156,6 @@ class KernelBuilder(KernelBuilderBase):
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
         return self.kernel
 
-
     @staticmethod
     def needs_cell_orientations(ir):
         """UFC requires cell orientations argument(s) everytime"""
@@ -173,7 +171,7 @@ class KernelBuilder(KernelBuilderBase):
 
 
 def _prepare_coefficients(coefficients, coefficient_numbers, name, mode=None,
-                         interior_facet=False):
+                          interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.  Mixed element Coefficients are rearranged here for
     interior facet integrals.
@@ -209,12 +207,12 @@ def _prepare_coefficients(coefficients, coefficient_numbers, name, mode=None,
                 expression = gem.Indexed(gem.Variable(name, (num_coefficients,) + (1,)),
                                          (coefficient_numbers[j], 0,))
                 # FIXME: It seems that Reals are not restricted in gem but are in UFL.
-                #if interior_facet:
-                #    i = gem.Index()
-                #    expression = gem.ComponentTensor(
-                #        gem.Indexed(gem.Variable(name, (num_coefficients,) + (2,)),
-                #                    (coefficient_numbers[j], i,)),
-                #        (i,))
+                # if interior_facet:
+                #     i = gem.Index()
+                #     expression = gem.ComponentTensor(
+                #         gem.Indexed(gem.Variable(name, (num_coefficients,) + (2,)),
+                #                     (coefficient_numbers[j], i,)),
+                #         (i,))
             else:
                 # Mixed/vector/tensor constant/real
                 # FIXME: Tensor case is incorrect. Gem wants shaped expression, UFC requires flattened.
@@ -225,21 +223,22 @@ def _prepare_coefficients(coefficients, coefficient_numbers, name, mode=None,
                     indices)
         else:
             # Everything else
-            i = gem.Index()
             fiat_element = create_element(coefficient.ufl_element())
             shape = (fiat_element.space_dimension(),)
-            expression = gem.ComponentTensor(
-                gem.Indexed(gem.Variable(name, (num_coefficients,) + shape),
-                            (coefficient_numbers[j], i)),
-                (i,))
             if interior_facet:
                 num_dofs = shape[0]
                 variable = gem.Variable(name, (num_coefficients, 2*num_dofs))
                 # TODO: Seems that this reordering could be done using reinterpret_cast
                 expression = gem.ListTensor([[gem.Indexed(variable, (coefficient_numbers[j], i))
-                                              for i in six.moves.xrange(       0,   num_dofs)],
+                                              for i in six.moves.xrange(0, num_dofs)],
                                              [gem.Indexed(variable, (coefficient_numbers[j], i))
                                               for i in six.moves.xrange(num_dofs, 2*num_dofs)]])
+            else:
+                i = gem.Index()
+                expression = gem.ComponentTensor(
+                    gem.Indexed(gem.Variable(name, (num_coefficients,) + shape),
+                                (coefficient_numbers[j], i)),
+                    (i,))
 
         expressions.append(expression)
 
@@ -383,13 +382,11 @@ def _prepare_arguments(arguments, indices, interior_facet=False):
                           coffee.Symbol("(&%s)" % expressions[0].children[0].name,
                                         rank=shape),
                           init="*reinterpret_cast<%s (*)%s>(%s)" %
-                              (SCALAR_TYPE,
-                               "".join("[%s]"%i for i in shape),
-                               funarg.sym.gencode()
-                              )
-                          )
+                          (SCALAR_TYPE, "".join("[%s]" % i for i in shape),
+                           funarg.sym.gencode()))
     zero = coffee.FlatBlock("memset(%s, 0, %d * sizeof(*%s));%s" %
-        (funarg.sym.gencode(), numpy.product(shape), funarg.sym.gencode(), os.linesep))
+                            (funarg.sym.gencode(), numpy.product(shape),
+                             funarg.sym.gencode(), os.linesep))
     prepare = [zero, reshape]
 
     return funarg, prepare, expressions, []
