@@ -250,7 +250,7 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
     # Build kernel body
     return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
     return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
-    impero_c = impero_utils.compile_gem([return_expr], ir, [point_index])
+    impero_c = impero_utils.compile_gem([return_expr], ir, (point_index,) + tensor_indices)
     body = generate_coffee(impero_c, index_names={point_index: 'p'})
 
     oriented = needs_cell_orientations(ir)
