@@ -44,6 +44,12 @@ class Configuration(dict):
 
     :param backend: Select the PyOP2 backend (one of `cuda`,
         `opencl`, `openmp` or `sequential`).
+    :param compiler: compiler identifier used by COFFEE (one of `gnu`, `intel`).
+    :param simd_isa: Instruction set architecture (ISA) COFFEE is optimising
+        for (one of `sse`, `avx`).
+    :param blas: COFFEE BLAS backend (one of `mkl`, `atlas`, `eigen`).
+    :param cflags: extra flags to be passed to the C compiler.
+    :param ldflags: extra flags to be passed to the linker.
     :param debug: Turn on debugging for generated code (turns off
         compiler optimisations).
     :param type_check: Should PyOP2 type-check API-calls?  (Default,
@@ -77,6 +83,9 @@ class Configuration(dict):
         "compiler": ("PYOP2_BACKEND_COMPILER", str, "gnu"),
         "simd_isa": ("PYOP2_SIMD_ISA", str, "sse"),
         "debug": ("PYOP2_DEBUG", bool, False),
+        "blas": ("PYOP2_BLAS", str, ""),
+        "cflags": ("PYOP2_CFLAGS", str, ""),
+        "ldflags": ("PYOP2_LDFLAGS", str, ""),
         "type_check": ("PYOP2_TYPE_CHECK", bool, True),
         "check_src_hashes": ("PYOP2_CHECK_SRC_HASHES", bool, True),
         "log_level": ("PYOP2_LOG_LEVEL", (str, int), "WARNING"),

@@ -38,7 +38,7 @@ import sys
 import ctypes
 from hashlib import md5
 from configuration import configuration
-from logger import progress, INFO
+from logger import debug, progress, INFO
 from exceptions import CompilationError
 
 
@@ -60,8 +60,10 @@ class Compiler(object):
     :arg ld: Linker executable (optional, if ``None``, we assume the compiler
         can build object files and link in a single invocation, can be
         overridden by exporting the environment variable ``LDSHARED``).
-    :arg cppargs: A list of arguments to the C compiler (optional).
-    :arg ldargs: A list of arguments to the linker (optional).
+    :arg cppargs: A list of arguments to the C compiler (optional, prepended to
+        any flags specified as the cflags configuration option)
+    :arg ldargs: A list of arguments to the linker (optional, prepended to any
+        flags specified as the ldflags configuration option).
     :arg cpp: Should we try and use the C++ compiler instead of the C
         compiler?.
     :kwarg comm: Optional communicator to compile the code on (only
@@ -72,8 +74,8 @@ class Compiler(object):
         ccenv = 'CXX' if cpp else 'CC'
         self._cc = os.environ.get(ccenv, cc)
         self._ld = os.environ.get('LDSHARED', ld)
-        self._cppargs = cppargs
-        self._ldargs = ldargs
+        self._cppargs = cppargs + configuration['cflags'].split()
+        self._ldargs = ldargs + configuration['ldflags'].split()
         self.comm = comm or COMM_WORLD
 
     @collective
@@ -137,6 +139,7 @@ class Compiler(object):
                     if self._ld is None:
                         cc = [self._cc] + self._cppargs + \
                              ['-o', tmpname, cname] + self._ldargs
+                        debug('Compilation command: %s', ' '.join(cc))
                         with file(logfile, "w") as log:
                             with file(errfile, "w") as err:
                                 log.write("Compilation command:\n")
@@ -162,6 +165,8 @@ Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                         cc = [self._cc] + self._cppargs + \
                              ['-c', '-o', oname, cname]
                         ld = self._ld.split() + ['-o', tmpname, oname] + self._ldargs
+                        debug('Compilation command: %s', ' '.join(cc))
+                        debug('Link command: %s', ' '.join(ld))
                         with file(logfile, "w") as log:
                             with file(errfile, "w") as err:
                                 log.write("Compilation command:\n")
