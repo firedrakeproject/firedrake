@@ -106,7 +106,7 @@ def web_config(parameters):
         validate_result = validate_input(parameters, dictionary)
         if validate_result != []:
             return jsonify(successful=False, err=validate_result), 400
-        from firedrake.gui_config import load_from_dict
+        from firedrake.parameters import load_from_dict
         load_from_dict(parameters, dictionary)
         json.dump(dictionary, open(config_file, 'w'))
         return jsonify(successful=True)

@@ -103,12 +103,12 @@
                 </ul>
             </div>
             {%- endif %}
-            <div id="load-input" class="alert alert-info hidden">
-                <input type="file" accept="application/json" name="json">
-                <input type="submit" class="btn btn-default btn-sm">
-                <p>Note: the file will not be loaded until "Submit" button is clicked</p>
-            </div>
             <form action="#" class="form-horizontal" method="post" enctype="multipart/form-data">
+                <div id="load-input" class="alert alert-info hidden">
+                    <input type="file" accept="application/json" name="json">
+                    <input type="submit" class="btn btn-default btn-sm">
+                    <p>Note: the file will not be loaded until "Submit" button is clicked</p>
+                </div>
                 {% macro get_name(key, prefix) -%}
                     {% if prefix is equalto "" -%}{{ key }}{% else %}{{ prefix + "[" + key + "]" }}{%- endif %}
                 {%- endmacro %}
