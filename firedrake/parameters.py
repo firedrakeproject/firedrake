@@ -470,7 +470,7 @@ class Parameters(dict):
     def summary(self, new_summary):
         self._summary = new_summary
 
-    def import_params(self, filename):
+    def load(self, filename):
         """Import parameters from a JSON file
 
         :arg filename: File name of the input file
@@ -485,7 +485,7 @@ class Parameters(dict):
         load_from_dict(self, dictionary)
         return self
 
-    def export_params(self, filename):
+    def dump(self, filename):
         """Export parameters to a JSON file
 
         :arg filename: File name of the output file

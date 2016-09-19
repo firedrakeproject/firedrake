@@ -65,9 +65,12 @@ Once the user has successfully configured the parameters through the web
 interface and saved the configuration file, the configuration needs to be
 loaded to Firedrake when using firedrake. To load a parameter file to a
 Parameters instance, use
-:meth:`~firedrake.parameters.Parameters.import_params` and pass the filename as
+:meth:`~firedrake.parameters.Parameters.load` and pass the filename as
 the parameter. For example
 
 .. code-block:: python
 
-    parameters.import_params("parameters.json")
+    parameters.load("parameters.json")
+
+To save the parameters instance to a file, please use
+:meth:`~firedrake.parameters.Parameters.dump`
