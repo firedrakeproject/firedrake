@@ -225,7 +225,7 @@
                 })
             })
             $("#unsaved_warning").addClass("hidden");
-            unsaved = true;
+            unsaved = false;
         }
         function save_as() {
             $.post("validate", {
@@ -277,7 +277,7 @@
                 fill_data(data, "");
                 update_visible_level(visible_level);
             });
-            $('input').change(function() {
+            $('input[type!=file]').change(function() {
                 var name = $(this).attr('name');
                 $.post('validate', {
                     'parameters': JSON.stringify($(this).serializeJSON())
