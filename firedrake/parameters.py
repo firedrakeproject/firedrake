@@ -290,21 +290,33 @@ class TypedKey(str):
     """A class for parameter keys with additional metadata including help
     text and type data"""
 
-    def __new__(self, key, val_type=None, visible_level=0):
+    def __new__(self, key, val_type=None, help=None, depends=None, visible_level=0):
         return super(TypedKey, self).__new__(self, key)
 
-    def __init__(self, key, val_type=None, visible_level=0):
+    def __init__(self, key, val_type=None, help=None, depends=None, visible_level=0):
+        """Create a new TypedKey
+
+        :arg key: Name of the key
+        :arg val_type: Type of the value, must be instance of
+            :class:`firedrake.parameters.KeyType`
+        :arg help: Help information for the key
+        :arg depends: Specify whether a key is dependent on another key, the depended key
+            must be in the same Parameters class and must be of BoolType
+        :arg visible_level: Visible level of the key, default to be 0"
+        """
         if val_type is not None:
             self._type = val_type
         else:
             self._type = UnsetType()
-        self._visible_level = visible_level
+        self.visible_level = visible_level
+        self.help = help
+        self.depends = depends
 
     @property
     def help(self):
         """Help information for the key"""
         try:
-            return self._help
+            return self._help or "No help available"
         except AttributeError:
             return "No help available"
 
