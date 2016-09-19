@@ -34,7 +34,6 @@ from firedrake.constant import *
 from firedrake.expression import *
 from firedrake.function import *
 from firedrake.functionspace import *
-from firedrake.gui_config import *
 from firedrake.interpolation import *
 from firedrake.output import *
 from firedrake.linear_solver import *
