@@ -74,3 +74,27 @@ the parameter. For example
 
 To save the parameters instance to a file, please use
 :meth:`~firedrake.parameters.Parameters.dump`
+
+Branding
+========
+
+The header page and footer page is custom-configurable. By default, it contains
+the Firedrake logo and copyright information for Firedrake.
+
+To change the header and footer, there are two options.
+
+Option 1: Edit the ``header.html`` and ``footer.html`` in the ``templates``
+folder.
+
+After installation, the templates files for the web interface will be placed
+into the ``templates`` folder. To change the header and footer, simply replace
+``header.html`` and ``footer.html`` with your custom page with the same file
+name.
+
+Option 2: Specify a path for ``header.html`` and ``footer.html``
+
+Name the header file as ``header.html``, the footer file as ``footer.html``
+(case-sensitive). In the module containing the parameters instance, add
+attributes ``header_path`` and ``footer_path`` to the module. The web interface
+will then include the paths and render the page using the header and footer
+files in the path specified by the user.
