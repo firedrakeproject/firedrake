@@ -37,10 +37,12 @@ syntax could be used at the time of first insertion.
 .. code-block:: python
 
     parameters[TypedKey("foo", type=IntType(), help="A sample key",
-    visible_level=1, depends="baz")] = "bar"
+        visible_level=1, depends="baz")] = "bar"
 
-Note that if the user wishes to use pre-defined ``Keytypes``, it is necessary
-to import the types manually. For example: ``from firedrake.parameters import IntType``
+Note that if the user wishes to use pre-defined :class:`Keytypes
+<firedrake.parameters.KeyType>`,
+it is necessary to import the types manually.   For example:
+``from firedrake.parameters import IntType``
 
 See also the constructor of :class:`~firedrake.parameters.TypedKey`.
 
