@@ -91,7 +91,7 @@ Let's start with our first test.  We'll confirm a working solve by
 using a direct method. ::
 
   u = run_solve({"ksp_type": "preonly", "pc_type": "lu"})
-  print error(u)
+  print 'LU solve error', error(u)
 
 Next we'll use the conjugate gradient method preconditioned by a
 geometric multigrid V-cycle.  Firedrake automatically takes care of
@@ -99,7 +99,7 @@ rediscretising the operator on coarse grids, and providing the number
 of levels to PETSc. ::
 
   u = run_solve({"ksp_type": "cg", "pc_type": "mg"})
-  print error(u)
+  print 'MG V-cycle + CG error', error(u)
 
 For such a simple problem, an appropriately configured multigrid solve
 can achieve algebraic error equal to discretisation error in one
@@ -119,7 +119,7 @@ appropriate settings using solver parameters. ::
   }
 
   u = run_solve(parameters)
-  print error(u)
+  print 'MG F-cycle error', error(u)
      
 A saddle-point system: The Stokes equations
 -------------------------------------------
@@ -129,10 +129,9 @@ the configuration of the multigrid solver is somewhat more complex.
 This demonstrates how the multigrid functionality composes with the
 other aspects of solver configuration, like fieldsplit
 preconditioning.  We'll use Taylor-Hood elements and solve a problem
-with specified velocity inflow, with zero-stress outflow
-conditions. ::
+with specified velocity inflow and outflow conditions. ::
 
-  mesh = RectangleMesh(20, 10, 1.5, 1)
+  mesh = RectangleMesh(15, 10, 1.5, 1)
 
   hierarchy = MeshHierarchy(mesh, 3)
 
@@ -151,12 +150,12 @@ conditions. ::
 
   x, y = SpatialCoordinate(mesh)
 
-  t = conditional(y < 0.5, y - Constant(1.0/4.0), y - Constant(3.0/4.0))
-  l = Constant(1.0/6.0)
-  gbar = conditional(Or(And(Constant(1.0/4.0) - l/2 < y,
-                            y < Constant(1.0/4.0) + l/2),
-                        And(Constant(3.0/4.0) - l/2 < y,
-                            y < Constant(3.0/4.0) + l/2)),
+  t = conditional(y < 0.5, y - 0.25, y - 0.75)
+  l = 1.0/6.0
+  gbar = conditional(Or(And(0.25 - l/2 < y,
+                            y < 0.25 + l/2),
+                        And(0.75 - l/2 < y,
+                            y < 0.75 + l/2)),
                         Constant(1.0), Constant(0.0))
   
   value = gbar*(1 - (2*t/l)**2)
@@ -174,16 +173,13 @@ solver, so we'll have an optional ``Jp`` argument. ::
       return u
 
 First up, we'll use an algebraic preconditioner, with a direct solve,
-we need to define an auxiliary operator for the LU solve to act on. ::
+remembering to tell PETSc to use pivoting in the factorisation. ::
 
-  Jp = (inner(grad(u), grad(v)) + p*q)*dx
-
-  u = run_solve({"ksp_type": "gmres",
+  u = run_solve({"ksp_type": "preonly",
                  "pc_type": "lu",
+                 "pc_factor_shift_type": "inblocks",
                  "ksp_monitor": True,
-                 "pmat_type": "aij"}, Jp=Jp)
-
-  File("stokes.pvd").write(*u.split())
+                 "pmat_type": "aij"})
 
 Next we'll use a schur complement solver, using geometric multigrid to
 invert the velocity block. ::
@@ -200,5 +196,53 @@ invert the velocity block. ::
       "fieldsplit_1_pc_type": "icc"
   }
 
+We provide an auxiliary operator so that we can precondition the schur
+complement inverse with a pressure mass matrix. ::
+
   Jp = a + p*q*dx
   u = run_solve(parameters, Jp=Jp)
+
+Finally, we'll use coupled geometric multigrid on the full problem,
+using schur complement "smoothers" on each level.
+
+::
+
+  parameters = {
+        "ksp_type": "gcr",
+        "ksp_monitor": True,
+        "mat_type": "aij",
+        "pc_type": "mg",
+        "mg_levels_ksp_type": "richardson",
+        "mg_levels_ksp_max_it": 1,
+        "mg_levels_pc_type": "fieldsplit",
+        "mg_levels_pc_fieldsplit_type": "schur",
+        "mg_levels_pc_fieldsplit_schur_fact_type": "upper",
+        "mg_levels_fieldsplit_0_ksp_type": "preonly",
+        "mg_levels_fieldsplit_0_pc_type": "ilu",
+        "mg_levels_fieldsplit_1_ksp_type": "richardson",
+        "mg_levels_fieldsplit_1_ksp_richardson_self_scale": True,
+        "mg_levels_fieldsplit_1_ksp_max_it": 5,
+        "mg_levels_fieldsplit_1_pc_type": "none",
+  }
+
+  run_solve(parameters)
+
+.. note::
+
+   We would really like to be able to provide an operator on the
+   coarse grids to precondition the inverse of the schur complement,
+   for example a viscosity-weighted mass matrix.  Unfortunately, PETSc
+   does not currently allow us to provide separate Jacobian and
+   preconditioning matrices for nonlinear solves on coarse levels.
+   This preconditioner is therefore not parameter-independent.
+
+Finally, we'll write the solution for visualisation with Paraview. ::
+
+  u, p = u.split()
+  u.rename("Velocity")
+  p.rename("Pressure")
+
+  File("stokes.pvd").write(u, p)
+
+A runnable python version of this demo can be found `here
+<geometric_multigrid.py>`__.
