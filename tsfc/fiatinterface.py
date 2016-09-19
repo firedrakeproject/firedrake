@@ -96,20 +96,6 @@ class FlattenToQuad(FIAT.FiniteElement):
         flat_entity_ids[2] = entity_ids[(1, 1)]
         self.dual = DualSet(nodes, self.ref_el, flat_entity_ids)
 
-    def dual_basis(self):
-        """Return the list of functionals for the finite element."""
-        return self.dual.get_nodes()
-
-    def entity_dofs(self):
-        """Return the map of topological entities to degrees of
-        freedom for the finite element."""
-        return self.dual.get_entity_ids()
-
-    def entity_closure_dofs(self):
-        """Return the map of topological entities to degrees of
-        freedom on the closure of those entities for the finite element."""
-        return self.dual.get_entity_closure_ids()
-
     def space_dimension(self):
         """Return the dimension of the finite element space."""
         return self.element.space_dimension()
