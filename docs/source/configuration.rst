@@ -1,16 +1,18 @@
-=====================================
-Configuring Parameters via web server
-=====================================
+========================================
+Configuring Parameters via web interface
+========================================
 
-The ``firedrake-config`` script allows users to configure parameters via a 
-web server. The parameters to be configured must be of instance
-:class:`firedrake.parameters.Parameters` and named ``parameters`` inside the
-module. 
+Firedrake's parameters :class:`~firedrake.parameters.Parameters` can be
+configured either programmatically in python, or through a graphical interface
+in the web browser. Configuring Parameters via the web interface is enabled by
+the ``firedrake-config`` script. To use the script, the parameters to be
+configured must be of instance :class:`~firedrake.parameters.Parameters`
+and named ``parameters`` inside the module.
 
-Running the server
-==================
+Launching the configuration GUI
+===============================
 
-To run the web server, execute this in shell:
+To launch the configuration GUI, execute this in shell:
 
 .. code-block:: bash
 
@@ -19,14 +21,15 @@ To run the web server, execute this in shell:
 This command will run a server at ``http://0.0.0.0:5000`` and generates a
 graphical interface for users to configure the parameters.
 
-Users can edit the parameters in the browser. Once a parameter has been
-changed, it would be validated using the metadata stored in the
-:class:`firedrake.parameters.Parameters` instance. If the input is valid, a
-the border of the input would become green, otherwise it would be red.
+Once running, the configuration can be edited in the browser. Validation of the
+inputs is performed after input has been changed, with visual feedback of
+border colouring of green for success and red for failure. In addition, a set
+of parameters could only be saved if all validates pass, so that it is not
+possible to create an invalid set of configuration parameters.
 
-Users can also choose to show more or fewer options if the visible levels of
-parameters have been stored beforehand. This is easily done by clicking on
-buttons ``Show more options`` and ``Show fewer options``
+User may wish to see advanced setting and configure them. This can be done by
+clicking on ``Show more options`` button. Similarly, advanced setting can be
+hidden using the ``Show fewer options`` button.
 
 For loading existing configurations, simply click on the ``Load`` button. An
 input would be displayed prompting the user to upload a configuration file to
@@ -55,5 +58,16 @@ Option 2: Use ``Save as`` button on the web page. After clicking on ``Save as``,
 there will be a link on the web page for Downloading the configuration file.
 The user can then save the file to any path they wish and store the file.
 
+Loading Parameters to Firedrake after configuration
+===================================================
 
+Once the user has successfully configured the parameters through the web
+interface and saved the configuration file, the configuration needs to be
+loaded to Firedrake when using firedrake. To load a parameter file to a
+Parameters instance, use
+:meth:`~firedrake.parameters.Parameters.import_params` and pass the filename as
+the parameter. For example
 
+.. code-block:: python
+
+    parameters.import_params("parameters.json")
