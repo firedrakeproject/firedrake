@@ -9,7 +9,7 @@ from singledispatch import singledispatch
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Argument, Coefficient, CellVolume,
-                         ConstantValue, FacetArea, FormArgument,
+                         FacetArea, FormArgument,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
@@ -364,13 +364,6 @@ def translate_coefficient(terminal, mt, params):
                                         gem.Indexed(vec, (r,))), r)
 
     return iterate_shape(mt, callback)
-
-
-@translate.register(ConstantValue)
-def _translate_constantvalue(terminal, mt, params):
-    # Literal in a modified terminal
-    # Terminal modifiers have no effect, just translate the terminal.
-    return params(terminal)
 
 
 def compile_ufl(expression, interior_facet=False, **kwargs):
