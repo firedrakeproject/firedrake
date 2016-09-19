@@ -29,7 +29,7 @@ Creating a TypedKey
 By default, the :class:`~firedrake.parameters.Parameters` class will infer the
 basic types of data and create :class:`~firedrake.parameters.TypedKey` for the
 parameter accordingly with first inserting into the dict. This is done by
-:func:`~firedrake.parameters.KeyType.get_type`.
+:func:`~firedrake.parameter_types.KeyType.get_type`.
 
 However, if the user wishes to add a custom-configured TypedKey, the following
 syntax could be used at the time of first insertion.
@@ -40,9 +40,9 @@ syntax could be used at the time of first insertion.
         visible_level=1, depends="baz")] = "bar"
 
 Note that if the user wishes to use pre-defined :class:`Keytypes
-<firedrake.parameters.KeyType>`,
-it is necessary to import the types manually.   For example:
-``from firedrake.parameters import IntType``
+<firedrake.parameter_types.KeyType>`,
+it is necessary to import the types manually.   i.e.:
+``from firedrake.parameter_types import *``
 
 See also the constructor of :class:`~firedrake.parameters.TypedKey`.
 
@@ -62,16 +62,20 @@ Types
 -----
 
 Types are stored as a property named ``type``. Types must be subclasses of the 
-abstract class :class:`~firedrake.parameters.KeyType`.
+abstract class :class:`~firedrake.parameter_types.KeyType`.
 
 There are two methods to implement for this abstract class
-:meth:`~firedrake.parameters.KeyType.parse` and
-:meth:`~firedrake.parameters.KeyType.validate`.
+:meth:`~firedrake.parameter_types.KeyType.parse` and
+:meth:`~firedrake.parameter_types.KeyType.validate`.
 
-For most use cases, there are built-in types for integer values ``Inttype``,
-float values ``FloatType``, string values ``StrType``, bool values ``BoolType``.
-For advanced types, multiple types can be combined using ``OrType``. Lists can
-also be formed using ``ListType``.
+For most use cases, there are built-in types for integer values
+:class:`~firedrake.parameter_types.IntType`, float values
+:class:`~firedrake.parameter_types.FloatType`, string values
+:class:`~firedrake.parameter_types.StrType`, bool values
+:class:`~firedrake.parameter_types.BoolType`.
+For advanced types, multiple types can be combined using
+:class:`~firedrake.parameter_types.OrType`. Lists can
+also be formed using :class:`~firedrake.parameter_types.ListType`.
 
 By default, the type of each value is inferred automatically if not explicitly
 specified; however, if the user wish to add more information, it is necessary
