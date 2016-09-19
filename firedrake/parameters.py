@@ -241,7 +241,7 @@ are assembled is a waste of memory. This parameter sets a maximum number of \
 consecutive misses beyond which a form will be marked as uncachable."""
     parameters["assembly_cache"].get_key("max_bytes").help = \
         """Absolute limit on the size of the assembly cache in bytes. This \
-defaults to float("inf")."""
+defaults to maximum float."""
     parameters["assembly_cache"].get_key("max_factor").help = \
         """Limit on the size of the assembly cache relative to the amount of \
 memory per core on the current system. This defaults to 0.6."""
