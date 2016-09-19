@@ -29,7 +29,7 @@ def show_config_gui(parameters, visible_level=0):
         import tkFileDialog
         filename = tkFileDialog.askopenfilename()
         try:
-            import_params_from_json(parameters, filename)
+            parameters.import_params(filename)
             refresh_params(parameters)
         except ValueError as e:
             from tkMessageBox import showinfo
@@ -46,7 +46,7 @@ def show_config_gui(parameters, visible_level=0):
         import tkFileDialog
         if save_params():
             filename = tkFileDialog.asksaveasfilename()
-            export_params_to_json(parameters, filename)
+            parameters.export_params(filename)
 
     def save_and_quit():
         """Callback for save and quit button
@@ -77,7 +77,7 @@ def show_config_gui(parameters, visible_level=0):
     def refresh_params(parameters):
         """Refresh the GUI values from a given source
 
-        :arg paramaters: parameters as a
+        :arg parameters: parameters as a
             :class:`firedrake.parameters.Parameters` class
         """
         parameters = parameters.unwrapped_dict(visible_level)

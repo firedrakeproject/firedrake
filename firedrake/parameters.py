@@ -10,8 +10,7 @@ import sys
 max_float = sys.float_info[0]
 
 __all__ = ['Parameters', 'parameters', 'disable_performance_optimisations',
-           'import_params_from_json', 'export_params_to_json', 'KeyType',
-           'TypedKey']
+           'KeyType', 'TypedKey']
 
 
 class KeyType(object):
@@ -459,6 +458,34 @@ class Parameters(dict):
     def summary(self, new_summary):
         self._summary = new_summary
 
+    def import_params(self, filename):
+        """Import parameters from a JSON file
+
+        :arg filename: File name of the input file
+        """
+        import json
+
+        if filename == '':
+            return
+        input_file = open(filename, 'r')
+        dictionary = json.load(input_file)
+        input_file.close()
+        load_from_dict(self, dictionary)
+        return self
+
+    def export_params(self, filename):
+        """Export parameters to a JSON file
+
+        :arg filename: File name of the output file
+        """
+        import json
+
+        if filename == '':
+            return
+        output_file = open(filename, 'w')
+        json.dump(self.unwrapped_dict(-1), output_file)
+        output_file.close()
+
 
 def fill_metadata(parameters):
     """Add metadata for firedrake parameters"""
@@ -608,40 +635,6 @@ def disable_performance_optimisations():
     parameters["assembly_cache"]["enabled"] = False
 
     return restore
-
-
-def export_params_to_json(parameters, filename):
-    """Export parameters to a JSON file
-
-    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
-        class
-    :arg filename: File name of the output file
-    """
-    import json
-
-    if filename == '':
-        return
-    output_file = open(filename, 'w')
-    json.dump(parameters.unwrapped_dict(-1), output_file)
-    output_file.close()
-
-
-def import_params_from_json(parameters, filename):
-    """Import parameters from a JSON file
-
-    :arg parameters: Parameters as a :class:`firedrake.parameters.Parameters`
-        class
-    :arg filename: File name of the input file
-    """
-    import json
-
-    if filename == '':
-        return
-    input_file = open(filename, 'r')
-    dictionary = json.load(input_file)
-    input_file.close()
-    load_from_dict(parameters, dictionary)
-    return parameters
 
 
 def load_from_dict(parameters, dictionary):
