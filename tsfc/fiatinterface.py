@@ -83,6 +83,7 @@ class FlattenToQuad(FIAT.FiniteElement):
 
     def __init__(self, element):
         """ Constructs a FlattenToQuad element.
+
         :arg element: a fiat element
         """
         self.element = element
@@ -124,8 +125,10 @@ class FlattenToQuad(FIAT.FiniteElement):
 
         :arg order: The maximum order of derivative.
         :arg points: An iterable of points.
-        :arg entity: Optional entity indicating which topological entity
-        of the reference element to tabulate on.
+        :arg entity: Optional (dimension, entity number) pair
+                     indicating which topological entity of the
+                     reference element to tabulate on.  If ``None``,
+                     default cell-wise tabulation is performed.
         """
         if entity is None:
             entity = (2, 0)
