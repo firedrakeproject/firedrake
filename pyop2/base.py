@@ -972,7 +972,7 @@ class MixedSet(Set, ObjectCached):
         if self._initialized:
             return
         self._sets = sets
-        assert all(s is None or s.layers == self._sets[0].layers for s in sets), \
+        assert all(s is None or isinstance(s, GlobalSet) or s.layers == self._sets[0].layers for s in sets), \
             "All components of a MixedSet must have the same number of layers."
         # TODO: do all sets need the same communicator?
         self.comm = reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets))
