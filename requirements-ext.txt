@@ -9,3 +9,4 @@ pytest-benchmark
 ipython
 matplotlib
 docrepr
+flask
