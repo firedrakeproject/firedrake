@@ -26,8 +26,6 @@ def test_linear_solver_api(a_L_out):
     p = LinearVariationalProblem(a, L, out)
     solver = LinearVariationalSolver(p, solver_parameters={'ksp_type': 'cg'})
 
-    solver.solve()
-
     assert solver.parameters['snes_type'] == 'ksponly'
     assert solver.parameters['ksp_rtol'] == 1e-7
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
@@ -102,7 +100,6 @@ def test_nonlinear_solver_api(a_L_out):
     F = action(a, out) - L
     p = NonlinearVariationalProblem(F, out, J=J)
     solver = NonlinearVariationalSolver(p, solver_parameters={'snes_type': 'ksponly'})
-    solver.solve()
 
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     rtol, _, _, _ = solver.snes.getTolerances()
@@ -201,7 +198,7 @@ def test_quasinewton_ops_assembled():
     problem = NonlinearVariationalProblem(F, u)
     solver_parameters = {'snes_type': 'qn'}
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
-    solver.solve()
+    solver.snes.setUp()
 
     assert solver.snes.ksp.pc.getOperators()[0].assembled
 

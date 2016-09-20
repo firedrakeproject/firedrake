@@ -148,11 +148,18 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
                           transpose=True)
 
-    def solve(self):
-        self.set_from_options(self.snes)
+        # Set from options now, so that people who want to noodle with
+        # the snes object directly (mostly Patrick), can.  We need the
+        # DM with an app context in place so that if the DM is active
+        # on a subKSP the context is available.
         dm = self.snes.getDM()
         dm.setAppCtx(weakref.ref(self._ctx))
+        self.set_from_options(self.snes)
 
+    def solve(self):
+        # Make sure appcontext is attached to the DM before we solve.
+        dm = self.snes.getDM()
+        dm.setAppCtx(weakref.ref(self._ctx))
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)
