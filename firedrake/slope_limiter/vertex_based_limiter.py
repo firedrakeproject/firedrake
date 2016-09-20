@@ -95,9 +95,16 @@ for (int i=0; i<q.dofs; i++) {
         self.min_field.assign(1.0e30)  # big number
 
         # FIXME: Relies on implementation detail in PyOP2
-        # since op2.RW does not work the way it was expected to
-        # we are using op2.WRITE in all cases and it happens to
-        # read and write from the buffer
+"""
+The wrapper code allocates a buffer for the output (zeroed),
+executes the kernel, and then does a write back to the output dat.
+If the input_args include the output dat as READ, then the value
+is staged in and read in the kernel.
+Then the write back doesn't have conflicts because it occurs after the kernel.
+
+If the access descriptor is RW, then the buffer is allocated, but 
+But the writeback is never executed!
+"""
         self.min_interpolate.interpolate()
         self.max_interpolate.interpolate()
 
