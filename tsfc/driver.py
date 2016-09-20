@@ -99,9 +99,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     builder.set_coefficients(integral_data, form_data)
 
-    builder.set_cell_orientations()
-    builder.set_facets()
-
     # Map from UFL FiniteElement objects to Index instances.  This is
     # so we reuse Index instances when evaluating the same coefficient
     # multiple times with the same table.  Occurs, for example, if we
@@ -113,7 +110,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     def cellvolume(restriction):
         from ufl import dx
         form = 1 * dx(domain=mesh)
-        fd = ufl_utils.compute_form_data(form, preserve_geometry_types=())
+        fd = ufl_utils.compute_form_data(form)
         itg_data, = fd.integral_data
         integral, = itg_data.integrals
 
@@ -148,7 +145,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         from ufl import Measure
         assert integral_type != 'cell'
         form = 1 * Measure(integral_type, domain=mesh)
-        fd = ufl_utils.compute_form_data(form, preserve_geometry_types=())
+        fd = ufl_utils.compute_form_data(form)
         itg_data, = fd.integral_data
         integral, = itg_data.integrals
 

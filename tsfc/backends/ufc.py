@@ -27,12 +27,23 @@ class KernelBuilder(KernelBuilderBase):
         self.coordinates_arg = None
         self.coefficient_args = []
         self.coefficient_split = {}
-        self.cell_orientations_args = []
+
+        if self.interior_facet:
+            self._cell_orientations = (gem.Variable("cell_orientation_0", ()),
+                                       gem.Variable("cell_orientation_1", ()))
+        else:
+            self._cell_orientations = (gem.Variable("cell_orientation", ()),)
+
+        if integral_type == "exterior_facet":
+            self._facet_number = (gem.VariableIndex(gem.Variable("facet", ())),)
+        elif integral_type == "interior_facet":
+            self._facet_number = (gem.VariableIndex(gem.Variable("facet_0", ())),
+                                  gem.VariableIndex(gem.Variable("facet_1", ())))
 
     def facet_number(self, restriction):
         """Facet number as a GEM index."""
         f = {None: 0, '+': 0, '-': 1}[restriction]
-        return self.facet_mapper[f]
+        return self._facet_number[f]
 
     def cell_orientations_mapper(self, facet):
         return self._cell_orientations[facet]
@@ -71,18 +82,6 @@ class KernelBuilder(KernelBuilderBase):
         self.coefficient_map[coefficient] = expression
         return funargs
 
-    def facets(self, integral_type):
-        """Prepare facets. Adds glue code for facets
-        and stores facet expression.
-
-        :arg integral_type
-        :returns: list of COFFEE function arguments for facets
-        """
-        funargs, prepare, expressions = _prepare_facets(integral_type)
-        self.apply_glue(prepare)
-        self.facet_mapper = expressions
-        return funargs
-
     def set_arguments(self, arguments, indices):
         """Process arguments.
 
@@ -100,16 +99,6 @@ class KernelBuilder(KernelBuilderBase):
         :arg mode: see :func:`prepare_coefficient`
         """
         self.coordinates_args = self.coordinates(coefficient, "coordinate_dofs", mode)
-
-    def set_facets(self):
-        """Prepare the facets.
-        """
-        self.facet_args = self.facets(self.kernel.integral_type)
-
-    def set_cell_orientations(self):
-        """Prepare the cell orientations.
-        """
-        self.cell_orientations_args = self.cell_orientations(self.kernel.integral_type)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -150,8 +139,21 @@ class KernelBuilder(KernelBuilderBase):
         args = [self.local_tensor]
         args.extend(self.coefficient_args)
         args.extend(self.coordinates_args)
-        args.extend(self.facet_args)
-        args.extend(self.cell_orientations_args)
+
+        # Facet number(s)
+        integral_type = self.kernel.integral_type
+        if integral_type == "exterior_facet":
+            args.append(coffee.Decl("std::size_t", coffee.Symbol("facet")))
+        elif integral_type == "interior_facet":
+            args.append(coffee.Decl("std::size_t", coffee.Symbol("facet_0")))
+            args.append(coffee.Decl("std::size_t", coffee.Symbol("facet_1")))
+
+        # Cell orientation(s)
+        if self.interior_facet:
+            args.append(coffee.Decl("int", coffee.Symbol("cell_orientation_0")))
+            args.append(coffee.Decl("int", coffee.Symbol("cell_orientation_1")))
+        else:
+            args.append(coffee.Decl("int", coffee.Symbol("cell_orientation")))
 
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
         return self.kernel
@@ -164,10 +166,6 @@ class KernelBuilder(KernelBuilderBase):
     @staticmethod
     def prepare_arguments(arguments, indices, interior_facet=False):
         return _prepare_arguments(arguments, indices, interior_facet=interior_facet)
-
-    @staticmethod
-    def prepare_cell_orientations(integral_type):
-        return _prepare_cell_orientations(integral_type)
 
 
 def _prepare_coefficients(coefficients, coefficient_numbers, name, mode=None,
@@ -292,58 +290,6 @@ def _prepare_coordinates(coefficient, name, mode=None, interior_facet=False):
                                      [gem.Indexed(variable1, (i,)) for i in indices]])
 
     return funargs, [], expression
-
-
-def _prepare_facets(integral_type):
-    """Bridges the kernel interface and the GEM abstraction for
-    facets.
-
-    :arg integral_type
-    :returns: (funarg, prepare, expression)
-         funargs    - list of :class:`coffee.Decl` function argument
-         prepare    - list of COFFEE nodes to be prepended to the
-                      kernel body
-         expressions- list of GEM expressions referring to facets
-    """
-    funargs = []
-    expressions = []
-
-    if integral_type in ["exterior_facet", "exterior_facet_vert"]:
-            funargs.append(coffee.Decl("std::size_t", coffee.Symbol("facet")))
-            expressions.append(gem.VariableIndex(gem.Variable("facet", ())))
-    elif integral_type in ["interior_facet", "interior_facet_vert"]:
-            funargs.append(coffee.Decl("std::size_t", coffee.Symbol("facet_0")))
-            funargs.append(coffee.Decl("std::size_t", coffee.Symbol("facet_1")))
-            expressions.append(gem.VariableIndex(gem.Variable("facet_0", ())))
-            expressions.append(gem.VariableIndex(gem.Variable("facet_1", ())))
-
-    return funargs, [], expressions
-
-
-def _prepare_cell_orientations(integral_type):
-    """Bridges the kernel interface and the GEM abstraction for
-    cell orientations.
-
-    :arg integral_type
-    :returns: (funarg, prepare, expression)
-         funargs    - list of :class:`coffee.Decl` function argument
-         prepare    - list of COFFEE nodes to be prepended to the
-                      kernel body
-         expressions- list of GEM expressions referring to facets
-    """
-    funargs = []
-    expressions = []
-
-    if integral_type in ["interior_facet", "interior_facet_vert"]:
-            funargs.append(coffee.Decl("int", coffee.Symbol("cell_orientation_0")))
-            funargs.append(coffee.Decl("int", coffee.Symbol("cell_orientation_1")))
-            expressions.append(gem.Variable("cell_orientation_0", ()))
-            expressions.append(gem.Variable("cell_orientation_1", ()))
-    else:
-            funargs.append(coffee.Decl("int", coffee.Symbol("cell_orientation")))
-            expressions.append(gem.Variable("cell_orientation", ()))
-
-    return funargs, [], expressions
 
 
 def _prepare_arguments(arguments, indices, interior_facet=False):

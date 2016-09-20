@@ -28,12 +28,12 @@ class KernelBuilderBase(_KernelBuilderBase):
 
         # Cell orientation
         if self.interior_facet:
-            self._cell_orientations = gem.Variable("cell_orientations", (2, 1))
+            cell_orientations = gem.Variable("cell_orientations", (2, 1))
+            self._cell_orientations = (gem.Indexed(cell_orientations, (0, 0)),
+                                       gem.Indexed(cell_orientations, (1, 0)))
         else:
-            self._cell_orientations = gem.Variable("cell_orientations", (1, 1))
-
-    def cell_orientations_mapper(self, facet):
-        return gem.Indexed(self._cell_orientations, (facet, 0))
+            cell_orientations = gem.Variable("cell_orientations", (1, 1))
+            self._cell_orientations = (gem.Indexed(cell_orientations, (0, 0)),)
 
     def _coefficient(self, coefficient, name, mode=None):
         """Prepare a coefficient. Adds glue code for the coefficient
@@ -109,16 +109,6 @@ class KernelBuilder(KernelBuilderBase):
         :arg mode: see :func:`prepare_coefficient`
         """
         self.coordinates_arg = self._coefficient(coefficient, "coords", mode)
-
-    def set_facets(self):
-        """Prepare the facets.
-        """
-        return
-
-    def set_cell_orientations(self):
-        """Prepare the cell orientations.
-        """
-        return
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.

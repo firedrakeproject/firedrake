@@ -65,7 +65,7 @@ class KernelBuilderBase(object):
     def cell_orientation(self, restriction):
         """Cell orientation as a GEM expression."""
         f = {None: 0, '+': 0, '-': 1}[restriction]
-        co_int = self.cell_orientations_mapper(f)
+        co_int = self._cell_orientations[f]
         return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
                                gem.Literal(-1),
                                gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),
