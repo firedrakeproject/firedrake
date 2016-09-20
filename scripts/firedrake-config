@@ -15,6 +15,7 @@ def web_config(parameters):
 
     app = Flask(__name__)
     template_paths = [os.path.join(os.path.dirname(module.__file__), '../templates')]
+    template_paths.append(os.path.join(os.path.dirname(module.__file__), 'templates'))
     if hasattr(parameters, 'header_path'):
         header_path = os.path.join(os.path.dirname(module.__file__),
                                    parameters.header_path)
