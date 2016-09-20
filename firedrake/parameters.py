@@ -227,24 +227,7 @@ class Parameters(dict):
 
 
 def fill_metadata(parameters):
-    """Add metadata for firedrake parameters"""
-    # Assembly Cache
-    parameters["assembly_cache"].get_key("enabled").help = \
-        """A boolean value used to disable the assembly cache if required."""
-    parameters["assembly_cache"].get_key("eviction").help = \
-        """A boolean value used to disable the cache eviction strategy. \
-Disabling cache eviction can lead to memory leaks so is discouraged in \
-almost all circumstances"""
-    parameters["assembly_cache"].get_key("max_misses").help = \
-        """Attempting to cache objects whose inputs change every time they \
-are assembled is a waste of memory. This parameter sets a maximum number of \
-consecutive misses beyond which a form will be marked as uncachable."""
-    parameters["assembly_cache"].get_key("max_bytes").help = \
-        """Absolute limit on the size of the assembly cache in bytes. This \
-defaults to maximum float."""
-    parameters["assembly_cache"].get_key("max_factor").help = \
-        """Limit on the size of the assembly cache relative to the amount of \
-memory per core on the current system. This defaults to 0.6."""
+    """Add metadata for firedrake upstream parameters"""
     # COFFEE
     parameters["coffee"].get_key("optlevel").help = \
         """Optimization level, accepted values are `O0, `O1, `O2, `O3, \
@@ -299,12 +282,41 @@ evaluation?  Pass \`0` for an unbounded length."""
 parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
-parameters.add(Parameters("assembly_cache",
-                          enabled=True,
-                          eviction=True,
-                          max_bytes=max_float,
-                          max_factor=0.6,
-                          max_misses=3))
+assembly_cache = Parameters("assembly_cache")
+assembly_cache[TypedKey("enabled",
+                        val_type=BoolType(),
+                        help="""A boolean value used to disable the """
+                             """assembly cache if required."""
+                        )] = True
+assembly_cache[TypedKey("eviction",
+                        val_type=BoolType(),
+                        help="""A boolean value used to disable the """
+                             """cache eviction strategy. """
+                             """Disabling cache eviction can lead to memory """
+                             """leaks so is discouraged in almost all """
+                             """circumstances"""
+                        )] = True
+assembly_cache[TypedKey("max_misses",
+                        val_type=IntType(),
+                        help="""Attempting to cache object whose inputs """
+                             """change every time they are assembled is a """
+                             """waste of memory. This parameter sets a """
+                             """maximum number of consecutive misses beyond """
+                             """which a form will be marked as uncachable."""
+                        )] = 3
+assembly_cache[TypedKey("max_bytes",
+                        val_type=FloatType(),
+                        help="""Absolute limit on the size of the assembly """
+                             """cache in bytes. This defaults to maximum """
+                             """float"""
+                        )] = max_float
+assembly_cache[TypedKey("max_factor",
+                        val_type=FloatType(),
+                        help="""Limit on the size of the assembly cache """
+                             """relative to the amount of memory per core """
+                             """on the current system. This defaults to 0.6."""
+                        )] = 0.6
+parameters.add(assembly_cache)
 
 # The COFFEE default optimization level is O2
 coffee_default_optlevel = "O2"
