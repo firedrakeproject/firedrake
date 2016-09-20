@@ -125,6 +125,8 @@ def web_config(parameters):
         srcdir = tempfile.mkdtemp(dir=tempfile.gettempdir())
         return sphinxify(docstring, srcdir)
 
+    import webbrowser
+    webbrowser.open_new("http://0.0.0.0:5000")
     app.run(host="0.0.0.0")
 
 
