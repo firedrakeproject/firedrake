@@ -11,10 +11,10 @@ import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
 from tsfc import fem, ufl_utils
+from tsfc.backends import pyop2 as default_backend
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.fiatinterface import QuadratureRule, as_fiat_cell, create_quadrature
-from tsfc.kernel_interface import KernelBuilder
 from tsfc.logging import logger
 
 
@@ -47,7 +47,7 @@ def compile_form(form, prefix="form", parameters=None):
 
 
 def compile_integral(integral_data, form_data, prefix, parameters,
-                     backend="pyop2"):
+                     backend=default_backend):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
@@ -84,8 +84,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = KernelBuilder(backend, integral_type, integral_data.subdomain_id,
-                            domain_numbering[integral_data.domain])
+    builder = backend.KernelBuilder(integral_type, integral_data.subdomain_id,
+                                    domain_numbering[integral_data.domain])
     return_variables = builder.set_arguments(arguments, argument_indices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)

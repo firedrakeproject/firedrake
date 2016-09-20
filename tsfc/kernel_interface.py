@@ -156,17 +156,3 @@ class KernelBuilderBase(object):
              expressions- list of GEM expressions referring to facets
         """
         raise NotImplementedError("This class is abstract")
-
-
-# Avoid circular import
-from tsfc.backends import pyop2, ufc  # noqa: E402
-
-
-class KernelBuilder(KernelBuilderBase):
-    def __new__(cls, backend, *args, **kwargs):
-        if backend == "pyop2":
-            return pyop2.KernelBuilder(*args, **kwargs)
-        elif backend == "ufc":
-            return ufc.KernelBuilder(*args, **kwargs)
-        else:
-            raise ValueError("Unknown backend '%s'" % backend)
