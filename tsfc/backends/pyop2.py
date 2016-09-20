@@ -11,10 +11,54 @@ import gem
 from gem.node import traversal
 from gem.gem import FlexiblyIndexed as gem_FlexiblyIndexed
 
-from tsfc.kernel_interface import Kernel, KernelBuilderBase
+from tsfc.kernel_interface import Kernel, KernelBuilderBase as _KernelBuilderBase
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE
+
+
+class KernelBuilderBase(_KernelBuilderBase):
+
+    def __init__(self, interior_facet=False):
+        """Initialise a kernel builder.
+
+        :arg interior_facet: kernel accesses two cells
+        """
+        super(KernelBuilderBase, self).__init__(interior_facet=interior_facet)
+
+        # Cell orientation
+        if self.interior_facet:
+            self._cell_orientations = gem.Variable("cell_orientations", (2, 1))
+        else:
+            self._cell_orientations = gem.Variable("cell_orientations", (1, 1))
+
+    def cell_orientations_mapper(self, facet):
+        return gem.Indexed(self._cell_orientations, (facet, 0))
+
+    def _coefficient(self, coefficient, name, mode=None):
+        """Prepare a coefficient. Adds glue code for the coefficient
+        and adds the coefficient to the coefficient map.
+
+        :arg coefficient: :class:`ufl.Coefficient`
+        :arg name: coefficient name
+        :arg mode: see :func:`prepare_coefficient`
+        :returns: COFFEE function argument for the coefficient
+        """
+        funarg, prepare, expression = _prepare_coefficient(
+            coefficient, name, mode=mode,
+            interior_facet=self.interior_facet)
+        self.apply_glue(prepare)
+        self.coefficient_map[coefficient] = expression
+        return funarg
+
+    @staticmethod
+    def needs_cell_orientations(ir):
+        """Does a multi-root GEM expression DAG references cell
+        orientations?"""
+        for node in traversal(ir):
+            if isinstance(node, gem.Variable) and node.name == "cell_orientations":
+                return True
+        return False
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -44,34 +88,9 @@ class KernelBuilder(KernelBuilderBase):
         elif integral_type == 'interior_facet_horiz':
             self._facet_number = {'+': 1, '-': 0}
 
-        # Cell orientation
-        if self.interior_facet:
-            self._cell_orientations = gem.Variable("cell_orientations", (2, 1))
-        else:
-            self._cell_orientations = gem.Variable("cell_orientations", (1, 1))
-
     def facet_number(self, restriction):
         """Facet number as a GEM index."""
         return self._facet_number[restriction]
-
-    def cell_orientations_mapper(self, facet):
-        return gem.Indexed(self._cell_orientations, (facet, 0))
-
-    def _coefficient(self, coefficient, name, mode=None):
-        """Prepare a coefficient. Adds glue code for the coefficient
-        and adds the coefficient to the coefficient map.
-
-        :arg coefficient: :class:`ufl.Coefficient`
-        :arg name: coefficient name
-        :arg mode: see :func:`prepare_coefficient`
-        :returns: COFFEE function argument for the coefficient
-        """
-        funarg, prepare, expression = _prepare_coefficient(
-            coefficient, name, mode=mode,
-            interior_facet=self.interior_facet)
-        self.apply_glue(prepare)
-        self.coefficient_map[coefficient] = expression
-        return funarg
 
     def set_arguments(self, arguments, indices):
         """Process arguments.
@@ -160,15 +179,6 @@ class KernelBuilder(KernelBuilderBase):
 
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
         return self.kernel
-
-    @staticmethod
-    def needs_cell_orientations(ir):
-        """Does a multi-root GEM expression DAG references cell
-        orientations?"""
-        for node in traversal(ir):
-            if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-                return True
-        return False
 
     @staticmethod
     def prepare_arguments(arguments, indices, interior_facet=False):
