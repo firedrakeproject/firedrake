@@ -30,13 +30,6 @@ def compile_form(form, prefix="form", parameters=None):
 
     assert isinstance(form, Form)
 
-    if parameters is None:
-        parameters = default_parameters()
-    else:
-        _ = default_parameters()
-        _.update(parameters)
-        parameters = _
-
     fd = ufl_utils.compute_form_data(form)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
@@ -64,6 +57,19 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     :arg backend: output format
     :returns: a kernel, or None if the integral simplifies to zero
     """
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
+
+    # Remove these here, they're handled below.
+    if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
+        del parameters["quadrature_degree"]
+    if parameters.get("quadrature_rule") in ["auto", "default", None]:
+        del parameters["quadrature_rule"]
+
     integral_type = integral_data.integral_type
     interior_facet = integral_type.startswith("interior_facet")
     mesh = integral_data.domain
@@ -130,7 +136,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                              point_index=quadrature_index,
                              coefficient=coefficient,
                              index_cache=index_cache)
-        if parameters.get("unroll_indexsum"):
+        if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
         if quadrature_index in expr.free_indices:
@@ -161,7 +167,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                              coefficient=builder.coefficient,
                              facet_number=builder.facet_number,
                              index_cache=index_cache)
-        if parameters.get("unroll_indexsum"):
+        if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
         if quadrature_index in expr.free_indices:
@@ -178,13 +184,12 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
         # Check if the integral has a quad degree attached, otherwise use
         # the estimated polynomial degree attached by compute_form_data
-        quad_degree = params.get("quadrature_degree")
-        if quad_degree in [None, "auto", "default", -1, "-1"]:
-            quad_degree = params["estimated_polynomial_degree"]
+        quadrature_degree = params.get("quadrature_degree",
+                                       params["estimated_polynomial_degree"])
         integration_cell = fiat_cell.construct_subelement(integration_dim)
-        quad_rule = params.get("quadrature_rule")
-        if quad_rule in [None, "auto", "default"]:
-            quad_rule = create_quadrature(integration_cell, quad_degree)
+        quad_rule = params.get("quadrature_rule",
+                               create_quadrature(integration_cell,
+                                                 quadrature_degree))
 
         if not isinstance(quad_rule, QuadratureRule):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
@@ -208,7 +213,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                              index_cache=index_cache,
                              cellvolume=cellvolume,
                              facetarea=facetarea)
-        if parameters.get("unroll_indexsum"):
+        if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)
                      if quadrature_index in expr.free_indices
