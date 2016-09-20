@@ -1,5 +1,7 @@
 from __future__ import absolute_import
 import ufl
+
+from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
 import firedrake.vector as vector
 import firedrake.matrix as matrix
@@ -135,4 +137,4 @@ class LinearSolver(solving_utils.ParametersMixin):
 
         r = self.ksp.getConvergedReason()
         if r < 0:
-            raise RuntimeError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), solving_utils.KSPReasons[r])
+            raise ConvergenceError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), solving_utils.KSPReasons[r])

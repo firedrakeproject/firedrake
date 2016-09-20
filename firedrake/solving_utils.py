@@ -2,6 +2,7 @@ from __future__ import absolute_import
 import numpy
 
 from firedrake import function, dmhooks
+from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
 
@@ -110,7 +111,7 @@ def check_snes_convergence(snes):
                   (snes.getKSP().getIterationNumber(), reason)
         else:
             msg = reason
-        raise RuntimeError("""Nonlinear solve failed to converge after %d nonlinear iterations.
+        raise ConvergenceError("""Nonlinear solve failed to converge after %d nonlinear iterations.
 Reason:
    %s""" % (snes.getIterationNumber(), msg))
 
