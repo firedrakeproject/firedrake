@@ -179,6 +179,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         params = {}
         # Record per-integral parameters
         params.update(integral.metadata())
+        if params.get("quadrature_rule") == "default":
+            del params["quadrature_rule"]
         # parameters override per-integral metadata
         params.update(parameters)
 
