@@ -191,7 +191,9 @@
         }
         function fill_data(data, prefix) {
             $.each(data, function(key, val) {
-                if (val instanceof Object) {
+                if (val instanceof Array) {
+                    $("input[name=\"" + get_name(key, prefix) + "\"]").val('[' + val.toString() + ']');
+                } else if (val instanceof Object) {
                     fill_data(val, get_name(key, prefix))
                 } else if (val.constructor === Boolean){
                     if (val) {
