@@ -217,7 +217,7 @@
             }).done(function() {
                 $("#success-msg").remove();
                 $("#errors").remove();
-                $("form").before('<div class="alert alert-success" id="success-msg">Saved successfully to file!</div>')
+                $("form").before('<div class="alert alert-success" id="success-msg">Saved successfully to {{ path }}!</div>')
             }).fail(function(data) {
                 $("#success-msg").remove();
                 $("#errors").remove();

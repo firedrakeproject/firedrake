@@ -72,7 +72,8 @@ def web_config(parameters):
                 pass
         params = format_dict(parameters.unwrapped_dict(-1))
         return render_template('index.html', parameters=params, err=err,
-                               summary=render_docstring(parameters.summary))
+                               summary=render_docstring(parameters.summary),
+                               path=os.path.abspath(config_file))
 
     def validate_input(parameters, dictionary):
         """Validate inputs using the validation information in Parameters"""
