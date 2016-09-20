@@ -201,9 +201,7 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
     from gem import gem, impero_utils
     from tsfc import fem, ufl_utils
     from tsfc.coffee import generate as generate_coffee
-    from tsfc.kernel_interface import (KernelBuilderBase,
-                                       needs_cell_orientations,
-                                       cell_orientations_coffee_arg)
+    from tsfc.kernel_interface.firedrake import KernelBuilderBase, cell_orientations_coffee_arg
 
     # Imitate the compute_form_data processing pipeline
     #
@@ -253,7 +251,7 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
     impero_c = impero_utils.compile_gem([return_expr], ir, (point_index,) + tensor_indices)
     body = generate_coffee(impero_c, index_names={point_index: 'p'})
 
-    oriented = needs_cell_orientations(ir)
+    oriented = KernelBuilderBase.needs_cell_orientations(ir)
     if oriented:
         args.insert(0, cell_orientations_coffee_arg)
 
