@@ -139,7 +139,7 @@ if __name__ == '__main__':
     parser.add_argument("module_name", help="The name of the module, it must \
                         contain an attribute of type `firedrake.parameters.Parameters` \
                         of name `parameters`")
-    parser.add_argument("--config_file", default="parameters.json",
+    parser.add_argument("--config_file", required=True,
                         help="The path of file storing the configuration file")
     args = parser.parse_args()
     module_name = args.module_name

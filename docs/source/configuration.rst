@@ -16,10 +16,12 @@ To launch the configuration GUI, execute this in shell:
 
 .. code-block:: bash
 
-    firedrake-config MODULE_NAME
+    firedrake-config MODULE_NAME --config_file FILE_PATH
 
 This command will run a server at ``http://0.0.0.0:5000`` and generates a
-graphical interface for users to configure the parameters.
+graphical interface for users to configure the parameters. The ``FILE_PATH``
+argument is for the path for saving the parameters, see below "Saving
+Parameters".
 
 Once running, the configuration can be edited in the browser. Validation of the
 inputs is performed after input has been changed, with visual feedback of
@@ -40,23 +42,15 @@ that the file does not load automatically when selected, clicking on the
 Saving Parameters
 =================
 
-By clicking on ``Save``, parameters will be saved into ``parameters.json``, to save
-the file to other paths, there are two options.
-
-Option 1: Specify a config file name from the command line. This is done by
-adding an extra argument ``--config_file`` when executing ``firedrake-config``,
-i.e.
+The config file path needs to be specified from the command line. This is done
+by the argument ``--config_file`` when executing ``firedrake-config``, e.g.
 
 .. code-block:: bash
 
-    firedrake-config MODULE_NAME --config_file FILE_PATH
+    firedrake-config MODULE_NAME --config_file parameters
 
 This will enable the server to save parameters to the specified path when
 clicking on ``Save``
-
-Option 2: Use ``Save as`` button on the web page. After clicking on ``Save as``,
-there will be a link on the web page for Downloading the configuration file.
-The user can then save the file to any path they wish and store the file.
 
 Loading Parameters to Firedrake after configuration
 ===================================================
