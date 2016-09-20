@@ -47,7 +47,7 @@ by the argument ``--config_file`` when executing ``firedrake-config``, e.g.
 
 .. code-block:: bash
 
-    firedrake-config MODULE_NAME --config_file parameters
+    firedrake-config MODULE_NAME --config_file parameters.json
 
 This will enable the server to save parameters to the specified path when
 clicking on ``Save``
@@ -67,7 +67,7 @@ the parameter. For example
     parameters.load("parameters.json")
 
 To save the parameters instance to a file, please use
-:meth:`~firedrake.parameters.Parameters.dump`
+:meth:`~firedrake.parameters.Parameters.save`
 
 Branding
 ========

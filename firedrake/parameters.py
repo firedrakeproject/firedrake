@@ -212,7 +212,7 @@ class Parameters(dict):
         load_from_dict(self, dictionary)
         return self
 
-    def dump(self, filename):
+    def save(self, filename):
         """Export parameters to a JSON file
 
         :arg filename: File name of the output file
