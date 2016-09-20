@@ -255,7 +255,10 @@ class ListType(KeyType):
         if self._max_len is not None:
             if len(lst) > self._max_len:
                 return False
-        return all(self._elem_type.validate(elem) for elem in lst)
+        try:
+            return all(self._elem_type.validate(elem) for elem in lst)
+        except:
+            return False
 
     def parse(self, value):
         if isinstance(value, basestring):
