@@ -1,6 +1,6 @@
-=================================================
-Automated validation of simulation configurations
-=================================================
+=================================================================
+For Developers: Automated validation of simulation configurations
+=================================================================
 
 Firedrake provides an extensible mechanism for defining simulation parameters
 that supports validation of the provided inputs, as well as automatic creation

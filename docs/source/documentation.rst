@@ -84,6 +84,7 @@ finite element problems in Firedrake.
    parallelism
    configuration
    parameters
+   branding
 
 Advanced tutorials
 ==================
