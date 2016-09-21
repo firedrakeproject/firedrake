@@ -42,9 +42,11 @@ class NumericType(KeyType):
     def validate(self, numeric_value):
         if self._lower_bound is not None:
             if not numeric_value >= self._lower_bound:
+                self._last_error = "value must be no less than %d" % self._lower_bound
                 return False
         if self._upper_bound is not None:
             if not numeric_value <= self._upper_bound:
+                self._last_error = "value must be no greater than %d" % self._upper_bound
                 return False
         return True
 
@@ -58,8 +60,10 @@ class IntType(NumericType):
             if isinstance(value, basestring) or type(value) is int:
                 return super(IntType, self).validate(int(value))
             else:
+                self._last_error = "Type error, expect int"
                 return False
-        except ValueError:
+        except ValueError as e:
+            self._last_error = e.message
             return False
 
     def parse(self, value):
@@ -79,7 +83,8 @@ class FloatType(NumericType):
         # allow types convertible to floats (int inclusive)
         try:
             return super(FloatType, self).validate(float(value))
-        except ValueError:
+        except ValueError as e:
+            self._last_error = e.message
             return False
 
     def parse(self, value):
@@ -97,7 +102,10 @@ class BoolType(KeyType):
 
     def validate(self, value):
         # allow strings of "True" or "False" only if the value is not bool
-        return value in ["True", "False"] or type(value) is bool
+        ret = value in ["True", "False"] or type(value) is bool
+        if not ret:
+            self._last_error = "Expect `True` or `False`"
+        return ret
 
     def parse(self, value):
         if self.validate(value):
@@ -134,12 +142,21 @@ class StrType(KeyType):
     def validate(self, value):
         # if validation function is set, use it
         if hasattr(self, "_validate_function"):
+            ret = self._validate_function(value)
+            if not ret:
+                self._last_error = "Fail validation using custom-defined validation function"
             return self._validate_function(value)
         # if options are set, check value is in allowed options
         elif self._options != []:
-            return value in self._options
+            ret = value in self._options
+            if not ret:
+                self._last_error = "Expect a value in %s" % str(self._options)
+            return ret
         else:
-            return isinstance(value, basestring)
+            ret = isinstance(value, basestring)
+            if not ret:
+                self._last_error = "Expect a string"
+            return ret
 
     def parse(self, value):
         if self.validate(value):
@@ -192,6 +209,7 @@ class OrType(KeyType):
             for type in self._types:
                 if type.validate(value):
                     return True
+            self._last_error = "Expected types %s " % str(map(str, self._types))
             return False
         else:
             return self._curr_type.validate(value)
@@ -247,17 +265,24 @@ class ListType(KeyType):
             try:
                 import ast
                 lst = ast.literal_eval(value)
-            except:
+            except Exception as e:
+                self._last_error = e.message
                 return False
         if self._min_len is not None:
             if len(lst) < self._min_len:
+                self._last_error = "Length must be no less than %d" % self._min_len
                 return False
         if self._max_len is not None:
             if len(lst) > self._max_len:
+                self._last_error = "Length must be no greater than %d" % self._max_len
                 return False
         try:
-            return all(self._elem_type.validate(elem) for elem in lst)
-        except:
+            ret = all(self._elem_type.validate(elem) for elem in lst)
+            if not ret:
+                self._last_error = "Elements must be %s" % str(self._elem_type)
+            return ret
+        except Exception as e:
+            self._last_error = e.message
             return False
 
     def parse(self, value):

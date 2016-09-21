@@ -60,18 +60,27 @@ def web_config(parameters):
                                summary=render_docstring(parameters.summary),
                                path=os.path.abspath(config_file))
 
-    def validate_input(parameters, dictionary):
+    def prefixed_name(name, prefix):
+        if prefix == '':
+            return name
+        else:
+            return prefix + '[name]'
+
+    def validate_input(parameters, dictionary, prefix=''):
         """Validate inputs using the validation information in Parameters"""
         from firedrake.parameters import Parameters
-        err = []
+        err = {}
         for k in parameters.keys():
             if (k not in dictionary.keys()):
                 continue
             if isinstance(parameters[k], Parameters):
-                err.extend(validate_input(parameters[k], dictionary[k]))
+                err.update(validate_input(parameters[k],
+                                          dictionary[k],
+                                          prefixed_name(k, prefix)
+                                         ))
             else:
                 if not parameters.get_key(k).validate(dictionary[k]):
-                    err.append("Invalid value for %s" % k)
+                    err[prefixed_name(k, prefix)] = parameters.get_key(k).type._last_error
         return err
 
     @app.route('/validate', methods=["GET", "POST"])
@@ -80,7 +89,7 @@ def web_config(parameters):
         import json
         dictionary = json.loads(request.form['parameters'])
         validate_result = validate_input(parameters, dictionary)
-        if validate_result == []:
+        if validate_result == {}:
             return jsonify(successful=True)
         else:
             return jsonify(successful=False, err=validate_result), 400
@@ -91,7 +100,7 @@ def web_config(parameters):
         import json
         dictionary = json.loads(request.form['parameters'])
         validate_result = validate_input(parameters, dictionary)
-        if validate_result != []:
+        if validate_result != {}:
             return jsonify(successful=False, err=validate_result), 400
         from firedrake.parameters import load_from_dict
         load_from_dict(parameters, dictionary)

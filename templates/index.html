@@ -240,12 +240,17 @@
                 var name = $(this).attr('name');
                 $.post('validate', {
                     'parameters': JSON.stringify($(this).serializeJSON())
-                }).fail(function() {
+                }).fail(function(data) {
                     $("div[name='" + name + "']").removeClass("has-success");
                     $("div[name='" + name + "']").addClass("has-error");
+                    $("div[name='" + name + "']").tooltip("destroy");
+                    $("div[name='" + name + "']").data("title", data['responseJSON']['err'][name]);
+                    $("div[name='" + name + "']").tooltip("show");
                 }).done(function() {
                     $("div[name='" + name + "']").addClass("has-success");
                     $("div[name='" + name + "']").removeClass("has-error");
+                    $("div[name='" + name + "']").data("title", "");
+                    $("div[name='" + name + "']").tooltip("destroy");
                 })
                 $("#success-msg").remove();
                 $("#unsaved_warning").removeClass("hidden");
