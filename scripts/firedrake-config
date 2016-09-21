@@ -1,7 +1,28 @@
 #!/usr/bin/env python
 
 from flask import Flask, render_template, jsonify, request
+import webbrowser
+from werkzeug.serving import make_server
 import socket
+
+
+class MyFlask(Flask):
+    def run(self, host=None, port=None, debug=None, **options):
+        options.setdefault("passthrough_errors", True)
+        if port is None:
+            port = 0
+        try:
+            server = make_server(host, port, self, **options)
+        except socket.error as e:
+            print " **** Unable to start server ****"
+            raise e
+        address = "http://%s:%s" % server.socket.getsockname()
+        print " * Running on %s '(Press CTRL+C to quit)'" % address
+        webbrowser.open_new(address)
+        try:
+            server.serve_forever()
+        finally:
+            self._got_first_request = False
 
 
 def web_config(parameters):
@@ -14,7 +35,7 @@ def web_config(parameters):
     from jinja2 import FileSystemLoader
     import os
 
-    app = Flask(__name__)
+    app = MyFlask(__name__)
     template_paths = [os.path.join(os.path.dirname(module.__file__), '../templates')]
     template_paths.append(os.path.join(os.path.dirname(module.__file__), 'templates'))
     if hasattr(parameters, 'header_path'):
@@ -132,9 +153,7 @@ def web_config(parameters):
             print e.message
 
     load_config_file()
-    import webbrowser
-    webbrowser.open_new("http://127.0.0.1:" + str(port))
-    app.run(host="127.0.0.1", port=port)
+    app.run(host="127.0.0.1")
 
 
 if __name__ == '__main__':
@@ -152,10 +171,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     module_name = args.module_name
     config_file = args.config_file
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(('localhost', 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    port = args.port or port
     module = importlib.import_module(module_name)
     web_config(module.parameters)
