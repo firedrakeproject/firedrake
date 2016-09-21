@@ -1,8 +1,8 @@
 from __future__ import absolute_import
 
-import weakref
 import ufl
 
+from firedrake import dmhooks
 from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
@@ -153,13 +153,13 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         # DM with an app context in place so that if the DM is active
         # on a subKSP the context is available.
         dm = self.snes.getDM()
-        dm.setAppCtx(weakref.ref(self._ctx))
+        dmhooks.set_appctx(dm, self._ctx)
         self.set_from_options(self.snes)
 
     def solve(self):
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
-        dm.setAppCtx(weakref.ref(self._ctx))
+        dmhooks.set_appctx(dm, self._ctx)
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)

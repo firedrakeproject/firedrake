@@ -107,7 +107,7 @@ def create_matrix(dm):
        it returns the stored Jacobian.  This *does not* make a new
        matrix.
     """
-    ctx = dm.getAppCtx()()
+    ctx = get_appctx(dm)
     if ctx is None:
         raise ValueError("Cannot create matrix from DM with no AppCtx")
     # TODO, should make new matrix and change solver
