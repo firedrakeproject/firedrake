@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 
 import os
-import six
 import numpy
 from itertools import chain, product
 
@@ -45,9 +44,6 @@ class KernelBuilder(KernelBuilderBase):
         f = {None: 0, '+': 0, '-': 1}[restriction]
         return self._facet_number[f]
 
-    def cell_orientations_mapper(self, facet):
-        return self._cell_orientations[facet]
-
     def coefficients(self, coefficients, coefficient_numbers, name, mode=None):
         """Prepare coefficients. Adds glue code for the coefficients
         and adds the coefficients to the coefficient map.
@@ -58,10 +54,10 @@ class KernelBuilder(KernelBuilderBase):
         :arg mode: see :func:`prepare_coefficient`
         :returns: COFFEE function argument for the coefficient
         """
-        funarg, prepare, expressions = _prepare_coefficients(
-            coefficients, coefficient_numbers, name, mode=mode,
-            interior_facet=self.interior_facet)
-        self.apply_glue(prepare)
+        funarg, expressions = prepare_coefficients(coefficients,
+                                                   coefficient_numbers,
+                                                   name,
+                                                   interior_facet=self.interior_facet)
         for i, coefficient in enumerate(coefficients):
             self.coefficient_map[coefficient] = expressions[i]
         return funarg
@@ -168,8 +164,7 @@ class KernelBuilder(KernelBuilderBase):
         return _prepare_arguments(arguments, indices, interior_facet=interior_facet)
 
 
-def _prepare_coefficients(coefficients, coefficient_numbers, name, mode=None,
-                          interior_facet=False):
+def prepare_coefficients(coefficients, coefficient_numbers, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.  Mixed element Coefficients are rearranged here for
     interior facet integrals.
@@ -177,70 +172,39 @@ def _prepare_coefficients(coefficients, coefficient_numbers, name, mode=None,
     :arg coefficient: iterable of UFL Coefficients
     :arg coefficient_numbers: iterable of coefficient indices in the original form
     :arg name: unique name to refer to the Coefficient in the kernel
-    :arg mode: 'manual_loop' or 'list_tensor'; two ways to deal with
-               interior facet integrals on mixed elements
     :arg interior_facet: interior facet integral?
-    :returns: (funarg, prepare, expressions)
+    :returns: (funarg, expressions)
          funarg     - :class:`coffee.Decl` function argument
-         prepare    - list of COFFEE nodes to be prepended to the
-                      kernel body
          expressions- GEM expressions referring to the Coefficient
                       values
     """
     assert len(coefficients) == len(coefficient_numbers)
 
-    # FIXME: hack; is actual number really needed?
-    num_coefficients = max(coefficient_numbers) + 1 if coefficient_numbers else 0
     funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
                          pointers=[("const",), ()],
                          qualifiers=["const"])
 
-    # FIXME for interior facets
+    varexp = gem.Variable(name, (None, None))
     expressions = []
-    for j, coefficient in enumerate(coefficients):
+    for coefficient_number, coefficient in zip(coefficient_numbers, coefficients):
         if coefficient.ufl_element().family() == 'Real':
             shape = coefficient.ufl_shape
-            if shape == ():
-                # Scalar constant/real - needs one dummy index
-                expression = gem.Indexed(gem.Variable(name, (num_coefficients,) + (1,)),
-                                         (coefficient_numbers[j], 0,))
-                # FIXME: It seems that Reals are not restricted in gem but are in UFL.
-                # if interior_facet:
-                #     i = gem.Index()
-                #     expression = gem.ComponentTensor(
-                #         gem.Indexed(gem.Variable(name, (num_coefficients,) + (2,)),
-                #                     (coefficient_numbers[j], i,)),
-                #         (i,))
-            else:
-                # Mixed/vector/tensor constant/real
-                # FIXME: Tensor case is incorrect. Gem wants shaped expression, UFC requires flattened.
-                indices = tuple(gem.Index() for i in six.moves.xrange(len(shape)))
-                expression = gem.ComponentTensor(
-                    gem.Indexed(gem.Variable(name, (num_coefficients,) + shape),
-                                (coefficient_numbers[j],) + indices),
-                    indices)
         else:
-            # Everything else
             fiat_element = create_element(coefficient.ufl_element())
             shape = (fiat_element.space_dimension(),)
             if interior_facet:
-                num_dofs = shape[0]
-                variable = gem.Variable(name, (num_coefficients, 2*num_dofs))
-                # TODO: Seems that this reordering could be done using reinterpret_cast
-                expression = gem.ListTensor([[gem.Indexed(variable, (coefficient_numbers[j], i))
-                                              for i in six.moves.xrange(0, num_dofs)],
-                                             [gem.Indexed(variable, (coefficient_numbers[j], i))
-                                              for i in six.moves.xrange(num_dofs, 2*num_dofs)]])
-            else:
-                i = gem.Index()
-                expression = gem.ComponentTensor(
-                    gem.Indexed(gem.Variable(name, (num_coefficients,) + shape),
-                                (coefficient_numbers[j], i)),
-                    (i,))
+                shape = (2,) + shape
 
-        expressions.append(expression)
+        alpha = tuple(gem.Index() for s in shape)
+        expressions.append(gem.ComponentTensor(
+            gem.FlexiblyIndexed(
+                varexp, ((coefficient_number, ()),
+                         (0, tuple(zip(alpha, shape))))
+            ),
+            alpha
+        ))
 
-    return funarg, [], expressions
+    return funarg, expressions
 
 
 def _prepare_coordinates(coefficient, name, mode=None, interior_facet=False):
