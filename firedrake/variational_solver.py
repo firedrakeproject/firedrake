@@ -156,7 +156,18 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         dmhooks.set_appctx(dm, self._ctx)
         self.set_from_options(self.snes)
 
-    def solve(self):
+    def solve(self, bounds=None):
+        """Solve the variational problem.
+
+        :arg bounds: Optional bounds on the solution (lower, upper).
+            ``lower`` and ``upper`` must both be
+            :class:`~.Function`\s. or :class:`~.Vector`\s.
+
+        .. note::
+
+           If bounds are provided the ``snes_type`` must be set to
+           ``vinewtonssls`` or ``vinewtonrsls``.
+        """
         # Make sure appcontext is attached to the DM before we solve.
         dm = self.snes.getDM()
         dmhooks.set_appctx(dm, self._ctx)
@@ -164,6 +175,10 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)
 
+        if bounds is not None:
+            lower, upper = bounds
+            with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
+                self.snes.setVariableBounds(lb, ub)
         work = self._work.dat
         self._problem.u.dat.copy(work)
         with work.vec as v:
