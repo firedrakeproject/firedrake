@@ -49,29 +49,14 @@ def web_config(parameters):
                             "value": format_dict(v)})
         return ret
 
-    @app.route('/', methods=["GET", "POST"])
+    @app.route('/')
     def index():
         """Entry point of webpage
 
-        Show a form with inputs. If a JSON file is posted, the data in JSON
-        will be loaded into the current Parameters instance
+        Show a form with inputs.
         """
-        err = []
-        if request.method == "POST":
-            import json
-            json_file = request.files['json']
-            try:
-                dictionary = json.loads(json_file.read())
-                json_file.close()
-                from firedrake.gui_config import load_from_dict
-                err.extend(validate_input(parameters, dictionary))
-                if err == []:
-                    load_from_dict(parameters, dictionary)
-                json.dump(dictionary, open(config_file, 'w'))
-            except:
-                pass
         params = format_dict(parameters.unwrapped_dict(-1))
-        return render_template('index.html', parameters=params, err=err,
+        return render_template('index.html', parameters=params,
                                summary=render_docstring(parameters.summary),
                                path=os.path.abspath(config_file))
 
@@ -126,6 +111,16 @@ def web_config(parameters):
         srcdir = tempfile.mkdtemp(dir=tempfile.gettempdir())
         return sphinxify(docstring, srcdir)
 
+    def load_config_file():
+        import json
+        from firedrake.parameters import load_from_dict
+        try:
+            dictionary = json.load(open(config_file, 'r'))
+            load_from_dict(parameters, dictionary)
+        except Exception as e:
+            print e.message
+
+    load_config_file()
     import webbrowser
     webbrowser.open_new("http://0.0.0.0:5000")
     app.run(host="0.0.0.0")
