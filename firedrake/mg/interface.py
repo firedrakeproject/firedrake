@@ -116,17 +116,29 @@ def FunctionHierarchy(fs_hierarchy, functions=None):
 
 
 def FunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "FunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
     return tuple(firedrake.FunctionSpace(mesh, *args, **kwargs) for mesh in mesh_hierarchy)
 
 
 def VectorFunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "VectorFunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
     return tuple(firedrake.VectorFunctionSpace(mesh, *args, **kwargs) for mesh in mesh_hierarchy)
 
 
 def TensorFunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "TensorFunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
     return tuple(firedrake.TensorFunctionSpace(mesh, *args, **kwargs) for mesh in mesh_hierarchy)
 
 
 def MixedFunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "TensorFunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
     kwargs.pop("mesh", None)
     return tuple(firedrake.MixedFunctionSpace(*args, mesh=mesh, **kwargs) for mesh in mesh_hierarchy)
