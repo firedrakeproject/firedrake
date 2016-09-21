@@ -222,6 +222,16 @@ class Parameters(dict):
         json.dump(self.unwrapped_dict(-1), output_file)
         output_file.close()
 
+    @property
+    def max_visible_level(self):
+        max_vlevel = -1
+        for k in self.keys():
+            if isinstance(self[k], Parameters):
+                max_vlevel = max(max_vlevel, self[k].max_visible_level)
+            else:
+                max_vlevel = max(max_vlevel, k.visible_level)
+        return max(0, max_vlevel)
+
 
 def fill_metadata(parameters):
     """Add metadata for firedrake upstream parameters"""

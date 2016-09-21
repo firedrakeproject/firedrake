@@ -150,6 +150,7 @@
 
     <script>
         var visible_level = 0;
+        var max_visible_level = {{ max_visible_level }};
         var unsaved = false;
         function show_input(name) {
             $('div[depends=\"' + name +'\"]').each(function(idx, elem){
@@ -216,19 +217,25 @@
             });
         }
         function increase_visible_level() {
-            visible_level++;
-            $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { 
-                var depends = $(elem).attr("depends");
-                var val = $('input[type=radio][name=' + depends + ']:checked').attr("value");
-                if (val == 'True' || val == undefined) $(elem).fadeIn(); 
-            });
-            $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            if (visible_level < max_visible_level) {
+                visible_level++;
+                $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { 
+                    var depends = $(elem).attr("depends");
+                    var val = $('input[type=radio][name=' + depends + ']:checked').attr("value");
+                    if (val == 'True' || val == undefined) $(elem).fadeIn(); 
+                });
+                $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            } else {
+                alert("Cannot show more options!");
+            }
         }
         function decrease_visible_level() {
             if (visible_level > 0) {
                 $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { $(elem).fadeOut() });
                 visible_level--;
                 $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            } else {
+                alert("Cannot show fewer options!");
             }
         }
         $(document).ready(function() {
