@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 
-import os
 import numpy
 from itertools import product
 
@@ -23,9 +22,9 @@ class KernelBuilder(KernelBuilderBase):
         self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
                              domain_number=domain_number)
         self.local_tensor = None
-        self.coordinates_arg = None
-        self.coefficient_args = []
-        self.coefficient_split = {}
+        self.coordinates_args = None
+        self.coefficient_args = None
+        self.coefficient_split = None
 
         if self.interior_facet:
             self._cell_orientations = (gem.Variable("cell_orientation_0", ()),
@@ -44,40 +43,6 @@ class KernelBuilder(KernelBuilderBase):
         f = {None: 0, '+': 0, '-': 1}[restriction]
         return self._facet_number[f]
 
-    def coefficients(self, coefficients, coefficient_numbers, name, mode=None):
-        """Prepare coefficients. Adds glue code for the coefficients
-        and adds the coefficients to the coefficient map.
-
-        :arg coefficient: iterable of :class:`ufl.Coefficient`s
-        :arg coefficient_numbers: iterable of coefficient indices in the original form
-        :arg name: coefficient name
-        :arg mode: see :func:`prepare_coefficient`
-        :returns: COFFEE function argument for the coefficient
-        """
-        funarg, expressions = prepare_coefficients(coefficients,
-                                                   coefficient_numbers,
-                                                   name,
-                                                   interior_facet=self.interior_facet)
-        for i, coefficient in enumerate(coefficients):
-            self.coefficient_map[coefficient] = expressions[i]
-        return funarg
-
-    def coordinates(self, coefficient, name, mode=None):
-        """Prepare a coordinates. Adds glue code for the coefficient
-        and adds the coefficient to the coefficient map.
-
-        :arg coefficient: :class:`ufl.Coefficient`
-        :arg name: coefficient name
-        :arg mode: see :func:`prepare_coefficient`
-        :returns: COFFEE function arguments for the coefficient
-        """
-        funargs, prepare, expression = _prepare_coordinates(
-            coefficient, name, mode=mode,
-            interior_facet=self.interior_facet)
-        self.apply_glue(prepare)
-        self.coefficient_map[coefficient] = expression
-        return funargs
-
     def set_arguments(self, arguments, indices):
         """Process arguments.
 
@@ -85,16 +50,20 @@ class KernelBuilder(KernelBuilderBase):
         :arg indices: GEM argument indices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, expressions = self.arguments(arguments, indices)
+        self.local_tensor, prepare, expressions = prepare_arguments(
+            arguments, indices, interior_facet=self.interior_facet)
+        self.apply_glue(prepare)
         return expressions
 
     def set_coordinates(self, coefficient, mode=None):
         """Prepare the coordinate field.
 
         :arg coefficient: :class:`ufl.Coefficient`
-        :arg mode: see :func:`prepare_coefficient`
+        :arg mode: (ignored)
         """
-        self.coordinates_args = self.coordinates(coefficient, "coordinate_dofs", mode)
+        self.coordinates_args, expression = prepare_coordinates(
+            coefficient, "coordinate_dofs", interior_facet=self.interior_facet)
+        self.coefficient_map[coefficient] = expression
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -115,7 +84,15 @@ class KernelBuilder(KernelBuilderBase):
                 # Consider f*v*dx + g*v*ds, the full form contains two
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(i)
-        self.coefficient_args.append(self.coefficients(coefficients, coefficient_numbers, "w"))
+
+        funarg, expressions = prepare_coefficients(
+            coefficients, coefficient_numbers, "w",
+            interior_facet=self.interior_facet)
+
+        self.coefficient_args = [funarg]
+        for i, coefficient in enumerate(coefficients):
+            self.coefficient_map[coefficient] = expressions[i]
+
         self.kernel.coefficient_numbers = tuple(coefficient_numbers)
 
     def require_cell_orientations(self):
@@ -158,10 +135,6 @@ class KernelBuilder(KernelBuilderBase):
     def needs_cell_orientations(ir):
         """UFC requires cell orientations argument(s) everytime"""
         return True
-
-    @staticmethod
-    def prepare_arguments(arguments, indices, interior_facet=False):
-        return _prepare_arguments(arguments, indices, interior_facet=interior_facet)
 
 
 def prepare_coefficients(coefficients, coefficient_numbers, name, interior_facet=False):
@@ -207,19 +180,15 @@ def prepare_coefficients(coefficients, coefficient_numbers, name, interior_facet
     return funarg, expressions
 
 
-def _prepare_coordinates(coefficient, name, mode=None, interior_facet=False):
+def prepare_coordinates(coefficient, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     coordinates.
 
     :arg coefficient: UFL Coefficient
     :arg name: unique name to refer to the Coefficient in the kernel
-    :arg mode: 'manual_loop' or 'list_tensor'; two ways to deal with
-               interior facet integrals on mixed elements
     :arg interior_facet: interior facet integral?
-    :returns: (funarg, prepare, expression)
+    :returns: (funarg, expression)
          funarg     - :class:`coffee.Decl` function argument
-         prepare    - list of COFFEE nodes to be prepended to the
-                      kernel body
          expression - GEM expression referring to the Coefficient
                       values
     """
@@ -253,10 +222,10 @@ def _prepare_coordinates(coefficient, name, mode=None, interior_facet=False):
         expression = gem.ListTensor([[gem.Indexed(variable0, (i,)) for i in indices],
                                      [gem.Indexed(variable1, (i,)) for i in indices]])
 
-    return funargs, [], expression
+    return funargs, expression
 
 
-def _prepare_arguments(arguments, indices, interior_facet=False):
+def prepare_arguments(arguments, indices, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -264,14 +233,12 @@ def _prepare_arguments(arguments, indices, interior_facet=False):
     :arg arguments: UFL Arguments
     :arg indices: Argument indices
     :arg interior_facet: interior facet integral?
-    :returns: (funarg, prepare, expression, finalise)
+    :returns: (funarg, prepare, expressions)
          funarg      - :class:`coffee.Decl` function argument
          prepare     - list of COFFEE nodes to be prepended to the
                        kernel body
          expressions - GEM expressions referring to the argument
                        tensor
-         finalise    - list of COFFEE nodes to be appended to the
-                       kernel body
     """
     funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A"), pointers=[()])
     varexp = gem.Variable("A", (None,))
@@ -299,8 +266,7 @@ def _prepare_arguments(arguments, indices, interior_facet=False):
         expressions = [gem.FlexiblyIndexed(varexp, ((0, tuple(zip(indices, space_dimensions))),))]
 
     zero = coffee.FlatBlock(
-        str.format("memset({name}, 0, {size} * sizeof(*{name}));{nl}",
-                   name=funarg.sym.gencode(), size=numpy.product(shape),
-                   nl=os.linesep)
+        str.format("memset({name}, 0, {size} * sizeof(*{name}));\n",
+                   name=funarg.sym.gencode(), size=numpy.product(shape))
     )
-    return funarg, [zero], expressions, []
+    return funarg, [zero], expressions

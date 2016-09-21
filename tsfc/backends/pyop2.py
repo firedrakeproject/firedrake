@@ -99,7 +99,9 @@ class KernelBuilder(KernelBuilderBase):
         :arg indices: GEM argument indices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, expressions = self.arguments(arguments, indices)
+        self.local_tensor, prepare, expressions, finalise = prepare_arguments(
+            arguments, indices, interior_facet=self.interior_facet)
+        self.apply_glue(prepare, finalise)
         return expressions
 
     def set_coordinates(self, coefficient, mode=None):
@@ -169,10 +171,6 @@ class KernelBuilder(KernelBuilderBase):
 
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
         return self.kernel
-
-    @staticmethod
-    def prepare_arguments(arguments, indices, interior_facet=False):
-        return _prepare_arguments(arguments, indices, interior_facet=interior_facet)
 
 
 def _prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
@@ -310,7 +308,7 @@ def _prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
         return funarg, [], expression
 
 
-def _prepare_arguments(arguments, indices, interior_facet=False):
+def prepare_arguments(arguments, indices, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
@@ -425,6 +423,6 @@ def coffee_for(index, extent, body):
 
 
 cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
-                                           pointers=[("restrict",), ("restrict",)],
+                                           pointers=[("restrict", "const"), ("restrict",)],
                                            qualifiers=["const"])
 """COFFEE function argument for cell orientations"""
