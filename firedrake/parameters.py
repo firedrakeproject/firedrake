@@ -17,10 +17,10 @@ class TypedKey(str):
     """A class for parameter keys with additional metadata including help
     text and type data"""
 
-    def __new__(self, key, val_type=None, help=None, depends=None, visible_level=0):
+    def __new__(self, key, val_type, help=None, depends=None, visible_level=0):
         return super(TypedKey, self).__new__(self, key)
 
-    def __init__(self, key, val_type=None, help=None, depends=None, visible_level=0):
+    def __init__(self, key, val_type, help=None, depends=None, visible_level=0):
         """Create a new TypedKey
 
         :arg key: Name of the key
@@ -31,10 +31,7 @@ class TypedKey(str):
             must be in the same Parameters class and must be of BoolType
         :arg visible_level: Visible level of the key, default to be 0"
         """
-        if val_type is not None:
-            self._type = val_type
-        else:
-            self._type = UnsetType()
+        self.type = val_type
         self.visible_level = visible_level
         self.help = help
         self.depends = depends
@@ -133,7 +130,7 @@ class Parameters(dict):
 
     def add(self, key, value=None):
         if isinstance(key, Parameters):
-            self[TypedKey(key.name())] = key
+            self[TypedKey(key.name(), KeyType.get_type(key))] = key
         elif isinstance(key, TypedKey):
             self[key] = value
         else:
