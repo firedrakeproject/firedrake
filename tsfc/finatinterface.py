@@ -84,8 +84,8 @@ def convert(element, vector_is_mixed):
 
 
 # Base finite elements first
-@convert.register(ufl.FiniteElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.FiniteElement)
+def convert_finiteelement(element, vector_is_mixed):
     cell = as_fiat_cell(element.cell())
     lmbda = supported_elements.get(element.family())
     if lmbda:
@@ -95,26 +95,31 @@ def _(element, vector_is_mixed):
 
 
 # MixedElement case
-@convert.register(ufl.MixedElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.MixedElement)
+def convert_mixedelement(element, vector_is_mixed):
     raise ValueError("FInAT does not implement generic mixed element.")
 
 
 # VectorElement case
-@convert.register(ufl.VectorElement)  # noqa
-def _(element, vector_is_mixed):
+@convert.register(ufl.VectorElement)
+def convert_vectorelement(element, vector_is_mixed):
     # If we're just trying to get the scalar part of a vector element?
     if not vector_is_mixed:
         return create_element(element.sub_elements()[0], vector_is_mixed)
 
     scalar_element = create_element(element.sub_elements()[0], vector_is_mixed)
-    return finat.VectorFiniteElement(scalar_element, element.num_sub_elements())
+    return finat.TensorFiniteElement(scalar_element, (element.num_sub_elements(),))
 
 
 # TensorElement case
-@convert.register(ufl.TensorElement)  # noqa
-def _(element, vector_is_mixed):
-    raise NotImplementedError("TensorElement not implemented in FInAT yet.")
+@convert.register(ufl.TensorElement)
+def convert_tensorelement(element, vector_is_mixed):
+    # If we're just trying to get the scalar part of a vector element?
+    if not vector_is_mixed:
+        return create_element(element.sub_elements()[0], vector_is_mixed)
+
+    scalar_element = create_element(element.sub_elements()[0], vector_is_mixed)
+    return finat.TensorFiniteElement(scalar_element, element.reference_value_shape())
 
 
 _cache = weakref.WeakKeyDictionary()
