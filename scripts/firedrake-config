@@ -25,7 +25,7 @@ class MyFlask(Flask):
             self._got_first_request = False
 
 
-def web_config(parameters):
+def web_config(module):
     """Start a web server for configuring the Parameters on port 5000
 
     :arg parameters: a :class `firedrake.parameters.Parameters: class to be
@@ -34,7 +34,16 @@ def web_config(parameters):
 
     from jinja2 import FileSystemLoader
     import os
+    import firedrake
 
+    try:
+        parameters = module.parameters
+        if not isinstance(parameters, firedrake.Parameters):
+            print "**** parameters object is of type %s, not Parameters ****" % (type(parameters).__name__)
+            return
+    except AttributeError:
+        print "**** Unable to find parameters object in specified module (%s) ****" % module.__name__
+        return
     app = MyFlask(__name__)
     template_paths = [os.path.join(os.path.dirname(module.__file__), '../templates')]
     template_paths.append(os.path.join(os.path.dirname(module.__file__), 'templates'))
@@ -172,4 +181,4 @@ if __name__ == '__main__':
     module_name = args.module_name
     config_file = args.config_file
     module = importlib.import_module(module_name)
-    web_config(module.parameters)
+    web_config(module)
