@@ -72,6 +72,8 @@
                     Show fewer options
                 </button></li>
                 <br>
+                <li><p id=current_visible_level>Current visible level: 0</p></li>
+                <br>
                 <li><button type="button" class="btn btn-default btn-block" onclick="save()" aria-label="Save">
                     Save
                 </button></li>
@@ -228,6 +230,7 @@
             } else {
                 alert("Cannot show more options!");
             }
+            $("p[id=current_visible_level]").html("Current visible level: " + visible_level);
         }
         function decrease_visible_level() {
             if (visible_level > 0) {
@@ -237,6 +240,7 @@
             } else {
                 alert("Cannot show fewer options!");
             }
+            $("p[id=current_visible_level]").html("Current visible level: " + visible_level);
         }
         $(document).ready(function() {
             $.get("fetch", function(data) {
