@@ -133,10 +133,14 @@ def create_field_decomposition(dm, *args, **kwargs):
     dms = [V.dm for V in W]
     ctx = get_appctx(dm)
     if ctx is not None:
-        # Inside a solve, ctx to split.
-        ctxs = ctx.split([i for i in range(len(W))])
-        for d, c in zip(dms, ctxs):
-            set_appctx(d, c)
+        # DM from a hierarchy, so let's split apart in case we want to use it
+        # Inside a solve, ctx to split.  If we're not from a
+        # hierarchy, this information is not used, so don't bother
+        # splitting, since it costs some time.
+        if dm.getRefineLevel() - dm.getCoarsenLevel() != 0:
+            ctxs = ctx.split([i for i in range(len(W))])
+            for d, c in zip(dms, ctxs):
+                set_appctx(d, c)
     return names, W._ises, dms
 
 
