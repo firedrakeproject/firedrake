@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 import os
 import numpy
-from itertools import chain, product
+from itertools import product
 
 import coffee.base as coffee
 
@@ -10,7 +10,7 @@ import gem
 
 from tsfc.kernel_interface import Kernel, KernelBuilderBase
 from tsfc.fiatinterface import create_element
-from tsfc.coffee import SCALAR_TYPE
+from tsfc.coffee import SCALAR_TYPE, cumulative_strides
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -274,29 +274,33 @@ def _prepare_arguments(arguments, indices, interior_facet=False):
                        kernel body
     """
     funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A"), pointers=[()])
+    varexp = gem.Variable("A", (None,))
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    shape = tuple(element.space_dimension() for element in elements)
-    if len(arguments) == 0:
-        shape = (1,)
-        indices = (0,)
-    if interior_facet:
-        shape = tuple(j for i in zip(len(shape)*(2,), shape) for j in i)
-        indices = tuple(product(*chain(*(((0, 1), (i,)) for i in indices))))
+    space_dimensions = tuple(element.space_dimension() for element in elements)
+    for i, sd in zip(indices, space_dimensions):
+        i.set_extent(sd)
+
+    if arguments and interior_facet:
+        shape = tuple(2 * element.space_dimension() for element in elements)
+        strides = cumulative_strides(shape)
+
+        expressions = []
+        for restrictions in product((0, 1), repeat=len(arguments)):
+            offset = sum(r * sd * stride
+                         for r, sd, stride in zip(restrictions, space_dimensions, strides))
+            expressions.append(gem.FlexiblyIndexed(
+                varexp,
+                ((offset,
+                  tuple((i, s) for i, s in zip(indices, shape))),)
+            ))
     else:
-        indices = (indices,)
+        shape = space_dimensions
+        expressions = [gem.FlexiblyIndexed(varexp, ((0, tuple(zip(indices, space_dimensions))),))]
 
-    expressions = [gem.Indexed(gem.Variable("AA", shape), i) for i in indices]
-
-    reshape = coffee.Decl(SCALAR_TYPE,
-                          coffee.Symbol("(&%s)" % expressions[0].children[0].name,
-                                        rank=shape),
-                          init="*reinterpret_cast<%s (*)%s>(%s)" %
-                          (SCALAR_TYPE, "".join("[%s]" % i for i in shape),
-                           funarg.sym.gencode()))
-    zero = coffee.FlatBlock("memset(%s, 0, %d * sizeof(*%s));%s" %
-                            (funarg.sym.gencode(), numpy.product(shape),
-                             funarg.sym.gencode(), os.linesep))
-    prepare = [zero, reshape]
-
-    return funarg, prepare, expressions, []
+    zero = coffee.FlatBlock(
+        str.format("memset({name}, 0, {size} * sizeof(*{name}));{nl}",
+                   name=funarg.sym.gencode(), size=numpy.product(shape),
+                   nl=os.linesep)
+    )
+    return funarg, [zero], expressions, []
