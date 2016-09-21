@@ -90,10 +90,13 @@ class FlattenToQuad(FIAT.FiniteElement):
         nodes = element.dual.nodes
         self.ref_el = FiredrakeQuadrilateral()
         entity_ids = element.dual.entity_ids
+
         flat_entity_ids = {}
         flat_entity_ids[0] = entity_ids[(0, 0)]
-        flat_entity_ids[1] = dict(enumerate(entity_ids[(0, 1)].values() +
-                                            entity_ids[(1, 0)].values()))
+        flat_entity_ids[1] = dict(enumerate(
+            [v for k, v in sorted(entity_ids[(0, 1)].items())] +
+            [v for k, v in sorted(entity_ids[(1, 0)].items())]
+        ))
         flat_entity_ids[2] = entity_ids[(1, 1)]
         self.dual = DualSet(nodes, self.ref_el, flat_entity_ids)
 
@@ -224,11 +227,7 @@ def _(element, vector_is_mixed):
                                       element.family(),
                                       quad_opc,
                                       element.degree())
-        # Can't use create_element here because we're going to modify
-        # it, so if we pull it from the cache, that's bad.
-        element = convert(element, vector_is_mixed)
-
-        return FlattenToQuad(element)
+        return FlattenToQuad(create_element(element, vector_is_mixed))
     return lmbda(cell, element.degree())
 
 
