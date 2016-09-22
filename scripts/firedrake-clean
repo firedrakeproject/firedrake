@@ -7,4 +7,4 @@ from pyop2.compilation import clear_cache as pyop2_clear_cache
 if __name__ == '__main__':
     print 'Removing cached TSFC kernels from %s' % TSFCKernel._cachedir
     clear_cache()
-    pyop2_clear_cache(prompt=True)
+    pyop2_clear_cache()
