@@ -7,7 +7,7 @@ import coffee.base as coffee
 
 import gem
 
-from tsfc.kernel_interface import Kernel, KernelBuilderBase
+from tsfc.kernel_interface import KernelBuilderBase
 from tsfc.fiatinterface import create_element
 from tsfc.coffee import SCALAR_TYPE, cumulative_strides
 
@@ -18,9 +18,8 @@ class KernelBuilder(KernelBuilderBase):
     def __init__(self, integral_type, subdomain_id, domain_number):
         """Initialise a kernel builder."""
         super(KernelBuilder, self).__init__(integral_type.startswith("interior_facet"))
+        self.integral_type = integral_type
 
-        self.kernel = Kernel(integral_type=integral_type, subdomain_id=subdomain_id,
-                             domain_number=domain_number)
         self.local_tensor = None
         self.coordinates_args = None
         self.coefficient_args = None
@@ -93,12 +92,6 @@ class KernelBuilder(KernelBuilderBase):
         for i, coefficient in enumerate(coefficients):
             self.coefficient_map[coefficient] = expressions[i]
 
-        self.kernel.coefficient_numbers = tuple(coefficient_numbers)
-
-    def require_cell_orientations(self):
-        """Set that the kernel requires cell orientations."""
-        self.kernel.oriented = True
-
     def construct_kernel(self, name, body):
         """Construct a fully built :class:`Kernel`.
 
@@ -114,10 +107,9 @@ class KernelBuilder(KernelBuilderBase):
         args.extend(self.coordinates_args)
 
         # Facet number(s)
-        integral_type = self.kernel.integral_type
-        if integral_type == "exterior_facet":
+        if self.integral_type == "exterior_facet":
             args.append(coffee.Decl("std::size_t", coffee.Symbol("facet")))
-        elif integral_type == "interior_facet":
+        elif self.integral_type == "interior_facet":
             args.append(coffee.Decl("std::size_t", coffee.Symbol("facet_0")))
             args.append(coffee.Decl("std::size_t", coffee.Symbol("facet_1")))
 
@@ -128,12 +120,16 @@ class KernelBuilder(KernelBuilderBase):
         else:
             args.append(coffee.Decl("int", coffee.Symbol("cell_orientation")))
 
-        self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
-        return self.kernel
+        return KernelBuilderBase.construct_kernel(self, name, args, body)
+
+    @staticmethod
+    def require_cell_orientations():
+        # Nothing to do
+        pass
 
     @staticmethod
     def needs_cell_orientations(ir):
-        """UFC requires cell orientations argument(s) everytime"""
+        # UFC tabulate_tensor always have cell orientations
         return True
 
 
