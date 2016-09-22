@@ -9,12 +9,40 @@ import coffee.base as coffee
 
 import gem
 from gem.node import traversal
-from gem.gem import FlexiblyIndexed as gem_FlexiblyIndexed
 
-from tsfc.kernel_interface.common import Kernel, KernelBuilderBase as _KernelBuilderBase
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE
+
+
+class Kernel(object):
+    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
+                 "domain_number",
+                 "coefficient_numbers", "__weakref__")
+    """A compiled Kernel object.
+
+    :kwarg ast: The COFFEE ast for the kernel.
+    :kwarg integral_type: The type of integral.
+    :kwarg oriented: Does the kernel require cell_orientations.
+    :kwarg subdomain_id: What is the subdomain id for this kernel.
+    :kwarg domain_number: Which domain number in the original form
+        does this kernel correspond to (can be used to index into
+        original_form.ufl_domains() to get the correct domain).
+    :kwarg coefficient_numbers: A list of which coefficients from the
+        form the kernel needs.
+    """
+    def __init__(self, ast=None, integral_type=None, oriented=False,
+                 subdomain_id=None, domain_number=None,
+                 coefficient_numbers=()):
+        # Defaults
+        self.ast = ast
+        self.integral_type = integral_type
+        self.oriented = oriented
+        self.domain_number = domain_number
+        self.subdomain_id = subdomain_id
+        self.coefficient_numbers = coefficient_numbers
+        super(Kernel, self).__init__()
 
 
 class KernelBuilderBase(_KernelBuilderBase):
@@ -44,7 +72,7 @@ class KernelBuilderBase(_KernelBuilderBase):
         :arg mode: see :func:`prepare_coefficient`
         :returns: COFFEE function argument for the coefficient
         """
-        funarg, prepare, expression = _prepare_coefficient(
+        funarg, prepare, expression = prepare_coefficient(
             coefficient, name, mode=mode,
             interior_facet=self.interior_facet)
         self.apply_glue(prepare)
@@ -87,10 +115,6 @@ class KernelBuilder(KernelBuilderBase):
             }
         elif integral_type == 'interior_facet_horiz':
             self._facet_number = {'+': 1, '-': 0}
-
-    def facet_number(self, restriction):
-        """Facet number as a GEM index."""
-        return self._facet_number[restriction]
 
     def set_arguments(self, arguments, indices):
         """Process arguments.
@@ -173,7 +197,7 @@ class KernelBuilder(KernelBuilderBase):
         return self.kernel
 
 
-def _prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
+def prepare_coefficient(coefficient, name, mode=None, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.  Mixed element Coefficients are rearranged here for
     interior facet integrals.
@@ -354,7 +378,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
 
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
-            expressions.append(gem_FlexiblyIndexed(
+            expressions.append(gem.FlexiblyIndexed(
                 varexp,
                 tuple((r * e.space_dimension(), ((i, e.space_dimension()),))
                       for e, i, r in zip(elements, indices, restrictions))

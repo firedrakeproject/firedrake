@@ -32,15 +32,12 @@ class KernelBuilder(KernelBuilderBase):
             self._cell_orientations = (gem.Variable("cell_orientation", ()),)
 
         if integral_type == "exterior_facet":
-            self._facet_number = (gem.VariableIndex(gem.Variable("facet", ())),)
+            self._facet_number = {None: gem.VariableIndex(gem.Variable("facet", ()))}
         elif integral_type == "interior_facet":
-            self._facet_number = (gem.VariableIndex(gem.Variable("facet_0", ())),
-                                  gem.VariableIndex(gem.Variable("facet_1", ())))
-
-    def facet_number(self, restriction):
-        """Facet number as a GEM index."""
-        f = {None: 0, '+': 0, '-': 1}[restriction]
-        return self._facet_number[f]
+            self._facet_number = {
+                '+': gem.VariableIndex(gem.Variable("facet_0", ())),
+                '-': gem.VariableIndex(gem.Variable("facet_1", ()))
+            }
 
     def set_arguments(self, arguments, indices):
         """Process arguments.

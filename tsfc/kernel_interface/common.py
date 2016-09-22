@@ -7,35 +7,6 @@ import coffee.base as coffee
 import gem
 
 
-class Kernel(object):
-    __slots__ = ("ast", "integral_type", "oriented", "subdomain_id",
-                 "domain_number",
-                 "coefficient_numbers", "__weakref__")
-    """A compiled Kernel object.
-
-    :kwarg ast: The COFFEE ast for the kernel.
-    :kwarg integral_type: The type of integral.
-    :kwarg oriented: Does the kernel require cell_orientations.
-    :kwarg subdomain_id: What is the subdomain id for this kernel.
-    :kwarg domain_number: Which domain number in the original form
-        does this kernel correspond to (can be used to index into
-        original_form.ufl_domains() to get the correct domain).
-    :kwarg coefficient_numbers: A list of which coefficients from the
-        form the kernel needs.
-    """
-    def __init__(self, ast=None, integral_type=None, oriented=False,
-                 subdomain_id=None, domain_number=None,
-                 coefficient_numbers=()):
-        # Defaults
-        self.ast = ast
-        self.integral_type = integral_type
-        self.oriented = oriented
-        self.domain_number = domain_number
-        self.subdomain_id = subdomain_id
-        self.coefficient_numbers = coefficient_numbers
-        super(Kernel, self).__init__()
-
-
 class KernelBuilderBase(object):
     """Helper class for building local assembly kernels."""
 
@@ -65,12 +36,18 @@ class KernelBuilderBase(object):
     def cell_orientation(self, restriction):
         """Cell orientation as a GEM expression."""
         f = {None: 0, '+': 0, '-': 1}[restriction]
+        # Assume self._cell_orientations tuple is set up at this point.
         co_int = self._cell_orientations[f]
         return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
                                gem.Literal(-1),
                                gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),
                                                gem.Literal(1),
                                                gem.Literal(numpy.nan)))
+
+    def facet_number(self, restriction):
+        """Facet number as a GEM index."""
+        # Assume self._facet_number dict is set up at this point.
+        return self._facet_number[restriction]
 
     def apply_glue(self, prepare=None, finalise=None):
         """Append glue code for operations that are not handled in the
