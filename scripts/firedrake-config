@@ -14,7 +14,7 @@ class MyFlask(Flask):
         try:
             server = make_server(host, port, self, **options)
         except socket.error as e:
-            print " **** Unable to start server ****"
+            print "**** Unable to start server ****"
             raise e
         address = "http://%s:%s" % server.socket.getsockname()
         print " * Running on %s '(Press CTRL+C to quit)'" % address
@@ -174,8 +174,6 @@ if __name__ == '__main__':
                         of name `parameters`")
     parser.add_argument("--config_file", required=True,
                         help="The path of file storing the configuration file")
-    parser.add_argument("--port", type=int,
-                        help="The port on which the web interface runs on")
     args = parser.parse_args()
     module_name = args.module_name
     config_file = args.config_file
