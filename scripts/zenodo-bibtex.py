@@ -40,7 +40,7 @@ class BibtexFinder(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag == "pre":
             a = dict(attrs)
-            if a.get("id") == "clipboard_text":
+            if a.get("style") == "white-space: pre-wrap;":
                 self.in_bibtex = True
 
     def handle_data(self, data):
