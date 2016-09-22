@@ -191,6 +191,12 @@ python = [os.getcwd() + "/%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = os.path.join(os.getcwd(), "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor))
 
+if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
+    quit("""The PYTHONPATH environment variable is set. This is probably an error.
+If you really want to use your own Python packages, please run again with the
+--honour-pythonpath option.
+""")
+
 os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
 
 if args.minimal_petsc:
@@ -807,12 +813,6 @@ if "PETSC_DIR" in os.environ and not args.honour_petsc_dir:
     quit("""The PETSC_DIR environment variable is set. This is probably an error.
 If you really want to use your own PETSc build, please run again with the
 --honour-petsc-dir option.
-""")
-
-if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
-    quit("""The PYTHONPATH environment variable is set. This is probably an error.
-If you really want to use your own Python packages, please run again with the
---honour-pythonpath option.
 """)
 
 if travis:
