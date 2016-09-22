@@ -1175,7 +1175,7 @@ if mode == "update":
 
 os.chdir("../..")
 
-log.info("Successfully installed Firedrake.\n")
+log.info("\n\nSuccessfully installed Firedrake.\n")
 
 log.info("To upgrade firedrake, run %s/bin/firedrake-update" % firedrake_env)
 
