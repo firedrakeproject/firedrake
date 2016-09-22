@@ -76,6 +76,91 @@ element is supported, but must be handled specially because it doesn't
 have a direct FIAT equivalent."""
 
 
+class FlattenToQuad(FIAT.FiniteElement):
+    """A wrapper class that flattens a FIAT quadrilateral element defined
+    on a TensorProductCell to one with FiredrakeQuadrilateral entities
+    and tabulation properties."""
+
+    def __init__(self, element):
+        """ Constructs a FlattenToQuad element.
+
+        :arg element: a fiat element
+        """
+        self.element = element
+        nodes = element.dual.nodes
+        self.ref_el = FiredrakeQuadrilateral()
+        entity_ids = element.dual.entity_ids
+
+        flat_entity_ids = {}
+        flat_entity_ids[0] = entity_ids[(0, 0)]
+        flat_entity_ids[1] = dict(enumerate(
+            [v for k, v in sorted(entity_ids[(0, 1)].items())] +
+            [v for k, v in sorted(entity_ids[(1, 0)].items())]
+        ))
+        flat_entity_ids[2] = entity_ids[(1, 1)]
+        self.dual = DualSet(nodes, self.ref_el, flat_entity_ids)
+
+    def space_dimension(self):
+        """Return the dimension of the finite element space."""
+        return self.element.space_dimension()
+
+    def degree(self):
+        """Return the degree of the finite element."""
+        return self.element.degree()
+
+    def get_order(self):
+        """Return the order of the finite element."""
+        return self.element.get_order()
+
+    def get_formdegree(self):
+        """Return the degree of the associated form (FEEC)."""
+        return self.element.get_formdegree()
+
+    def mapping(self):
+        """Return the list of appropriate mappings from the reference
+        element to a physical element for each basis function of the
+        finite element."""
+        return self.element.mapping()
+
+    def tabulate(self, order, points, entity=None):
+        """Return tabulated values of derivatives up to a given order of
+        basis functions at given points.
+
+        :arg order: The maximum order of derivative.
+        :arg points: An iterable of points.
+        :arg entity: Optional (dimension, entity number) pair
+                     indicating which topological entity of the
+                     reference element to tabulate on.  If ``None``,
+                     default cell-wise tabulation is performed.
+        """
+        if entity is None:
+            entity = (2, 0)
+
+        # Entity is provided in flattened form (d, i)
+        # We factor the entity and construct an appropriate
+        # entity id for a TensorProductCell: ((d1, d2), i)
+        entity_dim, entity_id = entity
+        if entity_dim == 2:
+            assert entity_id == 0
+            product_entity = ((1, 1), 0)
+        elif entity_dim == 1:
+            facets = [((0, 1), 0),
+                      ((0, 1), 1),
+                      ((1, 0), 0),
+                      ((1, 0), 1)]
+            product_entity = facets[entity_id]
+        elif entity_dim == 0:
+            raise NotImplementedError("Not implemented for 0 dimension entities")
+        else:
+            raise ValueError("Illegal entity dimension %s" % entity_dim)
+
+        return self.element.tabulate(order, points, product_entity)
+
+    def value_shape(self):
+        """Return the value shape of the finite element functions."""
+        return self.element.value_shape()
+
+
 def as_fiat_cell(cell):
     """Convert a ufl cell to a FIAT cell.
 
@@ -142,24 +227,7 @@ def _(element, vector_is_mixed):
                                       element.family(),
                                       quad_opc,
                                       element.degree())
-        # Can't use create_element here because we're going to modify
-        # it, so if we pull it from the cache, that's bad.
-        element = convert(element, vector_is_mixed)
-        # Splat quadrilateral elements that are on TFEs back into
-        # something with the correct entity dofs.
-        nodes = element.dual.nodes
-        ref_el = FiredrakeQuadrilateral()
-
-        entity_ids = element.dual.entity_ids
-        flat_entity_ids = {}
-        flat_entity_ids[0] = entity_ids[(0, 0)]
-        flat_entity_ids[1] = dict(enumerate(entity_ids[(0, 1)].values() +
-                                            entity_ids[(1, 0)].values()))
-        flat_entity_ids[2] = entity_ids[(1, 1)]
-
-        element.dual = DualSet(nodes, ref_el, flat_entity_ids)
-        element.ref_el = ref_el
-        return element
+        return FlattenToQuad(create_element(element, vector_is_mixed))
     return lmbda(cell, element.degree())
 
 
