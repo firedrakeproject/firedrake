@@ -44,7 +44,9 @@ def web_config(module):
     except AttributeError:
         print "**** Unable to find parameters object in specified module (%s) ****" % module.__name__
         return
-    app = MyFlask(__name__)
+    app = MyFlask(__name__,
+                 static_folder=os.path.join(os.path.dirname(firedrake.__file__), "static")
+                 )
     template_paths = [os.path.join(os.path.dirname(firedrake.__file__), "templates")]
     if hasattr(parameters, 'header_path'):
         header_path = os.path.join(os.path.dirname(module.__file__),
