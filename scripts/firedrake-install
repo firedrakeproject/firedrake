@@ -172,7 +172,6 @@ class directory(object):
 # This is a bit of a hack.
 v = sys.version_info
 sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
-path_extension = ""
 
 # Record of obsolete packages which --clean should remove from old installs.
 old_git_packages = ["instant", "ffc"]
@@ -191,7 +190,11 @@ python = [os.getcwd() + "/%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = os.path.join(os.getcwd(), "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor))
 
-os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
+    quit("""The PYTHONPATH environment variable is set. This is probably an error.
+If you really want to use your own Python packages, please run again with the
+--honour-pythonpath option.
+""")
 
 if args.minimal_petsc:
     # WARNING WARNING
@@ -809,12 +812,6 @@ If you really want to use your own PETSc build, please run again with the
 --honour-petsc-dir option.
 """)
 
-if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
-    quit("""The PYTHONPATH environment variable is set. This is probably an error.
-If you really want to use your own Python packages, please run again with the
---honour-pythonpath option.
-""")
-
 if travis:
     # Produce once a minute output so that travis doesn't think
     # we're stalled
@@ -1075,7 +1072,6 @@ if mode == "install":
         if args.developer:
             pdir = os.getcwd() + "/" + p + os.pathsep
             os.environ["PYTHONPATH"] = pdir + os.environ.get("PYTHONPATH", "")
-            path_extension = pdir + path_extension
 
     # Work around easy-install.pth bug.
     if args.developer:
