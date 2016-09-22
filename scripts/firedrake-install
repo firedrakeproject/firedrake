@@ -674,13 +674,23 @@ def build_and_install_slepc():
     env["PETSC_ARCH"] = petsc_arch
     env["PETSC_DIR"] = petsc_dir
 
-    git_clone("git+https://bitbucket.org/slepc/slepc.git")
     log.info("Installing SLEPc.")
-    install("slepc/")
+    if os.path.exists("slepc"):
+        slepc_changed = git_update("slepc")
+    else:
+        git_clone("git+https://bitbucket.org/slepc/slepc.git")
+        slepc_changed = True
+    if slepc_changed:
+        install("slepc/")
 
-    git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
     log.info("Installing slepc4py.")
-    install("slepc4py/")
+    if os.path.exists("slepc4py"):
+        slepc4py_changed = git_update("slepc4py")
+    else:
+        git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+        slepc4py_changed = True
+    if slepc4py_changed:
+        install("slepc4py/")
 
 
 def build_and_install_adjoint():
@@ -769,7 +779,7 @@ def build_update_script():
 
     for switch in ["developer", "sudo", "package_manager", "minimal_petsc",
                    "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint",
-                   "virtualenv_name", "honour_pythonpath"]:
+                   "virtualenv_name", "slepc", "honour_pythonpath"]:
         update_script = update_script.replace("args.%s = False" % switch,
                                               "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
