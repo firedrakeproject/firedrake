@@ -1159,6 +1159,20 @@ if args.slepc:
 if args.slope:
     build_and_install_slope()
 
+
+if mode == "update":
+    try:
+        log.info("Clearing just in time compilation caches.")
+        from firedrake.tsfc_interface import clear_cache, TSFCKernel
+        from pyop2.compilation import clear_cache as pyop2_clear_cache
+        print 'Removing cached TSFC kernels from %s' % TSFCKernel._cachedir
+        clear_cache()
+        pyop2_clear_cache()
+    except:
+        # Unconditional except in order to avoid upgrade script failures.
+        log.error("Failed to clear caches. Try running firedrake-clean.")
+
+
 os.chdir("../..")
 
 log.info("Successfully installed Firedrake.\n")
