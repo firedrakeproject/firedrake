@@ -1,13 +1,16 @@
 from __future__ import absolute_import
 
 import numpy
+from itertools import product
+
+from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
 
 import coffee.base as coffee
 
 import gem
 from gem.node import traversal
-from gem.gem import FlexiblyIndexed as gem_FlexiblyIndexed
 
+from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE
@@ -42,87 +45,23 @@ class Kernel(object):
         super(Kernel, self).__init__()
 
 
-class KernelBuilderBase(object):
-    """Helper class for building local assembly kernels."""
+class KernelBuilderBase(_KernelBuilderBase):
 
     def __init__(self, interior_facet=False):
         """Initialise a kernel builder.
 
         :arg interior_facet: kernel accesses two cells
         """
-        assert isinstance(interior_facet, bool)
-        self.interior_facet = interior_facet
-
-        self.prepare = []
-        self.finalise = []
-
-        # Coefficients
-        self.coefficient_map = {}
+        super(KernelBuilderBase, self).__init__(interior_facet=interior_facet)
 
         # Cell orientation
-        if interior_facet:
-            self._cell_orientations = gem.Variable("cell_orientations", (2, 1))
+        if self.interior_facet:
+            cell_orientations = gem.Variable("cell_orientations", (2, 1))
+            self._cell_orientations = (gem.Indexed(cell_orientations, (0, 0)),
+                                       gem.Indexed(cell_orientations, (1, 0)))
         else:
-            self._cell_orientations = gem.Variable("cell_orientations", (1, 1))
-
-    def coefficient(self, ufl_coefficient, restriction):
-        """A function that maps :class:`ufl.Coefficient`s to GEM
-        expressions."""
-        kernel_arg = self.coefficient_map[ufl_coefficient]
-        if ufl_coefficient.ufl_element().family() == 'Real':
-            return kernel_arg
-        else:
-            return gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[restriction])
-
-    def cell_orientation(self, restriction):
-        """Cell orientation as a GEM expression."""
-        f = {None: 0, '+': 0, '-': 1}[restriction]
-        co_int = gem.Indexed(self._cell_orientations, (f, 0))
-        return gem.Conditional(gem.Comparison("==", co_int, gem.Literal(1)),
-                               gem.Literal(-1),
-                               gem.Conditional(gem.Comparison("==", co_int, gem.Zero()),
-                                               gem.Literal(1),
-                                               gem.Literal(numpy.nan)))
-
-    def apply_glue(self, prepare=None, finalise=None):
-        """Append glue code for operations that are not handled in the
-        GEM abstraction.
-
-        Current uses: mixed interior facet mess
-
-        :arg prepare: code snippets to be prepended to the kernel
-        :arg finalise: code snippets to be appended to the kernel
-        """
-        if prepare is not None:
-            self.prepare.extend(prepare)
-        if finalise is not None:
-            self.finalise.extend(finalise)
-
-    def construct_kernel(self, name, args, body):
-        """Construct a COFFEE function declaration with the
-        accumulated glue code.
-
-        :arg name: function name
-        :arg args: function argument list
-        :arg body: function body (:class:`coffee.Block` node)
-        :returns: :class:`coffee.FunDecl` object
-        """
-        assert isinstance(body, coffee.Block)
-        body_ = coffee.Block(self.prepare + body.children + self.finalise)
-        return coffee.FunDecl("void", name, args, body_, pred=["static", "inline"])
-
-    def arguments(self, arguments, indices):
-        """Prepare arguments. Adds glue code for the arguments.
-
-        :arg arguments: :class:`ufl.Argument`s
-        :arg indices: GEM argument indices
-        :returns: COFFEE function argument and GEM expression
-                  representing the argument tensor
-        """
-        funarg, prepare, expressions, finalise = prepare_arguments(
-            arguments, indices, interior_facet=self.interior_facet)
-        self.apply_glue(prepare, finalise)
-        return funarg, expressions
+            cell_orientations = gem.Variable("cell_orientations", (1, 1))
+            self._cell_orientations = (gem.Indexed(cell_orientations, (0, 0)),)
 
     def _coefficient(self, coefficient, name, mode=None):
         """Prepare a coefficient. Adds glue code for the coefficient
@@ -139,6 +78,15 @@ class KernelBuilderBase(object):
         self.apply_glue(prepare)
         self.coefficient_map[coefficient] = expression
         return funarg
+
+    @staticmethod
+    def needs_cell_orientations(ir):
+        """Does a multi-root GEM expression DAG references cell
+        orientations?"""
+        for node in traversal(ir):
+            if isinstance(node, gem.Variable) and node.name == "cell_orientations":
+                return True
+        return False
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -168,10 +116,6 @@ class KernelBuilder(KernelBuilderBase):
         elif integral_type == 'interior_facet_horiz':
             self._facet_number = {'+': 1, '-': 0}
 
-    def facet_number(self, restriction):
-        """Facet number as a GEM index."""
-        return self._facet_number[restriction]
-
     def set_arguments(self, arguments, indices):
         """Process arguments.
 
@@ -179,17 +123,18 @@ class KernelBuilder(KernelBuilderBase):
         :arg indices: GEM argument indices
         :returns: GEM expression representing the return variable
         """
-        self.local_tensor, expressions = self.arguments(arguments, indices)
+        self.local_tensor, prepare, expressions, finalise = prepare_arguments(
+            arguments, indices, interior_facet=self.interior_facet)
+        self.apply_glue(prepare, finalise)
         return expressions
 
-    def set_coordinates(self, coefficient, name, mode=None):
+    def set_coordinates(self, coefficient, mode=None):
         """Prepare the coordinate field.
 
         :arg coefficient: :class:`ufl.Coefficient`
-        :arg name: coordinate coefficient name
         :arg mode: see :func:`prepare_coefficient`
         """
-        self.coordinates_arg = self._coefficient(coefficient, name, mode)
+        self.coordinates_arg = self._coefficient(coefficient, "coords", mode)
 
     def set_coefficients(self, integral_data, form_data):
         """Prepare the coefficients of the form.
@@ -197,7 +142,6 @@ class KernelBuilder(KernelBuilderBase):
         :arg integral_data: UFL integral data
         :arg form_data: UFL form data
         """
-        from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
         coefficients = []
         coefficient_numbers = []
         # enabled_coefficients is a boolean array that indicates which
@@ -405,7 +349,6 @@ def prepare_arguments(arguments, indices, interior_facet=False):
          finalise    - list of COFFEE nodes to be appended to the
                        kernel body
     """
-    from itertools import product
     assert isinstance(interior_facet, bool)
 
     if len(arguments) == 0:
@@ -435,7 +378,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
 
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
-            expressions.append(gem_FlexiblyIndexed(
+            expressions.append(gem.FlexiblyIndexed(
                 varexp,
                 tuple((r * e.space_dimension(), ((i, e.space_dimension()),))
                       for e, i, r in zip(elements, indices, restrictions))
@@ -503,16 +446,7 @@ def coffee_for(index, extent, body):
                       body)
 
 
-def needs_cell_orientations(ir):
-    """Does a multi-root GEM expression DAG references cell
-    orientations?"""
-    for node in traversal(ir):
-        if isinstance(node, gem.Variable) and node.name == "cell_orientations":
-            return True
-    return False
-
-
 cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
-                                           pointers=[("restrict",), ("restrict",)],
+                                           pointers=[("restrict", "const"), ("restrict",)],
                                            qualifiers=["const"])
 """COFFEE function argument for cell orientations"""
