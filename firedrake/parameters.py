@@ -17,10 +17,10 @@ class TypedKey(str):
     """A class for parameter keys with additional metadata including help
     text and type data"""
 
-    def __new__(self, key, val_type, help=None, depends=None, visible_level=0):
+    def __new__(self, key, val_type, help=None, depends=None, visibility_level=0):
         return super(TypedKey, self).__new__(self, key)
 
-    def __init__(self, key, val_type, help=None, depends=None, visible_level=0):
+    def __init__(self, key, val_type, help=None, depends=None, visibility_level=0):
         """Create a new TypedKey
 
         :arg key: Name of the key
@@ -29,10 +29,10 @@ class TypedKey(str):
         :arg help: Help information for the key
         :arg depends: Specify whether a key is dependent on another key, the depended key
             must be in the same Parameters class and must be of BoolType
-        :arg visible_level: Visible level of the key, default to be 0"
+        :arg visibility_level: Visibility level of the key, default to be 0"
         """
         self.type = val_type
-        self.visible_level = visible_level
+        self.visibility_level = visibility_level
         self.help = help
         self.depends = depends
 
@@ -62,13 +62,13 @@ class TypedKey(str):
             raise ValueError(new_type + "is not a type!")
 
     @property
-    def visible_level(self):
-        """Visible level of the key, default to be 0"""
-        return self._visible_level
+    def visibility_level(self):
+        """Visibility level of the key, default to be 0"""
+        return self._visibility_level
 
-    @visible_level.setter
-    def visible_level(self, new_level):
-        self._visible_level = new_level
+    @visibility_level.setter
+    def visibility_level(self, new_level):
+        self._visibility_level = new_level
 
     def validate(self, value):
         """Validate a input value for current key"""
@@ -182,7 +182,7 @@ class Parameters(dict):
         d = Parameters()
         for k in self.keys():
             d[k] = self.get_key(k).unwrap(self[k])
-            if (level >= 0 and self.get_key(k).visible_level > level):
+            if (level >= 0 and self.get_key(k).visibility_level > level):
                 del d[k]
         return d
 
@@ -223,13 +223,13 @@ class Parameters(dict):
         output_file.close()
 
     @property
-    def max_visible_level(self):
+    def max_visibility_level(self):
         max_vlevel = -1
         for k in self.keys():
             if isinstance(self[k], Parameters):
-                max_vlevel = max(max_vlevel, self[k].max_visible_level)
+                max_vlevel = max(max_vlevel, self[k].max_visibility_level)
             else:
-                max_vlevel = max(max_vlevel, k.visible_level)
+                max_vlevel = max(max_vlevel, k.visibility_level)
         return max(0, max_vlevel)
 
 

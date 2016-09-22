@@ -64,15 +64,15 @@
     <div class="row">
         <div class="col-xs-offset-1 col-xs-1" style="text-align: center;">
             <ul class="nav affix" style="margin-top: 100px;">
-                <li><button type="button" class="btn btn-default btn-block" onclick="increase_visible_level()" aria-label="Show more options">
+                <li><button type="button" class="btn btn-default btn-block" onclick="increase_visibility_level()" aria-label="Show more options">
                     Show more options
                 </button></li>
                 <br>
-                <li><button type="button" class="btn btn-default btn-block" onclick="decrease_visible_level()" aria-label="Show fewer options">
+                <li><button type="button" class="btn btn-default btn-block" onclick="decrease_visibility_level()" aria-label="Show fewer options">
                     Show fewer options
                 </button></li>
                 <br>
-                <li><p id=current_visible_level>Current visible level: 0</p></li>
+                <li><p id=current_visibility_level>Current visibility level: 0</p></li>
                 <br>
                 <li><button type="button" class="btn btn-default btn-block" onclick="save()" aria-label="Save">
                     Save
@@ -104,7 +104,7 @@
                     </div>
                     {%- endif %}
                     {% for param in parameters -%}
-                    <div class="form-group round-border" name="{{ get_name(param.key, prefix) }}" visible_level="{{ param.visible_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
+                    <div class="form-group round-border" name="{{ get_name(param.key, prefix) }}" visibility_level="{{ param.visibility_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
                             <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
                             {% if (param.type is equalto "int") or (param.type is equalto "float") %}
                                 <div class="col-sm-8">
@@ -151,13 +151,13 @@
     {% include 'footer.html' %}
 
     <script>
-        var visible_level = 0;
-        var max_visible_level = {{ max_visible_level }};
+        var visibility_level = 0;
+        var max_visibility_level = {{ max_visibility_level }};
         var unsaved = false;
         function show_input(name) {
             $('div[depends=\"' + name +'\"]').each(function(idx, elem){
-                var v = $(elem).attr("visible_level");
-                if (v <= visible_level) $(elem).fadeIn()
+                var v = $(elem).attr("visibility_level");
+                if (v <= visibility_level) $(elem).fadeIn()
             });
         }
         function hide_input(name) {
@@ -207,10 +207,10 @@
             $("#unsaved_warning").addClass("hidden");
             unsaved = false;
         }
-        function update_visible_level(new_level) {
+        function update_visibility_level(new_level) {
             $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
             $("div").each(function(idx, elem) {
-                var v = $(elem).attr("visible_level");
+                var v = $(elem).attr("visibility_level");
                 if (new_level >= 0 && v > new_level) {
                     $(elem).fadeOut();
                 } else {
@@ -218,10 +218,10 @@
                 }
             });
         }
-        function increase_visible_level() {
-            if (visible_level < max_visible_level) {
-                visible_level++;
-                $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { 
+        function increase_visibility_level() {
+            if (visibility_level < max_visibility_level) {
+                visibility_level++;
+                $("div[visibility_level=" + visibility_level + "]").each(function(idx, elem) { 
                     var depends = $(elem).attr("depends");
                     var val = $('input[type=radio][name=' + depends + ']:checked').attr("value");
                     if (val == 'True' || val == undefined) $(elem).fadeIn(); 
@@ -230,22 +230,22 @@
             } else {
                 alert("Cannot show more options!");
             }
-            $("p[id=current_visible_level]").html("Current visible level: " + visible_level);
+            $("p[id=current_visibility_level]").html("Current visibility level: " + visibility_level);
         }
-        function decrease_visible_level() {
-            if (visible_level > 0) {
-                $("div[visible_level=" + visible_level + "]").each(function(idx, elem) { $(elem).fadeOut() });
-                visible_level--;
+        function decrease_visibility_level() {
+            if (visibility_level > 0) {
+                $("div[visibility_level=" + visibility_level + "]").each(function(idx, elem) { $(elem).fadeOut() });
+                visibility_level--;
                 $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
             } else {
                 alert("Cannot show fewer options!");
             }
-            $("p[id=current_visible_level]").html("Current visible level: " + visible_level);
+            $("p[id=current_visibility_level]").html("Current visibility level: " + visibility_level);
         }
         $(document).ready(function() {
             $.get("fetch", function(data) {
                 fill_data(data, "");
-                update_visible_level(visible_level);
+                update_visibility_level(visibility_level);
             });
             $('input[type!=file]').change(function() {
                 var name = $(this).attr('name');

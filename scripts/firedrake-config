@@ -68,13 +68,13 @@ def web_config(module):
                             "type": str(parameters.get_key(k).type),
                             "value": v,
                             "depends": k.depends if k.depends is not None else '',
-                            "visible_level": k.visible_level,
+                            "visibility_level": k.visibility_level,
                             "help": k.help})
             else:
                 ret.append({"key": k,
                             "type": "dict",
                             "depends": k.depends if k.depends is not None else '',
-                            "visible_level": k.visible_level,
+                            "visibility_level": k.visibility_level,
                             "summary": render_docstring(v.summary),
                             "value": format_dict(v)})
         return ret
@@ -89,7 +89,7 @@ def web_config(module):
         return render_template('index.html', parameters=params,
                                summary=render_docstring(parameters.summary),
                                path=os.path.abspath(config_file),
-                               max_visible_level=parameters.max_visible_level)
+                               max_visibility_level=parameters.max_visibility_level)
 
     def prefixed_name(name, prefix):
         if prefix == '':
