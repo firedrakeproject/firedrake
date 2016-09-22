@@ -184,7 +184,15 @@ def statement_evaluate(leaf, parameters):
         nz_indices, = expr.array.any(axis=axes).nonzero()
         nz_bounds = tuple([(i, 0)] for i in expr.array.shape[:-1])
         nz_bounds += ([(max(nz_indices) - min(nz_indices) + 1, min(nz_indices))],)
-        init = coffee.SparseArrayInit(expr.array, PRECISION, nz_bounds)
+        table = numpy.array(expr.array)
+        # FFC uses one less digits for rounding than for printing
+        epsilon = eval("1e-%d" % (PRECISION - 1))
+        table[abs(table) < epsilon] = 0
+        table[abs(table - 1.0) < epsilon] = 1.0
+        table[abs(table + 1.0) < epsilon] = -1.0
+        table[abs(table - 0.5) < epsilon] = 0.5
+        table[abs(table + 0.5) < epsilon] = -0.5
+        init = coffee.SparseArrayInit(table, PRECISION, nz_bounds)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
                            init,
@@ -295,7 +303,20 @@ def _expression_scalar(expr, parameters):
     if isnan(expr.value):
         return coffee.Symbol("NAN")
     else:
-        return coffee.Symbol(("%%.%dg" % (PRECISION - 1)) % expr.value)
+        value = float(expr.value)
+        # FFC uses one less digits for rounding than for printing
+        epsilon = eval("1e-%d" % (PRECISION - 1))
+        if abs(value) < epsilon:
+            value = 0
+        if abs(value - 1.0) < epsilon:
+            value = 1.0
+        if abs(value + 1.0) < epsilon:
+            value = -1.0
+        if abs(value - 0.5) < epsilon:
+            value = 0.5
+        if abs(value + 0.5) < epsilon:
+            value = -0.5
+        return coffee.Symbol(("%%.%dg" % (PRECISION - 1)) % value)
 
 
 @_expression.register(gem.Variable)
