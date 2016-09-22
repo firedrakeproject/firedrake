@@ -7,7 +7,7 @@ import coffee.base as coffee
 
 import gem
 
-from tsfc.kernel_interface import KernelBuilderBase
+from tsfc.kernel_interface.common import KernelBuilderBase
 from tsfc.fiatinterface import create_element
 from tsfc.coffee import SCALAR_TYPE, cumulative_strides
 

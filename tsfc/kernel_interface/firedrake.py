@@ -11,7 +11,7 @@ import gem
 from gem.node import traversal
 from gem.gem import FlexiblyIndexed as gem_FlexiblyIndexed
 
-from tsfc.kernel_interface import Kernel, KernelBuilderBase as _KernelBuilderBase
+from tsfc.kernel_interface.common import Kernel, KernelBuilderBase as _KernelBuilderBase
 from tsfc.fiatinterface import create_element
 from tsfc.mixedelement import MixedElement
 from tsfc.coffee import SCALAR_TYPE

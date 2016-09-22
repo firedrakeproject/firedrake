@@ -11,11 +11,12 @@ import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
 from tsfc import fem, ufl_utils
-from tsfc.backends import pyop2 as default_backend
 from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.fiatinterface import QuadratureRule, as_fiat_cell, create_quadrature
 from tsfc.logging import logger
+
+import tsfc.kernel_interface.firedrake as firedrake_interface
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -47,15 +48,15 @@ def compile_form(form, prefix="form", parameters=None):
 
 
 def compile_integral(integral_data, form_data, prefix, parameters,
-                     backend=default_backend):
+                     interface=firedrake_interface):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
     :arg form_data: UFL form data
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
-    :arg backend: output format
-    :returns: a kernel, or None if the integral simplifies to zero
+    :arg interface: backend module for the kernel interface
+    :returns: a kernel constructed by the kernel interface
     """
     if parameters is None:
         parameters = default_parameters()
@@ -84,8 +85,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = backend.KernelBuilder(integral_type, integral_data.subdomain_id,
-                                    domain_numbering[integral_data.domain])
+    builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
+                                      domain_numbering[integral_data.domain])
     return_variables = builder.set_arguments(arguments, argument_indices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
