@@ -42,7 +42,8 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["developer", "sudo", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
-                           "virtualenv_name", "slepc", "slope", "packages"]
+                           "virtualenv_name", "slepc", "slope",
+                           "packages", "honour_pythonpath"]
 
 def deep_update(this, that):
     import collections
@@ -119,6 +120,8 @@ honoured.""",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
     parser.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
+                        help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
@@ -195,6 +198,8 @@ else:
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
+                        help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--clean", action='store_true',
                         help="Delete any remnants of obsolete Firedrake components.")
     parser.add_argument("--log", action='store_true',
@@ -237,7 +242,6 @@ options = config["options"]
 # This is a bit of a hack.
 v = sys.version_info
 sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
-path_extension = ""
 
 # Record of obsolete packages which --clean should remove from old installs.
 old_git_packages = ["instant", "ffc"]
@@ -256,7 +260,11 @@ python = [os.getcwd() + "/%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = os.path.join(os.getcwd(), "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor))
 
-os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
+if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
+    quit("""The PYTHONPATH environment variable is set. This is probably an error.
+If you really want to use your own Python packages, please run again with the
+--honour-pythonpath option.
+""")
 
 if options["minimal_petsc"]:
     # WARNING WARNING
@@ -1154,7 +1162,6 @@ if mode == "install":
         if options["developer"]:
             pdir = os.getcwd() + "/" + p + os.pathsep
             os.environ["PYTHONPATH"] = pdir + os.environ.get("PYTHONPATH", "")
-            path_extension = pdir + path_extension
 
     # Work around easy-install.pth bug.
     if options["developer"]:
