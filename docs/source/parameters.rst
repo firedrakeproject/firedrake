@@ -1,8 +1,8 @@
-=================================================================
-For Developers: Automated validation of simulation configurations
-=================================================================
+===================================================
+Parameters for Firedrake and Firedrake applications
+===================================================
 
-Firedrake provides an extensible mechanism for defining simulation parameters
+Firedrake provides an extensible mechanism for defining parameters
 that supports validation of the provided inputs, as well as automatic creation
 of a browser-based :doc:`configuration GUI <configuration>`.
 The core object that facilitates this is a :class:`~.Parameters` instance.
@@ -90,7 +90,7 @@ set, the help inforamtion will be displayed as ``No help available``.
 Dependency
 ----------
 
-Currently, the dependency supported is only limited to bool values of a key in
+Currently,  dependency support is limited to bool values of a key in
 the same :class:`~firedrake.parameters.Parameters` instance.
 
 To specify a dependency, simply set the property ``depends`` of the key to be
@@ -108,16 +108,16 @@ will set the dependency.
 With the dependency set, the parameters for dependent parameters will not be
 shown unless the parameter being depended on is set to be true.
 
-Visible Level
+Visibility Level
 -------------
 
-Each key can be set a visible level. This feature can be used to control
-the number of parameters shown to user. The visible level of a key is contained
-as a property named ``visible_level``. The visible level should be a
+The visibility level of each key can be set. This feature can be used to control
+the number of parameters shown to user. The visibility level of a key is contained
+as a property named ``visibility_level``. The visibility level should be a
 non-negative integer, default to be 0.
 
-After the visible levels have been set, the web interface by default will only
-show level 0 keys for configuration. The visible level can be changed via
+After the visibility levels have been set, the web interface by default will only
+show level 0 keys for configuration. The visibility level can be changed via
 ``Show more options`` and ``Show fewer options`` buttons on the web interface.
 
 Wrapper and Unwrapper
@@ -132,3 +132,17 @@ To call a wrapper or unwrapper, simply use
 :meth:`~firedrake.parameters.TypedKey.wrap` or
 :meth:`~firedrake.parameters.TypedKey.unwrap`
 
+For Developers: Branding the web interface
+==========================================
+
+The header page and footer page is custom-configurable. By default, it contains
+the Firedrake logo and copyright information for Firedrake.
+
+To change the header and footer, specify a path for ``header.html``
+and ``footer.html``
+
+Name the header file as ``header.html``, the footer file as ``footer.html``
+(case-sensitive). In the module containing the parameters instance, add
+attributes ``header_path`` and ``footer_path`` to the module. The web interface
+will then include the paths and render the page using the header and footer
+files in the path specified by the user.
