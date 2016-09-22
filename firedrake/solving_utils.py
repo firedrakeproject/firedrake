@@ -164,7 +164,7 @@ class _SNESContext(object):
             # TODO, a better way of doing this.
             # Now we don't have a temporary state inside the snes
             # context we could just require the user to pass in the
-            # full state on the outside (or maybe just the velocity field).
+            # full state on the outside.
             appctx.setdefault("state", self._x)
 
         self.appctx = appctx
