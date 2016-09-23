@@ -41,8 +41,12 @@ supported_elements = {
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
     "Discontinuous Lagrange": finat.DiscontinuousLagrange,
+    "Discontinuous Raviart-Thomas": finat.DiscontinuousRaviartThomas,
     "Lagrange": finat.Lagrange,
+    "Nedelec 1st kind H(curl)": finat.Nedelec,
+    "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
     "Raviart-Thomas": finat.RaviartThomas,
+    "Regge": finat.Regge,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FIAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -59,96 +63,75 @@ def as_fiat_cell(cell):
     return FIAT.ufc_cell(cell)
 
 
-def fiat_compat(element, vector_is_mixed):
-    from tsfc.fiatinterface import convert
+def fiat_compat(element):
+    from tsfc.fiatinterface import create_element
     from finat.fiat_elements import FiatElementBase
     cell = as_fiat_cell(element.cell())
     finat_element = FiatElementBase(cell, element.degree())
-    finat_element._fiat_element = convert(element, vector_is_mixed=vector_is_mixed)
+    finat_element._fiat_element = create_element(element)
     return finat_element
 
 
 @singledispatch
-def convert(element, vector_is_mixed):
+def convert(element):
     """Handler for converting UFL elements to FIAT elements.
 
     :arg element: The UFL element to convert.
-    :arg vector_is_mixed: Should Vector and Tensor elements be treated
-        as Mixed?  If ``False``, then just look at the sub-element.
 
     Do not use this function directly, instead call
     :func:`create_element`."""
     if element.family() in supported_elements:
         raise ValueError("Element %s supported, but no handler provided" % element)
-    return fiat_compat(element, vector_is_mixed)
+    return fiat_compat(element)
 
 
 # Base finite elements first
 @convert.register(ufl.FiniteElement)
-def convert_finiteelement(element, vector_is_mixed):
+def convert_finiteelement(element):
     cell = as_fiat_cell(element.cell())
     lmbda = supported_elements.get(element.family())
     if lmbda:
         return lmbda(cell, element.degree())
     else:
-        return fiat_compat(element, vector_is_mixed)
+        return fiat_compat(element)
 
 
 # MixedElement case
 @convert.register(ufl.MixedElement)
-def convert_mixedelement(element, vector_is_mixed):
+def convert_mixedelement(element):
     raise ValueError("FInAT does not implement generic mixed element.")
 
 
 # VectorElement case
 @convert.register(ufl.VectorElement)
-def convert_vectorelement(element, vector_is_mixed):
-    # If we're just trying to get the scalar part of a vector element?
-    if not vector_is_mixed:
-        return create_element(element.sub_elements()[0], vector_is_mixed)
-
-    scalar_element = create_element(element.sub_elements()[0], vector_is_mixed)
+def convert_vectorelement(element):
+    scalar_element = create_element(element.sub_elements()[0])
     return finat.TensorFiniteElement(scalar_element, (element.num_sub_elements(),))
 
 
 # TensorElement case
 @convert.register(ufl.TensorElement)
-def convert_tensorelement(element, vector_is_mixed):
-    # If we're just trying to get the scalar part of a vector element?
-    if not vector_is_mixed:
-        return create_element(element.sub_elements()[0], vector_is_mixed)
-
-    scalar_element = create_element(element.sub_elements()[0], vector_is_mixed)
+def convert_tensorelement(element):
+    scalar_element = create_element(element.sub_elements()[0])
     return finat.TensorFiniteElement(scalar_element, element.reference_value_shape())
 
 
 _cache = weakref.WeakKeyDictionary()
 
 
-def create_element(element, vector_is_mixed=True):
+def create_element(element):
     """Create a FIAT element (suitable for tabulating with) given a UFL element.
 
     :arg element: The UFL element to create a FIAT element from.
-
-    :arg vector_is_mixed: indicate whether VectorElement (or
-         TensorElement) should be treated as a MixedElement.  Maybe
-         useful if you want a FIAT element that tells you how many
-         "nodes" the finite element has.
     """
     try:
-        cache = _cache[element]
-    except KeyError:
-        _cache[element] = {}
-        cache = _cache[element]
-
-    try:
-        return cache[vector_is_mixed]
+        return _cache[element]
     except KeyError:
         pass
 
     if element.cell() is None:
         raise ValueError("Don't know how to build element when cell is not given")
 
-    fiat_element = convert(element, vector_is_mixed)
-    cache[vector_is_mixed] = fiat_element
-    return fiat_element
+    finat_element = convert(element)
+    _cache[element] = finat_element
+    return finat_element

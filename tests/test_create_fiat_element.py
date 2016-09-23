@@ -25,27 +25,6 @@ def test_triangle_basic(ufl_element):
     assert isinstance(element, f.supported_elements[ufl_element.family()])
 
 
-@pytest.fixture
-def ufl_vector_element(triangle_names):
-    return ufl.VectorElement(triangle_names, ufl.triangle, 2)
-
-
-@pytest.mark.parametrize("mixed",
-                         [False, True])
-def test_triangle_vector(mixed, ufl_element, ufl_vector_element):
-    scalar = f.create_element(ufl_element)
-    vector = f.create_element(ufl_vector_element, vector_is_mixed=mixed)
-
-    if not mixed:
-        assert isinstance(scalar, f.supported_elements[ufl_element.family()])
-        assert isinstance(vector, f.supported_elements[ufl_element.family()])
-
-    else:
-        assert isinstance(vector, f.MixedElement)
-        assert isinstance(vector.elements()[0], f.supported_elements[ufl_element.family()])
-        assert len(vector.elements()) == ufl_vector_element.num_sub_elements()
-
-
 @pytest.fixture(params=["CG", "DG"])
 def tensor_name(request):
     return request.param
@@ -81,24 +60,6 @@ def test_cache_hit(ufl_element):
     B = f.create_element(ufl_element)
 
     assert A is B
-
-
-def test_cache_hit_vector(ufl_vector_element):
-    A = f.create_element(ufl_vector_element)
-    B = f.create_element(ufl_vector_element)
-
-    assert A is B
-
-    assert all(a == A.elements()[0] for a in A.elements())
-
-
-def test_cache_miss_vector(ufl_vector_element):
-    A = f.create_element(ufl_vector_element)
-    B = f.create_element(ufl_vector_element, vector_is_mixed=False)
-
-    assert A is not B
-
-    assert A.elements()[0] is not B
 
 
 if __name__ == "__main__":
