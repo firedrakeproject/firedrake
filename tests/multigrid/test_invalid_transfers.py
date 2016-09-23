@@ -23,12 +23,12 @@ def f2(mesh_hierarchy):
 @pytest.mark.parametrize("transfer",
                          ["prolong", "inject", "restrict"])
 def test_transfer_invalid_level_combo(transfer, f1):
-    a = f1[2]
-    b = f1[0]
+    a = f1[0]
+    b = f1[2]
     transfer = restrict
     if transfer == "prolong":
-        a = f1[0]
-        b = f1[2]
+        a = f1[2]
+        b = f1[0]
         transfer = prolong
     elif transfer == "inject":
         transfer = inject
