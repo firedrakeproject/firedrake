@@ -62,12 +62,6 @@ Set the environment variable PETSC_DIR to your local PETSc base
 directory or install PETSc from PyPI: pip install petsc""")
 
 
-versioneer.versionfile_source = 'pyop2/_version.py'
-versioneer.versionfile_build = 'pyop2/_version.py'
-versioneer.tag_prefix = 'v'
-versioneer.parentdir_prefix = 'pyop2-'
-versioneer.VCS = "git"
-
 cmdclass = versioneer.get_cmdclass()
 _sdist = cmdclass['sdist']
 
