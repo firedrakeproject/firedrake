@@ -1,5 +1,7 @@
 from __future__ import absolute_import
 
+from functools import partial
+
 from pyop2 import op2
 
 import firedrake
@@ -12,48 +14,7 @@ __all__ = ["prolong", "restrict", "inject", "FunctionHierarchy",
            "TensorFunctionSpaceHierarchy", "MixedFunctionSpaceHierarchy"]
 
 
-@firedrake.utils.known_pyop2_safe
-def prolong(coarse, fine):
-    cfs = coarse.function_space()
-    ffs = fine.function_space()
-    hierarchy, lvl = utils.get_level(cfs.mesh())
-    if hierarchy is None:
-        raise RuntimeError("Coarse function not from hierarchy")
-    fhierarchy, flvl = utils.get_level(ffs.mesh())
-    if lvl >= flvl:
-        raise ValueError("Coarse function must be from coarser space")
-    if hierarchy is not fhierarchy:
-        raise ValueError("Can't prolong between functions from different hierarchies")
-    if len(cfs) > 1:
-        assert len(ffs) == len(cfs)
-        for c, f in zip(coarse.split(), fine.split()):
-            prolong(c, f)
-        return
-    # how many times do we prolong?
-    repeat = (flvl - lvl) * hierarchy.refinements_per_level
-    flvl *= hierarchy.refinements_per_level
-    kernel = None
-    for j in range(repeat):
-        if j == repeat - 1:
-            next = fine
-        else:
-            V = firedrake.FunctionSpace(hierarchy._unskipped_hierarchy[flvl - j - 1],
-                                        cfs.ufl_element())
-            next = firedrake.Function(V)
-        if kernel is None:
-            kernel = utils.get_transfer_kernel(coarse.function_space(),
-                                               next.function_space(),
-                                               typ="prolong")
-        c2f_map = utils.coarse_to_fine_node_map(coarse.function_space(),
-                                                next.function_space())
-        op2.par_loop(kernel, c2f_map.iterset,
-                     next.dat(op2.WRITE, c2f_map[op2.i[0]]),
-                     coarse.dat(op2.READ, coarse.cell_node_map()))
-        coarse = next
-
-
-@firedrake.utils.known_pyop2_safe
-def restrict(fine, coarse):
+def check_arguments(coarse, fine):
     cfs = coarse.function_space()
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
@@ -63,79 +24,77 @@ def restrict(fine, coarse):
     if lvl >= flvl:
         raise ValueError("Coarse function must be from coarser space")
     if hierarchy is not fhierarchy:
-        raise ValueError("Can't restrict between functions from different hierarchies")
-    if len(cfs) > 1:
-        assert len(ffs) == len(cfs)
-        for f, c in zip(fine.split(), coarse.split()):
-            restrict(f, c)
-        return
-
-    # how many times do we restrict?
-    repeat = (flvl - lvl) * hierarchy.refinements_per_level
-    flvl *= hierarchy.refinements_per_level
-    kernel = None
-    for j in range(repeat):
-        if j == repeat - 1:
-            next = coarse
-        else:
-            V = firedrake.FunctionSpace(hierarchy._unskipped_hierarchy[flvl - j - 1],
-                                        cfs.ufl_element())
-            next = firedrake.Function(V)
-        if kernel is None:
-            kernel = utils.get_transfer_kernel(next.function_space(),
-                                               fine.function_space(),
-                                               typ="restrict")
-        c2f_map = utils.coarse_to_fine_node_map(next.function_space(),
-                                                fine.function_space())
-        weights = utils.get_restriction_weights(next.function_space(),
-                                                fine.function_space())
-        args = [next.dat(op2.INC, next.cell_node_map()[op2.i[0]]),
-                fine.dat(op2.READ, c2f_map)]
-        if weights is not None:
-            args.append(weights.dat(op2.READ, c2f_map))
-        next.dat.zero()
-        op2.par_loop(kernel, c2f_map.iterset, *args)
-        fine = next
+        raise ValueError("Can't transfer between functions from different hierarchies")
 
 
 @firedrake.utils.known_pyop2_safe
-def inject(fine, coarse):
-    cfs = coarse.function_space()
-    ffs = fine.function_space()
-    hierarchy, lvl = utils.get_level(cfs.mesh())
-    if hierarchy is None:
-        raise ValueError("Coarse function not from hierarchy")
-    fhierarchy, flvl = utils.get_level(ffs.mesh())
-    if lvl >= flvl:
-        raise ValueError("Coarse function must be from coarser space")
-    if hierarchy is not fhierarchy:
-        raise ValueError("Can't inject between functions from different hierarchies")
-    if len(cfs) > 1:
-        assert len(ffs) == len(cfs)
-        for f, c in zip(fine.split(), coarse.split()):
-            inject(f, c)
+def transfer(input, output, typ=None):
+    if len(input.function_space()) > 1:
+        if len(output.function_space()) != len(input.function_space()):
+            raise ValueError("Mixed spaces have different lengths")
+        for in_, out in zip(input.split(), output.split()):
+            transfer(in_, out, typ=typ)
         return
-    # how many times do we inject?
-    repeat = (flvl - lvl) * hierarchy.refinements_per_level
-    flvl *= hierarchy.refinements_per_level
+
+    if typ == "prolong":
+        coarse, fine = input, output
+    elif typ in ["inject", "restrict"]:
+        coarse, fine = output, input
+    else:
+        raise ValueError("Unknown transfer type '%s'" % typ)
+    check_arguments(coarse, fine)
+
+    hierarchy, level = utils.get_level(coarse.ufl_domain())
+    _, fine_level = utils.get_level(fine.ufl_domain())
+    ref_per_level = hierarchy.refinements_per_level
+    all_meshes = hierarchy._unskipped_hierarchy
+
     kernel = None
+    element = input.ufl_element()
+    repeat = (fine_level - level)*ref_per_level
     for j in range(repeat):
         if j == repeat - 1:
-            next = coarse
+            next = output
         else:
-            V = firedrake.FunctionSpace(hierarchy._unskipped_hierarchy[flvl - j - 1],
-                                        cfs.ufl_element())
+            V = firedrake.FunctionSpace(all_meshes[fine_level*ref_per_level - j - 1],
+                                        element)
             next = firedrake.Function(V)
+        if typ == "prolong":
+            coarse, fine = input, next
+        elif typ in ["inject", "restrict"]:
+            coarse, fine = next, input
+
+        coarse_V = coarse.function_space()
+        fine_V = fine.function_space()
         if kernel is None:
-            kernel = utils.get_transfer_kernel(next.function_space(),
-                                               fine.function_space(),
-                                               typ="inject")
-        c2f_map = utils.coarse_to_fine_node_map(next.function_space(),
-                                                fine.function_space())
-        op2.par_loop(kernel, c2f_map.iterset,
-                     next.dat(op2.WRITE, next.cell_node_map()[op2.i[0]]),
-                     fine.dat(op2.READ, c2f_map))
-        fine = next
+            kernel = utils.get_transfer_kernel(coarse_V, fine_V, typ=typ)
+        c2f_map = utils.coarse_to_fine_node_map(coarse_V,
+                                                fine_V)
+        args = [kernel, c2f_map.iterset]
+        if typ == "prolong":
+            args.append(next.dat(op2.WRITE, c2f_map[op2.i[0]]))
+            args.append(input.dat(op2.READ, input.cell_node_map()))
+        elif typ == "inject":
+            args.append(next.dat(op2.WRITE, next.cell_node_map()[op2.i[0]]))
+            args.append(input.dat(op2.READ, c2f_map))
+        elif typ == "restrict":
+            next.dat.zero()
+            args.append(next.dat(op2.INC, next.cell_node_map()[op2.i[0]]))
+            args.append(input.dat(op2.READ, c2f_map))
+            weights = utils.get_restriction_weights(coarse.function_space(),
+                                                    fine.function_space())
+            if weights is not None:
+                args.append(weights.dat(op2.READ, c2f_map))
+
+        op2.par_loop(*args)
+        input = next
+
+
+prolong = partial(transfer, typ="prolong")
+
+restrict = partial(transfer, typ="restrict")
+
+inject = partial(transfer, typ="inject")
 
 
 def FunctionHierarchy(fs_hierarchy, functions=None):
