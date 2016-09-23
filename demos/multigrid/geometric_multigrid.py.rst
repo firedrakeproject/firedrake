@@ -193,7 +193,8 @@ invert the velocity block. ::
       "fieldsplit_0_ksp_type": "preonly",
       "fieldsplit_0_pc_type": "mg",
       "fieldsplit_1_ksp_type": "preonly",
-      "fieldsplit_1_pc_type": "icc"
+      "fieldsplit_1_pc_type": "bjacobi",
+      "fieldsplit_1_sub_pc_type": "icc",
   }
 
 We provide an auxiliary operator so that we can precondition the schur
@@ -219,7 +220,6 @@ block.
   parameters = {
         "ksp_type": "gcr",
         "ksp_monitor": True,
-        "ksp_view": True,
         "mat_type": "nest",
         "pc_type": "mg",
         "mg_coarse_ksp_type": "preonly",
@@ -237,11 +237,14 @@ block.
         "mg_levels_pc_type": "fieldsplit",
         "mg_levels_pc_fieldsplit_type": "schur",
         "mg_levels_pc_fieldsplit_schur_fact_type": "upper",
-        "mg_levels_fieldsplit_0_ksp_type": "preonly",
-        "mg_levels_fieldsplit_0_pc_type": "ilu",
+        "mg_levels_fieldsplit_0_ksp_type": "richardson",
+        "mg_levels_fieldsplit_0_ksp_max_it": 2,
+        "mg_levels_fieldsplit_0_ksp_richardson_self_scale": True,
+        "mg_levels_fieldsplit_0_pc_type": "bjacobi",
+        "mg_levels_fieldsplit_0_sub_pc_type": "ilu",
         "mg_levels_fieldsplit_1_ksp_type": "richardson",
         "mg_levels_fieldsplit_1_ksp_richardson_self_scale": True,
-        "mg_levels_fieldsplit_1_ksp_max_it": 5,
+        "mg_levels_fieldsplit_1_ksp_max_it": 3,
         "mg_levels_fieldsplit_1_pc_type": "none",
   }
 
