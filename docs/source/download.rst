@@ -86,16 +86,6 @@ Firedrake and all its dependencies.
    You should activate the virtualenv_ before running
    `firedrake-update`.
 
-Cleaning disk caches after upgrade
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-After upgrading, you may need to clear any disk caches that Firedrake
-maintains to ensure that your problem does not pick up any out of date
-compiled modules. To do this run::
-
-  firedrake-clean
-
-You will need to activate the virtualenv first.
 
 Recovering from a broken installation script
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
