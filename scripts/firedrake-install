@@ -48,8 +48,8 @@ class FiredrakeConfiguration(dict):
 def deep_update(this, that):
     import collections
     for k, v in that.iteritems():
-        if isinstance(v, collections.Mapping):
-            this[k] = deep_update(this[k], v)
+        if isinstance(v, collections.Mapping) and k in this.keys():
+            this[k] = deep_update(this.get(k, {}), v)
         else:
             this[k] = v
     return this
@@ -170,7 +170,7 @@ else:
     args.virtualenv_name = False
     args.virtualenv_name = args.virtualenv_name or "firedrake"
 
-    legacy_args = args.__dict__
+    legacy_args = args.__dict__.copy()
     legacy = False
     try:
         import firedrake_configuration
@@ -214,13 +214,12 @@ else:
 
     args.packages = list(set(args.packages))  # remove duplicates
 
-    deep_update(config, FiredrakeConfiguration(args))
+    config = deep_update(config, FiredrakeConfiguration(args))
     if legacy:
         del legacy_args["adjoint"]
         del legacy_args["slope"]
         del legacy_args["slepc"]
-        del legacy_args["packages"]
-        config["options"].update(legacy_args)
+        config["options"] = deep_update(config["options"], legacy_args)
 
 
 class directory(object):
