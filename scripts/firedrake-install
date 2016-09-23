@@ -182,7 +182,6 @@ else:
 
     if legacy:
         config = {"options": args.__dict__}
-        config["options"]["packages"] = []
 
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
@@ -198,14 +197,14 @@ else:
                         help="Install SLEPc along with PETSc")
     parser.add_argument("--honour-petsc-dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
+    parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true", default=config["options"].get("honour-pythonpath", False),
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--clean", action='store_true',
                         help="Delete any remnants of obsolete Firedrake components.")
     parser.add_argument("--log", action='store_true',
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
-    parser.add_argument("--install", action="append", dest="packages", default=config["options"]["packages"],
+    parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
 
     args = parser.parse_args()
