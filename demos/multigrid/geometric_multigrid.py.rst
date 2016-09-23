@@ -4,8 +4,8 @@ Using geometric multigrid solvers in Firedrake
 In addition to the full gamut of algebraic solvers offered by PETSc,
 Firedrake also provides access to multilevel solvers with geometric
 hierarchies.  In this demo, we will see how to use this
-functionality.  First to solve the prototypical elliptic problem, the
-Poisson equation, and then a multi-field example, the Stokes
+functionality.  We first solve the prototypical elliptic problem, the
+Poisson equation.  We move on to a multi-field example, the Stokes
 equations, demonstrating how the multigrid functionality composes with
 fieldsplit preconditioning.
 
@@ -32,8 +32,8 @@ the finest. ::
 
 .. note::
 
-   Currently, the implementation of mesh refinement only supports
-   refining interval meshes and triangular meshes.  Support for
+   Currently, the implementation of mesh refinement only supports the
+   refinement of interval meshes and triangular meshes.  Support for
    quadrilateral and tetrahedral meshes is currently missing.
 
 Defining the problem: the Poisson equation
@@ -105,7 +105,7 @@ For such a simple problem, an appropriately configured multigrid solve
 can achieve algebraic error equal to discretisation error in one
 cycle, without the application of a Krylov accelerator.  In
 particular, for the Poisson equation with constant coefficients, a
-single full multigrid cycle with appropriate chosen smoothers achieves
+single full multigrid cycle with appropriately chosen smoothers achieves
 discretisation error.  As ever, PETSc allows us to configure the
 appropriate settings using solver parameters. ::
 
