@@ -203,15 +203,35 @@ complement inverse with a pressure mass matrix. ::
   u = run_solve(parameters, Jp=Jp)
 
 Finally, we'll use coupled geometric multigrid on the full problem,
-using schur complement "smoothers" on each level.
+using schur complement "smoothers" on each level.  On the coarse grid
+we use a full factorisation with LU for the velocity block, whereas on
+the finer levels we use incomplete factorisations for the velocity
+block.
+
+.. note::
+
+   If we wanted to just use LU for the velocity-pressure system on the
+   coarse grid we would have to say ``"mat_type": "aij"``, rather than
+   ``"mat_type": "nest"``.
 
 ::
 
   parameters = {
         "ksp_type": "gcr",
         "ksp_monitor": True,
-        "mat_type": "aij",
+        "ksp_view": True,
+        "mat_type": "nest",
         "pc_type": "mg",
+        "mg_coarse_ksp_type": "preonly",
+        "mg_coarse_pc_type": "fieldsplit",
+        "mg_coarse_pc_fieldsplit_type": "schur",
+        "mg_coarse_pc_fieldsplit_schur_fact_type": "full",
+        "mg_coarse_fieldsplit_0_ksp_type": "preonly",
+        "mg_coarse_fieldsplit_0_pc_type": "lu",
+        "mg_coarse_fieldsplit_1_ksp_type": "richardson",
+        "mg_coarse_fieldsplit_1_ksp_richardson_self_scale": True,
+        "mg_coarse_fieldsplit_1_ksp_max_it": 5,
+        "mg_coarse_fieldsplit_1_pc_type": "none",
         "mg_levels_ksp_type": "richardson",
         "mg_levels_ksp_max_it": 1,
         "mg_levels_pc_type": "fieldsplit",
