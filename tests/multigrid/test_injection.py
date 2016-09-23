@@ -4,12 +4,12 @@ import numpy as np
 import itertools
 
 
-def run_injection(mtype, vector, space, degree):
+def run_injection(mtype, vector, space, degree, ref_per_level=1):
     if mtype == "interval":
         m = UnitIntervalMesh(10)
     elif mtype == "square":
         m = UnitSquareMesh(4, 4)
-    mh = MeshHierarchy(m, 2)
+    mh = MeshHierarchy(m, 2, refinements_per_level=ref_per_level)
 
     if vector:
         V = VectorFunctionSpaceHierarchy(mh, space, degree)
@@ -45,12 +45,13 @@ def run_injection(mtype, vector, space, degree):
                                            [False, True],
                                            ["CG", "DG"],
                                            range(0, 4)))
-def test_injection(mtype, vector, fs, degree):
+@pytest.mark.parametrize("ref_per_level", [1, 2])
+def test_injection(mtype, vector, fs, degree, ref_per_level):
     if fs == "CG" and degree == 0:
         pytest.skip("CG0 makes no sense")
     if fs == "DG" and degree == 3:
         pytest.skip("DG3 too expensive")
-    run_injection(mtype, vector, fs, degree)
+    run_injection(mtype, vector, fs, degree, ref_per_level)
 
 
 @pytest.mark.parallel(nprocs=2)
@@ -101,12 +102,12 @@ def test_vector_dg_injection_interval_parallel():
         run_injection("interval", True, "DG", degree)
 
 
-def run_extruded_injection(mtype, vector, space, degree):
+def run_extruded_injection(mtype, vector, space, degree, ref_per_level=1):
     if mtype == "interval":
         m = UnitIntervalMesh(10)
     elif mtype == "square":
         m = UnitSquareMesh(4, 4)
-    mh = MeshHierarchy(m, 2)
+    mh = MeshHierarchy(m, 2, refinements_per_level=ref_per_level)
 
     emh = ExtrudedMeshHierarchy(mh, layers=3)
     if vector:
@@ -145,12 +146,13 @@ def run_extruded_injection(mtype, vector, space, degree):
                                            [False, True],
                                            ["CG", "DG"],
                                            range(0, 4)))
-def test_extruded_injection(mtype, vector, space, degree):
+@pytest.mark.parametrize("ref_per_level", [1, 2])
+def test_extruded_injection(mtype, vector, space, degree, ref_per_level):
     if space == "CG" and degree == 0:
         pytest.skip("CG0 makes no sense")
     if space == "DG" and degree == 3:
         pytest.skip("DG3 too expensive")
-    run_extruded_injection(mtype, vector, space, degree)
+    run_extruded_injection(mtype, vector, space, degree, ref_per_level)
 
 
 @pytest.mark.parallel(nprocs=2)
