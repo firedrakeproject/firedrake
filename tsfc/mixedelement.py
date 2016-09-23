@@ -22,6 +22,7 @@
 # along with FFC. If not, see <http://www.gnu.org/licenses/>.
 
 from __future__ import absolute_import, print_function, division
+from six.moves import map
 
 import numpy
 
@@ -67,8 +68,8 @@ class MixedElement(object):
         for i, d in enumerate(dicts):
             for dim, dofs in d.items():
                 for ent, off in dofs.items():
-                    ret[dim][ent] += map(partial(add, offsets[i]),
-                                         off)
+                    ret[dim][ent] += list(map(partial(add, offsets[i]),
+                                              off))
         self._entity_dofs = ret
         return self._entity_dofs
 

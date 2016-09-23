@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 
 import collections
 import itertools
@@ -89,7 +90,7 @@ class TabulationManager(object):
                             each integration entity, i.e. an iterable
                             of arrays of points.
         """
-        self.tabulators = map(make_tabulator, entity_points)
+        self.tabulators = list(map(make_tabulator, entity_points))
         self.tables = {}
 
     def tabulate(self, ufl_element, max_deriv):
@@ -188,7 +189,7 @@ class Parameters(object):
         result = []
         for entity_id in self.entity_ids:
             t = self.fiat_cell.get_entity_transform(self.integration_dim, entity_id)
-            result.append(numpy.asarray(map(t, self.points)))
+            result.append(numpy.asarray(list(map(t, self.points))))
         return result
 
     def _selector(self, callback, opts, restriction):
@@ -197,7 +198,7 @@ class Parameters(object):
         if len(opts) == 1:
             return callback(opts[0])
         else:
-            results = gem.ListTensor(map(callback, opts))
+            results = gem.ListTensor(list(map(callback, opts)))
             f = self.facet_number(restriction)
             return gem.partial_indexed(results, (f,))
 
@@ -226,7 +227,7 @@ class Parameters(object):
         :arg restriction: Restriction of the modified terminal, used
                           for entity selection.
         """
-        return self._selector(callback, range(len(self.entity_ids)), restriction)
+        return self._selector(callback, list(range(len(self.entity_ids))), restriction)
 
     argument_indices = ()
 
@@ -272,7 +273,7 @@ def iterate_shape(mt, callback):
         return tuple((numpy.asarray(ordered_deriv) == d).sum() for d in range(dim))
 
     ordered_derivs = itertools.product(range(dim), repeat=mt.local_derivatives)
-    flat_derivs = map(flat_index, ordered_derivs)
+    flat_derivs = list(map(flat_index, ordered_derivs))
 
     result = []
     for c in range(ufl_element.reference_value_size()):
