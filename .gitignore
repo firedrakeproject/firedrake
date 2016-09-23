@@ -21,3 +21,4 @@
 /docs/source/demos
 /demos/**/*.py
 /firedrake/mg/impl.c
+/firedrake_configuration/configuration.json
