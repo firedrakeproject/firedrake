@@ -36,7 +36,7 @@ syntax could be used at the time of first insertion.
 
 .. code-block:: python
 
-    parameters[TypedKey("foo", type=IntType(), help="A sample key",
+    parameters[TypedKey("foo", val_type=IntType(), help="A sample key",
         visible_level=1, depends="baz")] = "bar"
 
 Note that if the user wishes to use pre-defined :class:`Keytypes
@@ -135,14 +135,41 @@ To call a wrapper or unwrapper, simply use
 For Developers: Branding the web interface
 ==========================================
 
-The header page and footer page is custom-configurable. By default, it contains
+The HTML page header and footer is custom-configurable. By default, it contains
 the Firedrake logo and copyright information for Firedrake.
 
-To change the header and footer, specify a path for ``header.html``
-and ``footer.html``
+To add custom HTML page header and/or footer, simply set the attributes
+``html_header`` and/or ``html_footer`` as the HTML code of the page header
+and/or the page footer in the :class:`~firedrake.parameters.Parameters`
+instance.
 
-Name the header file as ``header.html``, the footer file as ``footer.html``
-(case-sensitive). In the module containing the parameters instance, add
-attributes ``header_path`` and ``footer_path`` to the module. The web interface
-will then include the paths and render the page using the header and footer
-files in the path specified by the user.
+Note that in order to include static files (stylesheets, images, etc.), you'll
+have to place them in a folder and use the following stytax to reference the
+static file of name ``FILENAME`` you need.
+
+.. code-block:: html
+
+    {{ url_for('static', filename="FILENAME")  }}
+
+Then, please set the attribute ``static_files_folder`` in the
+:class:`~firedrake.parameters.Parameters` instance to be the folder storing the
+static files, as a relative path to the module containing the
+:class:`~firedrake.parameters.Parameters` instance.
+
+Recommended header and footer design
+------------------------------------
+
+It is recommended to enclose the header in a ``div`` of ``row`` class, i.e.
+
+.. code-block:: html
+    <div class="row" style="text-align: center;">
+        INSERT YOUR HEADER HERE.
+    </div>
+
+It is recommended to enclose the footer in a ``footer`` of ``footer`` class,
+i.e.
+
+.. code-block:: html
+    <footer class="footer">
+        INSERT YOUR FOOTER HERE.
+    </footer>
