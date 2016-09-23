@@ -135,13 +135,13 @@ To call a wrapper or unwrapper, simply use
 For Developers: Branding the web interface
 ==========================================
 
-The HTML page header and footer is custom-configurable. By default, it contains
+The HTML page header and footer is user-configurable. By default, it contains
 the Firedrake logo and copyright information for Firedrake.
 
-To add custom HTML page header and/or footer, simply set the attributes
-``html_header`` and/or ``html_footer`` as the HTML code of the page header
-and/or the page footer in the :class:`~firedrake.parameters.Parameters`
-instance.
+To add a custom HTML page header and/or footer, simply set the attributes
+``html_header`` and/or ``html_footer`` of the :class:`~firedrake.parameters.Parameters`
+instance to strings containing the HTML code of the page header
+or footer respectively.
 
 Note that in order to include static files (stylesheets, images, etc.), you'll
 have to place them in a folder and use the following stytax to reference the
@@ -151,7 +151,7 @@ static file of name ``FILENAME`` you need.
 
     {{ url_for('static', filename="FILENAME")  }}
 
-Then, please set the attribute ``static_files_folder`` in the
+Then, please set the attribute ``static_files_folder`` of the
 :class:`~firedrake.parameters.Parameters` instance to be the folder storing the
 static files, as a relative path to the module containing the
 :class:`~firedrake.parameters.Parameters` instance.
