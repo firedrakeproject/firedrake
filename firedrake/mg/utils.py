@@ -27,10 +27,10 @@ def coarse_to_fine_node_map(coarse, fine):
     fh, fine_level = get_level(fine.mesh())
     if ch is not fh:
         raise ValueError("Can't map between different hierarchies")
-    if level + 1 != fine_level:
-        raise ValueError("Can't map between level %d and level %d" % (level, fine_level))
-    assert level + 1 == fine_level
-    c2f, vperm = ch._cells_vperm[level]
+    refinements_per_level = ch.refinements_per_level
+    if refinements_per_level*level + 1 != refinements_per_level*fine_level:
+        raise ValueError("Can't map between level %s and level %s" % (level, fine_level))
+    c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
 
     key = entity_dofs_key(coarse.fiat_element.entity_dofs()) + (level, )
     cache = mesh._shared_data_cache["hierarchy_cell_node_map"]
@@ -58,12 +58,13 @@ def get_transfer_kernel(coarse, fine, typ=None):
             raise ValueError("Can't transfer between different spaces")
         ch, level = get_level(coarse.mesh())
         fh, fine_level = get_level(fine.mesh())
+        refinements_per_level = ch.refinements_per_level
         assert ch is fh
-        assert level + 1 == fine_level
+        assert refinements_per_level*level + 1 == refinements_per_level*fine_level
         dim = coarse.dim
         element = coarse.fiat_element
         omap = fine.cell_node_map().values
-        c2f, vperm = ch._cells_vperm[level]
+        c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
         indices, _ = get_unique_indices(element,
                                         omap[c2f[0, :], ...].reshape(-1),
                                         vperm[0, :],

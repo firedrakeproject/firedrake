@@ -20,9 +20,8 @@ def prolong(coarse, fine):
     if hierarchy is None:
         raise RuntimeError("Coarse function not from hierarchy")
     fhierarchy, flvl = utils.get_level(ffs.mesh())
-    if flvl != lvl + 1:
-        raise ValueError("Can only prolong from level %d to level %d, not %d" %
-                         (lvl, lvl + 1, flvl))
+    if lvl >= flvl:
+        raise ValueError("Coarse function must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't prolong between functions from different hierarchies")
     if len(cfs) > 1:
@@ -30,11 +29,27 @@ def prolong(coarse, fine):
         for c, f in zip(coarse.split(), fine.split()):
             prolong(c, f)
         return
-    c2f_map = utils.coarse_to_fine_node_map(cfs, ffs)
-    op2.par_loop(utils.get_transfer_kernel(cfs, ffs, typ="prolong"),
-                 c2f_map.iterset,
-                 fine.dat(op2.WRITE, c2f_map[op2.i[0]]),
-                 coarse.dat(op2.READ, coarse.cell_node_map()))
+    # how many times do we prolong?
+    repeat = (flvl - lvl) * hierarchy.refinements_per_level
+    flvl *= hierarchy.refinements_per_level
+    kernel = None
+    for j in range(repeat):
+        if j == repeat - 1:
+            next = fine
+        else:
+            V = firedrake.FunctionSpace(hierarchy._unskipped_hierarchy[flvl - j - 1],
+                                        cfs.ufl_element())
+            next = firedrake.Function(V)
+        if kernel is None:
+            kernel = utils.get_transfer_kernel(coarse.function_space(),
+                                               next.function_space(),
+                                               typ="prolong")
+        c2f_map = utils.coarse_to_fine_node_map(coarse.function_space(),
+                                                next.function_space())
+        op2.par_loop(kernel, c2f_map.iterset,
+                     next.dat(op2.WRITE, c2f_map[op2.i[0]]),
+                     coarse.dat(op2.READ, coarse.cell_node_map()))
+        coarse = next
 
 
 @firedrake.utils.known_pyop2_safe
@@ -43,11 +58,10 @@ def restrict(fine, coarse):
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
     if hierarchy is None:
-        raise RuntimeError("Coarse function not from hierarchy")
+        raise ValueError("Coarse function not from hierarchy")
     fhierarchy, flvl = utils.get_level(ffs.mesh())
-    if flvl != lvl + 1:
-        raise ValueError("Can only restrict from level %d to level %d, not %d" %
-                         (flvl, flvl - 1, lvl))
+    if lvl >= flvl:
+        raise ValueError("Coarse function must be from coarser space")
     if hierarchy is not fhierarchy:
         raise ValueError("Can't restrict between functions from different hierarchies")
     if len(cfs) > 1:
@@ -56,18 +70,32 @@ def restrict(fine, coarse):
             restrict(f, c)
         return
 
-    kernel = utils.get_transfer_kernel(cfs, ffs, typ="restrict")
-
-    c2f_map = utils.coarse_to_fine_node_map(cfs, ffs)
-    weights = utils.get_restriction_weights(cfs, ffs)
-
-    args = [coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
-            fine.dat(op2.READ, c2f_map)]
-
-    if weights is not None:
-        args.append(weights.dat(op2.READ, c2f_map))
-    coarse.dat.zero()
-    op2.par_loop(kernel, c2f_map.iterset, *args)
+    # how many times do we restrict?
+    repeat = (flvl - lvl) * hierarchy.refinements_per_level
+    flvl *= hierarchy.refinements_per_level
+    kernel = None
+    for j in range(repeat):
+        if j == repeat - 1:
+            next = coarse
+        else:
+            V = firedrake.FunctionSpace(hierarchy._unskipped_hierarchy[flvl - j - 1],
+                                        cfs.ufl_element())
+            next = firedrake.Function(V)
+        if kernel is None:
+            kernel = utils.get_transfer_kernel(next.function_space(),
+                                               fine.function_space(),
+                                               typ="restrict")
+        c2f_map = utils.coarse_to_fine_node_map(next.function_space(),
+                                                fine.function_space())
+        weights = utils.get_restriction_weights(next.function_space(),
+                                                fine.function_space())
+        args = [next.dat(op2.INC, next.cell_node_map()[op2.i[0]]),
+                fine.dat(op2.READ, c2f_map)]
+        if weights is not None:
+            args.append(weights.dat(op2.READ, c2f_map))
+        next.dat.zero()
+        op2.par_loop(kernel, c2f_map.iterset, *args)
+        fine = next
 
 
 @firedrake.utils.known_pyop2_safe
@@ -76,23 +104,38 @@ def inject(fine, coarse):
     ffs = fine.function_space()
     hierarchy, lvl = utils.get_level(cfs.mesh())
     if hierarchy is None:
-        raise RuntimeError("Coarse function not from hierarchy")
+        raise ValueError("Coarse function not from hierarchy")
     fhierarchy, flvl = utils.get_level(ffs.mesh())
-    if flvl != lvl + 1:
-        raise ValueError("Can only inject from level %d to level %d, not %d" %
-                         (flvl, flvl - 1, lvl))
+    if lvl >= flvl:
+        raise ValueError("Coarse function must be from coarser space")
     if hierarchy is not fhierarchy:
-        raise ValueError("Can't prolong between functions from different hierarchies")
+        raise ValueError("Can't inject between functions from different hierarchies")
     if len(cfs) > 1:
         assert len(ffs) == len(cfs)
         for f, c in zip(fine.split(), coarse.split()):
             inject(f, c)
         return
-    kernel = utils.get_transfer_kernel(cfs, ffs, typ="inject")
-    c2f_map = utils.coarse_to_fine_node_map(cfs, ffs)
-    op2.par_loop(kernel, c2f_map.iterset,
-                 coarse.dat(op2.WRITE, coarse.cell_node_map()[op2.i[0]]),
-                 fine.dat(op2.READ, c2f_map))
+    # how many times do we inject?
+    repeat = (flvl - lvl) * hierarchy.refinements_per_level
+    flvl *= hierarchy.refinements_per_level
+    kernel = None
+    for j in range(repeat):
+        if j == repeat - 1:
+            next = coarse
+        else:
+            V = firedrake.FunctionSpace(hierarchy._unskipped_hierarchy[flvl - j - 1],
+                                        cfs.ufl_element())
+            next = firedrake.Function(V)
+        if kernel is None:
+            kernel = utils.get_transfer_kernel(next.function_space(),
+                                               fine.function_space(),
+                                               typ="inject")
+        c2f_map = utils.coarse_to_fine_node_map(next.function_space(),
+                                                fine.function_space())
+        op2.par_loop(kernel, c2f_map.iterset,
+                     next.dat(op2.WRITE, next.cell_node_map()[op2.i[0]]),
+                     fine.dat(op2.READ, c2f_map))
+        fine = next
 
 
 def FunctionHierarchy(fs_hierarchy, functions=None):
