@@ -89,6 +89,9 @@ class LinearSolver(solving_utils.ParametersMixin):
         self.A.force_evaluation()
         self.P.force_evaluation()
         self.ksp.setOperators(A=self.A.petscmat, P=self.P.petscmat)
+        # Set from options now (we're not allowed to change parameters
+        # anyway).
+        self.set_from_options(self.ksp)
 
     @cached_property
     def _b(self):
@@ -111,8 +114,6 @@ class LinearSolver(solving_utils.ParametersMixin):
         return _assemble(ufl.action(self.A.a, b))
 
     def solve(self, x, b):
-        self.set_from_options(self.ksp)
-
         if not isinstance(x, (function.Function, vector.Vector)):
             raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
         if not isinstance(b, function.Function):
