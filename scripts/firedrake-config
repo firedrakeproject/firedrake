@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from flask import Flask, render_template, jsonify, request, render_template_string
+from flask import Flask, render_template, jsonify, request, render_template_string, Blueprint
 import webbrowser
 from werkzeug.serving import make_server
 import socket
@@ -52,7 +52,7 @@ def web_config(module):
                   template_folder=os.path.join(os.path.dirname(firedrake.__file__), "templates"))
     html_header = """
 <div class="row" style="text-align: center;">
-    <img src="{{ url_for('static', filename='banner.png')  }}" width="900px" alt="Firedrake Project Banner">
+    <img src="{{ url_for('builtin-static.static', filename='banner.png')  }}" width="900px" alt="Firedrake Project Banner">
 </div>
     """
     html_footer = """
@@ -60,6 +60,9 @@ def web_config(module):
         <span class="glyphicons glyphicons-copyright-mark"></span> Copyright 2013, Imperial College London and others.
 </footer>
     """
+    builtin_static = Blueprint('builtin-static', __name__, static_url_path='/builtin-static',
+                               static_folder=os.path.join(os.path.dirname(firedrake.__file__), "builtin-static"))
+    app.register_blueprint(builtin_static)
     if hasattr(parameters, "html_header"):
         html_header = parameters.html_header
     if hasattr(parameters, "html_footer"):
