@@ -1,7 +1,8 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import collections
 import time
+from functools import reduce
 
 from ufl.classes import Form
 from ufl.log import GREEN

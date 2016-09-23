@@ -1,7 +1,8 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import collections
 import itertools
+from functools import reduce
 
 import numpy
 from singledispatch import singledispatch

@@ -20,7 +20,7 @@
 
 """Definitions of 'modified terminals', a core concept in uflacs."""
 
-from __future__ import print_function  # used in some debugging
+from __future__ import absolute_import, print_function, division
 
 from ufl.classes import (ReferenceValue, ReferenceGrad,
                          NegativeRestricted, PositiveRestricted,
