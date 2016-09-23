@@ -260,6 +260,6 @@ def prepare_arguments(arguments, indices, interior_facet=False):
 
     zero = coffee.FlatBlock(
         str.format("memset({name}, 0, {size} * sizeof(*{name}));\n",
-                   name=funarg.sym.gencode(), size=numpy.product(shape))
+                   name=funarg.sym.gencode(), size=numpy.product(shape, dtype=int))
     )
     return funarg, [zero], expressions
