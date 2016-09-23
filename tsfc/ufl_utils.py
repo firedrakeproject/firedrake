@@ -7,18 +7,46 @@ from singledispatch import singledispatch
 
 import ufl
 from ufl import indices, as_tensor
+from ufl.algorithms import compute_form_data as ufl_compute_form_data
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
                          MixedElement, MultiIndex, Product,
-                         ReferenceValue, ScalarValue, Sqrt, Zero)
+                         ReferenceValue, ScalarValue, Sqrt, Zero,
+                         CellVolume, FacetArea)
 
 from gem.node import MemoizerArg
 
 from tsfc.modified_terminals import (is_modified_terminal,
                                      analyse_modified_terminal,
                                      construct_modified_terminal)
+
+
+def compute_form_data(form,
+                      do_apply_function_pullbacks=True,
+                      do_apply_integral_scaling=True,
+                      do_apply_geometry_lowering=True,
+                      preserve_geometry_types=(CellVolume, FacetArea),
+                      do_apply_restrictions=True,
+                      do_estimate_degrees=True):
+    """Preprocess UFL form in a format suitable for TSFC. Return
+    form data.
+
+    This is merely a wrapper to UFL compute_form_data with default
+    kwargs overriden in the way TSFC needs it and is provided for
+    other form compilers based on TSFC.
+    """
+    fd = ufl_compute_form_data(
+        form,
+        do_apply_function_pullbacks=do_apply_function_pullbacks,
+        do_apply_integral_scaling=do_apply_integral_scaling,
+        do_apply_geometry_lowering=do_apply_geometry_lowering,
+        preserve_geometry_types=preserve_geometry_types,
+        do_apply_restrictions=do_apply_restrictions,
+        do_estimate_degrees=do_estimate_degrees,
+    )
+    return fd
 
 
 class SpatialCoordinateReplacer(MultiFunction):
@@ -128,6 +156,9 @@ class CoefficientSplitter(MultiFunction, ModifiedTerminalMixin):
 def split_coefficients(expression, split):
     """Split mixed coefficients, so mixed elements need not be
     implemented."""
+    if split is None:
+        # Skip this step for DOLFIN
+        return expression
     splitter = CoefficientSplitter(split)
     return map_expr_dag(splitter, expression)
 

@@ -4,8 +4,7 @@ import collections
 import time
 from itertools import chain
 
-from ufl.classes import Form, CellVolume, FacetArea
-from ufl.algorithms import compute_form_data
+from ufl.classes import Form
 from ufl.log import GREEN
 
 import gem
@@ -19,8 +18,9 @@ from tsfc.coffee import generate as generate_coffee
 from tsfc.constants import default_parameters
 from tsfc.finatinterface import create_element
 from tsfc.fiatinterface import as_fiat_cell, create_quadrature
-from tsfc.kernel_interface import KernelBuilder, needs_cell_orientations
 from tsfc.logging import logger
+
+import tsfc.kernel_interface.firedrake as firedrake_interface
 
 
 def compile_form(form, prefix="form", parameters=None):
@@ -35,20 +35,7 @@ def compile_form(form, prefix="form", parameters=None):
 
     assert isinstance(form, Form)
 
-    if parameters is None:
-        parameters = default_parameters()
-    else:
-        _ = default_parameters()
-        _.update(parameters)
-        parameters = _
-
-    fd = compute_form_data(form,
-                           do_apply_function_pullbacks=True,
-                           do_apply_integral_scaling=True,
-                           do_apply_geometry_lowering=True,
-                           do_apply_restrictions=True,
-                           preserve_geometry_types=(CellVolume, FacetArea),
-                           do_estimate_degrees=True)
+    fd = ufl_utils.compute_form_data(form)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     kernels = []
@@ -64,19 +51,28 @@ def compile_form(form, prefix="form", parameters=None):
     return kernels
 
 
-def compile_integral(integral_data, form_data, prefix, parameters):
+def compile_integral(integral_data, form_data, prefix, parameters,
+                     interface=firedrake_interface):
     """Compiles a UFL integral into an assembly kernel.
 
     :arg integral_data: UFL integral data
     :arg form_data: UFL form data
     :arg prefix: kernel name will start with this string
     :arg parameters: parameters object
-    :returns: a kernel, or None if the integral simplifies to zero
+    :arg interface: backend module for the kernel interface
+    :returns: a kernel constructed by the kernel interface
     """
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
+
     # Remove these here, they're handled below.
-    if parameters.get("quadrature_degree") == "auto":
+    if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:
         del parameters["quadrature_degree"]
-    if parameters.get("quadrature_rule") == "auto":
+    if parameters.get("quadrature_rule") in ["auto", "default", None]:
         del parameters["quadrature_rule"]
 
     integral_type = integral_data.integral_type
@@ -95,12 +91,12 @@ def compile_integral(integral_data, form_data, prefix, parameters):
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
-    builder = KernelBuilder(integral_type, integral_data.subdomain_id,
-                            domain_numbering[integral_data.domain])
+    builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
+                                      domain_numbering[integral_data.domain])
     return_variables = builder.set_arguments(arguments, argument_indices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
-    builder.set_coordinates(coordinates, "coords")
+    builder.set_coordinates(coordinates)
 
     builder.set_coefficients(integral_data, form_data)
 
@@ -115,12 +111,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     def cellvolume(restriction):
         from ufl import dx
         form = 1 * dx(domain=mesh)
-        fd = compute_form_data(form,
-                               do_apply_function_pullbacks=True,
-                               do_apply_integral_scaling=True,
-                               do_apply_geometry_lowering=True,
-                               do_apply_restrictions=True,
-                               do_estimate_degrees=True)
+        fd = ufl_utils.compute_form_data(form)
         itg_data, = fd.integral_data
         integral, = itg_data.integrals
 
@@ -155,12 +146,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         from ufl import Measure
         assert integral_type != 'cell'
         form = 1 * Measure(integral_type, domain=mesh)
-        fd = compute_form_data(form,
-                               do_apply_function_pullbacks=True,
-                               do_apply_integral_scaling=True,
-                               do_apply_geometry_lowering=True,
-                               do_apply_restrictions=True,
-                               do_estimate_degrees=True)
+        fd = ufl_utils.compute_form_data(form)
         itg_data, = fd.integral_data
         integral, = itg_data.integrals
 
@@ -191,6 +177,8 @@ def compile_integral(integral_data, form_data, prefix, parameters):
         params = {}
         # Record per-integral parameters
         params.update(integral.metadata())
+        if params.get("quadrature_rule") == "default":
+            del params["quadrature_rule"]
         # parameters override per-integral metadata
         params.update(parameters)
 
@@ -243,7 +231,7 @@ def compile_integral(integral_data, form_data, prefix, parameters):
     ir = opt.remove_componenttensors(ir)
 
     # Look for cell orientations in the IR
-    if needs_cell_orientations(ir):
+    if builder.needs_cell_orientations(ir):
         builder.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
