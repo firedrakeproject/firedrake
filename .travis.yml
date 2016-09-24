@@ -74,7 +74,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope ${PACKAGE_MANAGER}
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint ${PACKAGE_MANAGER} --package-branch fiat hdiv-trace-implementation --package-branch tsfc tsfc-trace --package-branch ufl trace-element-fix
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update
