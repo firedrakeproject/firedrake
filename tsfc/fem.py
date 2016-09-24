@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
 from six.moves import map, range
 
 import collections
@@ -49,7 +50,7 @@ def _tabulate(ufl_element, order, points):
     phi = element.space_dimension()
     C = ufl_element.reference_value_size()
     q = len(points)
-    for D, fiat_table in element.tabulate(order, points).iteritems():
+    for D, fiat_table in iteritems(element.tabulate(order, points)):
         reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
         for c, table in enumerate(reordered_table):
             yield c, D, table
@@ -105,7 +106,7 @@ class TabulationManager(object):
             for c, D, table in tabulator(ufl_element, max_deriv):
                 store[(ufl_element, c, D)].append(table)
 
-        for key, tables in store.iteritems():
+        for key, tables in iteritems(store):
             table = numpy.array(tables)
             if len(table.shape) == 2:
                 # Cellwise constant; must not depend on the facet
