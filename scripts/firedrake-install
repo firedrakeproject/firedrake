@@ -686,7 +686,7 @@ def build_and_install_h5py():
     hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
     log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
     oldcc = os.environ.get("CC", None)
-    os.environ["CC"] = options["mpicc"]
+    os.environ["CC"] = options["mpicc"] or "mpicc"
     run_cmd(python + ["setup.py", "configure", "--hdf5=%s" % hdf5_dir])
     run_cmd(python + ["setup.py", "build"])
     run_cmd(pyinstall)
