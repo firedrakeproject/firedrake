@@ -1154,8 +1154,7 @@ if mode == "install":
     for p in packages:
         install(p+"/")
         if options["developer"]:
-            pdir = os.getcwd() + "/" + p + os.pathsep
-            os.environ["PYTHONPATH"] = pdir + os.environ.get("PYTHONPATH", "")
+            sys.path.append(os.getcwd() + "/" + p)
 
     # Work around easy-install.pth bug.
     if options["developer"]:
