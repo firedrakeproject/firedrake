@@ -42,8 +42,8 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["developer", "sudo", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
-                           "virtualenv_name", "slepc", "slope",
-                           "packages", "honour_pythonpath"]
+                           "slepc", "slope", "packages", "honour_pythonpath"]
+
 
 def deep_update(this, that):
     import collections
@@ -167,8 +167,6 @@ else:
     args.adjoint = False
     args.slope = False
     args.slepc = False
-    args.virtualenv_name = False
-    args.virtualenv_name = args.virtualenv_name or "firedrake"
 
     legacy_args = args.__dict__.copy()
     legacy = False
@@ -221,6 +219,26 @@ else:
         config["options"] = deep_update(config["options"], legacy_args)
 
 
+# Set up logging
+if args.log:
+    # Log to file at DEBUG level
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(levelname)-6s %(message)s',
+                        filename='firedrake-%s.log' % mode,
+                        filemode='w')
+    # Log to console at INFO level
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger().addHandler(console)
+else:
+    # Log to console at INFO level
+    logging.basicConfig(level=logging.INFO,
+                        format='%(message)s')
+log = logging.getLogger()
+
+
 class directory(object):
     """Context manager that executes body in a given directory"""
     def __init__(self, dir):
@@ -245,18 +263,23 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 old_git_packages = ["instant", "ffc"]
 
 python = ["python"]
-sudopip = ["pip"]
 pyinstall = ["python", "setup.py", "install"]
 
-pipinstall = sudopip + ["install"]
+if mode == "install":
+    firedrake_env = os.getcwd() + options["virtualenv_name"]
+else:
+    try:
+        firedrake_env = os.environ["VIRTUAL_ENV"]
+    except KeyError:
+        quit("Unable to retrieve virtualenv name from the environment.\n Please ensure the virtualenv is active before running firedrake-update.")
+
 # virtualenv install
 # Use the pip from the virtualenv
-firedrake_env = options["virtualenv_name"]
-sudopip = [os.getcwd() + "/%s/bin/pip" % firedrake_env]
+sudopip = ["%s/bin/pip" % firedrake_env]
 pipinstall = sudopip + ["install"]
-python = [os.getcwd() + "/%s/bin/python" % firedrake_env]
+python = ["%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
-sitepackages = os.path.join(os.getcwd(), "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor))
+sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
 
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
@@ -280,26 +303,6 @@ else:
     for opt in petsc_opts.split():
         if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
             os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
-
-
-# Set up logging
-if args.log:
-    # Log to file at DEBUG level
-    logging.basicConfig(level=logging.DEBUG,
-                        format='%(asctime)s %(levelname)-6s %(message)s',
-                        filename='firedrake-%s.log' % mode,
-                        filemode='w')
-    # Log to console at INFO level
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(message)s')
-    console.setFormatter(formatter)
-    logging.getLogger().addHandler(console)
-else:
-    # Log to console at INFO level
-    logging.basicConfig(level=logging.INFO,
-                        format='%(message)s')
-log = logging.getLogger()
 
 
 def check_call(arguments, env=None):
@@ -1274,12 +1277,12 @@ os.chdir("../..")
 
 log.info("\n\nSuccessfully installed Firedrake.\n")
 
-log.info("To upgrade firedrake, run %s/bin/firedrake-update" % firedrake_env)
-
 log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
 log.info("  . %s/bin/activate\n" % firedrake_env)
 log.info("The virtualenv can be deactivated by running:\n")
-log.info("  deactivate")
+log.info("  deactivate\n\n")
+log.info("To upgrade Firedrake activate the virtualenv and run firedrake-update\n")
+
 
 try:
     import firedrake_configuration
