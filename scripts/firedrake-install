@@ -266,7 +266,7 @@ python = ["python"]
 pyinstall = ["python", "setup.py", "install"]
 
 if mode == "install":
-    firedrake_env = os.getcwd() + options["virtualenv_name"]
+    firedrake_env = os.getcwd() + args.virtualenv_name
 else:
     try:
         firedrake_env = os.environ["VIRTUAL_ENV"]
