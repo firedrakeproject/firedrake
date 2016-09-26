@@ -112,9 +112,8 @@ class Parameters(object):
         if len(opts) == 1:
             return callback(opts[0])
         else:
-            results = gem.ListTensor(map(callback, opts))
             f = self.facet_number(restriction)
-            return gem.partial_indexed(results, (f,))
+            return gem.select_expression(map(callback, opts), f)
 
     def entity_selector(self, callback, restriction):
         """Selects code for the correct entity at run-time.  Callback
