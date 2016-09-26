@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from tsfc import finatinterface as f
 import pytest
 import ufl

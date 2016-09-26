@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 
 import collections
 import itertools
@@ -103,7 +104,7 @@ class Parameters(object):
         result = []
         for entity_id in self.entity_ids:
             t = self.fiat_cell.get_entity_transform(self.integration_dim, entity_id)
-            result.append(numpy.asarray(map(t, self.points)))
+            result.append(numpy.asarray(list(map(t, self.points))))
         return result
 
     def _selector(self, callback, opts, restriction):
@@ -113,7 +114,7 @@ class Parameters(object):
             return callback(opts[0])
         else:
             f = self.facet_number(restriction)
-            return gem.select_expression(map(callback, opts), f)
+            return gem.select_expression(list(map(callback, opts)), f)
 
     def entity_selector(self, callback, restriction):
         """Selects code for the correct entity at run-time.  Callback
@@ -140,7 +141,7 @@ class Parameters(object):
         :arg restriction: Restriction of the modified terminal, used
                           for entity selection.
         """
-        return self._selector(callback, range(len(self.entity_ids)), restriction)
+        return self._selector(callback, list(range(len(self.entity_ids))), restriction)
 
     argument_indices = ()
 

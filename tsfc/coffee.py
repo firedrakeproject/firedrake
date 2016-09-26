@@ -2,9 +2,10 @@
 
 This is the final stage of code generation in TSFC."""
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 from collections import defaultdict
+from functools import reduce
 from math import isnan
 import itertools
 

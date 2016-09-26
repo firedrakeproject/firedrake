@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import ufl
 from tsfc import compile_form
 import pytest
