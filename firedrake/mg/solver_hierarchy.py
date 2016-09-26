@@ -178,6 +178,8 @@ class NLVSHierarchy(object):
         :kwarg nullspace: an optional :class:`.VectorSpaceBasis` (or
              :class:`.MixedVectorSpaceBasis`) spanning the null space of the
              operator.
+        :kwarg pre_apply_bcs: if True (default), apply the BCs to the
+               initial guess. Set to False for consistency with DOLFIN.
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.
             PETSc flag options should be specified with `bool`
@@ -196,7 +198,7 @@ class NLVSHierarchy(object):
         """
         # Do this first so __del__ doesn't barf horribly if we get an
         # error in __init__
-        parameters, nullspace, tnullspace, options_prefix \
+        parameters, nullspace, tnullspace, options_prefix, pre_apply_bcs \
             = firedrake.solving_utils._extract_kwargs(**kwargs)
 
         if options_prefix is not None:
@@ -225,7 +227,8 @@ class NLVSHierarchy(object):
         pmat_type = parameters.get("pmat_type")
         ctx = firedrake.solving_utils._SNESContext(problems,
                                                    mat_type=mat_type,
-                                                   pmat_type=pmat_type)
+                                                   pmat_type=pmat_type,
+                                                   pre_apply_bcs=pre_apply_bcs)
 
         if nullspace is not None or tnullspace is not None:
             raise NotImplementedError("Coarsening nullspaces not yet implemented")
