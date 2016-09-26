@@ -1,6 +1,7 @@
 """
 Backwards compatibility for some functionality.
 """
+from __future__ import absolute_import, print_function, division
 import numpy
 from distutils.version import StrictVersion
 

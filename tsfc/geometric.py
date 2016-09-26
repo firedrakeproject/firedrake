@@ -1,7 +1,7 @@
 """Functions to translate UFL reference geometric quantities into GEM
 expressions."""
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 from numpy import allclose, vstack
 from singledispatch import singledispatch

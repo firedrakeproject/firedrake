@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import numpy
 from itertools import product
@@ -201,7 +201,7 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
     shape = (fiat_element.space_dimension(),)
     gdim = coefficient.ufl_element().cell().geometric_dimension()
     assert len(shape) == 1 and shape[0] % gdim == 0
-    num_nodes = shape[0] / gdim
+    num_nodes = shape[0] // gdim
 
     # Translate coords from XYZXYZXYZXYZ into XXXXYYYYZZZZ
     # NOTE: See dolfin/mesh/Cell.h:get_coordinate_dofs for ordering scheme

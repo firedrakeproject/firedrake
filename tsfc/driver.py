@@ -1,7 +1,9 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import collections
 import time
+from functools import reduce
 
 from ufl.classes import Form
 from ufl.log import GREEN
@@ -277,6 +279,6 @@ def lower_integral_type(fiat_cell, integral_type):
     elif integral_type == 'exterior_facet_top':
         entity_ids = [1]
     else:
-        entity_ids = range(len(fiat_cell.get_topology()[integration_dim]))
+        entity_ids = list(range(len(fiat_cell.get_topology()[integration_dim])))
 
     return integration_dim, entity_ids
