@@ -44,32 +44,39 @@ def transfer(input, output, typ=None):
         raise ValueError("Unknown transfer type '%s'" % typ)
     check_arguments(coarse, fine)
 
-    hierarchy, level = utils.get_level(coarse.ufl_domain())
+    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
     _, fine_level = utils.get_level(fine.ufl_domain())
     ref_per_level = hierarchy.refinements_per_level
     all_meshes = hierarchy._unskipped_hierarchy
 
     kernel = None
     element = input.ufl_element()
-    repeat = (fine_level - level)*ref_per_level
+    repeat = (fine_level - coarse_level)*ref_per_level
+    if typ == "prolong":
+        next_level = coarse_level*ref_per_level
+    else:
+        next_level = fine_level*ref_per_level
+
     for j in range(repeat):
+        if typ == "prolong":
+            next_level += 1
+        else:
+            next_level -= 1
         if j == repeat - 1:
             next = output
         else:
-            V = firedrake.FunctionSpace(all_meshes[fine_level*ref_per_level - j - 1],
-                                        element)
+            V = firedrake.FunctionSpace(all_meshes[next_level], element)
             next = firedrake.Function(V)
         if typ == "prolong":
             coarse, fine = input, next
-        elif typ in ["inject", "restrict"]:
+        else:
             coarse, fine = next, input
 
         coarse_V = coarse.function_space()
         fine_V = fine.function_space()
         if kernel is None:
             kernel = utils.get_transfer_kernel(coarse_V, fine_V, typ=typ)
-        c2f_map = utils.coarse_to_fine_node_map(coarse_V,
-                                                fine_V)
+        c2f_map = utils.coarse_to_fine_node_map(coarse_V, fine_V)
         args = [kernel, c2f_map.iterset]
         if typ == "prolong":
             args.append(next.dat(op2.WRITE, c2f_map[op2.i[0]]))
@@ -77,12 +84,11 @@ def transfer(input, output, typ=None):
         elif typ == "inject":
             args.append(next.dat(op2.WRITE, next.cell_node_map()[op2.i[0]]))
             args.append(input.dat(op2.READ, c2f_map))
-        elif typ == "restrict":
+        else:
             next.dat.zero()
             args.append(next.dat(op2.INC, next.cell_node_map()[op2.i[0]]))
             args.append(input.dat(op2.READ, c2f_map))
-            weights = utils.get_restriction_weights(coarse.function_space(),
-                                                    fine.function_space())
+            weights = utils.get_restriction_weights(coarse_V, fine_V)
             if weights is not None:
                 args.append(weights.dat(op2.READ, c2f_map))
 
