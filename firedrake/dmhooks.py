@@ -47,6 +47,7 @@ from firedrake.petsc import PETSc
 
 def get_function_space(dm):
     """Get the :class:`~.FunctionSpace` attached to this DM.
+
     :arg dm: The DM to get the function space from.
     :raises RuntimeError: if no function space was found.
     """
@@ -58,6 +59,7 @@ def get_function_space(dm):
 
 def set_function_space(dm, V):
     """Set the :class:`~.FunctionSpace` on this DM.
+
     :arg dm: The DM
     :arg V: The function space.
 
@@ -72,6 +74,7 @@ def set_function_space(dm, V):
 
 def set_appctx(dm, ctx):
     """Set an application context on a DM.
+
     :arg DM: The DM.
     :arg ctx: The context.
 
@@ -85,9 +88,10 @@ def set_appctx(dm, ctx):
 
 def get_appctx(dm):
     """Get an application context from a DM.
+
     :arg DM: The DM.
     :returns: Either the stored application context, or ``None`` if
-        none was found.
+       none was found.
     """
     ctx = dm.getAppCtx()
     if ctx is None:
@@ -99,6 +103,7 @@ def get_appctx(dm):
 def create_matrix(dm):
     """
     Callback to create a matrix from this DM.
+
     :arg DM: The DM.
 
     .. note::
@@ -118,6 +123,7 @@ def create_matrix(dm):
 
 def create_field_decomposition(dm, *args, **kwargs):
     """Callback to decompose a DM.
+
     :arg DM: The DM.
 
     This grabs the function space in the DM, splits it apart (only
@@ -146,6 +152,7 @@ def create_field_decomposition(dm, *args, **kwargs):
 
 def create_subdm(dm, fields, *args, **kwargs):
     """Callback to create a sub-DM describing the specified fields.
+
     :arg DM: The DM.
     :arg fields: The fields in the new sub-DM.
 
@@ -184,6 +191,7 @@ def create_subdm(dm, fields, *args, **kwargs):
 
 def coarsen(dm, comm):
     """Callback to coarsen a DM.
+
     :arg DM: The DM to coarsen.
     :arg comm: The communicator for the new DM (ignored)
 
@@ -213,6 +221,7 @@ def coarsen(dm, comm):
 
 def refine(dm, comm):
     """Callback to refine a DM.
+
     :arg DM: The DM to refine.
     :arg comm: The communicator for the new DM (ignored)
     """
