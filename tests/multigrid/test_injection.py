@@ -9,7 +9,11 @@ def run_injection(mtype, vector, space, degree, ref_per_level=1):
         m = UnitIntervalMesh(10)
     elif mtype == "square":
         m = UnitSquareMesh(4, 4)
-    mh = MeshHierarchy(m, 2, refinements_per_level=ref_per_level)
+    if ref_per_level > 2:
+        nref = 1
+    else:
+        nref = 2
+    mh = MeshHierarchy(m, nref, refinements_per_level=ref_per_level)
 
     if vector:
         V = VectorFunctionSpaceHierarchy(mh, space, degree)
@@ -45,7 +49,7 @@ def run_injection(mtype, vector, space, degree, ref_per_level=1):
                                            [False, True],
                                            ["CG", "DG"],
                                            range(0, 4)))
-@pytest.mark.parametrize("ref_per_level", [1, 2])
+@pytest.mark.parametrize("ref_per_level", [1, 2, 3])
 def test_injection(mtype, vector, fs, degree, ref_per_level):
     if fs == "CG" and degree == 0:
         pytest.skip("CG0 makes no sense")

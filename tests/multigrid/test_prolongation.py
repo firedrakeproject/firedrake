@@ -4,12 +4,16 @@ import numpy as np
 import itertools
 
 
-def run_prolongation(mtype, vector, space, degree, ref_per_level):
+def run_prolongation(mtype, vector, space, degree, ref_per_level=1):
     if mtype == "interval":
         m = UnitIntervalMesh(10)
     elif mtype == "square":
         m = UnitSquareMesh(4, 4)
-    mh = MeshHierarchy(m, 2, refinements_per_level=ref_per_level)
+    if ref_per_level > 2:
+        nref = 1
+    else:
+        nref = 2
+    mh = MeshHierarchy(m, nref, refinements_per_level=ref_per_level)
 
     if vector:
         V = VectorFunctionSpaceHierarchy(mh, space, degree)
@@ -48,7 +52,7 @@ def run_prolongation(mtype, vector, space, degree, ref_per_level):
                                            range(0, 4),
                                            [False, True],
                                            ["CG", "DG"]))
-@pytest.mark.parametrize("ref_per_level", [1, 2])
+@pytest.mark.parametrize("ref_per_level", [1, 2, 3])
 def test_prolongation(mtype, degree, vector, fs, ref_per_level):
     if fs == "CG" and degree == 0:
         pytest.skip("CG0 makes no sense")
