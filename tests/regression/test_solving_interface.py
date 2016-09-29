@@ -33,14 +33,6 @@ def test_linear_solver_api(a_L_out):
     rtol, _, _, _ = solver.snes.getKSP().getTolerances()
     assert rtol == solver.parameters['ksp_rtol']
 
-    solver.parameters['ksp_type'] = 'gmres'
-    solver.parameters['ksp_rtol'] = 1e-8
-    solver.solve()
-    assert solver.snes.getKSP().getType() == solver.snes.getKSP().Type.GMRES
-    assert solver.parameters['ksp_rtol'] == 1e-8
-    rtol, _, _, _ = solver.snes.getKSP().getTolerances()
-    assert rtol == solver.parameters['ksp_rtol']
-
 
 def test_petsc_options_cleared(a_L_out):
     a, L, out = a_L_out
@@ -112,14 +104,6 @@ def test_nonlinear_solver_api(a_L_out):
     assert solver.snes.getType() == solver.snes.Type.KSPONLY
     rtol, _, _, _ = solver.snes.getTolerances()
     assert rtol == 1e-8
-
-    solver.parameters['snes_rtol'] = 1e-3
-    solver.parameters['snes_type'] = 'newtonls'
-    solver.solve()
-    assert solver.parameters['snes_rtol'] == 1e-3
-    assert solver.snes.getType() == solver.snes.Type.NEWTONLS
-    rtol, _, _, _ = solver.snes.getTolerances()
-    assert rtol == solver.parameters['snes_rtol']
 
 
 def test_linear_solves_equivalent():

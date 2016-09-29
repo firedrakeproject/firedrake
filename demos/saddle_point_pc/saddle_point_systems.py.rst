@@ -63,12 +63,13 @@ Rather than defining a mesh and function spaces straight away, since
 we wish to consider the effect that mesh refinement has on the
 performance of the solver, we instead define a Python function which
 builds the problem we wish to solve.  This takes as arguments the size
-of the mesh and an optional parameter specifying a "preconditioning"
-operator to apply, along with another optional argument specifying
-whether the block system should be assembled as a single "monolithic"
-matrix or a :math:`2 \times 2` block of smaller matrices. ::
+of the mesh, the solver parameters we wish to apply, an optional
+parameter specifying a "preconditioning" operator to apply, and a
+final optional argument specifying whether the block system should be
+assembled as a single "monolithic" matrix or a :math:`2 \times 2`
+block of smaller matrices. ::
 
-    def build_problem(mesh_size, aP=None, block_matrix=False):
+    def build_problem(mesh_size, parameters, aP=None, block_matrix=False):
         mesh = UnitSquareMesh(2 ** mesh_size, 2 ** mesh_size)
 
         Sigma = FunctionSpace(mesh, "RT", 1)
@@ -136,7 +137,7 @@ parameter to :func:`~.assemble`.  ::
         else:
             P = None
 
-        solver = LinearSolver(A, P=P)
+        solver = LinearSolver(A, P=P, solver_parameters=parameters)
 
 The :meth:`~.LinearSolver.solve` method of :class:`~.LinearSolver`
 objects needs both the assembled right hand side and a
@@ -163,11 +164,12 @@ A naive approach
 To illustrate the problem, we first attempt to solve the problem on a
 sequence of finer and finer meshes preconditioning the problem with
 zero-fill incomplete LU factorisation.  Configuration of the solver is
-carried out by setting the :attr:`~.LinearSolver.parameters` attribute
-with a ``dict`` of parameters.  These parameters are passed directly
-to PETSc_, and their form is described in more detail in
-:doc:`/solving-interface`.  For this problem, we use GMRES with a
-restart length of 100, ::
+carried out by providing appropriate parameters when constructing the
+:class:`~.LinearSolver` object through the ``solver_parameters``
+keyword argument which should be a :class:`dict` of parameters.  These
+parameters are passed directly to PETSc_, and their form is described
+in more detail in :doc:`/solving-interface`.  For this problem, we use
+GMRES with a restart length of 100, ::
 
     parameters = {
         "ksp_type": "gmres",
@@ -189,8 +191,7 @@ solving it ::
 
     print "Naive preconditioning"
     for n in range(8):
-        solver, w, b = build_problem(n, block_matrix=False)
-        solver.parameters = parameters
+        solver, w, b = build_problem(n, parameters, block_matrix=False)
         solver.solve(w, b)
 
 Finally, at each mesh size, we print out the number of cells in the
@@ -297,8 +298,7 @@ applying the action of blocks, so we can use a block matrix format. ::
 
     print "Exact full Schur complement"
     for n in range(8):
-        solver, w, b = build_problem(n, block_matrix=True)
-        solver.parameters = parameters
+        solver, w, b = build_problem(n, parameters, block_matrix=True)
         solver.solve(w, b)
         print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
        
@@ -383,8 +383,7 @@ Let's see what happens. ::
 
     print "Schur complement with S_p"
     for n in range(8):
-        solver, w, b = build_problem(n, block_matrix=True)
-        solver.parameters = parameters
+        solver, w, b = build_problem(n, parameters, block_matrix=True)
         solver.solve(w, b)
         print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
 
@@ -439,8 +438,7 @@ and so we no longer need a flexible Krylov method. ::
 
     print "Schur complement with S_p and inexact inner inverses"
     for n in range(8):
-        solver, w, b = build_problem(n, block_matrix=True)
-        solver.parameters = parameters
+        solver, w, b = build_problem(n, parameters, block_matrix=True)
         solver.solve(w, b)
         print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
 
@@ -469,9 +467,11 @@ we then use to solve the problem, we can provide one ourselves.
 Recall that :math:`S` is spectrally a Laplacian only in a
 discontinuous space.  A natural choice is therefore to use an interior
 penalty DG formulation for the Laplacian term and provide it as
-:math:`Sp`.  We then tell PETSc about this operatorasking that the
-Schur complement be preconditioned with a ``user`` provided operator.
-The parameter set we will use is therefore::
+:math:`Sp`.  Since this preconditioning matrix is block-diagonal, we
+then need to tell PETSc that it should use the original operator,
+rather than the preconditioning matrix, to compute the action of the
+off-diagonal blocks.  This is done using
+``pc_fieldsplit_off_diag_use_amat``. ::
 
     parameters = {
         "ksp_type": "gmres",
@@ -479,10 +479,10 @@ The parameter set we will use is therefore::
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "schur",
         "pc_fieldsplit_schur_fact_type": "full",
+        "pc_fieldsplit_off_diag_use_amat": True,
         "fieldsplit_0_ksp_type": "preonly",
         "fieldsplit_0_pc_type": "ilu",
         "fieldsplit_1_ksp_type": "preonly",
-        "pc_fieldsplit_schur_precondition": "user",
         "fieldsplit_1_pc_type": "hypre"
     }
 
@@ -514,8 +514,7 @@ function ::
 
     print "DG approximation for S_p"
     for n in range(8):
-        solver, w, b = build_problem(n, aP=dg_laplacian, block_matrix=True)
-        solver.parameters = parameters
+        solver, w, b = build_problem(n, parameters, aP=dg_laplacian, block_matrix=True)
         solver.solve(w, b)
         print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
 
@@ -525,14 +524,14 @@ approximation we used above.
 ============== ==================
  Mesh elements  GMRES iterations
 ============== ==================
-      2              4
-      8              18
-      32             25
-      128            26
-      512            28
-      2048           28
-      8192           27
-      32768          26
+      2              2
+      8              10
+      32             17
+      128            20
+      512            19
+      2048           19
+      8192           18
+      32768          18
 ============== ==================
 
 Block diagonal preconditioners
@@ -569,12 +568,6 @@ rather than a Schur complement. ::
         "pc_type": "fieldsplit",
         "pc_fieldsplit_type": "additive",
 
-Again, we need to tell PETSc_ to use the user-provided operator to
-construct the preconditioner. ::
-
-    #
-        "pc_fieldsplit_schur_precondition": "user",
-
 Now we choose how to invert the two blocks.  The second block is easy,
 it is just a mass matrix in a discontinuous space and is therefore
 inverted exactly using a single application of zero-fill ILU. ::
@@ -606,8 +599,7 @@ Let's see what the iteration count looks like now. ::
 
     print "Riesz-map preconditioner"
     for n in range(8):
-        solver, w, b = build_problem(n, aP=riesz, block_matrix=True)
-        solver.parameters = parameters
+        solver, w, b = build_problem(n, parameters, aP=riesz, block_matrix=True)
         solver.solve(w, b)
         print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
 

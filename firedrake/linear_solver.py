@@ -1,5 +1,7 @@
 from __future__ import absolute_import
 import ufl
+
+from firedrake.exceptions import ConvergenceError
 import firedrake.function as function
 import firedrake.vector as vector
 import firedrake.matrix as matrix
@@ -11,9 +13,7 @@ from firedrake.utils import cached_property
 __all__ = ["LinearSolver"]
 
 
-class LinearSolver(object):
-
-    _id = 0
+class LinearSolver(solving_utils.ParametersMixin):
 
     def __init__(self, A, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
@@ -41,16 +41,6 @@ class LinearSolver(object):
           Any boundary conditions for this solve *must* have been
           applied when assembling the operator.
         """
-        # Do this first so __del__ doesn't barf horribly if we get an
-        # error in __init__
-        if options_prefix is not None:
-            self._opt_prefix = options_prefix
-            self._auto_prefix = False
-        else:
-            self._opt_prefix = "firedrake_ksp_%d_" % LinearSolver._id
-            self._auto_prefix = True
-            LinearSolver._id += 1
-
         if not isinstance(A, matrix.MatrixBase):
             raise TypeError("Provided operator is a '%s', not a MatrixBase" % type(A).__name__)
         if P is not None and not isinstance(P, matrix.MatrixBase):
@@ -60,31 +50,24 @@ class LinearSolver(object):
         self.comm = A.comm
         self.P = P if P is not None else A
 
-        parameters = solver_parameters.copy() if solver_parameters is not None else {}
-        parameters.setdefault("ksp_rtol", "1e-7")
+        # Set up parameters mixin
+        super(LinearSolver, self).__init__(solver_parameters, options_prefix)
 
+        # Set some defaults
+        self.parameters.setdefault("ksp_rtol", "1e-7")
         # If preconditioning matrix is matrix-free, then default to no
         # preconditioning.
         if isinstance(self.P, matrix.ImplicitMatrix):
-            parameters.setdefault("pc_type", "none")
+            self.parameters.setdefault("pc_type", "none")
         elif self.P.block_shape != (1, 1):
             # Otherwise, mixed problems default to jacobi.
-            parameters.setdefault("pc_type", "jacobi")
+            self.parameters.setdefault("pc_type", "jacobi")
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
-        self.ksp.setOptionsPrefix(self._opt_prefix)
-
-        # Allow command-line arguments to override dict parameters
-        opts = PETSc.Options()
-        for k, v in opts.getAll().iteritems():
-            if k.startswith(self._opt_prefix):
-                parameters[k[len(self._opt_prefix):]] = v
-
-        self.parameters = parameters
 
         W = self.A.a.arguments()[0].function_space()
         # DM provides fieldsplits (but not operators)
-        self.ksp.setDM(W._dm)
+        self.ksp.setDM(W.dm)
         self.ksp.setDMActive(False)
 
         if nullspace is not None:
@@ -106,6 +89,9 @@ class LinearSolver(object):
         self.A.force_evaluation()
         self.P.force_evaluation()
         self.ksp.setOperators(A=self.A.petscmat, P=self.P.petscmat)
+        # Set from options now (we're not allowed to change parameters
+        # anyway).
+        self.set_from_options(self.ksp)
 
     @cached_property
     def _b(self):
@@ -127,23 +113,6 @@ class LinearSolver(object):
         from firedrake.assemble import _assemble
         return _assemble(ufl.action(self.A.a, b))
 
-    @property
-    def parameters(self):
-        return self._parameters
-
-    @parameters.setter
-    def parameters(self, val):
-        assert isinstance(val, dict), "Must pass a dict to set parameters"
-        self._parameters = val
-        solving_utils.update_parameters(self, self.ksp)
-
-    def __del__(self):
-        if self._auto_prefix and hasattr(self, '_opt_prefix'):
-            opts = PETSc.Options()
-            for k in self.parameters.iterkeys():
-                del opts[self._opt_prefix + k]
-            delattr(self, '_opt_prefix')
-
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
             raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
@@ -154,8 +123,6 @@ class LinearSolver(object):
             self.nullspace._apply(self._W.dof_dset.field_ises)
         if len(self._W) > 1 and self.transpose_nullspace is not None:
             self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True)
-        # User may have updated parameters
-        solving_utils.update_parameters(self, self.ksp)
         if self.A.has_bcs:
             b_bc = self._b
             # rhs = b - action(A, zero_function_with_bcs_applied)
@@ -171,4 +138,4 @@ class LinearSolver(object):
 
         r = self.ksp.getConvergedReason()
         if r < 0:
-            raise RuntimeError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), solving_utils.KSPReasons[r])
+            raise ConvergenceError("LinearSolver failed to converge after %d iterations with reason: %s", self.ksp.getIterationNumber(), solving_utils.KSPReasons[r])
