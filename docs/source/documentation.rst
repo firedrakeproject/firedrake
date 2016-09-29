@@ -79,6 +79,7 @@ finite element problems in Firedrake.
    point-evaluation
    visualisation
    checkpointing
+   matrix-free
    petsc-interface
    parallelism
 

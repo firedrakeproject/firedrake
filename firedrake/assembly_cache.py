@@ -24,7 +24,7 @@ assembly_cache:
 
 - ``parameters["assembly_cache"]["max_bytes"]``
   absolute limit on the size of the assembly cache in bytes. This
-  defaults to ``float("inf")``.
+  defaults to maximum float.
 
 - ``parameters["assembly_cache"]["max_factor"]``
   limit on the size of the assembly cache relative to the amount of
@@ -33,6 +33,7 @@ assembly_cache:
 from __future__ import absolute_import
 import numpy as np
 import weakref
+import sys
 from collections import defaultdict
 
 from pyop2.mpi import COMM_WORLD, MPI, dup_comm, free_comm
@@ -40,6 +41,8 @@ from pyop2.mpi import COMM_WORLD, MPI, dup_comm, free_comm
 from firedrake.logging import debug, warning
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
+
+max_float = sys.float_info[0]
 
 try:
     # Estimate the amount of memory per core may use.
@@ -65,8 +68,8 @@ class _DependencySnapshot(object):
 
         deps = []
 
-        coords = form.integrals()[0].ufl_domain().coordinates
-        deps.append(ref(coords))
+        for d in form.ufl_domains():
+            deps.append(ref(d.coordinates))
 
         for c in form.coefficients():
             deps.append(ref(c))
@@ -76,20 +79,12 @@ class _DependencySnapshot(object):
     def valid(self, form):
         """Check whether form is valid with respect to this dependency snapshot."""
 
-        original_coords = self.dependencies[0][0]()
-        if original_coords:
-            coords = form.integrals()[0].ufl_domain().coordinates
-            if coords is not original_coords or \
-               coords.dat._version != self.dependencies[0][1]:
-                return False
-        else:
-            return False
-
         # Since UFL sorts the coefficients by count (creation index),
         # further sorting here is not required.
-        deps = form.coefficients()
+        deps = tuple(d.coordinates for d in form.ufl_domains()) + \
+            form.coefficients()
 
-        for original_d, dep in zip(self.dependencies[1:], deps):
+        for original_d, dep in zip(self.dependencies, deps):
             original_dep = original_d[0]()
             if original_dep:
                 if dep is not original_dep or dep.dat._version != original_d[1]:
@@ -143,7 +138,8 @@ class _CacheEntry(object):
         global _assemble_count
         self._assemble_count += 1
         self.value = self._assemble_count
-        comm = form.ufl_domain().comm
+        # Assumption: all domains are on the same communicator.
+        comm = form.ufl_domains()[0].comm
         if comm.size > 1:
             tmp = np.array([obj.nbytes])
             comm.Allreduce(MPI.IN_PLACE, tmp, MPI.MAX)
@@ -243,12 +239,12 @@ guaranteed to result in the same evictions on each processor.
         if not parameters["assembly_cache"]["eviction"]:
             return
 
-        max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or float("inf"),
-                             (memory or float("inf"))
+        max_cache_size = min(parameters["assembly_cache"]["max_bytes"] or max_float,
+                             (memory or max_float)
                              * parameters["assembly_cache"]["max_factor"]
                              )
 
-        if max_cache_size == float("inf"):
+        if max_cache_size == max_float:
             if not self.evictwarned:
                 warning("No maximum assembly cache size. Install psutil >= 2.0.0 or risk leaking memory!")
                 self.evictwarned = True

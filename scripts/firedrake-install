@@ -21,6 +21,40 @@ class InstallError(Exception):
     pass
 
 
+class FiredrakeConfiguration(dict):
+    """A dictionary extended to facilitate the storage of Firedrake
+    configuration information."""
+    def __init__(self, args=None):
+        super(FiredrakeConfiguration, self).__init__()
+
+        '''A record of the persistent options in force.'''
+        self["options"] = {}
+        '''Relevant environment variables.'''
+        self["environment"] = {}
+        '''Additional packages installed via the plugin interface.'''
+        self["additions"] = []
+
+        if args:
+            for o in self._persistent_options:
+                if o in args.__dict__.keys():
+                    self["options"][o] = args.__dict__[o]
+
+    _persistent_options = ["developer", "sudo", "package_manager",
+                           "minimal_petsc", "mpicc", "disable_ssh",
+                           "show_petsc_configure_options", "adjoint",
+                           "slepc", "slope", "packages", "honour_pythonpath"]
+
+
+def deep_update(this, that):
+    import collections
+    for k, v in that.iteritems():
+        if isinstance(v, collections.Mapping) and k in this.keys():
+            this[k] = deep_update(this.get(k, {}), v)
+        else:
+            this[k] = v
+    return this
+
+
 if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
 elif os.path.basename(__file__) == "firedrake-update":
@@ -86,6 +120,8 @@ honoured.""",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
     parser.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
                         help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
+                        help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
                         help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
@@ -99,6 +135,8 @@ honoured.""",
     parser.add_argument("--virtualenv-name", default="firedrake",
                         type=str, action="store",
                         help="Name of the virtualenv to create (default is 'firedrake')")
+    parser.add_argument("--install", action="append", dest="packages",
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
 
     if travis:
         parser.add_argument("--write-cache", action="store_true",
@@ -109,28 +147,15 @@ honoured.""",
         branches = {package: branch for package, branch in args.package_branch}
 
     args.prefix = False  # Disabled as untested
-else:
-    parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
-                            formatter_class=RawDescriptionHelpFormatter)
-    parser.add_argument("--no-update-script", action="store_false", dest="update_script",
-                        help="Do not update script before updating Firedrake.")
-    parser.add_argument("--rebuild", action="store_true",
-                        help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
-    parser.add_argument("--adjoint", action='store_true', dest="install_adjoint",
-                        help="Also install firedrake-adjoint.")
-    parser.add_argument("--slope", action='store_true', dest="install_slope",
-                        help="Also install SLOPE. This enables loop tiling in PyOP2.")
-    parser.add_argument("--slepc", action="store_true", dest="install_slepc",
-                        help="Install SLEPc along with PETSc")
-    parser.add_argument("--honour-petsc-dir", action="store_true",
-                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
-    parser.add_argument("--clean", action='store_true',
-                        help="Delete any remnants of obsolete Firedrake components.")
-    parser.add_argument("--log", action='store_true',
-                        help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
+    args.packages = args.packages or []
 
-    args = parser.parse_args()
+    config = FiredrakeConfiguration(args)
+else:
+    class LegacyState(object):
+        pass
+    # The following args modifications are retained for backwards compatibility.
+    # new options should not be added here.
+    args = LegacyState()
     args.developer = False
     args.sudo = False
     args.package_manager = False
@@ -140,68 +165,58 @@ else:
     args.disable_ssh = False
     args.show_petsc_configure_options = False
     args.adjoint = False
-    args.adjoint = args.adjoint or args.install_adjoint
     args.slope = False
-    args.slope = args.slope or args.install_slope
     args.slepc = False
-    args.slepc = args.slepc or args.install_slepc
-    args.virtualenv_name = False
-    args.virtualenv_name = args.virtualenv_name or "firedrake"
 
-class directory(object):
-    """Context manager that executes body in a given directory"""
-    def __init__(self, dir):
-        self.dir = dir
+    legacy_args = args.__dict__.copy()
+    legacy = False
+    try:
+        import firedrake_configuration
+        config = firedrake_configuration.get_config()
+        if config is None:
+            legacy = True
+    except ImportError:
+        legacy = True
 
-    def __enter__(self):
-        self.olddir = os.path.abspath(os.getcwd())
-        os.chdir(self.dir)
+    if legacy:
+        config = {"options": args.__dict__}
 
-    def __exit__(self, *args):
-        os.chdir(self.olddir)
+    parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
+                            formatter_class=RawDescriptionHelpFormatter)
+    parser.add_argument("--no-update-script", action="store_false", dest="update_script",
+                        help="Do not update script before updating Firedrake.")
+    parser.add_argument("--rebuild", action="store_true",
+                        help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
+    parser.add_argument("--adjoint", action='store_true', dest="adjoint", default=config["options"]["adjoint"],
+                        help="Also install firedrake-adjoint.")
+    parser.add_argument("--slope", action='store_true', dest="slope", default=config["options"]["slope"],
+                        help="Also install SLOPE. This enables loop tiling in PyOP2.")
+    parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
+                        help="Install SLEPc along with PETSc")
+    parser.add_argument("--honour-petsc-dir", action="store_true",
+                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true", default=config["options"].get("honour-pythonpath", False),
+                        help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
+    parser.add_argument("--clean", action='store_true',
+                        help="Delete any remnants of obsolete Firedrake components.")
+    parser.add_argument("--log", action='store_true',
+                        help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
+    parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
 
+    args = parser.parse_args()
 
-# Where are packages installed relative to --root?
-# This is a bit of a hack.
-v = sys.version_info
-sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
-path_extension = ""
+    args.rebuild_script = legacy_args["rebuild_script"]
 
-# Record of obsolete packages which --clean should remove from old installs.
-old_git_packages = ["instant", "ffc"]
+    args.packages = list(set(args.packages))  # remove duplicates
 
-python = ["python"]
-sudopip = ["pip"]
-pyinstall = ["python", "setup.py", "install"]
-
-pipinstall = sudopip + ["install"]
-# virtualenv install
-# Use the pip from the virtualenv
-firedrake_env = args.virtualenv_name
-sudopip = [os.getcwd() + "/%s/bin/pip" % firedrake_env]
-pipinstall = sudopip + ["install"]
-python = [os.getcwd() + "/%s/bin/python" % firedrake_env]
-pyinstall = python + ["setup.py", "install"]
-sitepackages = os.path.join(os.getcwd(), "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor))
-
-os.environ["PYTHONPATH"] = path_extension + os.environ.get("PYTHONPATH", "")
-
-if args.minimal_petsc:
-    # WARNING WARNING
-    # If you change these minimal PETSc options, you will have to
-    # manually invalidate the Travis cache of PETSc and petsc4py.  See
-    # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre"""
-else:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
-
-
-if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
-else:
-    for opt in petsc_opts.split():
-        if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
-            os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
+    config = deep_update(config, FiredrakeConfiguration(args))
+    if legacy:
+        del legacy_args["adjoint"]
+        del legacy_args["slope"]
+        del legacy_args["slepc"]
+        config["options"] = deep_update(config["options"], legacy_args)
 
 
 # Set up logging
@@ -222,6 +237,72 @@ else:
     logging.basicConfig(level=logging.INFO,
                         format='%(message)s')
 log = logging.getLogger()
+
+
+class directory(object):
+    """Context manager that executes body in a given directory"""
+    def __init__(self, dir):
+        self.dir = dir
+
+    def __enter__(self):
+        self.olddir = os.path.abspath(os.getcwd())
+        os.chdir(self.dir)
+
+    def __exit__(self, *args):
+        os.chdir(self.olddir)
+
+options = config["options"]
+
+
+# Where are packages installed relative to --root?
+# This is a bit of a hack.
+v = sys.version_info
+sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
+
+# Record of obsolete packages which --clean should remove from old installs.
+old_git_packages = ["instant", "ffc"]
+
+python = ["python"]
+pyinstall = ["python", "setup.py", "install"]
+
+if mode == "install":
+    firedrake_env = os.path.abspath(args.virtualenv_name)
+else:
+    try:
+        firedrake_env = os.environ["VIRTUAL_ENV"]
+    except KeyError:
+        quit("Unable to retrieve virtualenv name from the environment.\n Please ensure the virtualenv is active before running firedrake-update.")
+
+# virtualenv install
+# Use the pip from the virtualenv
+sudopip = ["%s/bin/pip" % firedrake_env]
+pipinstall = sudopip + ["install"]
+python = ["%s/bin/python" % firedrake_env]
+pyinstall = python + ["setup.py", "install"]
+sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
+
+if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
+    quit("""The PYTHONPATH environment variable is set. This is probably an error.
+If you really want to use your own Python packages, please run again with the
+--honour-pythonpath option.
+""")
+
+if options["minimal_petsc"]:
+    # WARNING WARNING
+    # If you change these minimal PETSc options, you will have to
+    # manually invalidate the Travis cache of PETSc and petsc4py.  See
+    # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre"""
+else:
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+
+
+if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
+else:
+    for opt in petsc_opts.split():
+        if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
+            os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
 
 
 def check_call(arguments, env=None):
@@ -274,7 +355,7 @@ def apt_install(names):
     log.info("Installing missing packages: %s." % ", ".join(names))
     if sys.stdin.isatty():
         subprocess.check_call(["sudo", "apt-get", "install"] + names)
-    else: 
+    else:
         log.info("Non-interactive stdin detected; installing without prompts")
         subprocess.check_call(["sudo", "apt-get", "-y", "install"] + names)
 
@@ -298,6 +379,7 @@ def git_url(plain_url, protocol):
     else:
         raise ValueError("Unknown git protocol: %s" % protocol)
 
+
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
@@ -307,12 +389,12 @@ def git_clone(url):
     if name in branches:
         branch = branches[name]
     try:
-        if args.disable_ssh:
+        if options["disable_ssh"]:
             raise Exception
         check_call(["git", "clone", "-q", git_url(plain_url, "ssh")])
         log.info("Successfully cloned repository %s" % name)
     except:
-        if not args.disable_ssh:
+        if not options["disable_ssh"]:
             log.warn("Failed to clone %s using ssh, falling back to https." % name)
         try:
             check_call(["git", "clone", "-q", git_url(plain_url, "https")])
@@ -345,17 +427,23 @@ def git_clone(url):
 def list_cloned_dependencies(name):
     log.info("Finding dependencies of %s\n" % name)
     deps = OrderedDict()
-    for dep in open(name + "/requirements-git.txt", "r"):
-        name = split_requirements_url(dep.strip())[0]
-        deps[name] = dep.strip()
+    try:
+        for dep in open(name + "/requirements-git.txt", "r"):
+            name = split_requirements_url(dep.strip())[0]
+            deps[name] = dep.strip()
+    except IOError:
+        pass
     return deps
 
 
 def clone_dependencies(name):
     log.info("Cloning the dependencies of %s" % name)
     deps = []
-    for dep in open(name + "/requirements-git.txt", "r"):
-        deps.append(git_clone(dep.strip()))
+    try:
+        for dep in open(name + "/requirements-git.txt", "r"):
+            deps.append(git_clone(dep.strip()))
+    except IOError:
+        pass
     return deps
 
 
@@ -525,7 +613,7 @@ def install(package):
             log.info("Installed %s from travis cache %s\n" % (package, travis_cache_dir))
             return
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
-    if args.developer and package not in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
+    if options["developer"] and package not in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
         run_pip_install(["--ignore-installed", package])
@@ -601,7 +689,7 @@ def build_and_install_h5py():
     hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
     log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
     oldcc = os.environ.get("CC", None)
-    os.environ["CC"] = args.mpicc
+    os.environ["CC"] = options["mpicc"] or "mpicc"
     run_cmd(python + ["setup.py", "configure", "--hdf5=%s" % hdf5_dir])
     run_cmd(python + ["setup.py", "build"])
     run_cmd(pyinstall)
@@ -663,13 +751,23 @@ def build_and_install_slepc():
     env["PETSC_ARCH"] = petsc_arch
     env["PETSC_DIR"] = petsc_dir
 
-    git_clone("git+https://bitbucket.org/slepc/slepc.git")
     log.info("Installing SLEPc.")
-    install("slepc/")
+    if os.path.exists("slepc"):
+        slepc_changed = git_update("slepc")
+    else:
+        git_clone("git+https://bitbucket.org/slepc/slepc.git")
+        slepc_changed = True
+    if slepc_changed:
+        install("slepc/")
 
-    git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
     log.info("Installing slepc4py.")
-    install("slepc4py/")
+    if os.path.exists("slepc4py"):
+        slepc4py_changed = git_update("slepc4py")
+    else:
+        git_clone("git+https://bitbucket.org/slepc/slepc4py.git")
+        slepc4py_changed = True
+    if slepc4py_changed:
+        install("slepc4py/")
 
 
 def build_and_install_adjoint():
@@ -756,11 +854,6 @@ def build_update_script():
     with open("firedrake/scripts/firedrake-install", "r") as f:
         update_script = f.read()
 
-    for switch in ["developer", "sudo", "package_manager", "minimal_petsc",
-                   "mpicc", "disable_ssh", "show_petsc_configure_options", "adjoint",
-                   "virtualenv_name"]:
-        update_script = update_script.replace("args.%s = False" % switch,
-                                              "args.%s = %r" % (switch, args.__getattribute__(switch)))
     try:
         os.mkdir("../bin")
     except:
@@ -778,7 +871,7 @@ if travis and travis_cache_dir and mode == "install" and args.write_cache:
     log.info("Wrote caches, exiting\n")
     sys.exit(0)
 
-if args.show_petsc_configure_options:
+if options["show_petsc_configure_options"]:
     log.info("******************************************\n")
     log.info("Building PETSc with the following options:\n")
     log.info("******************************************\n")
@@ -819,7 +912,7 @@ if travis:
 # Check operating system.
 osname = platform.uname()[0]
 if osname == "Darwin":
-    if args.package_manager:
+    if options["package_manager"]:
         try:
             check_call(["xcodebuild", "-version"])
         except:
@@ -853,7 +946,7 @@ if osname == "Darwin":
 elif osname == "Linux":
     # Check for apt.
     try:
-        if not args.package_manager:
+        if not options["package_manager"]:
             raise InstallError
         check_call(["apt-get", "--version"])
 
@@ -871,6 +964,7 @@ elif osname == "Linux":
                         "openmpi-bin",
                         "python-dev",
                         "python-pip",
+                        "python-tk",
                         "zlib1g-dev"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
@@ -1034,6 +1128,11 @@ if mode == "install":
     packages = clone_dependencies("PyOP2") + packages
     packages += ["firedrake"]
 
+    for p in options["packages"]:
+        name = git_clone(p)
+        packages.extend(clone_dependencies(name))
+        packages += [name]
+
     if args.honour_petsc_dir:
         packages.remove("petsc")
 
@@ -1057,13 +1156,11 @@ if mode == "install":
     pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
-        if args.developer:
-            pdir = os.getcwd() + "/" + p + os.pathsep
-            os.environ["PYTHONPATH"] = pdir + os.environ.get("PYTHONPATH", "")
-            path_extension = pdir + path_extension
+        if options["developer"]:
+            sys.path.append(os.getcwd() + "/" + p)
 
     # Work around easy-install.pth bug.
-    if args.developer:
+    if options["developer"]:
         try:
             packages.remove("petsc")
         except ValueError:
@@ -1091,6 +1188,10 @@ else:
     deps = OrderedDict()
     deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
+    for p in options["packages"]:
+        name = split_requirements_url(p)[0]
+        deps.update(list_cloned_dependencies(name))
+        deps[name] = p
     packages = deps.keys()
     packages += ["firedrake"]
 
@@ -1151,23 +1252,46 @@ else:
         clean(p)
         install(p+"/")
 
-if args.adjoint:
+if options["adjoint"]:
     build_and_install_adjoint()
-if args.slepc:
+if options["slepc"]:
     build_and_install_slepc()
-if args.slope:
+if options["slope"]:
     build_and_install_slope()
+
+
+if mode == "update":
+    try:
+        log.info("Clearing just in time compilation caches.")
+        from firedrake.tsfc_interface import clear_cache, TSFCKernel
+        from pyop2.compilation import clear_cache as pyop2_clear_cache
+        print 'Removing cached TSFC kernels from %s' % TSFCKernel._cachedir
+        clear_cache()
+        pyop2_clear_cache()
+    except:
+        # Unconditional except in order to avoid upgrade script failures.
+        log.error("Failed to clear caches. Try running firedrake-clean.")
+
 
 os.chdir("../..")
 
-log.info("Successfully installed Firedrake.\n")
-
-log.info("To upgrade firedrake, run %s/bin/firedrake-update" % firedrake_env)
+log.info("\n\nSuccessfully installed Firedrake.\n")
 
 log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
 log.info("  . %s/bin/activate\n" % firedrake_env)
 log.info("The virtualenv can be deactivated by running:\n")
-log.info("  deactivate")
+log.info("  deactivate\n\n")
+log.info("To upgrade Firedrake activate the virtualenv and run firedrake-update\n")
+
+
+try:
+    import firedrake_configuration
+    firedrake_configuration.write_config(config)
+    log.info("Configurations saved to configuration.json")
+except Exception as e:
+    log.info("Unable to save configuations to a JSON file")
+    log.info("Error Message:")
+    log.info(e.message)
 
 if osname == "Darwin" and not framework:
     log.warning("\n\n")

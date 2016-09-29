@@ -193,7 +193,6 @@ def _interpolator(V, dat, expr, subset):
 
 
 def compile_ufl_kernel(expression, to_pts, to_element, fs):
-    import collections
     from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
     from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
     from ufl.algorithms.apply_derivatives import apply_derivatives
@@ -202,9 +201,7 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
     from gem import gem, impero_utils
     from tsfc import fem, ufl_utils
     from tsfc.coffee import generate as generate_coffee
-    from tsfc.kernel_interface import (KernelBuilderBase,
-                                       needs_cell_orientations,
-                                       cell_orientations_coffee_arg)
+    from tsfc.kernel_interface.firedrake import KernelBuilderBase, cell_orientations_coffee_arg
 
     # Imitate the compute_form_data processing pipeline
     #
@@ -227,11 +224,23 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
 
     builder = KernelBuilderBase()
-    args = []
+    coefficient_split = {}
 
-    coefficients = extract_coefficients(expression)
-    for i, coefficient in enumerate(coefficients):
-        args.append(builder._coefficient(coefficient, "w_%d" % i))
+    coefficients = []
+    args = []
+    for i, coefficient in enumerate(extract_coefficients(expression)):
+        if type(coefficient.ufl_element()) == ufl.MixedElement:
+            coefficient_split[coefficient] = []
+            for j, element in enumerate(coefficient.ufl_element().sub_elements()):
+                subcoeff = ufl.Coefficient(ufl.FunctionSpace(coefficient.ufl_domain(), element))
+                coefficient_split[coefficient].append(subcoeff)
+                args.append(builder._coefficient(subcoeff, "w_%d_%d" % (i, j)))
+            coefficients.extend(coefficient.split())
+        else:
+            args.append(builder._coefficient(coefficient, "w_%d" % (i,)))
+            coefficients.append(coefficient)
+
+    expression = ufl_utils.split_coefficients(expression, coefficient_split)
 
     point_index = gem.Index(name='p')
     ir = fem.compile_ufl(expression,
@@ -251,10 +260,10 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
     # Build kernel body
     return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
     return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
-    impero_c = impero_utils.compile_gem([return_expr], ir, [point_index])
+    impero_c = impero_utils.compile_gem([return_expr], ir, (point_index,) + tensor_indices)
     body = generate_coffee(impero_c, index_names={point_index: 'p'})
 
-    oriented = needs_cell_orientations(ir)
+    oriented = KernelBuilderBase.needs_cell_orientations(ir)
     if oriented:
         args.insert(0, cell_orientations_coffee_arg)
 

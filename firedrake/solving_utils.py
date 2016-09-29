@@ -5,7 +5,6 @@ from pyop2.utils import as_tuple
 
 from firedrake.mg import utils
 from firedrake import function
-from firedrake.logging import warning, RED
 from firedrake.petsc import PETSc
 
 
@@ -65,18 +64,13 @@ Reason:
 def _extract_kwargs(**kwargs):
     parameters = kwargs.get('solver_parameters', None)
     if 'parameters' in kwargs:
-        warning(RED % "The 'parameters' keyword is deprecated, use 'solver_parameters' instead.")
-        parameters = kwargs['parameters']
-        if 'solver_parameters' in kwargs:
-            warning(RED % "'parameters' and 'solver_parameters' passed, using the latter")
-            parameters = kwargs['solver_parameters']
+        raise TypeError("Use solver_parameters, not parameters")
 
     # Make sure we don't stomp on a dict the user has passed in.
     parameters = parameters.copy() if parameters is not None else {}
     nullspace = kwargs.get('nullspace', None)
     tnullspace = kwargs.get('transpose_nullspace', None)
     options_prefix = kwargs.get('options_prefix', None)
-
     return parameters, nullspace, tnullspace, options_prefix
 
 
@@ -85,6 +79,15 @@ class _SNESContext(object):
     Context holding information for SNES callbacks.
 
     :arg problems: a :class:`NonlinearVariationalProblem` or iterable thereof.
+    :arg mat_type: Indicates whether the Jacobian is assembled
+        monolithically ('aij'), as a block sparse matrix ('nest') or
+        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+    :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
+        monolithically ('aij'), as a block sparse matrix ('nest') or
+        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+    :arg appctx: Any extra information used in the assembler.  For the
+        matrix-free case this will contain the Newton state in
+        ``"state"``.
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -92,7 +95,15 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problems):
+    def __init__(self, problems, mat_type, pmat_type, appctx=None):
+        if pmat_type is None:
+            pmat_type = mat_type
+        self.mat_type = mat_type
+        self.pmat_type = pmat_type
+
+        matfree = mat_type == 'matfree'
+        pmatfree = pmat_type == 'matfree'
+
         problems = as_tuple(problems)
         self._problems = problems
         # Build the jacobian with the correct sparsity pattern.  Note
@@ -101,28 +112,50 @@ class _SNESContext(object):
         # form_jacobian we call assemble again which drops this
         # computation on the floor.
         from firedrake.assemble import assemble
-        self._jacs = tuple(assemble(problem.J, bcs=problem.bcs,
-                                    form_compiler_parameters=problem.form_compiler_parameters,
-                                    nest=problem._nest)
-                           for problem in problems)
-        if problems[-1].Jp is not None:
-            self._pjacs = tuple(assemble(problem.Jp, bcs=problem.bcs,
-                                         form_compiler_parameters=problem.form_compiler_parameters,
-                                         nest=problem._nest)
-                                for problem in problems)
-        else:
-            self._pjacs = self._jacs
         # Function to hold current guess
         self._xs = tuple(function.Function(problem.u) for problem in problems)
-        self.Fs = tuple(ufl.replace(problem.F, {problem.u: x}) for problem, x in zip(problems,
-                                                                                     self._xs))
-        self.Js = tuple(ufl.replace(problem.J, {problem.u: x}) for problem, x in zip(problems,
-                                                                                     self._xs))
-        if problems[-1].Jp is not None:
-            self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x}) for problem, x in zip(problems,
-                                                                                           self._xs))
+
+        if appctx is None:
+            appctx = {}
+
+        appctxs = tuple(appctx.copy() for _ in problems)
+
+        if matfree or pmatfree:
+            # We will want the newton state for some preconditioners
+            for c, x in zip(appctxs, self._xs):
+                c["state"] = x
+
+        self.matfree = matfree
+        self.pmatfree = pmatfree
+        self.Fs = tuple(ufl.replace(problem.F, {problem.u: x})
+                        for problem, x in zip(problems, self._xs))
+        self.Js = tuple(ufl.replace(problem.J, {problem.u: x})
+                        for problem, x in zip(problems, self._xs))
+        self._jacs = tuple(assemble(J, bcs=problem.bcs,
+                                    form_compiler_parameters=problem.form_compiler_parameters,
+                                    mat_type=mat_type,
+                                    appctx=ctx)
+                           for J, problem, ctx in zip(self.Js, problems, appctxs))
+        self.is_mixed = self._jacs[-1].block_shape != (1, 1)
+
+        if mat_type != pmat_type or problems[-1].Jp is not None:
+            # Need separate pmat if either Jp is different or we want
+            # a different pmat type to the mat type.
+            if problems[-1].Jp is None:
+                self.Jps = self.Js
+            else:
+                self.Jps = tuple(ufl.replace(problem.Jp, {problem.u: x})
+                                 for problem, x in zip(problems, self._xs))
+            self._pjacs = tuple(assemble(Jp, bcs=problem.bcs,
+                                         form_compiler_parameters=problem.form_compiler_parameters,
+                                         mat_type=pmat_type,
+                                         appctx=ctx)
+                                for Jp, problem, ctx in zip(self.Jps, problems, appctxs))
         else:
+            # pmat_type == mat_type and Jp is None
             self.Jps = tuple(None for _ in problems)
+            self._pjacs = self._jacs
+
         self._Fs = tuple(function.Function(F.arguments()[0].function_space())
                          for F in self.Fs)
         self._jacobians_assembled = [False for _ in problems]
@@ -133,33 +166,29 @@ class _SNESContext(object):
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
-        snes.setJacobian(self.form_jacobian, J=self._jacs[-1]._M.handle,
-                         P=self._pjacs[-1]._M.handle)
+        snes.setJacobian(self.form_jacobian, J=self._jacs[-1].petscmat,
+                         P=self._pjacs[-1].petscmat)
 
     def set_nullspace(self, nullspace, ises=None, transpose=False):
         if nullspace is None:
             return
-        nullspace._apply(self._jacs[-1]._M, transpose=transpose)
+        nullspace._apply(self._jacs[-1], transpose=transpose)
         if self.Jps[-1] is not None:
-            nullspace._apply(self._pjacs[-1]._M, transpose=transpose)
+            nullspace._apply(self._pjacs[-1], transpose=transpose)
         if ises is not None:
             nullspace._apply(ises, transpose=transpose)
 
     def __len__(self):
         return len(self._problems)
 
-    @property
-    def is_mixed(self):
-        return self._jacs[-1]._M.sparsity.shape != (1, 1)
-
     @classmethod
     def create_matrix(cls, dm):
         ctx = dm.getAppCtx()
         _, lvl = utils.get_level(dm)
-        return ctx._jacs[lvl]._M.handle
+        return ctx._jacs[lvl].petscmat
 
     @classmethod
-    def form_function(cls, snes, X, F):
+    def form_function(self, snes, X, F):
         """Form the residual for this problem
 
         :arg snes: a PETSc SNES object
@@ -184,8 +213,8 @@ class _SNESContext(object):
                 X.copy(v)
 
         assemble(ctx.Fs[lvl], tensor=ctx._Fs[lvl],
-                 form_compiler_parameters=problem.form_compiler_parameters,
-                 nest=problem._nest)
+                 form_compiler_parameters=problem.form_compiler_parameters)
+        # no mat_type -- it's a vector!
         for bc in problem.bcs:
             bc.zero(ctx._Fs[lvl])
 
@@ -228,12 +257,12 @@ class _SNESContext(object):
                  tensor=ctx._jacs[lvl],
                  bcs=problem.bcs,
                  form_compiler_parameters=problem.form_compiler_parameters,
-                 nest=problem._nest)
-        ctx._jacs[lvl].M._force_evaluation()
+                 mat_type=ctx.mat_type)
+        ctx._jacs[lvl].force_evaluation()
         if ctx.Jps[lvl] is not None:
             assemble(ctx.Jps[lvl],
                      tensor=ctx._pjacs[lvl],
                      bcs=problem.bcs,
                      form_compiler_parameters=problem.form_compiler_parameters,
-                     nest=problem._nest)
-            ctx._pjacs[lvl].M._force_evaluation()
+                     mat_type=ctx.pmat_type)
+            ctx._pjacs[lvl].force_evaluation()

@@ -37,6 +37,7 @@ from firedrake.functionspace import *
 from firedrake.interpolation import *
 from firedrake.output import *
 from firedrake.linear_solver import *
+from firedrake.matrix_free.preconditioners import *
 from firedrake.mesh import *
 from firedrake.mg.mesh import *
 from firedrake.mg.function import *
@@ -68,5 +69,5 @@ check()
 del check
 
 from firedrake._version import get_versions
-__version__ = get_versions(default={"version": ver, "full": ""})['version']
+__version__ = get_versions()['version']
 del get_versions

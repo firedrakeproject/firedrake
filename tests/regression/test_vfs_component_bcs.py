@@ -84,13 +84,12 @@ def test_poisson_in_components(V):
     assert np.allclose(g.dat.data, expect.dat.data)
 
 
-@pytest.mark.parametrize("nested",
-                         [False, True], ids=["nest", "monolithic"])
+@pytest.mark.parametrize("mat_type", ["aij", "nest"])
 @pytest.mark.parametrize("make_val",
                          [lambda x: x,
                           lambda x: Expression("%g" % x)],
                          ids=["UFL value", "C expression"])
-def test_poisson_in_mixed_plus_vfs_components(V, nested, make_val):
+def test_poisson_in_mixed_plus_vfs_components(V, mat_type, make_val):
     # Solve five decoupled poisson problems with different boundary
     # conditions in a mixed space composed of two VectorFunctionSpaces
     # and one scalar FunctionSpace.
@@ -125,7 +124,7 @@ def test_poisson_in_mixed_plus_vfs_components(V, nested, make_val):
         Constant(0)*q*dx + \
         dot(Constant((0, 0)), s)*dx
 
-    solve(a == L, g, bcs=bcs, nest=nested)
+    solve(a == L, g, bcs=bcs, solver_parameters={'mat_type': mat_type})
 
     expected = Function(W)
 
