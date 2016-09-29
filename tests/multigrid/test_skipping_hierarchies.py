@@ -35,11 +35,8 @@ def test_get_level():
     refinements_per_level = 2
     MH = MeshHierarchy(mesh, L, refinements_per_level=refinements_per_level)
 
-    FSH = FunctionSpaceHierarchy(MH, 'DG', 0)
-
-    for i, V in enumerate(FSH):
-        F = Function(V)
-        assert get_level(F.ufl_domain())[1] == i
+    for i, mesh in enumerate(MH):
+        assert get_level(mesh)[1] == i
 
 
 def test_get_skip_level():

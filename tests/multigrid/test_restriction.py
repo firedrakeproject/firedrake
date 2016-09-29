@@ -15,31 +15,27 @@ def run_restriction(mtype, vector, space, degree, ref_per_level=1):
         nref = 2
     mh = MeshHierarchy(m, nref, refinements_per_level=ref_per_level)
 
+    mesh = mh[-1]
     if vector:
-        V = VectorFunctionSpaceHierarchy(mh, space, degree)
+        V = VectorFunctionSpace(mesh, space, degree)
         if mtype == "interval":
             c = Constant((1, ))
         elif mtype == "square":
             c = Constant((1, 1))
     else:
-        V = FunctionSpaceHierarchy(mh, space, degree)
+        V = FunctionSpace(mesh, space, degree)
         c = Constant(1)
 
-    expected = tuple([function.Function(f) for f in V])
+    actual = assemble(dot(c, TestFunction(V))*dx)
 
-    for e in expected:
-        v = TestFunction(e.function_space())
-        e.assign(assemble(dot(c, v)*dx(domain=e.function_space().mesh())))
-
-    actual = tuple([function.Function(f) for f in V])
-
-    actual[-1].assign(expected[-1])
-
-    for i in reversed(range(1, len(actual))):
-        restrict(actual[i], actual[i - 1])
-
-    for e, a in zip(expected, actual):
-        assert np.allclose(e.dat.data, a.dat.data)
+    for mesh in reversed(mh[:-1]):
+        V = FunctionSpace(mesh, V.ufl_element())
+        v = TestFunction(V)
+        expect = assemble(dot(c, v)*dx)
+        tmp = Function(V)
+        restrict(actual, tmp)
+        actual = tmp
+        assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
 @pytest.mark.parametrize(["mtype", "degree", "vector", "fs"],
@@ -112,32 +108,27 @@ def run_extruded_restriction(mtype, vector, space, degree, ref_per_level=1):
     mh = MeshHierarchy(m, 2, refinements_per_level=ref_per_level)
 
     emh = ExtrudedMeshHierarchy(mh, layers=3)
-
+    mesh = emh[-1]
     if vector:
-        V = VectorFunctionSpaceHierarchy(emh, space, degree)
+        V = VectorFunctionSpace(mesh, space, degree)
         if mtype == "interval":
             c = Constant((1, 1))
         elif mtype == "square":
             c = Constant((1, 1, 1))
     else:
-        V = FunctionSpaceHierarchy(emh, space, degree)
+        V = FunctionSpace(mesh, space, degree)
         c = Constant(1)
 
-    expected = tuple([function.Function(f) for f in V])
+    actual = assemble(dot(c, TestFunction(V))*dx)
 
-    for e in expected:
-        v = TestFunction(e.function_space())
-        e.assign(assemble(dot(c, v)*dx(domain=e.function_space().mesh())))
-
-    actual = tuple([function.Function(f) for f in V])
-
-    actual[-1].assign(expected[-1])
-
-    for i in reversed(range(1, len(actual))):
-        restrict(actual[i], actual[i - 1])
-
-    for e, a in zip(expected, actual):
-        assert np.allclose(e.dat.data, a.dat.data)
+    for mesh in reversed(emh[:-1]):
+        V = FunctionSpace(mesh, V.ufl_element())
+        v = TestFunction(V)
+        expect = assemble(dot(c, v)*dx)
+        tmp = Function(V)
+        restrict(actual, tmp)
+        actual = tmp
+        assert np.allclose(expect.dat.data_ro, actual.dat.data_ro)
 
 
 @pytest.mark.parametrize(["mtype", "vector", "space", "degree"],
@@ -206,30 +197,26 @@ def run_mixed_restriction():
     m = UnitSquareMesh(4, 4)
     mh = MeshHierarchy(m, 2)
 
-    V = VectorElement("CG", m.ufl_cell(), 2)
-    P = FiniteElement("CG", m.ufl_cell(), 1)
+    mesh = mh[-1]
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    P = FunctionSpace(mesh, "CG", 1)
 
-    W = MixedFunctionSpaceHierarchy(mh, V*P)
+    W = V*P
 
-    expected = tuple([function.Function(f) for f in W])
+    c = Constant((1, 1))
 
-    for e in expected:
-        v, p = TestFunctions(e.function_space())
-        c = Constant((1, 1))
+    v, p = TestFunctions(W)
+    actual = assemble(dot(c, v)*dx + p*dx)
 
-        _dx = dx(domain=e.function_space().mesh())
-        e.assign(assemble(dot(c, v)*_dx + p*_dx))
-
-    actual = tuple([function.Function(f) for f in W])
-
-    actual[-1].assign(expected[-1])
-
-    for i in reversed(range(1, len(actual))):
-        restrict(actual[i], actual[i - 1])
-
-    for e, a in zip(expected, actual):
-        for e_, a_ in zip(e.split(), a.split()):
-            assert np.allclose(e_.dat.data, a_.dat.data)
+    for mesh in reversed(mh[:-1]):
+        W = FunctionSpace(mesh, W.ufl_element())
+        v, p = TestFunctions(W)
+        expect = assemble(dot(c, v)*dx + p*dx)
+        tmp = Function(W)
+        restrict(actual, tmp)
+        actual = tmp
+        for e, a in zip(expect.split(), actual.split()):
+            assert np.allclose(e.dat.data_ro, a.dat.data_ro)
 
 
 def test_mixed_restriction():
