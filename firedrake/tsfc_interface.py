@@ -13,6 +13,7 @@ import collections
 
 import ufl
 from ufl import Form
+from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
 
