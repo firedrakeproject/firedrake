@@ -3641,8 +3641,8 @@ class Mat(DataCarrier):
         Call this /after/ executing all the par_loops that write to
         the matrix before you want to look at it.
         """
-        _LazyMatOp(self, self._assemble, new_state=Mat.ASSEMBLED,
-                   read=True, write=True).enqueue()
+        return _LazyMatOp(self, self._assemble, new_state=Mat.ASSEMBLED,
+                          read=True, write=True).enqueue()
 
     def _assemble(self):
         raise NotImplementedError(

@@ -573,22 +573,22 @@ class MatBlock(base.Mat):
                                                         rows.reshape(-1, 1),
                                                         vals.reshape(-1, 1),
                                                         addv=PETSc.InsertMode.INSERT_VALUES)
-        base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                        write=True).enqueue()
+        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
+                               write=True).enqueue()
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
         closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
                                                             addv=PETSc.InsertMode.ADD_VALUES)
-        base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
-                        read=True, write=True).enqueue()
+        return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
+                               read=True, write=True).enqueue()
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
         closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
                                                             addv=PETSc.InsertMode.INSERT_VALUES)
-        base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                        write=True).enqueue()
+        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
+                               write=True).enqueue()
 
     def assemble(self):
         raise RuntimeError("Should never call assemble on MatBlock")
@@ -858,8 +858,8 @@ class Mat(base.Mat):
                                                         rows.reshape(-1, 1),
                                                         vals.reshape(-1, 1),
                                                         addv=PETSc.InsertMode.INSERT_VALUES)
-        base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                        write=True).enqueue()
+        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
+                               write=True).enqueue()
 
     @collective
     def _assemble(self):
@@ -880,15 +880,15 @@ class Mat(base.Mat):
         """Add a block of values to the :class:`Mat`."""
         closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
                                                             addv=PETSc.InsertMode.ADD_VALUES)
-        base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
-                        read=True, write=True).enqueue()
+        return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
+                               read=True, write=True).enqueue()
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
         closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
                                                             addv=PETSc.InsertMode.INSERT_VALUES)
-        base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
-                        write=True).enqueue()
+        return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
+                               write=True).enqueue()
 
     @cached_property
     def blocks(self):
