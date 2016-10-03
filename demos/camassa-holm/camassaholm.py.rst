@@ -71,17 +71,6 @@ the visual output ::
   except:
     warning("Matplotlib not imported")
 
-The following code is currently required to ensure
-reevaluation of the energy for output. ::
-
-  disable_performance_optimisations()
-
-.. note::
-
-   This disables, amongst other things, assembly caching in Firedrake
-   which currently exhibits a `bug in this case
-   <https://github.com/firedrakeproject/firedrake/issues/660>`_
-
 We then set the parameters for the scheme. ::
 
   alpha = 1.0

@@ -6,7 +6,6 @@ from collections import defaultdict
 from pyop2 import op2
 from pyop2.exceptions import MapValueError
 
-from firedrake import assembly_cache
 from firedrake import assemble_expressions
 from firedrake import tsfc_interface
 from firedrake import function
@@ -434,8 +433,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # Queue up matrix assembly (after we've done all the other operations)
             tensor.assemble()
         return result()
-
-    thunk = assembly_cache._cache_thunk(thunk, f, result(), form_compiler_parameters)
 
     if is_mat:
         result_matrix._assembly_callback = thunk

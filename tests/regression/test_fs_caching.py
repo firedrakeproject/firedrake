@@ -12,8 +12,6 @@ def test_meshes_collected():
     before = howmany((MeshTopology, MeshGeometry))
 
     def foo():
-        old_val = parameters['assembly_cache']['enabled']
-        parameters['assembly_cache']['enabled'] = False
         for i in range(10):
             m = UnitSquareMesh(1, 1)
             V = FunctionSpace(m, 'CG', 1)
@@ -21,7 +19,6 @@ def test_meshes_collected():
             v = TestFunction(V)
             f = Function(V)
             solve((i+1)*u*v*dx == v*dx, f)
-        parameters['assembly_cache']['enabled'] = old_val
 
     foo()
     gc.collect()
