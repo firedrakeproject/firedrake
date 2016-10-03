@@ -46,7 +46,6 @@ import numpy as np
 import base
 from base import *
 from logger import debug, warning
-from versioning import CopyOnWrite, modifies, zeroes
 from profiling import timed_region
 import mpi
 from mpi import collective
@@ -345,7 +344,6 @@ class Dat(base.Dat):
             self.needs_halo_update = True
 
     @property
-    @modifies
     @collective
     def vec(self):
         """Context manager for a PETSc Vec appropriate for this Dat.
@@ -408,7 +406,6 @@ class MixedDat(base.MixedDat):
             self.needs_halo_update = True
 
     @property
-    @modifies
     @collective
     def vec(self):
         """Context manager for a PETSc Vec appropriate for this Dat.
@@ -465,7 +462,6 @@ class Global(base.Global):
             self.comm.Bcast(acc(self), 0)
 
     @property
-    @modifies
     @collective
     def vec(self):
         """Context manager for a PETSc Vec appropriate for this Dat.
@@ -626,13 +622,12 @@ class MatBlock(base.Mat):
         return "Block[%s, %s] of %s" % (self._i, self._j, self._parent)
 
 
-class Mat(base.Mat, CopyOnWrite):
+class Mat(base.Mat):
     """OP2 matrix data. A Mat is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`."""
 
     def __init__(self, *args, **kwargs):
         base.Mat.__init__(self, *args, **kwargs)
-        CopyOnWrite.__init__(self, *args, **kwargs)
         self._init()
         self.assembly_state = Mat.ASSEMBLED
 
@@ -767,8 +762,6 @@ class Mat(base.Mat, CopyOnWrite):
         if not block_sparse:
             mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
         self.handle = mat
-        # Matrices start zeroed.
-        self._version_set_zero()
 
     def _init_global_block(self):
         """Initialise this block in the case where the matrix maps either
@@ -819,14 +812,12 @@ class Mat(base.Mat, CopyOnWrite):
             for s in row:
                 yield s
 
-    @zeroes
     @collective
     def zero(self):
         """Zero the matrix."""
         base._trace.evaluate(set(), set([self]))
         self.handle.zeroEntries()
 
-    @modifies
     @collective
     def zero_rows(self, rows, diag_val=1.0):
         """Zeroes the specified rows of the matrix, with the exception of the
@@ -839,15 +830,9 @@ class Mat(base.Mat, CopyOnWrite):
         rows = rows.indices if isinstance(rows, Subset) else rows
         self.handle.zeroRowsLocal(rows, diag_val)
 
-    def _cow_actual_copy(self, src):
-        base._trace.evaluate(set([src]), set())
-        self.handle = src.handle.duplicate(copy=True)
-        return self
-
     def _flush_assembly(self):
         self.handle.assemble(assembly=PETSc.Mat.AssemblyType.FLUSH)
 
-    @modifies
     @collective
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
         """Set the diagonal entry in ``rows`` to a particular value.
@@ -911,7 +896,6 @@ class Mat(base.Mat, CopyOnWrite):
         return self._blocks
 
     @property
-    @modifies
     def values(self):
         base._trace.evaluate(set([self]), set())
         if self.nrows * self.ncols > 1000000:

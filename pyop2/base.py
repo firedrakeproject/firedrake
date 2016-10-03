@@ -37,7 +37,6 @@ subclass these as required to implement backend-specific features.
 """
 
 import itertools
-import weakref
 import numpy as np
 import ctypes
 import operator
@@ -46,8 +45,6 @@ from hashlib import md5
 
 from configuration import configuration
 from caching import Cached, ObjectCached
-from versioning import Versioned, modifies, modifies_argn, CopyOnWrite, \
-    shallow_copy, _force_copies
 from exceptions import *
 from utils import *
 from backends import _make_object
@@ -1617,32 +1614,13 @@ class IterationSpace(object):
             isinstance(self._iterset, Subset)
 
 
-class DataCarrier(Versioned):
+class DataCarrier(object):
 
     """Abstract base class for OP2 data.
 
     Actual objects will be :class:`DataCarrier` objects of rank 0
     (:class:`Global`), rank 1 (:class:`Dat`), or rank 2
     (:class:`Mat`)"""
-
-    class Snapshot(object):
-        """A snapshot of the current state of the DataCarrier object. If
-        is_valid() returns True, then the object hasn't changed since this
-        snapshot was taken (and still exists)."""
-        def __init__(self, obj):
-            self._duplicate = obj.duplicate()
-            self._original = weakref.ref(obj)
-
-        def is_valid(self):
-            objref = self._original()
-            if objref is not None:
-                return self._duplicate == objref
-            return False
-
-    def create_snapshot(self):
-        """Returns a snapshot of the current object. If not overriden, this
-        method will return a full duplicate object."""
-        return type(self).Snapshot(self)
 
     @cached_property
     def dtype(self):
@@ -1707,7 +1685,6 @@ class _EmptyDataMixin(object):
     def __init__(self, data, dtype, shape):
         if data is None:
             self._dtype = np.dtype(dtype if dtype is not None else np.float64)
-            self._version_set_zero()
         else:
             self._data = verify_reshape(data, dtype, shape, allow_none=True)
             self._dtype = self._data.dtype
@@ -1731,26 +1708,7 @@ class _EmptyDataMixin(object):
         return hasattr(self, '_numpy_data')
 
 
-class SetAssociated(DataCarrier):
-    """Intermediate class between DataCarrier and subtypes associated with a
-    Set (vectors and matrices)."""
-
-    class Snapshot(object):
-        """A snapshot for SetAssociated objects is valid if the snapshot
-        version is the same as the current version of the object"""
-
-        def __init__(self, obj):
-            self._original = weakref.ref(obj)
-            self._snapshot_version = obj._version
-
-        def is_valid(self):
-            objref = self._original()
-            if objref is not None:
-                return self._snapshot_version == objref._version
-            return False
-
-
-class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
+class Dat(DataCarrier, _EmptyDataMixin):
     """OP2 vector data. A :class:`Dat` holds values on every element of a
     :class:`DataSet`.
 
@@ -1875,7 +1833,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         return ctypes.c_voidp
 
     @property
-    @modifies
     @collective
     def data(self):
         """Numpy array containing the data values.
@@ -2009,12 +1966,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             self._zero_parloops = loops
 
         iterset = subset or self.dataset.set
-        # Versioning only zeroes the Dat if the provided subset is None.
-        _force_copies(self)
-        if iterset is self.dataset.set:
-            self._version_set_zero()
-        else:
-            self._version_bump()
 
         loop = loops.get(iterset, None)
         if loop is None:
@@ -2031,7 +1982,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
             loops[iterset] = loop
         loop.enqueue()
 
-    @modifies_argn(0)
     @collective
     def copy(self, other, subset=None):
         """Copy the data in this :class:`Dat` into another.
@@ -2086,45 +2036,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         :class:`DataSet` and containing the same data."""
         return not self == other
 
-    @collective
-    def _cow_actual_copy(self, src):
-        # Force the execution of the copy parloop
-
-        # We need to ensure that PyOP2 allocates fresh storage for this copy.
-        # But only if the copy has not already run.
-        try:
-            if self._numpy_data is src._numpy_data:
-                del self._numpy_data
-        except AttributeError:
-            pass
-
-        if configuration['lazy_evaluation']:
-            _trace.evaluate(self._cow_parloop.reads, self._cow_parloop.writes)
-            try:
-                _trace._trace.remove(self._cow_parloop)
-            except ValueError:
-                return
-
-        self._cow_parloop._run()
-
-    @collective
-    def _cow_shallow_copy(self):
-
-        other = shallow_copy(self)
-
-        # Set up the copy to happen when required.
-        other._cow_parloop = self._copy_parloop(other)
-        # Remove the write dependency of the copy (in order to prevent
-        # premature execution of the loop), and replace it with the
-        # one dat we're writing to.
-        other._cow_parloop.writes = set([other])
-        if configuration['lazy_evaluation']:
-            # In the lazy case, we enqueue now to ensure we are at the
-            # right point in the trace.
-            other._cow_parloop.enqueue()
-
-        return other
-
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
                % (self._name, self._dataset, self.dtype.name)
@@ -2178,7 +2089,6 @@ class Dat(SetAssociated, _EmptyDataMixin, CopyOnWrite):
         par_loop(k, self.dataset.set, self(READ), other(READ), ret(WRITE))
         return ret
 
-    @modifies
     def _iop(self, other, op):
         ops = {operator.iadd: ast.Incr,
                operator.isub: ast.Decr,
@@ -2452,10 +2362,6 @@ class MixedDat(Dat):
         """Return :class:`Dat` with index ``idx`` or a given slice of Dats."""
         return self._dats[idx]
 
-    @property
-    def _version(self):
-        return tuple(x._version for x in self.split)
-
     @cached_property
     def dtype(self):
         """The NumPy dtype of the data."""
@@ -2561,22 +2467,6 @@ class MixedDat(Dat):
             raise NotImplementedError("MixedDat.copy with a Subset is not supported")
         for s, o in zip(self, other):
             s.copy(o)
-
-    @collective
-    def _cow_actual_copy(self, src):
-        # Force the execution of the copy parloop
-
-        for d, s in zip(self._dats, src._dats):
-            d._cow_actual_copy(s)
-
-    @collective
-    def _cow_shallow_copy(self):
-
-        other = shallow_copy(self)
-
-        other._dats = [d.duplicate() for d in self._dats]
-
-        return other
 
     def __iter__(self):
         """Yield all :class:`Dat`\s when iterated over."""
@@ -2790,7 +2680,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         return self._dim
 
     @property
-    @modifies
     def data(self):
         """Data array."""
         _trace.evaluate(set([self]), set())
@@ -2810,7 +2699,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         return view
 
     @data.setter
-    @modifies
     def data(self, value):
         _trace.evaluate(set(), set([self]))
         self._data = verify_reshape(value, self.dtype, self.dim)
@@ -2832,20 +2720,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         """Are the data in SoA format? This is always false for :class:`Global`
         objects."""
         return False
-
-    def duplicate(self):
-        """Return a deep copy of self."""
-        return type(self)(self.dim, data=np.copy(self.data_ro),
-                          dtype=self.dtype, name=self.name)
-
-    @collective
-    def copy(self, other, subset=None):
-        """Copy the data in this :class:`Global` into another.
-
-        :arg other: The destination :class:`Global`
-        :arg subset: A :class:`Subset` of elements to copy (optional)"""
-
-        other.data = np.copy(self.data_ro)
 
     @collective
     def zero(self):
@@ -3698,7 +3572,7 @@ class _LazyMatOp(LazyComputation):
         self._mat.assembly_state = self._new_state
 
 
-class Mat(SetAssociated):
+class Mat(DataCarrier):
     """OP2 matrix data. A ``Mat`` is defined on a sparsity pattern and holds a value
     for each element in the :class:`Sparsity`.
 
@@ -4537,7 +4411,6 @@ class Solver(object):
         """
         self.parameters.update(parameters)
 
-    @modifies_argn(1)
     @collective
     def solve(self, A, x, b):
         """Solve a matrix equation.

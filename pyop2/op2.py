@@ -46,7 +46,6 @@ from mpi import MPI, COMM_WORLD, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 from coffee import coffee_init, O0
-from versioning import modifies_arguments
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
@@ -206,7 +205,6 @@ class Solver(base.Solver):
     __metaclass__ = backends._BackendSelector
 
 
-@modifies_arguments
 @collective
 def par_loop(kernel, iterset, *args, **kwargs):
     """Invocation of an OP2 kernel

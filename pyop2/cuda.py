@@ -367,13 +367,6 @@ class Mat(DeviceDataMixin, op2.Mat):
         base._trace.evaluate(set([]), set([self]))
         self._csrdata.fill(0)
         self._lmadata.fill(0)
-        self._version_set_zero()
-
-    def duplicate(self):
-        other = Mat(self.sparsity)
-        base._trace.evaluate(set([self]), set([self]))
-        setattr(other, '__csrdata', self._csrdata.copy())
-        return other
 
 
 class Global(DeviceDataMixin, op2.Global):
