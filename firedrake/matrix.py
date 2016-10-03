@@ -276,8 +276,8 @@ class ImplicitMatrix(MatrixBase):
 
         from firedrake.matrix_free.operators import ImplicitMatrixContext
         ctx = ImplicitMatrixContext(a,
-                                    row_bcs=bcs,
-                                    col_bcs=bcs,
+                                    row_bcs=self.bcs,
+                                    col_bcs=self.bcs,
                                     fc_params=kwargs["fc_params"],
                                     appctx=appctx)
         self.petscmat = PETSc.Mat().create(comm=self.comm)
