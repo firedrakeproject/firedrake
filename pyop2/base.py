@@ -2696,7 +2696,7 @@ class Global(DataCarrier, _EmptyDataMixin):
     @data.setter
     def data(self, value):
         _trace.evaluate(set(), set([self]))
-        self._data = verify_reshape(value, self.dtype, self.dim)
+        self._data[:] = verify_reshape(value, self.dtype, self.dim)
 
     @property
     def nbytes(self):
