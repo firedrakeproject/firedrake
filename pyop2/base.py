@@ -4072,6 +4072,7 @@ class ParLoop(LazyComputation):
                 if arg._uses_itspace and arg._is_INC:
                     f_arg.pragma = set([ast.WRITE])
             kernel._attached_info['attached'] = True
+        self.arglist = self.prepare_arglist(iterset, *self.args)
 
     def _run(self):
         return self.compute()
@@ -4115,7 +4116,7 @@ class ParLoop(LazyComputation):
         with timed_region("ParLoopExecute"):
             self.halo_exchange_begin()
             iterset = self.iterset
-            arglist = self.prepare_arglist(iterset, *self.args)
+            arglist = self.arglist
             fun = self._jitmodule
             self._compute(iterset.core_part, fun, *arglist)
             self.halo_exchange_end()
