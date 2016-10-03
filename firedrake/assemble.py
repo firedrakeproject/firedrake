@@ -242,6 +242,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         # 0-forms are always scalar
         if tensor is None:
             tensor = op2.Global(1, [0.0])
+        else:
+            raise ValueError("Can't assemble 0-form into existing tensor")
         result = lambda: tensor.data[0]
 
     coefficients = f.coefficients()
