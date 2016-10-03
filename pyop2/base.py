@@ -1686,21 +1686,16 @@ class _EmptyDataMixin(object):
         if data is None:
             self._dtype = np.dtype(dtype if dtype is not None else np.float64)
         else:
-            self._data = verify_reshape(data, dtype, shape, allow_none=True)
+            self._numpy_data = verify_reshape(data, dtype, shape, allow_none=True)
             self._dtype = self._data.dtype
 
-    @property
+    @cached_property
     def _data(self):
         """Return the user-provided data buffer, or a zeroed buffer of
         the correct size if none was provided."""
         if not self._is_allocated:
             self._numpy_data = np.zeros(self.shape, dtype=self._dtype)
         return self._numpy_data
-
-    @_data.setter
-    def _data(self, value):
-        """Set the data buffer to `value`."""
-        self._numpy_data = value
 
     @property
     def _is_allocated(self):
