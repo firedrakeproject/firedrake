@@ -4211,9 +4211,8 @@ class ParLoop(LazyComputation):
             if arg._is_dat:
                 if arg.access in [INC, WRITE, RW]:
                     arg.data.needs_halo_update = True
-                if arg.data._is_allocated:
-                    for d in arg.data:
-                        d._data.setflags(write=False)
+                for d in arg.data:
+                    d._data.setflags(write=False)
             if arg._is_mat and arg.access is not READ:
                 state = {WRITE: Mat.INSERT_VALUES,
                          INC: Mat.ADD_VALUES}[arg.access]
