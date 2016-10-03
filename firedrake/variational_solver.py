@@ -185,12 +185,13 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
         work = self._work.dat
-        self._problem.u.dat.copy(work)
         # Ensure options database has full set of options (so monitors work right)
         with self.inserted_options():
             with work.vec as v:
-                self.snes.solve(None, v)
-        work.copy(self._problem.u.dat)
+                with self._problem.u.dat.vec as u:
+                    u.copy(v)
+                    self.snes.solve(None, v)
+                    v.copy(u)
 
         solving_utils.check_snes_convergence(self.snes)
 
