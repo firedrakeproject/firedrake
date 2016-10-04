@@ -109,7 +109,6 @@ class TSFCKernel(Cached):
         if self._initialized:
             return
 
-        form = self._real_mangle(form)
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters)
         kernels = []
         for kernel in tree:
@@ -127,23 +126,6 @@ class TSFCKernel(Cached):
                                       coefficient_map=numbers))
         self.kernels = tuple(kernels)
         self._initialized = True
-
-    @staticmethod
-    def _real_mangle(form):
-        """If the form contains arguments in the Real function space, replace these with literal 1 before passing to ffc."""
-
-        a = form.arguments()
-        reals = map(lambda x: x.element().family() == "Real", a)
-        if not a or not any(reals):
-            return form
-        replacements = {}
-        for arg, r in zip(a, reals):
-            if r:
-                replacements[arg] = 1
-        # If only the test space is Real, we need to turn the trial function into a test function.
-        if reals == [True, False]:
-            replacements[a[1]] = TestFunction(a[1].function_space())
-        return ufl.replace(form, replacements)
 
 
 SplitKernel = collections.namedtuple("SplitKernel", ["indices",
@@ -201,6 +183,7 @@ def compile_form(form, name, parameters=None, inverse=False):
     coefficient_numbers = dict((c, n)
                                for (n, c) in enumerate(form.coefficients()))
     for idx, f in split_form(form):
+        f = _real_mangle(f)
         # Map local coefficient numbers (as seen inside the
         # compiler) to the global coefficient numbers
         number_map = dict((n, coefficient_numbers[c])
@@ -213,6 +196,24 @@ def compile_form(form, name, parameters=None, inverse=False):
     form._cache["firedrake_kernels"] = (kernels, default_parameters["coffee"].copy(),
                                         name, parameters)
     return kernels
+
+
+def _real_mangle(form):
+    """If the form contains arguments in the Real function space, replace these with literal 1 before passing to ffc."""
+
+    a = form.arguments()
+    reals = map(lambda x: x.element().family() == "Real", a)
+    if not a or not any(reals):
+        return form
+    replacements = {}
+    for arg, r in zip(a, reals):
+        if r:
+            replacements[arg] = 1
+    # If only the test space is Real, we need to turn the trial function into a test function.
+    if reals == [True, False]:
+        replacements[a[1]] = TestFunction(a[1].function_space())
+    return ufl.replace(form, replacements)
+
 
 
 def clear_cache(comm=None):
