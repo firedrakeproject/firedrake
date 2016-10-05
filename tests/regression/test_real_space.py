@@ -124,7 +124,6 @@ def test_real_extruded_mixed_two_form_assembly():
                                    m.M.blocks[1][1].values)
 
 
-
 @pytest.mark.parallel
 def test_real_mixed_solve():
     def poisson(resolution):
