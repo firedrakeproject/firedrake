@@ -215,7 +215,6 @@ def _real_mangle(form):
     return ufl.replace(form, replacements)
 
 
-
 def clear_cache(comm=None):
     """Clear the Firedrake TSFC kernel cache."""
     comm = dup_comm(comm or COMM_WORLD)
