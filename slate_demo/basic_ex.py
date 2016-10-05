@@ -1,7 +1,7 @@
 from firedrake import *
 from firedrake.slate import slate
 
-mesh = UnitSquareMesh(1, 1)
+mesh = UnitSquareMesh(8, 8)
 n = FacetNormal(mesh)
 
 degree = 0

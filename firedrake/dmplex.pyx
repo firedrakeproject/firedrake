@@ -582,7 +582,7 @@ def cell_to_facets(PETSc.DM plex,
     fstart, fend = plex.getHeightStratum(1)
     cell_facets = np.full((cend - cstart, nfacet), -1, dtype=np.int8)
     CHKERR(DMGetLabel(plex.dm, int_label, &label))
-
+    CHKERR(DMLabelCreateIndex(label, fstart, fend))
     for c in range(cstart, cend):
         CHKERR(DMPlexGetCone(plex.dm, c, &facets))
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -601,6 +601,7 @@ def cell_to_facets(PETSc.DM plex,
                     break
                 if fstart <= point < fend:
                     fi += 1
+    CHKERR(DMLabelDestroyIndex(label))
     return cell_facets
 
 @cython.boundscheck(False)
