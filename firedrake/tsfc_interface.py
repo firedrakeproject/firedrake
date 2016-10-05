@@ -199,7 +199,7 @@ def compile_form(form, name, parameters=None, inverse=False):
 
 
 def _real_mangle(form):
-    """If the form contains arguments in the Real function space, replace these with literal 1 before passing to ffc."""
+    """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
 
     a = form.arguments()
     reals = map(lambda x: x.element().family() == "Real", a)
