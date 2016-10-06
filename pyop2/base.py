@@ -735,7 +735,7 @@ class GlobalSet(Set):
     @cached_property
     def name(self):
         """User-defined label"""
-        return "GLobalSet"
+        return "GlobalSet"
 
     @cached_property
     def halo(self):
@@ -1066,10 +1066,7 @@ class MixedSet(Set, ObjectCached):
         return "MixedSet(%r)" % (self._sets,)
 
     def __eq__(self, other):
-        try:
-            return self._sets == other._sets
-        except AttributeError:
-            return False
+        return type(self) == type(other) and self._sets == other._sets
 
 
 class DataSet(ObjectCached):
@@ -3372,7 +3369,6 @@ class Sparsity(ObjectCached):
         self._dsets = dsets
 
         if isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
-            # This will cause a trivial memory accounting error (although not a leak).
             self._d_nz = 0
             self._o_nz = 0
             self._dims = (((1, 1),),)
