@@ -18,6 +18,7 @@ adjoint_deps = {
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py"]
 
+
 class InstallError(Exception):
     # Exception for generic install problems.
     pass
@@ -146,7 +147,7 @@ honoured.""",
     if args.package_branch:
         branches = {package: branch for package, branch in args.package_branch}
 
-    args.developer = True # All new installations are developer mode, since there is no advantage to non-developer mode installs.
+    args.developer = True  # All new installations are developer mode, since there is no advantage to non-developer mode installs.
     args.prefix = False  # Disabled as untested
     args.packages = args.packages or []
 
