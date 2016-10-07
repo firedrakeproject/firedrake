@@ -137,20 +137,20 @@ class LinearSolver(solving_utils.ParametersMixin):
         if len(self._W) > 1 and self.near_nullspace is not None:
             self.near_nullspace._apply(self._W.dof_dset.field_ises, near=True)
         if self.A.has_bcs:
-            if isinstance(self.A.a, slate.Tensor):
-                # Homogeneous bcs, don't need action.
-                b_bc = self._b
-                b_bc.assign(b)
-                for bc in self.A.bcs:
-                    bc.apply(b_bc)
-            else:
-                b_bc = self._b
-                # rhs = b - action(A, zero_function_with_bcs_applied)
-                b_bc.assign(b - self._Abcs)
-                # Now we need to apply the boundary conditions to the "RHS"
-                for bc in self.A.bcs:
-                    bc.apply(b_bc)
-                # don't want to write into b itself, because that would confuse user
+#            if isinstance(self.A.a, slate.Tensor):
+#                # Homogeneous bcs, don't need action.
+#                b_bc = self._b
+#                b_bc.assign(b)
+#                for bc in self.A.bcs:
+#                    bc.apply(b_bc)
+#            else:
+            b_bc = self._b
+            # rhs = b - action(A, zero_function_with_bcs_applied)
+            b_bc.assign(b - self._Abcs)
+            # Now we need to apply the boundary conditions to the "RHS"
+            for bc in self.A.bcs:
+                bc.apply(b_bc)
+            # don't want to write into b itself, because that would confuse user
             b = b_bc
         with self.inserted_options():
             with b.dat.vec_ro as rhs:

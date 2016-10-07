@@ -90,18 +90,18 @@ def test_hybridization_slate(degree, mesh_res=None, schur_pc_type='lu', write=Fa
     elapsed_time = end - start
 
     # Construct right-hand side for reconstruction in UFL
-    # orig = assemble(L)
-    # orig -= assemble(action(trace_jump, lambda_sol))
+    orig = assemble(L)
+    orig -= assemble(action(trace_jump, lambda_sol))
 
     # Solve via back-substitution
-    # a = Mass1 + Mass2 + Div - Grad
-    # A = assemble(a, nest=False)
+    a = Mass1 + Mass2 + Div - Grad
+    A = assemble(a, nest=False)
     # solution = Function(W)
-#    o_v, o_p = orig.split()
-#    sol_v, sol_p = solution.split()
-    # solve(A, solution, orig, solver_parameters={'ksp_type': 'preonly',
-    #                                             'pc_type': 'lu'})
-    # sigma_h, u_h = solution.split()
+    o_v, o_p = orig.split()
+    sol_v, sol_p = solution.split()
+    solve(A, solution, orig, solver_parameters={'ksp_type': 'preonly',
+                                                'pc_type': 'lu'})
+    sigma_h, u_h = solution.split()
 
     # Compare result with non-hybridized computation
     # RTc = FunctionSpace(mesh, "RT", degree + 1)
@@ -124,13 +124,13 @@ def test_hybridization_slate(degree, mesh_res=None, schur_pc_type='lu', write=Fa
     # sigerr = sqrt(assemble(dot(sigma_h - nhsigma, sigma_h - nhsigma)*dx))
 
     # Analytical solution
-    # expected = Expression("sin(x[0]*pi*2)*sin(x[1]*pi*2)")
+    expected = Expression("sin(x[0]*pi*2)*sin(x[1]*pi*2)")
 
-    # f.interpolate(expected)
-    # error = sqrt(assemble((u_h - f)*(u_h - f)*dx))
-    # p = Function(T)
-    # p.interpolate(expected)
-    # multiplier_error = sqrt(assemble(FacetArea(mesh)*(lambda_sol - p)('+')*(lambda_sol - p)('+')*dS))
+    f.interpolate(expected)
+    error = sqrt(assemble((u_h - f)*(u_h - f)*dx))
+    p = Function(T)
+    p.interpolate(expected)
+    multiplier_error = sqrt(assemble(FacetArea(mesh)*(lambda_sol - p)('+')*(lambda_sol - p)('+')*dS))
 
     if write:
         # Write hybridized solutions to paraview file
@@ -138,16 +138,18 @@ def test_hybridization_slate(degree, mesh_res=None, schur_pc_type='lu', write=Fa
         # File("solution.pvd").write(sigma_h, u_h, nhsigma, nhu)
         File("solution.pvd").write(sigma_h, u_h)
 
-    return elapsed_time
+    # return elapsed_time
+    return multiplier_error
 
 deg = 0
 n = 3
+multiplier_error = test_hybridization_slate(deg, write=True)
 # uerr, sigerr, err, mult_err = test_hybridization_slate(deg, write=True)
 # print "Error in scalar variable: ", uerr
 # print "Error in flux variable: ", sigerr
 # print "Error between hybrid sol and analytical sol: ", err
-error_diff = []
-comp_time = []
+# error_diff = []
+# comp_time = []
 # for i in range(1, n):
 #     e, t = test_hybridization_slate(deg, i)
 #     error_diff.append(e)
@@ -162,41 +164,41 @@ comp_time = []
 # conv_rate = np.log2(error_diff[:-1] / error_diff[1:])
 # print "Convergence order: ", conv_rate
 
-grid_points = np.array([2**(2*i) for i in range(1, n)])
+# grid_points = np.array([2**(2*i) for i in range(1, n)])
 # print grid_points
-comp_time_lu = []
-comp_time_ilu = []
-comp_time_hypre = []
-comp_time_gamg = []
+# comp_time_lu = []
+# comp_time_ilu = []
+# comp_time_hypre = []
+# comp_time_gamg = []
 
-for pc_type in ['lu', 'ilu', 'hypre', 'gamg']:
-    for i in range(1, n):
-        comp_time = test_hybridization_slate(deg, i, schur_pc_type=pc_type)
-        if pc_type == 'lu':
-            comp_time_lu.append(comp_time)
-        elif pc_type == 'ilu':
-            comp_time_ilu.append(comp_time)
-        elif pc_type == 'hypre':
-            comp_time_hypre.append(comp_time)
-        elif pc_type == 'gamg':
-            comp_time_gamg.append(comp_time)
-        else:
-            raise ValueError()
-comp_time_lu = np.array(comp_time_lu)
-comp_time_hypre = np.array(comp_time_hypre)
-comp_time_gamg = np.array(comp_time_gamg)
-comp_time_ilu = np.array(comp_time_ilu)
+# for pc_type in ['lu', 'ilu', 'hypre', 'gamg']:
+#    for i in range(1, n):
+#        comp_time = test_hybridization_slate(deg, i, schur_pc_type=pc_type)
+#        if pc_type == 'lu':
+#            comp_time_lu.append(comp_time)
+#        elif pc_type == 'ilu':
+#            comp_time_ilu.append(comp_time)
+#        elif pc_type == 'hypre':
+#            comp_time_hypre.append(comp_time)
+#        elif pc_type == 'gamg':
+#            comp_time_gamg.append(comp_time)
+#        else:
+#            raise ValueError()
+# comp_time_lu = np.array(comp_time_lu)
+# comp_time_hypre = np.array(comp_time_hypre)
+# comp_time_gamg = np.array(comp_time_gamg)
+# comp_time_ilu = np.array(comp_time_ilu)
 
-lu, = plt.loglog(grid_points, comp_time_lu, linewidth=3, linestyle=':', marker='^', color='g', label='LU')
-ilu, = plt.loglog(grid_points, comp_time_ilu, linewidth=3, linestyle='--', marker=None, color='b', label='ILU')
-hypre, = plt.loglog(grid_points, comp_time_hypre, linewidth=2, linestyle='--', marker='s', color='k', label='hypre')
-gamg, = plt.loglog(grid_points, comp_time_gamg, linewidth=2, linestyle='--', marker='s', color='r', label='GAMG')
-plt.legend([lu, ilu, hypre, gamg], ['LU', 'ILU', 'hypre', 'GAMG'], loc="NorthWest")
-plt.xlabel('Grid points')
-plt.ylabel('Time (s), logscale')
-plt.grid(True)
-plt.title('Computational time for solving the Schur-system')
-plt.show()
+# lu, = plt.loglog(grid_points, comp_time_lu, linewidth=3, linestyle=':', marker='^', color='g', label='LU')
+# ilu, = plt.loglog(grid_points, comp_time_ilu, linewidth=3, linestyle='--', marker=None, color='b', label='ILU')
+# hypre, = plt.loglog(grid_points, comp_time_hypre, linewidth=2, linestyle='--', marker='s', color='k', label='hypre')
+# gamg, = plt.loglog(grid_points, comp_time_gamg, linewidth=2, linestyle='--', marker='s', color='r', label='GAMG')
+# plt.legend([lu, ilu, hypre, gamg], ['LU', 'ILU', 'hypre', 'GAMG'], loc="NorthWest")
+# plt.xlabel('Grid points')
+# plt.ylabel('Time (s), logscale')
+# plt.grid(True)
+# plt.title('Computational time for solving the Schur-system')
+# plt.show()
 
 # xaxis = np.array([2**r for r in range(1, n)])
 # plt.loglog(xaxis, error_diff, 'b^', xaxis, error_diff)

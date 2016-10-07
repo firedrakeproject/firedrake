@@ -124,6 +124,8 @@ class Tensor(object):
 
             shapes[i] = tuple(shapelist)
             shape.append(sum(shapelist))
+        import pdb
+        pdb.set_trace()
 
         self.shapes = shapes
         self.shape = tuple(shape)
@@ -367,12 +369,12 @@ class Action(Tensor):
         coefficients = tensor.coefficients() + (coefficient, )
 
         Tensor.tensor_id += 1
-        super(ActionTensor, self).__init__(arguments=args[:-1],
-                                           coefficients=coefficients,
-                                           integrals=tensor.get_ufl_integrals())
+        super(Action, self).__init__(arguments=args[:-1],
+                                     coefficients=coefficients,
+                                     integrals=tensor.get_ufl_integrals())
 
     def __str__(self, prec=None):
-        """String representation of ActionTensor."""
+        """String representation of Action."""
         return "AT_%d" % self.tensor_id
 
     __repr__ = __str__

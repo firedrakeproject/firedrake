@@ -180,7 +180,6 @@ def compile_slate_expression(slate_expr, testing=False):
         raise NotImplementedError("Expression of type %s not supported.",
                                   type(expr).__name__)
 
-    @get_kernel_expr.register(Action)
     @get_kernel_expr.register(Scalar)
     @get_kernel_expr.register(Vector)
     @get_kernel_expr.register(Matrix)
@@ -214,12 +213,17 @@ def compile_slate_expression(slate_expr, testing=False):
                 kernel_exprs[expr].append((typ, tsfc_compiled_form))
         return
 
-#    @get_kernel_expr.register(Action)
-#    def get_kernel_expr_action(expr):
-#        """Gets the input coefficient and acting tensor."""
-#
-#        tensor = expr.tensor
-#        get_kernel_expr(tensor)
+    @get_kernel_expr.register(Action)
+    def get_kernel_expr_action(expr):
+        """Allocates temporary for the action tensor."""
+
+        if expr not in temps.keys():
+            sym = "AT%d" % len(temps)
+            temp = ast.Symbol(sym)
+            temp_type = mat_type(expr.shape)
+            temps[expr] = temp
+            statements.append(ast.Decl(temp_type, temp))
+        return
 
     @get_kernel_expr.register(UnaryOp)
     @get_kernel_expr.register(BinaryOp)
@@ -243,87 +247,94 @@ def compile_slate_expression(slate_expr, testing=False):
     # Now we construct the body of the macro kernel
     for exp, t in temps.items():
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
-        for (typ, klist) in kernel_exprs[exp]:
-            for ks in klist:
-                clist = []
-                kinfo = ks[1]
-                kernel = kinfo.kernel
-                if typ not in ['cell', 'interior_facet', 'exterior_facet']:
-                    raise NotImplementedError("Integral type %s not currently supported." % typ)
 
-                # Checking for facet integrals
-                if typ in ['interior_facet', 'exterior_facet']:
-                    need_cell_facets = True
+        # For all SLATE expressions other than Action:
+        if not isinstance(exp, Action):
+            for (typ, klist) in kernel_exprs[exp]:
+                for ks in klist:
+                    clist = []
+                    kinfo = ks[1]
+                    kernel = kinfo.kernel
+                    if typ not in ['cell', 'interior_facet', 'exterior_facet']:
+                        raise NotImplementedError("Integral type %s not currently supported." % typ)
 
-                # Checking coordinates
-                coordinates = exp.ufl_domain().coordinates
-                if coords is not None:
-                    assert coordinates == coords
-                else:
-                    coords = coordinates
+                    # Checking for facet integrals
+                    if typ in ['interior_facet', 'exterior_facet']:
+                        need_cell_facets = True
 
-                # Extracting coefficients
-                for cindex in list(kinfo[5]):
-                    coeff = exp.coefficients()[cindex]
-                    clist.append(coeffmap[coeff])
-
-                # Defining tensor matrices of appropriate size
-                inc.extend(kernel._include_dirs)
-                try:
-                    row, col = ks[0]
-                except:
-                    row = ks[0][0]
-                    col = 0
-                rshape = exp.shapes[0][row]
-                rstart = sum(exp.shapes[0][:row])
-                try:
-                    cshape = exp.shapes[1][col]
-                    cstart = sum(exp.shapes[1][:col])
-                except:
-                    cshape = 1
-                    cstart = 0
-
-                # Creating sub-block if tensor is mixed.
-                if (rshape, cshape) != exp.shape:
-                    tensor = ast.FlatBlock("%s.block<%d,%d>(%d, %d)" %
-                                           (t, rshape, cshape,
-                                            rstart, cstart))
-                else:
-                    tensor = t
-
-                # Facet integral loop
-                if typ in ['interior_facet', 'exterior_facet']:
-                    itsym = ast.Symbol("i0")
-                    block = []
-                    mesh = coords.function_space().mesh()
-                    nfacet = mesh._plex.getConeSize(mesh._plex.getHeightStratum(0)[0])
-                    clist.append(ast.FlatBlock("&%s" % itsym))
-
-                    # Check if facet is interior or exterior
-                    if typ == 'exterior_facet':
-                        isinterior = 0
+                    # Checking coordinates
+                    coordinates = exp.ufl_domain().coordinates
+                    if coords is not None:
+                        assert coordinates == coords
                     else:
-                        isinterior = 1
+                        coords = coordinates
 
-                    # Construct the body of the facet loop
-                    block.append(ast.If(ast.Eq(ast.Symbol(cellfacetsym,
-                                                          rank=(itsym, )),
-                                               isinterior),
-                                        [ast.Block([ast.FunCall(kernel.name,
-                                                                tensor,
-                                                                coordsym,
-                                                                *clist)],
-                                                   open_scope=True)]))
-                    # Assemble loop
-                    loop = ast.For(ast.Decl("unsigned int", itsym, init=0),
-                                   ast.Less(itsym, nfacet),
-                                   ast.Incr(itsym, 1), block)
-                    statements.append(loop)
-                else:
-                    statements.append(ast.FunCall(kernel.name,
-                                                  tensor,
-                                                  coordsym,
-                                                  *clist))
+                    # Extracting coefficients
+                    for cindex in list(kinfo[5]):
+                        coeff = exp.coefficients()[cindex]
+                        clist.append(coeffmap[coeff])
+
+                    # Defining tensor matrices of appropriate size
+                    inc.extend(kernel._include_dirs)
+                    try:
+                        row, col = ks[0]
+                    except:
+                        row = ks[0][0]
+                        col = 0
+                    rshape = exp.shapes[0][row]
+                    rstart = sum(exp.shapes[0][:row])
+                    try:
+                        cshape = exp.shapes[1][col]
+                        cstart = sum(exp.shapes[1][:col])
+                    except:
+                        cshape = 1
+                        cstart = 0
+
+                    # Creating sub-block if tensor is mixed.
+                    if (rshape, cshape) != exp.shape:
+                        tensor = ast.FlatBlock("%s.block<%d,%d>(%d, %d)" %
+                                               (t, rshape, cshape,
+                                                rstart, cstart))
+                    else:
+                        tensor = t
+
+                    # Facet integral loop
+                    if typ in ['interior_facet', 'exterior_facet']:
+                        itsym = ast.Symbol("i0")
+                        block = []
+                        mesh = coords.function_space().mesh()
+                        nfacet = mesh._plex.getConeSize(mesh._plex.getHeightStratum(0)[0])
+                        clist.append(ast.FlatBlock("&%s" % itsym))
+
+                        # Check if facet is interior or exterior
+                        if typ == 'exterior_facet':
+                            isinterior = 0
+                        else:
+                            isinterior = 1
+
+                        # Construct the body of the facet loop
+                        block.append(ast.If(ast.Eq(ast.Symbol(cellfacetsym,
+                                                              rank=(itsym, )),
+                                                   isinterior),
+                                            [ast.Block([ast.FunCall(kernel.name,
+                                                                    tensor,
+                                                                    coordsym,
+                                                                    *clist)],
+                                                       open_scope=True)]))
+                        # Assemble loop
+                        loop = ast.For(ast.Decl("unsigned int", itsym, init=0),
+                                       ast.Less(itsym, nfacet),
+                                       ast.Incr(itsym, 1), block)
+                        statements.append(loop)
+                    else:
+                        statements.append(ast.FunCall(kernel.name,
+                                                      tensor,
+                                                      coordsym,
+                                                      *clist))
+        # Perform code gen for performing Action
+        else:
+            # TODO: Action as a for-loop
+            pass
 
     def pars(expr, prec=None, parent=None):
         """Parses a slate expression and returns a string representation."""
