@@ -86,8 +86,9 @@ void %(wrapper_name)s(int start, int end,
             if arg._is_indirect or arg._is_mat:
                 maps = as_tuple(arg.map, Map)
                 for map in maps:
-                    for m in map:
-                        argtypes.append(m._argtype)
+                    if map is not None:
+                        for m in map:
+                            argtypes.append(m._argtype)
 
         if iterset._extruded:
             argtypes.append(ctypes.c_int)
@@ -113,8 +114,9 @@ class ParLoop(host.ParLoop):
                     arglist.append(d._data.ctypes.data)
             if arg._is_indirect or arg._is_mat:
                 for map in arg._map:
-                    for m in map:
-                        arglist.append(m._values.ctypes.data)
+                    if map is not None:
+                        for m in map:
+                            arglist.append(m._values.ctypes.data)
 
         if iterset._extruded:
             region = self.iteration_region

@@ -52,6 +52,7 @@ import mpi
 from mpi import collective
 import sparsity
 from pyop2 import utils
+from backends import _make_object
 
 
 class DataSet(base.DataSet):
@@ -132,6 +133,65 @@ class DataSet(base.DataSet):
         dm = PETSc.DMShell().create(comm=self.comm)
         dm.setGlobalVector(self.layout_vec)
         return dm
+
+
+class GlobalDataSet(base.GlobalDataSet):
+
+    @utils.cached_property
+    def lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet`.
+        """
+        lgmap = PETSc.LGMap()
+        lgmap.create(indices=np.arange(1, dtype=PETSc.IntType),
+                     bsize=self.cdim)
+        return lgmap
+
+    @utils.cached_property
+    def unblocked_lgmap(self):
+        """A PETSc LGMap mapping process-local indices to global
+        indices for this :class:`DataSet` with a block size of 1.
+        """
+        indices = self.lgmap.indices
+        lgmap = PETSc.LGMap().create(indices=indices,
+                                     bsize=1, comm=self.lgmap.comm)
+        return lgmap
+
+    @utils.cached_property
+    def field_ises(self):
+        """A list of PETSc ISes defining the global indices for each set in
+        the DataSet.
+
+        Used when extracting blocks from matrices for solvers."""
+        ises = []
+        nlocal_rows = 0
+        for dset in self:
+            nlocal_rows += dset.size * dset.cdim
+        offset = mpi.MPI.comm.scan(nlocal_rows)
+        offset -= nlocal_rows
+        for dset in self:
+            nrows = dset.size * dset.cdim
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1)
+            iset.setBlockSize(dset.cdim)
+            ises.append(iset)
+            offset += nrows
+        return tuple(ises)
+
+    @utils.cached_property
+    def local_ises(self):
+        """A list of PETSc ISes defining the local indices for each set in the DataSet.
+
+        Used when extracting blocks from matrices for assembly."""
+        raise NotImplementedError
+
+    @utils.cached_property
+    def layout_vec(self):
+        """A PETSc Vec compatible with the dof layout of this DataSet."""
+        vec = PETSc.Vec().create()
+        size = (self.size * self.cdim, None)
+        vec.setSizes(size, bsize=self.cdim)
+        vec.setUp()
+        return vec
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
@@ -365,6 +425,63 @@ class MixedDat(base.MixedDat):
         return self.vecscatter()
 
 
+class Global(base.Global):
+
+    @contextmanager
+    def vec_context(self, readonly=True):
+        """A context manager for a :class:`PETSc.Vec` from a :class:`Global`.
+
+        :param readonly: Access the data read-only (use :meth:`Dat.data_ro`)
+                         or read-write (use :meth:`Dat.data`). Read-write
+                         access requires a halo update."""
+
+        assert self.dtype == PETSc.ScalarType, \
+            "Can't create Vec with type %s, must be %s" % (self.dtype, PETSc.ScalarType)
+        acc = (lambda d: d.data_ro) if readonly else (lambda d: d.data)
+        # Getting the Vec needs to ensure we've done all current computation.
+        # If we only want readonly access then there's no need to
+        # force the evaluation of reads from the Dat.
+        self._force_evaluation(read=True, write=not readonly)
+        if not hasattr(self, '_vec'):
+            # Can't duplicate layout_vec of dataset, because we then
+            # carry around extra unnecessary data.
+            # But use getSizes to save an Allreduce in computing the
+            # global size.
+            size = self.dataset.layout_vec.getSizes()
+            if self.comm.rank == 0:
+                self._vec = PETSc.Vec().createWithArray(acc(self), size=size,
+                                                        bsize=self.cdim)
+            else:
+                self._vec = PETSc.Vec().createWithArray(np.empty(0, dtype=self.dtype),
+                                                        size=size,
+                                                        bsize=self.cdim)
+        # PETSc Vecs have a state counter and cache norm computations
+        # to return immediately if the state counter is unchanged.
+        # Since we've updated the data behind their back, we need to
+        # change that state counter.
+        self._vec.stateIncrease()
+        yield self._vec
+        if not readonly:
+            self.comm.Bcast(acc(self), 0)
+
+    @property
+    @modifies
+    @collective
+    def vec(self):
+        """Context manager for a PETSc Vec appropriate for this Dat.
+
+        You're allowed to modify the data you get back from this view."""
+        return self.vec_context(readonly=False)
+
+    @property
+    @collective
+    def vec_ro(self):
+        """Context manager for a PETSc Vec appropriate for this Dat.
+
+        You're not allowed to modify the data you get back from this view."""
+        return self.vec_context()
+
+
 class SparsityBlock(base.Sparsity):
     """A proxy class for a block in a monolithic :class:`.Sparsity`.
 
@@ -596,6 +713,12 @@ class Mat(base.Mat, CopyOnWrite):
 
     def _init_block(self):
         self._blocks = [[self]]
+
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or
+                isinstance(self.sparsity._dsets[1], GlobalDataSet)):
+            self._init_global_block()
+            return
+
         mat = PETSc.Mat()
         row_lg = self.sparsity.dsets[0].lgmap
         col_lg = self.sparsity.dsets[1].lgmap
@@ -646,6 +769,40 @@ class Mat(base.Mat, CopyOnWrite):
         self.handle = mat
         # Matrices start zeroed.
         self._version_set_zero()
+
+    def _init_global_block(self):
+        """Initialise this block in the case where the matrix maps either
+        to or from a :class:`Global`"""
+
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) and
+                isinstance(self.sparsity._dsets[1], GlobalDataSet)):
+            # In this case both row and column are a Global.
+
+            mat = _GlobalMat()
+        else:
+            mat = _DatMat(self.sparsity)
+        self.handle = mat
+        self._version_set_zero()
+
+    def __call__(self, access, path, flatten=False):
+        """Override the parent __call__ method in order to special-case global
+        blocks in matrices."""
+        try:
+            # Usual case
+            return super(Mat, self).__call__(access, path, flatten)
+        except TypeError:
+            # One of the path entries was not an Arg.
+            if path == (None, None):
+                return _make_object('Arg',
+                                    data=self.handle.getPythonContext().global_,
+                                    access=access, flatten=flatten)
+            elif None in path:
+                thispath = path[0] or path[1]
+                return _make_object('Arg', data=self.handle.getPythonContext().dat,
+                                    map=thispath.map, idx=thispath.idx,
+                                    access=access, flatten=flatten)
+            else:
+                raise
 
     def __getitem__(self, idx):
         """Return :class:`Mat` block with row and column given by ``idx``
@@ -760,13 +917,127 @@ class Mat(base.Mat, CopyOnWrite):
         if self.nrows * self.ncols > 1000000:
             raise ValueError("Printing dense matrix with more than 1 million entries not allowed.\n"
                              "Are you sure you wanted to do this?")
-        return self.handle[:, :]
+        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or
+           isinstance(self.sparsity._dsets[1], GlobalDataSet)):
+
+            return self.handle.getPythonContext()[:, :]
+        else:
+            return self.handle[:, :]
 
 
 class ParLoop(base.ParLoop):
 
     def log_flops(self):
         PETSc.Log.logFlops(self.num_flops)
+
+
+def _DatMat(sparsity, dat=None):
+    """A :class:`PETSc.Mat` with global size nx1 or nx1 implemented as a
+    :class:`.Dat`"""
+    if isinstance(sparsity.dsets[0], GlobalDataSet):
+        sizes = ((None, 1), (sparsity._ncols, None))
+    elif isinstance(sparsity.dsets[1], GlobalDataSet):
+        sizes = ((sparsity._nrows, None), (None, 1))
+    else:
+        raise ValueError("Not a DatMat")
+
+    A = PETSc.Mat().createPython(sizes)
+    A.setPythonContext(_DatMatPayload(sparsity, dat))
+    A.setUp()
+    return A
+
+
+class _DatMatPayload(object):
+
+    def __init__(self, sparsity, dat=None, dset=None):
+        if isinstance(sparsity.dsets[0], GlobalDataSet):
+            self.dset = sparsity.dsets[1]
+            self.sizes = ((None, 1), (sparsity._ncols, None))
+        elif isinstance(sparsity.dsets[1], GlobalDataSet):
+            self.dset = sparsity.dsets[0]
+            self.sizes = ((sparsity._nrows, None), (None, 1))
+        else:
+            raise ValueError("Not a DatMat")
+
+        self.sparsity = sparsity
+        self.dat = dat or _make_object("Dat", self.dset)
+        self.dset = dset
+
+    def __getitem__(self, key):
+        shape = [s[0] if s[0] > 0 else 1 for s in self.sizes]
+        return self.dat.data_ro.reshape(*shape)[key]
+
+    def zeroEntries(self, mat):
+        self.dat.data[...] = 0.0
+
+    def mult(self, mat, x, y):
+        with self.dat.vec as v:
+            if self.sizes[0][0] is None:
+                # Row matrix
+                out = v.dot(x)
+                if y.comm.rank == 0:
+                    y.array[0] = out
+                else:
+                    y.array[...]
+            else:
+                # Column matrix
+                if x.sizes[1] == 1:
+                    v.copy(y)
+                    a = np.zeros(1)
+                    if x.comm.rank == 0:
+                        a[0] = x.getArray()
+                    x.comm.tompi4py().bcast(a)
+                    return y.scale(a)
+                else:
+                    return v.pointwiseMult(x, y)
+
+    def duplicate(self, mat, copy=True):
+        if copy:
+            return _DatMat(self.sparsity, self.dat.duplicate())
+        else:
+            return _DatMat(self.sparsity)
+
+
+def _GlobalMat(global_=None):
+    """A :class:`PETSc.Mat` with global size 1x1 implemented as a
+    :class:`.Global`"""
+    A = PETSc.Mat().createPython(((None, 1), (None, 1)))
+    A.setPythonContext(_GlobalMatPayload(global_))
+    A.setUp()
+    return A
+
+
+class _GlobalMatPayload(object):
+
+    def __init__(self, global_=None):
+        self.global_ = global_ or _make_object("Global", 1)
+
+    def __getitem__(self, key):
+        return self.global_.data_ro.reshape(1, 1)[key]
+
+    def zeroEntries(self, mat):
+        self.global_.data[...] = 0.0
+
+    def getDiagonal(self, mat, result=None):
+        if result is None:
+            result = self.global_.dataset.layout_vec.duplicate()
+        if result.comm.rank == 0:
+            result.array[...] = self.global_.data_ro
+        else:
+            result.array[...]
+        return result
+
+    def mult(self, mat, x, result):
+        if result.comm.rank == 0:
+            result.array[...] = self.global_.data_ro * x.array
+        else:
+            result.array[...]
+
+    def duplicate(self, mat, copy=True):
+        if copy:
+            return _GlobalMat(self.global_.duplicate())
+        else:
+            return _GlobalMat()
 
 # FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
 # sequential

@@ -52,8 +52,8 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
            'i', 'debug', 'info', 'warning', 'error', 'critical', 'initialised',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
-           'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'MixedDataSet', 'Halo',
-           'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
+           'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
+           'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
            'Sparsity', 'Solver', 'par_loop', 'solve',
            'DatView']
 
@@ -155,6 +155,10 @@ class Subset(base.Subset):
 
 
 class DataSet(base.DataSet):
+    __metaclass__ = backends._BackendSelector
+
+
+class GlobalDataSet(base.GlobalDataSet):
     __metaclass__ = backends._BackendSelector
 
 

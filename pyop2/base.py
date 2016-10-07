@@ -519,8 +519,6 @@ class Set(object):
 
     :param size: The size of the set.
     :type size: integer or list of four integers.
-    :param dim: The shape of the data associated with each element of this ``Set``.
-    :type dim: integer or tuple of integers
     :param string name: The name of the set (optional).
     :param halo: An exisiting halo to use (optional).
 
@@ -702,6 +700,75 @@ class Set(object):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
         return cls(size[0], name)
+
+
+class GlobalSet(Set):
+
+    """A proxy set allowing a :class:`Global` to be used in place of a
+    :class:`Dat` where appropriate."""
+
+    def __init__(self, comm=None):
+        self.comm = dup_comm(comm)
+
+    @cached_property
+    def core_size(self):
+        return 0
+
+    @cached_property
+    def size(self):
+        return 1 if self.comm.rank == 0 else 0
+
+    @cached_property
+    def exec_size(self):
+        return 0
+
+    @cached_property
+    def total_size(self):
+        """Total set size, including halo elements."""
+        return 1 if self.comm.rank == 0 else 0
+
+    @cached_property
+    def sizes(self):
+        """Set sizes: core, owned, execute halo, total."""
+        return (self.core_size, self.size, self.exec_size, self.total_size)
+
+    @cached_property
+    def name(self):
+        """User-defined label"""
+        return "GlobalSet"
+
+    @cached_property
+    def halo(self):
+        """:class:`Halo` associated with this Set"""
+        return None
+
+    @property
+    def partition_size(self):
+        """Default partition size"""
+        return None
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __getitem__(self, idx):
+        """Allow indexing to return self"""
+        assert idx == 0
+        return self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
+    def __str__(self):
+        return "OP2 GlobalSet"
+
+    def __repr__(self):
+        return "GlobalSet()"
+
+    def __eq__(self, other):
+        # Currently all GlobalSets compare equal.
+        return isinstance(other, GlobalSet)
 
 
 class ExtrudedSet(Set):
@@ -905,10 +972,10 @@ class MixedSet(Set, ObjectCached):
         if self._initialized:
             return
         self._sets = sets
-        assert all(s.layers == self._sets[0].layers for s in sets), \
+        assert all(s is None or isinstance(s, GlobalSet) or s.layers == self._sets[0].layers for s in sets), \
             "All components of a MixedSet must have the same number of layers."
         # TODO: do all sets need the same communicator?
-        self.comm = sets[0].comm
+        self.comm = reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets))
         self._initialized = True
 
     @classmethod
@@ -917,7 +984,7 @@ class MixedSet(Set, ObjectCached):
         try:
             sets = as_tuple(sets, ExtrudedSet)
         except TypeError:
-            sets = as_tuple(sets, Set)
+            sets = as_tuple(sets, (Set, type(None)))
         cache = sets[0]
         return (cache, ) + (sets, ), kwargs
 
@@ -942,7 +1009,7 @@ class MixedSet(Set, ObjectCached):
     @cached_property
     def size(self):
         """Set size, owned elements."""
-        return sum(s.size for s in self._sets)
+        return sum(0 if s is None else s.size for s in self._sets)
 
     @cached_property
     def exec_size(self):
@@ -997,6 +1064,9 @@ class MixedSet(Set, ObjectCached):
 
     def __repr__(self):
         return "MixedSet(%r)" % (self._sets,)
+
+    def __eq__(self, other):
+        return type(self) == type(other) and self._sets == other._sets
 
 
 class DataSet(ObjectCached):
@@ -1086,6 +1156,69 @@ class DataSet(ObjectCached):
     def __contains__(self, dat):
         """Indicate whether a given Dat is compatible with this DataSet."""
         return dat.dataset == self
+
+
+class GlobalDataSet(DataSet):
+    """A proxy :class:`DataSet` for use in a :class:`Sparsity` where the
+    matrix has :class:`Global` rows or columns."""
+    _globalcount = 0
+
+    def __init__(self, global_):
+        """
+        :param global_: The :class:`Global` on which this object is based."""
+
+        self._global = global_
+        self._globalset = GlobalSet(comm=self.comm)
+
+    @classmethod
+    def _cache_key(cls, *args):
+        return None
+
+    @cached_property
+    def dim(self):
+        """The shape tuple of the values for each element of the set."""
+        return self._global._dim
+
+    @cached_property
+    def cdim(self):
+        """The scalar number of values for each member of the set. This is
+        the product of the dim tuple."""
+        return self._global._cdim
+
+    @cached_property
+    def name(self):
+        """Returns the name of the data set."""
+        return self._global._name
+
+    @cached_property
+    def comm(self):
+        """Return the communicator on which the set is defined."""
+        return self._global.comm
+
+    @cached_property
+    def set(self):
+        """Returns the parent set of the data set."""
+        return self._globalset
+
+    @cached_property
+    def size(self):
+        """The number of local entries in the Dataset (1 on rank 0)"""
+        return 1 if MPI.comm.rank == 0 else 0
+
+    def __iter__(self):
+        """Yield self when iterated over."""
+        yield self
+
+    def __len__(self):
+        """This is not a mixed type and therefore of length 1."""
+        return 1
+
+    def __str__(self):
+        return "OP2 GlobalDataSet: %s on Global %s" % \
+            (self._name, self._global)
+
+    def __repr__(self):
+        return "GlobalDataSet(%r)" % (self._global)
 
 
 class MixedDataSet(DataSet, ObjectCached):
@@ -2308,7 +2441,7 @@ class MixedDat(Dat):
         if isinstance(mdset_or_dats, MixedDat):
             self._dats = tuple(_make_object('Dat', d) for d in mdset_or_dats)
         else:
-            self._dats = tuple(d if isinstance(d, Dat) else _make_object('Dat', d)
+            self._dats = tuple(d if isinstance(d, (Dat, Global)) else _make_object('Dat', d)
                                for d in mdset_or_dats)
         if not all(d.dtype == self._dats[0].dtype for d in self._dats):
             raise DataValueError('MixedDat with different dtypes is not supported')
@@ -2591,12 +2724,13 @@ class Global(DataCarrier, _EmptyDataMixin):
     _modes = [READ, INC, MIN, MAX]
 
     @validate_type(('name', str, NameTypeError))
-    def __init__(self, dim, data=None, dtype=None, name=None):
+    def __init__(self, dim, data=None, dtype=None, name=None, comm=None):
         self._dim = as_tuple(dim, int)
         self._cdim = np.asscalar(np.prod(self._dim))
         _EmptyDataMixin.__init__(self, data, dtype, self._dim)
         self._buf = np.empty(self.shape, dtype=self.dtype)
         self._name = name or "global_%d" % Global._globalcount
+        self.comm = comm
         Global._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
@@ -2641,6 +2775,10 @@ class Global(DataCarrier, _EmptyDataMixin):
     def __repr__(self):
         return "Global(%r, %r, %r, %r)" % (self._dim, self._data,
                                            self._data.dtype, self._name)
+
+    @cached_property
+    def dataset(self):
+        return _make_object('GlobalDataSet', self)
 
     @property
     def _argtype(self):
@@ -2700,8 +2838,30 @@ class Global(DataCarrier, _EmptyDataMixin):
         return type(self)(self.dim, data=np.copy(self.data_ro),
                           dtype=self.dtype, name=self.name)
 
+    @collective
+    def copy(self, other, subset=None):
+        """Copy the data in this :class:`Global` into another.
 
-# FIXME: Part of kernel API, but must be declared before Map for the validation.
+        :arg other: The destination :class:`Global`
+        :arg subset: A :class:`Subset` of elements to copy (optional)"""
+
+        other.data = np.copy(self.data_ro)
+
+    @collective
+    def zero(self):
+        self.data[...] = 0
+
+    @collective
+    def halo_exchange_begin(self):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
+    @collective
+    def halo_exchange_end(self):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
 
 
 class IterationIndex(object):
@@ -2980,6 +3140,8 @@ class DecoratedMap(Map, ObjectCached):
 
     def __new__(cls, map, iteration_region=None, implicit_bcs=None,
                 vector_index=None):
+        if map is None:
+            return None
         if isinstance(map, DecoratedMap):
             # Need to add information, rather than replace if we
             # already have a decorated map (but overwrite if we're
@@ -3066,8 +3228,7 @@ class MixedMap(Map, ObjectCached):
         if self._initialized:
             return
         self._maps = maps
-        # Make sure all itersets are identical
-        if not all(m.iterset == self._maps[0].iterset for m in self._maps):
+        if not all(m is None or m.iterset == self.iterset for m in self._maps):
             raise MapTypeError("All maps in a MixedMap need to share the same iterset")
         # TODO: Think about different communicators on maps (c.f. MixedSet)
         self.comm = maps[0].comm
@@ -3091,12 +3252,13 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def iterset(self):
         """:class:`MixedSet` mapped from."""
-        return self._maps[0].iterset
+        return reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.iterset, self._maps))
 
     @cached_property
     def toset(self):
         """:class:`MixedSet` mapped to."""
-        return MixedSet(tuple(m.toset for m in self._maps))
+        return MixedSet(tuple(GlobalSet() if m is None else
+                              m.toset for m in self._maps))
 
     @cached_property
     def arity(self):
@@ -3132,7 +3294,8 @@ class MixedMap(Map, ObjectCached):
         This returns all map values (including halo points), see
         :meth:`values` if you only need to look at the local
         points."""
-        return tuple(m.values_with_halo for m in self._maps)
+        return tuple(None if m is None else
+                     m.values_with_halo for m in self._maps)
 
     @cached_property
     def name(self):
@@ -3142,7 +3305,7 @@ class MixedMap(Map, ObjectCached):
     @cached_property
     def offset(self):
         """Vertical offsets."""
-        return tuple(m.offset for m in self._maps)
+        return tuple(0 if m is None else m.offset for m in self._maps)
 
     def __iter__(self):
         """Yield all :class:`Map`\s when iterated over."""
@@ -3205,27 +3368,45 @@ class Sparsity(ObjectCached):
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
 
-        self.lcomm = self._rmaps[0].comm
-        self.rcomm = self._cmaps[0].comm
+        if isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
+            self._d_nz = 0
+            self._o_nz = 0
+            self._dims = (((1, 1),),)
+            self._rowptr = None
+            self._colidx = None
+            self._d_nnz = None
+            self._o_nnz = None
+            self._nrows = None if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].toset.size
+            self._ncols = None if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].toset.size
+            self.lcomm = dsets[0].comm if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].comm
+            self.rcomm = dsets[1].comm if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].comm
+            self._rowptr = None
+            self._colidx = None
+            self._d_nnz = 0
+            self._o_nnz = 0
+        else:
+            self.lcomm = self._rmaps[0].comm
+            self.rcomm = self._cmaps[0].comm
+
+            # All rmaps and cmaps have the same data set - just use the first.
+            self._nrows = self._rmaps[0].toset.size
+            self._ncols = self._cmaps[0].toset.size
+
+            self._has_diagonal = self._rmaps[0].toset == self._cmaps[0].toset
+
+            tmp = itertools.product([x.cdim for x in self._dsets[0]],
+                                    [x.cdim for x in self._dsets[1]])
+
+            dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
+            for r in range(self.shape[0]):
+                for c in range(self.shape[1]):
+                    dims[r][c] = tmp.next()
+
+            self._dims = tuple(tuple(d) for d in dims)
+
         if self.lcomm != self.rcomm:
             raise ValueError("Haven't thought hard enough about different left and right communicators")
         self.comm = self.lcomm
-
-        # All rmaps and cmaps have the same data set - just use the first.
-        self._nrows = self._rmaps[0].toset.size
-        self._ncols = self._cmaps[0].toset.size
-
-        self._has_diagonal = self._rmaps[0].toset == self._cmaps[0].toset
-
-        tmp = itertools.product([x.cdim for x in self._dsets[0]],
-                                [x.cdim for x in self._dsets[1]])
-
-        dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
-        for r in range(self.shape[0]):
-            for c in range(self.shape[1]):
-                dims[r][c] = tmp.next()
-
-        self._dims = tuple(tuple(d) for d in dims)
 
         self._name = name or "sparsity_%d" % Sparsity._globalcount
         Sparsity._globalcount += 1
@@ -3249,6 +3430,11 @@ class Sparsity(ObjectCached):
             self._o_nnz = tuple(s._o_nnz for s in self)
             self._d_nz = sum(s._d_nz for s in self)
             self._o_nz = sum(s._o_nz for s in self)
+        elif isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
+            # Where the sparsity maps either from or to a Global, we
+            # don't really have any sparsity structure.
+            self._blocks = [[self]]
+            self._nested = False
         else:
             with timed_region("CreateSparsity"):
                 build_sparsity(self, parallel=(self.comm.size > 1),
@@ -3274,7 +3460,7 @@ class Sparsity(ObjectCached):
 
         # Check data sets are valid
         for dset in dsets:
-            if not isinstance(dset, DataSet):
+            if not isinstance(dset, DataSet) and dset is not None:
                 raise DataSetTypeError("All data sets must be of type DataSet, not type %r" % type(dset))
 
         # A single map becomes a pair of identical maps
@@ -3284,6 +3470,10 @@ class Sparsity(ObjectCached):
 
         # Check maps are sane
         for pair in maps:
+            if pair[0] is None or pair[1] is None:
+                # None of this checking makes sense if one of the
+                # matrix operands is a Global.
+                continue
             for m in pair:
                 if not isinstance(m, Map):
                     raise MapTypeError(
@@ -3306,17 +3496,20 @@ class Sparsity(ObjectCached):
         if not len(rmaps) == len(cmaps):
             raise RuntimeError("Must pass equal number of row and column maps")
 
-        # Each row map must have the same to-set (data set)
-        if not all(m.toset == rmaps[0].toset for m in rmaps):
-            raise RuntimeError("To set of all row maps must be the same")
+        if rmaps[0] is not None and cmaps[0] is not None:
+            # Each row map must have the same to-set (data set)
+            if not all(m.toset == rmaps[0].toset for m in rmaps):
+                raise RuntimeError("To set of all row maps must be the same")
 
-        # Each column map must have the same to-set (data set)
-        if not all(m.toset == cmaps[0].toset for m in cmaps):
-            raise RuntimeError("To set of all column maps must be the same")
+                # Each column map must have the same to-set (data set)
+            if not all(m.toset == cmaps[0].toset for m in cmaps):
+                raise RuntimeError("To set of all column maps must be the same")
 
         # Need to return the caching object, a tuple of the processed
         # arguments and a dict of kwargs (empty in this case)
-        if isinstance(dsets[0].set, MixedSet):
+        if isinstance(dsets[0], GlobalDataSet):
+            cache = None
+        elif isinstance(dsets[0].set, MixedSet):
             cache = dsets[0].set[0]
         else:
             cache = dsets[0].set
@@ -3380,7 +3573,8 @@ class Sparsity(ObjectCached):
     @cached_property
     def shape(self):
         """Number of block rows and columns."""
-        return len(self._dsets[0]), len(self._dsets[1])
+        return (len(self._dsets[0] or [1]),
+                len(self._dsets[1] or [1]))
 
     @cached_property
     def nrows(self):
@@ -3549,8 +3743,8 @@ class Mat(SetAssociated):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path, flatten=False):
         path = as_tuple(path, _MapArg, 2)
-        path_maps = [arg.map for arg in path]
-        path_idxs = [arg.idx for arg in path]
+        path_maps = [arg and arg.map for arg in path]
+        path_idxs = [arg and arg.idx for arg in path]
         if configuration["type_check"] and tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,

@@ -139,7 +139,7 @@ class ObjectCached(object):
 
         # Don't bother looking in caches if we're not meant to cache
         # this object.
-        if key is None:
+        if key is None or cache_obj is None:
             return make_obj()
 
         # Does the caching object know about the caches?
