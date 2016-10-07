@@ -100,8 +100,6 @@ honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--developer", action='store_true',
-                       help="Install in developer mode where the core packages are run from their source directories. Due to an upstream bug, petsc4py will not be installed in developer mode.")
     parser.add_argument("--sudo", action='store_true',
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
     parser.add_argument("--adjoint", action='store_true',
@@ -146,6 +144,7 @@ honoured.""",
     if args.package_branch:
         branches = {package: branch for package, branch in args.package_branch}
 
+    args.developer = True # All new installations are developer mode, since there is no advantage to non-developer mode installs.
     args.prefix = False  # Disabled as untested
     args.packages = args.packages or []
 
