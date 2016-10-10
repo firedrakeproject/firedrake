@@ -3438,7 +3438,7 @@ class Sparsity(ObjectCached):
         else:
             for dset in dsets:
                 if isinstance(dset, MixedDataSet) and any([isinstance(d, GlobalDataSet) for d in dset]):
-                    raise NotImplementedError("Mixed monolithic matrices with Global rows or columns are not supported.")
+                    raise SparsityFormatError("Mixed monolithic matrices with Global rows or columns are not supported.")
             with timed_region("CreateSparsity"):
                 build_sparsity(self, parallel=(self.comm.size > 1),
                                block=self._block_sparse)
