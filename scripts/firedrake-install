@@ -99,7 +99,6 @@ in the PETSC_CONFIGURE_OPTIONS environment variable will be
 honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
-    group = parser.add_mutually_exclusive_group()
     parser.add_argument("--sudo", action='store_true',
                         help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
     parser.add_argument("--adjoint", action='store_true',
