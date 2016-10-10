@@ -227,7 +227,8 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
         def rec(eles):
             for ele in eles:
-                if ele.num_sub_elements() > 0:
+                # Only want to recurse into MixedElements
+                if type(ele) is ufl.MixedElement:
                     rec(ele.sub_elements())
                 else:
                     sub_elements.append(ele)
