@@ -124,8 +124,6 @@ class Tensor(object):
 
             shapes[i] = tuple(shapelist)
             shape.append(sum(shapelist))
-        import pdb
-        pdb.set_trace()
 
         self.shapes = shapes
         self.shape = tuple(shape)

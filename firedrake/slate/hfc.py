@@ -145,6 +145,7 @@ def compile_slate_expression(slate_expr, testing=False):
     coeffs = slate_expr.coefficients()
     coeffmap = dict((c, ast.Symbol("w%d" % i)) for i, c in enumerate(coeffs))
     statements = []
+    need_action = False
     need_cell_facets = False
 
     # Auxillary functions for constructing matrix types.
@@ -333,8 +334,8 @@ def compile_slate_expression(slate_expr, testing=False):
                                                       *clist))
         # Perform code gen for performing Action
         else:
-            # TODO: Action as a for-loop
-            pass
+            # TODO: Action as a for-loop down below
+            need_action = True
 
     def pars(expr, prec=None, parent=None):
         """Parses a slate expression and returns a string representation."""
@@ -351,6 +352,17 @@ def compile_slate_expression(slate_expr, testing=False):
                                   type(expr).__name__)
 
     @get_c_str.register(Action)
+    def get_c_str_action(expr, temps, prec=None):
+        """Generates the loop for populating the action of a SLATE tensor
+        on a coefficient."""
+        action_block = []
+        itersym = ast.Symbol("j")
+        order = expr.shape[0]
+        action_loop = ast.For(ast.Decl("unsigned int", itersym, init=0),
+                              ast.Less(itersym, order),
+                              ast.Incr(itersym, 1), action_block)
+        return action_loop
+
     @get_c_str.register(Scalar)
     @get_c_str.register(Vector)
     @get_c_str.register(Matrix)
