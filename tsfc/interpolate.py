@@ -9,10 +9,6 @@ from collections import namedtuple
 import ufl
 import coffee.base as ast
 
-from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
-from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
-from ufl.algorithms.apply_derivatives import apply_derivatives
-from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.algorithms import extract_arguments, extract_coefficients
 from gem import gem, impero_utils
 from tsfc import fem, ufl_utils
@@ -24,27 +20,19 @@ from tsfc.kernel_interface.firedrake import KernelBuilderBase, cell_orientations
 Kernel = namedtuple('Kernel', ['ast', 'oriented', 'coefficients'])
 
 
-def compile_ufl_kernel(expression, to_pts, to_element, fs):
-
-    # Imitate the compute_form_data processing pipeline
-    #
-    # Unfortunately, we cannot call compute_form_data here, since
-    # we only have an expression, not a form
-    expression = apply_algebra_lowering(expression)
-    expression = apply_derivatives(expression)
-    expression = apply_function_pullbacks(expression)
-    expression = apply_geometry_lowering(expression)
-    expression = apply_derivatives(expression)
-    expression = apply_geometry_lowering(expression)
-    expression = apply_derivatives(expression)
-
-    # Replace coordinates (if any)
-    if expression.ufl_domain():
-        assert fs.mesh() == expression.ufl_domain()
-        expression = ufl_utils.replace_coordinates(expression, fs.mesh().coordinates)
-
+def compile_expression_at_points(expression, refpoints, coordinates):
+    # No arguments, please!
     if extract_arguments(expression):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
+
+    # Apply UFL preprocessing
+    expression = ufl_utils.preprocess_expression(expression)
+
+    # Replace coordinates (if any)
+    domain = expression.ufl_domain()
+    if domain:
+        assert coordinates.ufl_domain() == domain
+        expression = ufl_utils.replace_coordinates(expression, coordinates)
 
     builder = KernelBuilderBase()
     coefficient_split = {}
@@ -67,8 +55,8 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
 
     point_index = gem.Index(name='p')
     ir = fem.compile_ufl(expression,
-                         cell=fs.mesh().ufl_cell(),
-                         points=to_pts,
+                         cell=coordinates.ufl_domain().ufl_cell(),
+                         points=refpoints,
                          point_index=point_index,
                          coefficient=builder.coefficient,
                          cell_orientation=builder.cell_orientation)
@@ -76,12 +64,13 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
 
     # Deal with non-scalar expressions
     tensor_indices = ()
-    if fs.shape:
-        tensor_indices = tuple(gem.Index() for s in fs.shape)
+    fs_shape = ir[0].shape
+    if fs_shape:
+        tensor_indices = tuple(gem.Index() for s in fs_shape)
         ir = [gem.Indexed(ir[0], tensor_indices)]
 
     # Build kernel body
-    return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
+    return_var = gem.Variable('A', (len(refpoints),) + fs_shape)
     return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
     impero_c = impero_utils.compile_gem([return_expr], ir, (point_index,) + tensor_indices)
     body = generate_coffee(impero_c, index_names={point_index: 'p'})
@@ -91,7 +80,7 @@ def compile_ufl_kernel(expression, to_pts, to_element, fs):
         args.insert(0, cell_orientations_coffee_arg)
 
     # Build kernel
-    args.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
+    args.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(refpoints),) + fs_shape)))
     kernel_code = builder.construct_kernel("expression_kernel", args, body)
 
     return Kernel(kernel_code, oriented, coefficients)
