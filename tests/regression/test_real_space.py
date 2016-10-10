@@ -96,6 +96,19 @@ def test_real_mixed_two_form_assembly():
                                    m.M.blocks[1][1].values)
 
 
+def test_real_mixed_monolithic_two_form_assembly():
+    mesh = UnitIntervalMesh(3)
+    rfs = FunctionSpace(mesh, "Real", 0)
+    cgfs = FunctionSpace(mesh, "CG", 1)
+
+    mfs = cgfs*rfs
+    u, p = TrialFunctions(mfs)
+    v, q = TestFunctions(mfs)
+
+    with pytest.raises(ValueError):
+        assemble(u*v*dx + p*q*dx + u*q*dx + p*v*dx, mat_type="aij")
+
+
 def test_real_extruded_mixed_two_form_assembly():
     m = UnitIntervalMesh(3)
     mesh = ExtrudedMesh(m, 10)

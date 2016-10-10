@@ -4,7 +4,7 @@ import ufl
 from collections import defaultdict
 
 from pyop2 import op2
-from pyop2.exceptions import MapValueError
+from pyop2.exceptions import MapValueError, SparsityFormatError
 
 from firedrake import assembly_cache
 from firedrake import assemble_expressions
@@ -200,11 +200,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
             fs_names = (test.function_space().name, trial.function_space().name)
-            sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                     trial.function_space().dof_dset),
-                                    map_pairs,
-                                    "%s_%s_sparsity" % fs_names,
-                                    nest=nest)
+            try:
+                sparsity = op2.Sparsity((test.function_space().dof_dset,
+                                         trial.function_space().dof_dset),
+                                        map_pairs,
+                                        "%s_%s_sparsity" % fs_names,
+                                        nest=nest)
+            except SparsityFormatError:
+                raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
+
             result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
