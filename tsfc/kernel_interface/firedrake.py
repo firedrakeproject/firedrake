@@ -95,12 +95,17 @@ class KernelBuilderBase(_KernelBuilderBase):
 
 
 class ExpressionKernelBuilder(KernelBuilderBase):
+    """Builds expression kernels for UFL interpolation in Firedrake."""
 
     def __init__(self):
         super(ExpressionKernelBuilder, self).__init__()
         self.oriented = False
 
     def set_coefficients(self, coefficients):
+        """Prepare the coefficients of the expression.
+
+        :arg coefficients: UFL coefficients from Firedrake
+        """
         self.coefficients = []  # Firedrake coefficients for calling the kernel
         self.coefficient_split = {}
         self.kernel_args = []
@@ -121,6 +126,12 @@ class ExpressionKernelBuilder(KernelBuilderBase):
         self.oriented = True
 
     def construct_kernel(self, return_arg, body):
+        """Constructs an :class:`ExpressionKernel`.
+
+        :arg return_arg: COFFEE argument for the return value
+        :arg body: function body (:class:`coffee.Block` node)
+        :returns: :class:`ExpressionKernel` object
+        """
         args = [return_arg] + self.kernel_args
         if self.oriented:
             args.insert(1, cell_orientations_coffee_arg)

@@ -252,6 +252,14 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
 
 def compile_expression_at_points(expression, points, coordinates):
+    """Compiles a UFL expression to be evaluated at compile-time known
+    reference points.  Useful for interpolating UFL expressions onto
+    function spaces with only point evaluation nodes.
+
+    :arg expression: UFL expression
+    :arg points: reference coordinates of the evaluation points
+    :arg coordinates: the coordinate function
+    """
     import coffee.base as ast
 
     # No arguments, please!
@@ -284,10 +292,9 @@ def compile_expression_at_points(expression, points, coordinates):
                           cell_orientation=builder.cell_orientation)
 
     # Deal with non-scalar expressions
-    tensor_indices = ()
     value_shape = ir.shape
+    tensor_indices = tuple(gem.Index() for s in value_shape)
     if value_shape:
-        tensor_indices = tuple(gem.Index() for s in value_shape)
         ir = gem.Indexed(ir, tensor_indices)
 
     # Build kernel body
