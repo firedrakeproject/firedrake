@@ -16,7 +16,7 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
-from gem.utils import cached_property
+from gem.utils import cached_property, unset_attribute
 
 from tsfc.fiatinterface import create_element, create_quadrature, as_fiat_cell
 from tsfc.modified_terminals import analyse_modified_terminal
@@ -142,6 +142,10 @@ class Parameters(object):
             raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
         self.__dict__.update(kwargs)
 
+    @unset_attribute
+    def cell(self):
+        pass
+
     @cached_property
     def fiat_cell(self):
         return as_fiat_cell(self.cell)
@@ -151,6 +155,10 @@ class Parameters(object):
         return self.fiat_cell.get_dimension()
 
     entity_ids = [0]
+
+    @unset_attribute
+    def quadrature_degree(self):
+        pass
 
     @cached_property
     def quadrature_rule(self):
@@ -212,7 +220,31 @@ class Parameters(object):
         """
         return self._selector(callback, list(range(len(self.entity_ids))), restriction)
 
+    @unset_attribute
+    def point_index(self):
+        pass
+
     argument_indices = ()
+
+    @unset_attribute
+    def coefficient(self):
+        pass
+
+    @unset_attribute
+    def cell_orientation(self):
+        pass
+
+    @unset_attribute
+    def facet_number(self):
+        pass
+
+    @unset_attribute
+    def cellvolume(self):
+        pass
+
+    @unset_attribute
+    def facetarea(self):
+        pass
 
     @cached_property
     def index_cache(self):
