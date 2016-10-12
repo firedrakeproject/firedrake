@@ -661,6 +661,8 @@ PETSc will then print its view of the solver objects that Firedrake
 has constructed.  This is especially useful for debugging complicated
 preconditioner setups for mixed problems.
 
+.. _singular_systems:
+
 Solving singular systems
 ------------------------
 
