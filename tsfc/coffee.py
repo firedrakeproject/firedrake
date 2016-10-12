@@ -223,12 +223,7 @@ def _expression(expr, parameters):
 
 @_expression.register(gem.Failure)
 def _expression_failure(expr, parameters):
-    E = expr.exc_info[0]
-    V = expr.exc_info[1]
-    T = expr.exc_info[2]
-    e = E(V)
-    e.__traceback__ = T
-    raise e
+    raise expr.exception
 
 
 @_expression.register(gem.Product)

@@ -25,10 +25,9 @@ from tsfc.parameters import PARAMETERS
 from tsfc.ufl_utils import (CollectModifiedTerminals,
                             ModifiedTerminalMixin, PickRestriction,
                             spanning_degree, simplify_abs)
-from FIAT.hdiv_trace import TraceError
 
 
-def _tabulate(ufl_element, order, points, entity):
+def tabulate(ufl_element, order, points, entity, epsilon):
     """Ask FIAT to tabulate ``points`` up to order ``order``, then
     rearranges the result into a series of ``(c, D, table)`` tuples,
     where:
@@ -47,41 +46,28 @@ def _tabulate(ufl_element, order, points, entity):
     phi = element.space_dimension()
     C = ufl_element.reference_value_size()
     q = len(points)
-    try:
-        for D, fiat_table in iteritems(element.tabulate(order, points, entity)):
+    for D, fiat_table in iteritems(element.tabulate(order, points, entity)):
+        if isinstance(fiat_table, Exception):
+            # In the case an exception is found in the fiat table, do not
+            # perform any rounding
+            gem_fail = gem.Failure((q, phi), fiat_table)
+            for c in range(C):
+                yield c, D, gem_fail
+        else:
             reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
             for c, table in enumerate(reordered_table):
-                yield c, D, table
-    except TraceError as TE:
-        # import sys
-        # shape = (q, phi)
-        # TODO: Incorporate a proper Failure Table into the tabulation manager.
-        # Currently we are returned appropriately sized zeros arrays for gradient
-        # tabulations on trace element.
-        # gemTable = gem.Failure(shape, sys.exc_info())
-        for D, fiat_table in TE.zeros.iteritems():
-            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
-            for c, table in enumerate(reordered_table):
-                yield c, D, table
+                # Copied from FFC (ffc/quadrature/quadratureutils.py)
+                table[abs(table) < epsilon] = 0
+                table[abs(table - 1.0) < epsilon] = 1.0
+                table[abs(table + 1.0) < epsilon] = -1.0
+                table[abs(table - 0.5) < epsilon] = 0.5
+                table[abs(table + 0.5) < epsilon] = -0.5
 
+                if spanning_degree(ufl_element) <= sum(D) and ufl_element.family() != "HDiv Trace":
+                    assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
+                    table = table[0]
 
-def tabulate(ufl_element, order, points, entity, epsilon):
-    """Same as the above, but also applies FFC rounding and recognises
-    cellwise constantness.  Cellwise constantness is determined
-    symbolically, but we also check the numerics to be safe."""
-    for c, D, table in _tabulate(ufl_element, order, points, entity):
-        # Copied from FFC (ffc/quadrature/quadratureutils.py)
-        table[abs(table) < epsilon] = 0
-        table[abs(table - 1.0) < epsilon] = 1.0
-        table[abs(table + 1.0) < epsilon] = -1.0
-        table[abs(table - 0.5) < epsilon] = 0.5
-        table[abs(table + 0.5) < epsilon] = -0.5
-
-        if spanning_degree(ufl_element) <= sum(D) and ufl_element.family() != "HDiv Trace":
-            assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
-            table = table[0]
-
-        yield c, D, table
+                yield c, D, gem.Literal(table)
 
 
 def make_tabulator(points, entity):
@@ -120,11 +106,11 @@ class TabulationManager(object):
                 store[(ufl_element, c, D)].append(table)
 
         for key, tables in iteritems(store):
-            table = numpy.array(tables)
+            table = gem.ListTensor(tables)
             if len(table.shape) == 2:
                 # Cellwise constant; must not depend on the facet
-                assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
-                table = table[0]
+                assert compat.allclose(table.array, table.array.mean(axis=0, keepdims=True), equal_nan=True)
+                table = gem.Literal(table.array[0])
             self.tables[key] = table
 
     def __getitem__(self, key):
@@ -332,9 +318,10 @@ def translate_argument(terminal, mt, ctx):
         table = ctx.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            row = gem.Literal(table)
+            row = table
         else:
-            table = ctx.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
+            table = ctx.index_selector(lambda i: gem.partial_indexed(table, (i,)),
+                                       mt.restriction)
             row = gem.partial_indexed(table, (ctx.point_index,))
         return gem.Indexed(row, (argument_index,))
 
@@ -353,15 +340,16 @@ def translate_coefficient(terminal, mt, ctx):
         table = ctx.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            row = gem.Literal(table)
-            if numpy.count_nonzero(table) <= 2:
+            row = table
+            if numpy.count_nonzero(table.array) <= 2:
                 assert row.shape == vec.shape
                 return reduce(gem.Sum,
                               [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(vec, (i,)))
                                for i in range(row.shape[0])],
                               gem.Zero())
         else:
-            table = ctx.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
+            table = ctx.index_selector(lambda i: gem.partial_indexed(table, (i,)),
+                                       mt.restriction)
             row = gem.partial_indexed(table, (ctx.point_index,))
 
         r = ctx.index_cache[terminal.ufl_element()]
