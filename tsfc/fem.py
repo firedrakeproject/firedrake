@@ -19,6 +19,7 @@ import gem
 from gem.utils import cached_property, unset_attribute
 
 from tsfc.fiatinterface import create_element, create_quadrature, as_fiat_cell
+from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc import compat
 from tsfc import ufl2gem
@@ -118,7 +119,7 @@ class TabulationManager(object):
         return self.tables[key]
 
 
-class Parameters(object):
+class Parameters(ProxyKernelInterface):
     keywords = ('cell',
                 'fiat_cell',
                 'integration_dim',
@@ -129,14 +130,15 @@ class Parameters(object):
                 'weights',
                 'point_index',
                 'argument_indices',
-                'coefficient',
-                'cell_orientation',
-                'facet_number',
                 'cellvolume',
                 'facetarea',
                 'index_cache')
 
     def __init__(self, **kwargs):
+        # Initialise superclass
+        ProxyKernelInterface.__init__(self, kwargs["kernel_interface"])
+        del kwargs["kernel_interface"]
+
         invalid_keywords = set(kwargs.keys()) - set(Parameters.keywords)
         if invalid_keywords:
             raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
@@ -225,18 +227,6 @@ class Parameters(object):
         pass
 
     argument_indices = ()
-
-    @unset_attribute
-    def coefficient(self):
-        pass
-
-    @unset_attribute
-    def cell_orientation(self):
-        pass
-
-    @unset_attribute
-    def facet_number(self):
-        pass
 
     @unset_attribute
     def cellvolume(self):

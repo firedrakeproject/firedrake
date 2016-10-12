@@ -19,6 +19,7 @@ from tsfc.constants import SCALAR_TYPE, default_parameters
 from tsfc.fiatinterface import QuadratureRule, as_fiat_cell, create_quadrature
 from tsfc.logging import logger
 
+from tsfc.kernel_interface import ProxyKernelInterface
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
 
@@ -125,18 +126,20 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
         if interior_facet:
-            def coefficient(ufl_coefficient, r):
-                assert r is None
-                return builder.coefficient(ufl_coefficient, restriction)
+            class CellVolumeKernelInterface(ProxyKernelInterface):
+                def coefficient(self, ufl_coefficient, r):
+                    assert r is None
+                    return builder.coefficient(ufl_coefficient, restriction)
+            kernel_interface = CellVolumeKernelInterface(builder)
         else:
             assert restriction is None
-            coefficient = builder.coefficient
+            kernel_interface = builder
         ir = fem.compile_ufl(integrand,
                              parameters,
                              cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
-                             coefficient=coefficient,
+                             kernel_interface=kernel_interface,
                              index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -167,8 +170,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                              entity_ids=entity_ids,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
-                             coefficient=builder.coefficient,
-                             facet_number=builder.facet_number,
+                             kernel_interface=builder,
                              index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -213,9 +215,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                              quadrature_rule=quad_rule,
                              point_index=quadrature_index,
                              argument_indices=argument_indices,
-                             coefficient=builder.coefficient,
-                             cell_orientation=builder.cell_orientation,
-                             facet_number=builder.facet_number,
+                             kernel_interface=builder,
                              index_cache=index_cache,
                              cellvolume=cellvolume,
                              facetarea=facetarea)
@@ -300,8 +300,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
                           cell=coordinates.ufl_domain().ufl_cell(),
                           points=points,
                           point_index=point_index,
-                          coefficient=builder.coefficient,
-                          cell_orientation=builder.cell_orientation)
+                          kernel_interface=builder)
 
     # Deal with non-scalar expressions
     value_shape = ir.shape

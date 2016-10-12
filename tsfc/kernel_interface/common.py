@@ -6,8 +6,10 @@ import coffee.base as coffee
 
 import gem
 
+from tsfc.kernel_interface import KernelInterface
 
-class KernelBuilderBase(object):
+
+class KernelBuilderBase(KernelInterface):
     """Helper class for building local assembly kernels."""
 
     def __init__(self, interior_facet=False):
