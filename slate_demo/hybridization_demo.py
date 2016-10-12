@@ -1,6 +1,7 @@
 from firedrake import *
 from firedrake.slate import slate
 
+
 def slate_hybridization(degree, res):
 
     # Define the mesh and mesh normal
@@ -64,6 +65,6 @@ def slate_hybridization(degree, res):
     sigma_h = project(sigma_h, FunctionSpace(mesh, RT))
     File("solution.pvd").write(sigma_h, u_h)
 
-degree = 0
+degree = 2
 res = 3
 slate_hybridization(degree, res)

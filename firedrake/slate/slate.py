@@ -37,11 +37,10 @@ from ufl.form import _sorted_integrals
 
 
 __all__ = ['CheckRestrictions', 'RemoveRestrictions',
-           'SlateIntegral', 'Action', 'Tensor',
-           'Scalar', 'Vector', 'Matrix', 'Inverse',
-           'Transpose', 'UnaryOp', 'Negative', 'Positive',
-           'BinaryOp', 'TensorAdd', 'TensorSub', 'TensorMul',
-           'compute_slate_tensor_action']
+           'SlateIntegral', 'Tensor',
+           'Scalar', 'Vector', 'Matrix',
+           'Inverse', 'Transpose', 'UnaryOp', 'Negative', 'Positive',
+           'BinaryOp', 'TensorAdd', 'TensorSub', 'TensorMul']
 
 
 class CheckRestrictions(MultiFunction):
@@ -348,34 +347,6 @@ class Tensor(object):
                               + tuple(hash(it) for it in self._integrals))
 
         return self._hash
-
-
-class Action(Tensor):
-    """The resulting tensor from computing the action of a SLATE
-    Tensor on a Coefficient."""
-
-    def __init__(self, tensor, coefficient):
-        """Constructor for the Action class."""
-        self.tensor = tensor
-        self.input_coefficient = coefficient
-        args = tensor.arguments()
-        u = args[-1]
-        fs = u.ufl_function_space()
-        slate_assert(coefficient.ufl_function_space() == fs,
-                     "Action coefficient doesn't match with argument function space.")
-
-        coefficients = tensor.coefficients() + (coefficient, )
-
-        Tensor.tensor_id += 1
-        super(Action, self).__init__(arguments=args[:-1],
-                                     coefficients=coefficients,
-                                     integrals=tensor.get_ufl_integrals())
-
-    def __str__(self, prec=None):
-        """String representation of Action."""
-        return "AT_%d" % self.tensor_id
-
-    __repr__ = __str__
 
 
 class Scalar(Tensor):
@@ -783,9 +754,3 @@ class TensorMul(BinaryOp):
                      integrandB.domain().coordinates.function_space(),
                      "Cannot perform contraction over middle integrals. The integrands must be in the space function space.")
         return A.get_ufl_integrals()[:-1] + B.get_ufl_integrals()[1:]
-
-
-def compute_slate_tensor_action(tensor, coefficient):
-    """Computes the action of a SLATE tensor on a ufl
-    coefficient."""
-    return Action(tensor, coefficient)

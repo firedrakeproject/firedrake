@@ -119,10 +119,7 @@ class LinearSolver(solving_utils.ParametersMixin):
         for bc in self.A.bcs:
             bc.apply(b)
         from firedrake.assemble import _assemble
-        if isinstance(self.A.a, slate.Tensor):
-            return _assemble(slate.compute_slate_tensor_action(self.A.a, b))
-        else:
-            return _assemble(ufl.action(self.A.a, b))
+        return _assemble(ufl.action(self.A.a, b))
 
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
@@ -137,21 +134,21 @@ class LinearSolver(solving_utils.ParametersMixin):
         if len(self._W) > 1 and self.near_nullspace is not None:
             self.near_nullspace._apply(self._W.dof_dset.field_ises, near=True)
         if self.A.has_bcs:
-#            if isinstance(self.A.a, slate.Tensor):
-#                # Homogeneous bcs, don't need action.
-#                b_bc = self._b
-#                b_bc.assign(b)
-#                for bc in self.A.bcs:
-#                    bc.apply(b_bc)
-#            else:
-            b_bc = self._b
-            # rhs = b - action(A, zero_function_with_bcs_applied)
-            b_bc.assign(b - self._Abcs)
-            # Now we need to apply the boundary conditions to the "RHS"
-            for bc in self.A.bcs:
-                bc.apply(b_bc)
-            # don't want to write into b itself, because that would confuse user
-            b = b_bc
+            if isinstance(self.A.a, slate.Tensor):
+                # Don't need action
+                b_bc = self._b
+                b_bc.assign(b)
+                for bc in self.A.bcs:
+                    bc.apply(b_bc)
+            else:
+                b_bc = self._b
+                # rhs = b - action(A, zero_function_with_bcs_applied)
+                b_bc.assign(b - self._Abcs)
+                # Now we need to apply the boundary conditions to the "RHS"
+                for bc in self.A.bcs:
+                    bc.apply(b_bc)
+                # don't want to write into b itself, because that would confuse user
+                b = b_bc
         with self.inserted_options():
             with b.dat.vec_ro as rhs:
                 with x.dat.vec as solution:
