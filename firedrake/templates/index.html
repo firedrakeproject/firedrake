@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>Configuration</title>
+
+    <!-- Bootstrap -->
+    <link href="{{ url_for('builtin-static.static', filename='bootstrap.min.css') }}" rel="stylesheet" crossorigin="anonymous">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
+      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
+</head>
+
+<body>
+    <!-- jQuery (necessary for Bootstrap's JavaScript plugins) -->
+    <script src="{{ url_for('builtin-static.static', filename='jquery.min.js') }}"></script>
+    <!-- Include all compiled plugins (below), or include individual files as needed -->
+    <script src="{{ url_for('builtin-static.static', filename='bootstrap.min.js') }}" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+    <script src="{{ url_for('builtin-static.static', filename='jquery.serializejson.js') }}"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    {% autoescape false %} {{ header }} {% endautoescape %}
+    <style>
+        .round-border{
+            color: #555;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .form-horizontal, .form-group{
+            padding: 8px 10px 0px 10px;
+            margin-top: 8px;
+        }
+        .glyphicon-triangle-bottom{
+            transition: transform .3s ease-in;
+        }
+        .glyphicon-triangle-bottom.rotate-90{
+            transform: rotate(-90deg);
+        }
+        .form-horizonal, .control-label{
+            text-align: left !important;
+        }
+        .panel-default{
+            margin-left: -15px;
+            margin-right: -15px;
+            margin-top: 15px;
+        }
+        .footer{
+            color: #aaa;
+            width: 100%;
+            padding: 13px 0;
+            text-align: center;
+            font-size: 13px;
+            background: #000;
+            clear:both;
+        }
+    </style>
+    <div class="row">
+        <div class="col-xs-offset-1 col-xs-1" style="text-align: center;">
+            <ul class="nav affix" style="margin-top: 100px;">
+                <li><button type="button" class="btn btn-default btn-block" onclick="increase_visibility_level()" aria-label="Show more options">
+                    Show more options
+                </button></li>
+                <br>
+                <li><button type="button" class="btn btn-default btn-block" onclick="decrease_visibility_level()" aria-label="Show fewer options">
+                    Show fewer options
+                </button></li>
+                <br>
+                <li><p id=current_visibility_level>Current visibility level: 0</p></li>
+                <br>
+                <li><button type="button" class="btn btn-default btn-block" onclick="save()" aria-label="Save">
+                    Save
+                </button></li>
+                <br>
+            </ul>
+        </div>
+        <div class="container" style="max-width:730px">
+            <br>
+            <h1>Configurations</h1>
+            <div class="alert alert-warning hidden" id="unsaved_warning" role="alert">
+                <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>
+                <span class="sr-only"> Warning: </span>
+                You have unsaved settings!
+            </div>
+            <form action="#" class="form-horizontal" method="post" enctype="multipart/form-data">
+                {% macro get_name(key, prefix) -%}
+                    {% if prefix is equalto "" -%}{{ key }}{% else %}{{ prefix + "[" + key + "]" }}{%- endif %}
+                {%- endmacro %}
+                {% macro render_dictionary(parameters, prefix, summary) -%}
+                    {% if summary is not equalto '' -%}
+                    <div class="panel panel-default round-border">
+                        <div class="panel-heading">
+                            <p class="panel-title">Summary</p>
+                        </div>
+                        <div class="panel-body">
+                            {% autoescape false %} {{ summary }} {% endautoescape %}
+                        </div>
+                    </div>
+                    {%- endif %}
+                    {% for param in parameters -%}
+                    <div class="form-group round-border" name="{{ get_name(param.key, prefix) }}" visibility_level="{{ param.visibility_level }}" {% if param.depends is not equalto '' -%} depends="{{ get_name(param.depends, prefix) }}" {%- endif %}>
+                            <label for="{{ param.key }}" class="col-sm-4 control-label">{{ param.key }}</label>
+                            {% if (param.type is equalto "int") or (param.type is equalto "float") %}
+                                <div class="col-sm-8">
+                                    <input type="number" {% if param.type is equalto "float" -%} step="any" {%- endif %}class="form-control" name="{{ get_name(param.key, prefix) }}">
+                                </div>
+                            {% elif param.type is equalto "bool" %}
+                                <div class="col-sm-8">
+                                    <label class="radio-inline">
+                                        <input type="radio" name="{{ get_name(param.key, prefix) }}" value="True" onclick="show_input('{{ get_name(param.key, prefix) }}')">
+                                            True
+                                    </label>
+                                    <label class="radio-inline">
+                                        <input type="radio" name="{{ get_name(param.key, prefix) }}" value="False" onclick="hide_input('{{ get_name(param.key, prefix) }}')">
+                                            False
+                                    </label>
+                                </div>
+                            {% elif param.type is equalto "dict" %}
+                                <script>
+                                    $("label[for={{ get_name(param.key, prefix) }}]").prepend('<a aria-label="toggle" onclick=\'$("#{{ get_name(param.key, prefix) }}").toggle("hidden");$(\"label[for={{ get_name(param.key, prefix) }}]\").children().children().toggleClass("rotate-90");\'><span class="glyphicon glyphicon-triangle-bottom" aria-hidden="true"></span></a>&nbsp;&nbsp;')
+                                </script>
+                                <div class="col-sm-8">
+                                    <p class="control-label"><br></p>
+                                </div>
+                                <div id="{{ get_name(param.key, prefix) }}" class="col-sm-12">
+                                    {{ render_dictionary(param.value, get_name(param.key, prefix), param.summary) }}
+                                </div>
+                            {% else %}
+                                <div class="col-sm-8">
+                                    <input type="text" class="form-control" name="{{ get_name(param.key, prefix) }}">
+                                </div>
+                            {%- endif %}
+                            <p class="col-sm-8 col-sm-offset-4 help-block">{{ param.help }}</p>
+                    </div>
+                    {%- endfor %}
+                {%- endmacro %}
+                <div id="parameters">
+                    {{ render_dictionary(parameters, "", summary) }}
+                </div>
+                <br>
+            </form>
+        </div>
+        <!-- /.container -->
+    </div>
+    {% autoescape false %} {{ footer }} {% endautoescape %}
+
+    <script>
+        var visibility_level = 0;
+        var max_visibility_level = {{ max_visibility_level }};
+        var unsaved = false;
+        function show_input(name) {
+            $('div[depends=\"' + name +'\"]').each(function(idx, elem){
+                var v = $(elem).attr("visibility_level");
+                if (v <= visibility_level) $(elem).fadeIn()
+            });
+        }
+        function hide_input(name) {
+            $('div[depends=\"' + name +'\"]').each(function(idx, elem){$(elem).fadeOut()});
+        }
+        function get_name(key, prefix) {
+            if (prefix != "") {
+                return prefix + "[" + key + "]";
+            } else {
+                return key;
+            }
+        }
+        function fill_data(data, prefix) {
+            $.each(data, function(key, val) {
+                if (val instanceof Array) {
+                    $("input[name=\"" + get_name(key, prefix) + "\"]").val('[' + val.toString() + ']');
+                } else if (val instanceof Object) {
+                    fill_data(val, get_name(key, prefix))
+                } else if (val.constructor === Boolean){
+                    if (val) {
+                        // select "True"
+                        $("input[name=\"" + get_name(key, prefix) + "\"][value=True]").prop("checked", true);
+                    } else {
+                        // select "False"
+                        $("input[name=\"" + get_name(key, prefix) + "\"][value=False]").prop("checked", true);
+                    }
+                } else {
+                    $("input[name=\"" + get_name(key, prefix) + "\"]").val(val);
+                }
+            })
+        }
+        function save() {
+            $.post("save", {
+                'parameters': JSON.stringify($("form").serializeJSON())
+            }).done(function() {
+                $("#success-msg").remove();
+                $("#errors").remove();
+                $("form").before('<div class="alert alert-success" id="success-msg">Saved successfully to {{ path }}!</div>')
+            }).fail(function(data) {
+                $("#success-msg").remove();
+                $("#errors").remove();
+                $("form").before('<div class="alert alert-danger" id="errors"><ul></ul></div>')
+                $.each(data['responseJSON']['err'], function(id, err) {
+                    $("#errors").find("ul").append('<li>' + err + '</li>');
+                })
+            })
+            $("#unsaved_warning").addClass("hidden");
+            unsaved = false;
+        }
+        function update_visibility_level(new_level) {
+            $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            $("div").each(function(idx, elem) {
+                var v = $(elem).attr("visibility_level");
+                if (new_level >= 0 && v > new_level) {
+                    $(elem).fadeOut();
+                } else {
+                    $(elem).fadeIn();
+                }
+            });
+        }
+        function increase_visibility_level() {
+            if (visibility_level < max_visibility_level) {
+                visibility_level++;
+                $("div[visibility_level=" + visibility_level + "]").each(function(idx, elem) { 
+                    var depends = $(elem).attr("depends");
+                    var val = $('input[type=radio][name=' + depends + ']:checked').attr("value");
+                    if (val == 'True' || val == undefined) $(elem).fadeIn(); 
+                });
+                $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            } else {
+                alert("Cannot show more options!");
+            }
+            $("p[id=current_visibility_level]").html("Current visibility level: " + visibility_level);
+        }
+        function decrease_visibility_level() {
+            if (visibility_level > 0) {
+                $("div[visibility_level=" + visibility_level + "]").each(function(idx, elem) { $(elem).fadeOut() });
+                visibility_level--;
+                $("input[type=radio]:checked").each(function(idx, elem) { $(elem).click() })
+            } else {
+                alert("Cannot show fewer options!");
+            }
+            $("p[id=current_visibility_level]").html("Current visibility level: " + visibility_level);
+        }
+        $(document).ready(function() {
+            $.get("fetch", function(data) {
+                fill_data(data, "");
+                update_visibility_level(visibility_level);
+            });
+            $('input[type!=file]').change(function() {
+                var name = $(this).attr('name');
+                $.post('validate', {
+                    'parameters': JSON.stringify($(this).serializeJSON())
+                }).fail(function(data) {
+                    $("div[name='" + name + "']").removeClass("has-success");
+                    $("div[name='" + name + "']").addClass("has-error");
+                    $("div[name='" + name + "']").tooltip("destroy");
+                    $("div[name='" + name + "']").data("title", data['responseJSON']['err'][name]);
+                    $("div[name='" + name + "']").tooltip("show");
+                }).done(function() {
+                    $("div[name='" + name + "']").addClass("has-success");
+                    $("div[name='" + name + "']").removeClass("has-error");
+                    $("div[name='" + name + "']").data("title", "");
+                    $("div[name='" + name + "']").tooltip("destroy");
+                })
+                $("#success-msg").remove();
+                $("#unsaved_warning").removeClass("hidden");
+                unsaved = true;
+            });
+        })
+        window.onbeforeunload = function() {
+            if (unsaved) return 1;
+        }
+    </script>
+</body>
+
+</html>

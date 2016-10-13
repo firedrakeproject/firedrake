@@ -82,6 +82,9 @@ finite element problems in Firedrake.
    matrix-free
    petsc-interface
    parallelism
+   configuration
+   parameters
+   branding
 
 Advanced tutorials
 ==================
