@@ -254,7 +254,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     return builder.construct_kernel(kernel_name, body)
 
 
-def compile_expression_at_points(expression, points, coordinates):
+def compile_expression_at_points(expression, points, coordinates, parameters=None):
     """Compiles a UFL expression to be evaluated at compile-time known
     reference points.  Useful for interpolating UFL expressions onto
     function spaces with only point evaluation nodes.
@@ -262,8 +262,16 @@ def compile_expression_at_points(expression, points, coordinates):
     :arg expression: UFL expression
     :arg points: reference coordinates of the evaluation points
     :arg coordinates: the coordinate function
+    :arg parameters: parameters object
     """
     import coffee.base as ast
+
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
 
     # No arguments, please!
     if extract_arguments(expression):
