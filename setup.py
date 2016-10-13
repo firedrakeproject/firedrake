@@ -44,6 +44,7 @@ import sys
 import numpy as np
 import petsc4py
 import versioneer
+import os
 
 
 def get_petsc_dir():
@@ -64,6 +65,14 @@ directory or install PETSc from PyPI: pip install petsc""")
 
 cmdclass = versioneer.get_cmdclass()
 _sdist = cmdclass['sdist']
+
+if "clean" in sys.argv[1:]:
+    # Forcibly remove the results of Cython.
+    for dirname, dirs, files in os.walk("pyop2"):
+        for f in files:
+            base, ext = os.path.splitext(f)
+            if ext in (".c", ".cpp", ".so") and base + ".pyx" in files:
+                os.remove(os.path.join(dirname, f))
 
 # If Cython is available, built the extension module from the Cython source
 try:
