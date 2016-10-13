@@ -119,70 +119,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                       argument_indices=argument_indices,
                       index_cache=index_cache)
 
-    # TODO: refactor this!
-    def cellvolume(restriction):
-        from ufl import dx
-        form = 1 * dx(domain=mesh)
-        fd = ufl_utils.compute_form_data(form)
-        itg_data, = fd.integral_data
-        integral, = itg_data.integrals
-
-        # Check if the integral has a quad degree attached, otherwise use
-        # the estimated polynomial degree attached by compute_form_data
-        quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
-
-        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
-        quadrature_index = gem.Index(name='q')
-        if interior_facet:
-            class CellVolumeKernelInterface(ProxyKernelInterface):
-                def coefficient(self, ufl_coefficient, r):
-                    assert r is None
-                    return builder.coefficient(ufl_coefficient, restriction)
-            kernel_interface = CellVolumeKernelInterface(builder)
-        else:
-            assert restriction is None
-            kernel_interface = builder
-        ir = fem.compile_ufl(integrand,
-                             precision=parameters["precision"],
-                             interface=kernel_interface,
-                             ufl_cell=cell,
-                             quadrature_degree=quadrature_degree,
-                             point_index=quadrature_index,
-                             index_cache=index_cache)
-        if parameters["unroll_indexsum"]:
-            ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        expr, = ir
-        if quadrature_index in expr.free_indices:
-            expr = gem.IndexSum(expr, quadrature_index)
-        return expr
-
-    # TODO: refactor this!
-    def facetarea():
-        from ufl import Measure
-        assert integral_type != 'cell'
-        form = 1 * Measure(integral_type, domain=mesh)
-        fd = ufl_utils.compute_form_data(form)
-        itg_data, = fd.integral_data
-        integral, = itg_data.integrals
-
-        # Check if the integral has a quad degree attached, otherwise use
-        # the estimated polynomial degree attached by compute_form_data
-        quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
-
-        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
-        quadrature_index = gem.Index(name='q')
-        config = kernel_cfg.copy()
-        config.update(quadrature_degree=quadrature_degree,
-                      point_index=quadrature_index)
-        ir = fem.compile_ufl(integrand, **config)
-        if parameters["unroll_indexsum"]:
-            ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        expr, = ir
-        if quadrature_index in expr.free_indices:
-            expr = gem.IndexSum(expr, quadrature_index)
-        return expr
-
-    kernel_cfg.update(cellvolume=cellvolume, facetarea=facetarea)
+    kernel_cfg["facetarea"] = facetarea_generator(mesh, coordinates, kernel_cfg, integral_type)
+    kernel_cfg["cellvolume"] = cellvolume_generator(mesh, coordinates, kernel_cfg)
 
     irs = []
     for integral in integral_data.integrals:
@@ -247,6 +185,78 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)
+
+
+class CellVolumeKernelInterface(ProxyKernelInterface):
+    # Since CellVolume is evaluated as a cell integral, we must ensure
+    # that the right restriction is applied when it is used in an
+    # interior facet integral.  This proxy diverts coefficient
+    # translation to use a specified restriction.
+
+    def __init__(self, wrapee, restriction):
+        ProxyKernelInterface.__init__(self, wrapee)
+        self.restriction = restriction
+
+    def coefficient(self, ufl_coefficient, r):
+        assert r is None
+        return self._wrapee.coefficient(ufl_coefficient, self.restriction)
+
+
+def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
+    def cellvolume(restriction):
+        from ufl import dx
+        form = 1 * dx(domain=domain)
+        fd = ufl_utils.compute_form_data(form)
+        itg_data, = fd.integral_data
+        integral, = itg_data.integrals
+
+        integrand = ufl_utils.replace_coordinates(integral.integrand(),
+                                                  coordinate_coefficient)
+
+        # Check if the integral has a quad degree attached, otherwise use
+        # the estimated polynomial degree attached by compute_form_data
+        quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
+        quadrature_index = gem.Index(name='q')
+
+        interface = CellVolumeKernelInterface(kernel_config["interface"], restriction)
+        expr, = fem.compile_ufl(integrand,
+                                interface=interface,
+                                ufl_cell=kernel_config["ufl_cell"],
+                                quadrature_degree=quadrature_degree,
+                                precision=kernel_config["precision"],
+                                point_index=quadrature_index,
+                                index_cache=kernel_config["index_cache"])
+        if quadrature_index in expr.free_indices:
+            expr = gem.IndexSum(expr, quadrature_index)
+        return expr
+    return cellvolume
+
+
+def facetarea_generator(domain, coordinate_coefficient, kernel_config, integral_type):
+    def facetarea():
+        from ufl import Measure
+        assert integral_type != 'cell'
+        form = 1 * Measure(integral_type, domain=domain)
+        fd = ufl_utils.compute_form_data(form)
+        itg_data, = fd.integral_data
+        integral, = itg_data.integrals
+
+        integrand = ufl_utils.replace_coordinates(integral.integrand(),
+                                                  coordinate_coefficient)
+
+        # Check if the integral has a quad degree attached, otherwise use
+        # the estimated polynomial degree attached by compute_form_data
+        quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
+        quadrature_index = gem.Index(name='q')
+
+        config = kernel_config.copy()
+        config.update(quadrature_degree=quadrature_degree,
+                      point_index=quadrature_index)
+        expr, = fem.compile_ufl(integrand, **config)
+        if quadrature_index in expr.free_indices:
+            expr = gem.IndexSum(expr, quadrature_index)
+        return expr
+    return facetarea
 
 
 def compile_expression_at_points(expression, points, coordinates, parameters=None):
