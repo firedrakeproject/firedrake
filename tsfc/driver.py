@@ -132,6 +132,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             assert restriction is None
             coefficient = builder.coefficient
         ir = fem.compile_ufl(integrand,
+                             parameters,
                              cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
@@ -160,6 +161,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
         ir = fem.compile_ufl(integrand,
+                             parameters,
                              cell=cell,
                              integration_dim=integration_dim,
                              entity_ids=entity_ids,
@@ -203,6 +205,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         quadrature_index = gem.Index(name='ip')
         quadrature_indices.append(quadrature_index)
         ir = fem.compile_ufl(integrand,
+                             parameters,
                              interior_facet=interior_facet,
                              cell=cell,
                              integration_dim=integration_dim,
@@ -245,13 +248,13 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names, ir, argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters, ir, argument_indices)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)
 
 
-def compile_expression_at_points(expression, points, coordinates):
+def compile_expression_at_points(expression, points, coordinates, parameters=None):
     """Compiles a UFL expression to be evaluated at compile-time known
     reference points.  Useful for interpolating UFL expressions onto
     function spaces with only point evaluation nodes.
@@ -259,8 +262,16 @@ def compile_expression_at_points(expression, points, coordinates):
     :arg expression: UFL expression
     :arg points: reference coordinates of the evaluation points
     :arg coordinates: the coordinate function
+    :arg parameters: parameters object
     """
     import coffee.base as ast
+
+    if parameters is None:
+        parameters = default_parameters()
+    else:
+        _ = default_parameters()
+        _.update(parameters)
+        parameters = _
 
     # No arguments, please!
     if extract_arguments(expression):
@@ -285,6 +296,7 @@ def compile_expression_at_points(expression, points, coordinates):
     # Translate to GEM
     point_index = gem.Index(name='p')
     ir, = fem.compile_ufl(expression,
+                          parameters,
                           cell=coordinates.ufl_domain().ufl_cell(),
                           points=points,
                           point_index=point_index,
@@ -304,7 +316,7 @@ def compile_expression_at_points(expression, points, coordinates):
     return_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
     impero_c = impero_utils.compile_gem([return_expr], [ir], return_indices)
-    body = generate_coffee(impero_c, index_names={point_index: 'p'})
+    body = generate_coffee(impero_c, {point_index: 'p'}, parameters)
 
     # Handle cell orientations
     if builder.needs_cell_orientations([ir]):

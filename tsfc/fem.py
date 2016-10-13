@@ -17,7 +17,6 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
 
 import gem
 
-from tsfc.constants import PRECISION
 from tsfc.fiatinterface import create_element, create_quadrature, as_fiat_cell
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc import compat
@@ -26,10 +25,6 @@ from tsfc import geometric
 from tsfc.ufl_utils import (CollectModifiedTerminals,
                             ModifiedTerminalMixin, PickRestriction,
                             spanning_degree, simplify_abs)
-
-
-# FFC uses one less digits for rounding than for printing
-epsilon = eval("1e-%d" % (PRECISION - 1))
 
 
 def _tabulate(ufl_element, order, points):
@@ -56,10 +51,11 @@ def _tabulate(ufl_element, order, points):
             yield c, D, table
 
 
-def tabulate(ufl_element, order, points):
-    """Same as the above, but also applies FFC rounding and recognises
-    cellwise constantness.  Cellwise constantness is determined
-    symbolically, but we also check the numerics to be safe."""
+def tabulate(ufl_element, order, points, epsilon):
+    """Same as the above, but also applies FFC rounding with
+    threshold epsilon and recognises cellwise constantness.
+    Cellwise constantness is determined symbolically, but we
+    also check the numerics to be safe."""
     for c, D, table in _tabulate(ufl_element, order, points):
         # Copied from FFC (ffc/quadrature/quadratureutils.py)
         table[abs(table) < epsilon] = 0
@@ -75,23 +71,26 @@ def tabulate(ufl_element, order, points):
         yield c, D, table
 
 
-def make_tabulator(points):
-    """Creates a tabulator for an array of points."""
-    return lambda elem, order: tabulate(elem, order, points)
+def make_tabulator(points, epsilon):
+    """Creates a tabulator for an array of points with rounding
+    parameter epsilon."""
+    return lambda elem, order: tabulate(elem, order, points, epsilon)
 
 
 class TabulationManager(object):
     """Manages the generation of tabulation matrices for the different
     integral types."""
 
-    def __init__(self, entity_points):
+    def __init__(self, entity_points, epsilon):
         """Constructs a TabulationManager.
 
         :arg entity_points: An array of points in cell coordinates for
                             each integration entity, i.e. an iterable
                             of arrays of points.
+        :arg epsilon: precision for rounding FE tables to 0, +-1/2, +-1
         """
-        self.tabulators = list(map(make_tabulator, entity_points))
+        epsilons = itertools.repeat(epsilon, len(entity_points))
+        self.tabulators = list(map(make_tabulator, entity_points, epsilons))
         self.tables = {}
 
     def tabulate(self, ufl_element, max_deriv):
@@ -369,7 +368,7 @@ def translate_coefficient(terminal, mt, params):
     return iterate_shape(mt, callback)
 
 
-def compile_ufl(expression, interior_facet=False, **kwargs):
+def compile_ufl(expression, parameters, interior_facet=False, **kwargs):
     params = Parameters(**kwargs)
 
     # Abs-simplification
@@ -388,7 +387,7 @@ def compile_ufl(expression, interior_facet=False, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(params.entity_points)
+    tabulation_manager = TabulationManager(params.entity_points, parameters["epsilon"])
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)

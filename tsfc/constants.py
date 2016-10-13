@@ -5,7 +5,9 @@ import numpy
 
 NUMPY_TYPE = numpy.dtype("double")
 
-PRECISION = numpy.finfo(NUMPY_TYPE).precision
+_PRECISION = numpy.finfo(NUMPY_TYPE).precision
+
+_EPSILON = eval("1e-%d" % (_PRECISION - 1))
 
 SCALAR_TYPE = {numpy.dtype("double"): "double",
                numpy.dtype("float32"): "float"}[NUMPY_TYPE]
@@ -20,6 +22,12 @@ PARAMETERS = {
     # performance.  Can be disabled by setting it to None, False or 0;
     # that makes compilation time much shorter.
     "unroll_indexsum": 3,
+
+    # Precision of float printing (number of digits)
+    "precision": _PRECISION,
+
+    # Threshold for rounding FE tables to 0, +/- 1/2, +/- 1
+    "epsilon": _EPSILON,
 }
 
 

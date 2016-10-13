@@ -16,7 +16,7 @@ import coffee.base as coffee
 
 from gem import gem, impero as imp
 
-from tsfc.constants import SCALAR_TYPE, PRECISION
+from tsfc.constants import SCALAR_TYPE
 from tsfc.logging import logger
 
 
@@ -24,11 +24,12 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, roots=(), argument_indices=()):
+def generate(impero_c, index_names, parameters, roots=(), argument_indices=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
+    :arg parameters: TSFC parameters
     :arg roots: list of expression DAG roots for attaching
         #pragma coffee expression
     :arg argument_indices: argument indices for attaching
@@ -36,21 +37,23 @@ def generate(impero_c, index_names, roots=(), argument_indices=()):
         to the argument loops
     :returns: COFFEE function body
     """
-    parameters = Bunch()
-    parameters.declare = impero_c.declare
-    parameters.indices = impero_c.indices
-    parameters.roots = roots
-    parameters.argument_indices = argument_indices
+    params = Bunch()
+    params.declare = impero_c.declare
+    params.indices = impero_c.indices
+    params.roots = roots
+    params.argument_indices = argument_indices
 
-    parameters.names = {}
+    params.names = {}
     for i, temp in enumerate(impero_c.temporaries):
-        parameters.names[temp] = "t%d" % i
+        params.names[temp] = "t%d" % i
 
     counter = itertools.count()
-    parameters.index_names = defaultdict(lambda: "i_%d" % next(counter))
-    parameters.index_names.update(index_names)
+    params.index_names = defaultdict(lambda: "i_%d" % next(counter))
+    params.index_names.update(index_names)
 
-    return statement(impero_c.tree, parameters)
+    params.precision = parameters["precision"]
+
+    return statement(impero_c.tree, params)
 
 
 def _coffee_symbol(symbol, rank=()):
@@ -171,7 +174,7 @@ def statement_evaluate(leaf, parameters):
             return coffee.Decl(SCALAR_TYPE,
                                _decl_symbol(expr, parameters),
                                coffee.ArrayInit(array_expression(expr.array),
-                                                precision=PRECISION))
+                                                precision=parameters.precision))
         else:
             ops = []
             for multiindex, value in numpy.ndenumerate(expr.array):
@@ -185,7 +188,7 @@ def statement_evaluate(leaf, parameters):
         nz_indices, = expr.array.any(axis=axes).nonzero()
         nz_bounds = tuple([(i, 0)] for i in expr.array.shape[:-1])
         nz_bounds += ([(max(nz_indices) - min(nz_indices) + 1, min(nz_indices))],)
-        init = coffee.SparseArrayInit(expr.array, PRECISION, nz_bounds)
+        init = coffee.SparseArrayInit(expr.array, parameters.precision, nz_bounds)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
                            init,
@@ -296,7 +299,7 @@ def _expression_scalar(expr, parameters):
     if isnan(expr.value):
         return coffee.Symbol("NAN")
     else:
-        return coffee.Symbol(("%%.%dg" % (PRECISION - 1)) % expr.value)
+        return coffee.Symbol(("%%.%dg" % (parameters.precision - 1)) % expr.value)
 
 
 @_expression.register(gem.Variable)

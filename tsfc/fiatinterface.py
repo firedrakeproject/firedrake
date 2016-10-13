@@ -60,6 +60,7 @@ supported_elements = {
     "Raviart-Thomas": FIAT.RaviartThomas,
     "TraceElement": FIAT.HDivTrace,
     "Regge": FIAT.Regge,
+    "Hellan-Herrmann-Johnson": FIAT.HellanHerrmannJohnson,
     # These require special treatment below
     "DQ": None,
     "FacetElement": None,
