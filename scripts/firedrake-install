@@ -15,6 +15,8 @@ adjoint_deps = {
     "dolfin-adjoint": "git+https://bitbucket.org/dolfin-adjoint/dolfin-adjoint.git"
 }
 
+# Packages which we wish to ensure are always recompiled
+wheel_blacklist = ["mpi4py"]
 
 class InstallError(Exception):
     # Exception for generic install problems.
@@ -274,7 +276,7 @@ else:
 # virtualenv install
 # Use the pip from the virtualenv
 sudopip = ["%s/bin/pip" % firedrake_env]
-pipinstall = sudopip + ["install"]
+pipinstall = sudopip + ["install", "--no-binary", ",".join(wheel_blacklist)]
 python = ["%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
