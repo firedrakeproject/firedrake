@@ -3972,9 +3972,10 @@ class Kernel(Cached):
             self._code = self._ast_to_c(self._ast, opts)
             search = FindInstances(ast.FunDecl, ast.FlatBlock).visit(self._ast)
             fundecls, flatblocks = search[ast.FunDecl], search[ast.FlatBlock]
-            assert len(fundecls) == 1, "Illegal Kernel"
+            assert len(fundecls) >= 1, "Illegal Kernel"
+            fundecl, = [fd for fd in fundecls if fd.name == self._name]
             self._attached_info = {
-                'fundecl': fundecls[0],
+                'fundecl': fundecl,
                 'attached': False,
                 'flatblocks': len(flatblocks) > 0
             }
