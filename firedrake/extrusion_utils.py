@@ -83,8 +83,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
         # gdim != tdim already checked in ExtrudedMesh constructor.
-        if base_coords.cell().topological_dimension() not in [1, 2]:
-            raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.cell())
+        if base_coords.ufl_domain().ufl_cell().topological_dimension() not in [1, 2]:
+            raise NotImplementedError("Hedgehog extrusion not implemented for %s" % base_coords.ufl_domain().ufl_cell())
         kernel = op2.Kernel("""
         void radial_hedgehog_extrusion_kernel(double **base_coords,
                                               double **ext_coords,
