@@ -34,12 +34,11 @@ cmdclass = versioneer.get_cmdclass()
 
 if "clean" in sys.argv[1:]:
     # Forcibly remove the results of Cython.
-    def cythonclean(arg, dirname, files):
+    for dirname, dirs, files in os.walk("firedrake"):
         for f in files:
             base, ext = os.path.splitext(f)
             if ext in (".c", ".cpp", ".so") and base + ".pyx" in files:
                 os.remove(os.path.join(dirname, f))
-    os.path.walk("firedrake", cythonclean, None)
 
 try:
     from Cython.Distutils import build_ext
