@@ -8,6 +8,10 @@ from singledispatch import singledispatch
 import ufl
 from ufl import indices, as_tensor
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
+from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
+from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
+from ufl.algorithms.apply_derivatives import apply_derivatives
+from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
@@ -47,6 +51,22 @@ def compute_form_data(form,
         do_estimate_degrees=do_estimate_degrees,
     )
     return fd
+
+
+def preprocess_expression(expression):
+    """Imitates the compute_form_data processing pipeline.
+
+    Useful, for example, to preprocess non-scalar expressions, which
+    are not and cannot be forms.
+    """
+    expression = apply_algebra_lowering(expression)
+    expression = apply_derivatives(expression)
+    expression = apply_function_pullbacks(expression)
+    expression = apply_geometry_lowering(expression)
+    expression = apply_derivatives(expression)
+    expression = apply_geometry_lowering(expression)
+    expression = apply_derivatives(expression)
+    return expression
 
 
 def is_element_affine(ufl_element):
