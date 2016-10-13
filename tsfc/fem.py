@@ -120,7 +120,7 @@ class TabulationManager(object):
 
 
 class Parameters(ProxyKernelInterface):
-    keywords = ('cell',
+    keywords = ('ufl_cell',
                 'fiat_cell',
                 'integration_dim',
                 'entity_ids',
@@ -136,8 +136,8 @@ class Parameters(ProxyKernelInterface):
 
     def __init__(self, **kwargs):
         # Initialise superclass
-        ProxyKernelInterface.__init__(self, kwargs["kernel_interface"])
-        del kwargs["kernel_interface"]
+        ProxyKernelInterface.__init__(self, kwargs["interface"])
+        del kwargs["interface"]
 
         invalid_keywords = set(kwargs.keys()) - set(Parameters.keywords)
         if invalid_keywords:
@@ -145,12 +145,12 @@ class Parameters(ProxyKernelInterface):
         self.__dict__.update(kwargs)
 
     @unset_attribute
-    def cell(self):
+    def ufl_cell(self):
         pass
 
     @cached_property
     def fiat_cell(self):
-        return as_fiat_cell(self.cell)
+        return as_fiat_cell(self.ufl_cell)
 
     @cached_property
     def integration_dim(self):

@@ -111,6 +111,13 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     # evaluation can be hoisted).
     index_cache = collections.defaultdict(gem.Index)
 
+    kernel_cfg = dict(interface=builder,
+                      ufl_cell=cell,
+                      integration_dim=integration_dim,
+                      entity_ids=entity_ids,
+                      argument_indices=argument_indices,
+                      index_cache=index_cache)
+
     # TODO: refactor this!
     def cellvolume(restriction):
         from ufl import dx
@@ -136,10 +143,10 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             kernel_interface = builder
         ir = fem.compile_ufl(integrand,
                              parameters,
-                             cell=cell,
+                             interface=kernel_interface,
+                             ufl_cell=cell,
                              quadrature_degree=quadrature_degree,
                              point_index=quadrature_index,
-                             kernel_interface=kernel_interface,
                              index_cache=index_cache)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -163,21 +170,18 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         quadrature_index = gem.Index(name='q')
-        ir = fem.compile_ufl(integrand,
-                             parameters,
-                             cell=cell,
-                             integration_dim=integration_dim,
-                             entity_ids=entity_ids,
-                             quadrature_degree=quadrature_degree,
-                             point_index=quadrature_index,
-                             kernel_interface=builder,
-                             index_cache=index_cache)
+        config = kernel_cfg.copy()
+        config.update(quadrature_degree=quadrature_degree,
+                      point_index=quadrature_index)
+        ir = fem.compile_ufl(integrand, parameters, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
         if quadrature_index in expr.free_indices:
             expr = gem.IndexSum(expr, quadrature_index)
         return expr
+
+    kernel_cfg.update(cellvolume=cellvolume, facetarea=facetarea)
 
     irs = []
     for integral in integral_data.integrals:
@@ -206,19 +210,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
         quadrature_index = gem.Index(name='ip')
         quadrature_indices.append(quadrature_index)
-        ir = fem.compile_ufl(integrand,
-                             parameters,
-                             interior_facet=interior_facet,
-                             cell=cell,
-                             integration_dim=integration_dim,
-                             entity_ids=entity_ids,
-                             quadrature_rule=quad_rule,
-                             point_index=quadrature_index,
-                             argument_indices=argument_indices,
-                             kernel_interface=builder,
-                             index_cache=index_cache,
-                             cellvolume=cellvolume,
-                             facetarea=facetarea)
+        config = kernel_cfg.copy()
+        config.update(quadrature_rule=quad_rule, point_index=quadrature_index)
+        ir = fem.compile_ufl(integrand, parameters, interior_facet=interior_facet, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)
@@ -297,10 +291,10 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     point_index = gem.Index(name='p')
     ir, = fem.compile_ufl(expression,
                           parameters,
-                          cell=coordinates.ufl_domain().ufl_cell(),
+                          interface=builder,
+                          ufl_cell=coordinates.ufl_domain().ufl_cell(),
                           points=points,
-                          point_index=point_index,
-                          kernel_interface=builder)
+                          point_index=point_index)
 
     # Deal with non-scalar expressions
     value_shape = ir.shape
