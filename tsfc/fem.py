@@ -70,7 +70,7 @@ def tabulate(ufl_element, order, points, entity, epsilon):
                 yield c, D, gem.Literal(table)
 
 
-def make_tabulator(points, entity):
+def make_tabulator(points, entity, epsilon):
     """Creates a tabulator for an array of points for a given entity."""
     return lambda elem, order: tabulate(elem, order, points, entity, epsilon)
 
@@ -88,8 +88,7 @@ class TabulationManager(object):
         :arg entity_id: list of ids for each entity with dimension `entity_dim`
         :arg epsilon: precision for rounding FE tables to 0, +-1/2, +-1
         """
-        epsilons = itertools.repeat(epsilon, len(entity_points))
-        self.tabulators = [make_tabulator(points, (entity_dim, entity_id), epsilons)
+        self.tabulators = [make_tabulator(points, (entity_dim, entity_id), epsilon)
                            for entity_id in entity_ids]
         self.tables = {}
 
