@@ -151,7 +151,7 @@ def compile_coordinate_element(ufl_coordinate_element):
     :arg ufl_coordinate_element: UFL element of the coordinates
     :returns: C code as string
     """
-    from tsfc.constants import PRECISION
+    from tsfc.constants import _PRECISION as PRECISION
     from tsfc.fiatinterface import create_element
     from firedrake.pointeval_utils import ssa_arrays, c_print
     from FIAT.reference_element import TensorProductCell as two_product_cell

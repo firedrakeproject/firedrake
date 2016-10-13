@@ -122,7 +122,7 @@ def compile_element(ufl_element, cdim):
     :arg cdim: ``cdim`` of the function space
     :returns: C code as string
     """
-    from tsfc.constants import PRECISION
+    from tsfc.constants import _PRECISION as PRECISION
     from firedrake.pointquery_utils import set_float_formatting, format
     from tsfc.fiatinterface import create_element
     from FIAT.reference_element import TensorProductCell as two_product_cell
