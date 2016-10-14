@@ -7,8 +7,6 @@ NUMPY_TYPE = numpy.dtype("double")
 
 _PRECISION = numpy.finfo(NUMPY_TYPE).precision
 
-_EPSILON = eval("1e-%d" % (_PRECISION - 1))
-
 SCALAR_TYPE = {numpy.dtype("double"): "double",
                numpy.dtype("float32"): "float"}[NUMPY_TYPE]
 
@@ -25,9 +23,6 @@ PARAMETERS = {
 
     # Precision of float printing (number of digits)
     "precision": _PRECISION,
-
-    # Threshold for rounding FE tables to 0, +/- 1/2, +/- 1
-    "epsilon": _EPSILON,
 }
 
 
