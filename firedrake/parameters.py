@@ -3,7 +3,7 @@ from __future__ import absolute_import
 
 from tsfc.constants import default_parameters
 from pyop2.configuration import configuration
-from coffee.system import coffee_reconfigure
+from coffee import coffee_reconfigure
 import sys
 
 max_float = sys.float_info[0]
