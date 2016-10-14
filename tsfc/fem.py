@@ -386,8 +386,11 @@ def compile_ufl(expression, parameters, interior_facet=False, **kwargs):
             ufl_element = mt.terminal.ufl_element()
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
+    # Rounding tolerance mimicking FFC
+    epsilon = 10.0 * eval("1e-%d" % parameters["precision"])
+
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(params.entity_points, parameters["epsilon"])
+    tabulation_manager = TabulationManager(params.entity_points, epsilon)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
