@@ -151,7 +151,7 @@ def compile_coordinate_element(ufl_coordinate_element):
     :arg ufl_coordinate_element: UFL element of the coordinates
     :returns: C code as string
     """
-    from tsfc.constants import _PRECISION as PRECISION
+    from tsfc import default_parameters
     from tsfc.fiatinterface import create_element
     from firedrake.pointeval_utils import ssa_arrays, c_print
     from FIAT.reference_element import TensorProductCell as two_product_cell
@@ -159,7 +159,7 @@ def compile_coordinate_element(ufl_coordinate_element):
     import numpy as np
 
     # Set code generation parameters
-    set_float_formatting(PRECISION)
+    set_float_formatting(default_parameters()["precision"])
 
     def dX_norm_square(topological_dimension):
         return " + ".join("dX[{0}]*dX[{0}]".format(i)

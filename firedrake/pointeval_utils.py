@@ -122,7 +122,7 @@ def compile_element(ufl_element, cdim):
     :arg cdim: ``cdim`` of the function space
     :returns: C code as string
     """
-    from tsfc.constants import _PRECISION as PRECISION
+    from tsfc import default_parameters
     from firedrake.pointquery_utils import set_float_formatting, format
     from tsfc.fiatinterface import create_element
     from FIAT.reference_element import TensorProductCell as two_product_cell
@@ -130,7 +130,7 @@ def compile_element(ufl_element, cdim):
     import numpy as np
 
     # Set code generation parameters
-    set_float_formatting(PRECISION)
+    set_float_formatting(default_parameters()["precision"])
 
     def calculate_basisvalues(ufl_cell, fiat_element):
         f_component = format["component"]
