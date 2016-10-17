@@ -16,7 +16,7 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
-from gem.utils import cached_property, unset_attribute
+from gem.utils import cached_property
 
 from tsfc.constants import _PRECISION as PRECISION
 from tsfc.fiatinterface import create_element, create_quadrature, as_fiat_cell
@@ -120,7 +120,7 @@ class TabulationManager(object):
         return self.tables[key]
 
 
-class Parameters(ProxyKernelInterface):
+class Context(ProxyKernelInterface):
     keywords = ('ufl_cell',
                 'fiat_cell',
                 'integration_dim',
@@ -136,19 +136,13 @@ class Parameters(ProxyKernelInterface):
                 'facetarea',
                 'index_cache')
 
-    def __init__(self, **kwargs):
-        # Initialise superclass
-        ProxyKernelInterface.__init__(self, kwargs["interface"])
-        del kwargs["interface"]
+    def __init__(self, interface, **kwargs):
+        ProxyKernelInterface.__init__(self, interface)
 
-        invalid_keywords = set(kwargs.keys()) - set(Parameters.keywords)
+        invalid_keywords = set(kwargs.keys()) - set(Context.keywords)
         if invalid_keywords:
             raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
         self.__dict__.update(kwargs)
-
-    @unset_attribute
-    def ufl_cell(self):
-        pass
 
     @cached_property
     def fiat_cell(self):
@@ -159,10 +153,6 @@ class Parameters(ProxyKernelInterface):
         return self.fiat_cell.get_dimension()
 
     entity_ids = [0]
-
-    @unset_attribute
-    def quadrature_degree(self):
-        pass
 
     @cached_property
     def quadrature_rule(self):
@@ -231,19 +221,7 @@ class Parameters(ProxyKernelInterface):
         """
         return self._selector(callback, list(range(len(self.entity_ids))), restriction)
 
-    @unset_attribute
-    def point_index(self):
-        pass
-
     argument_indices = ()
-
-    @unset_attribute
-    def cellvolume(self):
-        pass
-
-    @unset_attribute
-    def facetarea(self):
-        pass
 
     @cached_property
     def index_cache(self):
@@ -253,18 +231,18 @@ class Parameters(ProxyKernelInterface):
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
     """Contains all the context necessary to translate UFL into GEM."""
 
-    def __init__(self, tabulation_manager, parameters):
+    def __init__(self, tabulation_manager, context):
         MultiFunction.__init__(self)
         ufl2gem.Mixin.__init__(self)
 
-        parameters.tabulation_manager = tabulation_manager
-        self.parameters = parameters
+        context.tabulation_manager = tabulation_manager
+        self.context = context
 
     def modified_terminal(self, o):
         """Overrides the modified terminal handler from
         :class:`ModifiedTerminalMixin`."""
         mt = analyse_modified_terminal(o)
-        return translate(mt.terminal, mt, self.parameters)
+        return translate(mt.terminal, mt, self.context)
 
 
 def iterate_shape(mt, callback):
@@ -304,64 +282,64 @@ def iterate_shape(mt, callback):
 
 
 @singledispatch
-def translate(terminal, mt, params):
+def translate(terminal, mt, ctx):
     """Translates modified terminals into GEM.
 
     :arg terminal: terminal, for dispatching
     :arg mt: analysed modified terminal
-    :arg params: translator context
+    :arg ctx: translator context
     :returns: GEM translation of the modified terminal
     """
     raise AssertionError("Cannot handle terminal type: %s" % type(terminal))
 
 
 @translate.register(QuadratureWeight)
-def translate_quadratureweight(terminal, mt, params):
-    return gem.Indexed(gem.Literal(params.weights), (params.point_index,))
+def translate_quadratureweight(terminal, mt, ctx):
+    return gem.Indexed(gem.Literal(ctx.weights), (ctx.point_index,))
 
 
 @translate.register(GeometricQuantity)
-def translate_geometricquantity(terminal, mt, params):
-    return geometric.translate(terminal, mt, params)
+def translate_geometricquantity(terminal, mt, ctx):
+    return geometric.translate(terminal, mt, ctx)
 
 
 @translate.register(CellVolume)
-def translate_cellvolume(terminal, mt, params):
-    return params.cellvolume(mt.restriction)
+def translate_cellvolume(terminal, mt, ctx):
+    return ctx.cellvolume(mt.restriction)
 
 
 @translate.register(FacetArea)
-def translate_facetarea(terminal, mt, params):
-    return params.facetarea()
+def translate_facetarea(terminal, mt, ctx):
+    return ctx.facetarea()
 
 
 @translate.register(Argument)
-def translate_argument(terminal, mt, params):
-    argument_index = params.argument_indices[terminal.number()]
+def translate_argument(terminal, mt, ctx):
+    argument_index = ctx.argument_indices[terminal.number()]
 
     def callback(key):
-        table = params.tabulation_manager[key]
+        table = ctx.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
             row = gem.Literal(table)
         else:
-            table = params.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
-            row = gem.partial_indexed(table, (params.point_index,))
+            table = ctx.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
+            row = gem.partial_indexed(table, (ctx.point_index,))
         return gem.Indexed(row, (argument_index,))
 
     return iterate_shape(mt, callback)
 
 
 @translate.register(Coefficient)
-def translate_coefficient(terminal, mt, params):
-    vec = params.coefficient(terminal, mt.restriction)
+def translate_coefficient(terminal, mt, ctx):
+    vec = ctx.coefficient(terminal, mt.restriction)
 
     if terminal.ufl_element().family() == 'Real':
         assert mt.local_derivatives == 0
         return vec
 
     def callback(key):
-        table = params.tabulation_manager[key]
+        table = ctx.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
             row = gem.Literal(table)
@@ -372,10 +350,10 @@ def translate_coefficient(terminal, mt, params):
                                for i in range(row.shape[0])],
                               gem.Zero())
         else:
-            table = params.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
-            row = gem.partial_indexed(table, (params.point_index,))
+            table = ctx.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
+            row = gem.partial_indexed(table, (ctx.point_index,))
 
-        r = params.index_cache[terminal.ufl_element()]
+        r = ctx.index_cache[terminal.ufl_element()]
         return gem.IndexSum(gem.Product(gem.Indexed(row, (r,)),
                                         gem.Indexed(vec, (r,))), r)
 
@@ -383,7 +361,7 @@ def translate_coefficient(terminal, mt, params):
 
 
 def compile_ufl(expression, interior_facet=False, **kwargs):
-    params = Parameters(**kwargs)
+    context = Context(**kwargs)
 
     # Abs-simplification
     expression = simplify_abs(expression)
@@ -401,18 +379,18 @@ def compile_ufl(expression, interior_facet=False, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(params.entity_points, params.epsilon)
+    tabulation_manager = TabulationManager(context.entity_points, context.epsilon)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
 
     if interior_facet:
         expressions = []
-        for rs in itertools.product(("+", "-"), repeat=len(params.argument_indices)):
+        for rs in itertools.product(("+", "-"), repeat=len(context.argument_indices)):
             expressions.append(map_expr_dag(PickRestriction(*rs), expression))
     else:
         expressions = [expression]
 
     # Translate UFL to GEM, lowering finite element specific nodes
-    translator = Translator(tabulation_manager, params)
+    translator = Translator(tabulation_manager, context)
     return map_expr_dags(translator, expressions)
