@@ -377,7 +377,7 @@ def compile_ufl(expression, interior_facet=False, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(context.entity_points, context.integration_dim, context.entity_ids, context.epsilon)
+    tabulation_manager = TabulationManager(context.points, context.integration_dim, context.entity_ids, context.epsilon)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)
