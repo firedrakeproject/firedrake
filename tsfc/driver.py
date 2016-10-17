@@ -15,10 +15,10 @@ import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
 from tsfc import fem, ufl_utils
-from tsfc.coffee import generate as generate_coffee
-from tsfc.constants import SCALAR_TYPE, default_parameters
+from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.fiatinterface import QuadratureRule, as_fiat_cell, create_quadrature
 from tsfc.logging import logger
+from tsfc.parameters import default_parameters
 
 from tsfc.kernel_interface import ProxyKernelInterface
 import tsfc.kernel_interface.firedrake as firedrake_interface
@@ -182,7 +182,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names, parameters, ir, argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, argument_indices)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)
@@ -309,7 +309,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     return_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
     impero_c = impero_utils.compile_gem([return_expr], [ir], return_indices)
-    body = generate_coffee(impero_c, {point_index: 'p'}, parameters)
+    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"])
 
     # Handle cell orientations
     if builder.needs_cell_orientations([ir]):

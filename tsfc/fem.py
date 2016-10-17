@@ -18,13 +18,11 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
 import gem
 from gem.utils import cached_property
 
-from tsfc.constants import _PRECISION as PRECISION
+from tsfc import compat, ufl2gem, geometric
 from tsfc.fiatinterface import create_element, create_quadrature, as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import analyse_modified_terminal
-from tsfc import compat
-from tsfc import ufl2gem
-from tsfc import geometric
+from tsfc.parameters import PARAMETERS
 from tsfc.ufl_utils import (CollectModifiedTerminals,
                             ModifiedTerminalMixin, PickRestriction,
                             spanning_degree, simplify_abs)
@@ -167,7 +165,7 @@ class Context(ProxyKernelInterface):
     def weights(self):
         return self.quadrature_rule.get_weights()
 
-    precision = PRECISION
+    precision = PARAMETERS["precision"]
 
     @cached_property
     def epsilon(self):

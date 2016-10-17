@@ -16,7 +16,7 @@ import coffee.base as coffee
 
 from gem import gem, impero as imp
 
-from tsfc.constants import SCALAR_TYPE
+from tsfc.parameters import SCALAR_TYPE
 from tsfc.logging import logger
 
 
@@ -24,12 +24,12 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, parameters, roots=(), argument_indices=()):
+def generate(impero_c, index_names, precision, roots=(), argument_indices=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
-    :arg parameters: TSFC parameters
+    :arg precision: floating-point precision for printing
     :arg roots: list of expression DAG roots for attaching
         #pragma coffee expression
     :arg argument_indices: argument indices for attaching
@@ -40,6 +40,7 @@ def generate(impero_c, index_names, parameters, roots=(), argument_indices=()):
     params = Bunch()
     params.declare = impero_c.declare
     params.indices = impero_c.indices
+    params.precision = precision
     params.roots = roots
     params.argument_indices = argument_indices
 
@@ -50,8 +51,6 @@ def generate(impero_c, index_names, parameters, roots=(), argument_indices=()):
     counter = itertools.count()
     params.index_names = defaultdict(lambda: "i_%d" % next(counter))
     params.index_names.update(index_names)
-
-    params.precision = parameters["precision"]
 
     return statement(impero_c.tree, params)
 
