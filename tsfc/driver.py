@@ -205,7 +205,7 @@ class CellVolumeKernelInterface(ProxyKernelInterface):
 def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
     def cellvolume(restriction):
         from ufl import dx
-        integrand, degree = one_times(dx(domain=domain))
+        integrand, degree = ufl_utils.one_times(dx(domain=domain))
         integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
 
         interface = CellVolumeKernelInterface(kernel_config["interface"], restriction)
@@ -227,7 +227,7 @@ def facetarea_generator(domain, coordinate_coefficient, kernel_config, integral_
     def facetarea():
         from ufl import Measure
         assert integral_type != 'cell'
-        integrand, degree = one_times(Measure(integral_type, domain=domain))
+        integrand, degree = ufl_utils.one_times(Measure(integral_type, domain=domain))
         integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
 
         quadrature_index = gem.Index(name='q')
@@ -239,31 +239,6 @@ def facetarea_generator(domain, coordinate_coefficient, kernel_config, integral_
             expr = gem.IndexSum(expr, quadrature_index)
         return expr
     return facetarea
-
-
-def one_times(measure):
-    # Workaround for UFL issue #80:
-    # https://bitbucket.org/fenics-project/ufl/issues/80
-    from ufl import replace
-    from ufl.algorithms import estimate_total_polynomial_degree
-    from ufl.geometry import QuadratureWeight
-
-    form = 1 * measure
-    fd = ufl_utils.compute_form_data(form, do_estimate_degrees=False)
-    itg_data, = fd.integral_data
-    integral, = itg_data.integrals
-    integrand = integral.integrand()
-
-    # UFL considers QuadratureWeight a geometric quantity, and the
-    # general handler for geometric quantities estimates the degree of
-    # the coordinate element.  This would unnecessarily increase the
-    # estimated degree, so we drop QuadratureWeight instead.
-    expression = replace(integrand, {QuadratureWeight(itg_data.domain): 1})
-
-    # Now estimate degree for the preprocessed form
-    degree = estimate_total_polynomial_degree(expression)
-
-    return integrand, degree
 
 
 def compile_expression_at_points(expression, points, coordinates, parameters=None):
