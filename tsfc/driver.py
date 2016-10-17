@@ -6,7 +6,8 @@ import time
 from functools import reduce
 
 from ufl.algorithms import extract_arguments, extract_coefficients
-from ufl.classes import Form
+from ufl.algorithms.analysis import has_type
+from ufl.classes import Form, CellVolume
 from ufl.log import GREEN
 
 import gem
@@ -273,9 +274,14 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
         assert coordinates.ufl_domain() == domain
         expression = ufl_utils.replace_coordinates(expression, coordinates)
 
+    # Collect required coefficients
+    coefficients = extract_coefficients(expression)
+    if coordinates not in coefficients and has_type(expression, CellVolume):
+        coefficients = [coordinates] + coefficients
+
     # Initialise kernel builder
     builder = firedrake_interface.ExpressionKernelBuilder()
-    builder.set_coefficients(extract_coefficients(expression))
+    builder.set_coefficients(coefficients)
 
     # Split mixed coefficients
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)

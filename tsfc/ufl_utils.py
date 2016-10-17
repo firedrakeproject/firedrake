@@ -29,11 +29,14 @@ from tsfc.modified_terminals import (is_modified_terminal,
                                      construct_modified_terminal)
 
 
+preserve_geometry_types = (CellVolume, FacetArea)
+
+
 def compute_form_data(form,
                       do_apply_function_pullbacks=True,
                       do_apply_integral_scaling=True,
                       do_apply_geometry_lowering=True,
-                      preserve_geometry_types=(CellVolume, FacetArea),
+                      preserve_geometry_types=preserve_geometry_types,
                       do_apply_restrictions=True,
                       do_estimate_degrees=True):
     """Preprocess UFL form in a format suitable for TSFC. Return
@@ -85,9 +88,9 @@ def preprocess_expression(expression):
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
     expression = apply_function_pullbacks(expression)
-    expression = apply_geometry_lowering(expression)
+    expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
-    expression = apply_geometry_lowering(expression)
+    expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
     return expression
 
