@@ -18,6 +18,7 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
 import gem
 from gem.utils import cached_property, unset_attribute
 
+from tsfc.constants import _PRECISION as PRECISION
 from tsfc.fiatinterface import create_element, create_quadrature, as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import analyse_modified_terminal
@@ -128,6 +129,7 @@ class Parameters(ProxyKernelInterface):
                 'quadrature_rule',
                 'points',
                 'weights',
+                'precision',
                 'point_index',
                 'argument_indices',
                 'cellvolume',
@@ -174,6 +176,13 @@ class Parameters(ProxyKernelInterface):
     @cached_property
     def weights(self):
         return self.quadrature_rule.get_weights()
+
+    precision = PRECISION
+
+    @cached_property
+    def epsilon(self):
+        # Rounding tolerance mimicking FFC
+        return 10.0 * eval("1e-%d" % self.precision)
 
     @cached_property
     def entity_points(self):
@@ -373,7 +382,7 @@ def translate_coefficient(terminal, mt, params):
     return iterate_shape(mt, callback)
 
 
-def compile_ufl(expression, parameters, interior_facet=False, **kwargs):
+def compile_ufl(expression, interior_facet=False, **kwargs):
     params = Parameters(**kwargs)
 
     # Abs-simplification
@@ -391,11 +400,8 @@ def compile_ufl(expression, parameters, interior_facet=False, **kwargs):
             ufl_element = mt.terminal.ufl_element()
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
-    # Rounding tolerance mimicking FFC
-    epsilon = 10.0 * eval("1e-%d" % parameters["precision"])
-
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(params.entity_points, epsilon)
+    tabulation_manager = TabulationManager(params.entity_points, params.epsilon)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)

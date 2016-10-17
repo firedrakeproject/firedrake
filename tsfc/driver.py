@@ -113,6 +113,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     kernel_cfg = dict(interface=builder,
                       ufl_cell=cell,
+                      precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
                       argument_indices=argument_indices,
@@ -142,7 +143,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             assert restriction is None
             kernel_interface = builder
         ir = fem.compile_ufl(integrand,
-                             parameters,
+                             precision=parameters["precision"],
                              interface=kernel_interface,
                              ufl_cell=cell,
                              quadrature_degree=quadrature_degree,
@@ -173,7 +174,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         config = kernel_cfg.copy()
         config.update(quadrature_degree=quadrature_degree,
                       point_index=quadrature_index)
-        ir = fem.compile_ufl(integrand, parameters, **config)
+        ir = fem.compile_ufl(integrand, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         expr, = ir
@@ -212,7 +213,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         quadrature_indices.append(quadrature_index)
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule, point_index=quadrature_index)
-        ir = fem.compile_ufl(integrand, parameters, interior_facet=interior_facet, **config)
+        ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
         irs.append([(gem.IndexSum(expr, quadrature_index)
@@ -290,9 +291,9 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     # Translate to GEM
     point_index = gem.Index(name='p')
     ir, = fem.compile_ufl(expression,
-                          parameters,
                           interface=builder,
                           ufl_cell=coordinates.ufl_domain().ufl_cell(),
+                          precision=parameters["precision"],
                           points=points,
                           point_index=point_index)
 
