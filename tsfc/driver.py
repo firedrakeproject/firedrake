@@ -218,14 +218,13 @@ def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
         quadrature_degree = integral.metadata()["estimated_polynomial_degree"]
         quadrature_index = gem.Index(name='q')
 
+        config = {k: v for k, v in kernel_config.items()
+                  if k in ["ufl_cell", "precision", "index_cache"]}
         interface = CellVolumeKernelInterface(kernel_config["interface"], restriction)
-        expr, = fem.compile_ufl(integrand,
-                                interface=interface,
-                                ufl_cell=kernel_config["ufl_cell"],
-                                quadrature_degree=quadrature_degree,
-                                precision=kernel_config["precision"],
-                                point_index=quadrature_index,
-                                index_cache=kernel_config["index_cache"])
+        config.update(interface=interface,
+                      quadrature_degree=quadrature_degree,
+                      point_index=quadrature_index)
+        expr, = fem.compile_ufl(integrand, **config)
         if quadrature_index in expr.free_indices:
             expr = gem.IndexSum(expr, quadrature_index)
         return expr
