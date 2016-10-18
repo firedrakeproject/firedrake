@@ -5,8 +5,6 @@ import numpy
 
 NUMPY_TYPE = numpy.dtype("double")
 
-_PRECISION = numpy.finfo(NUMPY_TYPE).precision
-
 SCALAR_TYPE = {numpy.dtype("double"): "double",
                numpy.dtype("float32"): "float"}[NUMPY_TYPE]
 
@@ -22,7 +20,7 @@ PARAMETERS = {
     "unroll_indexsum": 3,
 
     # Precision of float printing (number of digits)
-    "precision": _PRECISION,
+    "precision": numpy.finfo(NUMPY_TYPE).precision,
 }
 
 

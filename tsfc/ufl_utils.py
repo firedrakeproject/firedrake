@@ -6,14 +6,16 @@ import numpy
 from singledispatch import singledispatch
 
 import ufl
-from ufl import indices, as_tensor
+from ufl import as_tensor, indices, replace
 from ufl.algorithms import compute_form_data as ufl_compute_form_data
+from ufl.algorithms import estimate_total_polynomial_degree
 from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
+from ufl.geometry import QuadratureWeight
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
                          MixedElement, MultiIndex, Product,
@@ -27,11 +29,14 @@ from tsfc.modified_terminals import (is_modified_terminal,
                                      construct_modified_terminal)
 
 
+preserve_geometry_types = (CellVolume, FacetArea)
+
+
 def compute_form_data(form,
                       do_apply_function_pullbacks=True,
                       do_apply_integral_scaling=True,
                       do_apply_geometry_lowering=True,
-                      preserve_geometry_types=(CellVolume, FacetArea),
+                      preserve_geometry_types=preserve_geometry_types,
                       do_apply_restrictions=True,
                       do_estimate_degrees=True):
     """Preprocess UFL form in a format suitable for TSFC. Return
@@ -53,6 +58,27 @@ def compute_form_data(form,
     return fd
 
 
+def one_times(measure):
+    # Workaround for UFL issue #80:
+    # https://bitbucket.org/fenics-project/ufl/issues/80
+    form = 1 * measure
+    fd = compute_form_data(form, do_estimate_degrees=False)
+    itg_data, = fd.integral_data
+    integral, = itg_data.integrals
+    integrand = integral.integrand()
+
+    # UFL considers QuadratureWeight a geometric quantity, and the
+    # general handler for geometric quantities estimates the degree of
+    # the coordinate element.  This would unnecessarily increase the
+    # estimated degree, so we drop QuadratureWeight instead.
+    expression = replace(integrand, {QuadratureWeight(itg_data.domain): 1})
+
+    # Now estimate degree for the preprocessed form
+    degree = estimate_total_polynomial_degree(expression)
+
+    return integrand, degree
+
+
 def preprocess_expression(expression):
     """Imitates the compute_form_data processing pipeline.
 
@@ -62,9 +88,9 @@ def preprocess_expression(expression):
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
     expression = apply_function_pullbacks(expression)
-    expression = apply_geometry_lowering(expression)
+    expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
-    expression = apply_geometry_lowering(expression)
+    expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
     return expression
 
