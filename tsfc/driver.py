@@ -15,7 +15,8 @@ import gem
 import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
-from finat.quadrature import AbstractQuadratureRule, QuadratureRule, make_quadrature
+from finat.point_set import PointSet
+from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
@@ -154,7 +155,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         quadrature_indices += quadrature_index
 
         config = kernel_cfg.copy()
-        config.update(quadrature_rule=quad_rule, point_index=quadrature_index)
+        config.update(quadrature_rule=quad_rule, point_multiindex=quadrature_index)
         ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
@@ -214,18 +215,13 @@ def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
         from ufl import dx
         integrand, degree = ufl_utils.one_times(dx(domain=domain))
         integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
-
         interface = CellVolumeKernelInterface(kernel_config["interface"], restriction)
-        quadrature_index = gem.Index(name='q')
 
         config = {k: v for k, v in kernel_config.items()
                   if k in ["ufl_cell", "precision", "index_cache"]}
         config.update(interface=interface,
-                      quadrature_degree=degree,
-                      point_index=(quadrature_index,))
-        expr, = fem.compile_ufl(integrand, **config)
-        if quadrature_index in expr.free_indices:
-            expr = gem.IndexSum(expr, quadrature_index)
+                      quadrature_degree=degree)
+        expr, = fem.compile_ufl(integrand, point_sum=True, **config)
         return expr
     return cellvolume
 
@@ -237,13 +233,9 @@ def facetarea_generator(domain, coordinate_coefficient, kernel_config, integral_
         integrand, degree = ufl_utils.one_times(Measure(integral_type, domain=domain))
         integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
 
-        quadrature_index = gem.Index(name='q')
-
         config = kernel_config.copy()
-        config.update(quadrature_degree=degree, point_index=(quadrature_index,))
-        expr, = fem.compile_ufl(integrand, **config)
-        if quadrature_index in expr.free_indices:
-            expr = gem.IndexSum(expr, quadrature_index)
+        config.update(quadrature_degree=degree)
+        expr, = fem.compile_ufl(integrand, point_sum=True, **config)
         return expr
     return facetarea
 
@@ -293,12 +285,11 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
 
     # Translate to GEM
-    point_index = gem.Index(name='p')
+    point_set = PointSet(points)
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
-                  quadrature_rule=QuadratureRule(points, [0]*len(points)),
-                  point_index=(point_index,))
+                  point_set=point_set)
     config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
     ir, = fem.compile_ufl(expression, **config)
 
@@ -310,11 +301,12 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
 
     # Build kernel body
     return_shape = (len(points),) + value_shape
-    return_indices = (point_index,) + tensor_indices
+    return_indices = point_set.indices + tensor_indices
     return_var = gem.Variable('A', return_shape)
     return_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
     impero_c = impero_utils.compile_gem([return_expr], [ir], return_indices)
+    point_index, = point_set.indices
     body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"])
 
     # Handle cell orientations
