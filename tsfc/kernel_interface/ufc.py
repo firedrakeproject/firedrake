@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six.moves import map
 
 import numpy
 from itertools import product
@@ -205,7 +206,7 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
 
     # Translate coords from XYZXYZXYZXYZ into XXXXYYYYZZZZ
     # NOTE: See dolfin/mesh/Cell.h:get_coordinate_dofs for ordering scheme
-    indices = numpy.arange(num_nodes * gdim).reshape(num_nodes, gdim).transpose().flatten()
+    indices = list(map(int, numpy.arange(num_nodes * gdim).reshape(num_nodes, gdim).transpose().flat))
     if not interior_facet:
         variable = gem.Variable(name, shape)
         expression = gem.ListTensor([gem.Indexed(variable, (i,)) for i in indices])

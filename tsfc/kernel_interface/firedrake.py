@@ -1,6 +1,7 @@
 from __future__ import absolute_import, print_function, division
 
 import numpy
+from collections import namedtuple
 from itertools import product
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
@@ -13,6 +14,10 @@ from gem.node import traversal
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
 from tsfc.coffee import SCALAR_TYPE
+
+
+# Expression kernel description type
+ExpressionKernel = namedtuple('ExpressionKernel', ['ast', 'oriented', 'coefficients'])
 
 
 class Kernel(object):
@@ -82,6 +87,52 @@ class KernelBuilderBase(_KernelBuilderBase):
             if isinstance(node, gem.Variable) and node.name == "cell_orientations":
                 return True
         return False
+
+
+class ExpressionKernelBuilder(KernelBuilderBase):
+    """Builds expression kernels for UFL interpolation in Firedrake."""
+
+    def __init__(self):
+        super(ExpressionKernelBuilder, self).__init__()
+        self.oriented = False
+
+    def set_coefficients(self, coefficients):
+        """Prepare the coefficients of the expression.
+
+        :arg coefficients: UFL coefficients from Firedrake
+        """
+        self.coefficients = []  # Firedrake coefficients for calling the kernel
+        self.coefficient_split = {}
+        self.kernel_args = []
+
+        for i, coefficient in enumerate(coefficients):
+            if type(coefficient.ufl_element()) == ufl_MixedElement:
+                subcoeffs = coefficient.split()  # Firedrake-specific
+                self.coefficients.extend(subcoeffs)
+                self.coefficient_split[coefficient] = subcoeffs
+                self.kernel_args += [self._coefficient(subcoeff, "w_%d_%d" % (i, j))
+                                     for j, subcoeff in enumerate(subcoeffs)]
+            else:
+                self.coefficients.append(coefficient)
+                self.kernel_args.append(self._coefficient(coefficient, "w_%d" % (i,)))
+
+    def require_cell_orientations(self):
+        """Set that the kernel requires cell orientations."""
+        self.oriented = True
+
+    def construct_kernel(self, return_arg, body):
+        """Constructs an :class:`ExpressionKernel`.
+
+        :arg return_arg: COFFEE argument for the return value
+        :arg body: function body (:class:`coffee.Block` node)
+        :returns: :class:`ExpressionKernel` object
+        """
+        args = [return_arg] + self.kernel_args
+        if self.oriented:
+            args.insert(1, cell_orientations_coffee_arg)
+
+        kernel_code = super(ExpressionKernelBuilder, self).construct_kernel("expression_kernel", args, body)
+        return ExpressionKernel(kernel_code, self.oriented, self.coefficients)
 
 
 class KernelBuilder(KernelBuilderBase):

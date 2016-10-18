@@ -15,7 +15,7 @@ from FIAT.reference_element import make_affine_mapping
 
 import gem
 
-from tsfc.constants import NUMPY_TYPE
+from tsfc.parameters import NUMPY_TYPE
 
 
 @singledispatch

@@ -16,7 +16,7 @@ import coffee.base as coffee
 
 from gem import gem, impero as imp
 
-from tsfc.constants import SCALAR_TYPE, PRECISION
+from tsfc.parameters import SCALAR_TYPE
 from tsfc.logging import logger
 
 
@@ -24,11 +24,12 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, roots=(), argument_indices=()):
+def generate(impero_c, index_names, precision, roots=(), argument_indices=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
     :arg index_names: pre-assigned index names
+    :arg precision: floating-point precision for printing
     :arg roots: list of expression DAG roots for attaching
         #pragma coffee expression
     :arg argument_indices: argument indices for attaching
@@ -36,21 +37,22 @@ def generate(impero_c, index_names, roots=(), argument_indices=()):
         to the argument loops
     :returns: COFFEE function body
     """
-    parameters = Bunch()
-    parameters.declare = impero_c.declare
-    parameters.indices = impero_c.indices
-    parameters.roots = roots
-    parameters.argument_indices = argument_indices
+    params = Bunch()
+    params.declare = impero_c.declare
+    params.indices = impero_c.indices
+    params.precision = precision
+    params.roots = roots
+    params.argument_indices = argument_indices
 
-    parameters.names = {}
+    params.names = {}
     for i, temp in enumerate(impero_c.temporaries):
-        parameters.names[temp] = "t%d" % i
+        params.names[temp] = "t%d" % i
 
     counter = itertools.count()
-    parameters.index_names = defaultdict(lambda: "i_%d" % next(counter))
-    parameters.index_names.update(index_names)
+    params.index_names = defaultdict(lambda: "i_%d" % next(counter))
+    params.index_names.update(index_names)
 
-    return statement(impero_c.tree, parameters)
+    return statement(impero_c.tree, params)
 
 
 def _coffee_symbol(symbol, rank=()):
@@ -171,7 +173,7 @@ def statement_evaluate(leaf, parameters):
             return coffee.Decl(SCALAR_TYPE,
                                _decl_symbol(expr, parameters),
                                coffee.ArrayInit(array_expression(expr.array),
-                                                precision=PRECISION))
+                                                precision=parameters.precision))
         else:
             ops = []
             for multiindex, value in numpy.ndenumerate(expr.array):
@@ -187,13 +189,13 @@ def statement_evaluate(leaf, parameters):
         nz_bounds += ([(max(nz_indices) - min(nz_indices) + 1, min(nz_indices))],)
         table = numpy.array(expr.array)
         # FFC uses one less digits for rounding than for printing
-        epsilon = eval("1e-%d" % (PRECISION - 1))
+        epsilon = eval("1e-%d" % (parameters.precision - 1))
         table[abs(table) < epsilon] = 0
         table[abs(table - 1.0) < epsilon] = 1.0
         table[abs(table + 1.0) < epsilon] = -1.0
         table[abs(table - 0.5) < epsilon] = 0.5
         table[abs(table + 0.5) < epsilon] = -0.5
-        init = coffee.SparseArrayInit(table, PRECISION, nz_bounds)
+        init = coffee.SparseArrayInit(table, parameters.precision, nz_bounds)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
                            init,
@@ -306,7 +308,7 @@ def _expression_scalar(expr, parameters):
     else:
         value = float(expr.value)
         # FFC uses one less digits for rounding than for printing
-        epsilon = eval("1e-%d" % (PRECISION - 1))
+        epsilon = eval("1e-%d" % (parameters.precision - 1))
         if abs(value) < epsilon:
             value = 0
         if abs(value - 1.0) < epsilon:
@@ -317,7 +319,7 @@ def _expression_scalar(expr, parameters):
             value = 0.5
         if abs(value + 0.5) < epsilon:
             value = -0.5
-        return coffee.Symbol(("%%.%dg" % (PRECISION - 1)) % value)
+        return coffee.Symbol(("%%.%dg" % (parameters.precision - 1)) % value)
 
 
 @_expression.register(gem.Variable)
