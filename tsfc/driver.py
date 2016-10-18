@@ -15,7 +15,7 @@ import gem
 import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
-from finat.quadrature import QuadratureRule, make_quadrature
+from finat.quadrature import AbstractQuadratureRule, QuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
@@ -146,11 +146,11 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             integration_cell = fiat_cell.construct_subelement(integration_dim)
             quad_rule = make_quadrature(integration_cell, quadrature_degree)
 
-        if not isinstance(quad_rule, QuadratureRule):
+        if not isinstance(quad_rule, AbstractQuadratureRule):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
                              type(quad_rule))
 
-        quadrature_index = quad_rule.get_indices()
+        quadrature_index = quad_rule.point_set.indices
         quadrature_indices += quadrature_index
 
         config = kernel_cfg.copy()
@@ -222,7 +222,7 @@ def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
                   if k in ["ufl_cell", "precision", "index_cache"]}
         config.update(interface=interface,
                       quadrature_degree=degree,
-                      point_index=quadrature_index)
+                      point_index=(quadrature_index,))
         expr, = fem.compile_ufl(integrand, **config)
         if quadrature_index in expr.free_indices:
             expr = gem.IndexSum(expr, quadrature_index)
@@ -240,7 +240,7 @@ def facetarea_generator(domain, coordinate_coefficient, kernel_config, integral_
         quadrature_index = gem.Index(name='q')
 
         config = kernel_config.copy()
-        config.update(quadrature_degree=degree, point_index=quadrature_index)
+        config.update(quadrature_degree=degree, point_index=(quadrature_index,))
         expr, = fem.compile_ufl(integrand, **config)
         if quadrature_index in expr.free_indices:
             expr = gem.IndexSum(expr, quadrature_index)
@@ -297,9 +297,8 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
-                  weights=None,
-                  points=points,
-                  point_index=point_index)
+                  quadrature_rule=QuadratureRule(points, [0]*len(points)),
+                  point_index=(point_index,))
     config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
     ir, = fem.compile_ufl(expression, **config)
 

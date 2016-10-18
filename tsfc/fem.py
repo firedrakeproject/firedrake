@@ -162,7 +162,7 @@ def translate(terminal, mt, ctx):
 
 @translate.register(QuadratureWeight)
 def translate_quadratureweight(terminal, mt, ctx):
-    return gem.Indexed(gem.Literal(ctx.weights), ctx.point_index)
+    return ctx.quadrature_rule.weight_expression
 
 
 @translate.register(GeometricQuantity)
@@ -185,7 +185,7 @@ def translate_argument(terminal, mt, ctx):
     element = create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        return element.basis_evaluation(ctx.quadrature_rule,
+        return element.basis_evaluation(ctx.quadrature_rule.point_set,
                                         derivative=mt.local_derivatives,
                                         entity=(ctx.integration_dim, entity_id))
     M = ctx.entity_selector(callback, mt.restriction)
@@ -209,7 +209,7 @@ def translate_coefficient(terminal, mt, ctx):
     element = create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        return element.basis_evaluation(ctx.quadrature_rule,
+        return element.basis_evaluation(ctx.quadrature_rule.point_set,
                                         derivative=mt.local_derivatives,
                                         entity=(ctx.integration_dim, entity_id))
     M = ctx.entity_selector(callback, mt.restriction)
