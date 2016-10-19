@@ -151,17 +151,16 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
                              type(quad_rule))
 
-        quadrature_index = quad_rule.point_set.indices
-        quadrature_indices += quadrature_index
+        quadrature_multiindex = quad_rule.point_set.indices
+        quadrature_indices += quadrature_multiindex
 
         config = kernel_cfg.copy()
-        config.update(quadrature_rule=quad_rule, point_multiindex=quadrature_index)
+        config.update(quadrature_rule=quad_rule)
         ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        for q in quadrature_index:
-            ir = [gem.IndexSum(expr, q) if q in expr.free_indices else expr
-                  for expr in ir]
+        for quadrature_index in quadrature_multiindex:
+            ir = [gem.index_sum(expr, quadrature_index) for expr in ir]
         irs.append(ir)
 
     # Sum the expressions that are part of the same restriction
@@ -219,8 +218,7 @@ def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
 
         config = {k: v for k, v in kernel_config.items()
                   if k in ["ufl_cell", "precision", "index_cache"]}
-        config.update(interface=interface,
-                      quadrature_degree=degree)
+        config.update(interface=interface, quadrature_degree=degree)
         expr, = fem.compile_ufl(integrand, point_sum=True, **config)
         return expr
     return cellvolume
@@ -291,7 +289,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
                   precision=parameters["precision"],
                   point_set=point_set)
     config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
-    ir, = fem.compile_ufl(expression, **config)
+    ir, = fem.compile_ufl(expression, point_sum=False, **config)
 
     # Deal with non-scalar expressions
     value_shape = ir.shape

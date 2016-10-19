@@ -221,12 +221,5 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
     result = map_expr_dags(translator, expressions)
     if point_sum:
         for index in context.point_multiindex:
-            result = [index_sum(expr, index) for expr in result]
+            result = [gem.index_sum(expr, index) for expr in result]
     return result
-
-
-def index_sum(expression, index):
-    if index in expression.free_indices:
-        return gem.IndexSum(expression, index)
-    else:
-        return expression
