@@ -1,7 +1,6 @@
 matrix:
     BASE_IMAGE:
        - ubuntu:xenial
-       - ubuntu:14.04
 
 notify:
   slack:
