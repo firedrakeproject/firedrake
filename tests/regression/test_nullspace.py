@@ -119,7 +119,8 @@ def test_nullspace_mixed():
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
 
 
-def test_near_nullspace():
+def test_near_nullspace(tmpdir):
+    # Tests the near nullspace for the case of the linear elasticity equations
     mesh = UnitSquareMesh(100, 100)
     dim = 2
     parameters["pyop2_options"]["block_sparsity"] = False
@@ -149,11 +150,40 @@ def test_near_nullspace():
     n_normalized = [interpolate(n*(1.0/sqrt(n.dat.inner(n.dat))), V) for n in n_interp]
     nsp = VectorSpaceBasis(vecs=n_normalized)
 
-    w = Function(V)
-    solve(lhs(F) == rhs(F), w, bcs=bcs, solver_parameters={'ksp_monitor': True, 'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg', 'pc_type': 'gamg'}, near_nullspace=nsp)
-    w = Function(V)
-    solve(lhs(F) == rhs(F), w, bcs=bcs, solver_parameters={'ksp_monitor': True, 'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg', 'pc_type': 'gamg'})
-    assert sqrt(assemble(inner(w-w_exact, w-w_exact)*dx)) < 1e-7
+    wo_nns_log = str(tmpdir.join("wo_nns_log"))
+    w_nns_log = str(tmpdir.join("w_nns_log"))
+
+    w1 = Function(V)
+    solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
+        'ksp_monitor_short': "ascii:%s:" % w_nns_log,
+        'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
+        'pc_type': 'gamg'}, near_nullspace=nsp)
+
+    w2 = Function(V)
+    solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
+        'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
+        'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
+        'pc_type': 'gamg'})
+
+    # check that both solutions are equal to the exact solution
+    assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < 1e-7
+    assert sqrt(assemble(inner(w1-w_exact, w1-w_exact)*dx)) < 1e-7
+
+    with open(wo_nns_log, "r") as f:
+        f.readline()
+        wo = f.read()
+
+    with open(w_nns_log, "r") as f:
+        f.readline()
+        w = f.read()
+
+    print "Without near nullspace"
+    print wo
+    print "With near nullspace"
+    print w
+
+    # Check that the number of iterations necessary decreases when using near nullspace
+    assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
 
 
 if __name__ == '__main__':

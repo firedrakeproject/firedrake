@@ -285,7 +285,8 @@ class MixedVectorSpaceBasis(object):
             # Compose appropriate nullspace with IS for schur complement
             if ises is not None:
                 is_ = ises[i]
-                is_.compose("nullspace", basis.nullspace(comm=self.comm))
+                key = "near_nullspace" if near else "nullspace"
+                is_.compose(key, basis.nullspace(comm=self.comm))
 
     def __iter__(self):
         """Yield the individual bases making up this MixedVectorSpaceBasis"""

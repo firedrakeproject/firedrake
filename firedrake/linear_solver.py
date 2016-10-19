@@ -73,19 +73,19 @@ class LinearSolver(solving_utils.ParametersMixin):
         self.ksp.setDMActive(False)
 
         if nullspace is not None:
-            nullspace._apply(self.A)
+            nullspace._apply(self.A, near=False)
             if P is not None:
-                nullspace._apply(self.P)
+                nullspace._apply(self.P, near=False)
 
         if transpose_nullspace is not None:
-            transpose_nullspace._apply(self.A, transpose=True)
+            transpose_nullspace._apply(self.A, transpose=True, near=False)
             if P is not None:
-                transpose_nullspace._apply(self.P, transpose=True)
+                transpose_nullspace._apply(self.P, transpose=True, near=False)
 
         if near_nullspace is not None:
-            near_nullspace._apply(self.A)
+            near_nullspace._apply(self.A, near=True)
             if P is not None:
-                near_nullspace._apply(self.P)
+                near_nullspace._apply(self.P, near=True)
 
         self.nullspace = nullspace
         self.transpose_nullspace = transpose_nullspace
@@ -128,11 +128,11 @@ class LinearSolver(solving_utils.ParametersMixin):
             raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
 
         if len(self._W) > 1 and self.nullspace is not None:
-            self.nullspace._apply(self._W.dof_dset.field_ises)
+            self.nullspace._apply(self._W.dof_dset.field_ises, near=False)
         if len(self._W) > 1 and self.transpose_nullspace is not None:
-            self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True)
+            self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True, near=False)
         if len(self._W) > 1 and self.near_nullspace is not None:
-            self.near_nullspace._apply(self._W.dof_dset.field_ises)
+            self.near_nullspace._apply(self._W.dof_dset.field_ises, near=True)
         if self.A.has_bcs:
             b_bc = self._b
             # rhs = b - action(A, zero_function_with_bcs_applied)
