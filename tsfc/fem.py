@@ -82,10 +82,6 @@ class Context(ProxyKernelInterface):
         # Rounding tolerance mimicking FFC
         return 10.0 * eval("1e-%d" % self.precision)
 
-    def _selector(self, callback, opts, restriction):
-        """Helper function for selecting code for the correct entity
-        at run-time."""
-
     def entity_selector(self, callback, restriction):
         """Selects code for the correct entity at run-time.  Callback
         generates code for a specified entity.
