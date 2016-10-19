@@ -213,7 +213,7 @@ class MixedVectorSpaceBasis(object):
                                                    vectors=self._petsc_vecs,
                                                    comm=self.comm)
 
-    def _apply_monolithic(self, matrix, transpose=False):
+    def _apply_monolithic(self, matrix, transpose=False, near=False):
         """Set this class:`MixedVectorSpaceBasis` as a nullspace for a
         matrix.
 
@@ -223,6 +223,8 @@ class MixedVectorSpaceBasis(object):
         :kwarg transpose: Should this be set as the transpose
              nullspace instead?  Used to orthogonalize the right hand
              side wrt the provided nullspace.
+        :kwarg near: Should this be set as the near nullspace instead?
+             Incompatible with transpose=True.
 
         Note, this only hangs the nullspace on the Mat, you should
         normally be using :meth:`_apply` which also hangs the
@@ -230,10 +232,16 @@ class MixedVectorSpaceBasis(object):
         complements."""
         if self._nullspace is None:
             self._build_monolithic_basis()
-        if transpose:
-            matrix.petscmat.setTransposeNullSpace(self._nullspace)
+        if near:
+            if transpose:
+                raise RuntimeError("No MatSetTransposeNearNullSpace operation in PETSc.")
+            else:
+                matrix.petscmat.setNearNullSpace(self.nullspace)
         else:
-            matrix.petscmat.setNullSpace(self._nullspace)
+            if transpose:
+                matrix.petscmat.setTransposeNullSpace(self._nullspace)
+            else:
+                matrix.petscmat.setNullSpace(self._nullspace)
 
     def _apply(self, matrix_or_ises, transpose=False, near=False):
         """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
@@ -244,6 +252,8 @@ class MixedVectorSpaceBasis(object):
         :kwarg transpose: Should this be set as the transpose
              nullspace instead?  Used to orthogonalize the right hand
              side wrt the provided nullspace.
+        :kwarg near: Should this be set as the near nullspace instead?
+             Incompatible with transpose=True.
 
         .. note::
 
@@ -263,7 +273,7 @@ class MixedVectorSpaceBasis(object):
                 raise RuntimeError("Shape of matrix (%d, %d) does not match size of nullspace %d" %
                                    (rows, cols, len(self)))
             # Hang the expanded nullspace on the big matrix
-            self._apply_monolithic(matrix, transpose=transpose)
+            self._apply_monolithic(matrix, transpose=transpose, near=near)
             return
         ises = matrix_or_ises
         if transpose:
