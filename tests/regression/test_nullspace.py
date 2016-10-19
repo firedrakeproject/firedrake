@@ -177,11 +177,6 @@ def test_near_nullspace(tmpdir):
         f.readline()
         w = f.read()
 
-    print "Without near nullspace"
-    print wo
-    print "With near nullspace"
-    print w
-
     # Check that the number of iterations necessary decreases when using near nullspace
     assert (len(w.split("\n"))-1) <= 0.75 * (len(wo.split("\n"))-1)
 
