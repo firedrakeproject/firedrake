@@ -750,7 +750,7 @@ class TensorMul(BinaryOp):
             return A.get_ufl_integrals() + B.get_ufl_integrals()
         integrandA = A.get_ufl_integrals()[-1].integrand()
         integrandB = B.get_ufl_integrals()[0].integrand()
-        slate_assert(integrandA.domain().coordinates.function_space() ==
-                     integrandB.domain().coordinates.function_space(),
+        slate_assert(integrandA.ufl_domain().coordinates.function_space() ==
+                     integrandB.ufl_domain().coordinates.function_space(),
                      "Cannot perform contraction over middle integrals. The integrands must be in the space function space.")
         return A.get_ufl_integrals()[:-1] + B.get_ufl_integrals()[1:]

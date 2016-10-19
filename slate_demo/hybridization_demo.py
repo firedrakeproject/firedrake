@@ -32,7 +32,7 @@ def slate_hybridization(degree, res):
     trace_jump = jump(tau, n=n)*lambdar('+')*dS
 
     # Homogeneous Dirichlet boundary conditions
-    bc = DirichletBC(TraceSpace, Constant(0), (1, 2, 3 , 4))
+    bc = DirichletBC(TraceSpace, Constant(0), (1, 2, 3, 4))
 
     # Create Schur system with SLATE tensors
     A = slate.Matrix(Mass1 + Mass2 + Div - Grad)
