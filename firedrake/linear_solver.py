@@ -17,7 +17,7 @@ class LinearSolver(solving_utils.ParametersMixin):
 
     def __init__(self, A, P=None, solver_parameters=None,
                  nullspace=None, transpose_nullspace=None,
-                 options_prefix=None):
+                 near_nullspace=None, options_prefix=None):
         """A linear solver for assembled systems (Ax = b).
 
         :arg A: a :class:`~.MatrixBase` (the operator).
@@ -30,6 +30,8 @@ class LinearSolver(solving_utils.ParametersMixin):
             of the operator.
         :kwarg transpose_nullspace: as for the nullspace, but used to
                make the right hand side consistent.
+        :kwarg near_nullspace: as for the nullspace, but used to set
+               the near nullpace.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
@@ -80,8 +82,14 @@ class LinearSolver(solving_utils.ParametersMixin):
             if P is not None:
                 transpose_nullspace._apply(self.P, transpose=True)
 
+        if near_nullspace is not None:
+            near_nullspace._apply(self.A)
+            if P is not None:
+                near_nullspace._apply(self.P)
+
         self.nullspace = nullspace
         self.transpose_nullspace = transpose_nullspace
+        self.near_nullspace = near_nullspace
         self._W = W
         # Operator setting must come after null space has been
         # applied
@@ -123,6 +131,8 @@ class LinearSolver(solving_utils.ParametersMixin):
             self.nullspace._apply(self._W.dof_dset.field_ises)
         if len(self._W) > 1 and self.transpose_nullspace is not None:
             self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True)
+        if len(self._W) > 1 and self.near_nullspace is not None:
+            self.near_nullspace._apply(self._W.dof_dset.field_ises)
         if self.A.has_bcs:
             b_bc = self._b
             # rhs = b - action(A, zero_function_with_bcs_applied)

@@ -89,7 +89,7 @@ class VectorSpaceBasis(object):
                     return False
         return True
 
-    def _apply(self, matrix, transpose=False):
+    def _apply(self, matrix, transpose=False, near=False):
         """Set this VectorSpaceBasis as a nullspace for a matrix
 
         :arg matrix: a :class:`~.MatrixBase` whose nullspace should
@@ -100,10 +100,16 @@ class VectorSpaceBasis(object):
         """
         if not isinstance(matrix, MatrixBase):
             return
-        if transpose:
-            matrix.petscmat.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
+        if near:
+            if transpose:
+                raise RuntimeError("No MatSetTransposeNearNullSpace operation in PETSc.")
+            else:
+                matrix.petscmat.setNearNullSpace(self.nullspace(comm=matrix.comm))
         else:
-            matrix.petscmat.setNullSpace(self.nullspace(comm=matrix.comm))
+            if transpose:
+                matrix.petscmat.setTransposeNullSpace(self.nullspace(comm=matrix.comm))
+            else:
+                matrix.petscmat.setNullSpace(self.nullspace(comm=matrix.comm))
 
     def __iter__(self):
         """Yield self when iterated over"""
@@ -229,7 +235,7 @@ class MixedVectorSpaceBasis(object):
         else:
             matrix.petscmat.setNullSpace(self._nullspace)
 
-    def _apply(self, matrix_or_ises, transpose=False):
+    def _apply(self, matrix_or_ises, transpose=False, near=False):
         """Set this :class:`MixedVectorSpaceBasis` as a nullspace for a matrix
 
         :arg matrix_or_ises: either a :class:`~.MatrixBase` to set a

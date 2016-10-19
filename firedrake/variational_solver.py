@@ -81,6 +81,8 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
                space of the operator.
         :kwarg transpose_nullspace: as for the nullspace, but used to
                make the right hand side consistent.
+        :kwarg near_nullspace: as for the nullspace, but used to
+               specify the near nullspace (for multigrid solvers).
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
             This should be a dict mapping PETSc options to values.  For
             example, to set the nonlinear solver type to just use a linear
@@ -108,6 +110,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
             raise TypeError("Use solver_parameters, not parameters")
         nullspace = kwargs.get("nullspace")
         nullspace_T = kwargs.get("transpose_nullspace")
+        near_nullspace = kwargs.get("near_nullspace")
         options_prefix = kwargs.get("options_prefix")
 
         super(NonlinearVariationalSolver, self).__init__(parameters, options_prefix)
@@ -144,9 +147,11 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
-                          transpose=False)
+                          transpose=False, near=False)
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
-                          transpose=True)
+                          transpose=True, near=False)
+        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
+                          transpose=False, near=True)
 
         # Set from options now, so that people who want to noodle with
         # the snes object directly (mostly Patrick), can.  We need the
