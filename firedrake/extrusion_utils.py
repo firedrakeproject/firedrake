@@ -92,8 +92,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                                               double *layer_height) {
             double v0[%(base_coord_dim)d];
             double v1[%(base_coord_dim)d];
-            double n[%(base_map_arity)d];
-            double x[%(base_map_arity)d] = {0};
+            double n[%(base_coord_dim)d];
+            double x[%(base_coord_dim)d] = {0};
             double dot = 0.0;
             double norm = 0.0;
             int i, c, d;
@@ -110,10 +110,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                  * normal is
                  * v0 x v1
                  *
-                 *    /\
-                 * v0/  \
-                 *  /    \
-                 * /------\
+                 *    /\\
+                 * v0/  \\
+                 *  /    \\
+                 * /------\\
                  *    v1
                  */
                 for (i = 0; i < 3; ++i) {
@@ -126,10 +126,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             }
             for (i = 0; i < %(base_map_arity)d; ++i) {
                 for (c = 0; c < %(base_coord_dim)d; ++c) {
-                    x[i] += base_coords[c][i];
+                    x[c] += base_coords[i][c];
                 }
             }
-            for (i = 0; i < %(base_map_arity)d; ++i) {
+            for (i = 0; i < %(base_coord_dim)d; ++i) {
                 dot += x[i] * n[i];
                 norm += n[i] * n[i];
             }
