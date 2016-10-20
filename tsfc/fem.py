@@ -165,7 +165,7 @@ def translate_argument(terminal, mt, ctx):
     M = ctx.entity_selector(callback, mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     argument_index = ctx.argument_indices[terminal.number()]
-    result = gem.Indexed(M, ctx.point_multiindex + argument_index + vi)
+    result = gem.Indexed(M, argument_index + vi)
     if vi:
         return gem.ComponentTensor(result, vi)
     else:
@@ -190,7 +190,7 @@ def translate_coefficient(terminal, mt, ctx):
 
     alpha = element.get_indices()
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    result = gem.Product(gem.Indexed(M, ctx.point_multiindex + alpha + vi),
+    result = gem.Product(gem.Indexed(M, alpha + vi),
                          gem.Indexed(vec, alpha))
     for i in alpha:
         result = gem.IndexSum(result, i)
