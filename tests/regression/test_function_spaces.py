@@ -92,7 +92,7 @@ def test_mixed_function_space_split(fs):
 
 @pytest.mark.parametrize("modifier",
                          [BrokenElement, FacetElement,
-                          InteriorElement, TraceElement, HDivElement,
+                          InteriorElement, HDivElement,
                           HCurlElement])
 @pytest.mark.parametrize("element",
                          [FiniteElement("CG", triangle, 1),
