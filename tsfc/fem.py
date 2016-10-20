@@ -34,7 +34,6 @@ class Context(ProxyKernelInterface):
                 'point_set',
                 'weight_expr',
                 'precision',
-                'point_multiindex',
                 'argument_indices',
                 'cellvolume',
                 'facetarea',
@@ -66,10 +65,6 @@ class Context(ProxyKernelInterface):
     @cached_property
     def point_set(self):
         return self.quadrature_rule.point_set
-
-    @cached_property
-    def point_multiindex(self):
-        return self.point_set.indices
 
     @cached_property
     def weight_expr(self):
@@ -216,6 +211,6 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
     translator = Translator(context)
     result = map_expr_dags(translator, expressions)
     if point_sum:
-        for index in context.point_multiindex:
+        for index in context.point_set.indices:
             result = [gem.index_sum(expr, index) for expr in result]
     return result
