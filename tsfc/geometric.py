@@ -3,7 +3,7 @@ expressions."""
 
 from __future__ import absolute_import, print_function, division
 
-from numpy import allclose, vstack
+from numpy import allclose, asarray, vstack
 from singledispatch import singledispatch
 
 from ufl.classes import (CellCoordinate, CellEdgeVectors,
@@ -14,6 +14,8 @@ from ufl.classes import (CellCoordinate, CellEdgeVectors,
 from FIAT.reference_element import make_affine_mapping
 
 import gem
+
+from finat.point_set import restore_shape
 
 from tsfc.parameters import NUMPY_TYPE
 
@@ -98,13 +100,22 @@ def translate_cell_edge_vectors(terminal, mt, params):
 
 @translate.register(CellCoordinate)
 def translate_cell_coordinate(terminal, mt, params):
-    return gem.partial_indexed(params.index_selector(lambda i: gem.Literal(params.entity_points[i]),
-                                                     mt.restriction),
-                               (params.point_index,))
+    if params.integration_dim == params.fiat_cell.get_dimension():
+        return params.point_set.expression
+
+    # This destroys the structure of the quadrature points, but since
+    # this code path is only used to implement CellCoordinate in facet
+    # integrals, hopefully it does not matter much.
+    def callback(entity_id):
+        ps = params.point_set
+        t = params.fiat_cell.get_entity_transform(params.integration_dim, entity_id)
+        return gem.Literal(restore_shape(asarray(list(map(t, ps.points))), ps))
+
+    return gem.partial_indexed(params.entity_selector(callback, mt.restriction),
+                               params.point_multiindex)
 
 
 @translate.register(FacetCoordinate)
 def translate_facet_coordinate(terminal, mt, params):
     assert params.integration_dim != params.fiat_cell.get_dimension()
-    points = params.points
-    return gem.partial_indexed(gem.Literal(points), (params.point_index,))
+    return params.point_set.expression
