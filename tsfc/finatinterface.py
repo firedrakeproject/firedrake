@@ -117,6 +117,16 @@ def convert_tensorelement(element):
     return finat.TensorFiniteElement(scalar_element, element.reference_value_shape())
 
 
+# TensorProductElement case
+@convert.register(ufl.TensorProductElement)
+def convert_tensorproductelement(element):
+    cell = element.cell()
+    if type(cell) is not ufl.TensorProductCell:
+        raise ValueError("TensorProductElement not on TensorProductCell?")
+    return finat.TensorProductElement([create_element(elem)
+                                       for elem in element.sub_elements()])
+
+
 _cache = weakref.WeakKeyDictionary()
 
 
