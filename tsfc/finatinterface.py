@@ -31,6 +31,8 @@ import finat
 
 import ufl
 
+from tsfc.ufl_utils import spanning_degree
+
 
 __all__ = ("create_element", "supported_elements", "as_fiat_cell")
 
@@ -66,7 +68,7 @@ def fiat_compat(element):
     from tsfc.fiatinterface import create_element
     from finat.fiat_elements import FiatElementBase
     cell = as_fiat_cell(element.cell())
-    finat_element = FiatElementBase(cell, element.degree())
+    finat_element = FiatElementBase(cell, spanning_degree(element))
     finat_element._fiat_element = create_element(element)
     return finat_element
 
