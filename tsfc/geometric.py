@@ -15,8 +15,6 @@ from FIAT.reference_element import make_affine_mapping
 
 import gem
 
-from finat.point_set import restore_shape
-
 from tsfc.parameters import NUMPY_TYPE
 
 
@@ -107,9 +105,12 @@ def translate_cell_coordinate(terminal, mt, params):
     # This destroys the structure of the quadrature points, but since
     # this code path is only used to implement CellCoordinate in facet
     # integrals, hopefully it does not matter much.
+    point_shape = tuple(index.extent for index in ps.indices)
+
     def callback(entity_id):
         t = params.fiat_cell.get_entity_transform(params.integration_dim, entity_id)
-        return gem.Literal(restore_shape(asarray(list(map(t, ps.points))), ps))
+        data = asarray(list(map(t, ps.points)))
+        return gem.Literal(data.reshape(point_shape + data.shape[1:]))
 
     return gem.partial_indexed(params.entity_selector(callback, mt.restriction),
                                ps.indices)
