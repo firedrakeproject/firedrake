@@ -73,14 +73,14 @@ class LinearSolver(solving_utils.ParametersMixin):
         self.ksp.setDMActive(False)
 
         if nullspace is not None:
-            nullspace._apply(self.A, near=False)
+            nullspace._apply(self.A)
             if P is not None:
-                nullspace._apply(self.P, near=False)
+                nullspace._apply(self.P)
 
         if transpose_nullspace is not None:
-            transpose_nullspace._apply(self.A, transpose=True, near=False)
+            transpose_nullspace._apply(self.A, transpose=True)
             if P is not None:
-                transpose_nullspace._apply(self.P, transpose=True, near=False)
+                transpose_nullspace._apply(self.P, transpose=True)
 
         if near_nullspace is not None:
             near_nullspace._apply(self.A, near=True)
@@ -128,9 +128,9 @@ class LinearSolver(solving_utils.ParametersMixin):
             raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
 
         if len(self._W) > 1 and self.nullspace is not None:
-            self.nullspace._apply(self._W.dof_dset.field_ises, near=False)
+            self.nullspace._apply(self._W.dof_dset.field_ises)
         if len(self._W) > 1 and self.transpose_nullspace is not None:
-            self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True, near=False)
+            self.transpose_nullspace._apply(self._W.dof_dset.field_ises, transpose=True)
         if len(self._W) > 1 and self.near_nullspace is not None:
             self.near_nullspace._apply(self._W.dof_dset.field_ises, near=True)
         if self.A.has_bcs:

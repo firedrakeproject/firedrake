@@ -279,13 +279,14 @@ class MixedVectorSpaceBasis(object):
         if transpose:
             # PETSc doesn't give us anything here
             return
+
+        key = "near_nullspace" if near else "nullspace"
         for i, basis in enumerate(self):
             if not isinstance(basis, VectorSpaceBasis):
                 continue
             # Compose appropriate nullspace with IS for schur complement
             if ises is not None:
                 is_ = ises[i]
-                key = "near_nullspace" if near else "nullspace"
                 is_.compose(key, basis.nullspace(comm=self.comm))
 
     def __iter__(self):
