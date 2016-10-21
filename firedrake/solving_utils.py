@@ -209,14 +209,14 @@ class _SNESContext(object):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
                          P=self._pjac.petscmat)
 
-    def set_nullspace(self, nullspace, ises=None, transpose=False):
+    def set_nullspace(self, nullspace, ises=None, transpose=False, near=False):
         if nullspace is None:
             return
-        nullspace._apply(self._jac, transpose=transpose)
+        nullspace._apply(self._jac, transpose=transpose, near=near)
         if self.Jp is not None:
-            nullspace._apply(self._pjac, transpose=transpose)
+            nullspace._apply(self._pjac, transpose=transpose, near=near)
         if ises is not None:
-            nullspace._apply(ises, transpose=transpose)
+            nullspace._apply(ises, transpose=transpose, near=near)
 
     def split(self, fields):
         from ufl import as_vector, replace
