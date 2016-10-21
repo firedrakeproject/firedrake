@@ -34,7 +34,6 @@ class Context(ProxyKernelInterface):
                 'point_set',
                 'weight_expr',
                 'precision',
-                'point_multiindex',
                 'argument_indices',
                 'cellvolume',
                 'facetarea',
@@ -66,10 +65,6 @@ class Context(ProxyKernelInterface):
     @cached_property
     def point_set(self):
         return self.quadrature_rule.point_set
-
-    @cached_property
-    def point_multiindex(self):
-        return self.point_set.indices
 
     @cached_property
     def weight_expr(self):
@@ -165,7 +160,7 @@ def translate_argument(terminal, mt, ctx):
     M = ctx.entity_selector(callback, mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     argument_index = ctx.argument_indices[terminal.number()]
-    result = gem.Indexed(M, ctx.point_multiindex + argument_index + vi)
+    result = gem.Indexed(M, argument_index + vi)
     if vi:
         return gem.ComponentTensor(result, vi)
     else:
@@ -190,7 +185,7 @@ def translate_coefficient(terminal, mt, ctx):
 
     alpha = element.get_indices()
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    result = gem.Product(gem.Indexed(M, ctx.point_multiindex + alpha + vi),
+    result = gem.Product(gem.Indexed(M, alpha + vi),
                          gem.Indexed(vec, alpha))
     for i in alpha:
         result = gem.IndexSum(result, i)
@@ -216,6 +211,6 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
     translator = Translator(context)
     result = map_expr_dags(translator, expressions)
     if point_sum:
-        for index in context.point_multiindex:
+        for index in context.point_set.indices:
             result = [gem.index_sum(expr, index) for expr in result]
     return result
