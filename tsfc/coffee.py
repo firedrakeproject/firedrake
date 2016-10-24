@@ -182,11 +182,6 @@ def statement_evaluate(leaf, parameters):
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, gem.Constant):
         assert parameters.declare[leaf]
-        # Take all axes except the last one
-        axes = tuple(range(len(expr.array.shape) - 1))
-        nz_indices, = expr.array.any(axis=axes).nonzero()
-        nz_bounds = tuple([(i, 0)] for i in expr.array.shape[:-1])
-        nz_bounds += ([(max(nz_indices) - min(nz_indices) + 1, min(nz_indices))],)
         table = numpy.array(expr.array)
         # FFC uses one less digits for rounding than for printing
         epsilon = eval("1e-%d" % (parameters.precision - 1))
@@ -195,7 +190,7 @@ def statement_evaluate(leaf, parameters):
         table[abs(table + 1.0) < epsilon] = -1.0
         table[abs(table - 0.5) < epsilon] = 0.5
         table[abs(table + 0.5) < epsilon] = -0.5
-        init = coffee.SparseArrayInit(table, parameters.precision, nz_bounds)
+        init = coffee.ArrayInit(table, parameters.precision)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
                            init,

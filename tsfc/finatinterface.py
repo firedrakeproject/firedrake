@@ -30,6 +30,7 @@ import FIAT
 import finat
 
 import ufl
+from ufl.algorithms.elementtransformations import reconstruct_element
 
 from tsfc.ufl_utils import spanning_degree
 
@@ -48,6 +49,9 @@ supported_elements = {
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
     "Raviart-Thomas": finat.RaviartThomas,
     "Regge": finat.Regge,
+    # These require special treatment below
+    "DQ": None,
+    "Q": None,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FIAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -90,11 +94,20 @@ def convert(element):
 @convert.register(ufl.FiniteElement)
 def convert_finiteelement(element):
     cell = as_fiat_cell(element.cell())
-    lmbda = supported_elements.get(element.family())
-    if lmbda:
-        return lmbda(cell, element.degree())
-    else:
+    if element.family() not in supported_elements:
         return fiat_compat(element)
+    lmbda = supported_elements.get(element.family())
+    if lmbda is None:
+        if element.cell().cellname() != "quadrilateral":
+            raise ValueError("%s is supported, but handled incorrectly" %
+                             element.family())
+        # Handle quadrilateral short names like RTCF and RTCE.
+        element = reconstruct_element(element,
+                                      element.family(),
+                                      quad_tpc,
+                                      element.degree())
+        return finat.QuadrilateralElement(create_element(element))
+    return lmbda(cell, element.degree())
 
 
 # MixedElement case
@@ -117,6 +130,17 @@ def convert_tensorelement(element):
     return finat.TensorFiniteElement(scalar_element, element.reference_value_shape())
 
 
+# TensorProductElement case
+@convert.register(ufl.TensorProductElement)
+def convert_tensorproductelement(element):
+    cell = element.cell()
+    if type(cell) is not ufl.TensorProductCell:
+        raise ValueError("TensorProductElement not on TensorProductCell?")
+    return finat.TensorProductElement([create_element(elem)
+                                       for elem in element.sub_elements()])
+
+
+quad_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
 

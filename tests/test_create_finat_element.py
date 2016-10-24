@@ -40,6 +40,35 @@ def test_triangle_vector(ufl_element, ufl_vector_element):
     assert scalar == vector.base_element
 
 
+@pytest.fixture(params=["CG", "DG"])
+def tensor_name(request):
+    return request.param
+
+
+@pytest.fixture(params=[ufl.interval, ufl.triangle,
+                        ufl.quadrilateral],
+                ids=lambda x: x.cellname())
+def ufl_A(request, tensor_name):
+    return ufl.FiniteElement(tensor_name, request.param, 1)
+
+
+@pytest.fixture
+def ufl_B(tensor_name):
+    return ufl.FiniteElement(tensor_name, ufl.interval, 1)
+
+
+def test_tensor_prod_simple(ufl_A, ufl_B):
+    tensor_ufl = ufl.TensorProductElement(ufl_A, ufl_B)
+
+    tensor = f.create_element(tensor_ufl)
+    A = f.create_element(ufl_A)
+    B = f.create_element(ufl_B)
+
+    assert isinstance(tensor, finat.TensorProductElement)
+
+    assert tensor.factors == (A, B)
+
+
 def test_cache_hit(ufl_element):
     A = f.create_element(ufl_element)
     B = f.create_element(ufl_element)

@@ -149,14 +149,37 @@ def translate_facetarea(terminal, mt, ctx):
     return ctx.facetarea()
 
 
+def basis_evaluation(element, ps, derivative=0, entity=None):
+    # TODO: clean up, potentially remove this function.
+    import numpy
+
+    finat_result = element.basis_evaluation(derivative, ps, entity)
+    i = element.get_indices()
+    vi = element.get_value_indices()
+
+    dimension = element.cell.get_spatial_dimension()
+    eye = numpy.eye(dimension, dtype=int)
+    tensor = numpy.empty((dimension,) * derivative, dtype=object)
+    for multiindex in numpy.ndindex(tensor.shape):
+        alpha = tuple(eye[multiindex, :].sum(axis=0))
+        tensor[multiindex] = gem.Indexed(finat_result[alpha], i + vi)
+    di = tuple(gem.Index(extent=dimension) for _ in range(derivative))
+    if derivative:
+        tensor = gem.Indexed(gem.ListTensor(tensor), di)
+    else:
+        tensor = tensor[()]
+    return gem.ComponentTensor(tensor, i + vi + di)
+
+
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
     element = create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        return element.basis_evaluation(ctx.point_set,
-                                        derivative=mt.local_derivatives,
-                                        entity=(ctx.integration_dim, entity_id))
+        return basis_evaluation(element,
+                                ctx.point_set,
+                                derivative=mt.local_derivatives,
+                                entity=(ctx.integration_dim, entity_id))
     M = ctx.entity_selector(callback, mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     argument_index = ctx.argument_indices[terminal.number()]
@@ -178,9 +201,10 @@ def translate_coefficient(terminal, mt, ctx):
     element = create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        return element.basis_evaluation(ctx.point_set,
-                                        derivative=mt.local_derivatives,
-                                        entity=(ctx.integration_dim, entity_id))
+        return basis_evaluation(element,
+                                ctx.point_set,
+                                derivative=mt.local_derivatives,
+                                entity=(ctx.integration_dim, entity_id))
     M = ctx.entity_selector(callback, mt.restriction)
 
     alpha = element.get_indices()
