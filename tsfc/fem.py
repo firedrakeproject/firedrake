@@ -217,9 +217,7 @@ def translate_coefficient(terminal, mt, ctx):
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     result = gem.Product(gem.Indexed(M, alpha + vi),
                          gem.Indexed(vec, alpha))
-    for i in alpha:
-        result = gem.IndexSum(result, i)
-    result = gem.optimise.contraction(result)
+    result = gem.optimise.contraction(gem.IndexSum(result, alpha))
     if vi:
         return gem.ComponentTensor(result, vi)
     else:
@@ -242,6 +240,5 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
     translator = Translator(context)
     result = map_expr_dags(translator, expressions)
     if point_sum:
-        for index in context.point_set.indices:
-            result = [gem.index_sum(expr, index) for expr in result]
+        result = [gem.index_sum(expr, context.point_set.indices) for expr in result]
     return result
