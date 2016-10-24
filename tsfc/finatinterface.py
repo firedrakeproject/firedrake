@@ -104,7 +104,7 @@ def convert_finiteelement(element):
         # Handle quadrilateral short names like RTCF and RTCE.
         element = reconstruct_element(element,
                                       element.family(),
-                                      quad_opc,
+                                      quad_tpc,
                                       element.degree())
         return finat.QuadrilateralElement(create_element(element))
     return lmbda(cell, element.degree())
@@ -140,7 +140,7 @@ def convert_tensorproductelement(element):
                                        for elem in element.sub_elements()])
 
 
-quad_opc = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
+quad_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
 
