@@ -219,6 +219,7 @@ def translate_coefficient(terminal, mt, ctx):
                          gem.Indexed(vec, alpha))
     for i in alpha:
         result = gem.IndexSum(result, i)
+    result = gem.optimise.contraction(result)
     if vi:
         return gem.ComponentTensor(result, vi)
     else:
