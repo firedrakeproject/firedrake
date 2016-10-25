@@ -37,6 +37,7 @@ env:
     - FIREDRAKE_TRAVIS_TESTS=1
     - PACKAGE_MANAGER="--no-package-manager"
     - SLEPC="--slepc"
+    - COVERAGE_DIRS="--cov firedrake"
   matrix:
     - PYOP2_BACKEND=none
 matrix:
@@ -46,11 +47,21 @@ matrix:
     - os: osx
       # Only test a few things on OSX until we can cache some of the
       # build dependencies, otherwise we often get timeouts.
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion" TEST_ADJOINT="TRUE" PACKAGE_MANAGER="" SLEPC=""
+      env:
+        PYOP2_BACKEND=sequential
+        PYOP2_TESTS="extrusion"
+        TEST_ADJOINT="TRUE"
+        PACKAGE_MANAGER=""
+        SLEPC=""
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS=regression
+      env:
+        PYOP2_BACKEND=sequential
+        PYOP2_TESTS=regression
     - os: linux
-      env: PYOP2_BACKEND=sequential PYOP2_TESTS="extrusion output multigrid benchmarks demos" TEST_ADJOINT="TRUE"
+      env:
+        PYOP2_BACKEND=sequential
+        PYOP2_TESTS="extrusion output multigrid benchmarks demos"
+        TEST_ADJOINT="TRUE"
 before_install:
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then brew update; brew install python; brew link --overwrite python ;  fi
   - pip install -U --user pip
@@ -71,8 +82,13 @@ install:
   # This saves PETSc and petsc4py to speed up building
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
   - if [ "x$TEST_ADJOINT" != "x" ]; then pip install scipy; fi
+  # For code coverage
+  - pip install pytest-cov
 # command to run tests
 script:
-  - (cd firedrake/src/firedrake; make lint)
-  - (rc=0; for t in ${PYOP2_TESTS}; do py.test --short -v firedrake/src/firedrake/tests/${t} || rc=$?; done; exit $rc)
-  - if [ "x$TEST_ADJOINT" != "x" ]; then python firedrake/src/dolfin-adjoint/tests_firedrake/test.py; fi
+  - cd firedrake/src
+  - (cd firedrake; make lint)
+  - (cd firedrake; rc=0; for t in ${PYOP2_TESTS}; do py.test --cov-append ${COVERAGE_DIRS} --short -v tests/${t} || rc=$?; done; exit $rc)
+  - if [ "x$TEST_ADJOINT" != "x" ]; then python dolfin-adjoint/tests_firedrake/test.py; fi
+after_success:
+  - (cd firedrake; bash <(curl -s https://codecov.io/bash))
