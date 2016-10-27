@@ -3,20 +3,18 @@ from firedrake.petsc import PETSc
 import pytest
 
 
-@pytest.fixture(params=[None, "", "foo_"],
-                scope="module")
+@pytest.fixture(params=[None, "", "foo_"])
 def prefix(request):
     return request.param
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def global_parameters():
     return {"ksp_type": "fgmres",
             "pc_type": "none"}
 
 
-@pytest.fixture(scope="module",
-                autouse=True)
+@pytest.fixture
 def opts(request, prefix, global_parameters):
     opts = PETSc.Options()
     if prefix is None:
@@ -32,13 +30,13 @@ def opts(request, prefix, global_parameters):
     request.addfinalizer(finalize)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def V():
     m = UnitSquareMesh(1, 1)
     return FunctionSpace(m, "CG", 1)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def a(V):
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -46,7 +44,7 @@ def a(V):
     return u*v*dx
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def L(V):
     v = TestFunction(V)
     return v*dx
@@ -89,7 +87,7 @@ def nlvs(a, L, u, prefix, parameters):
     return solver, prefix
 
 
-def test_linear_solver_options_prefix(ls, u, L, parameters, global_parameters):
+def test_linear_solver_options_prefix(opts, ls, u, L, parameters, global_parameters):
     solver, prefix = ls
 
     b = assemble(L)
@@ -110,7 +108,7 @@ def test_linear_solver_options_prefix(ls, u, L, parameters, global_parameters):
     assert pc_type == expect_pc_type
 
 
-def test_lvs_options_prefix(lvs, parameters, global_parameters):
+def test_lvs_options_prefix(opts, lvs, parameters, global_parameters):
     solver, prefix = lvs
 
     solver.solve()
@@ -129,7 +127,7 @@ def test_lvs_options_prefix(lvs, parameters, global_parameters):
     assert pc_type == expect_pc_type
 
 
-def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
+def test_nlvs_options_prefix(opts, nlvs, parameters, global_parameters):
     solver, prefix = nlvs
 
     solver.solve()
@@ -146,3 +144,23 @@ def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
 
     assert ksp_type == expect_ksp_type
     assert pc_type == expect_pc_type
+
+
+def test_options_database_cleared():
+    opts = PETSc.Options()
+    expect = len(opts.getAll())
+
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    A = assemble(u*v*dx)
+    b = assemble(v*dx)
+    u = Function(V)
+    solvers = []
+    for i in range(100):
+        solver = LinearSolver(A, solver_parameters={"ksp_type": "preonly",
+                                                    "pc_type": "lu"})
+        solver.solve(u, b)
+        solvers.append(solver)
+    assert expect == len(opts.getAll())
