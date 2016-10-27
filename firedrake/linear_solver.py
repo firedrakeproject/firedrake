@@ -142,9 +142,10 @@ class LinearSolver(solving_utils.ParametersMixin):
                 bc.apply(b_bc)
             # don't want to write into b itself, because that would confuse user
             b = b_bc
-        with b.dat.vec_ro as rhs:
-            with x.dat.vec as solution:
-                self.ksp.solve(rhs, solution)
+        with self.inserted_options():
+            with b.dat.vec_ro as rhs:
+                with x.dat.vec as solution:
+                    self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()
         if r < 0:
