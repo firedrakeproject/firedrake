@@ -58,4 +58,4 @@ build:
     - sudo -EHu firedrake env PATH="$PATH" py.test -n auto -v firedrake/src/firedrake/tests/
 
     # Run the dolfin-adjoint tests
-    - sudo -EHu firedrake env PATH="$PATH" python firedrake/src/dolfin-adjoint/tests_firedrake/test.py
+    - sudo -EHu firedrake env PATH="$PATH" py.test -v firedrake/src/dolfin-adjoint/tests_firedrake/

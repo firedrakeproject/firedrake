@@ -89,6 +89,6 @@ script:
   - cd firedrake/src
   - (cd firedrake; make lint)
   - (cd firedrake; rc=0; for t in ${PYOP2_TESTS}; do py.test --cov-append ${COVERAGE_DIRS} --short -v tests/${t} || rc=$?; done; exit $rc)
-  - if [ "x$TEST_ADJOINT" != "x" ]; then python dolfin-adjoint/tests_firedrake/test.py; fi
+  - if [ "x$TEST_ADJOINT" != "x" ]; then (cd dolfin-adjoint; py.test -v tests_firedrake); fi
 after_success:
   - (cd firedrake; bash <(curl -s https://codecov.io/bash))
