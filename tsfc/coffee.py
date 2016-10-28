@@ -41,6 +41,7 @@ def generate(impero_c, index_names, precision, roots=(), argument_indices=()):
     params.declare = impero_c.declare
     params.indices = impero_c.indices
     params.precision = precision
+    params.epsilon = 10.0 * eval("1e-%d" % precision)
     params.roots = roots
     params.argument_indices = argument_indices
 
@@ -298,7 +299,11 @@ def _expression_scalar(expr, parameters):
     if isnan(expr.value):
         return coffee.Symbol("NAN")
     else:
-        return coffee.Symbol(("%%.%dg" % (parameters.precision - 1)) % expr.value)
+        v = expr.value
+        r = round(v, 1)
+        if r and abs(v - r) < parameters.epsilon:
+            v = r  # round to nonzero
+        return coffee.Symbol(("%%.%dg" % parameters.precision) % v)
 
 
 @_expression.register(gem.Variable)
