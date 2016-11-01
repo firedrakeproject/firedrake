@@ -5,6 +5,7 @@ import logging
 import sys
 import os
 import subprocess
+from collections import OrderedDict
 
 parser = ArgumentParser(description="""Provide information on the currently downloaded version of Firedrake and its configuration.
 This is particularly useful information to include when reporting bugs.""",
@@ -22,12 +23,12 @@ if args.log:
                         filename='firedrake-status.log',
                         filemode='w')
     console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
+    console.setLevel(logging.WARNING)
     formatter = logging.Formatter('%(message)s')
     console.setFormatter(formatter)
     logging.getLogger().addHandler(console)
 else:
-    logging.basicConfig(level=logging.INFO,
+    logging.basicConfig(level=logging.WARNING,
                         format='%(message)s')
 log = logging.getLogger()
 
@@ -55,9 +56,31 @@ except ImportError:
 else:
     config = firedrake_configuration.get_config()
 
-status = {}
+try:
+    config["system"] = check_output(["uname", "-a"])
+except subprocess.CalledProcessError:
+    log.error("Failed to retrieve system information.")
 
 
+print "Firedrake Configuration:"
+for key, val in config["options"].iteritems():
+    print "    {}: {}".format(key, val)
+
+print "Additions:"
+if config["additions"]:
+    for a in config["additions"]:
+        print "   " + a
+else:
+    print "    None"
+
+for var in ["PYTHONPATH", "PETSC_ARCH", "PETSC_DIR"]:
+    config["environment"][var] = os.environ.get(var, None)
+
+print "Environment:"
+for key, val in config["environment"].iteritems():
+    print "    {}: {}".format(key, val)
+
+status = OrderedDict()
 for dir in sorted(os.listdir(firedrake_env + "/src")):
     if dir.startswith("h5py"):
         continue
@@ -87,14 +110,16 @@ for dir in sorted(os.listdir(firedrake_env + "/src")):
                        "modified": modified}
 config["component_status"] = status
 
-environment = {}
-for var in ["PYTHONPATH", "PETSC_ARCH", "PETSC_DIR"]:
-    environment[var] = os.environ.get(var, None)
-config["environment"] = environment
-try:
-    config["system"] = check_output(["uname", "-a"])
-except subprocess.CalledProcessError:
-    log.error("Failed to retrieve system information.")
+print "Status of components:"
+componentformat = "|{:30}|{:30}|{:10}|{!s:10}|"
+header = componentformat.format("Package", "Branch", "Revision", "Modified")
+line = "-" * len(header)
+print line
+print header
+print line
+for dir, d in status.iteritems():
+    print componentformat.format(dir, d["branch"], d["revision"], d["modified"])
+print line
 
 log.info("Firedrake configuration: ")
 log.info(pformat(config))
