@@ -1,16 +1,16 @@
-"""This is The Hybridized Form Compiler (HFC). This module is responsible
-for interpreting SLATE expressions and generating C++ kernel functions
-for assembly in Firedrake.
+"""This is SLATE's Linear Algebra Compiler (SLAC). This module is responsible
+for generating C++ kernel functions representing symbolic linear algebra
+expressions written in SLATE.
 
-The HFC uses both Firedrake's form compiler, the Two-Step Form Compiler (TSFC)
-and COFFEE's kernel abstract syntax tree (AST) optimizer. TSFC provides HFC with
-appropriate kernel functions (in C) for evaluating integlral expressions. COFFEE's
-AST framework helps procude the resulting kernel AST returned by:
-`compile_slate_expression`
+STAC uses both Firedrake's form compiler, the Two-Step Form Compiler (TSFC)
+and COFFEE's kernel abstract syntax tree (AST) optimizer. TSFC provides SLAC with
+appropriate kernel functions (in C) for evaluating integral expressions (finite
+element variational forms written in UFL). COFFEE's AST optimizing framework
+produces the resulting kernel AST returned by: `compile_slate_expression`
 
-In addition, the Eigen C++ library (http://eigen.tuxfamily.org/) is required,
-as all low-level numerical linear algebra operations are performed using
-the `Eigen::Matrix` methods built into Eigen.
+The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as all low-level
+numerical linear algebra operations are performed using the `Eigen::Matrix` methods
+built into Eigen.
 
 Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 """
@@ -84,12 +84,14 @@ class Transformer(Visitor):
         if all(new is old for new, old in zip(ops, o.operands()[0])):
             return o
 
-        pred = ["template <typename Derived>\nstatic", "inline"]
+        template = "template <typename Derived>"
+        pred = ["static", "inline"]
         body = ops[3]
         args, _ = body.operands()
         nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived> & %s = const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n" % (name, name))] + args
         ops[3] = nargs
         ops[4] = pred
+        ops[6] = template
 
         return o.reconstruct(*ops, **okwargs)
 
@@ -132,22 +134,33 @@ def compile_slate_expression(slate_expr, testing=False):
     the resulting op2.Kernel. This argument is for testing purposes.
     """
 
+    # Only SLATE expressions are allowed as inputs
     if not isinstance(slate_expr, Tensor):
         expecting_slate_expr(slate_expr)
 
+    # SLATE currently does not support arguments in mixed function spaces
+    # TODO: Implement something akin to a FormSplitter for SLATE tensors
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
         raise NotImplementedError("Compiling mixed slate expressions")
-    # Initialize variables: dtype and associated data structures.
+
+    # Initialize variables: dtype and dictionary objects.
     dtype = "double"
     shape = slate_expr.shape
     temps = {}
     kernel_exprs = {}
+    statements = []
+
+    # Extract all coefficents in the SLATE expression and construct the
+    # appropriate coefficent mapping
     coeffs = slate_expr.coefficients()
     coeffmap = dict((c, ast.Symbol("w%d" % i)) for i, c in enumerate(coeffs))
-    statements = []
+
+    # By default, we don't assume that we need to perform facet integral loops.
+    # If an expression contains facet integrals within the expression, we activate
+    # this to indicate that we need to loop over cell facets later on.
     need_cell_facets = False
 
-    # Auxillary functions for constructing matrix types.
+    # Auxillary functions for constructing matrix and vector types.
     def mat_type(shape):
         """Returns the Eigen::Matrix declaration of the tensor."""
 
@@ -186,6 +199,7 @@ def compile_slate_expression(slate_expr, testing=False):
     def get_kernel_expr_tensor(expr):
         """Compile integral forms using TSFC form compiler."""
 
+        # No need to store identical variables more than once
         if expr not in temps.keys():
             sym = "T%d" % len(temps)
             temp = ast.Symbol(sym)
@@ -203,8 +217,9 @@ def compile_slate_expression(slate_expr, testing=False):
                 prefix = "subkernel%d_%d_%s_" % (len(kernel_exprs), i, typ)
 
                 if typ == "interior_facet":
-                    # Reconstruct "interior_facet" integrals to be
-                    # of type "exterior_facet"
+                    # Reconstruct "interior_facet" integrals to be of type "exterior_facet."
+                    # This is because we are performing `local` operations, iterating over cells.
+                    # An "interior_facet" is locally an "exterior_facet."
                     newit = map_integrand_dags(mapper, it)
                     newit = newit.reconstruct(integral_type="exterior_facet")
                     form = Form([newit])
@@ -230,6 +245,7 @@ def compile_slate_expression(slate_expr, testing=False):
     cellfacetsym = ast.Symbol("cell_facets")
     inc = []
 
+    # Provide the SLATE expression as input to extract kernel functions
     get_kernel_expr(slate_expr)
 
     # Now we construct the body of the macro kernel
@@ -318,6 +334,8 @@ def compile_slate_expression(slate_expr, testing=False):
                                                   coordsym,
                                                   *clist))
 
+    # Now we convert the entire SLATE expression for the final result as a
+    # C-string, which expresses the linear algebra operations needed.
     def pars(expr, prec=None, parent=None):
         """Parses a slate expression and returns a string representation."""
 
@@ -411,7 +429,7 @@ def compile_slate_expression(slate_expr, testing=False):
     if need_cell_facets:
         arglist.append(ast.Decl("char *", cellfacetsym))
 
-    kernel = ast.FunDecl("void", "hfc_compile_slate", arglist,
+    kernel = ast.FunDecl("void", "slac_compile_slate", arglist,
                          ast.Block(statements),
                          pred=["static", "inline"])
 
@@ -435,7 +453,7 @@ def compile_slate_expression(slate_expr, testing=False):
 
     # Produce the op2 kernel object for assembly
     op2kernel = firedrake.op2.Kernel(kernelast,
-                                     "hfc_compile_slate",
+                                     "slac_compile_slate",
                                      cpp=True,
                                      include_dirs=inc,
                                      headers=['#include <Eigen/Dense>',

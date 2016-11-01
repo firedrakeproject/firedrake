@@ -56,7 +56,7 @@ def slate_hybridization(degree, res):
     # Solve by back-substitution
     orig = assemble(L)
     orig -= assemble(action(trace_jump, lambda_sol))
-    A = assemble(Mass1 + Mass2 + Div - Grad, nest=False)
+    A = assemble(Mass1 + Mass2 + Div - Grad, mat_type="aij")
     solution = Function(W)
     solve(A, solution, orig, solver_parameters={'ksp_type': 'preonly',
                                                 'pc_type': 'lu'})
@@ -65,6 +65,6 @@ def slate_hybridization(degree, res):
     sigma_h = project(sigma_h, FunctionSpace(mesh, RT))
     File("solution.pvd").write(sigma_h, u_h)
 
-degree = 2
-res = 3
+degree = 1
+res = 5
 slate_hybridization(degree, res)

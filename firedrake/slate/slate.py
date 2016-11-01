@@ -13,10 +13,10 @@ in SLATE to express complicated linear algebra operations.
 (Such as the Schur-complement reduction of a block-matrix
 system)
 
-All SLATE expressions are handled by a specialized form
-compiler, the Hybridized Form Compiler (HFC), which interprets
-SLATE expressions and produces C++ kernel functions to be
-executed within the Firedrake architecture.
+All SLATE expressions are handled by a specialized linear
+algebra compiler, the SLATE Linear Algebra Compiler (SLAC),
+which interprets SLATE expressions and produces C++ kernel
+functions to be executed within the Firedrake architecture.
 
 Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 """
@@ -182,7 +182,8 @@ class Tensor(object):
             return False
         # TODO: Is this sufficient/correct?
         return all(a == b for a, b in zip(self._arguments, other._arguments) and
-                   c == d for c, d in zip(self._coefficients, other._coefficients))
+                   c == d for c, d in zip(self._coefficients, other._coefficients) and
+                   e == f for e, f in zip(self._integrals, other._integrals))
 
     def __ne__(self, other):
         return not self.equals(other)
