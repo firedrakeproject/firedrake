@@ -53,6 +53,8 @@ supported_elements = {
     "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
     "Discontinuous Lagrange Trace": FIAT.DiscontinuousLagrangeTrace,
     "EnrichedElement": FIAT.EnrichedElement,
+    "Gauss-Lobatto-Legendre": FIAT.GaussLobattoLegendre,
+    "Gauss-Legendre": FIAT.GaussLegendre,
     "Lagrange": FIAT.Lagrange,
     "Nedelec 1st kind H(curl)": FIAT.Nedelec,
     "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
