@@ -5,7 +5,7 @@ import logging
 import sys
 import os
 import subprocess
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 
 parser = ArgumentParser(description="""Provide information on the currently downloaded version of Firedrake and its configuration.
 This is particularly useful information to include when reporting bugs.""",
@@ -52,7 +52,7 @@ try:
     import firedrake_configuration
 except ImportError:
     log.info("Failed import firedrake_configuration module")
-    config = {}
+    config = defaultdict(dict)
 else:
     config = firedrake_configuration.get_config()
 
