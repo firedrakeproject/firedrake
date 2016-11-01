@@ -22,12 +22,12 @@ if args.log:
                         filename='firedrake-status.log',
                         filemode='w')
     console = logging.StreamHandler()
-    console.setLevel(logging.DEBUG)
+    console.setLevel(logging.INFO)
     formatter = logging.Formatter('%(message)s')
     console.setFormatter(formatter)
     logging.getLogger().addHandler(console)
 else:
-    logging.basicConfig(level=logging.DEBUG,
+    logging.basicConfig(level=logging.INFO,
                         format='%(message)s')
 log = logging.getLogger()
 
@@ -86,5 +86,24 @@ for dir in sorted(os.listdir(firedrake_env + "/src")):
                        "revision": revision,
                        "modified": modified}
 config["component_status"] = status
+
+environment = {}
+for var in ["PYTHONPATH", "PETSC_ARCH", "PETSC_DIR"]:
+    environment[var] = os.environ.get(var, None)
+config["environment"] = environment
+try:
+    config["system"] = check_output(["uname", "-a"])
+except subprocess.CalledProcessError:
+    log.error("Failed to retrieve system information.")
+
 log.info("Firedrake configuration: ")
 log.info(pformat(config))
+log.debug("\nPip packages installed:")
+try:
+    log.debug(check_output(["pip", "freeze"]))
+except subprocess.CalledProcessError:
+    log.error("""Failed to retrieve list of pip installed packages. Try running:
+
+    pip freeze.
+
+""")
