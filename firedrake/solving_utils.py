@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import numpy
+from contextlib import contextmanager
 
 from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
@@ -12,7 +13,35 @@ class ParametersMixin(object):
 
     """Mixin class that helps with managing setting petsc options on solvers.
 
-    :arg parameters: The dictionary of parameters to use."""
+    :arg parameters: The dictionary of parameters to use.
+    :arg options_prefix: The prefix to look up items in the global
+        options database (may be ``None``, in which case only entries
+        from ``parameters`` will be considered.
+
+    To use this, you must call its constructor to with the parameters
+    you want in the options database.
+
+    You then call :meth:`set_from_options`, passing the PETSc object
+    you'd like to call ``setFromOptions`` on.  Note that this will
+    actually only call ``setFromOptions`` the first time (so really
+    this parameters object is a once-per-PETSc-object thing).
+
+    So that the runtime monitors which look in the options database
+    actually see options, you need to ensure that the options database
+    is populated at the time of a ``SNESSolve`` or ``KSPSolve`` call.
+    Do that using the :meth:`inserted_options` context manager.
+
+    .. code-block:: python
+
+       with self.inserted_options():
+           self.snes.solve(...)
+
+    This ensures that the options database has the relevant entries
+    for the duration of the ``with`` block, before removing them
+    afterwards.  This is a much more robust way of dealing with the
+    fixed-size options database than trying to clear it out using
+    destructors.
+    """
     def __init__(self, parameters, options_prefix):
         if parameters is None:
             self.parameters = {}
@@ -27,6 +56,7 @@ class ParametersMixin(object):
         ParametersMixin.count += 1
         self._setfromoptions = False
         self.update_parameters_from_options()
+        self.options_object = PETSc.Options(self._prefix)
         super(ParametersMixin, self).__init__()
 
     def update_parameters_from_options(self):
@@ -53,33 +83,26 @@ class ParametersMixin(object):
         function ensures we do so.
         """
         if not self._setfromoptions:
-            petsc_obj.setOptionsPrefix(self._prefix)
-            # Call setfromoptions inserting appropriate options into
-            # the options database.
-            opts = PETSc.Options(self._prefix)
-            for k, v in self.parameters.iteritems():
-                if type(v) is bool:
-                    if v:
-                        opts[k] = None
-                else:
-                    opts[k] = v
-            petsc_obj.setFromOptions()
-            self._setfromoptions = True
+            with self.inserted_options():
+                petsc_obj.setOptionsPrefix(self._prefix)
+                # Call setfromoptions inserting appropriate options into
+                # the options database.
+                petsc_obj.setFromOptions()
+                self._setfromoptions = True
 
-    def clear_options(self):
-        """Clear the auto-generated options from the options database.
-
-        This is necessary to ensure the options database doesn't overflow."""
-        if hasattr(self, "_prefix") and hasattr(self, "parameters"):
-            prefix = self._prefix
-            opts = PETSc.Options()
-            for k in self.parameters.iterkeys():
-                opts.delValue(prefix + k)
-            delattr(self, "_prefix")
-            delattr(self, "parameters")
-
-    def __del__(self):
-        self.clear_options()
+    @contextmanager
+    def inserted_options(self):
+        """Context manager inside which the petsc options database
+    contains the parameters from this object."""
+        for k, v in self.parameters.iteritems():
+            if type(v) is bool:
+                if v:
+                    self.options_object[k] = None
+            else:
+                self.options_object[k] = v
+        yield
+        for k in self.parameters:
+            del self.options_object[k]
 
 
 def _make_reasons(reasons):
@@ -209,14 +232,14 @@ class _SNESContext(object):
         snes.setJacobian(self.form_jacobian, J=self._jac.petscmat,
                          P=self._pjac.petscmat)
 
-    def set_nullspace(self, nullspace, ises=None, transpose=False):
+    def set_nullspace(self, nullspace, ises=None, transpose=False, near=False):
         if nullspace is None:
             return
-        nullspace._apply(self._jac, transpose=transpose)
+        nullspace._apply(self._jac, transpose=transpose, near=near)
         if self.Jp is not None:
-            nullspace._apply(self._pjac, transpose=transpose)
+            nullspace._apply(self._pjac, transpose=transpose, near=near)
         if ises is not None:
-            nullspace._apply(ises, transpose=transpose)
+            nullspace._apply(ises, transpose=transpose, near=near)
 
     def split(self, fields):
         from ufl import as_vector, replace

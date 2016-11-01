@@ -1,9 +1,9 @@
 """The parameters dictionary contains global parameter settings."""
 from __future__ import absolute_import
 
-from tsfc.constants import default_parameters
+from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
-from coffee.system import coffee_reconfigure
+from tsfc import default_parameters
 import sys
 
 max_float = sys.float_info[0]

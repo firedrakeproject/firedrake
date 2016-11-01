@@ -150,7 +150,7 @@ def coarsen_constant(expr, coefficient_mapping=None):
     new = coefficient_mapping.get(expr)
     if new is None:
         mesh = coarsen(expr.ufl_domain())
-        if expr.rank() == 0:
+        if len(expr.ufl_shape) == 0:
             val = expr.dat.data_ro[0]
         else:
             val = expr.dat.data_ro.copy()

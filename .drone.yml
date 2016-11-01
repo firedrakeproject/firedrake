@@ -1,7 +1,6 @@
 matrix:
     BASE_IMAGE:
        - ubuntu:xenial
-       - ubuntu:14.04
 
 notify:
   slack:
@@ -45,7 +44,7 @@ build:
 
     # Install firedrake
     - cd $FIREDRAKE_HOME
-    - $DRONE_BUILD_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
+    - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $DRONE_BUILD_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
 
     # Activate the virtualenv
     - . firedrake/bin/activate
@@ -59,4 +58,4 @@ build:
     - sudo -EHu firedrake env PATH="$PATH" py.test -n auto -v firedrake/src/firedrake/tests/
 
     # Run the dolfin-adjoint tests
-    - sudo -EHu firedrake env PATH="$PATH" python firedrake/src/dolfin-adjoint/tests_firedrake/test.py
+    - sudo -EHu firedrake env PATH="$PATH" py.test -v firedrake/src/dolfin-adjoint/tests_firedrake/

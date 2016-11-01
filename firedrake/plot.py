@@ -326,10 +326,10 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
         from matplotlib.tri import Triangulation, UniformTriRefiner
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    if function.function_space().mesh().cell() == Cell('triangle'):
+    if function.function_space().mesh().ufl_cell() == Cell('triangle'):
         x = np.array([0, 0, 1])
         y = np.array([0, 1, 0])
-    elif function.function_space().mesh().cell() == Cell('quadrilateral'):
+    elif function.function_space().mesh().ufl_cell() == Cell('quadrilateral'):
         x = np.array([0, 0, 1, 1])
         y = np.array([0, 1, 0, 1])
     else:

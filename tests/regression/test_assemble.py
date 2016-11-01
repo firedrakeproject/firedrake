@@ -77,7 +77,7 @@ def test_one_form(M, f):
 def test_zero_form(M, f, one):
     zero_form = assemble(action(action(M, f), one))
     assert isinstance(zero_form, float)
-    assert abs(zero_form - 0.5 * np.prod(f.shape())) < 1.0e-12
+    assert abs(zero_form - 0.5 * np.prod(f.ufl_shape)) < 1.0e-12
 
 
 def test_assemble_with_tensor(mesh):

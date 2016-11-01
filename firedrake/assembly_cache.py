@@ -207,7 +207,7 @@ class AssemblyCache(object):
         if self.invalid_count[key] > parameters["assembly_cache"]["max_misses"]:
             if self.invalid_count[key] == \
                parameters["assembly_cache"]["max_misses"] + 1:
-                debug("form %s missed too many times, excluding from cache." % form)
+                debug("form %s missed too many times, excluding from cache.", form)
 
         else:
             cache_entry = _CacheEntry(obj, form, bcs)
