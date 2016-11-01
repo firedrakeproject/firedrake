@@ -61,7 +61,7 @@ status = {}
 for dir in sorted(os.listdir(firedrake_env + "/src")):
     if dir.startswith("h5py"):
         continue
-    
+
     try:
         os.chdir(firedrake_env + "/src/" + dir)
     except OSError as e:
@@ -83,8 +83,8 @@ for dir in sorted(os.listdir(firedrake_env + "/src")):
             modified = True
 
         status[dir] = {"branch": branch,
-                       "revision" : revision,
-                       "modified" : modified}
+                       "revision": revision,
+                       "modified": modified}
 config["component_status"] = status
 log.info("Firedrake configuration: ")
 log.info(pformat(config))
