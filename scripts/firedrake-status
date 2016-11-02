@@ -51,7 +51,7 @@ except KeyError:
 try:
     import firedrake_configuration
 except ImportError:
-    log.info("Failed import firedrake_configuration module")
+    log.info("Failed to import firedrake_configuration module")
     config = defaultdict(dict)
 else:
     config = firedrake_configuration.get_config()
@@ -63,15 +63,18 @@ except subprocess.CalledProcessError:
 
 
 print "Firedrake Configuration:"
-for key, val in config["options"].iteritems():
-    print "    {}: {}".format(key, val)
-
-print "Additions:"
-if config["additions"]:
-    for a in config["additions"]:
-        print "   " + a
+if not config:
+    print "No configuration information found."
 else:
-    print "    None"
+    for key, val in config["options"].iteritems():
+        print "    {}: {}".format(key, val)
+
+    print "Additions:"
+    if config["additions"]:
+        for a in config["additions"]:
+            print "   " + a
+    else:
+        print "    None"
 
 for var in ["PYTHONPATH", "PETSC_ARCH", "PETSC_DIR"]:
     config["environment"][var] = os.environ.get(var, None)
@@ -108,18 +111,19 @@ for dir in sorted(os.listdir(firedrake_env + "/src")):
         status[dir] = {"branch": branch,
                        "revision": revision,
                        "modified": modified}
-config["component_status"] = status
 
-print "Status of components:"
-componentformat = "|{:30}|{:30}|{:10}|{!s:10}|"
+status_string = ""
+status_string += "Status of components:\n"
+componentformat = "|{:30}|{:30}|{:10}|{!s:10}|\n"
 header = componentformat.format("Package", "Branch", "Revision", "Modified")
-line = "-" * len(header)
-print line
-print header
-print line
+line = "-" * (len(header) - 1) + "\n"
+status_string += line + header + line
 for dir, d in status.iteritems():
-    print componentformat.format(dir, d["branch"], d["revision"], d["modified"])
-print line
+    status_string += componentformat.format(dir, d["branch"], d["revision"], d["modified"])
+status_string += line
+
+print status_string
+log.info("\n" + status_string)
 
 log.info("Firedrake configuration: ")
 log.info(pformat(config))
@@ -132,3 +136,8 @@ except subprocess.CalledProcessError:
     pip freeze.
 
 """)
+log.debug("\n Full environment:")
+try:
+    log.debug(check_output(["env"]))
+except subprocess.CalledProcessError:
+    log.error("""Shell command env failed.""")
