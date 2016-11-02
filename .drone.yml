@@ -2,60 +2,62 @@ matrix:
     BASE_IMAGE:
        - ubuntu:xenial
 
-notify:
+pipeline:
+  build:
+    image: ${BASE_IMAGE}
+    pull: true
+    environment:
+      # Change the following to reflect your local preferences
+      - PACKAGE=firedrake
+      - FIREDRAKE_HOME=/firedrake
+      - FIREDRAKE_GID=1000
+      - FIREDRAKE_UID=1000
+      # Tell firedrake-install we're testing firedrake
+      - FIREDRAKE_CI_TESTS=1
+      # Nasty hack to get around loss of DRONE_BUILD_DIR
+      - DRONE_BUILD_DIR=/drone/src/github.com/firedrakeproject/firedrake
+    commands: 
+      # Bring the image up to date
+      - apt-get -y update
+      - apt-get -y dist-upgrade
+
+      # Install dependencies for a single run of firedrake-install
+      - apt-get -y install sudo python-minimal python-pip
+
+      # Fail fast on lint errors
+      - pip install -U flake8
+      - cd $DRONE_BUILD_DIR
+      - make lint
+      - pip install virtualenv
+
+      # Make a firedrake user to run the tests
+      - mkdir $FIREDRAKE_HOME
+      - groupadd -g $FIREDRAKE_GID firedrake
+      - useradd -d $FIREDRAKE_HOME -u $FIREDRAKE_UID -g $FIREDRAKE_GID firedrake
+
+      # Passwordless sudo: \072 is octal for :
+      # Colon breaks the drone yaml parser
+      - /bin/echo -e "firedrake ALL=NOPASSWD\072 ALL\n" >> /etc/sudoers
+
+      # Install firedrake
+      - cd $FIREDRAKE_HOME
+      - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $DRONE_BUILD_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
+
+      # Activate the virtualenv
+      - . firedrake/bin/activate
+      # scipy for the adjoint tests
+      - pip install scipy
+
+      # We're going to run the tests as the firedrake user, so get permissions right.
+      - chown -R firedrake.firedrake $FIREDRAKE_HOME
+
+      # Run tests as the firedrake user, pushing in the current path.
+      - sudo -EHu firedrake env PATH="$PATH" py.test -n auto -v firedrake/src/firedrake/tests/
+
+      # Run the dolfin-adjoint tests
+      - sudo -EHu firedrake env PATH="$PATH" py.test -v firedrake/src/dolfin-adjoint/tests_firedrake/
+
   slack:
-    webhook_url: $$SLACK_DRONE_WEBHOOK
+    webhook_url: ${SLACK_DRONE_WEBHOOK}
     channel: drone
     username: drone
-
-build:
-  image: $$BASE_IMAGE
-  pull: true
-  environment:
-    # Change the following to reflect your local preferences
-    - PACKAGE=firedrake
-    - FIREDRAKE_HOME=/firedrake
-    - FIREDRAKE_GID=1000
-    - FIREDRAKE_UID=1000
-    # Tell firedrake-install we're testing firedrake
-    - FIREDRAKE_CI_TESTS=1
-  commands: 
-    # Bring the image up to date
-    - apt-get -y update
-    - apt-get -y dist-upgrade
-
-    # Install dependencies for a single run of firedrake-install
-    - apt-get -y install sudo python-minimal python-pip
-
-    # Fail fast on lint errors
-    - pip install -U flake8
-    - cd $DRONE_BUILD_DIR
-    - make lint
-    - pip install virtualenv
-
-    # Make a firedrake user to run the tests
-    - mkdir $FIREDRAKE_HOME
-    - groupadd -g $FIREDRAKE_GID firedrake
-    - useradd -d $FIREDRAKE_HOME -u $FIREDRAKE_UID -g $FIREDRAKE_GID firedrake
-
-    # Passwordless sudo: \072 is octal for :
-    # Colon breaks the drone yaml parser
-    - /bin/echo -e "firedrake ALL=NOPASSWD\072 ALL\n" >> /etc/sudoers
-
-    # Install firedrake
-    - cd $FIREDRAKE_HOME
-    - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $DRONE_BUILD_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
-
-    # Activate the virtualenv
-    - . firedrake/bin/activate
-    # scipy for the adjoint tests
-    - pip install scipy
-
-    # We're going to run the tests as the firedrake user, so get permissions right.
-    - chown -R firedrake.firedrake $FIREDRAKE_HOME
-
-    # Run tests as the firedrake user, pushing in the current path.
-    - sudo -EHu firedrake env PATH="$PATH" py.test -n auto -v firedrake/src/firedrake/tests/
-
-    # Run the dolfin-adjoint tests
-    - sudo -EHu firedrake env PATH="$PATH" py.test -v firedrake/src/dolfin-adjoint/tests_firedrake/
