@@ -41,6 +41,7 @@ required to implement backend-specific features.
 
 from contextlib import contextmanager
 from petsc4py import PETSc
+from functools import partial
 import numpy as np
 
 import base
@@ -560,33 +561,36 @@ class MatBlock(base.Mat):
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
         rows = np.asarray(rows, dtype=PETSc.IntType)
         rbs, _ = self.dims[0][0]
-        # No need to set anything if we didn't get any rows.
         if len(rows) == 0:
-            return
+            # No need to set anything if we didn't get any rows, but
+            # do need to force assembly flush.
+            return base._LazyMatOp(self, lambda: None, new_state=Mat.INSERT_VALUES,
+                                   write=True).enqueue()
         if rbs > 1:
             if idx is not None:
                 rows = rbs * rows + idx
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         vals = np.repeat(diag_val, len(rows))
-        closure = lambda: self.handle.setValuesLocalRCV(rows.reshape(-1, 1),
-                                                        rows.reshape(-1, 1),
-                                                        vals.reshape(-1, 1),
-                                                        addv=PETSc.InsertMode.INSERT_VALUES)
+        closure = partial(self.handle.setValuesLocalRCV,
+                          rows.reshape(-1, 1), rows.reshape(-1, 1), vals.reshape(-1, 1),
+                          addv=PETSc.InsertMode.INSERT_VALUES)
         return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
                                write=True).enqueue()
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
-        closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
-                                                            addv=PETSc.InsertMode.ADD_VALUES)
+        closure = partial(self.handle.setValuesBlockedLocal,
+                          rows, cols, values,
+                          addv=PETSc.InsertMode.ADD_VALUES)
         return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
                                read=True, write=True).enqueue()
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
-        closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
-                                                            addv=PETSc.InsertMode.INSERT_VALUES)
+        closure = partial(self.handle.setValuesBlockedLocal,
+                          rows, cols, values,
+                          addv=PETSc.InsertMode.INSERT_VALUES)
         return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
                                write=True).enqueue()
 
@@ -845,19 +849,20 @@ class Mat(base.Mat):
         """
         rows = np.asarray(rows, dtype=PETSc.IntType)
         rbs, _ = self.dims[0][0]
-        # No need to set anything if we didn't get any rows.
         if len(rows) == 0:
-            return
+            # No need to set anything if we didn't get any rows, but
+            # do need to force assembly flush.
+            return base._LazyMatOp(self, lambda: None, new_state=Mat.INSERT_VALUES,
+                                   write=True).enqueue()
         if rbs > 1:
             if idx is not None:
                 rows = rbs * rows + idx
             else:
                 rows = np.dstack([rbs*rows + i for i in range(rbs)]).flatten()
         vals = np.repeat(diag_val, len(rows))
-        closure = lambda: self.handle.setValuesLocalRCV(rows.reshape(-1, 1),
-                                                        rows.reshape(-1, 1),
-                                                        vals.reshape(-1, 1),
-                                                        addv=PETSc.InsertMode.INSERT_VALUES)
+        closure = partial(self.handle.setValuesLocalRCV,
+                          rows.reshape(-1, 1), rows.reshape(-1, 1), vals.reshape(-1, 1),
+                          addv=PETSc.InsertMode.INSERT_VALUES)
         return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
                                write=True).enqueue()
 
@@ -878,15 +883,17 @@ class Mat(base.Mat):
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
-        closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
-                                                            addv=PETSc.InsertMode.ADD_VALUES)
+        closure = partial(self.handle.setValuesBlockedLocal,
+                          rows, cols, values,
+                          addv=PETSc.InsertMode.ADD_VALUES)
         return base._LazyMatOp(self, closure, new_state=Mat.ADD_VALUES,
                                read=True, write=True).enqueue()
 
     def set_values(self, rows, cols, values):
         """Set a block of values in the :class:`Mat`."""
-        closure = lambda: self.handle.setValuesBlockedLocal(rows, cols, values,
-                                                            addv=PETSc.InsertMode.INSERT_VALUES)
+        closure = partial(self.handle.setValuesBlockedLocal,
+                          rows, cols, values,
+                          addv=PETSc.InsertMode.INSERT_VALUES)
         return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
                                write=True).enqueue()
 
