@@ -2,6 +2,9 @@ matrix:
     BASE_IMAGE:
        - ubuntu:xenial
 
+workspace:
+  path: src
+
 pipeline:
   build:
     image: ${BASE_IMAGE}
@@ -9,13 +12,13 @@ pipeline:
     environment:
       # Change the following to reflect your local preferences
       - PACKAGE=firedrake
-      - FIREDRAKE_HOME=/firedrake
+      - FIREDRAKE_HOME=/drone/install
       - FIREDRAKE_GID=1000
       - FIREDRAKE_UID=1000
       # Tell firedrake-install we're testing firedrake
       - FIREDRAKE_CI_TESTS=1
-      # Nasty hack to get around loss of DRONE_BUILD_DIR
-      - DRONE_BUILD_DIR=/drone/src/github.com/firedrakeproject/firedrake
+      # Make the cloned source location available via environment
+      - GIT_SOURCE_DIR=/drone/src
     commands: 
       # Bring the image up to date
       - apt-get -y update
@@ -26,7 +29,7 @@ pipeline:
 
       # Fail fast on lint errors
       - pip install -U flake8
-      - cd $DRONE_BUILD_DIR
+      - cd $GIT_SOURCE_DIR
       - make lint
       - pip install virtualenv
 
@@ -41,7 +44,7 @@ pipeline:
 
       # Install firedrake
       - cd $FIREDRAKE_HOME
-      - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $DRONE_BUILD_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
+      - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $GIT_SOURCE_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
 
       # Activate the virtualenv
       - . firedrake/bin/activate
