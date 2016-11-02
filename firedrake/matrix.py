@@ -180,7 +180,8 @@ class Matrix(MatrixBase):
             solve, but both `bc1` and `bc2` in the second solve.
         """
         if self._assembly_callback is None:
-            raise RuntimeError('Trying to assemble a Matrix, but no thunk found')
+            self._assembled = True
+            return
         if self._assembled:
             if self._needs_reassembly:
                 from firedrake.assemble import _assemble

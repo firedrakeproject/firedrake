@@ -257,7 +257,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                 flatten=True)
         result = lambda: result_matrix
         if allocate_only:
-            result_matrix._assembly_callback = lambda x: None
+            result_matrix._assembly_callback = None
             return result_matrix
     elif is_vec:
         test = f.arguments()[0]
