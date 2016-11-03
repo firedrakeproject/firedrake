@@ -1,4 +1,5 @@
 workspace:
+  base: /drone
   path: src
 
 pipeline:
@@ -15,7 +16,7 @@ pipeline:
       - FIREDRAKE_CI_TESTS=1
       # Make the cloned source location available via environment
       - GIT_SOURCE_DIR=/drone/src
-    commands: 
+    commands:
       # Bring the image up to date
       - apt-get -y update
       - apt-get -y dist-upgrade
@@ -40,18 +41,20 @@ pipeline:
 
       # Install firedrake
       - cd $FIREDRAKE_HOME
-      - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $GIT_SOURCE_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
+      - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $GIT_SOURCE_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope
 
       # Activate the virtualenv
       - . firedrake/bin/activate
       # scipy for the adjoint tests
       - pip install scipy
-
+      - pip install pytest-cov
       # We're going to run the tests as the firedrake user, so get permissions right.
       - chown -R firedrake.firedrake $FIREDRAKE_HOME
 
       # Run tests as the firedrake user, pushing in the current path.
-      - sudo -EHu firedrake env PATH="$PATH" py.test -n auto -v firedrake/src/firedrake/tests/
+      - cd firedrake/src/firedrake
+      - sudo -EHu firedrake env PATH="$PATH" py.test --cov firedrake -n auto -v tests/
 
       # Run the dolfin-adjoint tests
-      - sudo -EHu firedrake env PATH="$PATH" py.test -v firedrake/src/dolfin-adjoint/tests_firedrake/
+      - cd ../dolfin-adjoint
+      - sudo -EHu firedrake env PATH="$PATH" py.test -v tests_firedrake/
