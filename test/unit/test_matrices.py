@@ -40,8 +40,6 @@ from pyop2.exceptions import MapValueError, ModeValueError
 
 from coffee.base import *
 
-backends = ['sequential', 'openmp', 'cuda']
-
 # Data type
 valuetype = np.float64
 
@@ -541,7 +539,7 @@ class TestSparsity:
     Sparsity tests
     """
 
-    def test_build_sparsity(self, backend):
+    def test_build_sparsity(self):
         """Building a sparsity from a pair of maps should give the expected
         rowptr and colidx."""
         elements = op2.Set(4)
@@ -553,7 +551,7 @@ class TestSparsity:
         assert all(sparsity._colidx == [0, 1, 3, 4, 0, 1, 2, 4, 1, 2,
                                         3, 4, 0, 2, 3, 4, 0, 1, 2, 3, 4])
 
-    def test_build_mixed_sparsity(self, backend, msparsity):
+    def test_build_mixed_sparsity(self, msparsity):
         """Building a sparsity from a pair of mixed maps should give the
         expected rowptr and colidx for each block."""
         assert all(msparsity._rowptr[0] == [0, 1, 2, 3])
@@ -565,7 +563,7 @@ class TestSparsity:
         assert all(msparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
         assert all(msparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
 
-    def test_build_mixed_sparsity_vector(self, backend, mvsparsity):
+    def test_build_mixed_sparsity_vector(self, mvsparsity):
         """Building a sparsity from a pair of mixed maps and a vector DataSet
         should give the expected rowptr and colidx for each block."""
         assert all(mvsparsity._rowptr[0] == [0, 1, 2, 3])
@@ -577,14 +575,14 @@ class TestSparsity:
         assert all(mvsparsity._colidx[2] == [0, 0, 1, 1, 2, 2])
         assert all(mvsparsity._colidx[3] == [0, 1, 0, 1, 2, 1, 2, 3, 2, 3])
 
-    def test_sparsity_null_maps(self, backend):
+    def test_sparsity_null_maps(self):
         """Building sparsity from a pair of non-initialized maps should fail."""
         s = op2.Set(5)
         with pytest.raises(MapValueError):
             m = op2.Map(s, s, 1)
             op2.Sparsity((s, s), (m, m))
 
-    def test_sparsity_has_diagonal_space(self, backend):
+    def test_sparsity_has_diagonal_space(self):
         # A sparsity should have space for diagonal entries if rmap==cmap
         s = op2.Set(1)
         d = op2.Set(4)
@@ -605,14 +603,14 @@ class TestMatrices:
     """
 
     @pytest.mark.parametrize("mode", [op2.READ, op2.RW, op2.MAX, op2.MIN])
-    def test_invalid_mode(self, backend, elements, elem_node, mat, mode):
+    def test_invalid_mode(self, elements, elem_node, mat, mode):
         """Mat args can only have modes WRITE and INC."""
         with pytest.raises(ModeValueError):
             op2.par_loop(op2.Kernel("", "dummy"), elements,
                          mat(mode, (elem_node[op2.i[0]], elem_node[op2.i[1]])))
 
     @pytest.mark.parametrize('n', [1, 2])
-    def test_mat_set_diagonal(self, backend, nodes, elem_node, n, skip_cuda):
+    def test_mat_set_diagonal(self, nodes, elem_node, n):
         "Set the diagonal of the entire matrix to 1.0"
         mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
         nrows = mat.sparsity.nrows
@@ -621,7 +619,7 @@ class TestMatrices:
         assert (mat.values == np.identity(nrows * n)).all()
 
     @pytest.mark.parametrize('n', [1, 2])
-    def test_mat_repeated_set_diagonal(self, backend, nodes, elem_node, n, skip_cuda):
+    def test_mat_repeated_set_diagonal(self, nodes, elem_node, n):
         "Set the diagonal of the entire matrix to 1.0"
         mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
         nrows = mat.sparsity.nrows
@@ -632,7 +630,7 @@ class TestMatrices:
         mat.assemble()
         assert (mat.values == np.identity(nrows * n)).all()
 
-    def test_mat_always_has_diagonal_space(self, backend):
+    def test_mat_always_has_diagonal_space(self):
         # A sparsity should always have space for diagonal entries
         s = op2.Set(1)
         d = op2.Set(4)
@@ -650,7 +648,7 @@ class TestMatrices:
 
         assert np.allclose(mat.handle.getDiagonal().array, 0.0)
 
-    def test_minimal_zero_mat(self, backend, skip_cuda):
+    def test_minimal_zero_mat(self):
         """Assemble a matrix that is all zeros."""
 
         code = c_for("i", 1,
@@ -674,7 +672,7 @@ class TestMatrices:
         eps = 1.e-12
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_assemble_mat(self, backend, mass, mat, coords, elements,
+    def test_assemble_mat(self, mass, mat, coords, elements,
                           elem_node, expected_matrix):
         """Assemble a simple finite-element matrix and check the result."""
         mat.zero()
@@ -685,7 +683,7 @@ class TestMatrices:
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_assemble_rhs(self, backend, rhs, elements, b, coords, f,
+    def test_assemble_rhs(self, rhs, elements, b, coords, f,
                           elem_node, expected_rhs):
         """Assemble a simple finite-element right-hand side and check result."""
         b.zero()
@@ -697,7 +695,7 @@ class TestMatrices:
         eps = 1.e-12
         assert_allclose(b.data, expected_rhs, eps)
 
-    def test_solve(self, backend, mat, b, x, f):
+    def test_solve(self, mat, b, x, f):
         """Solve a linear system where the solution is equal to the right-hand
         side and check the result."""
         mat.assemble()
@@ -705,15 +703,15 @@ class TestMatrices:
         eps = 1.e-8
         assert_allclose(x.data, f.data, eps)
 
-    def test_zero_matrix(self, backend, mat):
+    def test_zero_matrix(self, mat):
         """Test that the matrix is zeroed correctly."""
         mat.zero()
         expected_matrix = np.zeros((4, 4), dtype=valuetype)
         eps = 1.e-14
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_set_matrix(self, backend, mat, elements, elem_node,
-                        kernel_inc, kernel_set, g, skip_cuda):
+    def test_set_matrix(self, mat, elements, elem_node,
+                        kernel_inc, kernel_set, g):
         """Test accessing a scalar matrix with the WRITE access by adding some
         non-zero values into the matrix, then setting them back to zero with a
         kernel using op2.WRITE"""
@@ -731,13 +729,13 @@ class TestMatrices:
         assert mat.values.sum() == (3 * 3 - 2) * elements.size
         mat.zero()
 
-    def test_zero_rhs(self, backend, b, zero_dat, nodes):
+    def test_zero_rhs(self, b, zero_dat, nodes):
         """Test that the RHS is zeroed correctly."""
         op2.par_loop(zero_dat, nodes,
                      b(op2.WRITE))
         assert all(b.data == np.zeros_like(b.data))
 
-    def test_assemble_ffc(self, backend, mass_ffc, mat, coords, elements,
+    def test_assemble_ffc(self, mass_ffc, mat, coords, elements,
                           elem_node, expected_matrix):
         """Test that the FFC mass assembly assembles the correct values."""
         op2.par_loop(mass_ffc, elements,
@@ -747,7 +745,7 @@ class TestMatrices:
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_rhs_ffc(self, backend, rhs_ffc, elements, b, coords, f,
+    def test_rhs_ffc(self, rhs_ffc, elements, b, coords, f,
                      elem_node, expected_rhs):
         """Test that the FFC rhs assembly assembles the correct values."""
         op2.par_loop(rhs_ffc, elements,
@@ -758,7 +756,7 @@ class TestMatrices:
         eps = 1.e-6
         assert_allclose(b.data, expected_rhs, eps)
 
-    def test_rhs_ffc_itspace(self, backend, rhs_ffc_itspace, elements, b,
+    def test_rhs_ffc_itspace(self, rhs_ffc_itspace, elements, b,
                              coords, f, elem_node, expected_rhs,
                              zero_dat, nodes):
         """Test that the FFC right-hand side assembly using iteration spaces
@@ -773,7 +771,7 @@ class TestMatrices:
         eps = 1.e-6
         assert_allclose(b.data, expected_rhs, eps)
 
-    def test_zero_rows(self, backend, mat, expected_matrix):
+    def test_zero_rows(self, mat, expected_matrix):
         """Zeroing a row in the matrix should set the diagonal to the given
         value and all other values to 0."""
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
@@ -781,7 +779,7 @@ class TestMatrices:
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_zero_rows_subset(self, backend, nodes, mat, expected_matrix):
+    def test_zero_rows_subset(self, nodes, mat, expected_matrix):
         """Zeroing rows in the matrix given by a :class:`op2.Subset` should
         set the diagonal to the given value and all other values to 0."""
         expected_matrix[0] = [12.0, 0.0, 0.0, 0.0]
@@ -789,7 +787,7 @@ class TestMatrices:
         mat.zero_rows(ss, 12.0)
         assert_allclose(mat.values, expected_matrix, 1e-5)
 
-    def test_zero_last_row(self, backend, mat, expected_matrix):
+    def test_zero_last_row(self, mat, expected_matrix):
         """Zeroing a row in the matrix should set the diagonal to the given
         value and all other values to 0."""
         which = NUM_NODES - 1
@@ -800,7 +798,7 @@ class TestMatrices:
         eps = 1.e-5
         assert_allclose(mat.values, expected_matrix, eps)
 
-    def test_mat_nbytes(self, backend, mat):
+    def test_mat_nbytes(self, mat):
         """Check that the matrix uses the amount of memory we expect."""
         assert mat.nbytes == 14 * 8
 
@@ -808,11 +806,8 @@ class TestMatrices:
 class TestMatrixStateChanges:
 
     """
-    Test that matrix state changes are correctly tracked.  Only used
-    on CPU backends (since it matches up with PETSc).
+    Test that matrix state changes are correctly tracked.
     """
-
-    backends = ['sequential', 'openmp']
 
     @pytest.fixture(params=[False, True],
                     ids=["Non-nested", "Nested"])
@@ -831,12 +826,12 @@ class TestMatrixStateChanges:
             m.handle.setOption(opt2, False)
         return mat
 
-    def test_mat_starts_assembled(self, backend, mat):
+    def test_mat_starts_assembled(self, mat):
         assert mat.assembly_state is op2.Mat.ASSEMBLED
         for m in mat:
             assert mat.assembly_state is op2.Mat.ASSEMBLED
 
-    def test_after_set_local_state_is_insert(self, backend, mat):
+    def test_after_set_local_state_is_insert(self, mat):
         mat[0, 0].set_local_diagonal_entries([0])
         mat._force_evaluation()
         assert mat[0, 0].assembly_state is op2.Mat.INSERT_VALUES
@@ -845,7 +840,7 @@ class TestMatrixStateChanges:
         if mat.sparsity.nested:
             assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
 
-    def test_after_addto_state_is_add(self, backend, mat):
+    def test_after_addto_state_is_add(self, mat):
         mat[0, 0].addto_values(0, 0, [1])
         mat._force_evaluation()
         assert mat[0, 0].assembly_state is op2.Mat.ADD_VALUES
@@ -854,7 +849,7 @@ class TestMatrixStateChanges:
         if mat.sparsity.nested:
             assert mat[1, 1].assembly_state is op2.Mat.ASSEMBLED
 
-    def test_matblock_assemble_runtimeerror(self, backend, mat):
+    def test_matblock_assemble_runtimeerror(self, mat):
         if mat.sparsity.nested:
             return
         with pytest.raises(RuntimeError):
@@ -863,7 +858,7 @@ class TestMatrixStateChanges:
         with pytest.raises(RuntimeError):
             mat[0, 0]._assemble()
 
-    def test_mixing_insert_and_add_works(self, backend, mat):
+    def test_mixing_insert_and_add_works(self, mat):
         mat[0, 0].addto_values(0, 0, [1])
         mat[1, 1].addto_values(1, 1, [3])
         mat[1, 1].set_values(0, 0, [2])
@@ -877,7 +872,7 @@ class TestMatrixStateChanges:
         assert np.allclose(mat[0, 1].values, 0)
         assert np.allclose(mat[1, 0].values, 0)
 
-    def test_assembly_flushed_between_insert_and_add(self, backend, mat):
+    def test_assembly_flushed_between_insert_and_add(self, mat):
         import types
         flush_counter = [0]
 
@@ -909,9 +904,6 @@ class TestMixedMatrices:
     """
     Matrix tests for mixed spaces
     """
-
-    # Only working for sequential and OpenMP so far
-    backends = ['sequential', 'openmp']
 
     # off-diagonal blocks
     od = np.array([[1.0, 2.0, 0.0, 0.0],
@@ -956,7 +948,7 @@ class TestMixedMatrices:
         return dat
 
     @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
-    def test_assemble_mixed_mat(self, backend, mat):
+    def test_assemble_mixed_mat(self, mat):
         """Assemble into a matrix declared on a mixed sparsity."""
         eps = 1.e-12
         assert_allclose(mat[0, 0].values, np.diag([1.0, 4.0, 9.0]), eps)
@@ -964,13 +956,13 @@ class TestMixedMatrices:
         assert_allclose(mat[1, 0].values, self.od.T, eps)
         assert_allclose(mat[1, 1].values, self.ll, eps)
 
-    def test_assemble_mixed_rhs(self, backend, dat):
+    def test_assemble_mixed_rhs(self, dat):
         """Assemble a simple right-hand side over a mixed space and check result."""
         eps = 1.e-12
         assert_allclose(dat[0].data_ro, rdata(3), eps)
         assert_allclose(dat[1].data_ro, [1.0, 4.0, 6.0, 4.0], eps)
 
-    def test_assemble_mixed_rhs_vector(self, backend, mset, mmap, mvdat):
+    def test_assemble_mixed_rhs_vector(self, mset, mmap, mvdat):
         """Assemble a simple right-hand side over a mixed space and check result."""
         dat = op2.MixedDat(mset ** 2)
         assembly = Block(
@@ -990,7 +982,7 @@ class TestMixedMatrices:
         assert_allclose(dat[1].data_ro, exp, eps)
 
     @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")
-    def test_solve_mixed(self, backend, mat, dat):
+    def test_solve_mixed(self, mat, dat):
         x = op2.MixedDat(dat.dataset)
         op2.solve(mat, x, dat)
         b = mat * x

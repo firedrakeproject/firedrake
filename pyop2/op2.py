@@ -35,17 +35,20 @@
 
 import atexit
 
-import backends
 import base
 from base import READ, WRITE, RW, INC, MIN, MAX, i
 from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL
-from base import DatView
+from base import DatView, par_loop
 from configuration import configuration
 from logger import debug, info, warning, error, critical, set_log_level
 from mpi import MPI, COMM_WORLD, collective
 from utils import validate_type
 from exceptions import MatTypeError, DatTypeError
 from coffee import coffee_init, O0
+from sequential import Kernel, Set, ExtrudedSet, MixedSet, Subset, GlobalDataSet, \
+    Halo, MixedDat, Global, DecoratedMap, Sparsity, Dat, DataSet, LocalSet, Mat, Map, \
+    MixedDataSet, MixedMap, Solver
+
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',
@@ -54,12 +57,15 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
            'Sparsity', 'Solver', 'par_loop', 'solve',
-           'DatView']
+           'DatView', 'DecoratedMap']
+
+
+_initialised = False
 
 
 def initialised():
     """Check whether PyOP2 has been yet initialised but not yet finalised."""
-    return backends.get_backend() not in ['pyop2.void', 'pyop2.finalised']
+    return _initialised
 
 
 @collective
@@ -67,8 +73,6 @@ def init(**kwargs):
     """Initialise PyOP2: select the backend and potentially other configuration
     options.
 
-    :arg backend:   Set the hardware-specific backend. Current choices are
-                    ``"sequential"``, ``"openmp"``, ``"opencl"``, ``"cuda"``.
     :arg debug:     The level of debugging output.
     :arg comm:      The MPI communicator to use for parallel communication,
                     defaults to `MPI_COMM_WORLD`
@@ -89,29 +93,13 @@ def init(**kwargs):
        Calling ``init`` after ``exit`` has been called is an error and will
        raise an exception.
     """
-    backend = backends.get_backend()
-    if backend == 'pyop2.finalised':
-        raise RuntimeError("Calling init() after exit() is illegal.")
-
-    if backend != 'pyop2.void' and \
-            "backend" in kwargs and \
-            backend != "pyop2.%s" % kwargs["backend"]:
-        raise RuntimeError("Calling init() for a different backend is illegal.")
-
+    global _initialised
     configuration.reconfigure(**kwargs)
 
     set_log_level(configuration['log_level'])
-    if backend == 'pyop2.void':
-        try:
-            backends.set_backend(configuration["backend"])
-        except:
-            configuration.reset()
-            raise
-
-        backends._BackendSelector._backend._setup()
-
     coffee_init(compiler=configuration['compiler'], isa=configuration['simd_isa'],
                 optlevel=configuration.get('opt_level', O0))
+    _initialised = True
 
 
 @atexit.register
@@ -124,151 +112,8 @@ def exit():
         report_cache(typ=ObjectCached)
         report_cache(typ=Cached)
     configuration.reset()
-
-    if backends.get_backend() != 'pyop2.void':
-        backends.unset_backend()
-
-
-class Kernel(base.Kernel):
-    __metaclass__ = backends._BackendSelector
-
-
-class Set(base.Set):
-    __metaclass__ = backends._BackendSelector
-
-
-class ExtrudedSet(base.Set):
-    __metaclass__ = backends._BackendSelector
-
-
-class MixedSet(base.MixedSet):
-    __metaclass__ = backends._BackendSelector
-
-
-class LocalSet(base.LocalSet):
-    __metaclass__ = backends._BackendSelector
-
-
-class Subset(base.Subset):
-    __metaclass__ = backends._BackendSelector
-
-
-class DataSet(base.DataSet):
-    __metaclass__ = backends._BackendSelector
-
-
-class GlobalDataSet(base.GlobalDataSet):
-    __metaclass__ = backends._BackendSelector
-
-
-class MixedDataSet(base.MixedDataSet):
-    __metaclass__ = backends._BackendSelector
-
-
-class Halo(base.Halo):
-    __metaclass__ = backends._BackendSelector
-
-
-class Dat(base.Dat):
-    __metaclass__ = backends._BackendSelector
-
-
-class MixedDat(base.MixedDat):
-    __metaclass__ = backends._BackendSelector
-
-
-class Mat(base.Mat):
-    __metaclass__ = backends._BackendSelector
-
-
-class Global(base.Global):
-    __metaclass__ = backends._BackendSelector
-
-
-class Map(base.Map):
-    __metaclass__ = backends._BackendSelector
-
-
-class DecoratedMap(base.DecoratedMap):
-    __metaclass__ = backends._BackendSelector
-
-
-class MixedMap(base.MixedMap):
-    __metaclass__ = backends._BackendSelector
-
-
-class Sparsity(base.Sparsity):
-    __metaclass__ = backends._BackendSelector
-
-
-class Solver(base.Solver):
-    __metaclass__ = backends._BackendSelector
-
-
-@collective
-def par_loop(kernel, iterset, *args, **kwargs):
-    """Invocation of an OP2 kernel
-
-    :arg kernel: The :class:`Kernel` to be executed.
-    :arg iterset: The iteration :class:`Set` over which the kernel should be
-                  executed.
-    :arg \*args: One or more :class:`base.Arg`\s constructed from a
-                 :class:`Global`, :class:`Dat` or :class:`Mat` using the call
-                 syntax and passing in an optionally indexed :class:`Map`
-                 through which this :class:`base.Arg` is accessed and the
-                 :class:`base.Access` descriptor indicating how the
-                 :class:`Kernel` is going to access this data (see the example
-                 below). These are the global data structures from and to
-                 which the kernel will read and write.
-    :kwarg iterate: Optionally specify which region of an
-            :class:`ExtrudedSet` to iterate over.
-            Valid values are:
-
-              - ``ON_BOTTOM``: iterate over the bottom layer of cells.
-              - ``ON_TOP`` iterate over the top layer of cells.
-              - ``ALL`` iterate over all cells (the default if unspecified)
-              - ``ON_INTERIOR_FACETS`` iterate over all the layers
-                 except the top layer, accessing data two adjacent (in
-                 the extruded direction) cells at a time.
-
-    .. warning ::
-        It is the caller's responsibility that the number and type of all
-        :class:`base.Arg`\s passed to the :func:`par_loop` match those expected
-        by the :class:`Kernel`. No runtime check is performed to ensure this!
-
-    If a :func:`par_loop` argument indexes into a :class:`Map` using an
-    :class:`base.IterationIndex`, this implies the use of a local
-    :class:`base.IterationSpace` of a size given by the arity of the
-    :class:`Map`. It is an error to have several arguments using local
-    iteration spaces of different size.
-
-    :func:`par_loop` invocation is illustrated by the following example ::
-
-      pyop2.par_loop(mass, elements,
-                     mat(pyop2.INC, (elem_node[pyop2.i[0]]), elem_node[pyop2.i[1]]),
-                     coords(pyop2.READ, elem_node))
-
-    This example will execute the :class:`Kernel` ``mass`` over the
-    :class:`Set` ``elements`` executing 3x3 times for each
-    :class:`Set` member, assuming the :class:`Map` ``elem_node`` is of arity 3.
-    The :class:`Kernel` takes four arguments, the first is a :class:`Mat` named
-    ``mat``, the second is a field named ``coords``. The remaining two arguments
-    indicate which local iteration space point the kernel is to execute.
-
-    A :class:`Mat` requires a pair of :class:`Map` objects, one each
-    for the row and column spaces. In this case both are the same
-    ``elem_node`` map. The row :class:`Map` is indexed by the first
-    index in the local iteration space, indicated by the ``0`` index
-    to :data:`pyop2.i`, while the column space is indexed by
-    the second local index.  The matrix is accessed to increment
-    values using the ``pyop2.INC`` access descriptor.
-
-    The ``coords`` :class:`Dat` is also accessed via the ``elem_node``
-    :class:`Map`, however no indices are passed so all entries of
-    ``elem_node`` for the relevant member of ``elements`` will be
-    passed to the kernel as a vector.
-    """
-    return backends._BackendSelector._backend.par_loop(kernel, iterset, *args, **kwargs)
+    global _initialised
+    _initialised = False
 
 
 @collective

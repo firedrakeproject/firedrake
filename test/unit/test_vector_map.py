@@ -40,8 +40,6 @@ from pyop2 import op2
 def _seed():
     return 0.02041724
 
-# Large enough that there is more than one block and more than one
-# thread per element in device backends
 nnodes = 4096
 nele = nnodes / 2
 
@@ -108,7 +106,7 @@ class TestVectorMap:
     Vector Map Tests
     """
 
-    def test_sum_nodes_to_edges(self, backend):
+    def test_sum_nodes_to_edges(self):
         """Creates a 1D grid with edge values numbered consecutively.
         Iterates over edges, summing the node values."""
 
@@ -138,7 +136,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
             range(1, nedges * 2 + 1, 2))
         assert all(expected == edge_vals.data)
 
-    def test_read_1d_vector_map(self, backend, node, d1, vd1, node2ele):
+    def test_read_1d_vector_map(self, node, d1, vd1, node2ele):
         vd1.data[:] = numpy.arange(nele)
         k = """
         void k(int *d, int *vd[1]) {
@@ -150,7 +148,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         assert all(d1.data[::2] == vd1.data)
         assert all(d1.data[1::2] == vd1.data)
 
-    def test_write_1d_vector_map(self, backend, node, vd1, node2ele):
+    def test_write_1d_vector_map(self, node, vd1, node2ele):
         k = """
         void k(int *vd[1]) {
         vd[0][0] = 2;
@@ -161,7 +159,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
                      vd1(op2.WRITE, node2ele))
         assert all(vd1.data == 2)
 
-    def test_inc_1d_vector_map(self, backend, node, d1, vd1, node2ele):
+    def test_inc_1d_vector_map(self, node, d1, vd1, node2ele):
         vd1.data[:] = 3
         d1.data[:] = numpy.arange(nnodes).reshape(d1.data.shape)
 
@@ -180,7 +178,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
             start=1, stop=nnodes, step=2).reshape(expected.shape)
         assert all(vd1.data == expected)
 
-    def test_read_2d_vector_map(self, backend, node, d2, vd2, node2ele):
+    def test_read_2d_vector_map(self, node, d2, vd2, node2ele):
         vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
         k = """
         void k(int *d, int *vd[2]) {
@@ -195,7 +193,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         assert all(d2.data[1::2, 0] == vd2.data[:, 0])
         assert all(d2.data[1::2, 1] == vd2.data[:, 1])
 
-    def test_write_2d_vector_map(self, backend, node, vd2, node2ele):
+    def test_write_2d_vector_map(self, node, vd2, node2ele):
         k = """
         void k(int *vd[2]) {
         vd[0][0] = 2;
@@ -208,7 +206,7 @@ void kernel_sum(unsigned int* nodes[1], unsigned int *edge)
         assert all(vd2.data[:, 0] == 2)
         assert all(vd2.data[:, 1] == 3)
 
-    def test_inc_2d_vector_map(self, backend, node, d2, vd2, node2ele):
+    def test_inc_2d_vector_map(self, node, d2, vd2, node2ele):
         vd2.data[:, 0] = 3
         vd2.data[:, 1] = 4
         d2.data[:] = numpy.arange(2 * nnodes).reshape(d2.data.shape)

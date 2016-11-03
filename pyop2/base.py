@@ -48,7 +48,6 @@ from configuration import configuration
 from caching import Cached, ObjectCached
 from exceptions import *
 from utils import *
-from backends import _make_object
 from mpi import MPI, collective, dup_comm
 from profiling import timed_region, timed_function
 from sparsity import build_sparsity
@@ -57,6 +56,11 @@ from version import __version__ as version
 from coffee.base import Node, FlatBlock
 from coffee.visitors import FindInstances, EstimateFlops
 from coffee import base as ast
+
+
+def _make_object(name, *args, **kwargs):
+    from pyop2 import sequential
+    return getattr(sequential, name)(*args, **kwargs)
 
 
 @contextmanager
@@ -4442,6 +4446,67 @@ class Solver(object):
 
 @collective
 def par_loop(kernel, it_space, *args, **kwargs):
+    """Invocation of an OP2 kernel
+
+    :arg kernel: The :class:`Kernel` to be executed.
+    :arg iterset: The iteration :class:`Set` over which the kernel should be
+                  executed.
+    :arg \*args: One or more :class:`base.Arg`\s constructed from a
+                 :class:`Global`, :class:`Dat` or :class:`Mat` using the call
+                 syntax and passing in an optionally indexed :class:`Map`
+                 through which this :class:`base.Arg` is accessed and the
+                 :class:`base.Access` descriptor indicating how the
+                 :class:`Kernel` is going to access this data (see the example
+                 below). These are the global data structures from and to
+                 which the kernel will read and write.
+    :kwarg iterate: Optionally specify which region of an
+            :class:`ExtrudedSet` to iterate over.
+            Valid values are:
+
+              - ``ON_BOTTOM``: iterate over the bottom layer of cells.
+              - ``ON_TOP`` iterate over the top layer of cells.
+              - ``ALL`` iterate over all cells (the default if unspecified)
+              - ``ON_INTERIOR_FACETS`` iterate over all the layers
+                 except the top layer, accessing data two adjacent (in
+                 the extruded direction) cells at a time.
+
+    .. warning ::
+        It is the caller's responsibility that the number and type of all
+        :class:`base.Arg`\s passed to the :func:`par_loop` match those expected
+        by the :class:`Kernel`. No runtime check is performed to ensure this!
+
+    If a :func:`par_loop` argument indexes into a :class:`Map` using an
+    :class:`base.IterationIndex`, this implies the use of a local
+    :class:`base.IterationSpace` of a size given by the arity of the
+    :class:`Map`. It is an error to have several arguments using local
+    iteration spaces of different size.
+
+    :func:`par_loop` invocation is illustrated by the following example ::
+
+      pyop2.par_loop(mass, elements,
+                     mat(pyop2.INC, (elem_node[pyop2.i[0]]), elem_node[pyop2.i[1]]),
+                     coords(pyop2.READ, elem_node))
+
+    This example will execute the :class:`Kernel` ``mass`` over the
+    :class:`Set` ``elements`` executing 3x3 times for each
+    :class:`Set` member, assuming the :class:`Map` ``elem_node`` is of arity 3.
+    The :class:`Kernel` takes four arguments, the first is a :class:`Mat` named
+    ``mat``, the second is a field named ``coords``. The remaining two arguments
+    indicate which local iteration space point the kernel is to execute.
+
+    A :class:`Mat` requires a pair of :class:`Map` objects, one each
+    for the row and column spaces. In this case both are the same
+    ``elem_node`` map. The row :class:`Map` is indexed by the first
+    index in the local iteration space, indicated by the ``0`` index
+    to :data:`pyop2.i`, while the column space is indexed by
+    the second local index.  The matrix is accessed to increment
+    values using the ``pyop2.INC`` access descriptor.
+
+    The ``coords`` :class:`Dat` is also accessed via the ``elem_node``
+    :class:`Map`, however no indices are passed so all entries of
+    ``elem_node`` for the relevant member of ``elements`` will be
+    passed to the kernel as a vector.
+    """
     if isinstance(kernel, types.FunctionType):
         import pyparloop
         return pyparloop.ParLoop(pyparloop.Kernel(kernel), it_space, *args, **kwargs).enqueue()

@@ -78,17 +78,15 @@ if "clean" in sys.argv[1:]:
 try:
     from Cython.Distutils import build_ext
     cmdclass['build_ext'] = build_ext
-    plan_sources = ['pyop2/plan.pyx']
     sparsity_sources = ['pyop2/sparsity.pyx']
     computeind_sources = ['pyop2/computeind.pyx']
 
 # Else we require the Cython-compiled .c file to be present and use that
 # Note: file is not in revision control but needs to be included in distributions
 except ImportError:
-    plan_sources = ['pyop2/plan.c']
     sparsity_sources = ['pyop2/sparsity.cpp']
     computeind_sources = ['pyop2/computeind.c']
-    sources = plan_sources + sparsity_sources + computeind_sources
+    sources = sparsity_sources + computeind_sources
     from os.path import exists
     if not all([exists(f) for f in sources]):
         raise ImportError("Installing from source requires Cython")
@@ -125,7 +123,6 @@ class sdist(_sdist):
     def run(self):
         # Make sure the compiled Cython files in the distribution are up-to-date
         from Cython.Build import cythonize
-        cythonize(plan_sources)
         cythonize(sparsity_sources, language="c++", include_path=includes)
         cythonize(computeind_sources)
         _sdist.run(self)
@@ -156,9 +153,7 @@ setup(name='PyOP2',
           'pyop2': ['assets/*', '*.h', '*.pxd', '*.pyx']},
       scripts=glob('scripts/*'),
       cmdclass=cmdclass,
-      ext_modules=[Extension('pyop2.plan', plan_sources,
-                             include_dirs=numpy_includes),
-                   Extension('pyop2.sparsity', sparsity_sources,
+      ext_modules=[Extension('pyop2.sparsity', sparsity_sources,
                              include_dirs=['pyop2'] + includes, language="c++",
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +

@@ -47,22 +47,7 @@ class TestConfigurationAPI:
         c.reconfigure(foo='bar')
         assert c['foo'] == 'bar'
 
-    def test_change_backend(self):
-        """backend option is read only."""
-        c = Configuration()
-        c.reconfigure(backend='cuda')
-        with pytest.raises(ConfigurationError):
-            c['backend'] = 'other'
-
-    def test_reconfigure_backend(self):
-        """backend option is read only."""
-        c = Configuration()
-        c.reconfigure(backend='cuda')
-        with pytest.raises(ConfigurationError):
-            c.reconfigure(backend='other')
-
-    @pytest.mark.parametrize(('key', 'val'), [('backend', 0),
-                                              ('debug', 'illegal'),
+    @pytest.mark.parametrize(('key', 'val'), [('debug', 'illegal'),
                                               ('log_level', 1.5),
                                               ('lazy_evaluation', 'illegal'),
                                               ('lazy_max_trace_length', 'illegal'),

@@ -4,10 +4,6 @@ TEST_BASE_DIR = test
 
 UNIT_TEST_DIR = $(TEST_BASE_DIR)/unit
 
-BACKENDS ?= sequential opencl openmp cuda
-OPENCL_ALL_CTXS := $(shell scripts/detect_opencl_devices)
-OPENCL_CTXS ?= $(OPENCL_ALL_CTXS)
-
 SPHINX_DIR = doc/sphinx
 SPHINX_BUILD_DIR = $(SPHINX_DIR)/build
 SPHINX_TARGET = html
@@ -44,13 +40,8 @@ test: lint unit
 lint:
 	@flake8
 
-unit: $(foreach backend,$(BACKENDS), unit_$(backend))
-
-unit_%:
-	cd $(TEST_BASE_DIR); $(PYTEST) unit --backend=$*
-
-unit_opencl:
-	cd $(TEST_BASE_DIR); for c in $(OPENCL_CTXS); do PYOPENCL_CTX=$$c $(PYTEST) unit --backend=opencl; done
+unit:
+	cd $(TEST_BASE_DIR); $(PYTEST) unit
 
 doc:
 	make -C $(SPHINX_DIR) $(SPHINX_TARGET) SPHINXOPTS=$(SPHINXOPTS)
@@ -71,7 +62,7 @@ ext: ext_clean
 	python setup.py build_ext -i
 
 ext_clean:
-	rm -rf build pyop2/compute_ind.c pyop2/compute_ind.so pyop2/plan.c pyop2/plan.so pyop2/sparsity.c pyop2/sparsity.so
+	rm -rf build pyop2/compute_ind.c pyop2/compute_ind.so pyop2/sparsity.c pyop2/sparsity.so
 
 meshes:
 	make -C $(MESHES_DIR) meshes

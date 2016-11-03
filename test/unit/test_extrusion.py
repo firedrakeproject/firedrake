@@ -41,8 +41,6 @@ from pyop2.computeind import compute_ind_extr
 
 from coffee.base import *
 
-backends = ['sequential', 'openmp']
-
 # Data type
 valuetype = numpy.float64
 
@@ -55,8 +53,6 @@ NUM_DIMS = 2
 def _seed():
     return 0.02041724
 
-# Large enough that there is more than one block and more than one
-# thread per element in device backends
 nelems = 32
 nnodes = nelems + 2
 nedges = 2 * nelems + 1
@@ -348,7 +344,7 @@ class TestExtrusion:
     Extruded Mesh Tests
     """
 
-    def test_extrusion(self, backend, elements, dat_coords, dat_field, coords_map, field_map):
+    def test_extrusion(self, elements, dat_coords, dat_field, coords_map, field_map):
         g = op2.Global(1, data=0.0, name='g')
         mass = op2.Kernel("""
 void comp_vol(double A[1], double *x[], double *y[])
@@ -366,11 +362,11 @@ void comp_vol(double A[1], double *x[], double *y[])
 
         assert int(g.data[0]) == int((layers - 1) * 0.1 * (nelems / 2))
 
-    def test_extruded_nbytes(self, backend, dat_field):
+    def test_extruded_nbytes(self, dat_field):
         """Nbytes computes the number of bytes occupied by an extruded Dat."""
         assert dat_field.nbytes == nums[2] * wedges * 8
 
-    def test_direct_loop_inc(self, backend, xtr_nodes):
+    def test_direct_loop_inc(self, xtr_nodes):
         dat = op2.Dat(xtr_nodes)
         k = 'void k(double *x) { *x += 1.0; }'
         dat.data[:] = 0
@@ -378,7 +374,7 @@ void comp_vol(double A[1], double *x[], double *y[])
                      dat.dataset.set, dat(op2.INC))
         assert numpy.allclose(dat.data[:], 1.0)
 
-    def test_write_data_field(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
+    def test_write_data_field(self, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
         kernel_wo = "void kernel_wo(double* x[]) { x[0][0] = 42.0; }\n"
 
         op2.par_loop(op2.Kernel(kernel_wo, "kernel_wo"),
@@ -386,7 +382,7 @@ void comp_vol(double A[1], double *x[], double *y[])
 
         assert all(map(lambda x: x == 42, dat_f.data))
 
-    def test_write_data_coords(self, backend, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
+    def test_write_data_coords(self, elements, dat_coords, dat_field, coords_map, field_map, dat_c):
         kernel_wo_c = """void kernel_wo_c(double* x[]) {
                                                                x[0][0] = 42.0; x[0][1] = 42.0;
                                                                x[1][0] = 42.0; x[1][1] = 42.0;
@@ -401,7 +397,7 @@ void comp_vol(double A[1], double *x[], double *y[])
         assert all(map(lambda x: x[0] == 42 and x[1] == 42, dat_c.data))
 
     def test_read_coord_neighbours_write_to_field(
-        self, backend, elements, dat_coords, dat_field,
+        self, elements, dat_coords, dat_field,
             coords_map, field_map, dat_c, dat_f):
         kernel_wtf = """void kernel_wtf(double* x[], double* y[]) {
                                                                double sum = 0.0;
@@ -415,7 +411,7 @@ void comp_vol(double A[1], double *x[], double *y[])
                      dat_f(op2.WRITE, field_map))
         assert all(dat_f.data >= 0)
 
-    def test_indirect_coords_inc(self, backend, elements, dat_coords,
+    def test_indirect_coords_inc(self, elements, dat_coords,
                                  dat_field, coords_map, field_map, dat_c,
                                  dat_f):
         kernel_inc = """void kernel_inc(double* x[], double* y[]) {
@@ -433,7 +429,7 @@ void comp_vol(double A[1], double *x[], double *y[])
         assert sum(sum(dat_c.data)) == nums[0] * layers * 2
 
     def test_extruded_assemble_mat_rhs_solve(
-        self, backend, xtr_mat, xtr_coords, xtr_elements,
+        self, xtr_mat, xtr_coords, xtr_elements,
         xtr_elem_node, extrusion_kernel, xtr_nodes, vol_comp,
             xtr_dnodes, vol_comp_rhs, xtr_b):
         coords_dim = 3

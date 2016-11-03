@@ -204,7 +204,3 @@ def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrap
 }
 """
     return template % snippets
-
-
-def _setup():
-    pass

@@ -90,24 +90,24 @@ class TestHDF5:
     def dtoset(cls, toset):
         return op2.DataSet(toset, 1, 'dtoset')
 
-    def test_set_hdf5(self, backend, h5file):
+    def test_set_hdf5(self, h5file):
         "Set should get correct size from HDF5 file."
         s = op2.Set.fromhdf5(h5file, name='set')
         assert s.size == 5
 
-    def test_dat_hdf5(self, backend, h5file, dset):
+    def test_dat_hdf5(self, h5file, dset):
         "Creating a dat from h5file should work"
         d = op2.Dat.fromhdf5(dset, h5file, 'dat')
         assert d.dtype == np.float64
         assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
-    def test_data_hdf5_soa(self, backend, h5file, dset):
+    def test_data_hdf5_soa(self, h5file, dset):
         "Creating an SoA dat from h5file should work"
         d = op2.Dat.fromhdf5(dset, h5file, 'soadat')
         assert d.soa
         assert d.data.shape == (5, 2) and d.data.sum() == 9 * 10 / 2
 
-    def test_map_hdf5(self, backend, iterset, toset, h5file):
+    def test_map_hdf5(self, iterset, toset, h5file):
         "Should be able to create Map from hdf5 file."
         m = op2.Map.fromhdf5(iterset, toset, h5file, name="map")
         assert m.iterset == iterset

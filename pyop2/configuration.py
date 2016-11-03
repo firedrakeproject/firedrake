@@ -42,8 +42,6 @@ from exceptions import ConfigurationError
 class Configuration(dict):
     """PyOP2 configuration parameters
 
-    :param backend: Select the PyOP2 backend (one of `cuda`,
-        `opencl`, `openmp` or `sequential`).
     :param compiler: compiler identifier used by COFFEE (one of `gnu`, `intel`).
     :param simd_isa: Instruction set architecture (ISA) COFFEE is optimising
         for (one of `sse`, `avx`).
@@ -79,7 +77,6 @@ class Configuration(dict):
     """
     # name, env variable, type, default, write once
     DEFAULTS = {
-        "backend": ("PYOP2_BACKEND", str, "sequential"),
         "compiler": ("PYOP2_BACKEND_COMPILER", str, "gnu"),
         "simd_isa": ("PYOP2_SIMD_ISA", str, "sse"),
         "debug": ("PYOP2_DEBUG", bool, False),
@@ -105,8 +102,6 @@ class Configuration(dict):
         "block_sparsity": ("PYOP2_BLOCK_SPARSITY", bool, True),
     }
     """Default values for PyOP2 configuration parameters"""
-    READONLY = ['backend']
-    """List of read-only configuration keys."""
 
     def __init__(self):
         def convert(env, typ, v):
@@ -143,14 +138,7 @@ class Configuration(dict):
 
         :arg key: The parameter to set
         :arg value: The value to set it to.
-
-        .. note::
-           Some configuration parameters are read-only in which case
-           attempting to set them raises an error, see
-           :attr:`Configuration.READONLY` for details of which.
         """
-        if key in Configuration.READONLY and key in self._set and value != self[key]:
-            raise ConfigurationError("%s is read only" % key)
         if key in Configuration.DEFAULTS:
             valid_type = Configuration.DEFAULTS[key][1]
             if not isinstance(value, valid_type):

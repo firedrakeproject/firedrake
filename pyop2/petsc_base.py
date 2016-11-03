@@ -31,14 +31,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Base classes for OP2 objects. The versions here extend those from the
-:mod:`base` module to include runtime data information which is backend
-independent. Individual runtime backends should subclass these as
-required to implement backend-specific features.
-
-.. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
-"""
-
 from contextlib import contextmanager
 from petsc4py import PETSc
 from functools import partial
@@ -52,7 +44,6 @@ import mpi
 from mpi import collective
 import sparsity
 from pyop2 import utils
-from backends import _make_object
 
 
 class DataSet(base.DataSet):

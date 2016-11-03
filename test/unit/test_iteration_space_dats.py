@@ -42,8 +42,6 @@ from coffee.base import *
 def _seed():
     return 0.02041724
 
-# Large enough that there is more than one block and more than one
-# thread per element in device backends
 nnodes = 4096
 nele = nnodes / 2
 
@@ -90,7 +88,7 @@ class TestIterationSpaceDats:
     Test IterationSpace access to Dat objects
     """
 
-    def test_sum_nodes_to_edges(self, backend):
+    def test_sum_nodes_to_edges(self):
         """Creates a 1D grid with edge values numbered consecutively.
         Iterates over edges, summing the node values."""
 
@@ -121,7 +119,7 @@ class TestIterationSpaceDats:
         expected = numpy.arange(1, nedges * 2 + 1, 2)
         assert all(expected == edge_vals.data)
 
-    def test_read_1d_itspace_map(self, backend, node, d1, vd1, node2ele):
+    def test_read_1d_itspace_map(self, node, d1, vd1, node2ele):
         vd1.data[:] = numpy.arange(nele)
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("d")), Decl("int*", c_sym("vd"))],
@@ -133,7 +131,7 @@ class TestIterationSpaceDats:
         assert all(d1.data[::2] == vd1.data)
         assert all(d1.data[1::2] == vd1.data)
 
-    def test_write_1d_itspace_map(self, backend, node, vd1, node2ele):
+    def test_write_1d_itspace_map(self, node, vd1, node2ele):
         k = FunDecl("void", "k",
                     [Decl("int*", c_sym("vd"))],
                     c_for("i", 1, Assign(Symbol("vd", ("i",)), c_sym(2))))
@@ -142,7 +140,7 @@ class TestIterationSpaceDats:
                      vd1(op2.WRITE, node2ele[op2.i[0]]))
         assert all(vd1.data == 2)
 
-    def test_inc_1d_itspace_map(self, backend, node, d1, vd1, node2ele):
+    def test_inc_1d_itspace_map(self, node, d1, vd1, node2ele):
         vd1.data[:] = 3
         d1.data[:] = numpy.arange(nnodes).reshape(d1.data.shape)
 
@@ -160,7 +158,7 @@ class TestIterationSpaceDats:
             start=1, stop=nnodes, step=2).reshape(expected.shape)
         assert all(vd1.data == expected)
 
-    def test_read_2d_itspace_map(self, backend, d2, vd2, node2ele, node):
+    def test_read_2d_itspace_map(self, d2, vd2, node2ele, node):
         vd2.data[:] = numpy.arange(nele * 2).reshape(nele, 2)
         reads = Block(
             [Assign(Symbol("d", (0,)), Symbol("vd", ("i",), ((1, 0),))),
@@ -179,7 +177,7 @@ class TestIterationSpaceDats:
         assert all(d2.data[1::2, 0] == vd2.data[:, 0])
         assert all(d2.data[1::2, 1] == vd2.data[:, 1])
 
-    def test_write_2d_itspace_map(self, backend, vd2, node2ele, node):
+    def test_write_2d_itspace_map(self, vd2, node2ele, node):
         writes = Block([Assign(Symbol("vd", ("i",), ((1, 0),)), c_sym(2)),
                         Assign(Symbol("vd", ("i",), ((1, 1),)), c_sym(3))],
                        open_scope=True)
@@ -191,7 +189,7 @@ class TestIterationSpaceDats:
         assert all(vd2.data[:, 0] == 2)
         assert all(vd2.data[:, 1] == 3)
 
-    def test_inc_2d_itspace_map(self, backend, d2, vd2, node2ele, node):
+    def test_inc_2d_itspace_map(self, d2, vd2, node2ele, node):
         vd2.data[:, 0] = 3
         vd2.data[:, 1] = 4
         d2.data[:] = numpy.arange(2 * nnodes).reshape(d2.data.shape)

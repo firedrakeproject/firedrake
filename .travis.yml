@@ -38,5 +38,4 @@ install: "python setup.py develop"
 # command to run tests
 script:
   - "make lint"
-  - "py.test test --backend=sequential -v --tb=native"
-  - "py.test test --backend=openmp -v --tb=native"
+  - "py.test test -v --tb=native"
