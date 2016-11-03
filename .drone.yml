@@ -53,7 +53,7 @@ pipeline:
 
       # Run tests as the firedrake user, pushing in the current path.
       - cd firedrake/src/firedrake
-      - sudo -EHu firedrake env PATH="$PATH" py.test --cov firedrake -n auto -v tests/
+      - sudo -EHu firedrake env PATH="$PATH" py.test --cov firedrake -n 4 -v tests/
 
       # Run the dolfin-adjoint tests
       - cd ../dolfin-adjoint
