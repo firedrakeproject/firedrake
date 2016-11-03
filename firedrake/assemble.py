@@ -203,7 +203,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     zero_tensor = lambda: None
 
-
     if is_mat:
         matfree = mat_type == "matfree" or mat_type == "loopy"
         nest = mat_type == "nest"
@@ -229,7 +228,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                  impmat, " with mat_type ", mat_type)
             tensor.assemble()
             return tensor
-
         test, trial = f.arguments()
 
         map_pairs = []
