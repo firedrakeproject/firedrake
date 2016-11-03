@@ -1,5 +1,6 @@
 import pytest
 from firedrake import *
+from firedrake.petsc import PETSc
 from numpy.linalg import norm as np_norm
 import gc
 
@@ -36,7 +37,6 @@ def test_linear_solver_api(a_L_out):
 
 def test_petsc_options_cleared(a_L_out):
     a, L, out = a_L_out
-    from petsc4py import PETSc
     opts = PETSc.Options()
     original = {}
     original.update(opts.getAll())
@@ -198,7 +198,6 @@ def test_quasinewton_ops_assembled():
     problem = NonlinearVariationalProblem(F, u)
     solver_parameters = {'snes_type': 'qn'}
     solver = NonlinearVariationalSolver(problem, solver_parameters=solver_parameters)
-    solver.snes.setUp()
 
     assert solver.snes.ksp.pc.getOperators()[0].assembled
 
