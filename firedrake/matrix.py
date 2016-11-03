@@ -301,3 +301,59 @@ class ImplicitMatrix(MatrixBase):
     def assembled(self):
         self.assemble()
         return True
+
+
+class LoopyImplicitMatrix(MatrixBase):
+    """A representation of the action of bilinear form operating
+    without explicitly assembling the associated matrix.  This class
+    wraps the relevant information for Python PETSc matrix.
+
+    Computation is performed by the evaluation of an (eventually optimized)
+    loopy kernel rather than the :method:`assemble` function.
+
+    :arg a: the bilinear form this :class:`Matrix` represents.
+
+    :arg bcs: an iterable of boundary conditions to apply to this
+        :class:`Matrix`.  May be `None` if there are no boundary
+        conditions to apply.
+
+
+    .. note::
+
+        This object acts to the right on an assembled :class:`.Function`
+        and to the left on an assembled cofunction (currently represented
+        by a :class:`.Function`).
+
+    """
+    def __init__(self, a, bcs, *args, **kwargs):
+        # sets self._a and self._bcs
+        super(LoopyImplicitMatrix, self).__init__(a, bcs)
+
+        appctx = kwargs.get("appctx", {})
+
+        from firedrake.matrix_free.operators import LoopyImplicitMatrixContext
+        ctx = LoopyImplicitMatrixContext(a,
+                                         row_bcs=bcs,
+                                         col_bcs=bcs,
+                                         fc_params=kwargs["fc_params"],
+                                         appctx=appctx)
+        self.petscmat = PETSc.Mat().create(comm=self.comm)
+        self.petscmat.setType("python")
+        self.petscmat.setSizes((ctx.row_sizes, ctx.col_sizes),
+                               bsize=ctx.block_size)
+        self.petscmat.setPythonContext(ctx)
+        self.petscmat.setUp()
+        self.petscmat.assemble()
+
+    def assemble(self):
+        # Bump petsc matrix state by assembling it.
+        # Ensures that if the matrix changed, the preconditioner is
+        # updated if necessary.
+        self.petscmat.assemble()
+
+    force_evaluation = assemble
+
+    @property
+    def assembled(self):
+        self.assemble()
+        return True

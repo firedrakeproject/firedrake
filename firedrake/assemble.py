@@ -41,15 +41,18 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     :arg mat_type: (optional) string indicating how a 2-form (matrix) should be
          assembled -- either as a monolithic matrix ('aij'), a block matrix
          ('nest'), or left as a :class:`.ImplicitMatrix` giving matrix-free
-         actions ('matfree').  If not supplied, the default value in
+         actions ('matfree') :class:`.LoopyImplicitMatrix` giving
+         matrix-free actions via the evaluation of a loo.py kernel
+         ('loopy').  If not supplied, the default value in
          ``parameters["default_matrix_type"]`` is used.
     :arg appctx: Additional information to hang on the assembled
-         matrix if an implicit matrix is requested (mat_type "matfree").
+         matrix if an implicit matrix is requested (mat_type "matfree"
+         or mat_type "loopy").
 
     If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms and a :class:`.Matrix` or :class:`.ImplicitMatrix`
-    for 2-forms.
+    :class:`.Function` for 1-forms and a :class:`.Matrix`,
+    :class:`.ImplicitMatrix`, or :class:`.LoopyImplicitMatrix` for 2-forms.
 
     If f is an expression other than a form, it will be evaluated
     pointwise on the :class:`.Function`\s in the expression. This will
@@ -151,7 +154,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
-    if mat_type not in ["matfree", "aij", "nest"]:
+    if mat_type not in ["matfree", "aij", "nest", "loopy"]:
         raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
 
     if form_compiler_parameters:
@@ -181,7 +184,16 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     zero_tensor = lambda: None
 
-    matfree = mat_type == "matfree"
+    if mat_type == "loopy":
+        matfree = True
+        impmat = matrix.LoopyImplicitMatrix
+    elif mat_type == "matfree":
+        matfree = True
+        impmat = matrix.ImplicitMatrix
+    else:
+        matfree = False
+    #matfree = mat_type == "matfree"
+    #loopy = mat_type == "loopy"
     nest = mat_type == "nest"
     if is_mat:
         if matfree:  # intercept matrix-free matrices here
@@ -190,13 +202,26 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             if collect_loops:
                 raise NotImplementedError("Can't collect loops with matfree")
             if tensor is None:
-                return matrix.ImplicitMatrix(f, bcs,
-                                             fc_params=form_compiler_parameters,
-                                             appctx=appctx)
-            if not isinstance(tensor, matrix.ImplicitMatrix):
-                raise ValueError("Expecting implicit matrix with matfree")
+                return impmat(f, bcs,
+                              fc_params=form_compiler_parameters,
+                              appctx=appctx)
+            if not isinstance(tensor, impmat):
+                raise ValueError("Expecting implicit matrix of type ",
+                                 impmat, " with mat_type ", mat_type)
             tensor.assemble()
             return tensor
+#        elif loopy:
+#            if tensor is None:
+#                return matrix.LoopyImplicitMatrix(
+#                    f, bcs,
+#                    fc_params=form_compiler_parameters,
+#                    appctx=appctx)
+#            if not isinstance(tensor, matrix.LoopyImplicitMatrix):
+#                raise ValueError(
+#                    "Expecting loopy implicit matrix with loopy mat type"
+#                )
+#            tensor.assemble()
+#            return tensor
         test, trial = f.arguments()
 
         map_pairs = []
@@ -259,6 +284,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         else:
             if isinstance(tensor, matrix.ImplicitMatrix):
                 raise ValueError("Expecting matfree with implicit matrix")
+            elif isinstance(tensor, matrix.LoopyImplicitMatrix):
+                raise ValueError("Expecting loopy matrix")
 
             result_matrix = tensor
             # Replace any bcs on the tensor we passed in
