@@ -1,13 +1,9 @@
-matrix:
-    BASE_IMAGE:
-       - ubuntu:xenial
-
 workspace:
   path: src
 
 pipeline:
   build:
-    image: ${BASE_IMAGE}
+    image: ubuntu:xenial
     pull: true
     environment:
       # Change the following to reflect your local preferences
