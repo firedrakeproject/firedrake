@@ -160,10 +160,12 @@ class _SNESContext(object):
     :arg problem: a :class:`NonlinearVariationalProblem`.
     :arg mat_type: Indicates whether the Jacobian is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree') or
+        loopy-based matrix-free (as :class:`~.LoopyImplicitMatrix.
     :arg pmat_type: Indicates whether the preconditioner (if present) is assembled
         monolithically ('aij'), as a block sparse matrix ('nest') or
-        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree').
+        matrix-free (as :class:`~.ImplicitMatrix`\es, 'matfree') or
+        loopy-based matrix-free (as :class:`~.LoopyImplicitMatrix.
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
@@ -186,7 +188,9 @@ class _SNESContext(object):
         self.pmat_type = pmat_type
 
         matfree = mat_type == 'matfree'
+        loopymatfree = mat_type == 'loopy'
         pmatfree = pmat_type == 'matfree'
+        loopypmatfree = pmat_type == 'loopy'
 
         self._problem = problem
         self._pre_jacobian_callback = pre_jacobian_callback
@@ -199,7 +203,7 @@ class _SNESContext(object):
         if appctx is None:
             appctx = {}
 
-        if matfree or pmatfree:
+        if matfree or pmatfree or loopymatfree or loopypmatfree:
             # A split context will already get the full state.
             # TODO, a better way of doing this.
             # Now we don't have a temporary state inside the snes
@@ -210,6 +214,8 @@ class _SNESContext(object):
         self.appctx = appctx
         self.matfree = matfree
         self.pmatfree = pmatfree
+        self.loopymatfree = loopymatfree
+        self.loopymatfree = loopypmatfree
         self.F = problem.F
         self.J = problem.J
 
