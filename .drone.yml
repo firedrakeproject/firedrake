@@ -59,8 +59,3 @@ pipeline:
 
       # Run the dolfin-adjoint tests
       - sudo -EHu firedrake env PATH="$PATH" py.test -v firedrake/src/dolfin-adjoint/tests_firedrake/
-
-  slack:
-    webhook_url: ${SLACK_DRONE_WEBHOOK}
-    channel: drone
-    username: drone
