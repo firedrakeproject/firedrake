@@ -93,6 +93,12 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
                     inverse=False, mat_type=None, appctx={}):
+    """Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
+
+    .. warning::
+
+       Do not use this function unless you know what you're doing.
+    """
     return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, appctx=appctx,
                      allocate_only=True)
@@ -100,6 +106,16 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
                              inverse=False, mat_type=None):
+    """Create a callable object than be used to assemble f into a tensor.
+
+    This is really only designed to be used inside residual and
+    jacobian callbacks, since it always assembles back into the
+    initially provided tensor.  See also :func:`allocate_matrix`.
+
+    .. warning::
+
+       Really do not use this function unless you know what you're doing.
+    """
     if tensor is None:
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
