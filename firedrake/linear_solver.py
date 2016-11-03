@@ -58,8 +58,9 @@ class LinearSolver(solving_utils.ParametersMixin):
         self.set_default_parameter("ksp_rtol", "1e-7")
         # If preconditioning matrix is matrix-free, then default to no
         # preconditioning.
-        if isinstance(self.P, matrix.ImplicitMatrix):
-            self.set_default_parameter("pc_type", "none")
+        if isinstance(self.P, matrix.ImplicitMatrix) \
+           or isinstance(self.P, matrix.LoopyImplicitMatrix):
+            self.parameters.setdefault("pc_type", "none")
         elif self.P.block_shape != (1, 1):
             # Otherwise, mixed problems default to jacobi.
             self.set_default_parameter("pc_type", "jacobi")
