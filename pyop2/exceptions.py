@@ -141,3 +141,8 @@ class ConfigurationError(RuntimeError):
 class CompilationError(RuntimeError):
 
     """Error during JIT compilation"""
+
+
+class SparsityFormatError(ValueError):
+
+    """Unable to produce a sparsity for this matrix format."""
