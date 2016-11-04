@@ -44,7 +44,7 @@ build:
 
     # Install firedrake
     - cd $FIREDRAKE_HOME
-    - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $DRONE_BUILD_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT
+    - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $DRONE_BUILD_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --package-branch firedrake $DRONE_COMMIT --package-branch PyOP2 globals_petsc_changes
 
     # Activate the virtualenv
     - . firedrake/bin/activate
