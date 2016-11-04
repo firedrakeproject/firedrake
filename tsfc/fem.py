@@ -169,6 +169,8 @@ def basis_evaluation(element, ps, derivative=0, entity=None, epsilon=0.0):
         tensor = gem.Indexed(gem.ListTensor(tensor), di)
     else:
         tensor = tensor[()]
+    # A numerical hack that FFC used to apply on FIAT tables still
+    # lives on after ditching FFC and switching to FInAT.
     tensor = ffc_rounding(tensor, epsilon)
     return gem.ComponentTensor(tensor, i + vi + di)
 
