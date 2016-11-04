@@ -1099,7 +1099,9 @@ if mode == "install":
     log.info("Creating firedrake virtualenv in '%s'." % firedrake_env)
     virtualenv.create_environment(firedrake_env, site_packages=False)
     # For some reason virtualenv does not always install the latest pip.
-    run_pip_install(["-U", "pip"])
+    run_pip(["install", "-U", "setuptools"])
+    run_pip(["install", "-U", "pip"])
+
 virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
 execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
 # Activating the virtual_env from within Python does not automatically set the environment variable.
