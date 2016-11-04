@@ -123,7 +123,7 @@ honoured.""",
     parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
-                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
+                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (--sudo).")
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
@@ -1206,6 +1206,11 @@ else:
     packages.remove("petsc")
     packages.remove("petsc4py")
 
+    # Forcibly upgrade old installations to developer mode.
+    if not options["developer"]:
+        args.clean = True
+        options["developer"] = True
+
     if args.clean:
         clean_obsolete_packages()
         for package in packages:
@@ -1288,7 +1293,7 @@ log.info("To upgrade Firedrake activate the virtualenv and run firedrake-update\
 try:
     import firedrake_configuration
     firedrake_configuration.write_config(config)
-    log.info("Configurations saved to configuration.json")
+    log.info("Configuration saved to configuration.json")
 except Exception as e:
     log.info("Unable to save configuations to a JSON file")
     log.info("Error Message:")
