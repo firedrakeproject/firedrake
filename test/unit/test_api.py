@@ -1857,42 +1857,6 @@ class TestParLoopAPI:
         base._trace.evaluate_all()
 
 
-class TestSolverAPI:
-
-    """
-    Test the Solver API.
-    """
-
-    def test_solver_defaults(self):
-        s = op2.Solver()
-        assert s.parameters == base.DEFAULT_SOLVER_PARAMETERS
-
-    def test_set_options_with_params(self):
-        params = {'ksp_type': 'gmres',
-                  'ksp_max_it': 25}
-        s = op2.Solver(params)
-        assert s.parameters['ksp_type'] == 'gmres' \
-            and s.parameters['ksp_max_it'] == 25
-
-    def test_set_options_with_kwargs(self):
-        s = op2.Solver(ksp_type='gmres', ksp_max_it=25)
-        assert s.parameters['ksp_type'] == 'gmres' \
-            and s.parameters['ksp_max_it'] == 25
-
-    def test_update_parameters(self):
-        s = op2.Solver()
-        params = {'ksp_type': 'gmres',
-                  'ksp_max_it': 25}
-        s.update_parameters(params)
-        assert s.parameters['ksp_type'] == 'gmres' \
-            and s.parameters['ksp_max_it'] == 25
-
-    def test_set_params_and_kwargs_illegal(self):
-        params = {'ksp_type': 'gmres',
-                  'ksp_max_it': 25}
-        with pytest.raises(RuntimeError):
-            op2.Solver(params, ksp_type='cgs')
-
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

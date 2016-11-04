@@ -47,7 +47,7 @@ from exceptions import MatTypeError, DatTypeError
 from coffee import coffee_init, O0
 from sequential import Kernel, Set, ExtrudedSet, MixedSet, Subset, GlobalDataSet, \
     Halo, MixedDat, Global, DecoratedMap, Sparsity, Dat, DataSet, LocalSet, Mat, Map, \
-    MixedDataSet, MixedMap, Solver
+    MixedDataSet, MixedMap
 
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
@@ -56,7 +56,7 @@ __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'set_log_level', 'MPI', 'init', 'exit', 'Kernel', 'Set', 'ExtrudedSet',
            'LocalSet', 'MixedSet', 'Subset', 'DataSet', 'GlobalDataSet', 'MixedDataSet',
            'Halo', 'Dat', 'MixedDat', 'Mat', 'Global', 'Map', 'MixedMap',
-           'Sparsity', 'Solver', 'par_loop', 'solve',
+           'Sparsity', 'par_loop',
            'DatView', 'DecoratedMap']
 
 
@@ -114,17 +114,3 @@ def exit():
     configuration.reset()
     global _initialised
     _initialised = False
-
-
-@collective
-@validate_type(('A', base.Mat, MatTypeError),
-               ('x', base.Dat, DatTypeError),
-               ('b', base.Dat, DatTypeError))
-def solve(A, x, b):
-    """Solve a matrix equation using the default :class:`Solver`
-
-    :arg A: The :class:`Mat` containing the matrix.
-    :arg x: The :class:`Dat` to receive the solution.
-    :arg b: The :class:`Dat` containing the RHS.
-    """
-    Solver().solve(A, x, b)

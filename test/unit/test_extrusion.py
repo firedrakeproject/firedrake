@@ -428,7 +428,7 @@ void comp_vol(double A[1], double *x[], double *y[])
 
         assert sum(sum(dat_c.data)) == nums[0] * layers * 2
 
-    def test_extruded_assemble_mat_rhs_solve(
+    def test_extruded_assemble_mat(
         self, xtr_mat, xtr_coords, xtr_elements,
         xtr_elem_node, extrusion_kernel, xtr_nodes, vol_comp,
             xtr_dnodes, vol_comp_rhs, xtr_b):
@@ -501,15 +501,6 @@ void comp_vol(double A[1], double *x[], double *y[])
                      xtr_f(op2.READ, xtr_elem_node))
 
         assert_allclose(sum(xtr_b.data), 6.0, eps)
-
-        x_vals = numpy.zeros(NUM_NODES * layers, dtype=valuetype)
-        xtr_x = op2.Dat(d_lnodes_xtr, x_vals, valuetype, "xtr_x")
-
-        op2.solve(xtr_mat, xtr_x, xtr_b)
-
-        assert_allclose(sum(xtr_x.data), 7.3333333, eps)
-
-    # TODO: extend for higher order elements
 
 if __name__ == '__main__':
     import os
