@@ -182,18 +182,9 @@ def statement_evaluate(leaf, parameters):
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, gem.Constant):
         assert parameters.declare[leaf]
-        table = numpy.array(expr.array)
-        # FFC uses one less digits for rounding than for printing
-        epsilon = eval("1e-%d" % (parameters.precision - 1))
-        table[abs(table) < epsilon] = 0
-        table[abs(table - 1.0) < epsilon] = 1.0
-        table[abs(table + 1.0) < epsilon] = -1.0
-        table[abs(table - 0.5) < epsilon] = 0.5
-        table[abs(table + 0.5) < epsilon] = -0.5
-        init = coffee.ArrayInit(table, parameters.precision)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
-                           init,
+                           coffee.ArrayInit(expr.array, parameters.precision),
                            qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
