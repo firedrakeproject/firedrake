@@ -292,20 +292,7 @@ def _expression_scalar(expr, parameters):
     if isnan(expr.value):
         return coffee.Symbol("NAN")
     else:
-        value = float(expr.value)
-        # FFC uses one less digits for rounding than for printing
-        epsilon = eval("1e-%d" % (parameters.precision - 1))
-        if abs(value) < epsilon:
-            value = 0
-        if abs(value - 1.0) < epsilon:
-            value = 1.0
-        if abs(value + 1.0) < epsilon:
-            value = -1.0
-        if abs(value - 0.5) < epsilon:
-            value = 0.5
-        if abs(value + 0.5) < epsilon:
-            value = -0.5
-        return coffee.Symbol(("%%.%dg" % (parameters.precision - 1)) % value)
+        return coffee.Symbol(("%%.%dg" % (parameters.precision - 1)) % expr.value)
 
 
 @_expression.register(gem.Variable)
