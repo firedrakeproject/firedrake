@@ -16,6 +16,7 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
+from gem import as_gem
 from gem.utils import cached_property
 
 from tsfc import compat, ufl2gem, geometric
@@ -320,7 +321,7 @@ def translate_argument(terminal, mt, ctx):
             # Cellwise constant
             row = table
         else:
-            table = ctx.index_selector(lambda i: gem.partial_indexed(table, (i,)),
+            table = ctx.index_selector(lambda i: as_gem(table.array[i]),
                                        mt.restriction)
             row = gem.partial_indexed(table, (ctx.point_index,))
         return gem.Indexed(row, (argument_index,))
@@ -348,7 +349,7 @@ def translate_coefficient(terminal, mt, ctx):
                                for i in range(row.shape[0])],
                               gem.Zero())
         else:
-            table = ctx.index_selector(lambda i: gem.partial_indexed(table, (i,)),
+            table = ctx.index_selector(lambda i: as_gem(table.array[i]),
                                        mt.restriction)
             row = gem.partial_indexed(table, (ctx.point_index,))
 
