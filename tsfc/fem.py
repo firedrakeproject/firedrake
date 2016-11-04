@@ -12,6 +12,7 @@ from ufl.classes import (Argument, Coefficient, CellVolume, FacetArea,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
+from gem.optimise import ffc_rounding
 from gem.utils import cached_property
 
 from finat.quadrature import make_quadrature
@@ -149,7 +150,7 @@ def translate_facetarea(terminal, mt, ctx):
     return ctx.facetarea()
 
 
-def basis_evaluation(element, ps, derivative=0, entity=None):
+def basis_evaluation(element, ps, derivative=0, entity=None, epsilon=0.0):
     # TODO: clean up, potentially remove this function.
     import numpy
 
@@ -168,6 +169,7 @@ def basis_evaluation(element, ps, derivative=0, entity=None):
         tensor = gem.Indexed(gem.ListTensor(tensor), di)
     else:
         tensor = tensor[()]
+    tensor = ffc_rounding(tensor, epsilon)
     return gem.ComponentTensor(tensor, i + vi + di)
 
 
@@ -179,7 +181,8 @@ def translate_argument(terminal, mt, ctx):
         return basis_evaluation(element,
                                 ctx.point_set,
                                 derivative=mt.local_derivatives,
-                                entity=(ctx.integration_dim, entity_id))
+                                entity=(ctx.integration_dim, entity_id),
+                                epsilon=ctx.epsilon)
     M = ctx.entity_selector(callback, mt.restriction)
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     argument_index = ctx.argument_indices[terminal.number()]
@@ -204,7 +207,8 @@ def translate_coefficient(terminal, mt, ctx):
         return basis_evaluation(element,
                                 ctx.point_set,
                                 derivative=mt.local_derivatives,
-                                entity=(ctx.integration_dim, entity_id))
+                                entity=(ctx.integration_dim, entity_id),
+                                epsilon=ctx.epsilon)
     M = ctx.entity_selector(callback, mt.restriction)
 
     alpha = element.get_indices()
