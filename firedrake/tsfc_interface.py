@@ -202,7 +202,7 @@ def _real_mangle(form):
     """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
 
     a = form.arguments()
-    reals = map(lambda x: x.element().family() == "Real", a)
+    reals = map(lambda x: x.ufl_element().family() == "Real", a)
     if not a or not any(reals):
         return form
     replacements = {}
