@@ -2720,6 +2720,21 @@ class Global(DataCarrier, _EmptyDataMixin):
         return False
 
     @collective
+    def duplicate(self):
+        """Return a deep copy of self."""
+        return type(self)(self.dim, data=np.copy(self.data_ro),
+                          dtype=self.dtype, name=self.name)
+
+    @collective
+    def copy(self, other, subset=None):
+        """Copy the data in this :class:`Global` into another.
+
+        :arg other: The destination :class:`Global`
+        :arg subset: A :class:`Subset` of elements to copy (optional)"""
+
+        other.data = np.copy(self.data_ro)
+
+    @collective
     def zero(self):
         self.data[...] = 0
 
