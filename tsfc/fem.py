@@ -16,6 +16,7 @@ from ufl.classes import (Argument, Coefficient, CellVolume,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
+from gem import as_gem
 from gem.utils import cached_property
 
 from tsfc import compat, ufl2gem, geometric
@@ -28,7 +29,7 @@ from tsfc.ufl_utils import (CollectModifiedTerminals,
                             spanning_degree, simplify_abs)
 
 
-def _tabulate(ufl_element, order, points):
+def tabulate(ufl_element, order, points, entity, epsilon):
     """Ask FIAT to tabulate ``points`` up to order ``order``, then
     rearranges the result into a series of ``(c, D, table)`` tuples,
     where:
@@ -41,57 +42,56 @@ def _tabulate(ufl_element, order, points):
     :arg ufl_element: element to tabulate
     :arg order: FIAT gives all derivatives up to this order
     :arg points: points to tabulate the element on
+    :arg entity: particular entity to tabulate on
     """
     element = create_element(ufl_element)
     phi = element.space_dimension()
     C = ufl_element.reference_value_size()
     q = len(points)
-    for D, fiat_table in iteritems(element.tabulate(order, points)):
-        reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
-        for c, table in enumerate(reordered_table):
-            yield c, D, table
+    for D, fiat_table in iteritems(element.tabulate(order, points, entity)):
+        if isinstance(fiat_table, Exception):
+            # In the case an exception is found in the fiat table, do not
+            # perform any rounding
+            gem_fail = gem.Failure((q, phi), fiat_table)
+            for c in range(C):
+                yield c, D, gem_fail
+        else:
+            reordered_table = fiat_table.reshape(phi, C, q).transpose(1, 2, 0)  # (C, q, phi)
+            for c, table in enumerate(reordered_table):
+                # Copied from FFC (ffc/quadrature/quadratureutils.py)
+                table[abs(table) < epsilon] = 0
+                table[abs(table - 1.0) < epsilon] = 1.0
+                table[abs(table + 1.0) < epsilon] = -1.0
+                table[abs(table - 0.5) < epsilon] = 0.5
+                table[abs(table + 0.5) < epsilon] = -0.5
+
+                if spanning_degree(ufl_element) <= sum(D) and ufl_element.family() != "HDiv Trace":
+                    assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
+                    table = table[0]
+
+                yield c, D, gem.Literal(table)
 
 
-def tabulate(ufl_element, order, points, epsilon):
-    """Same as the above, but also applies FFC rounding with
-    threshold epsilon and recognises cellwise constantness.
-    Cellwise constantness is determined symbolically, but we
-    also check the numerics to be safe."""
-    for c, D, table in _tabulate(ufl_element, order, points):
-        # Copied from FFC (ffc/quadrature/quadratureutils.py)
-        table[abs(table) < epsilon] = 0
-        table[abs(table - 1.0) < epsilon] = 1.0
-        table[abs(table + 1.0) < epsilon] = -1.0
-        table[abs(table - 0.5) < epsilon] = 0.5
-        table[abs(table + 0.5) < epsilon] = -0.5
-
-        if spanning_degree(ufl_element) <= sum(D):
-            assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
-            table = table[0]
-
-        yield c, D, table
-
-
-def make_tabulator(points, epsilon):
-    """Creates a tabulator for an array of points with rounding
-    parameter epsilon."""
-    return lambda elem, order: tabulate(elem, order, points, epsilon)
+def make_tabulator(points, entity, epsilon):
+    """Creates a tabulator for an array of points for a given entity."""
+    return lambda elem, order: tabulate(elem, order, points, entity, epsilon)
 
 
 class TabulationManager(object):
     """Manages the generation of tabulation matrices for the different
     integral types."""
 
-    def __init__(self, entity_points, epsilon):
+    def __init__(self, points, entity_dim, entity_ids, epsilon):
         """Constructs a TabulationManager.
 
-        :arg entity_points: An array of points in cell coordinates for
-                            each integration entity, i.e. an iterable
-                            of arrays of points.
+        :arg points: points on the integration entity (e.g. points on an
+                     interval or facet integrals on a simplex)
+        :arg entity_dim: the integration dimension of the quadrature rule
+        :arg entity_id: list of ids for each entity with dimension `entity_dim`
         :arg epsilon: precision for rounding FE tables to 0, +-1/2, +-1
         """
-        epsilons = itertools.repeat(epsilon, len(entity_points))
-        self.tabulators = list(map(make_tabulator, entity_points, epsilons))
+        self.tabulators = [make_tabulator(points, (entity_dim, entity_id), epsilon)
+                           for entity_id in entity_ids]
         self.tables = {}
 
     def tabulate(self, ufl_element, max_deriv):
@@ -107,11 +107,11 @@ class TabulationManager(object):
                 store[(ufl_element, c, D)].append(table)
 
         for key, tables in iteritems(store):
-            table = numpy.array(tables)
+            table = gem.ListTensor(tables)
             if len(table.shape) == 2:
                 # Cellwise constant; must not depend on the facet
-                assert compat.allclose(table, table.mean(axis=0, keepdims=True), equal_nan=True)
-                table = table[0]
+                assert compat.allclose(table.array, table.array.mean(axis=0, keepdims=True), equal_nan=True)
+                table = gem.Literal(table.array[0])
             self.tables[key] = table
 
     def __getitem__(self, key):
@@ -319,9 +319,10 @@ def translate_argument(terminal, mt, ctx):
         table = ctx.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            row = gem.Literal(table)
+            row = table
         else:
-            table = ctx.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
+            table = ctx.index_selector(lambda i: as_gem(table.array[i]),
+                                       mt.restriction)
             row = gem.partial_indexed(table, (ctx.point_index,))
         return gem.Indexed(row, (argument_index,))
 
@@ -340,15 +341,16 @@ def translate_coefficient(terminal, mt, ctx):
         table = ctx.tabulation_manager[key]
         if len(table.shape) == 1:
             # Cellwise constant
-            row = gem.Literal(table)
-            if numpy.count_nonzero(table) <= 2:
+            row = table
+            if numpy.count_nonzero(table.array) <= 2:
                 assert row.shape == vec.shape
                 return reduce(gem.Sum,
                               [gem.Product(gem.Indexed(row, (i,)), gem.Indexed(vec, (i,)))
                                for i in range(row.shape[0])],
                               gem.Zero())
         else:
-            table = ctx.index_selector(lambda i: gem.Literal(table[i]), mt.restriction)
+            table = ctx.index_selector(lambda i: as_gem(table.array[i]),
+                                       mt.restriction)
             row = gem.partial_indexed(table, (ctx.point_index,))
 
         r = ctx.index_cache[terminal.ufl_element()]
@@ -377,7 +379,7 @@ def compile_ufl(expression, interior_facet=False, **kwargs):
             max_derivs[ufl_element] = max(mt.local_derivatives, max_derivs[ufl_element])
 
     # Collect tabulations for all components and derivatives
-    tabulation_manager = TabulationManager(context.entity_points, context.epsilon)
+    tabulation_manager = TabulationManager(context.points, context.integration_dim, context.entity_ids, context.epsilon)
     for ufl_element, max_deriv in max_derivs.items():
         if ufl_element.family() != 'Real':
             tabulation_manager.tabulate(ufl_element, max_deriv)

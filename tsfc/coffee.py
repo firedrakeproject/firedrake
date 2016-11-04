@@ -221,6 +221,11 @@ def _expression(expr, parameters):
     raise AssertionError("cannot generate COFFEE from %s" % type(expr))
 
 
+@_expression.register(gem.Failure)
+def _expression_failure(expr, parameters):
+    raise expr.exception
+
+
 @_expression.register(gem.Product)
 def _expression_product(expr, parameters):
     return coffee.Prod(*[expression(c, parameters)
