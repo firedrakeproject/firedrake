@@ -40,7 +40,6 @@ import sys
 import numpy as np
 from decorator import decorator
 import argparse
-from subprocess import Popen, PIPE
 
 from pyop2.exceptions import DataTypeError, DataValueError
 from pyop2.configuration import configuration
@@ -296,15 +295,6 @@ def parse_args(*args, **kwargs):
     ARGS and KWARGS are passed into the parser instantiation.
     The only recognised options are `group` and `description`."""
     return vars(parser(*args, **kwargs).parse_args())
-
-
-def preprocess(text, include_dirs=[]):
-    cmd = ['cpp', '-std=c99', '-E', '-I' + os.path.dirname(__file__)] + ['-I' + d for d in include_dirs]
-    p = Popen(cmd, stdin=PIPE, stdout=PIPE, universal_newlines=True)
-    # Strip empty lines and any preprocessor instructions other than pragmas
-    processed = '\n'.join(l for l in p.communicate(text)[0].split('\n')
-                          if l.strip() and (not l.startswith('#') or l.startswith('#pragma')))
-    return processed
 
 
 def trim(docstring):
