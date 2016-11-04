@@ -33,7 +33,9 @@
 
 """Provides common base classes for cached objects."""
 
-from utils import cached_property
+from __future__ import absolute_import
+
+from pyop2.utils import cached_property
 
 
 def report_cache(typ):

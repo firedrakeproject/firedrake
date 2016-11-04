@@ -34,7 +34,7 @@
 import pytest
 import numpy as np
 
-from pyop2 import op2
+from pyop2 import op2, base
 from pyop2.exceptions import MapValueError
 
 nelems = 4096
@@ -224,7 +224,7 @@ class TestDirectLoop:
         x_data = x.data_with_halos
         op2.par_loop(op2.Kernel(kernel, 'k'),
                      elems, x(op2.WRITE))
-        op2.base._trace.evaluate(set([x]), set())
+        base._trace.evaluate(set([x]), set())
         with pytest.raises((RuntimeError, ValueError)):
             x_data[0] = 1
 

@@ -33,7 +33,7 @@
 
 """Common utility classes/functions."""
 
-from __future__ import division
+from __future__ import division, absolute_import
 
 import os
 import sys
@@ -42,8 +42,8 @@ from decorator import decorator
 import argparse
 from subprocess import Popen, PIPE
 
-from exceptions import DataTypeError, DataValueError
-from configuration import configuration
+from pyop2.exceptions import DataTypeError, DataValueError
+from pyop2.configuration import configuration
 
 
 class cached_property(object):

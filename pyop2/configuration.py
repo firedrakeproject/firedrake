@@ -33,10 +33,11 @@
 
 """PyOP2 global configuration."""
 
+from __future__ import absolute_import
 import os
 from tempfile import gettempdir
 
-from exceptions import ConfigurationError
+from pyop2.exceptions import ConfigurationError
 
 
 class Configuration(dict):

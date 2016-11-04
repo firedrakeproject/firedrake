@@ -33,22 +33,23 @@
 
 """The PyOP2 API specification."""
 
+from __future__ import absolute_import
 import atexit
 
-import base
-from base import READ, WRITE, RW, INC, MIN, MAX, i
-from base import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL
-from base import DatView, par_loop
-from configuration import configuration
-from logger import debug, info, warning, error, critical, set_log_level
-from mpi import MPI, COMM_WORLD, collective
-from utils import validate_type
-from exceptions import MatTypeError, DatTypeError
-from coffee import coffee_init, O0
-from sequential import Kernel, Set, ExtrudedSet, MixedSet, Subset, GlobalDataSet, \
-    Halo, MixedDat, Global, DecoratedMap, Sparsity, Dat, DataSet, LocalSet, Mat, Map, \
-    MixedDataSet, MixedMap
+from pyop2.configuration import configuration
+from pyop2.logger import debug, info, warning, error, critical, set_log_level
+from pyop2.mpi import MPI, COMM_WORLD, collective
 
+from pyop2.base import i                      # noqa: F401
+from pyop2.sequential import par_loop, Kernel  # noqa: F401
+from pyop2.sequential import READ, WRITE, RW, INC, MIN, MAX  # noqa: F401
+from pyop2.sequential import ON_BOTTOM, ON_TOP, ON_INTERIOR_FACETS, ALL  # noqa: F401
+from pyop2.sequential import Set, ExtrudedSet, MixedSet, Subset, DataSet, MixedDataSet, LocalSet  # noqa: F401
+from pyop2.sequential import Map, MixedMap, DecoratedMap, Sparsity, Halo  # noqa: F401
+from pyop2.sequential import Global, GlobalDataSet        # noqa: F401
+from pyop2.sequential import Dat, MixedDat, DatView, Mat  # noqa: F401
+
+from coffee import coffee_init, O0
 
 __all__ = ['configuration', 'READ', 'WRITE', 'RW', 'INC', 'MIN', 'MAX',
            'ON_BOTTOM', 'ON_TOP', 'ON_INTERIOR_FACETS', 'ALL',

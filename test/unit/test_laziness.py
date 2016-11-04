@@ -38,7 +38,7 @@ Lazy evaluation unit tests.
 import pytest
 import numpy
 
-from pyop2 import op2
+from pyop2 import op2, base
 
 nelems = 42
 
@@ -87,17 +87,17 @@ count(unsigned int* x)
 
     def test_ro_accessor(self, skip_greedy, iterset):
         """Read-only access to a Dat should force computation that writes to it."""
-        op2.base._trace.clear()
+        base._trace.clear()
         d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
         k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
         op2.par_loop(k, iterset, d(op2.WRITE))
         assert all(d.data_ro == 1.0)
-        assert len(op2.base._trace._trace) == 0
+        assert len(base._trace._trace) == 0
 
     def test_rw_accessor(self, skip_greedy, iterset):
         """Read-write access to a Dat should force computation that writes to it,
         and any pending computations that read from it."""
-        op2.base._trace.clear()
+        base._trace.clear()
         d = op2.Dat(iterset, numpy.zeros(iterset.total_size), dtype=numpy.float64)
         d2 = op2.Dat(iterset, numpy.empty(iterset.total_size), dtype=numpy.float64)
         k = op2.Kernel('void k(double *x) { *x = 1.0; }', 'k')
@@ -105,7 +105,7 @@ count(unsigned int* x)
         op2.par_loop(k, iterset, d(op2.WRITE))
         op2.par_loop(k2, iterset, d2(op2.WRITE), d(op2.READ))
         assert all(d.data == 1.0)
-        assert len(op2.base._trace._trace) == 0
+        assert len(base._trace._trace) == 0
 
     def test_chain(self, skip_greedy, iterset):
         a = op2.Global(1, 0, numpy.uint32, "a")
@@ -142,20 +142,20 @@ sum(unsigned int* sum, unsigned int* x)
         assert sum(x._data) == 0
         assert sum(y._data) == 0
         assert a._data[0] == 0
-        assert op2.base._trace.in_queue(pl_add)
-        assert op2.base._trace.in_queue(pl_copy)
-        assert op2.base._trace.in_queue(pl_sum)
+        assert base._trace.in_queue(pl_add)
+        assert base._trace.in_queue(pl_copy)
+        assert base._trace.in_queue(pl_sum)
 
         # force computation affecting 'a' (1st and 3rd par_loop)
         assert a.data[0] == nelems
-        assert not op2.base._trace.in_queue(pl_add)
-        assert op2.base._trace.in_queue(pl_copy)
-        assert not op2.base._trace.in_queue(pl_sum)
+        assert not base._trace.in_queue(pl_add)
+        assert base._trace.in_queue(pl_copy)
+        assert not base._trace.in_queue(pl_sum)
         assert sum(x.data) == nelems
 
         # force the last par_loop remaining (2nd)
         assert sum(y.data) == nelems
-        assert not op2.base._trace.in_queue(pl_copy)
+        assert not base._trace.in_queue(pl_copy)
 
 if __name__ == '__main__':
     import os

@@ -699,9 +699,9 @@ class TestMatrices:
         """Solve a linear system where the solution is equal to the right-hand
         side and check the result."""
         mat.assemble()
-        op2.solve(mat, x, b)
+        x = np.linalg.solve(mat.values, b.data)
         eps = 1.e-8
-        assert_allclose(x.data, f.data, eps)
+        assert_allclose(x, f.data, eps)
 
     def test_zero_matrix(self, mat):
         """Test that the matrix is zeroed correctly."""

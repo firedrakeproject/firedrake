@@ -74,8 +74,9 @@ Example usage::
   #  [ 3.  0.]]
 """
 
-import base
+from __future__ import absolute_import
 import numpy as np
+from pyop2 import base
 
 
 # Fake kernel for type checking

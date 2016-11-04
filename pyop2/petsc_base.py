@@ -31,19 +31,19 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import absolute_import
 from contextlib import contextmanager
 from petsc4py import PETSc
 from functools import partial
 import numpy as np
 
-import base
-from base import *
-from logger import debug, warning
-from profiling import timed_region
-import mpi
-from mpi import collective
-import sparsity
+from pyop2 import base
+from pyop2 import mpi
+from pyop2 import sparsity
 from pyop2 import utils
+from pyop2.base import _make_object, Subset
+from pyop2.mpi import collective
+from pyop2.profiling import timed_region
 
 
 class DataSet(base.DataSet):
@@ -888,7 +888,7 @@ class Mat(base.Mat):
         return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
                                write=True).enqueue()
 
-    @cached_property
+    @utils.cached_property
     def blocks(self):
         """2-dimensional array of matrix blocks."""
         return self._blocks

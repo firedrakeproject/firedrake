@@ -35,6 +35,7 @@
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
+from __future__ import absolute_import
 
 from contextlib import contextmanager
 import itertools
@@ -44,14 +45,14 @@ import operator
 import types
 from hashlib import md5
 
-from configuration import configuration
-from caching import Cached, ObjectCached
-from exceptions import *
-from utils import *
-from mpi import MPI, collective, dup_comm
-from profiling import timed_region, timed_function
-from sparsity import build_sparsity
-from version import __version__ as version
+from pyop2.configuration import configuration
+from pyop2.caching import Cached, ObjectCached
+from pyop2.exceptions import *
+from pyop2.utils import *
+from pyop2.mpi import MPI, collective, dup_comm
+from pyop2.profiling import timed_region, timed_function
+from pyop2.sparsity import build_sparsity
+from pyop2.version import __version__ as version
 
 from coffee.base import Node, FlatBlock
 from coffee.visitors import FindInstances, EstimateFlops
@@ -4429,6 +4430,6 @@ def par_loop(kernel, it_space, *args, **kwargs):
     passed to the kernel as a vector.
     """
     if isinstance(kernel, types.FunctionType):
-        import pyparloop
+        from pyop2 import pyparloop
         return pyparloop.ParLoop(pyparloop.Kernel(kernel), it_space, *args, **kwargs).enqueue()
     return _make_object('ParLoop', kernel, it_space, *args, **kwargs).enqueue()
