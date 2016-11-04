@@ -48,14 +48,15 @@ supported_elements = {
     "Discontinuous Lagrange": FIAT.DiscontinuousLagrange,
     "Discontinuous Taylor": FIAT.DiscontinuousTaylor,
     "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
-    "Discontinuous Lagrange Trace": FIAT.DiscontinuousLagrangeTrace,
     "EnrichedElement": FIAT.EnrichedElement,
+    "Gauss-Lobatto-Legendre": FIAT.GaussLobattoLegendre,
+    "Gauss-Legendre": FIAT.GaussLegendre,
     "Lagrange": FIAT.Lagrange,
     "Nedelec 1st kind H(curl)": FIAT.Nedelec,
     "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
     "TensorProductElement": FIAT.TensorProductElement,
     "Raviart-Thomas": FIAT.RaviartThomas,
-    "TraceElement": FIAT.HDivTrace,
+    "HDiv Trace": FIAT.HDivTrace,
     "Regge": FIAT.Regge,
     "Hellan-Herrmann-Johnson": FIAT.HellanHerrmannJohnson,
     # These require special treatment below
@@ -83,9 +84,8 @@ class FlattenToQuad(FIAT.FiniteElement):
 
         :arg element: a fiat element
         """
-        self.element = element
         nodes = element.dual.nodes
-        self.ref_el = FiredrakeQuadrilateral()
+        ref_el = FiredrakeQuadrilateral()
         entity_ids = element.dual.entity_ids
 
         flat_entity_ids = {}
@@ -95,29 +95,16 @@ class FlattenToQuad(FIAT.FiniteElement):
             [v for k, v in sorted(entity_ids[(1, 0)].items())]
         ))
         flat_entity_ids[2] = entity_ids[(1, 1)]
-        self.dual = DualSet(nodes, self.ref_el, flat_entity_ids)
-
-    def space_dimension(self):
-        """Return the dimension of the finite element space."""
-        return self.element.space_dimension()
+        dual = DualSet(nodes, ref_el, flat_entity_ids)
+        super(FlattenToQuad, self).__init__(ref_el, dual,
+                                            element.get_order(),
+                                            element.get_formdegree(),
+                                            element._mapping)
+        self.element = element
 
     def degree(self):
-        """Return the degree of the finite element."""
+        """Return the degree of the (embedding) polynomial space."""
         return self.element.degree()
-
-    def get_order(self):
-        """Return the order of the finite element."""
-        return self.element.get_order()
-
-    def get_formdegree(self):
-        """Return the degree of the associated form (FEEC)."""
-        return self.element.get_formdegree()
-
-    def mapping(self):
-        """Return the list of appropriate mappings from the reference
-        element to a physical element for each basis function of the
-        finite element."""
-        return self.element.mapping()
 
     def tabulate(self, order, points, entity=None):
         """Return tabulated values of derivatives up to a given order of
@@ -250,8 +237,7 @@ def _(element, vector_is_mixed):
                                 create_element(B, vector_is_mixed))
 
 
-@convert.register(ufl.TraceElement)  # noqa
-@convert.register(ufl.BrokenElement)
+@convert.register(ufl.BrokenElement) # noqa
 def _(element, vector_is_mixed):
     return supported_elements[element.family()](create_element(element._element,
                                                                vector_is_mixed))
