@@ -51,7 +51,7 @@ class Vector(object):
         """
         if isinstance(x, Vector):
             self.dat = type(x.dat)(x.dat)
-        elif isinstance(x, op2.base.Dat):  # ugh
+        elif isinstance(x, (op2.Dat, op2.MixedDat)):  # ugh
             self.dat = x
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))
