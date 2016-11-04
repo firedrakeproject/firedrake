@@ -158,11 +158,12 @@ class GlobalDataSet(base.GlobalDataSet):
         nlocal_rows = 0
         for dset in self:
             nlocal_rows += dset.size * dset.cdim
-        offset = mpi.MPI.comm.scan(nlocal_rows)
+        offset = self.comm.scan(nlocal_rows)
         offset -= nlocal_rows
         for dset in self:
             nrows = dset.size * dset.cdim
-            iset = PETSc.IS().createStride(nrows, first=offset, step=1)
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+                                           comm=self.comm)
             iset.setBlockSize(dset.cdim)
             ises.append(iset)
             offset += nrows
@@ -178,11 +179,17 @@ class GlobalDataSet(base.GlobalDataSet):
     @utils.cached_property
     def layout_vec(self):
         """A PETSc Vec compatible with the dof layout of this DataSet."""
-        vec = PETSc.Vec().create()
+        vec = PETSc.Vec().create(comm=self.comm)
         size = (self.size * self.cdim, None)
         vec.setSizes(size, bsize=self.cdim)
         vec.setUp()
         return vec
+
+    @utils.cached_property
+    def dm(self):
+        dm = PETSc.DMShell().create(comm=self.comm)
+        dm.setGlobalVector(self.layout_vec)
+        return dm
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
@@ -770,7 +777,6 @@ class Mat(base.Mat):
         else:
             mat = _DatMat(self.sparsity)
         self.handle = mat
-        self._version_set_zero()
 
     def __call__(self, access, path, flatten=False):
         """Override the parent __call__ method in order to special-case global
