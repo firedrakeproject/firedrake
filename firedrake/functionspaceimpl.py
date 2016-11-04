@@ -855,6 +855,17 @@ class RealFunctionSpace(FunctionSpace):
         """:class:`RealFunctionSpace` objects have no dof set."""
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
 
+    def _dm(self):
+        from firedrake.mg.utils import get_level
+        dm = self.dof_dset.dm
+        _, level = get_level(self.mesh())
+        dmhooks.attach_hooks(dm, level=level,
+                             sf=self.mesh()._plex.getPointSF(),
+                             section=None)
+        # Remember the function space so we can get from DM back to FunctionSpace.
+        dmhooks.set_function_space(dm, self)
+        return dm
+
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
