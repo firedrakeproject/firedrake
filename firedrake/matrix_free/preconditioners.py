@@ -80,7 +80,7 @@ class AssembledPC(PCBase):
     options using the extra options prefix ``assembled_``.
     """
     def initialize(self, pc):
-        from firedrake.assemble import assemble
+        from firedrake.assemble import allocate_matrix, create_assembly_callable
 
         _, P = pc.getOperators()
 
@@ -93,9 +93,15 @@ class AssembledPC(PCBase):
             raise ValueError("Only makes sense to invert diagonal block")
 
         mat_type = PETSc.Options().getString(prefix + "assembled_mat_type", "aij")
-        self.P = assemble(context.a, bcs=context.row_bcs,
-                          form_compiler_parameters=context.fc_params,
-                          mat_type=mat_type)
+        self.P = allocate_matrix(context.a, bcs=context.row_bcs,
+                                 form_compiler_parameters=context.fc_params,
+                                 mat_type=mat_type)
+        self._assemble_P = create_assembly_callable(context.a, tensor=self.P,
+                                                    bcs=context.row_bcs,
+                                                    form_compiler_parameters=context.fc_params,
+                                                    mat_type=mat_type)
+        self._assemble_P()
+        self.mat_type = mat_type
         self.P.force_evaluation()
 
         # Transfer nullspace over
@@ -114,10 +120,8 @@ class AssembledPC(PCBase):
         self.pc = pc
 
     def update(self, pc):
-        from firedrake import assemble
-        P = self.P
-        P = assemble(P.a, tensor=P, bcs=P.bcs)
-        P.force_evaluation()
+        self._assemble_P()
+        self.P.force_evaluation()
 
     def apply(self, pc, x, y):
         self.pc.apply(x, y)
@@ -239,6 +243,7 @@ class PCDPC(PCBase):
     def initialize(self, pc):
         from firedrake import TrialFunction, TestFunction, dx, \
             assemble, inner, grad, split, Constant, parameters
+        from firedrake.assemble import allocate_matrix, create_assembly_callable
         prefix = pc.getOptionsPrefix() + "pcd_"
 
         # we assume P has things stuffed inside of it
@@ -304,15 +309,18 @@ class PCDPC(PCBase):
         fp = 1.0/Re * inner(grad(p), grad(q))*dx + inner(u0, grad(p))*q*dx
 
         self.Re = Re
-        self.Fp = assemble(fp, form_compiler_parameters=context.fc_params,
-                           mat_type=self.Fp_mat_type)
+        self.Fp = allocate_matrix(fp, form_compiler_parameters=context.fc_params,
+                                  mat_type=self.Fp_mat_type)
+        self._assemble_Fp = create_assembly_callable(fp, tensor=self.Fp,
+                                                     form_compiler_parameters=context.fc_params,
+                                                     mat_type=self.Fp_mat_type)
+        self._assemble_Fp()
         self.Fp.force_evaluation()
         Fpmat = self.Fp.petscmat
         self.workspace = [Fpmat.createVecLeft() for i in (0, 1)]
 
     def update(self, pc):
-        from firedrake import assemble
-        assemble(self.Fp.a, tensor=self.Fp, mat_type=self.Fp_mat_type)
+        self._assemble_Fp()
         self.Fp.force_evaluation()
 
     def apply(self, pc, x, y):

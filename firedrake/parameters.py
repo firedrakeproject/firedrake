@@ -55,13 +55,6 @@ class Parameters(dict):
 parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
-parameters.add(Parameters("assembly_cache",
-                          enabled=True,
-                          eviction=True,
-                          max_bytes=max_float,
-                          max_factor=0.6,
-                          max_misses=3))
-
 # The COFFEE default optimization level is O2
 coffee_default_optlevel = "O2"
 coffee_opts = Parameters("coffee", optlevel=coffee_default_optlevel)
@@ -110,7 +103,6 @@ def disable_performance_optimisations():
     lazy = parameters["pyop2_options"]["lazy_evaluation"]
     safe_check = parameters["type_check_safe_par_loops"]
     coffee = parameters["coffee"]
-    cache = parameters["assembly_cache"]["enabled"]
 
     def restore():
         parameters["pyop2_options"]["type_check"] = check
@@ -118,13 +110,11 @@ def disable_performance_optimisations():
         parameters["pyop2_options"]["lazy_evaluation"] = lazy
         parameters["type_check_safe_par_loops"] = safe_check
         parameters["coffee"] = coffee
-        parameters["assembly_cache"]["enabled"] = cache
 
     parameters["pyop2_options"]["type_check"] = True
     parameters["pyop2_options"]["debug"] = True
     parameters["pyop2_options"]["lazy_evaluation"] = False
     parameters["type_check_safe_par_loops"] = True
     parameters["coffee"] = {}
-    parameters["assembly_cache"]["enabled"] = False
 
     return restore
