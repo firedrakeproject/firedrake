@@ -3245,10 +3245,7 @@ class Sparsity(ObjectCached):
         if self._initialized:
             return
 
-        if not hasattr(self, '_block_sparse'):
-            # CUDA Sparsity overrides this attribute because it never
-            # wants block sparse matrices.
-            self._block_sparse = block_sparse
+        self._block_sparse = block_sparse
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets

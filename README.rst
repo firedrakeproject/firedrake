@@ -7,73 +7,9 @@
 Installing PyOP2
 ================
 
-The main testing platform for PyOP2 is Ubuntu 12.04 64-bit with Python
-2.7.3. Other UNIX-like systems may or may not work. Mac OS X 10.7,
-10.9 and 10.10 are also known to work. Microsoft Windows may work, but
-is not a supported platform.
-
-Quick start installations
--------------------------
-
-Installation script for Ubuntu
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-For the impatient there is a script for the unattended installation of
-PyOP2 and its dependencies on a Ubuntu 12.04 or compatible platform.
-Only the sequential and OpenMP backends are covered at the moment.
-
-.. note::
-  This script will only work reliably on a clean Ubuntu installation and is
-  not intended to be used by PyOP2 developers. If you intend to contribute to
-  PyOP2 it is recommended to follow the instructions below for a manual
-  installation.
-
-Running with superuser privileges will install missing packages and
-Python dependencies will be installed system wide::
-
-  wget -O - https://github.com/OP2/PyOP2/raw/master/install.sh | sudo bash
-
-.. warning::
-  This will fail if you if you require a password for ``sudo``. Run e.g. the
-  following beforehand to assure your password is cached ::
-
-      sudo whoami
-
-Running without superuser privileges will instruct you which packages
-need to be installed. Python dependencies will be installed to the user
-site ``~/.local``::
-
-  wget -O - https://github.com/OP2/PyOP2/raw/master/install.sh | bash
-
-In each case, PyOP2 will be cloned to subdirectories of the current directory.
-
-After installation has completed and a rudimentary functionality check,
-the test suite is run. The script indicates whether all these steps have
-completed successfully and only in this case will exit with return code
-0.
-
-Only high-level progress updates are printed to screen. Most of the
-output is redirected to a log file ``pyop2_install.log``. Please consult
-this log file in the case of errors. If you can't figure out the cause
-of discover a bug in the installation script, please `report
-it <https://github.com/OP2/PyOP2/issues>`__.
-
-This completes the quick start installation. More complete
-instructions follow for virtual machine and native installations.
-
-Provisioning a virtual machine
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-A ``Vagrantfile`` is provided for automatic provisioning of a Ubuntu
-12.04 64bit virtual machine with PyOP2 preinstalled. It requires
-`VirtualBox 4.2 <https://www.virtualbox.org/wiki/Linux_Downloads>`__ and
-`Vagrant <http://www.vagrantup.com>`__ to be installed, which are
-available for Linux, Mac and Windows.
-
-Creating and launching a virtual machine is a single command: run
-``vagrant up`` to automatically download the base VM image, configure it
-for use with VirtualBox, boot the VM and install PyOP2 and all
-dependencies using the above install script.
+The main testing platform for PyOP2 is Ubuntu 14.04 64-bit with Python
+2.7. Other UNIX-like systems may or may not work. Mac OS X 10.7-10.12
+are also known to work.
 
 
 Manual Installation
@@ -173,8 +109,8 @@ We recommend using `Homebrew <http://brew.sh>`__ as a package manager
 for the required packages on Mac OS systems.  Obtaining a build
 environment for PyOP2 consists of the following:
 
-1. Install Xcode.  For OS X 10.9 (Mavericks) this is possible through
-   the App Store.  For earlier versions, try
+1. Install Xcode.  For OS X 10.9 (Mavericks) and later this is
+   possible through the App Store.  For earlier versions, try
    https://developer.apple.com/downloads (note that on OS X 10.7
    (Lion) you will need to obtain Xcode 4.6 rather than Xcode 5)
 
@@ -261,14 +197,6 @@ Then install PETSc_ via ``pip`` ::
   unset PETSC_ARCH
 
 
-.. note::
-
-   If you intend to run PyOP2's OpenMP backend, you should
-   additionally pass the following options to the PETSc configure
-   stage ::
-
-     --with-threadcomm --with-openmp --with-pthreadclasses
-
 If you built PETSc_ using ``pip``, ``PETSC_DIR`` and ``PETSC_ARCH``
 should be left unset when building petsc4py_.
 
@@ -297,120 +225,6 @@ If you *do* intend to contribute to COFFEE, then clone the repository::
 COFFEE can be installed from the repository via::
 
   sudo python setup.py install
-
-.. hint::
-
-   If you only intend to run PyOP2 on CPUs (not GPUs) you can now skip
-   straight to :ref:`pyop2-install`, otherwise read on for additional
-   dependencies.
-
-.. _cuda-installation:
-
-CUDA backend:
-~~~~~~~~~~~~~
-
-Dependencies: 
-
-* boost-python 
-* Cusp 0.3.1 
-* codepy >= 2013.1 
-* Jinja2 
-* mako 
-* pycparser >= 2.10
-* pycuda >= 2013.1
-
-The `cusp library <http://cusplibrary.github.io>`__ version 0.3.1
-headers need to be in your (CUDA) include path.
-
-**Note:** Using the trunk version of Cusp will *not* work, since
-revision f525d61 introduces a change that break backwards compatibility
-with CUDA 4.x.
-
-Install dependencies via the package manager (Debian based systems)::
-
-  sudo apt-get install libboost-python-dev python-jinja2 python-mako python-pycuda
-
-**Note:** The version of pycparser available in the package repositories
-is too old, you will need to install it via ``pip``, see below.
-
-Install dependencies via ``pip``::
-
-  sudo pip install codepy Jinja2 mako pycparser>=2.10
-
-If a pycuda package is not available, it will be necessary to install it
-manually. Make sure ``nvcc`` is in your ``$PATH`` and ``libcuda.so`` in
-your ``$LIBRARY_PATH`` if in a non-standard location::
-
-  export CUDA_ROOT=/usr/local/cuda # change as appropriate 
-  git clone https://github.com/inducer/pycuda.git 
-  cd pycuda 
-  git submodule init 
-  git submodule update 
-  # libcuda.so is in a non-standard location on Ubuntu systems 
-  ./configure.py --no-use-shipped-boost \
-  --cudadrv-lib-dir="/usr/lib/nvidia-current,${CUDA_ROOT}/lib,${CUDA_ROOT}/lib64" 
-  python setup.py build 
-  sudo python setup.py install 
-  sudo cp siteconf.py /etc/aksetup-defaults.py
-
-.. _opencl-installation:
-
-OpenCL backend:
-~~~~~~~~~~~~~~~
-
-Dependencies: 
-
-* Jinja2 
-* mako 
-* pycparser >= 2.10
-* pyopencl >= 2012.1
-
-pyopencl requires the OpenCL header ``CL/cl.h`` in a standard include
-path. On a Debian system, install it via the package manager::
-
-  sudo apt-get install opencl-headers
-
-If you want to use OpenCL headers and/or libraries from a non-standard
-location you need to configure pyopencl manually::
-
-  export OPENCL_ROOT=/usr/local/opencl # change as appropriate 
-  git clone https://github.com/inducer/pyopencl.git 
-  cd pyopencl 
-  git submodule init 
-  git submodule update 
-  ./configure.py --no-use-shipped-boost \
-  --cl-inc-dir=${OPENCL_ROOT}/include --cl-lib-dir=${OPENCL_ROOT}/lib 
-  python setup.py build 
-  sudo python setup.py install
-
-Otherwise, install dependencies via ``pip``::
-
-  sudo pip install Jinja2 mako pyopencl>=2012.1 pycparser>=2.10
-
-Installing the Intel OpenCL toolkit (64bit systems only)::
-
-  cd /tmp 
-  # install alien to convert the rpm to a deb package 
-  sudo apt-get install alien 
-  fakeroot wget http://registrationcenter.intel.com/irc_nas/2563/intel_sdk_for_ocl_applications_2012_x64.tgz
-  tar xzf intel_sdk_for_ocl_applications_2012_x64.tgz 
-  fakeroot alien *.rpm 
-  sudo dpkg -i --force-overwrite *.deb
-
-The ``--force-overwrite`` option is necessary in order to resolve
-conflicts with the opencl-headers package (if installed).
-
-Installing the `AMD OpenCL
-toolkit <http://developer.amd.com/tools/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/>`__
-(32bit and 64bit systems)::
-
-  wget http://developer.amd.com/wordpress/media/2012/11/AMD-APP-SDK-v2.8-lnx64.tgz 
-  # on a 32bit system, instead 
-  wget http://developer.amd.com/wordpress/media/2012/11/AMD-APP-SDK-v2.8-lnx32.tgz 
-  tar xzf AMD-APP-SDK-v2.8-lnx*.tgz 
-  # Install to /usr/local instead of /opt 
-  sed -ie 's:/opt:/usr/local:g' default-install_lnx*.pl
-  sudo ./Install-AMD-APP.sh
 
 HDF5
 ~~~~
@@ -513,8 +327,6 @@ Start with the unit tests with the sequential backend ::
 
   py.test test/unit -vsx --tb=short --backend=sequential
 
-With all the sequential tests passing, move on to the next backend in the same
-manner as required.
 
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _petsc4py: http://pythonhosted.org/petsc4py/
