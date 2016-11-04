@@ -208,7 +208,7 @@ def compile_slate_expression(slate_expr, testing=False):
             statements.append(ast.Decl(temp_type, temp))
 
             # Compile integrals using TSFC
-            integrals = expr.get_ufl_integrals()
+            integrals = expr.form.integrals()
             kernel_exprs[expr] = []
             mapper = RemoveRestrictions()
             for i, it in enumerate(integrals):

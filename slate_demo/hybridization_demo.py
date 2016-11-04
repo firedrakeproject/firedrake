@@ -54,16 +54,51 @@ def slate_hybridization(degree, res):
                                                'ksp_type': 'cg'})
 
     # Solve by back-substitution
-    orig = assemble(L)
-    orig -= assemble(action(trace_jump, lambda_sol))
-    A = assemble(Mass1 + Mass2 + Div - Grad, mat_type="aij")
-    solution = Function(W)
-    solve(A, solution, orig, solver_parameters={'ksp_type': 'preonly',
-                                                'pc_type': 'lu'})
-    sigma_h, u_h = solution.split()
+    # SLATE cannot handle mixed arguments at the moment.
+    # So we break the mixed space arguments
+#    class ArgumentReplacer(MultiFunction):
+#        def __init__(self, argmap):
+#            self.argmap = argmap
+#            super(ArgumentReplacer, self).__init__()
+#
+#        def argument(self, o):
+#            return self.argmap[o]
+#
+#        expr = MultiFunction.reuse_if_untouched
+#
+#    replacer = ArgumentReplacer({sigma: TrialFunction(BRT),
+#                                 tau: TestFunction(BRT),
+#                                 u: TrialFunction(DG),
+#                                 v: TestFunction(DG)})
+#
+#    Mass1 = map_integrand_dags(replacer, Mass1)
+    sigma = TrialFunction(BRT)
+    tau = TestFunction(BRT)
+    u = TrialFunction(DG)
+    v = TestFunction(DG)
 
-    sigma_h = project(sigma_h, FunctionSpace(mesh, RT))
-    File("solution.pvd").write(sigma_h, u_h)
+    Mv = slate.Matrix(dot(sigma, tau)*dx)
+    Mp = slate.Matrix(u*v*dx)
+    B = slate.Matrix(div(sigma)*v*dx)
+    tr = dot(tau, n)*lambdar('+')*dS
+
+    CTLambda = slate.Vector(tr*lambda_sol)
+    F = slate.Vector(f*v*dx)
+
+    pr = (B * Mv.inv * B.T + Mp).inv*(F - B * Mv.inv * CTLambda)
+    p_sol = assemble(pr)
+    File("solution.pvd").write(p_sol)
+
+#    orig = assemble(L)
+#    orig -= assemble(action(trace_jump, lambda_sol))
+#    A = assemble(Mass1 + Mass2 + Div - Grad, mat_type="aij")
+#    solution = Function(W)
+#    solve(A, solution, orig, solver_parameters={'ksp_type': 'preonly',
+#                                                'pc_type': 'lu'})
+#    sigma_h, u_h = solution.split()
+#
+#    sigma_h = project(sigma_h, FunctionSpace(mesh, RT))
+#    File("solution_true.pvd").write(sigma_h, u_h)
 
 degree = 1
 res = 5

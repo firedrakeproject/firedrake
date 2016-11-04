@@ -24,7 +24,6 @@ Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 import hashlib
 import operator
 
-from ufl import Coefficient
 from slate_assertions import *
 from slate_equation import SlateEquation
 
@@ -353,15 +352,22 @@ class Tensor(object):
 class Scalar(Tensor):
     """An abstract representation of a rank-0 tensor object in SLATE."""
 
-    def __init__(self, coefficient):
-        """Constructor for the Scalar class."""
-        slate_assert(isinstance(coefficient, Coefficient), "Scalars need a coefficient as an argument.")
+    def __init__(self, form):
+        """Constructor for the Scalar class.
 
-        self.coefficient = coefficient
+        : arg form: a ufl form representing a scalar object:
+                    i.e. form = Constant(1.0, domain=mesh)*dx.
+        """
+
+        r = len(form.arguments())
+        if r != 0:
+            rank_error(0, r)
+        self.form = form
+        self.check_integrals(form.integrals())
         Tensor.tensor_id += 1
         super(Scalar, self).__init__(arguments=(),
-                                     coefficients=(coefficient, ),
-                                     integrals=())
+                                     coefficients=form.coefficents(),
+                                     integrals=form.integrals())
 
     def __str__(self, prec=None):
         """String representation of a SLATE Scalar object."""
@@ -446,7 +452,7 @@ class Inverse(Tensor):
 
     def __str__(self, prec=None):
         """String representation of the inverse of a SLATE tensor."""
-        return "%s.inv" % self.children
+        return "(%s).inv" % self.children
 
     def __repr__(self):
         """SLATE representation of the inverse of a tensor."""
@@ -476,7 +482,7 @@ class Transpose(Tensor):
 
     def __str__(self, prec=None):
         """String representation of a transposed tensor."""
-        return "%s.T" % self.children
+        return "(%s).T" % self.children
 
     def __repr__(self):
         """SLATE representation of a transposed tensor."""
@@ -567,7 +573,7 @@ class BinaryOp(Tensor):
         """Constructor for the BinaryOp class.
 
         :arg A: a SLATE tensor.
-        :arg B: a SLATE tenosr."""
+        :arg B: a SLATE tensor."""
 
         slate_assert((isinstance(A, Tensor) and isinstance(B, Tensor)),
                      "Both operands must be SLATE tensors. The operands given are of type (%s, %s)" % (type(A), type(B)))
@@ -713,7 +719,9 @@ class TensorSub(BinaryOp):
 
 
 class TensorMul(BinaryOp):
-    """Abstract SLATE class representing standard tensor multiplication."""
+    """Abstract SLATE class representing standard tensor multiplication.
+
+    This includes Matrix-Matrix and Matrix-Vector multiplication."""
 
     prec = 2
     op = operator.mul
@@ -744,7 +752,12 @@ class TensorMul(BinaryOp):
     @classmethod
     def get_bop_integrals(cls, A, B):
         """Returns the integrals of a tensor resulting
-        from multiplying two tensors A and B."""
+        from multiplying two tensors A and B.
+
+        Note that is is only for book-keeping. The objective is to
+        keep integrals corresponding to the arguments left during
+        the contraction over indices. The integrals are used to help
+        determine the domain of integration."""
 
         # If no middled integrals to contract, just concatenate
         if len(A.get_ufl_integrals()) == 1 and len(B.get_ufl_integrals()) == 1:
