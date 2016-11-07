@@ -84,14 +84,9 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         :kwarg near_nullspace: as for the nullspace, but used to
                specify the near nullspace (for multigrid solvers).
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
-            This should be a dict mapping PETSc options to values.  For
-            example, to set the nonlinear solver type to just use a linear
-            solver:
-        :kwarg options_prefix: an optional prefix used to distinguish
-               PETSc options.  If not provided a unique prefix will be
-               created.  Use this option if you want to pass options
-               to the solver from the command line in addition to
-               through the ``solver_parameters`` dict.
+               This should be a dict mapping PETSc options to values.
+               For example, to set the nonlinear solver type to just
+               use a linear solver:
 
         .. code-block:: python
 
@@ -102,6 +97,12 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         .. code-block:: python
 
             {'snes_monitor': True}
+
+        :kwarg options_prefix: an optional prefix used to distinguish
+               PETSc options.  If not provided a unique prefix will be
+               created.  Use this option if you want to pass options
+               to the solver from the command line in addition to
+               through the ``solver_parameters`` dict.
         """
         assert isinstance(problem, NonlinearVariationalProblem)
 
