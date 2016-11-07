@@ -778,23 +778,23 @@ class Mat(base.Mat):
             mat = _DatMat(self.sparsity)
         self.handle = mat
 
-    def __call__(self, access, path, flatten=False):
+    def __call__(self, access, path):
         """Override the parent __call__ method in order to special-case global
         blocks in matrices."""
         try:
             # Usual case
-            return super(Mat, self).__call__(access, path, flatten)
+            return super(Mat, self).__call__(access, path)
         except TypeError:
             # One of the path entries was not an Arg.
             if path == (None, None):
                 return _make_object('Arg',
                                     data=self.handle.getPythonContext().global_,
-                                    access=access, flatten=flatten)
+                                    access=access)
             elif None in path:
                 thispath = path[0] or path[1]
                 return _make_object('Arg', data=self.handle.getPythonContext().dat,
                                     map=thispath.map, idx=thispath.idx,
-                                    access=access, flatten=flatten)
+                                    access=access)
             else:
                 raise
 

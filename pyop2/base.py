@@ -259,7 +259,7 @@ class Arg(object):
         Instead, use the call syntax on the :class:`DataCarrier`.
     """
 
-    def __init__(self, data=None, map=None, idx=None, access=None, flatten=False):
+    def __init__(self, data=None, map=None, idx=None, access=None):
         """
         :param data: A data-carrying object, either :class:`Dat` or class:`Mat`
         :param map:  A :class:`Map` to access this :class:`Arg` or the default
@@ -269,9 +269,6 @@ class Arg(object):
                      given component of the mapping or the default to use all
                      components of the mapping.
         :param access: An access descriptor of type :class:`Access`
-        :param flatten: Treat the data dimensions of this :class:`Arg` as flat
-                        s.t. the kernel is passed a flat vector of length
-                        ``map.arity * data.dataset.cdim``.
 
         Checks that:
 
@@ -284,7 +281,6 @@ class Arg(object):
         self._map = map
         self._idx = idx
         self._access = access
-        self._flatten = flatten
         self._in_flight = False  # some kind of comms in flight for this arg
 
         # Check arguments for consistency
@@ -300,18 +296,10 @@ class Arg(object):
                     "To set of %s doesn't match the set of %s." % (map, data))
 
         # Determine the iteration space extents, if any
-        if self._is_mat and flatten:
-            rdims = tuple(d.cdim for d in data.sparsity.dsets[0])
-            cdims = tuple(d.cdim for d in data.sparsity.dsets[1])
-            self._block_shape = tuple(tuple((mr.arity * dr, mc.arity * dc)
-                                      for mc, dc in zip(map[1], cdims))
-                                      for mr, dr in zip(map[0], rdims))
-        elif self._is_mat:
+        if self._is_mat:
             self._block_shape = tuple(tuple((mr.arity, mc.arity)
                                       for mc in map[1])
                                       for mr in map[0])
-        elif self._uses_itspace and flatten:
-            self._block_shape = tuple(((m.arity * d.cdim,),) for m, d in zip(map, data))
         elif self._uses_itspace:
             self._block_shape = tuple(((m.arity,),) for m in map)
         else:
@@ -1814,13 +1802,13 @@ class Dat(DataCarrier, _EmptyDataMixin):
             self._recv_buf = {}
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access, path=None, flatten=False):
+    def __call__(self, access, path=None):
         if isinstance(path, _MapArg):
             return _make_object('Arg', data=self, map=path.map, idx=path.idx,
-                                access=access, flatten=flatten)
+                                access=access)
         if configuration["type_check"] and path and path.toset != self.dataset.set:
             raise MapValueError("To Set of Map does not match Set of Dat.")
-        return _make_object('Arg', data=self, map=path, access=access, flatten=flatten)
+        return _make_object('Arg', data=self, map=path, access=access)
 
     def __getitem__(self, idx):
         """Return self if ``idx`` is 0, raise an error otherwise."""
@@ -2634,10 +2622,7 @@ class Global(DataCarrier, _EmptyDataMixin):
         Global._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access, path=None, flatten=False):
-        """Note that the flatten argument is only passed in order to
-        have the same interface as :class:`Dat`. Its value is
-        ignored."""
+    def __call__(self, access, path=None):
         return _make_object('Arg', data=self, access=access)
 
     def __iter__(self):
@@ -3636,14 +3621,14 @@ class Mat(DataCarrier):
         Mat._globalcount += 1
 
     @validate_in(('access', _modes, ModeValueError))
-    def __call__(self, access, path, flatten=False):
+    def __call__(self, access, path):
         path = as_tuple(path, _MapArg, 2)
         path_maps = tuple(arg and arg.map for arg in path)
         path_idxs = tuple(arg and arg.idx for arg in path)
         if configuration["type_check"] and tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
-                            idx=path_idxs, flatten=flatten)
+                            idx=path_idxs)
 
     def assemble(self):
         """Finalise this :class:`Mat` ready for use.
