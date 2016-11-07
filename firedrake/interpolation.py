@@ -167,15 +167,12 @@ def _interpolator(V, dat, expr, subset):
             raise ValueError("UFL expression has incorrect shape for interpolation.")
         ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords)
         kernel = op2.Kernel(ast, ast.name)
-        flatten = False
         indexed = True
     elif hasattr(expr, "eval"):
         kernel, oriented, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
-        flatten = False
         indexed = False
     elif expr.code is not None:
         kernel, oriented, coefficients = compile_c_kernel(expr, to_pts, to_element, V, coords)
-        flatten = False
         indexed = True
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
@@ -192,9 +189,9 @@ def _interpolator(V, dat, expr, subset):
         args.append(dat(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
-        args.append(co.dat(op2.READ, co.cell_node_map(), flatten=flatten))
+        args.append(co.dat(op2.READ, co.cell_node_map()))
     for coefficient in coefficients:
-        args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=flatten))
+        args.append(coefficient.dat(op2.READ, coefficient.cell_node_map()))
 
     return partial(op2.par_loop, *args)
 
