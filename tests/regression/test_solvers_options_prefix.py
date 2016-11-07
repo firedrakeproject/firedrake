@@ -1,4 +1,5 @@
 from firedrake import *
+from firedrake.solving_utils import ParametersMixin
 from firedrake.petsc import PETSc
 import pytest
 
@@ -21,11 +22,16 @@ def opts(request, prefix, global_parameters):
         prefix = ""
 
     for k, v in global_parameters.iteritems():
-        opts["%s%s" % (prefix, k)] = v
+        opts[prefix + k] = v
+
+    # Pretend these came from the commandline
+    ParametersMixin.commandline_options = frozenset(opts.getAll())
 
     def finalize():
         for k in global_parameters.keys():
-            del opts["%s%s" % (prefix, k)]
+            del opts[prefix + k]
+        # And remove again
+        ParametersMixin.commandline_options = frozenset(opts.getAll())
 
     request.addfinalizer(finalize)
 
@@ -56,7 +62,7 @@ def u(V):
 
 
 @pytest.fixture
-def parameters():
+def parameters(opts):
     return {"ksp_type": "cg",
             "pc_type": "jacobi"}
 
@@ -87,7 +93,7 @@ def nlvs(a, L, u, prefix, parameters):
     return solver, prefix
 
 
-def test_linear_solver_options_prefix(opts, ls, u, L, parameters, global_parameters):
+def test_linear_solver_options_prefix(ls, u, L, parameters, global_parameters):
     solver, prefix = ls
 
     b = assemble(L)
@@ -108,7 +114,7 @@ def test_linear_solver_options_prefix(opts, ls, u, L, parameters, global_paramet
     assert pc_type == expect_pc_type
 
 
-def test_lvs_options_prefix(opts, lvs, parameters, global_parameters):
+def test_lvs_options_prefix(lvs, parameters, global_parameters):
     solver, prefix = lvs
 
     solver.solve()
@@ -127,7 +133,7 @@ def test_lvs_options_prefix(opts, lvs, parameters, global_parameters):
     assert pc_type == expect_pc_type
 
 
-def test_nlvs_options_prefix(opts, nlvs, parameters, global_parameters):
+def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
     solver, prefix = nlvs
 
     solver.solve()
@@ -164,3 +170,28 @@ def test_options_database_cleared():
         solver.solve(u, b)
         solvers.append(solver)
     assert expect == len(opts.getAll())
+
+
+def test_same_options_prefix_different_solve():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = Function(V)
+    v = TestFunction(V)
+
+    F = u*v*dx - v*dx
+
+    problem = NonlinearVariationalProblem(F, u)
+    solver1 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "cg"},
+                                         options_prefix="foo_")
+    solver2 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "gcr"},
+                                         options_prefix="foo_")
+
+    assert solver1.snes.ksp.getType() == "cg"
+    assert solver2.snes.ksp.getType() == "gcr"
+
+    with pytest.raises(PETSc.Error) as excinfo:
+        solver2 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "bork"},
+                                             options_prefix="foo_")
+    # Unknown KSP type
+    assert excinfo.value.ierr == 86
