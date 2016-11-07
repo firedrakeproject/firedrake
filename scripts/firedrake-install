@@ -42,7 +42,7 @@ class FiredrakeConfiguration(dict):
                 if o in args.__dict__.keys():
                     self["options"][o] = args.__dict__[o]
 
-    _persistent_options = ["developer", "sudo", "package_manager",
+    _persistent_options = ["developer", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath"]
@@ -102,8 +102,6 @@ in the PETSC_CONFIGURE_OPTIONS environment variable will be
 honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
-    parser.add_argument("--sudo", action='store_true',
-                        help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
     parser.add_argument("--adjoint", action='store_true',
                         help="Also install firedrake-adjoint.")
     parser.add_argument("--slope", action='store_true',
@@ -123,7 +121,7 @@ honoured.""",
     parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
-                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (--sudo).")
+                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
@@ -158,7 +156,6 @@ else:
     # new options should not be added here.
     args = LegacyState()
     args.developer = False
-    args.sudo = False
     args.package_manager = False
     args.minimal_petsc = False
     args.rebuild_script = False
@@ -276,8 +273,8 @@ else:
 
 # virtualenv install
 # Use the pip from the virtualenv
-sudopip = ["%s/bin/pip" % firedrake_env]
-pipinstall = sudopip + ["install", "--no-binary", ",".join(wheel_blacklist)]
+pip = ["%s/bin/pip" % firedrake_env]
+pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
 python = ["%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
@@ -481,8 +478,8 @@ def git_update(name, url=None):
 
 
 def run_pip(args):
-    log.info(" ".join(sudopip + args))
-    check_call(sudopip + args)
+    log.info(" ".join(pip + args))
+    check_call(pip + args)
 
 
 def run_pip_install(pipargs):
@@ -650,7 +647,7 @@ def pip_uninstall(package):
         # List installed packages, "locally".  In a virtualenv,
         # this just tells me packages in the virtualenv, otherwise it
         # gives me everything.
-        lines = check_output(sudopip + ["freeze", "-l"])
+        lines = check_output(pip + ["freeze", "-l"])
         again = False
         for line in lines.split("\n"):
             # Do we have a locally installed package?
