@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import numpy
+import itertools
 from contextlib import contextmanager
 
 from firedrake import function, dmhooks
@@ -9,7 +10,13 @@ from firedrake.formmanipulation import ExtractSubBlock
 
 
 class ParametersMixin(object):
-    count = 0
+
+    # What appeared on the commandline, we should never clear these.
+    # They will override options passed in as a dict if an
+    # options_prefix was supplied.
+    commandline_options = frozenset(PETSc.Options().getAll())
+
+    count = itertools.count()
 
     """Mixin class that helps with managing setting petsc options on solvers.
 
@@ -44,35 +51,21 @@ class ParametersMixin(object):
     """
     def __init__(self, parameters, options_prefix):
         if parameters is None:
-            self.parameters = {}
+            parameters = {}
         else:
-            self.parameters = parameters.copy()
-        self.options_prefix = options_prefix
-        # Remember the user prefix, so we can see what's happening
-        prefix = "firedrake_%d_" % ParametersMixin.count
-        if options_prefix is not None:
-            prefix = options_prefix + prefix
-        self._prefix = prefix
-        ParametersMixin.count += 1
+            parameters = parameters.copy()
+        if options_prefix is None:
+            self.options_prefix = "firedrake_%d_" % next(self.count)
+            self.parameters = parameters
+        else:
+            self.options_prefix = options_prefix
+            # Remove those options from the dict that were passed on
+            # the commandline.
+            self.parameters = dict((k, v) for k, v in parameters.iteritems()
+                                   if options_prefix + k not in self.commandline_options)
+        self.options_object = PETSc.Options(self.options_prefix)
         self._setfromoptions = False
-        self.update_parameters_from_options()
-        self.options_object = PETSc.Options(self._prefix)
         super(ParametersMixin, self).__init__()
-
-    def update_parameters_from_options(self):
-        """Update the parameters with any matching values in the petsc
-        options database.
-
-        :arg options_prefix: The prefix to use to look up values.  If
-           ``None``, no values will match.
-
-        This is used for pull options from the commandline."""
-        if self.options_prefix is None:
-            return
-        opts = PETSc.Options(self.options_prefix)
-        for k, v in opts.getAll().iteritems():
-            # Copy appropriately prefixed options to parameters
-            self.parameters[k] = v
 
     def set_from_options(self, petsc_obj):
         """Set up petsc_obj from the options database.
@@ -84,7 +77,7 @@ class ParametersMixin(object):
         """
         if not self._setfromoptions:
             with self.inserted_options():
-                petsc_obj.setOptionsPrefix(self._prefix)
+                petsc_obj.setOptionsPrefix(self.options_prefix)
                 # Call setfromoptions inserting appropriate options into
                 # the options database.
                 petsc_obj.setFromOptions()
@@ -94,15 +87,17 @@ class ParametersMixin(object):
     def inserted_options(self):
         """Context manager inside which the petsc options database
     contains the parameters from this object."""
-        for k, v in self.parameters.iteritems():
-            if type(v) is bool:
-                if v:
-                    self.options_object[k] = None
-            else:
-                self.options_object[k] = v
-        yield
-        for k in self.parameters:
-            del self.options_object[k]
+        try:
+            for k, v in self.parameters.iteritems():
+                if type(v) is bool:
+                    if v:
+                        self.options_object[k] = None
+                else:
+                    self.options_object[k] = v
+            yield
+        finally:
+            for k in self.parameters:
+                del self.options_object[k]
 
 
 def _make_reasons(reasons):

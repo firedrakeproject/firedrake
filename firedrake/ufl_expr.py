@@ -211,8 +211,7 @@ def reconstruct_element(element, cell=None):
     if isinstance(element, ufl.RestrictedElement):
         return ufl.RestrictedElement(reconstruct_element(element.sub_element(), cell=cell),
                                      element.restriction_domain())
-    if isinstance(element, (ufl.TraceElement,
-                            ufl.InteriorElement,
+    if isinstance(element, (ufl.InteriorElement,
                             ufl.HDivElement,
                             ufl.HCurlElement,
                             ufl.BrokenElement,
