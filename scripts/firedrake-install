@@ -1098,7 +1098,7 @@ if mode == "install":
         quit("Virtual env installed. Please run firedrake-%s again." % mode)
     log.info("Creating firedrake virtualenv in '%s'." % firedrake_env)
     virtualenv.create_environment(firedrake_env, site_packages=False)
-    # For some reason virtualenv does not always install the latest pip.
+    # Ensure pip and setuptools are at the latest version.
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
 
