@@ -73,6 +73,19 @@ class ParametersMixin(object):
         self._setfromoptions = False
         super(ParametersMixin, self).__init__()
 
+    def set_default_parameter(self, key, val):
+        """Set a default parameter value.
+
+        :arg key: The parameter name
+        :arg val: The parameter value.
+
+        Ensures that the right thing happens cleaning up the options
+        database.
+        """
+        if key not in self.options_object and key not in self.parameters:
+            self.parameters[key] = val
+            self.to_delete.add(key)
+
     def set_from_options(self, petsc_obj):
         """Set up petsc_obj from the options database.
 
