@@ -391,10 +391,14 @@ class LoopyImplicitMatrixContext(object):
         for rule in list(six.itervalues(knl.substitutions)):
             knl = lp.precompute(knl, rule.name, rule.arguments)
 
-        # FIXME: this needs to be general!
+        mesh = test_space.mesh()
+        coords = mesh.coordinates
+        coord_fs = coords.function_space()
+
         variable_to_dim_nbf = {
-            "coords": (2, 3)
-            }
+            "coords": (coord_fs.dim,
+                       coord_fs.cell_node_map().values.shape[1])
+        }
         for i, coeff in enumerate(coeffs):
             nbf = coeff.function_space().cell_node_map().values.shape[1]
             dim = coeff.function_space().dim
@@ -417,9 +421,7 @@ class LoopyImplicitMatrixContext(object):
                                  for c in self.action.coefficients()]
 
         # also need scattered coordinate fields.
-        mesh = test_space.mesh()
-        coords = mesh.coordinates
-        coord_fs = coords.function_space()
+
 
         import pyopencl as cl
         self.ctx = cl.create_some_context(interactive=False)
