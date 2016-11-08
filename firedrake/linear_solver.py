@@ -54,15 +54,16 @@ class LinearSolver(solving_utils.ParametersMixin):
 
         # Set up parameters mixin
         super(LinearSolver, self).__init__(solver_parameters, options_prefix)
+
         # Set some defaults
-        self.set_default_parameter("ksp_rtol", "1e-7")
+        self.parameters.setdefault("ksp_rtol", "1e-7")
         # If preconditioning matrix is matrix-free, then default to no
         # preconditioning.
         if isinstance(self.P, matrix.ImplicitMatrix):
-            self.set_default_parameter("pc_type", "none")
+            self.parameters.setdefault("pc_type", "none")
         elif self.P.block_shape != (1, 1):
             # Otherwise, mixed problems default to jacobi.
-            self.set_default_parameter("pc_type", "jacobi")
+            self.parameters.setdefault("pc_type", "jacobi")
 
         self.ksp = PETSc.KSP().create(comm=self.comm)
 

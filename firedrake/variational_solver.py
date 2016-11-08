@@ -130,11 +130,11 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
 
         # No preconditioner by default for matrix-free
         if (problem.Jp is not None and pmatfree) or matfree:
-            self.set_default_parameter("pc_type", "none")
+            self.parameters.setdefault("pc_type", "none")
         elif ctx.is_mixed:
             # Mixed problem, use jacobi pc if user has not supplied
             # one.
-            self.set_default_parameter("pc_type", "jacobi")
+            self.parameters.setdefault("pc_type", "jacobi")
 
         self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
