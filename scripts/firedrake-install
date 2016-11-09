@@ -280,6 +280,8 @@ class directory(object):
 
 options = config["options"]
 
+# Apply short cut package names.
+options["packages"] = [firedrake_apps.get(p, (None, p))[1] for p in options["packages"]]
 
 # Where are packages installed relative to --root?
 # This is a bit of a hack.
@@ -1158,8 +1160,6 @@ if mode == "install":
     packages += ["firedrake"]
 
     for p in options["packages"]:
-        if p in firedrake_apps:
-            p = firedrake_apps[p][1]
         name = git_clone(p)
         packages.extend(clone_dependencies(name))
         packages += [name]
@@ -1220,8 +1220,6 @@ else:
     deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
     for p in options["packages"]:
-        if p in firedrake_apps:
-            p = firedrake_apps[p][1]
         name = split_requirements_url(p)[0]
         deps.update(list_cloned_dependencies(name))
         deps[name] = p
