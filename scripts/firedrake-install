@@ -11,13 +11,20 @@ from collections import OrderedDict
 from distutils import dir_util
 
 adjoint_deps = {
-    "libadjoint": "git+https://bitbucket.org/dolfin-adjoint/libadjoint.git",
-    "dolfin-adjoint": "git+https://bitbucket.org/dolfin-adjoint/dolfin-adjoint.git"
+    "libadjoint": "git+ssh://bitbucket.org/dolfin-adjoint/libadjoint.git",
+    "dolfin-adjoint": "git+ssh://bitbucket.org/dolfin-adjoint/dolfin-adjoint.git"
 }
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py"]
 
+# Firedrake application installation shortcuts.
+firedrake_apps = {
+    "gusto": ("""Atmospheric dynamical core library. http://firedrakeproject.org/gusto""",
+              "git+ssh://github.com/firedrakeproject/gusto#egg=gusto"),
+    "thetis": ("""Coastal ocean model. http://thetisproject.org""",
+              "git+ssh://github.com/thetisproject/thetis#egg=thetis")
+    }
 
 class InstallError(Exception):
     # Exception for generic install problems.
@@ -136,7 +143,9 @@ honoured.""",
                         type=str, action="store",
                         help="Name of the virtualenv to create (default is 'firedrake')")
     parser.add_argument("--install", action="append", dest="packages",
-                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install_help.")
+    parser.add_argument("--install_help", action="store_true",
+                        help="Provide information on packages which can be installed using shortcut names.")
 
     if travis:
         parser.add_argument("--write-cache", action="store_true",
@@ -204,7 +213,9 @@ else:
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
-                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install_help.")
+    parser.add_argument("--install_help", action="store_true",
+                        help="Provide information on packages which can be installed using shortcut names.")
 
     args = parser.parse_args()
 
@@ -219,6 +230,21 @@ else:
         del legacy_args["slepc"]
         config["options"] = deep_update(config["options"], legacy_args)
 
+if args.install_help:
+    help_string = """
+You can install the following packages by passing --install shortname
+where shortname is one of the names given below:
+
+"""
+    componentformat = "|{:10}|{:70}|\n"
+    header = componentformat.format("Name", "Description")
+    line = "-" * (len(header) - 1) + "\n"
+    help_string += line + header + line
+    for package, d in firedrake_apps.iteritems():
+        help_string += componentformat.format(package, d[0])
+    help_string += line
+    print help_string
+    sys.exit(0)
 
 # Set up logging
 if args.log:
@@ -1132,6 +1158,8 @@ if mode == "install":
     packages += ["firedrake"]
 
     for p in options["packages"]:
+        if p in firedrake_apps:
+            p = firedrake_apps[p][1]
         name = git_clone(p)
         packages.extend(clone_dependencies(name))
         packages += [name]
@@ -1192,6 +1220,8 @@ else:
     deps.update(list_cloned_dependencies("PyOP2"))
     deps.update(list_cloned_dependencies("firedrake"))
     for p in options["packages"]:
+        if p in firedrake_apps:
+            p = firedrake_apps[p][1]
         name = split_requirements_url(p)[0]
         deps.update(list_cloned_dependencies(name))
         deps[name] = p
