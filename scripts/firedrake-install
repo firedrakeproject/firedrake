@@ -1205,16 +1205,32 @@ else:
 
     # Forcibly upgrade old installations to developer mode.
     if not options["developer"]:
+        forced_developer = True
         args.clean = True
         options["developer"] = True
+    else:
+        forced_developer = False
 
     if args.clean:
-        clean_obsolete_packages()
-        for package in packages:
-            pip_uninstall(package)
-        if args.rebuild:
-            pip_uninstall("petsc")
-            pip_uninstall("petsc4py")
+        try:
+            clean_obsolete_packages()
+            for package in packages:
+                pip_uninstall(package)
+            if args.rebuild:
+                pip_uninstall("petsc")
+                pip_uninstall("petsc4py")
+        except:
+            if forced_developer:
+                log.error("*************************************************************")
+                log.error("* Uninstalling packages failed while attemping to upgrade   *")
+                log.error("* your installation to developer mode.                      *")
+                log.error("*                                                           *")
+                log.error("* Please try running firedrake-update again, and if the     *")
+                log.error("* problem persists, please raise an issue via github, the   *")
+                log.error("* email list or the slack channel.                          *")
+                log.error("*************************************************************")
+
+            raise
 
     for p in packages:
         try:
