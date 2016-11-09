@@ -31,15 +31,17 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import absolute_import
 import os
-from mpi import MPI, collective, COMM_WORLD
 import subprocess
 import sys
 import ctypes
 from hashlib import md5
-from configuration import configuration
-from logger import debug, progress, INFO
-from exceptions import CompilationError
+
+from pyop2.mpi import MPI, collective, COMM_WORLD
+from pyop2.configuration import configuration
+from pyop2.logger import debug, progress, INFO
+from pyop2.exceptions import CompilationError
 
 
 def _check_hashes(x, y, datatype):

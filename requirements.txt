@@ -1,5 +1,1 @@
 -r requirements-minimal.txt
-
-codepy>=2013.1
-pycuda>=2013.1
-pyopencl>=2012.1

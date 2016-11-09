@@ -40,8 +40,7 @@ Different scheduling functions may implement different loop fusion strategies.""
 from copy import deepcopy as dcopy, copy as scopy
 import numpy as np
 
-from pyop2.base import Dat, RW
-from pyop2.backends import _make_object
+from pyop2.base import Dat, RW, _make_object
 from pyop2.utils import flatten
 
 from extended import FusionArg, FusionParLoop, \

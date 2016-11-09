@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """OP2 exception types"""
+from __future__ import absolute_import
 
 
 class DataTypeError(TypeError):

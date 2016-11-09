@@ -35,6 +35,7 @@
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
+from __future__ import absolute_import
 
 from contextlib import contextmanager
 import itertools
@@ -44,19 +45,23 @@ import operator
 import types
 from hashlib import md5
 
-from configuration import configuration
-from caching import Cached, ObjectCached
-from exceptions import *
-from utils import *
-from backends import _make_object
-from mpi import MPI, collective, dup_comm
-from profiling import timed_region, timed_function
-from sparsity import build_sparsity
-from version import __version__ as version
+from pyop2.configuration import configuration
+from pyop2.caching import Cached, ObjectCached
+from pyop2.exceptions import *
+from pyop2.utils import *
+from pyop2.mpi import MPI, collective, dup_comm
+from pyop2.profiling import timed_region, timed_function
+from pyop2.sparsity import build_sparsity
+from pyop2.version import __version__ as version
 
 from coffee.base import Node, FlatBlock
 from coffee.visitors import FindInstances, EstimateFlops
 from coffee import base as ast
+
+
+def _make_object(name, *args, **kwargs):
+    from pyop2 import sequential
+    return getattr(sequential, name)(*args, **kwargs)
 
 
 @contextmanager
@@ -3245,10 +3250,7 @@ class Sparsity(ObjectCached):
         if self._initialized:
             return
 
-        if not hasattr(self, '_block_sparse'):
-            # CUDA Sparsity overrides this attribute because it never
-            # wants block sparse matrices.
-            self._block_sparse = block_sparse
+        self._block_sparse = block_sparse
         # Split into a list of row maps and a list of column maps
         self._rmaps, self._cmaps = zip(*maps)
         self._dsets = dsets
@@ -4364,88 +4366,70 @@ def build_itspace(args, iterset):
     return IterationSpace(iterset, block_shape)
 
 
-DEFAULT_SOLVER_PARAMETERS = {'ksp_type': 'cg',
-                             'pc_type': 'jacobi',
-                             'ksp_rtol': 1.0e-7,
-                             'ksp_atol': 1.0e-50,
-                             'ksp_divtol': 1.0e+4,
-                             'ksp_max_it': 10000,
-                             'ksp_monitor': False,
-                             'plot_convergence': False,
-                             'plot_prefix': '',
-                             'error_on_nonconvergence': True,
-                             'ksp_gmres_restart': 30}
-
-"""All parameters accepted by PETSc KSP and PC objects are permissible
-as options to the :class:`op2.Solver`."""
-
-
-class Solver(object):
-
-    """OP2 Solver object. The :class:`Solver` holds a set of parameters that are
-    passed to the underlying linear algebra library when the ``solve`` method
-    is called. These can either be passed as a dictionary ``parameters`` *or*
-    as individual keyword arguments (combining both will cause an exception).
-
-    Recognized parameters either as dictionary keys or keyword arguments are:
-
-    :arg ksp_type: the solver type ('cg')
-    :arg pc_type: the preconditioner type ('jacobi')
-    :arg ksp_rtol: relative solver tolerance (1e-7)
-    :arg ksp_atol: absolute solver tolerance (1e-50)
-    :arg ksp_divtol: factor by which the residual norm may exceed the
-        right-hand-side norm before the solve is considered to have diverged:
-        ``norm(r) >= dtol*norm(b)`` (1e4)
-    :arg ksp_max_it: maximum number of solver iterations (10000)
-    :arg error_on_nonconvergence: abort if the solve does not converge in the
-      maximum number of iterations (True, if False only a warning is printed)
-    :arg ksp_monitor: print the residual norm after each iteration
-        (False)
-    :arg plot_convergence: plot a graph of the convergence history after the
-        solve has finished and save it to file (False, implies *ksp_monitor*)
-    :arg plot_prefix: filename prefix for plot files ('')
-    :arg ksp_gmres_restart: restart period when using GMRES
-
-    """
-
-    def __init__(self, parameters=None, **kwargs):
-        self.parameters = DEFAULT_SOLVER_PARAMETERS.copy()
-        if parameters and kwargs:
-            raise RuntimeError("Solver options are set either by parameters or kwargs")
-        if parameters:
-            self.parameters.update(parameters)
-        else:
-            self.parameters.update(kwargs)
-
-    @collective
-    def update_parameters(self, parameters):
-        """Update solver parameters
-
-        :arg parameters: Dictionary containing the parameters to update.
-        """
-        self.parameters.update(parameters)
-
-    @collective
-    def solve(self, A, x, b):
-        """Solve a matrix equation.
-
-        :arg A: The :class:`Mat` containing the matrix.
-        :arg x: The :class:`Dat` to receive the solution.
-        :arg b: The :class:`Dat` containing the RHS.
-        """
-        # Finalise assembly of the matrix, we know we need to this
-        # because we're about to look at it.
-        A.assemble()
-        _trace.evaluate(set([A, b]), set([x]))
-        self._solve(A, x, b)
-
-    def _solve(self, A, x, b):
-        raise NotImplementedError("solve must be implemented by backend")
-
-
 @collective
 def par_loop(kernel, it_space, *args, **kwargs):
+    """Invocation of an OP2 kernel
+
+    :arg kernel: The :class:`Kernel` to be executed.
+    :arg iterset: The iteration :class:`Set` over which the kernel should be
+                  executed.
+    :arg \*args: One or more :class:`base.Arg`\s constructed from a
+                 :class:`Global`, :class:`Dat` or :class:`Mat` using the call
+                 syntax and passing in an optionally indexed :class:`Map`
+                 through which this :class:`base.Arg` is accessed and the
+                 :class:`base.Access` descriptor indicating how the
+                 :class:`Kernel` is going to access this data (see the example
+                 below). These are the global data structures from and to
+                 which the kernel will read and write.
+    :kwarg iterate: Optionally specify which region of an
+            :class:`ExtrudedSet` to iterate over.
+            Valid values are:
+
+              - ``ON_BOTTOM``: iterate over the bottom layer of cells.
+              - ``ON_TOP`` iterate over the top layer of cells.
+              - ``ALL`` iterate over all cells (the default if unspecified)
+              - ``ON_INTERIOR_FACETS`` iterate over all the layers
+                 except the top layer, accessing data two adjacent (in
+                 the extruded direction) cells at a time.
+
+    .. warning ::
+        It is the caller's responsibility that the number and type of all
+        :class:`base.Arg`\s passed to the :func:`par_loop` match those expected
+        by the :class:`Kernel`. No runtime check is performed to ensure this!
+
+    If a :func:`par_loop` argument indexes into a :class:`Map` using an
+    :class:`base.IterationIndex`, this implies the use of a local
+    :class:`base.IterationSpace` of a size given by the arity of the
+    :class:`Map`. It is an error to have several arguments using local
+    iteration spaces of different size.
+
+    :func:`par_loop` invocation is illustrated by the following example ::
+
+      pyop2.par_loop(mass, elements,
+                     mat(pyop2.INC, (elem_node[pyop2.i[0]]), elem_node[pyop2.i[1]]),
+                     coords(pyop2.READ, elem_node))
+
+    This example will execute the :class:`Kernel` ``mass`` over the
+    :class:`Set` ``elements`` executing 3x3 times for each
+    :class:`Set` member, assuming the :class:`Map` ``elem_node`` is of arity 3.
+    The :class:`Kernel` takes four arguments, the first is a :class:`Mat` named
+    ``mat``, the second is a field named ``coords``. The remaining two arguments
+    indicate which local iteration space point the kernel is to execute.
+
+    A :class:`Mat` requires a pair of :class:`Map` objects, one each
+    for the row and column spaces. In this case both are the same
+    ``elem_node`` map. The row :class:`Map` is indexed by the first
+    index in the local iteration space, indicated by the ``0`` index
+    to :data:`pyop2.i`, while the column space is indexed by
+    the second local index.  The matrix is accessed to increment
+    values using the ``pyop2.INC`` access descriptor.
+
+    The ``coords`` :class:`Dat` is also accessed via the ``elem_node``
+    :class:`Map`, however no indices are passed so all entries of
+    ``elem_node`` for the relevant member of ``elements`` will be
+    passed to the kernel as a vector.
+    """
     if isinstance(kernel, types.FunctionType):
-        import pyparloop
+        from pyop2 import pyparloop
         return pyparloop.ParLoop(pyparloop.Kernel(kernel), it_space, *args, **kwargs).enqueue()
     return _make_object('ParLoop', kernel, it_space, *args, **kwargs).enqueue()

@@ -8,8 +8,6 @@ PyOP2.egg-info
 # Extension modules
 computeind.c
 computeind.so
-plan.c
-plan.so
 sparsity.cpp
 sparsity.so
 

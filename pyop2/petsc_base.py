@@ -31,28 +31,19 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-"""Base classes for OP2 objects. The versions here extend those from the
-:mod:`base` module to include runtime data information which is backend
-independent. Individual runtime backends should subclass these as
-required to implement backend-specific features.
-
-.. _MatMPIAIJSetPreallocation: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/Mat/MatMPIAIJSetPreallocation.html
-"""
-
+from __future__ import absolute_import
 from contextlib import contextmanager
 from petsc4py import PETSc
 from functools import partial
 import numpy as np
 
-import base
-from base import *
-from logger import debug, warning
-from profiling import timed_region
-import mpi
-from mpi import collective
-import sparsity
+from pyop2 import base
+from pyop2 import mpi
+from pyop2 import sparsity
 from pyop2 import utils
-from backends import _make_object
+from pyop2.base import _make_object, Subset
+from pyop2.mpi import collective
+from pyop2.profiling import timed_region
 
 
 class DataSet(base.DataSet):
@@ -897,7 +888,7 @@ class Mat(base.Mat):
         return base._LazyMatOp(self, closure, new_state=Mat.INSERT_VALUES,
                                write=True).enqueue()
 
-    @cached_property
+    @utils.cached_property
     def blocks(self):
         """2-dimensional array of matrix blocks."""
         return self._blocks
@@ -1029,90 +1020,3 @@ class _GlobalMatPayload(object):
             return _GlobalMat(self.global_.duplicate())
         else:
             return _GlobalMat()
-
-# FIXME: Eventually (when we have a proper OpenCL solver) this wants to go in
-# sequential
-
-
-class Solver(base.Solver, PETSc.KSP):
-
-    _cnt = 0
-
-    def __init__(self, parameters=None, **kwargs):
-        super(Solver, self).__init__(parameters, **kwargs)
-        self._count = Solver._cnt
-        Solver._cnt += 1
-        self.create(PETSc.COMM_WORLD)
-        self._opt_prefix = 'pyop2_ksp_%d' % self._count
-        self.setOptionsPrefix(self._opt_prefix)
-        converged_reason = self.ConvergedReason()
-        self._reasons = dict([(getattr(converged_reason, r), r)
-                              for r in dir(converged_reason)
-                              if not r.startswith('_')])
-
-    @collective
-    def _set_parameters(self):
-        opts = PETSc.Options(self._opt_prefix)
-        for k, v in self.parameters.iteritems():
-            if type(v) is bool:
-                if v:
-                    opts[k] = None
-                else:
-                    continue
-            else:
-                opts[k] = v
-        self.setFromOptions()
-
-    def __del__(self):
-        # Remove stuff from the options database
-        # It's fixed size, so if we don't it gets too big.
-        if hasattr(self, '_opt_prefix'):
-            opts = PETSc.Options()
-            for k in self.parameters.iterkeys():
-                del opts[self._opt_prefix + k]
-            delattr(self, '_opt_prefix')
-
-    @collective
-    def _solve(self, A, x, b):
-        self._set_parameters()
-        # Set up the operator only if it has changed
-        if not self.getOperators()[0] == A.handle:
-            self.setOperators(A.handle)
-            if self.parameters['pc_type'] == 'fieldsplit' and A.sparsity.shape != (1, 1):
-                ises = A.sparsity.toset.field_ises
-                fises = [(str(i), iset) for i, iset in enumerate(ises)]
-                self.getPC().setFieldSplitIS(*fises)
-        if self.parameters['plot_convergence']:
-            self.reshist = []
-
-            def monitor(ksp, its, norm):
-                self.reshist.append(norm)
-                debug("%3d KSP Residual norm %14.12e" % (its, norm))
-            self.setMonitor(monitor)
-        # Not using super here since the MRO would call base.Solver.solve
-        with b.vec_ro as bv:
-            with x.vec as xv:
-                PETSc.KSP.solve(self, bv, xv)
-        if self.parameters['plot_convergence']:
-            self.cancelMonitor()
-            try:
-                import pylab
-                pylab.semilogy(self.reshist)
-                pylab.title('Convergence history')
-                pylab.xlabel('Iteration')
-                pylab.ylabel('Residual norm')
-                pylab.savefig('%sreshist_%04d.png' %
-                              (self.parameters['plot_prefix'], self._count))
-            except ImportError:
-                warning("pylab not available, not plotting convergence history.")
-        r = self.getConvergedReason()
-        debug("Converged reason: %s" % self._reasons[r])
-        debug("Iterations: %s" % self.getIterationNumber())
-        debug("Residual norm: %s" % self.getResidualNorm())
-        if r < 0:
-            msg = "KSP Solver failed to converge in %d iterations: %s (Residual norm: %e)" \
-                % (self.getIterationNumber(), self._reasons[r], self.getResidualNorm())
-            if self.parameters['error_on_nonconvergence']:
-                raise RuntimeError(msg)
-            else:
-                warning(msg)

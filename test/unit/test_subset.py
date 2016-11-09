@@ -38,8 +38,6 @@ from pyop2 import op2
 
 from coffee.base import *
 
-backends = ['sequential', 'openmp', 'opencl', 'cuda']
-
 nelems = 32
 
 
@@ -56,7 +54,7 @@ class TestSubSet:
     SubSet tests
     """
 
-    def test_direct_loop(self, backend, iterset):
+    def test_direct_loop(self, iterset):
         """Test a direct ParLoop on a subset"""
         indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
         ss = op2.Subset(iterset, indices)
@@ -67,7 +65,7 @@ class TestSubSet:
         inds, = np.where(d.data)
         assert (inds == indices).all()
 
-    def test_direct_loop_empty(self, backend, iterset):
+    def test_direct_loop_empty(self, iterset):
         """Test a direct loop with an empty subset"""
         ss = op2.Subset(iterset, [])
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
@@ -76,7 +74,7 @@ class TestSubSet:
         inds, = np.where(d.data)
         assert (inds == []).all()
 
-    def test_direct_complementary_subsets(self, backend, iterset):
+    def test_direct_complementary_subsets(self, iterset):
         """Test direct par_loop over two complementary subsets"""
         even = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
         odd = np.array([i for i in range(nelems) if i % 2], dtype=np.int)
@@ -90,7 +88,7 @@ class TestSubSet:
         op2.par_loop(k, ssodd, d(op2.RW))
         assert (d.data == 1).all()
 
-    def test_direct_complementary_subsets_with_indexing(self, backend, iterset):
+    def test_direct_complementary_subsets_with_indexing(self, iterset):
         """Test direct par_loop over two complementary subsets"""
         even = np.arange(0, nelems, 2, dtype=np.int)
         odd = np.arange(1, nelems, 2, dtype=np.int)
@@ -104,7 +102,7 @@ class TestSubSet:
         op2.par_loop(k, ssodd, d(op2.RW))
         assert (d.data == 1).all()
 
-    def test_direct_loop_sub_subset(self, backend, iterset):
+    def test_direct_loop_sub_subset(self, iterset):
         indices = np.arange(0, nelems, 2, dtype=np.int)
         ss = op2.Subset(iterset, indices)
         indices = np.arange(0, nelems/2, 2, dtype=np.int)
@@ -121,7 +119,7 @@ class TestSubSet:
 
         assert (d.data == d2.data).all()
 
-    def test_direct_loop_sub_subset_with_indexing(self, backend, iterset):
+    def test_direct_loop_sub_subset_with_indexing(self, iterset):
         indices = np.arange(0, nelems, 2, dtype=np.int)
         ss = iterset(indices)
         indices = np.arange(0, nelems/2, 2, dtype=np.int)
@@ -138,7 +136,7 @@ class TestSubSet:
 
         assert (d.data == d2.data).all()
 
-    def test_indirect_loop(self, backend, iterset):
+    def test_indirect_loop(self, iterset):
         """Test a indirect ParLoop on a subset"""
         indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
         ss = op2.Subset(iterset, indices)
@@ -152,7 +150,7 @@ class TestSubSet:
 
         assert d.data[0] == nelems / 2
 
-    def test_indirect_loop_empty(self, backend, iterset):
+    def test_indirect_loop_empty(self, iterset):
         """Test a indirect ParLoop on an empty"""
         ss = op2.Subset(iterset, [])
 
@@ -166,7 +164,7 @@ class TestSubSet:
 
         assert (d.data == 0).all()
 
-    def test_indirect_loop_with_direct_dat(self, backend, iterset):
+    def test_indirect_loop_with_direct_dat(self, iterset):
         """Test a indirect ParLoop on a subset"""
         indices = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
         ss = op2.Subset(iterset, indices)
@@ -184,7 +182,7 @@ class TestSubSet:
 
         assert dat2.data[0] == sum(values[::2])
 
-    def test_complementary_subsets(self, backend, iterset):
+    def test_complementary_subsets(self, iterset):
         """Test par_loop on two complementary subsets"""
         even = np.array([i for i in range(nelems) if not i % 2], dtype=np.int)
         odd = np.array([i for i in range(nelems) if i % 2], dtype=np.int)
@@ -210,7 +208,7 @@ inc(unsigned int* v1, unsigned int* v2) {
         assert np.sum(dat1.data) == nelems
         assert np.sum(dat2.data) == nelems
 
-    def test_matrix(self, backend, skip_opencl):
+    def test_matrix(self):
         """Test a indirect par_loop with a matrix argument"""
         iterset = op2.Set(2)
         idset = op2.Set(2)

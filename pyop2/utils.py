@@ -33,17 +33,16 @@
 
 """Common utility classes/functions."""
 
-from __future__ import division
+from __future__ import division, absolute_import
 
 import os
 import sys
 import numpy as np
 from decorator import decorator
 import argparse
-from subprocess import Popen, PIPE
 
-from exceptions import DataTypeError, DataValueError
-from configuration import configuration
+from pyop2.exceptions import DataTypeError, DataValueError
+from pyop2.configuration import configuration
 
 
 class cached_property(object):
@@ -270,9 +269,6 @@ def parser(description=None, group=False):
     g = parser.add_argument_group(
         'pyop2', 'backend configuration options') if group else parser
 
-    g.add_argument('-b', '--backend', default=argparse.SUPPRESS,
-                   choices=['sequential', 'openmp', 'opencl', 'cuda'],
-                   help='select backend' if group else 'select pyop2 backend')
     g.add_argument('-d', '--debug', default=argparse.SUPPRESS,
                    type=int, choices=range(8),
                    help='set debug level' if group else 'set pyop2 debug level')
@@ -299,15 +295,6 @@ def parse_args(*args, **kwargs):
     ARGS and KWARGS are passed into the parser instantiation.
     The only recognised options are `group` and `description`."""
     return vars(parser(*args, **kwargs).parse_args())
-
-
-def preprocess(text, include_dirs=[]):
-    cmd = ['cpp', '-std=c99', '-E', '-I' + os.path.dirname(__file__)] + ['-I' + d for d in include_dirs]
-    p = Popen(cmd, stdin=PIPE, stdout=PIPE, universal_newlines=True)
-    # Strip empty lines and any preprocessor instructions other than pragmas
-    processed = '\n'.join(l for l in p.communicate(text)[0].split('\n')
-                          if l.strip() and (not l.startswith('#') or l.startswith('#pragma')))
-    return processed
 
 
 def trim(docstring):

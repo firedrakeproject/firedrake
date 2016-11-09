@@ -43,7 +43,6 @@ from hashlib import md5
 
 import pyop2.base as base
 import pyop2.sequential as sequential
-import pyop2.host as host
 from pyop2.utils import flatten, strip, as_tuple
 from pyop2.mpi import collective
 from pyop2.profiling import timed_region
@@ -162,7 +161,7 @@ class TilingArg(FusionArg):
 
     def c_map_name(self, i, j, fromvector=False):
         if not self._c_local_maps:
-            map_name = host.Arg.c_map_name(self.ref_arg, i, j)
+            map_name = sequential.Arg.c_map_name(self.ref_arg, i, j)
         else:
             map_name = self._c_local_maps[i][j]
         return map_name if not fromvector else "&%s[0]" % map_name
@@ -246,7 +245,7 @@ class Kernel(sequential.Kernel, tuple):
                             funcall.funcall.symbol = new_name
                     fundecl.name = new_name
                 function_name = "%s_%d" % (main._name, i)
-                code += host.Kernel._ast_to_c(main, main_ast, main._opts)
+                code += sequential.Kernel._ast_to_c(main, main_ast, main._opts)
             else:
                 # AST not available so can't change the name, hopefully there
                 # will not be compile time clashes.
