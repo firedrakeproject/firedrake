@@ -22,9 +22,6 @@ addons:
         - gfortran
         - gmsh
         - python-tk
-os:
-    - linux
-    - osx
 # Separate cache directories for OSX and Linux
 cache:
   directories:
