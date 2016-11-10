@@ -35,7 +35,7 @@
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 from contextlib import contextmanager
 import itertools
@@ -57,6 +57,7 @@ from pyop2.version import __version__ as version
 from coffee.base import Node, FlatBlock
 from coffee.visitors import FindInstances, EstimateFlops
 from coffee import base as ast
+from functools import reduce
 
 
 def _make_object(name, *args, **kwargs):
@@ -2069,7 +2070,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         ops = {operator.add: ast.Sum,
                operator.sub: ast.Sub,
                operator.mul: ast.Prod,
-               operator.div: ast.Div}
+               operator.truediv: ast.Div}
         ret = _make_object('Dat', self.dataset, None, self.dtype)
         name = "binop_%s" % op.__name__
         if np.isscalar(other):
@@ -2109,7 +2110,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         ops = {operator.iadd: ast.Incr,
                operator.isub: ast.Decr,
                operator.imul: ast.IMul,
-               operator.idiv: ast.IDiv}
+               operator.itruediv: ast.IDiv}
         name = "iop_%s" % op.__name__
         if np.isscalar(other):
             other = _make_object('Global', 1, data=other)
@@ -2225,9 +2226,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         self.__rmul__(other) <==> other * self."""
         return self.__mul__(other)
 
-    def __div__(self, other):
+    def __truediv__(self, other):
         """Pointwise division or scaling of fields."""
-        return self._op(other, operator.div)
+        return self._op(other, operator.truediv)
+
+    __div__ = __truediv__  # Python 2 compatibility
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
@@ -2241,9 +2244,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """Pointwise multiplication or scaling of fields."""
         return self._iop(other, operator.imul)
 
-    def __idiv__(self, other):
+    def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
-        return self._iop(other, operator.idiv)
+        return self._iop(other, operator.itruediv)
+
+    __idiv__ = __itruediv__  # Python 2 compatibility
 
     @collective
     def halo_exchange_begin(self, reverse=False):
@@ -3287,7 +3292,7 @@ class Sparsity(ObjectCached):
             dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
             for r in range(self.shape[0]):
                 for c in range(self.shape[1]):
-                    dims[r][c] = tmp.next()
+                    dims[r][c] = next(tmp)
 
             self._dims = tuple(tuple(d) for d in dims)
 

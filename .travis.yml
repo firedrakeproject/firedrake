@@ -34,6 +34,7 @@ before_install:
        --allow-external petsc4py  --allow-unverified petsc4py \
        < requirements-git.txt"
   - pip install pulp
+  - pip install -U flake8 flake8-future-import
 install: "python setup.py develop"
 # command to run tests
 script:

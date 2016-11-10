@@ -37,15 +37,17 @@ and two scheduling functions S1 and S2, one can compute L' = S2(S1(L)), with S1(
 returning, for example, [L0, L1',L3] and L' = S2([L0, L1', L3]) = [L0, L1''].
 Different scheduling functions may implement different loop fusion strategies."""
 
+from __future__ import absolute_import, print_function, division
+
 from copy import deepcopy as dcopy, copy as scopy
 import numpy as np
 
 from pyop2.base import Dat, RW, _make_object
 from pyop2.utils import flatten
 
-from extended import FusionArg, FusionParLoop, \
+from .extended import FusionArg, FusionParLoop, \
     TilingArg, TilingIterationSpace, TilingParLoop
-from filters import Filter, WeakFilter
+from .filters import Filter, WeakFilter
 
 
 __all__ = ['Schedule', 'PlainSchedule', 'FusionSchedule',

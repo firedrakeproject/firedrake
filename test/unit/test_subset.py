@@ -31,6 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import absolute_import, print_function, division
+
 import pytest
 import numpy as np
 
@@ -43,7 +45,7 @@ nelems = 32
 
 @pytest.fixture(params=[(nelems, nelems, nelems, nelems),
                         (0, nelems, nelems, nelems),
-                        (nelems / 2, nelems, nelems, nelems)])
+                        (nelems // 2, nelems, nelems, nelems)])
 def iterset(request):
     return op2.Set(request.param, "iterset")
 
@@ -105,7 +107,7 @@ class TestSubSet:
     def test_direct_loop_sub_subset(self, iterset):
         indices = np.arange(0, nelems, 2, dtype=np.int)
         ss = op2.Subset(iterset, indices)
-        indices = np.arange(0, nelems/2, 2, dtype=np.int)
+        indices = np.arange(0, nelems//2, 2, dtype=np.int)
         sss = op2.Subset(ss, indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
@@ -122,7 +124,7 @@ class TestSubSet:
     def test_direct_loop_sub_subset_with_indexing(self, iterset):
         indices = np.arange(0, nelems, 2, dtype=np.int)
         ss = iterset(indices)
-        indices = np.arange(0, nelems/2, 2, dtype=np.int)
+        indices = np.arange(0, nelems//2, 2, dtype=np.int)
         sss = ss(indices)
 
         d = op2.Dat(iterset ** 1, data=None, dtype=np.uint32)
@@ -148,7 +150,7 @@ class TestSubSet:
         k = op2.Kernel("void inc(unsigned int* v) { *v += 1;}", "inc")
         op2.par_loop(k, ss, d(op2.INC, map[0]))
 
-        assert d.data[0] == nelems / 2
+        assert d.data[0] == nelems // 2
 
     def test_indirect_loop_empty(self, iterset):
         """Test a indirect ParLoop on an empty"""
@@ -173,7 +175,7 @@ class TestSubSet:
         map = op2.Map(iterset, indset, 1, [(1 if i % 2 else 0) for i in range(nelems)])
 
         values = [2976579765] * nelems
-        values[::2] = [i/2 for i in range(nelems)][::2]
+        values[::2] = [i//2 for i in range(nelems)][::2]
         dat1 = op2.Dat(iterset ** 1, data=values, dtype=np.uint32)
         dat2 = op2.Dat(indset ** 1, data=None, dtype=np.uint32)
 

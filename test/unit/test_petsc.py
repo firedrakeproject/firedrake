@@ -35,6 +35,8 @@
 PETSc specific unit tests
 """
 
+from __future__ import absolute_import, print_function, division
+
 import pytest
 import numpy as np
 

@@ -33,6 +33,8 @@
 
 """Core loop fusion mechanisms."""
 
+from __future__ import absolute_import, print_function, division
+
 import sys
 import os
 from collections import OrderedDict, namedtuple
@@ -47,10 +49,10 @@ from pyop2.utils import flatten, as_tuple, tuplify
 from pyop2.logger import warning
 from pyop2 import compilation
 
-from extended import lazy_trace_name, Kernel
-from filters import Filter, WeakFilter
-from interface import slope
-from scheduler import *
+from .extended import lazy_trace_name, Kernel
+from .filters import Filter, WeakFilter
+from .interface import slope
+from .scheduler import *
 
 import coffee
 from coffee import base as ast
@@ -845,8 +847,8 @@ def estimate_data_reuse(filename, loop_chain):
             tot_flops += flops
         f.write('** Summary: %d KBytes moved, %d Megaflops performed\n' %
                 (tot_footprint, tot_flops))
-        probSeed = 0 if MPI.COMM_WORLD.size > 1 else len(loop_chain) / 2
-        probNtiles = loop_chain[probSeed].it_space.exec_size / tile_size or 1
+        probSeed = 0 if MPI.COMM_WORLD.size > 1 else len(loop_chain) // 2
+        probNtiles = loop_chain[probSeed].it_space.exec_size // tile_size or 1
         f.write('** KB/tile: %d' % (tot_footprint/probNtiles))
         f.write('  (Estimated: %d tiles)\n' % probNtiles)
         f.write('-' * 68 + '\n')
@@ -878,7 +880,7 @@ def estimate_data_reuse(filename, loop_chain):
             ideal_reuse += (size/1000)*len(positions[1:])
 
         out = '** Ideal reuse (i.e., no tile growth): %d / %d KBytes (%f %%)\n' % \
-            (ideal_reuse, tot_footprint, float(ideal_reuse)*100/tot_footprint)
+            (ideal_reuse, tot_footprint, ideal_reuse*100/tot_footprint)
         f.write(out)
         f.write('-' * 125 + '\n')
         s.write(out)

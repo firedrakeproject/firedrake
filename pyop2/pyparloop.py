@@ -74,7 +74,7 @@ Example usage::
   #  [ 3.  0.]]
 """
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy as np
 from pyop2 import base
 

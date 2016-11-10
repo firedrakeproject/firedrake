@@ -31,7 +31,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 from petsc4py import PETSc
 from decorator import decorator
@@ -56,7 +56,7 @@ class timed_function(object):
     def __call__(self, f):
         def wrapper(f, *args, **kwargs):
             if self.name is None:
-                self.name = f.func_name
+                self.name = f.__name__
             with timed_region(self.name):
                 return f(*args, **kwargs)
         return decorator(wrapper, f)

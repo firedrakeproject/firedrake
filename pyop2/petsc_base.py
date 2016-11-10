@@ -31,7 +31,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 from contextlib import contextmanager
 from petsc4py import PETSc
 from functools import partial
@@ -608,7 +608,7 @@ class MatBlock(base.Mat):
 
     @property
     def nbytes(self):
-        return self._parent.nbytes / (np.prod(self.sparsity.shape))
+        return self._parent.nbytes // (np.prod(self.sparsity.shape))
 
     def __repr__(self):
         return "MatBlock(%r, %r, %r)" % (self._parent, self._i, self._j)

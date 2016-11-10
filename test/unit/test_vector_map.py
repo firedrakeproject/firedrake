@@ -31,6 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import absolute_import, print_function, division
+
 import pytest
 import numpy
 
@@ -41,7 +43,7 @@ def _seed():
     return 0.02041724
 
 nnodes = 4096
-nele = nnodes / 2
+nele = nnodes // 2
 
 
 @pytest.fixture(scope='module')
