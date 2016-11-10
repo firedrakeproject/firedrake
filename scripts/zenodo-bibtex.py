@@ -40,7 +40,7 @@ class BibtexFinder(HTMLParser):
     def handle_starttag(self, tag, attrs):
         if tag == "pre":
             a = dict(attrs)
-            if a.get("id") == "clipboard_text":
+            if a.get("style") == "white-space: pre-wrap;":
                 self.in_bibtex = True
 
     def handle_data(self, data):
@@ -57,7 +57,8 @@ def get_bibtex(ids):
     for id in ids:
         html = urllib2.urlopen("https://zenodo.org/record/%s/export/hx" % id)
         parser = BibtexFinder()
-        parser.feed(html.read())
+        charset = html.headers.getparam("charset")
+        parser.feed(html.read().decode(charset))
         if parser.bibtexdata:
             bibtex.append(parser.bibtexdata)
 
@@ -85,4 +86,4 @@ ids = find_ids(json.load(response), firedrake_tag)
 
 print "Content-Type: text/plain; charset=utf-8"
 print
-print get_bibtex(ids)
+print get_bibtex(ids).encode("utf-8")

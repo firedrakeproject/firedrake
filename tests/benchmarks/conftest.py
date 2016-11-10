@@ -14,14 +14,11 @@ def pytest_runtest_setup(item):
     from firedrake import parameters
     from functools import partial
 
-    def _reset(cache, lazy):
-        parameters["assembly_cache"]["enabled"] = cache
+    def _reset(lazy):
         parameters["pyop2_options"]["lazy_evaluation"] = lazy
 
     # Reset to default values after running the test item.
     item.addfinalizer(partial(_reset,
-                              parameters["assembly_cache"]["enabled"],
                               parameters["pyop2_options"]["lazy_evaluation"]))
 
-    parameters["assembly_cache"]["enabled"] = False
     parameters["pyop2_options"]["lazy_evaluation"] = False

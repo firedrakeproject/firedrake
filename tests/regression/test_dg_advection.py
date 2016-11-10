@@ -37,7 +37,7 @@ def run_test(mesh):
     T = 10*dt
 
     problem = LinearVariationalProblem(a_mass, action(arhs, D1), dD1)
-    solver = LinearVariationalSolver(problem, parameters={'ksp_type': 'cg'})
+    solver = LinearVariationalSolver(problem, solver_parameters={'ksp_type': 'cg'})
 
     L2_0 = norm(D)
     Dbar_0 = assemble(D*dx)

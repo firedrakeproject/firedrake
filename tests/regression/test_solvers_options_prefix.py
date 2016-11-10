@@ -1,44 +1,48 @@
 from firedrake import *
+from firedrake.solving_utils import ParametersMixin
 from firedrake.petsc import PETSc
 import pytest
 
 
-@pytest.fixture(params=[None, "", "foo_"],
-                scope="module")
+@pytest.fixture(params=[None, "", "foo_"])
 def prefix(request):
     return request.param
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def global_parameters():
     return {"ksp_type": "fgmres",
             "pc_type": "none"}
 
 
-@pytest.fixture(scope="module",
-                autouse=True)
+@pytest.fixture
 def opts(request, prefix, global_parameters):
     opts = PETSc.Options()
     if prefix is None:
         prefix = ""
 
     for k, v in global_parameters.iteritems():
-        opts["%s%s" % (prefix, k)] = v
+        opts[prefix + k] = v
+
+    # Pretend these came from the commandline
+    ParametersMixin.commandline_options = frozenset(opts.getAll())
 
     def finalize():
         for k in global_parameters.keys():
-            del opts["%s%s" % (prefix, k)]
+            del opts[prefix + k]
+        # And remove again
+        ParametersMixin.commandline_options = frozenset(opts.getAll())
 
     request.addfinalizer(finalize)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def V():
     m = UnitSquareMesh(1, 1)
     return FunctionSpace(m, "CG", 1)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def a(V):
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -46,7 +50,7 @@ def a(V):
     return u*v*dx
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def L(V):
     v = TestFunction(V)
     return v*dx
@@ -58,7 +62,7 @@ def u(V):
 
 
 @pytest.fixture
-def parameters():
+def parameters(opts):
     return {"ksp_type": "cg",
             "pc_type": "jacobi"}
 
@@ -146,3 +150,48 @@ def test_nlvs_options_prefix(nlvs, parameters, global_parameters):
 
     assert ksp_type == expect_ksp_type
     assert pc_type == expect_pc_type
+
+
+def test_options_database_cleared():
+    opts = PETSc.Options()
+    expect = len(opts.getAll())
+
+    mesh = UnitIntervalMesh(1)
+    V = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    A = assemble(u*v*dx)
+    b = assemble(v*dx)
+    u = Function(V)
+    solvers = []
+    for i in range(100):
+        solver = LinearSolver(A, solver_parameters={"ksp_type": "preonly",
+                                                    "pc_type": "lu"})
+        solver.solve(u, b)
+        solvers.append(solver)
+    assert expect == len(opts.getAll())
+
+
+def test_same_options_prefix_different_solve():
+    mesh = UnitSquareMesh(2, 2)
+    V = FunctionSpace(mesh, "CG", 1)
+
+    u = Function(V)
+    v = TestFunction(V)
+
+    F = u*v*dx - v*dx
+
+    problem = NonlinearVariationalProblem(F, u)
+    solver1 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "cg"},
+                                         options_prefix="foo_")
+    solver2 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "gcr"},
+                                         options_prefix="foo_")
+
+    assert solver1.snes.ksp.getType() == "cg"
+    assert solver2.snes.ksp.getType() == "gcr"
+
+    with pytest.raises(PETSc.Error) as excinfo:
+        solver2 = NonlinearVariationalSolver(problem, solver_parameters={"ksp_type": "bork"},
+                                             options_prefix="foo_")
+    # Unknown KSP type
+    assert excinfo.value.ierr == 86

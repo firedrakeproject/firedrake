@@ -79,6 +79,7 @@ finite element problems in Firedrake.
    point-evaluation
    visualisation
    checkpointing
+   matrix-free
    petsc-interface
    parallelism
 
@@ -97,3 +98,4 @@ element systems.
    Preconditioning saddle-point systems, using the mixed Poisson problem as an example.<demos/saddle_point_systems.py>
    The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>
+   Preconditioning using geometric multigrid.<demos/geometric_multigrid.py>

@@ -4,12 +4,111 @@ from itertools import permutations
 import numpy as np
 
 import FIAT
+import ufl
 import coffee.base as ast
 
 from pyop2 import op2
 
+import firedrake
+from firedrake.functionspacedata import entity_dofs_key
 from firedrake.petsc import PETSc
 from firedrake.parameters import parameters
+
+
+def coarse_to_fine_node_map(coarse, fine):
+    if len(coarse) > 1:
+        assert len(fine) == len(coarse)
+        return op2.MixedMap(coarse_to_fine_node_map(c, f) for c, f in zip(coarse, fine))
+    mesh = coarse.mesh()
+    assert hasattr(mesh, "_shared_data_cache")
+    if not (coarse.ufl_element() == fine.ufl_element()):
+        raise ValueError("Can't transfer between different spaces")
+    ch, level = get_level(mesh)
+    fh, fine_level = get_level(fine.mesh())
+    if ch is not fh:
+        raise ValueError("Can't map between different hierarchies")
+    refinements_per_level = ch.refinements_per_level
+    if refinements_per_level*level + 1 != refinements_per_level*fine_level:
+        raise ValueError("Can't map between level %s and level %s" % (level, fine_level))
+    c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
+
+    key = entity_dofs_key(coarse.fiat_element.entity_dofs()) + (level, )
+    cache = mesh._shared_data_cache["hierarchy_cell_node_map"]
+    try:
+        return cache[key]
+    except KeyError:
+        from .impl import create_cell_node_map
+        map_vals, offset = create_cell_node_map(coarse, fine, c2f, vperm)
+        return cache.setdefault(key, op2.Map(op2.LocalSet(mesh.cell_set),
+                                             fine.node_set,
+                                             map_vals.shape[1],
+                                             map_vals, offset=offset))
+
+
+def get_transfer_kernel(coarse, fine, typ=None):
+    ch, level = get_level(coarse.mesh())
+    mesh = ch[0]
+    assert hasattr(mesh, "_shared_data_cache")
+    key = entity_dofs_key(coarse.fiat_element.entity_dofs()) + (typ, )
+    cache = mesh._shared_data_cache["hierarchy_transfer_kernel"]
+    try:
+        return cache[key]
+    except KeyError:
+        if not (coarse.ufl_element() == fine.ufl_element()):
+            raise ValueError("Can't transfer between different spaces")
+        ch, level = get_level(coarse.mesh())
+        fh, fine_level = get_level(fine.mesh())
+        refinements_per_level = ch.refinements_per_level
+        assert ch is fh
+        assert refinements_per_level*level + 1 == refinements_per_level*fine_level
+        dim = coarse.dim
+        element = coarse.fiat_element
+        omap = fine.cell_node_map().values
+        c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
+        indices, _ = get_unique_indices(element,
+                                        omap[c2f[0, :], ...].reshape(-1),
+                                        vperm[0, :],
+                                        offset=None)
+        if typ == "prolong":
+            kernel = get_prolongation_kernel(element, indices, dim)
+        elif typ == "inject":
+            kernel = get_injection_kernel(element, indices, dim)
+        elif typ == "restrict":
+            discontinuous = element.entity_dofs() == element.entity_closure_dofs()
+            kernel = get_restriction_kernel(element, indices, dim, no_weights=discontinuous)
+        else:
+            raise ValueError("Unknown transfer type '%s'" % typ)
+        return cache.setdefault(key, kernel)
+
+
+def get_restriction_weights(coarse, fine):
+    mesh = coarse.mesh()
+    assert hasattr(mesh, "_shared_data_cache")
+    cache = mesh._shared_data_cache["hierarchy_restriction_weights"]
+    key = entity_dofs_key(coarse.fiat_element.entity_dofs())
+    try:
+        return cache[key]
+    except KeyError:
+        # We hit each fine dof more than once since we loop
+        # elementwise over the coarse cells.  So we need a count of
+        # how many times we did this to weight the final contribution
+        # appropriately.
+        if not (coarse.ufl_element() == fine.ufl_element()):
+            raise ValueError("Can't transfer between different spaces")
+        if coarse.fiat_element.entity_dofs() == coarse.fiat_element.entity_closure_dofs():
+            return cache.setdefault(key, None)
+        ele = coarse.ufl_element()
+        if isinstance(ele, ufl.VectorElement):
+            ele = ele.sub_elements()[0]
+            weights = firedrake.Function(firedrake.FunctionSpace(fine.mesh(), ele))
+        else:
+            weights = firedrake.Function(fine)
+        c2f_map = coarse_to_fine_node_map(coarse, fine)
+        kernel = get_count_kernel(c2f_map.arity)
+        op2.par_loop(kernel, op2.LocalSet(mesh.cell_set),
+                     weights.dat(op2.INC, c2f_map[op2.i[0]]))
+        weights.assign(1.0/weights)
+        return cache.setdefault(key, weights)
 
 
 def get_transformations(fiat_cell):
@@ -173,7 +272,7 @@ def get_transforms_to_fine(cell):
     raise NotImplementedError("Not implemented for tdim %d", tdim)
 
 
-def get_restriction_weights(fiat_element):
+def restriction_weights(fiat_element):
     """Get the restriction weights for an element
 
     Returns a 2D array of weights where weights[i, j] is the weighting
@@ -198,7 +297,7 @@ def get_restriction_weights(fiat_element):
     return np.concatenate(values)
 
 
-def get_injection_weights(fiat_element):
+def injection_weights(fiat_element):
     """Get the injection weights for an element
 
     Returns a 2D array of weights where weights[i, j] is the weighting
@@ -235,7 +334,7 @@ def format_array_literal(arr):
 
 
 def get_injection_kernel(fiat_element, unique_indices, dim=1):
-    weights = get_injection_weights(fiat_element)[unique_indices].T
+    weights = injection_weights(fiat_element)[unique_indices].T
     ncdof = weights.shape[0]
     nfdof = weights.shape[1]
     # What if we have multiple nodes in same location (DG)?  Divide by
@@ -287,7 +386,7 @@ def get_injection_kernel(fiat_element, unique_indices, dim=1):
 
 
 def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
-    weights = get_restriction_weights(fiat_element)[unique_indices]
+    weights = restriction_weights(fiat_element)[unique_indices]
     nfdof = weights.shape[0]
     ncdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("fine", (nfdof*dim, ))),
@@ -335,7 +434,7 @@ def get_prolongation_kernel(fiat_element, unique_indices, dim=1):
 
 
 def get_restriction_kernel(fiat_element, unique_indices, dim=1, no_weights=False):
-    weights = get_restriction_weights(fiat_element)[unique_indices].T
+    weights = restriction_weights(fiat_element)[unique_indices].T
     ncdof = weights.shape[0]
     nfdof = weights.shape[1]
     arglist = [ast.Decl("double", ast.Symbol("coarse", (ncdof*dim, ))),
@@ -414,13 +513,11 @@ def set_level(obj, hierarchy, level):
 def get_level(obj):
     """Try and obtain hierarchy and level info from an object.
 
-    If no level info is available, return ``None, -1``."""
+    If no level info is available, return ``None, None``."""
     try:
-        if isinstance(obj, PETSc.DM):
-            return get_level(obj.getAttr("__fs__")())
         return getattr(obj.topological, "__level_info__")
     except AttributeError:
-        return None, -1
+        return None, None
 
 
 def has_level(obj):

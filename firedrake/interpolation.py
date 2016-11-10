@@ -9,6 +9,8 @@ import ufl
 from coffee import base as ast
 from pyop2 import op2
 
+from tsfc import compile_expression_at_points as compile_ufl_kernel
+
 import firedrake
 from firedrake import utils
 
@@ -159,7 +161,12 @@ def _interpolator(V, dat, expr, subset):
     coords = mesh.coordinates
 
     if not isinstance(expr, (firedrake.Expression, SubExpression)):
-        kernel, oriented, coefficients = compile_ufl_kernel(expr, to_pts, to_element, V)
+        if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
+            raise NotImplementedError("Interpolation onto another mesh not supported.")
+        if expr.ufl_shape != V.shape:
+            raise ValueError("UFL expression has incorrect shape for interpolation.")
+        ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords)
+        kernel = op2.Kernel(ast, ast.name)
         flatten = True
         indexed = True
     elif hasattr(expr, "eval"):
@@ -190,79 +197,6 @@ def _interpolator(V, dat, expr, subset):
         args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=flatten))
 
     return partial(op2.par_loop, *args)
-
-
-def compile_ufl_kernel(expression, to_pts, to_element, fs):
-    import collections
-    from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
-    from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
-    from ufl.algorithms.apply_derivatives import apply_derivatives
-    from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
-    from ufl.algorithms import extract_arguments, extract_coefficients
-    from gem import gem, impero_utils
-    from tsfc import fem, ufl_utils
-    from tsfc.coffee import generate as generate_coffee
-    from tsfc.kernel_interface import (KernelBuilderBase,
-                                       needs_cell_orientations,
-                                       cell_orientations_coffee_arg)
-
-    # Imitate the compute_form_data processing pipeline
-    #
-    # Unfortunately, we cannot call compute_form_data here, since
-    # we only have an expression, not a form
-    expression = apply_algebra_lowering(expression)
-    expression = apply_derivatives(expression)
-    expression = apply_function_pullbacks(expression)
-    expression = apply_geometry_lowering(expression)
-    expression = apply_derivatives(expression)
-    expression = apply_geometry_lowering(expression)
-    expression = apply_derivatives(expression)
-
-    # Replace coordinates (if any)
-    if expression.ufl_domain():
-        assert fs.mesh() == expression.ufl_domain()
-        expression = ufl_utils.replace_coordinates(expression, fs.mesh().coordinates)
-
-    if extract_arguments(expression):
-        return ValueError("Cannot interpolate UFL expression with Arguments!")
-
-    builder = KernelBuilderBase()
-    args = []
-
-    coefficients = extract_coefficients(expression)
-    for i, coefficient in enumerate(coefficients):
-        args.append(builder._coefficient(coefficient, "w_%d" % i))
-
-    point_index = gem.Index(name='p')
-    ir = fem.compile_ufl(expression,
-                         cell=fs.mesh().ufl_cell(),
-                         points=to_pts,
-                         point_index=point_index,
-                         coefficient=builder.coefficient,
-                         cell_orientation=builder.cell_orientation)
-    assert len(ir) == 1
-
-    # Deal with non-scalar expressions
-    tensor_indices = ()
-    if fs.shape:
-        tensor_indices = tuple(gem.Index() for s in fs.shape)
-        ir = [gem.Indexed(ir[0], tensor_indices)]
-
-    # Build kernel body
-    return_var = gem.Variable('A', (len(to_pts),) + fs.shape)
-    return_expr = gem.Indexed(return_var, (point_index,) + tensor_indices)
-    impero_c = impero_utils.compile_gem([return_expr], ir, [point_index])
-    body = generate_coffee(impero_c, index_names={point_index: 'p'})
-
-    oriented = needs_cell_orientations(ir)
-    if oriented:
-        args.insert(0, cell_orientations_coffee_arg)
-
-    # Build kernel
-    args.insert(0, ast.Decl("double", ast.Symbol('A', rank=(len(to_pts),) + fs.shape)))
-    kernel_code = builder.construct_kernel("expression_kernel", args, body)
-
-    return op2.Kernel(kernel_code, kernel_code.name), oriented, coefficients
 
 
 class GlobalWrapper(object):

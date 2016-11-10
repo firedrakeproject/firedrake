@@ -6,7 +6,7 @@ import numpy
 import os
 import ufl
 import weakref
-from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
+from pyop2.mpi import COMM_WORLD, dup_comm
 
 
 __all__ = ("File", )

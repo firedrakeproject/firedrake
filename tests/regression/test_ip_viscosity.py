@@ -83,8 +83,9 @@ def run_test(family, degree, n):
 
     solver_parameters = {'ksp_converged_reason': True,
                          'ksp_type': 'preonly',
-                         'pc_type': 'lu'}
-    solve(F == 0, u, solver_parameters=solver_parameters, nest=True)
+                         'pc_type': 'lu',
+                         'mat_type': 'nest'}
+    solve(F == 0, u, solver_parameters=solver_parameters)
 
     return norm(project(u-u0, V))
 

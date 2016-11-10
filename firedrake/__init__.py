@@ -31,19 +31,17 @@ from firedrake.bcs import *
 from firedrake.checkpointing import *
 from firedrake.citations import *
 from firedrake.constant import *
+from firedrake.exceptions import *
 from firedrake.expression import *
 from firedrake.function import *
 from firedrake.functionspace import *
 from firedrake.interpolation import *
 from firedrake.output import *
 from firedrake.linear_solver import *
+from firedrake.matrix_free.preconditioners import *
 from firedrake.mesh import *
 from firedrake.mg.mesh import *
-from firedrake.mg.function import *
-from firedrake.mg.functionspace import *
-from firedrake.mg.ufl_utils import *
 from firedrake.mg.interface import *
-from firedrake.mg.solver_hierarchy import *
 from firedrake.norms import *
 from firedrake.nullspace import *
 from firedrake.optimizer import *
@@ -68,5 +66,5 @@ check()
 del check
 
 from firedrake._version import get_versions
-__version__ = get_versions(default={"version": ver, "full": ""})['version']
+__version__ = get_versions()['version']
 del get_versions

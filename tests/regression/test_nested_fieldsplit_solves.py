@@ -21,7 +21,7 @@ def A(W):
 
     a = inner(u, v)*dx
 
-    return assemble(a, nest=False)
+    return assemble(a, mat_type="aij")
 
 
 @pytest.fixture
@@ -148,8 +148,9 @@ def test_nested_fieldsplit_solve_parallel(W, A, b, expect):
 
 
 def test_create_subdm_caching(W):
-    iset1, subdm1 = W.create_subdm(W._dm, [0, 1, 3])
-    iset2, subdm2 = W.create_subdm(W._dm, [0, 2, 1])
+    from firedrake.dmhooks import create_subdm
+    iset1, subdm1 = create_subdm(W.dm, [0, 1, 3])
+    iset2, subdm2 = create_subdm(W.dm, [0, 2, 1])
 
     assert subdm1 is not subdm2
     assert iset1 is not iset2
@@ -157,7 +158,7 @@ def test_create_subdm_caching(W):
     assert iset1.indices.shape != iset2.indices.shape
     assert len(W._subspaces) == 2
 
-    iset3, subdm3 = W.create_subdm(W._dm, [0, 1, 3])
+    iset3, subdm3 = create_subdm(W.dm, [0, 1, 3])
 
     assert subdm1 is subdm3
     assert iset1 is iset3

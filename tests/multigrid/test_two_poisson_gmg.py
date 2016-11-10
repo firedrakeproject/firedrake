@@ -28,6 +28,7 @@ def run_two_poisson(typ):
                       "pc_fieldsplit_type": "additive",
                       "fieldsplit_ksp_type": "preonly",
                       "fieldsplit_pc_type": "mg",
+                      "fieldsplit_pc_mg_type": "full",
                       "fieldsplit_mg_levels_ksp_type": "chebyshev",
                       "fieldsplit_mg_levels_ksp_max_it": 2,
                       "fieldsplit_mg_levels_pc_type": "jacobi",
@@ -62,44 +63,43 @@ def run_two_poisson(typ):
 
     mh = MeshHierarchy(mesh, nlevel)
 
-    P2 = FunctionSpaceHierarchy(mh, 'CG', 2)
-    P1 = FunctionSpaceHierarchy(mh, 'CG', 1)
+    P2 = FunctionSpace(mh[-1], 'CG', 2)
+    P1 = FunctionSpace(mh[-1], 'CG', 1)
     W = P2*P1
 
-    u = FunctionHierarchy(W)
-    u_, p = split(u[-1])
-    f = FunctionHierarchy(W)
-    f_, g = split(f[-1])
+    u = function.Function(W)
+    u_, p = split(u)
+    f = function.Function(W)
+    f_, g = split(f)
 
-    v, q = TestFunctions(W[-1])
+    v, q = TestFunctions(W)
     F = dot(grad(u_), grad(v))*dx - f_*v*dx + dot(grad(p), grad(q))*dx - g*q*dx
-    bcs = [DirichletBC(W[-1].sub(0), 0.0, (1, 2, 3, 4)),
-           DirichletBC(W[-1].sub(1), 0.0, (1, 2, 3, 4))]
+    bcs = [DirichletBC(W.sub(0), 0.0, (1, 2, 3, 4)),
+           DirichletBC(W.sub(1), 0.0, (1, 2, 3, 4))]
     # Choose a forcing function such that the exact solution is not an
     # eigenmode.  This stresses the preconditioner much more.  e.g. 10
     # iterations of ilu fails to converge this problem sufficiently.
-    for f_ in f:
-        for x in f_.split():
-            x.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
+    for x in f.split():
+        x.interpolate(Expression("-0.5*pi*pi*(4*cos(pi*x[0]) - 5*cos(pi*x[0]*0.5) + 2)*sin(pi*x[1])"))
 
-    problem = NonlinearVariationalProblem(F, u[-1], bcs=bcs)
+    problem = NonlinearVariationalProblem(F, u, bcs=bcs)
 
-    solver = NLVSHierarchy(problem, solver_parameters=parameters)
+    solver = NonlinearVariationalSolver(problem, solver_parameters=parameters)
 
     solver.solve()
 
-    exact_P2 = Function(P2[-1])
-    exact_P1 = Function(P1[-1])
+    exact_P2 = Function(P2)
+    exact_P1 = Function(P1)
     for exact in [exact_P2, exact_P1]:
         exact.interpolate(Expression("sin(pi*x[0])*tan(pi*x[0]*0.25)*sin(pi*x[1])"))
 
-    sol_P2, sol_P1 = u[-1].split()
+    sol_P2, sol_P1 = u.split()
     return norm(assemble(exact_P2 - sol_P2)), norm(assemble(exact_P1 - sol_P1))
 
 
 @pytest.mark.parametrize("typ",
                          ["mg",
-                          pytest.mark.xfail(reason="Hierarchy information not propagated to sub-DMs")("splitmg"),
+                          "splitmg",
                           "fas"])
 def test_two_poisson_gmg(typ):
     P2, P1 = run_two_poisson(typ)
@@ -114,7 +114,6 @@ def test_two_poisson_gmg_parallel_mg():
     assert P1 < 1e-3
 
 
-@pytest.mark.xfail(reason="Hierarchy information not propagated to sub-DMs")
 @pytest.mark.parallel
 def test_two_poisson_gmg_parallel_splitmg():
     P2, P1 = run_two_poisson("splitmg")

@@ -1,0 +1,24 @@
+# Schur complement using matrix-free PCD preconditioner for the schur
+# complement.
+-mat_type matfree
+-snes_monitor
+-ksp_type fgmres
+-ksp_gmres_modifiedgramschmidt
+-ksp_monitor_true_residual
+-pc_type fieldsplit
+-pc_fieldsplit_type schur
+-pc_fieldsplit_schur_fact_type lower
+-fieldsplit_0_ksp_type preonly
+-fieldsplit_0_pc_type python
+-fieldsplit_0_pc_python_type firedrake.AssembledPC
+-fieldsplit_0_assembled_pc_type lu
+-fieldsplit_1_ksp_type gmres
+-fieldsplit_1_ksp_monitor
+-fieldsplit_1_pc_type python
+-fieldsplit_1_pc_python_type firedrake.PCDPC
+-fieldsplit_1_pcd_velocity_space 0
+-fieldsplit_1_pcd_Mp_ksp_type preonly
+-fieldsplit_1_pcd_Mp_pc_type lu
+-fieldsplit_1_pcd_Kp_ksp_type preonly
+-fieldsplit_1_pcd_Kp_pc_type lu
+

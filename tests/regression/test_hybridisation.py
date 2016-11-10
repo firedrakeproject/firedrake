@@ -39,7 +39,7 @@ def test_hybridisation(degree):
 
     BrokenRT = FunctionSpace(mesh, BrokenElement(RT_elt))
     DG = FunctionSpace(mesh, "DG", degree-1)
-    TraceRT = FunctionSpace(mesh, TraceElement(RT_elt))
+    TraceRT = FunctionSpace(mesh, "HDiv Trace", degree-1)
 
     W = MixedFunctionSpace([BrokenRT, DG, TraceRT])
 

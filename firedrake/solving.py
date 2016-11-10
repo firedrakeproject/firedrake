@@ -110,6 +110,9 @@ def solve(*args, **kwargs):
     If you need to project the transpose nullspace out of the right
     hand side, you can do so by using the ``transpose_nullspace``
     keyword argument.
+
+    In the same fashion you can add the near nullspace using the
+    ``near_nullspace`` keyword argument.
     """
 
     assert(len(args) > 0)
@@ -127,22 +130,25 @@ def _solve_varproblem(*args, **kwargs):
 
     # Extract arguments
     eq, u, bcs, J, Jp, M, form_compiler_parameters, \
-        solver_parameters, nullspace, nullspace_T, options_prefix, \
-        nest = _extract_args(*args, **kwargs)
+        solver_parameters, nullspace, nullspace_T, \
+        near_nullspace, \
+        options_prefix = _extract_args(*args, **kwargs)
 
+    appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
     if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
 
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
-                                              form_compiler_parameters=form_compiler_parameters,
-                                              nest=nest)
+                                              form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
         solver = vs.LinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                             nullspace=nullspace,
                                             transpose_nullspace=nullspace_T,
-                                            options_prefix=options_prefix)
+                                            near_nullspace=near_nullspace,
+                                            options_prefix=options_prefix,
+                                            appctx=appctx)
         solver.solve()
 
     # Solve nonlinear variational problem
@@ -152,14 +158,15 @@ def _solve_varproblem(*args, **kwargs):
             raise TypeError("Only '0' support on RHS of nonlinear Equation, not %r" % eq.rhs)
         # Create problem
         problem = vs.NonlinearVariationalProblem(eq.lhs, u, bcs, J, Jp,
-                                                 form_compiler_parameters=form_compiler_parameters,
-                                                 nest=nest)
+                                                 form_compiler_parameters=form_compiler_parameters)
 
         # Create solver and call solve
         solver = vs.NonlinearVariationalSolver(problem, solver_parameters=solver_parameters,
                                                nullspace=nullspace,
                                                transpose_nullspace=nullspace_T,
-                                               options_prefix=options_prefix)
+                                               near_nullspace=near_nullspace,
+                                               options_prefix=options_prefix,
+                                               appctx=appctx)
         solver.solve()
 
 
@@ -176,6 +183,8 @@ def _la_solve(A, x, b, **kwargs):
          the operator.
     :kwarg transpose_nullspace: as for the nullspace, but used to
          make the right hand side consistent.
+    :kwarg near_nullspace: as for the nullspace, but used to add
+         the near nullspace.
     :kwarg options_prefix: an optional prefix used to distinguish
          PETSc options.  If not provided a unique prefix will be
          created.  Use this option if you want to pass options
@@ -202,14 +211,15 @@ def _la_solve(A, x, b, **kwargs):
 
         _la_solve(A, x, b, solver_parameters=parameters_dict)."""
 
-    bcs, solver_parameters, nullspace, nullspace_T, options_prefix \
-        = _extract_linear_solver_args(A, x, b, **kwargs)
+    bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, \
+        options_prefix = _extract_linear_solver_args(A, x, b, **kwargs)
     if bcs is not None:
         A.bcs = bcs
 
     solver = ls.LinearSolver(A, solver_parameters=solver_parameters,
                              nullspace=nullspace,
                              transpose_nullspace=nullspace_T,
+                             near_nullspace=near_nullspace,
                              options_prefix=options_prefix)
 
     solver.solve(x, b)
@@ -217,7 +227,7 @@ def _la_solve(A, x, b, **kwargs):
 
 def _extract_linear_solver_args(*args, **kwargs):
     valid_kwargs = ["bcs", "solver_parameters", "nullspace",
-                    "transpose_nullspace", "options_prefix"]
+                    "transpose_nullspace", "near_nullspace", "options_prefix"]
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
@@ -230,9 +240,10 @@ def _extract_linear_solver_args(*args, **kwargs):
     solver_parameters = kwargs.get("solver_parameters", None)
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
+    near_nullspace = kwargs.get("near_nullspace", None)
     options_prefix = kwargs.get("options_prefix", None)
 
-    return bcs, solver_parameters, nullspace, nullspace_T, options_prefix
+    return bcs, solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
 
 
 def _extract_args(*args, **kwargs):
@@ -241,9 +252,15 @@ def _extract_args(*args, **kwargs):
     # Check for use of valid kwargs
     valid_kwargs = ["bcs", "J", "Jp", "M",
                     "form_compiler_parameters", "solver_parameters",
-                    "nullspace", "transpose_nullspace",
-                    "options_prefix",
-                    "nest"]
+                    "nullspace", "transpose_nullspace", "near_nullspace",
+                    "options_prefix", "appctx"]
+    transfer_nest = False
+    if "nest" in kwargs:
+        from firedrake.logging import warning, RED
+        warning(RED % "The 'nest' argument is deprecated, please set 'mat_type' in the solver parameters")
+        nest = kwargs.pop("nest")
+        transfer_nest = True
+
     for kwarg in kwargs.iterkeys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
@@ -281,14 +298,18 @@ def _extract_args(*args, **kwargs):
 
     nullspace = kwargs.get("nullspace", None)
     nullspace_T = kwargs.get("transpose_nullspace", None)
+    near_nullspace = kwargs.get("near_nullspace", None)
     # Extract parameters
     form_compiler_parameters = kwargs.get("form_compiler_parameters", {})
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
-    nest = kwargs.get("nest", None)
 
+    if transfer_nest and nest is not None:
+        solver_parameters["mat_type"] = "nest" if nest else "aij"
+        if Jp is not None:
+            solver_parameters["pmat_type"] = solver_parameters["mat_type"]
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
-        solver_parameters, nullspace, nullspace_T, options_prefix, nest
+        solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
 
 
 def _extract_bcs(bcs):

@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 
-import ufl
+from functools import partial
 
 from pyop2 import op2
 
@@ -9,98 +9,144 @@ import firedrake.utils
 from . import utils
 
 
-__all__ = ["prolong", "restrict", "inject"]
+__all__ = ["prolong", "restrict", "inject", "FunctionHierarchy",
+           "FunctionSpaceHierarchy", "VectorFunctionSpaceHierarchy",
+           "TensorFunctionSpaceHierarchy", "MixedFunctionSpaceHierarchy"]
+
+
+def check_arguments(coarse, fine):
+    cfs = coarse.function_space()
+    ffs = fine.function_space()
+    hierarchy, lvl = utils.get_level(cfs.mesh())
+    if hierarchy is None:
+        raise ValueError("Coarse function not from hierarchy")
+    fhierarchy, flvl = utils.get_level(ffs.mesh())
+    if lvl >= flvl:
+        raise ValueError("Coarse function must be from coarser space")
+    if hierarchy is not fhierarchy:
+        raise ValueError("Can't transfer between functions from different hierarchies")
 
 
 @firedrake.utils.known_pyop2_safe
-def prolong(coarse, fine):
-    cfs = coarse.function_space()
-    hierarchy, lvl = utils.get_level(cfs)
-    if hierarchy is None:
-        raise RuntimeError("Coarse function not from hierarchy")
-    fhierarchy, flvl = utils.get_level(fine.function_space())
-    if flvl != lvl + 1:
-        raise ValueError("Can only prolong from level %d to level %d, not %d" %
-                         (lvl, lvl + 1, flvl))
-    if hierarchy is not fhierarchy:
-        raise ValueError("Can't prolong between functions from different hierarchies")
-    if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
-        for c, f in zip(coarse.split(), fine.split()):
-            prolong(c, f)
-        return
-    op2.par_loop(hierarchy._prolong_kernel,
-                 hierarchy._cell_sets[lvl],
-                 fine.dat(op2.WRITE, hierarchy.cell_node_map(lvl)[op2.i[0]]),
-                 coarse.dat(op2.READ, coarse.cell_node_map()))
-
-
-@firedrake.utils.known_pyop2_safe
-def restrict(fine, coarse):
-    cfs = coarse.function_space()
-    hierarchy, lvl = utils.get_level(cfs)
-    if hierarchy is None:
-        raise RuntimeError("Coarse function not from hierarchy")
-    fhierarchy, flvl = utils.get_level(fine.function_space())
-    if flvl != lvl + 1:
-        raise ValueError("Can only restrict from level %d to level %d, not %d" %
-                         (flvl, flvl - 1, lvl))
-    if hierarchy is not fhierarchy:
-        raise ValueError("Can't restrict between functions from different hierarchies")
-    if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
-        for f, c in zip(fine.split(), coarse.split()):
-            restrict(f, c)
+def transfer(input, output, typ=None):
+    if len(input.function_space()) > 1:
+        if len(output.function_space()) != len(input.function_space()):
+            raise ValueError("Mixed spaces have different lengths")
+        for in_, out in zip(input.split(), output.split()):
+            transfer(in_, out, typ=typ)
         return
 
-    weights = hierarchy._restriction_weights
-    # We hit each fine dof more than once since we loop
-    # elementwise over the coarse cells.  So we need a count of
-    # how many times we did this to weight the final contribution
-    # appropriately.
-    if not hierarchy._discontinuous and weights is None:
-        if isinstance(hierarchy.ufl_element(), ufl.VectorElement):
-            element = hierarchy.ufl_element().sub_elements()[0]
-            restriction_fs = firedrake.FunctionSpaceHierarchy(hierarchy._mesh_hierarchy, element)
+    if typ == "prolong":
+        coarse, fine = input, output
+    elif typ in ["inject", "restrict"]:
+        coarse, fine = output, input
+    else:
+        raise ValueError("Unknown transfer type '%s'" % typ)
+    check_arguments(coarse, fine)
+
+    hierarchy, coarse_level = utils.get_level(coarse.ufl_domain())
+    _, fine_level = utils.get_level(fine.ufl_domain())
+    ref_per_level = hierarchy.refinements_per_level
+    all_meshes = hierarchy._unskipped_hierarchy
+
+    kernel = None
+    element = input.ufl_element()
+    repeat = (fine_level - coarse_level)*ref_per_level
+    if typ == "prolong":
+        next_level = coarse_level*ref_per_level
+    else:
+        next_level = fine_level*ref_per_level
+
+    for j in range(repeat):
+        if typ == "prolong":
+            next_level += 1
         else:
-            restriction_fs = hierarchy
-        weights = firedrake.FunctionHierarchy(restriction_fs)
+            next_level -= 1
+        if j == repeat - 1:
+            next = output
+        else:
+            V = firedrake.FunctionSpace(all_meshes[next_level], element)
+            next = firedrake.Function(V)
+        if typ == "prolong":
+            coarse, fine = input, next
+        else:
+            coarse, fine = next, input
 
-        k = utils.get_count_kernel(hierarchy.cell_node_map(0).arity)
+        coarse_V = coarse.function_space()
+        fine_V = fine.function_space()
+        if kernel is None:
+            kernel = utils.get_transfer_kernel(coarse_V, fine_V, typ=typ)
+        c2f_map = utils.coarse_to_fine_node_map(coarse_V, fine_V)
+        args = [kernel, c2f_map.iterset]
+        if typ == "prolong":
+            args.append(next.dat(op2.WRITE, c2f_map[op2.i[0]]))
+            args.append(input.dat(op2.READ, input.cell_node_map()))
+        elif typ == "inject":
+            args.append(next.dat(op2.WRITE, next.cell_node_map()[op2.i[0]]))
+            args.append(input.dat(op2.READ, c2f_map))
+        else:
+            next.dat.zero()
+            args.append(next.dat(op2.INC, next.cell_node_map()[op2.i[0]]))
+            args.append(input.dat(op2.READ, c2f_map))
+            weights = utils.get_restriction_weights(coarse_V, fine_V)
+            if weights is not None:
+                args.append(weights.dat(op2.READ, c2f_map))
 
-        # Count number of times each fine dof is hit
-        for l in range(1, len(weights)):
-            op2.par_loop(k, restriction_fs._cell_sets[l-1],
-                         weights[l].dat(op2.INC, weights.cell_node_map(l-1)[op2.i[0]]))
-            # Inverse, since we're using as weights not counts
-            weights[l].assign(1.0/weights[l])
-        hierarchy._restriction_weights = weights
-
-    args = [coarse.dat(op2.INC, coarse.cell_node_map()[op2.i[0]]),
-            fine.dat(op2.READ, hierarchy.cell_node_map(lvl))]
-
-    if not hierarchy._discontinuous:
-        weight = weights[lvl+1]
-        args.append(weight.dat(op2.READ, hierarchy._restriction_weights.cell_node_map(lvl)))
-    coarse.dat.zero()
-    op2.par_loop(hierarchy._restrict_kernel, hierarchy._cell_sets[lvl],
-                 *args)
+        op2.par_loop(*args)
+        input = next
 
 
-@firedrake.utils.known_pyop2_safe
-def inject(fine, coarse):
-    cfs = coarse.function_space()
-    hierarchy, lvl = utils.get_level(cfs)
-    if hierarchy is None:
-        raise RuntimeError("Coarse function not from hierarchy")
-    fhierarchy, flvl = utils.get_level(fine.function_space())
-    if flvl != lvl + 1:
-        raise ValueError("Can only inject from level %d to level %d, not %d" %
-                         (flvl, flvl - 1, lvl))
-    if hierarchy is not fhierarchy:
-        raise ValueError("Can't prolong between functions from different hierarchies")
-    if isinstance(hierarchy, firedrake.MixedFunctionSpaceHierarchy):
-        for f, c in zip(fine.split(), coarse.split()):
-            inject(f, c)
-        return
-    op2.par_loop(hierarchy._inject_kernel, hierarchy._cell_sets[lvl],
-                 coarse.dat(op2.WRITE, coarse.cell_node_map()[op2.i[0]]),
-                 fine.dat(op2.READ, hierarchy.cell_node_map(lvl)))
+prolong = partial(transfer, typ="prolong")
+
+restrict = partial(transfer, typ="restrict")
+
+inject = partial(transfer, typ="inject")
+
+
+def FunctionHierarchy(fs_hierarchy, functions=None):
+    """ outdated and returns warning & list of functions corresponding to each level
+    of a functionspace hierarchy
+
+        :arg fs_hierarchy: the :class:`~.FunctionSpaceHierarchy` to build on.
+        :arg functions: optional :class:`~.Function` for each level.
+
+    """
+    from firedrake.logging import warning, RED
+    warning(RED % "FunctionHierarchy is obsolete. Falls back by returning list of functions")
+
+    if functions is not None:
+        assert len(functions) == len(fs_hierarchy)
+        for f, V in zip(functions, fs_hierarchy):
+            assert f.function_space() == V
+        return tuple(functions)
+    else:
+        return tuple([firedrake.Function(f) for f in fs_hierarchy])
+
+
+def FunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "FunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
+    return tuple(firedrake.FunctionSpace(mesh, *args, **kwargs) for mesh in mesh_hierarchy)
+
+
+def VectorFunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "VectorFunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
+    return tuple(firedrake.VectorFunctionSpace(mesh, *args, **kwargs) for mesh in mesh_hierarchy)
+
+
+def TensorFunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "TensorFunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
+    return tuple(firedrake.TensorFunctionSpace(mesh, *args, **kwargs) for mesh in mesh_hierarchy)
+
+
+def MixedFunctionSpaceHierarchy(mesh_hierarchy, *args, **kwargs):
+    from firedrake.logging import warning, RED
+    warning(RED % "TensorFunctionSpaceHierarchy is obsolete. Just build a FunctionSpace on the relevant mesh")
+
+    kwargs.pop("mesh", None)
+    return tuple(firedrake.MixedFunctionSpace(*args, mesh=mesh, **kwargs) for mesh in mesh_hierarchy)
