@@ -140,8 +140,8 @@ def compile_slate_expression(slate_expr, testing=False):
 
     # SLATE currently does not support arguments in mixed function spaces
     # TODO: Implement something akin to a FormSplitter for SLATE tensors
-    if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
-        raise NotImplementedError("Compiling mixed slate expressions")
+    # if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
+    #     raise NotImplementedError("Compiling mixed slate expressions")
 
     # Initialize variables: dtype and dictionary objects.
     dtype = "double"
