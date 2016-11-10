@@ -76,15 +76,13 @@ else:
 
 branches = {}
 
-# Disgusting hack, are we running on travis?
+# Disgusting hack, are we running on travis/drone?
 travis = "TRAVIS" in os.environ
-travis_testing_firedrake = "FIREDRAKE_TRAVIS_TESTS" in os.environ
+drone = "DRONE" in os.environ
+ci = travis or drone
+ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
 
-# More generic hack for drone.io CI
-ci = "CI" in os.environ
-ci_event = os.environ.get("CI_EVENT", None)
-ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 
 if mode == "install":
     # Handle command line arguments.
@@ -433,24 +431,13 @@ def git_clone(url):
             log.error("Failed to clone %s branch %s." % (name, branch))
             raise
     with directory(name):
-        if name == "firedrake" and ci and ci_testing_firedrake and ci_event == "pull_request":
-            try:
-                ci_pull_request = os.environ["CI_PULL_REQUEST"]
-                log.info("Checking out pull request %s" % ci_pull_request)
-                check_call(["git", "fetch", "origin", "pull/" + ci_pull_request + "/merge"])
-                check_call(["git", "checkout", "FETCH_HEAD"])
-                log.info("Successfully checked out pull request %s" % ci_pull_request)
-            except subprocess.CalledProcessError:
-                log.error("Failed to check out pull request %s" % ci_pull_request)
-                raise
-        else:
-            try:
-                log.info("Checking out branch %s" % branch)
-                check_call(["git", "checkout", "-q", branch])
-                log.info("Successfully checked out branch %s" % branch)
-            except subprocess.CalledProcessError:
-                log.error("Failed to check out branch %s" % branch)
-                raise
+        try:
+            log.info("Checking out branch %s" % branch)
+            check_call(["git", "checkout", "-q", branch])
+            log.info("Successfully checked out branch %s" % branch)
+        except subprocess.CalledProcessError:
+            log.error("Failed to check out branch %s" % branch)
+            raise
     return name
 
 
@@ -483,14 +470,20 @@ def git_update(name, url=None):
     os.chdir(name)
     git_sha = check_output(["git", "rev-parse", "HEAD"])
     # Disgusting hack, on travis we've checked out a detached head.
-    if name == "firedrake" and travis and travis_testing_firedrake:
-        travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-        travis_commit = os.environ["TRAVIS_COMMIT"]
-        if travis_pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + travis_pull_request + "/merge"])
+    if name == "firedrake" and ci and ci_testing_firedrake:
+        if travis:
+            pull_request = os.environ.get("TRAVIS_PULL_REQUEST", "false")
+            commit = os.environ["TRAVIS_COMMIT"]
+        elif drone:
+            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
+            commit = os.environ["DRONE_COMMIT_SHA"]
+        else:
+            raise NotImplementedError("Unhandled CI type")
+        if pull_request != "false":
+            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
             check_call(["git", "checkout", "FETCH_HEAD"])
         else:
-            check_call(["git", "checkout", travis_commit])
+            check_call(["git", "checkout", commit])
     else:
         # Ensure remotes get updated if and when we move repositories.
         if url:
@@ -1145,15 +1138,21 @@ if mode == "install":
     os.chdir("src")
 
     git_clone("git+https://github.com/firedrakeproject/firedrake.git")
-    if travis and travis_testing_firedrake:
-        travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-        travis_commit = os.environ["TRAVIS_COMMIT"]
+    if ci and ci_testing_firedrake:
+        if travis:
+            pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+            commit = os.environ["TRAVIS_COMMIT"]
+        elif drone:
+            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
+            commit = os.environ["DRONE_COMMIT_SHA"]
+        else:
+            raise NotImplementedError("Unhandled CI type")
         os.chdir("firedrake")
-        if travis_pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + travis_pull_request + "/merge"])
+        if pull_request != "false":
+            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
             check_call(["git", "checkout", "FETCH_HEAD"])
         else:
-            check_call(["git", "checkout", travis_commit])
+            check_call(["git", "checkout", commit])
         os.chdir("..")
 
     packages = clone_dependencies("firedrake")

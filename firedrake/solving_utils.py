@@ -57,15 +57,34 @@ class ParametersMixin(object):
         if options_prefix is None:
             self.options_prefix = "firedrake_%d_" % next(self.count)
             self.parameters = parameters
+            self.to_delete = set(parameters)
         else:
             self.options_prefix = options_prefix
             # Remove those options from the dict that were passed on
             # the commandline.
             self.parameters = dict((k, v) for k, v in parameters.iteritems()
                                    if options_prefix + k not in self.commandline_options)
+            self.to_delete = set(parameters)
+            # Now update parameters from options, so that they're
+            # availabe to solver setup (for, e.g., matrix-free).
+            for k, v in PETSc.Options(self.options_prefix).getAll().iteritems():
+                self.parameters[k] = v
         self.options_object = PETSc.Options(self.options_prefix)
         self._setfromoptions = False
         super(ParametersMixin, self).__init__()
+
+    def set_default_parameter(self, key, val):
+        """Set a default parameter value.
+
+        :arg key: The parameter name
+        :arg val: The parameter value.
+
+        Ensures that the right thing happens cleaning up the options
+        database.
+        """
+        if key not in self.options_object and key not in self.parameters:
+            self.parameters[key] = val
+            self.to_delete.add(key)
 
     def set_from_options(self, petsc_obj):
         """Set up petsc_obj from the options database.
@@ -96,7 +115,7 @@ class ParametersMixin(object):
                     self.options_object[k] = v
             yield
         finally:
-            for k in self.parameters:
+            for k in self.to_delete:
                 del self.options_object[k]
 
 
