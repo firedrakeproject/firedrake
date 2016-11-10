@@ -143,7 +143,7 @@ honoured.""",
                         help="Name of the virtualenv to create (default is 'firedrake')")
     parser.add_argument("--install", action="append", dest="packages",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install_help.")
-    parser.add_argument("--install_help", action="store_true",
+    parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
 
     if travis:
