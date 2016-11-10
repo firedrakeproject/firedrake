@@ -33,6 +33,8 @@
 
 """Core loop fusion mechanisms."""
 
+from __future__ import absolute_import, print_function, division
+
 import sys
 import os
 from collections import OrderedDict, namedtuple
@@ -47,10 +49,10 @@ from pyop2.utils import flatten, as_tuple, tuplify
 from pyop2.logger import warning
 from pyop2 import compilation
 
-from extended import lazy_trace_name, Kernel
-from filters import Filter, WeakFilter
-from interface import slope
-from scheduler import *
+from .extended import lazy_trace_name, Kernel
+from .filters import Filter, WeakFilter
+from .interface import slope
+from .scheduler import *
 
 import coffee
 from coffee import base as ast

@@ -33,7 +33,7 @@
 
 """Common utility classes/functions."""
 
-from __future__ import division, absolute_import
+from __future__ import absolute_import, print_function, division
 
 import os
 import sys
@@ -120,11 +120,11 @@ class validate_base:
     def __call__(self, f):
         def wrapper(f, *args, **kwargs):
             if configuration["type_check"]:
-                self.nargs = f.func_code.co_argcount
-                self.defaults = f.func_defaults or ()
-                self.varnames = f.func_code.co_varnames
-                self.file = f.func_code.co_filename
-                self.line = f.func_code.co_firstlineno + 1
+                self.nargs = f.__code__.co_argcount
+                self.defaults = f.__defaults__ or ()
+                self.varnames = f.__code__.co_varnames
+                self.file = f.__code__.co_filename
+                self.line = f.__code__.co_firstlineno + 1
                 self.check_args(args, kwargs)
             return f(*args, **kwargs)
         return decorator(wrapper, f)
@@ -306,14 +306,14 @@ def trim(docstring):
     # and split into a list of lines:
     lines = docstring.expandtabs().splitlines()
     # Determine minimum indentation (first line doesn't count):
-    indent = sys.maxint
+    indent = sys.maxsize
     for line in lines[1:]:
         stripped = line.lstrip()
         if stripped:
             indent = min(indent, len(line) - len(stripped))
     # Remove indentation (first line is special):
     trimmed = [lines[0].strip()]
-    if indent < sys.maxint:
+    if indent < sys.maxsize:
         for line in lines[1:]:
             trimmed.append(line[indent:].rstrip())
     # Strip off trailing and leading blank lines:

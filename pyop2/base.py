@@ -35,7 +35,7 @@
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 from contextlib import contextmanager
 import itertools
@@ -57,6 +57,7 @@ from pyop2.version import __version__ as version
 from coffee.base import Node, FlatBlock
 from coffee.visitors import FindInstances, EstimateFlops
 from coffee import base as ast
+from functools import reduce
 
 
 def _make_object(name, *args, **kwargs):
@@ -3287,7 +3288,7 @@ class Sparsity(ObjectCached):
             dims = [[None for _ in range(self.shape[1])] for _ in range(self.shape[0])]
             for r in range(self.shape[0]):
                 for c in range(self.shape[1]):
-                    dims[r][c] = tmp.next()
+                    dims[r][c] = next(tmp)
 
             self._dims = tuple(tuple(d) for d in dims)
 

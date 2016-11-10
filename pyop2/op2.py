@@ -33,7 +33,7 @@
 
 """The PyOP2 API specification."""
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import atexit
 
 from pyop2.configuration import configuration
@@ -109,7 +109,7 @@ def exit():
     """Exit OP2 and clean up"""
     if configuration['print_cache_size'] and COMM_WORLD.rank == 0:
         from caching import report_cache, Cached, ObjectCached
-        print '**** PyOP2 cache sizes at exit ****'
+        print('**** PyOP2 cache sizes at exit ****')
         report_cache(typ=ObjectCached)
         report_cache(typ=Cached)
     configuration.reset()

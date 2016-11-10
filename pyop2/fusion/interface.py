@@ -34,6 +34,8 @@
 """Interface for loop fusion. Some functions will be called from within PyOP2
 itself, whereas others directly from application code."""
 
+from __future__ import absolute_import, print_function, division
+
 import os
 from contextlib import contextmanager
 

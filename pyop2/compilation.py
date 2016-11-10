@@ -31,7 +31,8 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+
 import os
 import subprocess
 import sys
@@ -346,7 +347,7 @@ def clear_cache(prompt=False):
     nfiles = len(files)
 
     if nfiles == 0:
-        print "No cached libraries to remove"
+        print("No cached libraries to remove")
         return
 
     remove = True
@@ -355,14 +356,14 @@ def clear_cache(prompt=False):
         user = raw_input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
 
         while user.lower() not in ['', 'y', 'n']:
-            print "Please answer y or n."
+            print("Please answer y or n.")
             user = raw_input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
 
         if user.lower() == 'n':
             remove = False
 
     if remove:
-        print "Removing %d cached libraries from %s" % (nfiles, cachedir)
+        print("Removing %d cached libraries from %s" % (nfiles, cachedir))
         [os.remove(f) for f in files]
     else:
-        print "Not removing cached libraries"
+        print("Not removing cached libraries")

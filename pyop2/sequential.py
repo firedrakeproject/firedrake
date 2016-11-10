@@ -32,7 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 """OP2 sequential backend."""
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import os
 import ctypes

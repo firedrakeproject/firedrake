@@ -34,6 +34,8 @@
 """Classes for fusing parallel loops and for executing fused parallel loops,
 derived from ``base.py``."""
 
+from __future__ import absolute_import, print_function, division
+
 import sys
 import ctypes
 from copy import deepcopy as dcopy
