@@ -25,15 +25,9 @@ env:
 # command to install dependencies
 before_install:
   - pip install --upgrade pip
-# Force installation of requirements IN THE ORDER WE SPECIFIED!  AAAARGH.
-  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
-       --allow-external petsc --allow-unverified petsc \
-       --allow-external petsc4py  --allow-unverified petsc4py \
-       < requirements-ext.txt"
-  - "xargs -l1 pip install --allow-external mpi4py --allow-unverified mpi4py \
-       --allow-external petsc --allow-unverified petsc \
-       --allow-external petsc4py  --allow-unverified petsc4py \
-       < requirements-git.txt"
+  # Force installation of requirements IN THE ORDER WE SPECIFIED!  AAAARGH.
+  - "xargs -l1 pip install < requirements-ext.txt"
+  - "xargs -l1 pip install < requirements-git.txt"
   - pip install pulp
   - pip install -U flake8 flake8-future-import
 install: "python setup.py develop"
