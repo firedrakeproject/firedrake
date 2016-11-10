@@ -11,12 +11,20 @@ from collections import OrderedDict
 from distutils import dir_util
 
 adjoint_deps = {
-    "libadjoint": "git+https://bitbucket.org/dolfin-adjoint/libadjoint.git",
-    "dolfin-adjoint": "git+https://bitbucket.org/dolfin-adjoint/dolfin-adjoint.git"
+    "libadjoint": "git+ssh://bitbucket.org/dolfin-adjoint/libadjoint.git",
+    "dolfin-adjoint": "git+ssh://bitbucket.org/dolfin-adjoint/dolfin-adjoint.git"
 }
 
 # Packages which we wish to ensure are always recompiled
 wheel_blacklist = ["mpi4py"]
+
+# Firedrake application installation shortcuts.
+firedrake_apps = {
+    "gusto": ("""Atmospheric dynamical core library. http://firedrakeproject.org/gusto""",
+              "git+ssh://github.com/firedrakeproject/gusto#egg=gusto"),
+    "thetis": ("""Coastal ocean model. http://thetisproject.org""",
+               "git+ssh://github.com/thetisproject/thetis#egg=thetis")
+}
 
 
 class InstallError(Exception):
@@ -42,7 +50,7 @@ class FiredrakeConfiguration(dict):
                 if o in args.__dict__.keys():
                     self["options"][o] = args.__dict__[o]
 
-    _persistent_options = ["developer", "sudo", "package_manager",
+    _persistent_options = ["developer", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath"]
@@ -68,15 +76,13 @@ else:
 
 branches = {}
 
-# Disgusting hack, are we running on travis?
+# Disgusting hack, are we running on travis/drone?
 travis = "TRAVIS" in os.environ
-travis_testing_firedrake = "FIREDRAKE_TRAVIS_TESTS" in os.environ
+drone = "DRONE" in os.environ
+ci = travis or drone
+ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
 
-# More generic hack for drone.io CI
-ci = "CI" in os.environ
-ci_event = os.environ.get("CI_EVENT", None)
-ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 
 if mode == "install":
     # Handle command line arguments.
@@ -102,8 +108,6 @@ in the PETSC_CONFIGURE_OPTIONS environment variable will be
 honoured.""",
                             formatter_class=RawDescriptionHelpFormatter)
 
-    parser.add_argument("--sudo", action='store_true',
-                        help="Use sudo when installing system dependencies and python packages. Regardless of the presence of this flag, sudo will never be used to install packages into $HOME or ./firedrake but sudo will always be used when installing system dependencies using apt.")
     parser.add_argument("--adjoint", action='store_true',
                         help="Also install firedrake-adjoint.")
     parser.add_argument("--slope", action='store_true',
@@ -123,7 +127,7 @@ honoured.""",
     parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
-                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script (eg. --developer or --sudo).")
+                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
     parser.add_argument("--package-branch", "--package_branch", type=str, nargs=2, action="append", metavar=("PACKAGE", "BRANCH"),
                         help="Specify which branch of a package to use. This takes two arguments, the package name and the branch.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
@@ -136,7 +140,9 @@ honoured.""",
                         type=str, action="store",
                         help="Name of the virtualenv to create (default is 'firedrake')")
     parser.add_argument("--install", action="append", dest="packages",
-                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install_help.")
+    parser.add_argument("--install-help", action="store_true",
+                        help="Provide information on packages which can be installed using shortcut names.")
 
     if travis:
         parser.add_argument("--write-cache", action="store_true",
@@ -158,7 +164,6 @@ else:
     # new options should not be added here.
     args = LegacyState()
     args.developer = False
-    args.sudo = False
     args.package_manager = False
     args.minimal_petsc = False
     args.rebuild_script = False
@@ -204,7 +209,9 @@ else:
                         help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
-                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir")
+                        help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install_help.")
+    parser.add_argument("--install_help", action="store_true",
+                        help="Provide information on packages which can be installed using shortcut names.")
 
     args = parser.parse_args()
 
@@ -219,6 +226,21 @@ else:
         del legacy_args["slepc"]
         config["options"] = deep_update(config["options"], legacy_args)
 
+if args.install_help:
+    help_string = """
+You can install the following packages by passing --install shortname
+where shortname is one of the names given below:
+
+"""
+    componentformat = "|{:10}|{:70}|\n"
+    header = componentformat.format("Name", "Description")
+    line = "-" * (len(header) - 1) + "\n"
+    help_string += line + header + line
+    for package, d in firedrake_apps.iteritems():
+        help_string += componentformat.format(package, d[0])
+    help_string += line
+    print help_string
+    sys.exit(0)
 
 # Set up logging
 if args.log:
@@ -254,6 +276,8 @@ class directory(object):
 
 options = config["options"]
 
+# Apply short cut package names.
+options["packages"] = [firedrake_apps.get(p, (None, p))[1] for p in options["packages"]]
 
 # Where are packages installed relative to --root?
 # This is a bit of a hack.
@@ -276,8 +300,8 @@ else:
 
 # virtualenv install
 # Use the pip from the virtualenv
-sudopip = ["%s/bin/pip" % firedrake_env]
-pipinstall = sudopip + ["install", "--no-binary", ",".join(wheel_blacklist)]
+pip = ["%s/bin/pip" % firedrake_env]
+pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
 python = ["%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
@@ -404,24 +428,13 @@ def git_clone(url):
             log.error("Failed to clone %s branch %s." % (name, branch))
             raise
     with directory(name):
-        if name == "firedrake" and ci and ci_testing_firedrake and ci_event == "pull_request":
-            try:
-                ci_pull_request = os.environ["CI_PULL_REQUEST"]
-                log.info("Checking out pull request %s" % ci_pull_request)
-                check_call(["git", "fetch", "origin", "pull/" + ci_pull_request + "/merge"])
-                check_call(["git", "checkout", "FETCH_HEAD"])
-                log.info("Successfully checked out pull request %s" % ci_pull_request)
-            except subprocess.CalledProcessError:
-                log.error("Failed to check out pull request %s" % ci_pull_request)
-                raise
-        else:
-            try:
-                log.info("Checking out branch %s" % branch)
-                check_call(["git", "checkout", "-q", branch])
-                log.info("Successfully checked out branch %s" % branch)
-            except subprocess.CalledProcessError:
-                log.error("Failed to check out branch %s" % branch)
-                raise
+        try:
+            log.info("Checking out branch %s" % branch)
+            check_call(["git", "checkout", "-q", branch])
+            log.info("Successfully checked out branch %s" % branch)
+        except subprocess.CalledProcessError:
+            log.error("Failed to check out branch %s" % branch)
+            raise
     return name
 
 
@@ -454,14 +467,20 @@ def git_update(name, url=None):
     os.chdir(name)
     git_sha = check_output(["git", "rev-parse", "HEAD"])
     # Disgusting hack, on travis we've checked out a detached head.
-    if name == "firedrake" and travis and travis_testing_firedrake:
-        travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-        travis_commit = os.environ["TRAVIS_COMMIT"]
-        if travis_pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + travis_pull_request + "/merge"])
+    if name == "firedrake" and ci and ci_testing_firedrake:
+        if travis:
+            pull_request = os.environ.get("TRAVIS_PULL_REQUEST", "false")
+            commit = os.environ["TRAVIS_COMMIT"]
+        elif drone:
+            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
+            commit = os.environ["DRONE_COMMIT_SHA"]
+        else:
+            raise NotImplementedError("Unhandled CI type")
+        if pull_request != "false":
+            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
             check_call(["git", "checkout", "FETCH_HEAD"])
         else:
-            check_call(["git", "checkout", travis_commit])
+            check_call(["git", "checkout", commit])
     else:
         # Ensure remotes get updated if and when we move repositories.
         if url:
@@ -481,8 +500,8 @@ def git_update(name, url=None):
 
 
 def run_pip(args):
-    log.info(" ".join(sudopip + args))
-    check_call(sudopip + args)
+    log.info(" ".join(pip + args))
+    check_call(pip + args)
 
 
 def run_pip_install(pipargs):
@@ -650,7 +669,7 @@ def pip_uninstall(package):
         # List installed packages, "locally".  In a virtualenv,
         # this just tells me packages in the virtualenv, otherwise it
         # gives me everything.
-        lines = check_output(sudopip + ["freeze", "-l"])
+        lines = check_output(pip + ["freeze", "-l"])
         again = False
         for line in lines.split("\n"):
             # Do we have a locally installed package?
@@ -1098,8 +1117,10 @@ if mode == "install":
         quit("Virtual env installed. Please run firedrake-%s again." % mode)
     log.info("Creating firedrake virtualenv in '%s'." % firedrake_env)
     virtualenv.create_environment(firedrake_env, site_packages=False)
-    # For some reason virtualenv does not always install the latest pip.
-    run_pip_install(["-U", "pip"])
+    # Ensure pip and setuptools are at the latest version.
+    run_pip(["install", "-U", "setuptools"])
+    run_pip(["install", "-U", "pip"])
+
 virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
 execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
 # Activating the virtual_env from within Python does not automatically set the environment variable.
@@ -1114,15 +1135,21 @@ if mode == "install":
     os.chdir("src")
 
     git_clone("git+https://github.com/firedrakeproject/firedrake.git")
-    if travis and travis_testing_firedrake:
-        travis_pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-        travis_commit = os.environ["TRAVIS_COMMIT"]
+    if ci and ci_testing_firedrake:
+        if travis:
+            pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+            commit = os.environ["TRAVIS_COMMIT"]
+        elif drone:
+            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
+            commit = os.environ["DRONE_COMMIT_SHA"]
+        else:
+            raise NotImplementedError("Unhandled CI type")
         os.chdir("firedrake")
-        if travis_pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + travis_pull_request + "/merge"])
+        if pull_request != "false":
+            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
             check_call(["git", "checkout", "FETCH_HEAD"])
         else:
-            check_call(["git", "checkout", travis_commit])
+            check_call(["git", "checkout", commit])
         os.chdir("..")
 
     packages = clone_dependencies("firedrake")
@@ -1206,13 +1233,34 @@ else:
     packages.remove("petsc")
     packages.remove("petsc4py")
 
+    # Forcibly upgrade old installations to developer mode.
+    if not options["developer"]:
+        forced_developer = True
+        args.clean = True
+        options["developer"] = True
+    else:
+        forced_developer = False
+
     if args.clean:
-        clean_obsolete_packages()
-        for package in packages:
-            pip_uninstall(package)
-        if args.rebuild:
-            pip_uninstall("petsc")
-            pip_uninstall("petsc4py")
+        try:
+            clean_obsolete_packages()
+            for package in packages:
+                pip_uninstall(package)
+            if args.rebuild:
+                pip_uninstall("petsc")
+                pip_uninstall("petsc4py")
+        except:
+            if forced_developer:
+                log.error("*************************************************************")
+                log.error("* Uninstalling packages failed while attemping to upgrade   *")
+                log.error("* your installation to developer mode.                      *")
+                log.error("*                                                           *")
+                log.error("* Please try running firedrake-update again, and if the     *")
+                log.error("* problem persists, please raise an issue via github, the   *")
+                log.error("* email list or the slack channel.                          *")
+                log.error("*************************************************************")
+
+            raise
 
     for p in packages:
         try:
@@ -1288,7 +1336,7 @@ log.info("To upgrade Firedrake activate the virtualenv and run firedrake-update\
 try:
     import firedrake_configuration
     firedrake_configuration.write_config(config)
-    log.info("Configurations saved to configuration.json")
+    log.info("Configuration saved to configuration.json")
 except Exception as e:
     log.info("Unable to save configuations to a JSON file")
     log.info("Error Message:")
