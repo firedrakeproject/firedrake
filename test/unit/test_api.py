@@ -1227,7 +1227,7 @@ class TestSparsityAPI:
         "Iterating a Sparsity should yield the block by row."
         cols = ms.shape[1]
         for i, block in enumerate(ms):
-            assert block == ms[i / cols, i % cols]
+            assert block == ms[i // cols, i % cols]
 
     def test_sparsity_mmap_getitem(self, ms):
         """Sparsity block i, j should be defined on the corresponding row and

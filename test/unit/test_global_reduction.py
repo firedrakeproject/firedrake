@@ -50,7 +50,7 @@ class TestGlobalReductions:
 
     @pytest.fixture(scope='module', params=[(nelems, nelems, nelems, nelems),
                                             (0, nelems, nelems, nelems),
-                                            (nelems / 2, nelems, nelems, nelems)])
+                                            (nelems // 2, nelems, nelems, nelems)])
     def set(cls, request):
         return op2.Set(request.param, 'set')
 

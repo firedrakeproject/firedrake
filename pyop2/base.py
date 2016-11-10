@@ -2070,7 +2070,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         ops = {operator.add: ast.Sum,
                operator.sub: ast.Sub,
                operator.mul: ast.Prod,
-               operator.div: ast.Div}
+               operator.truediv: ast.Div}
         ret = _make_object('Dat', self.dataset, None, self.dtype)
         name = "binop_%s" % op.__name__
         if np.isscalar(other):
@@ -2110,7 +2110,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         ops = {operator.iadd: ast.Incr,
                operator.isub: ast.Decr,
                operator.imul: ast.IMul,
-               operator.idiv: ast.IDiv}
+               operator.itruediv: ast.IDiv}
         name = "iop_%s" % op.__name__
         if np.isscalar(other):
             other = _make_object('Global', 1, data=other)
@@ -2226,9 +2226,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         self.__rmul__(other) <==> other * self."""
         return self.__mul__(other)
 
-    def __div__(self, other):
+    def __truediv__(self, other):
         """Pointwise division or scaling of fields."""
-        return self._op(other, operator.div)
+        return self._op(other, operator.truediv)
+
+    __div__ = __truediv__  # Python 2 compatibility
 
     def __iadd__(self, other):
         """Pointwise addition of fields."""
@@ -2242,9 +2244,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """Pointwise multiplication or scaling of fields."""
         return self._iop(other, operator.imul)
 
-    def __idiv__(self, other):
+    def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
-        return self._iop(other, operator.idiv)
+        return self._iop(other, operator.itruediv)
+
+    __idiv__ = __itruediv__  # Python 2 compatibility
 
     @collective
     def halo_exchange_begin(self, reverse=False):

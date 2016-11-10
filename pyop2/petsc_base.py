@@ -608,7 +608,7 @@ class MatBlock(base.Mat):
 
     @property
     def nbytes(self):
-        return self._parent.nbytes / (np.prod(self.sparsity.shape))
+        return self._parent.nbytes // (np.prod(self.sparsity.shape))
 
     def __repr__(self):
         return "MatBlock(%r, %r, %r)" % (self._parent, self._i, self._j)

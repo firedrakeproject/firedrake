@@ -48,7 +48,7 @@ nelems = 4096
 
 @pytest.fixture(params=[(nelems, nelems, nelems, nelems),
                         (0, nelems, nelems, nelems),
-                        (nelems / 2, nelems, nelems, nelems)])
+                        (nelems // 2, nelems, nelems, nelems)])
 @pytest.fixture
 def iterset(request):
     return op2.Set(request.param, "iterset")
@@ -155,7 +155,7 @@ class TestIndirectLoop:
 
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"),
                      iterset, x(op2.RW, iterset2indset[0]))
-        assert sum(x.data) == nelems * (nelems + 1) / 2
+        assert sum(x.data) == nelems * (nelems + 1) // 2
 
     def test_indirect_inc(self, iterset, unitset, iterset2unitset):
         """Sum into a scalar Dat with op2.INC."""
@@ -175,7 +175,7 @@ class TestIndirectLoop:
                      iterset,
                      x(op2.RW, iterset2indset[0]),
                      g(op2.READ))
-        assert sum(x.data) == sum(map(lambda v: v / 2, range(nelems)))
+        assert sum(x.data) == sum(map(lambda v: v // 2, range(nelems)))
 
     def test_global_inc(self, iterset, x, iterset2indset):
         """Increment each value of a Dat by one and a Global at the same time."""
@@ -190,8 +190,8 @@ class TestIndirectLoop:
             op2.Kernel(kernel_global_inc, "kernel_global_inc"), iterset,
             x(op2.RW, iterset2indset[0]),
             g(op2.INC))
-        assert sum(x.data) == nelems * (nelems + 1) / 2
-        assert g.data[0] == nelems * (nelems + 1) / 2
+        assert sum(x.data) == nelems * (nelems + 1) // 2
+        assert g.data[0] == nelems * (nelems + 1) // 2
 
     def test_2d_dat(self, iterset, iterset2indset, x2):
         """Set both components of a vector-valued Dat to a scalar value."""

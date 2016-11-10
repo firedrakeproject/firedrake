@@ -45,7 +45,7 @@ def _seed():
     return 0.02041724
 
 nnodes = 4096
-nele = nnodes / 2
+nele = nnodes // 2
 
 
 @pytest.fixture(scope='module')

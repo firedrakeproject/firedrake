@@ -44,8 +44,8 @@ nelems = 4096
 
 @pytest.fixture(params=[(nelems, nelems, nelems, nelems),
                         (0, nelems, nelems, nelems),
-                        (nelems / 2, nelems, nelems, nelems),
-                        (0, nelems/2, nelems, nelems)])
+                        (nelems // 2, nelems, nelems, nelems),
+                        (0, nelems//2, nelems, nelems)])
 def elems(request):
     return op2.Set(request.param, "elems")
 
@@ -110,9 +110,9 @@ class TestDirectLoop:
         op2.par_loop(op2.Kernel(kernel_rw, "kernel_rw"),
                      elems, x(op2.RW))
         _nelems = elems.size
-        assert sum(x.data_ro) == _nelems * (_nelems + 1) / 2
+        assert sum(x.data_ro) == _nelems * (_nelems + 1) // 2
         if _nelems == nelems:
-            assert sum(x.data_ro_with_halos) == nelems * (nelems + 1) / 2
+            assert sum(x.data_ro_with_halos) == nelems * (nelems + 1) // 2
 
     def test_global_inc(self, elems, x, g):
         """Increment each value of a Dat by one and a Global at the same time."""
@@ -122,7 +122,7 @@ class TestDirectLoop:
         op2.par_loop(op2.Kernel(kernel_global_inc, "kernel_global_inc"),
                      elems, x(op2.RW), g(op2.INC))
         _nelems = elems.size
-        assert g.data[0] == _nelems * (_nelems + 1) / 2
+        assert g.data[0] == _nelems * (_nelems + 1) // 2
 
     def test_global_inc_init_not_zero(self, elems, g):
         """Increment a global initialized with a non-zero value."""
@@ -190,7 +190,7 @@ class TestDirectLoop:
         op2.par_loop(op2.Kernel(kernel_global_read, "kernel_global_read"),
                      elems, x(op2.RW), h(op2.READ))
         _nelems = elems.size
-        assert sum(x.data_ro) == _nelems * (_nelems + 1) / 2
+        assert sum(x.data_ro) == _nelems * (_nelems + 1) // 2
 
     def test_2d_dat(self, elems, y):
         """Set both components of a vector-valued Dat to a scalar value."""

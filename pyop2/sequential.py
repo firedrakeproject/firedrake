@@ -1065,7 +1065,7 @@ def wrapper_snippets(itspace, args,
             # Only adjust size if not flattening (in which case the buffer is extents*dat.dim)
             if not arg._flatten:
                 _buf_size = [sum([e*d for e, d in zip(_buf_size, _dat_size)])]
-                _loop_size = [_buf_size[i]/_dat_size[i] for i in range(len(_buf_size))]
+                _loop_size = [_buf_size[i]//_dat_size[i] for i in range(len(_buf_size))]
             else:
                 _buf_size = [sum(_buf_size)]
                 _loop_size = _buf_size
@@ -1113,7 +1113,7 @@ def wrapper_snippets(itspace, args,
                 _buf_offset, _buf_offset_decl = '', ''
             elif arg._is_dat:
                 dim = arg.data.split[i].cdim
-                loop_size = shape[0]*mult/dim
+                loop_size = shape[0]*mult//dim
                 _itspace_loops, _itspace_loop_close = itspace_loop(0, loop_size), '}'
                 _buf_offset_name = 'offset_%d[%s]' % (count, '%s')
                 _buf_offset_decl = 'int %s' % _buf_offset_name % loop_size

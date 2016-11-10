@@ -192,7 +192,7 @@ def dat_coords(dnode_set2):
     count = 0
     for k in range(0, nums[0]):
         coords_dat[count:count + layers * dofs[0][0]] = numpy.tile(
-            [(k / 2), k % 2], layers)
+            [(k // 2), k % 2], layers)
         count += layers * dofs[0][0]
     return op2.Dat(dnode_set2, coords_dat, numpy.float64, "coords")
 
@@ -362,7 +362,7 @@ void comp_vol(double A[1], double *x[], double *y[])
                      dat_coords(op2.READ, coords_map),
                      dat_field(op2.READ, field_map))
 
-        assert int(g.data[0]) == int((layers - 1) * 0.1 * (nelems / 2))
+        assert int(g.data[0]) == int((layers - 1) * 0.1 * (nelems // 2))
 
     def test_extruded_nbytes(self, dat_field):
         """Nbytes computes the number of bytes occupied by an extruded Dat."""

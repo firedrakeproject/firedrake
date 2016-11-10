@@ -402,8 +402,8 @@ class TestTiling:
 
     @pytest.mark.parametrize(('nu', 'ts'),
                              [(0, 1),
-                              (1, 1), (1, nelems/10), (1, nelems),
-                              (2, 1), (2, nelems/10), (2, nelems)])
+                              (1, 1), (1, nelems//10), (1, nelems),
+                              (2, 1), (2, nelems//10), (2, nelems)])
     def test_simple_tiling(self, ker_init, ker_reduce_ind_read, ker_write,
                            ker_write2d, iterset, indset, iterset2indset,
                            ix2, x, y, z, skip_greedy, nu, ts):
@@ -443,7 +443,7 @@ class TestTiling:
             op2.par_loop(op2.Kernel(ker_write, "ker_write"), iterset, x(op2.WRITE))
             op2.par_loop(op2.Kernel(ker_write2d, "ker_write2d"), indset, ix2(op2.WRITE))
             with loop_chain("tiling_war", mode='tile',
-                            tile_size=nelems/10, num_unroll=1, seed_loop=sl):
+                            tile_size=nelems//10, num_unroll=1, seed_loop=sl):
                 op2.par_loop(op2.Kernel(ker_ind_reduce, "ker_ind_reduce"),
                              indset, ix2(op2.INC), x(op2.READ, indset2iterset))
                 op2.par_loop(op2.Kernel(ker_reduce_ind_read, "ker_reduce_ind_read"),
@@ -454,7 +454,7 @@ class TestTiling:
 
     @pytest.mark.parametrize(('nu', 'ts', 'fs', 'sl'),
                              [(0, 1, (0, 5, 1), 0),
-                              (1, nelems/10, (0, 5, 1), 0)])
+                              (1, nelems//10, (0, 5, 1), 0)])
     def test_advanced_tiling(self, ker_init, ker_reduce_ind_read, ker_ind_reduce,
                              ker_write, ker_write2d, ker_inc, iterset, indset,
                              iterset2indset, indset2iterset, ix2, y, z, skip_greedy,
@@ -497,7 +497,7 @@ class TestTiling:
             op2.par_loop(op2.Kernel(ker_write, "ker_write"), iterset, y(op2.WRITE))
             op2.par_loop(op2.Kernel(ker_write, "ker_write"), bigiterset, bigx(op2.WRITE))
             op2.par_loop(op2.Kernel(ker_write, "ker_write"), indset, ix(op2.WRITE))
-            with loop_chain("tiling_acyclic_raw", mode='tile', tile_size=nelems/10,
+            with loop_chain("tiling_acyclic_raw", mode='tile', tile_size=nelems//10,
                             num_unroll=1, seed_loop=sl, ignore_war=True):
                 op2.par_loop(op2.Kernel(ker_ind_inc, 'ker_ind_inc'), bigiterset,
                              x(op2.INC, bigiterset2iterset), bigx(op2.READ))
