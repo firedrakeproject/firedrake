@@ -36,6 +36,8 @@ information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
 from __future__ import absolute_import, print_function, division
+from six import iteritems
+from six.moves import map, zip
 
 from contextlib import contextmanager
 import itertools
@@ -2893,9 +2895,6 @@ class Map(object):
         """This is not a mixed type and therefore of length 1."""
         return 1
 
-    def __getslice__(self, i, j):
-        raise NotImplementedError("Slicing maps is not currently implemented")
-
     @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Map`"""
@@ -3443,7 +3442,7 @@ class Sparsity(ObjectCached):
         sparsity. Similarly, the toset of all the maps which appear
         second must be common and will form the column :class:`Set` of
         the ``Sparsity``."""
-        return zip(self._rmaps, self._cmaps)
+        return list(zip(self._rmaps, self._cmaps))
 
     @cached_property
     def cmaps(self):
@@ -4212,7 +4211,7 @@ class ParLoop(LazyComputation):
         for arg in self.global_reduction_args:
             arg.reduction_end(self.comm)
         # Finalise global increments
-        for i, glob in self._reduced_globals.iteritems():
+        for i, glob in iteritems(self._reduced_globals):
             # These can safely access the _data member directly
             # because lazy evaluation has ensured that any pending
             # updates to glob happened before this par_loop started

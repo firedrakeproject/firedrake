@@ -34,6 +34,7 @@
 """Common utility classes/functions."""
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import os
 import sys
@@ -270,7 +271,7 @@ def parser(description=None, group=False):
         'pyop2', 'backend configuration options') if group else parser
 
     g.add_argument('-d', '--debug', default=argparse.SUPPRESS,
-                   type=int, choices=range(8),
+                   type=int, choices=list(range(8)),
                    help='set debug level' if group else 'set pyop2 debug level')
     g.add_argument('-l', '--log-level', default='WARN',
                    choices=['CRITICAL', 'ERROR', 'WARN', 'INFO', 'DEBUG'],

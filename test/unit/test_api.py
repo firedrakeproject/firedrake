@@ -1555,11 +1555,6 @@ class TestMapAPI:
         "Indexing a map should create an appropriate Arg"
         assert m_iterset_toset[0].idx == 0
 
-    def test_map_slicing(self, m_iterset_toset):
-        "Slicing a map is not allowed"
-        with pytest.raises(NotImplementedError):
-            m_iterset_toset[:]
-
     def test_map_eq(self, m_iterset_toset):
         """Map equality is identity."""
         mcopy = op2.Map(m_iterset_toset.iterset, m_iterset_toset.toset,

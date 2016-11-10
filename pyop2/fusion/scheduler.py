@@ -38,6 +38,7 @@ returning, for example, [L0, L1',L3] and L' = S2([L0, L1', L3]) = [L0, L1''].
 Different scheduling functions may implement different loop fusion strategies."""
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range, zip
 
 from copy import deepcopy as dcopy, copy as scopy
 import numpy as np
@@ -105,7 +106,7 @@ class FusionSchedule(Schedule):
 
         # Track the /ParLoop/s in the loop chain that each fused kernel maps to
         offsets = [0] + list(offsets)
-        loop_indices = [range(offsets[i], o) for i, o in enumerate(offsets[1:])]
+        loop_indices = [list(range(offsets[i], o)) for i, o in enumerate(offsets[1:])]
         self._info = [{'loop_indices': li} for li in loop_indices]
 
     def _combine(self, loop_chain):

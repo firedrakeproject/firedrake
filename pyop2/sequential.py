@@ -33,6 +33,7 @@
 
 """OP2 sequential backend."""
 from __future__ import absolute_import, print_function, division
+from six.moves import range, zip
 
 import os
 import ctypes
@@ -1222,7 +1223,7 @@ def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrap
         snippets['extr_pos_loop'] = ""
 
     snippets['wrapper_fargs'] = "".join("{1} farg{0}, ".format(i, arg) for i, arg in enumerate(forward_args))
-    snippets['kernel_fargs'] = "".join("farg{0}, ".format(i) for i in xrange(len(forward_args)))
+    snippets['kernel_fargs'] = "".join("farg{0}, ".format(i) for i in range(len(forward_args)))
 
     template = """static inline void %(wrapper_name)s(%(wrapper_fargs)s%(wrapper_args)s%(nlayers_arg)s, int cell)
 {
