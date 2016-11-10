@@ -449,7 +449,7 @@ def compile_slate_expression(slate_expr, testing=False):
 
     klist.append(kernel)
     kernelast = ast.Node(klist)
-    inc.append('%s/include/eigen3' % sys.prefix)
+    inc.append('%s/lib/python2.7/site-packages/petsc/include/eigen3/' % sys.prefix)
 
     # Produce the op2 kernel object for assembly
     op2kernel = firedrake.op2.Kernel(kernelast,
