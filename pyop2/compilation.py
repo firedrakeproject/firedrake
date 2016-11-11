@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, print_function, division
+import six
 from six.moves import input
 
 import os
@@ -93,12 +94,12 @@ class Compiler(object):
         library."""
 
         # Determine cache key
-        hsh = md5(src)
-        hsh.update(self._cc)
+        hsh = md5(six.b(src))
+        hsh.update(six.b(self._cc))
         if self._ld:
-            hsh.update(self._ld)
-        hsh.update("".join(self._cppargs))
-        hsh.update("".join(self._ldargs))
+            hsh.update(six.b(self._ld))
+        hsh.update(six.b("".join(self._cppargs)))
+        hsh.update(six.b("".join(self._ldargs)))
 
         basename = hsh.hexdigest()
 

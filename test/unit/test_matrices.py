@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range, zip
 
 import pytest
 import numpy as np
@@ -510,7 +511,7 @@ def mdat(mset):
 
 @pytest.fixture
 def mvdat(mset):
-    return op2.MixedDat(op2.Dat(s ** 2, zip(rdata(s.size), rdata(s.size))) for s in mset)
+    return op2.MixedDat(op2.Dat(s ** 2, list(zip(rdata(s.size), rdata(s.size)))) for s in mset)
 
 
 @pytest.fixture
@@ -616,7 +617,7 @@ class TestMatrices:
         "Set the diagonal of the entire matrix to 1.0"
         mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
         nrows = mat.sparsity.nrows
-        mat.set_local_diagonal_entries(range(nrows))
+        mat.set_local_diagonal_entries(list(range(nrows)))
         mat.assemble()
         assert (mat.values == np.identity(nrows * n)).all()
 
@@ -625,10 +626,10 @@ class TestMatrices:
         "Set the diagonal of the entire matrix to 1.0"
         mat = op2.Mat(op2.Sparsity(nodes**n, elem_node), valuetype)
         nrows = mat.sparsity.nrows
-        mat.set_local_diagonal_entries(range(nrows))
+        mat.set_local_diagonal_entries(list(range(nrows)))
         mat.assemble()
         assert (mat.values == np.identity(nrows * n)).all()
-        mat.set_local_diagonal_entries(range(nrows))
+        mat.set_local_diagonal_entries(list(range(nrows)))
         mat.assemble()
         assert (mat.values == np.identity(nrows * n)).all()
 
@@ -662,7 +663,7 @@ class TestMatrices:
 
         nelems = 128
         set = op2.Set(nelems)
-        map = op2.Map(set, set, 1, np.array(range(nelems), np.uint32))
+        map = op2.Map(set, set, 1, np.array(list(range(nelems)), np.uint32))
         sparsity = op2.Sparsity((set, set), (map, map))
         mat = op2.Mat(sparsity, np.float64)
         kernel = op2.Kernel(zero_mat_code, "zero_mat")
@@ -885,11 +886,11 @@ class TestMatrixStateChanges:
             return flush
 
         oflush = mat._flush_assembly
-        mat._flush_assembly = types.MethodType(make_flush(oflush), mat, type(mat))
+        mat._flush_assembly = types.MethodType(make_flush(oflush), mat)
         if mat.sparsity.nested:
             for m in mat:
                 oflush = m._flush_assembly
-                m._flush_assembly = types.MethodType(make_flush(oflush), m, type(m))
+                m._flush_assembly = types.MethodType(make_flush(oflush), m)
 
         mat[0, 0].addto_values(0, 0, [1])
         mat._force_evaluation()
@@ -979,8 +980,8 @@ class TestMixedMatrices:
                      dat(op2.INC, mmap[op2.i[0]]),
                      mvdat(op2.READ, mmap))
         eps = 1.e-12
-        exp = np.kron(zip([1.0, 4.0, 6.0, 4.0]), np.ones(2))
-        assert_allclose(dat[0].data_ro, np.kron(zip(rdata(3)), np.ones(2)), eps)
+        exp = np.kron(list(zip([1.0, 4.0, 6.0, 4.0])), np.ones(2))
+        assert_allclose(dat[0].data_ro, np.kron(list(zip(rdata(3))), np.ones(2)), eps)
         assert_allclose(dat[1].data_ro, exp, eps)
 
     @pytest.mark.xfail(reason="Assembling directly into mixed mats unsupported")

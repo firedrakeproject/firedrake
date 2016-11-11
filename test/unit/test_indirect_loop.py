@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import pytest
 import numpy as np
@@ -71,18 +72,18 @@ def diterset(iterset):
 
 @pytest.fixture
 def x(indset):
-    return op2.Dat(indset, range(nelems), np.uint32, "x")
+    return op2.Dat(indset, list(range(nelems)), np.uint32, "x")
 
 
 @pytest.fixture
 def x2(indset):
-    return op2.Dat(indset ** 2, np.array([range(nelems), range(nelems)],
+    return op2.Dat(indset ** 2, np.array([list(range(nelems)), list(range(nelems))],
                    dtype=np.uint32), np.uint32, "x2")
 
 
 @pytest.fixture
 def mapd():
-    mapd = range(nelems)
+    mapd = list(range(nelems))
     random.shuffle(mapd, lambda: 0.02041724)
     return mapd
 

@@ -35,6 +35,7 @@
 User API Unit Tests
 """
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import pytest
 import numpy as np
@@ -412,7 +413,7 @@ class TestSubsetAPI:
     def test_out_of_bounds_index(self, set):
         "The subset constructor checks indices are correct."
         with pytest.raises(exceptions.SubsetIndexOutOfBounds):
-            op2.Subset(set, range(set.total_size + 1))
+            op2.Subset(set, list(range(set.total_size + 1)))
 
     def test_invalid_index(self, set):
         "The subset constructor checks indices are correct."
@@ -447,9 +448,9 @@ class TestSubsetAPI:
     def test_indices_sorted(self, set):
         "The subset constructor sorts indices)"
         ss = op2.Subset(set, [0, 4, 1, 2, 3])
-        assert_equal(ss.indices, range(5))
+        assert_equal(ss.indices, list(range(5)))
 
-        ss2 = op2.Subset(set, range(5))
+        ss2 = op2.Subset(set, list(range(5)))
         assert_equal(ss.indices, ss2.indices)
 
 
@@ -704,7 +705,7 @@ class TestMixedDataSetAPI:
         """Constructing a MixedDataSet from an iterable/iterator of Sets and a
         MixedSet with mismatching number of dims should raise ValueError."""
         with pytest.raises(ValueError):
-            op2.MixedDataSet(msets, range(1, len(sets)))
+            op2.MixedDataSet(msets, list(range(1, len(sets))))
 
     def test_mixed_dset_getitem(self, mdset):
         "MixedDataSet should return the corresponding DataSet when indexed."
@@ -891,30 +892,6 @@ class TestDatAPI:
         assert d.dataset.set == dset.set and d.dtype == np.float64 and \
             d.name == 'bar' and d.data.sum() == dset.size * dset.cdim
 
-    def test_dat_eq(self, dset):
-        """Dats should compare equal if defined on the same DataSets and
-        having the same data."""
-        assert op2.Dat(dset) == op2.Dat(dset)
-        assert not op2.Dat(dset) != op2.Dat(dset)
-
-    def test_dat_ne_dset(self):
-        """Dats should not compare equal if defined on different DataSets."""
-        assert op2.Dat(op2.Set(3)) != op2.Dat(op2.Set(3))
-        assert not op2.Dat(op2.Set(3)) == op2.Dat(op2.Set(3))
-
-    def test_dat_ne_dtype(self, dset):
-        """Dats should not compare equal when having data of different
-        dtype."""
-        assert op2.Dat(dset, dtype=np.int64) != op2.Dat(dset, dtype=np.float64)
-        assert not op2.Dat(dset, dtype=np.int64) == op2.Dat(dset, dtype=np.float64)
-
-    def test_dat_ne_data(self, dset):
-        """Dats should not compare equal when having different data."""
-        d1, d2 = op2.Dat(dset), op2.Dat(dset)
-        d1.data[0] = -1.0
-        assert d1 != d2
-        assert not d1 == d2
-
     def test_dat_iter(self, dat):
         "Dat should be iterable and yield self."
         for d in dat:
@@ -996,12 +973,6 @@ class TestMixedDatAPI:
     def test_mixed_dat_upcast_sets(self, mset):
         "Constructing a MixedDat from an iterable of Sets should upcast."
         assert op2.MixedDat(mset).dataset == op2.MixedDataSet(mset)
-
-    def test_mixed_dat_sets_dsets_dats(self, set, dset):
-        """Constructing a MixedDat from an iterable of Sets, DataSets and
-        Dats should upcast as necessary."""
-        dat = op2.Dat(op2.Set(3) ** 2)
-        assert op2.MixedDat((set, dset, dat)).split == (op2.Dat(set), op2.Dat(dset), dat)
 
     def test_mixed_dat_getitem(self, mdat):
         "MixedDat should return the corresponding Dat when indexed."
@@ -1187,7 +1158,7 @@ class TestSparsityAPI:
         "Sparsity constructor should accept maps with different iteration sets"
         maps = ((m_iterset_toset, m_iterset_toset), (mi, mi))
         s = op2.Sparsity((di, di), maps, "foo")
-        assert s.maps == list(sorted(maps)) and s.dims[0][0] == (1, 1)
+        assert frozenset(s.maps) == frozenset(maps) and s.dims[0][0] == (1, 1)
 
     def test_sparsity_map_pairs_sorted(self, mi, di, dd, m_iterset_toset):
         "Sparsity maps should have a deterministic order."
@@ -1438,21 +1409,6 @@ class TestGlobalAPI:
         "Setter attribute should reject malformed data."
         with pytest.raises(exceptions.DataValueError):
             g.data = [1, 2]
-
-    def test_global_eq(self):
-        "Globals should compare equal when having the same dim and data."
-        assert op2.Global(1, [1.0]) == op2.Global(1, [1.0])
-        assert not op2.Global(1, [1.0]) != op2.Global(1, [1.0])
-
-    def test_global_ne_dim(self):
-        "Globals should not compare equal when having different dims."
-        assert op2.Global(1) != op2.Global(2)
-        assert not op2.Global(1) == op2.Global(2)
-
-    def test_global_ne_data(self):
-        "Globals should not compare equal when having different data."
-        assert op2.Global(1, [1.0]) != op2.Global(1, [2.0])
-        assert not op2.Global(1, [1.0]) == op2.Global(1, [2.0])
 
     def test_global_iter(self, g):
         "Global should be iterable and yield self."

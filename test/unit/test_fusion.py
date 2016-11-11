@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import pytest
 import numpy as np
@@ -73,56 +74,56 @@ def diterset(iterset):
 
 @pytest.fixture
 def x(iterset):
-    return op2.Dat(iterset, range(nelems), np.uint32, "x")
+    return op2.Dat(iterset, list(range(nelems)), np.uint32, "x")
 
 
 @pytest.fixture
 def y(iterset):
-    return op2.Dat(iterset, range(nelems), np.uint32, "y")
+    return op2.Dat(iterset, list(range(nelems)), np.uint32, "y")
 
 
 @pytest.fixture
 def z(iterset):
-    return op2.Dat(iterset, range(nelems), np.uint32, "z")
+    return op2.Dat(iterset, list(range(nelems)), np.uint32, "z")
 
 
 @pytest.fixture
 def ix(indset):
-    return op2.Dat(indset, range(nelems), np.uint32, "ix")
+    return op2.Dat(indset, list(range(nelems)), np.uint32, "ix")
 
 
 @pytest.fixture
 def iy(indset):
-    return op2.Dat(indset, range(nelems), np.uint32, "iy")
+    return op2.Dat(indset, list(range(nelems)), np.uint32, "iy")
 
 
 @pytest.fixture
 def x2(iterset):
-    return op2.Dat(iterset ** 2, np.array([range(nelems), range(nelems)],
+    return op2.Dat(iterset ** 2, np.array([list(range(nelems)), list(range(nelems))],
                    dtype=np.uint32), np.uint32, "x2")
 
 
 @pytest.fixture
 def ix2(indset):
-    return op2.Dat(indset ** 2, np.array([range(nelems), range(nelems)],
+    return op2.Dat(indset ** 2, np.array([list(range(nelems)), list(range(nelems))],
                    dtype=np.uint32), np.uint32, "ix2")
 
 
 @pytest.fixture
 def bigx(bigiterset):
-    return op2.Dat(bigiterset, range(2*nelems), np.uint32, "bigx")
+    return op2.Dat(bigiterset, list(range(2*nelems)), np.uint32, "bigx")
 
 
 @pytest.fixture
 def mapd():
-    mapd = range(nelems)
+    mapd = list(range(nelems))
     random.shuffle(mapd, lambda: 0.02041724)
     return mapd
 
 
 @pytest.fixture
 def mapd2():
-    mapd = range(nelems)
+    mapd = list(range(nelems))
     random.shuffle(mapd, lambda: 0.03345714)
     return mapd
 
@@ -147,7 +148,7 @@ def bigiterset2indset(bigiterset, indset, mapd):
 
 @pytest.fixture
 def bigiterset2iterset(bigiterset, iterset):
-    u_map = np.array(np.concatenate((range(nelems), range(nelems))), dtype=np.uint32)
+    u_map = np.array(np.concatenate((list(range(nelems)), list(range(nelems)))), dtype=np.uint32)
     return op2.Map(bigiterset, iterset, 1, u_map, "bigiterset2iterset")
 
 

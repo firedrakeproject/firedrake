@@ -254,12 +254,6 @@ def flatten(iterable):
     return (x for e in iterable for x in e)
 
 
-def uniquify(iterable):
-    """Remove duplicates in given iterable, preserving order."""
-    uniq = set()
-    return (x for x in iterable if x not in uniq and (uniq.add(x) or True))
-
-
 def parser(description=None, group=False):
     """Create default argparse.ArgumentParser parser for pyop2 programs."""
     parser = argparse.ArgumentParser(description=description,
