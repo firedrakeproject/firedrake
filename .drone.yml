@@ -64,3 +64,5 @@ pipeline:
     image: plugins/slack
     channel: drone
     user: drone
+    when:
+      status: [ success, failure ]
