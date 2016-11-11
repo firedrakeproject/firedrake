@@ -59,3 +59,8 @@ pipeline:
       - cd ../dolfin-adjoint
       - sudo -EHu firedrake env PATH="$PATH" py.test -v tests_firedrake/
 
+  # Slack notification
+  slack:
+    image: plugins/slack
+    channel: drone
+    user: drone
