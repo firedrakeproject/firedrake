@@ -1244,7 +1244,7 @@ def Mesh(meshfile, **kwargs):
         coordinates_fs = functionspace.VectorFunctionSpace(self.topology, "Lagrange", 1,
                                                            dim=geometric_dim)
 
-        coordinates_data = dmplex.reordered_coords(plex, coordinates_fs._dm.getDefaultSection(),
+        coordinates_data = dmplex.reordered_coords(plex, coordinates_fs.dm.getDefaultSection(),
                                                    (self.num_vertices(), geometric_dim))
 
         coordinates = function.CoordinatelessFunction(coordinates_fs,

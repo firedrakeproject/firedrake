@@ -2,6 +2,7 @@ from distutils.core import setup
 from distutils.extension import Extension
 from glob import glob
 from os import environ as env, path
+import os
 import sys
 import numpy as np
 import petsc4py
@@ -30,6 +31,14 @@ http://firedrakeproject.org/obtaining_pyop2.html#petsc
 import versioneer
 
 cmdclass = versioneer.get_cmdclass()
+
+if "clean" in sys.argv[1:]:
+    # Forcibly remove the results of Cython.
+    for dirname, dirs, files in os.walk("firedrake"):
+        for f in files:
+            base, ext = os.path.splitext(f)
+            if ext in (".c", ".cpp", ".so") and base + ".pyx" in files:
+                os.remove(os.path.join(dirname, f))
 
 try:
     from Cython.Distutils import build_ext
@@ -62,7 +71,7 @@ setup(name='firedrake',
       author_email="firedrake@imperial.ac.uk",
       url="http://firedrakeproject.org",
       packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter",
-                "firedrake.matrix_free"],
+                "firedrake.matrix_free", "firedrake_configuration"],
       package_data={"firedrake": ["firedrake_geometry.h",
                                   "evaluate.h",
                                   "locate.c",

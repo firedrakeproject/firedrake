@@ -1,5 +1,6 @@
 import pytest
 from os.path import abspath, basename, dirname, join, splitext
+import os
 import subprocess
 import glob
 import sys
@@ -15,6 +16,13 @@ pylit = join(cwd, "..", "..", "pylit", "pylit.py")
                 ids=lambda x: basename(x))
 def rst_file(request):
     return abspath(request.param)
+
+
+@pytest.fixture
+def env():
+    env = os.environ.copy()
+    env["MPLBACKEND"] = "pdf"
+    return env
 
 
 @pytest.fixture
@@ -41,8 +49,8 @@ def py_file(rst_file, tmpdir, monkeypatch):
     return output
 
 
-def test_demo_runs(py_file):
-    subprocess.check_call([sys.executable, py_file])
+def test_demo_runs(py_file, env):
+    subprocess.check_call([sys.executable, py_file], env=env)
 
 
 if __name__ == "__main__":

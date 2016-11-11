@@ -10,7 +10,7 @@ lint:
 	@echo "    Linting firedrake test suite"
 	@flake8 tests
 	@echo "    Linting firedrake scripts"
-	@flake8 scripts
+	@flake8 scripts --filename=*
 
 clean:
 	@echo "    Cleaning extension modules"

@@ -17,7 +17,7 @@ def _init():
     """Cause :func:`pyop2.init` to be called in case the user has not done it
     for themselves. The result of this is that the user need only call
     :func:`pyop2.init` if she wants to set a non-default option, for example
-    to switch the backend or the debug or log level."""
+    to switch the debug or log level."""
     from pyop2 import op2
     from firedrake.parameters import parameters
     if not op2.initialised():

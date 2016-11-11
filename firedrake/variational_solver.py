@@ -1,12 +1,12 @@
 from __future__ import absolute_import
-import weakref
+
 import ufl
 
-
+from firedrake import dmhooks
 from firedrake import solving_utils
 from firedrake import ufl_expr
+from firedrake import utils
 from firedrake.petsc import PETSc
-
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -65,15 +65,13 @@ class NonlinearVariationalProblem(object):
         self.form_compiler_parameters = form_compiler_parameters
         self._constant_jacobian = False
 
-    @property
+    @utils.cached_property
     def dm(self):
-        return self.u.function_space()._dm
+        return self.u.function_space().dm
 
 
-class NonlinearVariationalSolver(object):
+class NonlinearVariationalSolver(solving_utils.ParametersMixin):
     """Solves a :class:`NonlinearVariationalProblem`."""
-
-    _id = 0
 
     def __init__(self, problem, **kwargs):
         """
@@ -83,49 +81,46 @@ class NonlinearVariationalSolver(object):
                space of the operator.
         :kwarg transpose_nullspace: as for the nullspace, but used to
                make the right hand side consistent.
+        :kwarg near_nullspace: as for the nullspace, but used to
+               specify the near nullspace (for multigrid solvers).
         :kwarg solver_parameters: Solver parameters to pass to PETSc.
-            This should be a dict mapping PETSc options to values.  For
-            example, to set the nonlinear solver type to just use a linear
-            solver:
+               This should be a dict mapping PETSc options to values.
         :kwarg options_prefix: an optional prefix used to distinguish
                PETSc options.  If not provided a unique prefix will be
                created.  Use this option if you want to pass options
                to the solver from the command line in addition to
                through the ``solver_parameters`` dict.
 
+        Example usage of the ``solver_parameters`` option: to set the
+        nonlinear solver type to just use a linear solver, use
+
         .. code-block:: python
 
             {'snes_type': 'ksponly'}
 
-        PETSc flag options should be specified with `bool` values. For example:
+        PETSc flag options should be specified with `bool` values.
+        For example:
 
         .. code-block:: python
 
             {'snes_monitor': True}
+
         """
-        parameters, nullspace, nullspace_T, options_prefix = solving_utils._extract_kwargs(**kwargs)
-
-        # Do this first so __del__ doesn't barf horribly if we get an
-        # error in __init__
-        if options_prefix is not None:
-            self._opt_prefix = options_prefix
-            self._auto_prefix = False
-        else:
-            self._opt_prefix = 'firedrake_snes_%d_' % NonlinearVariationalSolver._id
-            self._auto_prefix = True
-            NonlinearVariationalSolver._id += 1
-
         assert isinstance(problem, NonlinearVariationalProblem)
 
-        # Allow command-line arguments to override dict parameters
-        opts = PETSc.Options()
-        for k, v in opts.getAll().iteritems():
-            if k.startswith(self._opt_prefix):
-                parameters[k[len(self._opt_prefix):]] = v
+        parameters = kwargs.get("solver_parameters")
+        if "parameters" in kwargs:
+            raise TypeError("Use solver_parameters, not parameters")
+        nullspace = kwargs.get("nullspace")
+        nullspace_T = kwargs.get("transpose_nullspace")
+        near_nullspace = kwargs.get("near_nullspace")
+        options_prefix = kwargs.get("options_prefix")
+
+        super(NonlinearVariationalSolver, self).__init__(parameters, options_prefix)
 
         # Allow anything, interpret "matfree" as matrix_free.
-        mat_type = parameters.get("mat_type")
-        pmat_type = parameters.get("pmat_type")
+        mat_type = self.parameters.get("mat_type")
+        pmat_type = self.parameters.get("pmat_type")
         matfree = mat_type == "matfree"
         pmatfree = pmat_type == "matfree"
 
@@ -136,66 +131,70 @@ class NonlinearVariationalSolver(object):
                                          pmat_type=pmat_type,
                                          appctx=appctx)
 
-        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
-
-        self.snes.setOptionsPrefix(self._opt_prefix)
-
         # No preconditioner by default for matrix-free
         if (problem.Jp is not None and pmatfree) or matfree:
-            parameters.setdefault("pc_type", "none")
+            self.set_default_parameter("pc_type", "none")
         elif ctx.is_mixed:
             # Mixed problem, use jacobi pc if user has not supplied
             # one.
-            parameters.setdefault("pc_type", "jacobi")
+            self.set_default_parameter("pc_type", "jacobi")
+
+        self.snes = PETSc.SNES().create(comm=problem.dm.comm)
 
         self._problem = problem
 
         self._ctx = ctx
+        self._work = type(problem.u)(problem.u.function_space())
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
         ctx.set_jacobian(self.snes)
         ctx.set_nullspace(nullspace, problem.J.arguments()[0].function_space()._ises,
-                          transpose=False)
+                          transpose=False, near=False)
         ctx.set_nullspace(nullspace_T, problem.J.arguments()[1].function_space()._ises,
-                          transpose=True)
+                          transpose=True, near=False)
+        ctx.set_nullspace(near_nullspace, problem.J.arguments()[0].function_space()._ises,
+                          transpose=False, near=True)
 
-        self.parameters = parameters
-
-    def __del__(self):
-        # Remove stuff from the options database
-        # It's fixed size, so if we don't it gets too big.
-        if self._auto_prefix and hasattr(self, '_opt_prefix'):
-            opts = PETSc.Options()
-            for k in self.parameters.iterkeys():
-                del opts[self._opt_prefix + k]
-            delattr(self, '_opt_prefix')
-
-    @property
-    def parameters(self):
-        return self._parameters
-
-    @parameters.setter
-    def parameters(self, val):
-        assert isinstance(val, dict), 'Must pass a dict to set parameters'
-        self._parameters = val
-        solving_utils.update_parameters(self, self.snes)
-
-    def solve(self):
+        # Set from options now, so that people who want to noodle with
+        # the snes object directly (mostly Patrick), can.  We need the
+        # DM with an app context in place so that if the DM is active
+        # on a subKSP the context is available.
         dm = self.snes.getDM()
-        dm.setAppCtx(weakref.proxy(self._ctx))
-        dm.setCreateMatrix(self._ctx.create_matrix)
+        dmhooks.set_appctx(dm, self._ctx)
+        self.set_from_options(self.snes)
 
+    def solve(self, bounds=None):
+        """Solve the variational problem.
+
+        :arg bounds: Optional bounds on the solution (lower, upper).
+            ``lower`` and ``upper`` must both be
+            :class:`~.Function`\s. or :class:`~.Vector`\s.
+
+        .. note::
+
+           If bounds are provided the ``snes_type`` must be set to
+           ``vinewtonssls`` or ``vinewtonrsls``.
+        """
+        # Make sure appcontext is attached to the DM before we solve.
+        dm = self.snes.getDM()
+        dmhooks.set_appctx(dm, self._ctx)
         # Apply the boundary conditions to the initial guess.
         for bc in self._problem.bcs:
             bc.apply(self._problem.u)
 
-        # User might have updated parameters dict before calling
-        # solve, ensure these are passed through to the snes.
-        solving_utils.update_parameters(self, self.snes)
-
-        with self._problem.u.dat.vec as v:
-            self.snes.solve(None, v)
+        if bounds is not None:
+            lower, upper = bounds
+            with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
+                self.snes.setVariableBounds(lb, ub)
+        work = self._work.dat
+        # Ensure options database has full set of options (so monitors work right)
+        with self.inserted_options():
+            with work.vec as v:
+                with self._problem.u.dat.vec as u:
+                    u.copy(v)
+                    self.snes.solve(None, v)
+                    v.copy(u)
 
         solving_utils.check_snes_convergence(self.snes)
 
