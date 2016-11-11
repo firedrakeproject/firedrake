@@ -123,7 +123,7 @@ class Transformer(Visitor):
         return ast.FunCall(ast.Symbol(name), *shape)
 
 
-def compile_slate_expression(slate_expr, testing=False):
+def compile_slate_expression(slate_expr):
     """Takes a SLATE expression `slate_expr` and returns the
     appropriate :class:`firedrake.op2.Kernel` object representing
     the SLATE expression.
@@ -140,8 +140,8 @@ def compile_slate_expression(slate_expr, testing=False):
 
     # SLATE currently does not support arguments in mixed function spaces
     # TODO: Implement something akin to a FormSplitter for SLATE tensors
-    # if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
-    #     raise NotImplementedError("Compiling mixed slate expressions")
+    if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
+        raise NotImplementedError("Compiling mixed slate expressions")
 
     # Initialize variables: dtype and dictionary objects.
     dtype = "double"
@@ -470,6 +470,4 @@ def compile_slate_expression(slate_expr, testing=False):
                        needs_cell_facets=need_cell_facets)
     idx = tuple([0]*len(slate_expr.arguments()))
 
-    if testing:
-        return coords, coeffs, need_cell_facets, op2kernel
     return (SplitKernel(idx, kinfo), )

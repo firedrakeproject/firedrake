@@ -17,16 +17,15 @@ def gen_mesh(cell):
         raise ValueError("%s cell  not recognized" % cell)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
 @pytest.mark.parametrize("cell", (interval,
                                   triangle,
                                   tetrahedron,
                                   quadrilateral))
-def test_cg_scalar_mass(degree, cell):
+def test_cg_scalar_mass(cell):
     """Assemble a mass matrix of a CG-element discretization
     and compare with the mass matrix defined in SLATE."""
     mesh = gen_mesh(cell)
-    V = FunctionSpace(mesh, "CG", degree)
+    V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     mass = u*v*dx
@@ -37,16 +36,15 @@ def test_cg_scalar_mass(degree, cell):
     assert np.allclose(A.M.values, ref.M.values)
 
 
-@pytest.mark.parametrize("degree", range(0, 4))
 @pytest.mark.parametrize("cell", (interval,
                                   triangle,
                                   tetrahedron,
                                   quadrilateral))
-def test_dg_scalar_mass(degree, cell):
+def test_dg_scalar_mass(cell):
     """Assemble a mass matrix of a DG-element discretization
     and compare with the mass matrix defined in SLATE."""
     mesh = gen_mesh(cell)
-    V = FunctionSpace(mesh, "DG", degree)
+    V = FunctionSpace(mesh, "DG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     mass = u*v*dx
@@ -57,19 +55,18 @@ def test_dg_scalar_mass(degree, cell):
     assert np.allclose(A.M.values, ref.M.values)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
 @pytest.mark.parametrize("cell", (triangle,
                                   tetrahedron))
 @pytest.mark.parametrize("fe_family", ("RT",
                                        "BDM",
                                        "N1curl",
                                        "N2curl"))
-def test_vector_cg_mass(degree, cell, fe_family):
+def test_vector_family_mass(cell, fe_family):
     """Assemble a mass matrix of a vector-valued element
     family defined on simplices. Compare Firedrake assembled
     mass with SLATE assembled mass."""
     mesh = gen_mesh(cell)
-    V = FunctionSpace(mesh, fe_family, degree)
+    V = FunctionSpace(mesh, fe_family, 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     mass = dot(u, v)*dx
@@ -80,19 +77,18 @@ def test_vector_cg_mass(degree, cell, fe_family):
     assert np.allclose(A.M.values, ref.M.values)
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
 @pytest.mark.parametrize("cell", (triangle,
                                   tetrahedron))
 @pytest.mark.parametrize("fe_family", ("RT",
                                        "BDM",
                                        "N1curl",
                                        "N2curl"))
-def test_broken_mass(degree, cell, fe_family):
+def test_broken_vector_family_mass(cell, fe_family):
     """Tests mass of a broken vector-valued element
     family defined on simplices. Compare Firedrake
     assembled mass with SLATE assembled mass."""
     mesh = gen_mesh(cell)
-    element = FiniteElement(fe_family, cell, degree)
+    element = FiniteElement(fe_family, cell, 1)
     V = FunctionSpace(mesh, BrokenElement(element))
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -104,15 +100,14 @@ def test_broken_mass(degree, cell, fe_family):
     assert np.allclose(A.M.values, ref.M.values)
 
 
-@pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("fe_family", ("RTCE",
                                        "RTCF"))
-def test_vector_mass_on_quads(degree, fe_family):
+def test_RT_mass_on_quads(fe_family):
     """Tests mass of a vector-valued element
     family defined on quadrilaterals. Compare Firedrake
     assembled mass with SLATE assembled mass."""
     mesh = gen_mesh(quadrilateral)
-    V = FunctionSpace(mesh, fe_family, degree)
+    V = FunctionSpace(mesh, fe_family, 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     mass = dot(u, v)*dx
@@ -123,15 +118,14 @@ def test_vector_mass_on_quads(degree, fe_family):
     assert np.allclose(A.M.values, ref.M.values)
 
 
-@pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("fe_family", ("RTCE",
                                        "RTCF"))
-def test_broken_hdiv_quad_mass(degree, fe_family):
+def test_broken_RT_quad_mass(fe_family):
     """Tests mass of a broken vector-valued element
     family defined on quadrilaterals. Compare Firedrake
     assembled mass with SLATE assembled mass."""
     mesh = gen_mesh(quadrilateral)
-    element = FiniteElement(fe_family, quadrilateral, degree)
+    element = FiniteElement(fe_family, quadrilateral, 1)
     V = FunctionSpace(mesh, BrokenElement(element))
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -143,12 +137,11 @@ def test_broken_hdiv_quad_mass(degree, fe_family):
     assert np.allclose(A.M.values, ref.M.values)
 
 
-@pytest.mark.parametrize("degree", range(1, 3))
 @pytest.mark.parametrize("fe_family", ("NCE",
                                        "NCF"))
-def test_curl_mass_on_quads(degree, fe_family):
+def test_curl_mass_on_quads(fe_family):
     mesh = ExtrudedMesh(gen_mesh(quadrilateral), 1)
-    V = FunctionSpace(mesh, fe_family, degree)
+    V = FunctionSpace(mesh, fe_family, 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     mass = dot(u, v)*dx
@@ -157,3 +150,8 @@ def test_curl_mass_on_quads(degree, fe_family):
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

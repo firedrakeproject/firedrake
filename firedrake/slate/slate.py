@@ -169,20 +169,17 @@ class Tensor(object):
     def equals(self, other):
         """Evaluates the boolean expression `A == B`."""
 
-        if type(other) != Tensor:
+        if not isinstance(other, Tensor):
             return False
-        if len(self._arguments) != len(other._arguments):
+        if len(self.arguments()) != len(other.arguments()):
             return False
-        if len(self._coefficients) != len(other._coefficients):
+        if len(self.coefficients()) != len(other.coefficients()):
             return False
         if len(self._integrals) != len(other._integrals):
             return False
-        if hash(self) != hash(other):
-            return False
-        # TODO: Is this sufficient/correct?
-        return all(a == b for a, b in zip(self._arguments, other._arguments) and
-                   c == d for c, d in zip(self._coefficients, other._coefficients) and
-                   e == f for e, f in zip(self._integrals, other._integrals))
+        return (self._arguments == other._arguments and
+                self._coefficients == other._coefficients and
+                self._integrals == other._integrals)
 
     def __ne__(self, other):
         return not self.equals(other)
@@ -366,7 +363,7 @@ class Scalar(Tensor):
         self.check_integrals(form.integrals())
         Tensor.tensor_id += 1
         super(Scalar, self).__init__(arguments=(),
-                                     coefficients=form.coefficents(),
+                                     coefficients=form.coefficients(),
                                      integrals=form.integrals())
 
     def __str__(self, prec=None):

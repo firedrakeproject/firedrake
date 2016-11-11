@@ -1,0 +1,123 @@
+"""Solve a mixed Helmholtz problem
+
+sigma + grad(u) = 0,
+u + div(sigma) = f,
+u = 0 on boundary,
+
+using hybridisation with SLATE performing the forward elimination.
+The corresponding finite element variational problem:
+
+<tau, sigma> - <div(tau), u> + <<[tau.n], lambda>> = 0 for all tau
+<v, u> + <v, div(sigma)> = <v, f> for all v
+<<gamma, [sigma.n]>> = 0 for all gamma
+
+is solved using broken Raviart-Thomas elements of degree k for
+(sigma, tau), discontinuous Galerkin elements of degree k - 1
+for (u, v), and HDiv-Trace elements of degree k - 1 for (lambda, gamma).
+
+The forcing function is chosen as:
+
+(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2),
+
+which reproduces the known analytical solution:
+
+sin(x[0]*pi*2)*sin(x[1]*pi*2)
+"""
+
+
+import pytest
+from firedrake import *
+
+
+@pytest.mark.parametrize("degree", range(1, 4))
+def test_slate_hybridization(degree):
+    # Create a mesh
+    mesh = UnitSquareMesh(8, 8)
+
+    # Create mesh normal
+    n = FacetNormal(mesh)
+
+    # Define relevant function spaces
+    RT = FiniteElement("RT", triangle, degree)
+    BRT = FunctionSpace(mesh, BrokenElement(RT))
+    DG = FunctionSpace(mesh, "DG", degree - 1)
+    T = FunctionSpace(mesh, "HDiv Trace", degree - 1)
+
+    W = BRT * DG
+
+    # Define the trial and test functions
+    sigma, u = TrialFunctions(W)
+    lambdar = TrialFunction(T)
+    tau, v = TestFunctions(W)
+    gammar = TestFunction(T)
+
+    # Define the source function
+    f = Function(DG)
+    f.interpolate(Expression("(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
+
+    # Define finite element variational forms
+    Mass_v = dot(sigma, tau) * dx
+    Mass_p = u * v * dx
+    Div = div(sigma) * v * dx
+    Div_adj = div(tau) * u * dx
+    local_trace = gammar('+') * dot(sigma, n) * dS
+    L = f * v * dx
+
+    # Enforce homogeneous Dirichlet boundary conditions
+    bcs = DirichletBC(T, Constant(0.0), (1, 2, 3, 4))
+
+    # Perform the Schur-complement with SLATE expressions
+    A = slate.Matrix(Mass_v + Mass_p + Div - Div_adj)
+    K = slate.Matrix(local_trace)
+    Schur = -K * A.inv * K.T
+
+    F = slate.Vector(L)
+    RHS = -K * A.inv * F
+
+    S = assemble(Schur, bcs=bcs)
+    E = assemble(RHS)
+
+    # Solve the reduced system for the Lagrange multipliers
+    lambda_sol = Function(T)
+    solve(S, lambda_sol, E, solver_parameters={'pc_type': 'lu',
+                                               'ksp_type': 'cg'})
+
+    # Now we assemble the global system for the velocities and pressures
+    # and use the multipliers to reconstruct the two unknowns
+    global_trace = jump(tau, n=n) * lambdar('+') * dS
+    R = assemble(L - action(global_trace, lambda_sol))
+    A_o = assemble(Mass_v + Mass_p + Div - Div_adj, mat_type='aij')
+    solution = Function(W)
+    solve(A_o, solution, R, solver_parameters={'ksp_type': 'preonly',
+                                               'pc_type': 'lu'})
+    sigma_h, u_h = solution.split()
+
+    # Now we compare the hybridized solution to the non-hybridized computation
+    V = FunctionSpace(mesh, "RT", degree)
+    W2 = V * DG
+    sigma, u = TrialFunctions(W2)
+    tau, v = TestFunctions(W2)
+    ref = Function(W2)
+    a = dot(sigma, tau) * dx - div(tau) * u * dx + u * v * dx + v * div(sigma) * dx
+    l = f * v * dx
+    # Need to slam it with preconditioning due to the system's indefiniteness
+    solve(a == l, ref, solver_parameters={'pc_type': 'fieldsplit',
+                                          'pc_fieldsplit_type': 'schur',
+                                          'ksp_type': 'cg',
+                                          'ksp_rtol': 1e-14,
+                                          'pc_fieldsplit_schur_fact_type': 'FULL',
+                                          'fieldsplit_V_ksp_type': 'cg',
+                                          'fieldsplit_P_ksp_type': 'cg'})
+    nh_sigma, nh_u = ref.split()
+
+    # Return the L2 error (should be comparable with numerical tolerance
+    sigma_err = sqrt(assemble(dot(sigma_h - nh_sigma, sigma_h - nh_sigma) * dx))
+    u_err = sqrt(assemble((u_h - nh_u) * (u_h - nh_u) * dx))
+
+    assert sigma_err < 1e-11
+    assert u_err < 1e-11
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

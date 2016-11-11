@@ -17,39 +17,79 @@ def gen_mesh(cell):
         raise ValueError("%s cell  not recognized" % cell)
 
 
-@pytest.mark.parametrize("degree", range(0, 4))
 @pytest.mark.parametrize("cell", (interval,
                                   triangle,
                                   tetrahedron,
                                   quadrilateral))
-def test_scalar_field_left_inverse(degree, cell):
+def test_scalar_field_left_inverse(cell):
     """Tests the SLATE expression A.inv * A = I"""
     mesh = gen_mesh(cell)
-    V = FunctionSpace(mesh, "DG", degree)
+    V = FunctionSpace(mesh, "DG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
 
     A = slate.Matrix(form)
     Result = assemble(A.inv * A)
-    nnode = len(Result.M.values)
+    nnode = V.node_count
     assert (np.array(Result.M.values) - np.identity(nnode) <= 1e-13).all()
 
 
-@pytest.mark.parametrize("degree", range(0, 4))
 @pytest.mark.parametrize("cell", (interval,
                                   triangle,
                                   tetrahedron,
                                   quadrilateral))
-def test_scalar_field_right_inverse(degree, cell):
+def test_scalar_field_right_inverse(cell):
     """Tests the SLATE expression A * A.inv = I"""
     mesh = gen_mesh(cell)
-    V = FunctionSpace(mesh, "DG", degree)
+    V = FunctionSpace(mesh, "DG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
 
     A = slate.Matrix(form)
     Result = assemble(A * A.inv)
-    nnode = len(Result.M.values)
+    nnode = V.node_count
     assert (np.array(Result.M.values) - np.identity(nnode) <= 1e-13).all()
+
+
+@pytest.mark.parametrize("cell", (interval,
+                                  triangle,
+                                  tetrahedron,
+                                  quadrilateral))
+def test_symmetry(cell):
+    """Tests that the SLATE matrices associated with
+    symmetric bilinear forms are indeed symmetric."""
+    mesh = gen_mesh(cell)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    form = u*v*dx + inner(grad(u), grad(v))*dx
+
+    A = slate.Matrix(form)
+    M1 = assemble(A)
+    M2 = assemble(A.T)
+    assert (np.array(M1.M.values) - np.array(M2.M.values) <= 1e-13).all()
+
+
+@pytest.mark.parametrize("cell", (interval,
+                                  triangle,
+                                  tetrahedron,
+                                  quadrilateral))
+def test_negation(cell):
+    """Tests that subtracting two matrices results in the
+    zero matrix."""
+    mesh = gen_mesh(cell)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    form = u*v*dx
+
+    A = slate.Matrix(form)
+    M = assemble(A - A)
+    assert (np.array(M.M.values) <= 1e-13).all()
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))

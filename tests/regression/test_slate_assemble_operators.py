@@ -55,3 +55,8 @@ def test_helmholtz_operator(degree, cell):
     ref = assemble(form)
 
     assert np.allclose(H.M.values, ref.M.values)
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
