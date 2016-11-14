@@ -61,6 +61,7 @@ def test_hcurl_assembly(extmesh, hfamily, hdegree, vfamily, vdegree):
     assemble(dot(u, v)*dx).M._force_evaluation()
     assemble(inner(grad(u), grad(v))*dx).M._force_evaluation()
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

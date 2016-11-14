@@ -42,6 +42,7 @@ def test_extrusion_rhs_bcs():
 def test_extrusion_rhs_bcs_quadrilateral():
     assert (run_test(1, 1, quadrilateral=True, test_mode=True) < 1.e-13)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

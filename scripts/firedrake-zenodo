@@ -145,6 +145,7 @@ def collect_repo_shas():
                 raise
     return shas
 
+
 if args.release_tag:
     tag = args.release_tag[0]
     log.info("Retrieving BibTeX data for Firedrake release %s." % tag)

@@ -146,6 +146,7 @@ def test_mixed():
 
     assert np.allclose(1.0, g.dat.data)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

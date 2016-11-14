@@ -122,6 +122,7 @@ def test_ufl_vector_element_assembly(base_mesh_thunk, fs, degree):
 
     assert V.ufl_element() == VectorElement(fs, mesh.ufl_cell(), degree, dim=3)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
