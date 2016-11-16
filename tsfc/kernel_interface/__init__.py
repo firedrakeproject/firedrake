@@ -23,4 +23,5 @@ class KernelInterface(with_metaclass(ABCMeta)):
     def facet_number(self, restriction):
         """Facet number as a GEM index."""
 
+
 ProxyKernelInterface = make_proxy_class('ProxyKernelInterface', KernelInterface)
