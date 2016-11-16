@@ -32,6 +32,8 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, print_function, division
+import six
+from six.moves import input
 
 import os
 import subprocess
@@ -92,12 +94,12 @@ class Compiler(object):
         library."""
 
         # Determine cache key
-        hsh = md5(src)
-        hsh.update(self._cc)
+        hsh = md5(six.b(src))
+        hsh.update(six.b(self._cc))
         if self._ld:
-            hsh.update(self._ld)
-        hsh.update("".join(self._cppargs))
-        hsh.update("".join(self._ldargs))
+            hsh.update(six.b(self._ld))
+        hsh.update(six.b("".join(self._cppargs)))
+        hsh.update(six.b("".join(self._ldargs)))
 
         basename = hsh.hexdigest()
 
@@ -136,15 +138,15 @@ class Compiler(object):
                 logfile = os.path.join(cachedir, "%s_p%d.log" % (basename, pid))
                 errfile = os.path.join(cachedir, "%s_p%d.err" % (basename, pid))
                 with progress(INFO, 'Compiling wrapper'):
-                    with file(cname, "w") as f:
+                    with open(cname, "w") as f:
                         f.write(src)
                     # Compiler also links
                     if self._ld is None:
                         cc = [self._cc] + self._cppargs + \
                              ['-o', tmpname, cname] + self._ldargs
                         debug('Compilation command: %s', ' '.join(cc))
-                        with file(logfile, "w") as log:
-                            with file(errfile, "w") as err:
+                        with open(logfile, "w") as log:
+                            with open(errfile, "w") as err:
                                 log.write("Compilation command:\n")
                                 log.write(" ".join(cc))
                                 log.write("\n\n")
@@ -170,8 +172,8 @@ Compile errors in %s""" % (e.cmd, e.returncode, logfile, errfile))
                         ld = self._ld.split() + ['-o', tmpname, oname] + self._ldargs
                         debug('Compilation command: %s', ' '.join(cc))
                         debug('Link command: %s', ' '.join(ld))
-                        with file(logfile, "w") as log:
-                            with file(errfile, "w") as err:
+                        with open(logfile, "w") as log:
+                            with open(errfile, "w") as err:
                                 log.write("Compilation command:\n")
                                 log.write(" ".join(cc))
                                 log.write("\n\n")
@@ -353,11 +355,11 @@ def clear_cache(prompt=False):
     remove = True
     if prompt:
 
-        user = raw_input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
+        user = input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
 
         while user.lower() not in ['', 'y', 'n']:
             print("Please answer y or n.")
-            user = raw_input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
+            user = input("Remove %d cached libraries from %s? [Y/n]: " % (nfiles, cachedir))
 
         if user.lower() == 'n':
             remove = False

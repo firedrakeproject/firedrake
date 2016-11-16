@@ -101,17 +101,6 @@ def pytest_generate_tests(metafunc):
 
 def pytest_collection_modifyitems(items):
     """Group test collection by greedy/lazy."""
-    def cmp(item1, item2):
-        def get_lazy(item):
-            return item.callspec.getparam("initializer")
-
-        param1 = get_lazy(item1)
-        param2 = get_lazy(item2)
-
-        # Group tests by backend
-        if param1 == "greedy" and param2 == "lazy":
-            return -1
-        elif param1 == "lazy" and param2 == "greedy":
-            return 1
-        return 0
-    items.sort(cmp=cmp)
+    def get_lazy(item):
+        return item.callspec.getparam("initializer")
+    items.sort(key=get_lazy)

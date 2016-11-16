@@ -44,6 +44,7 @@ from coffee.base import *
 def _seed():
     return 0.02041724
 
+
 nnodes = 4096
 nele = nnodes // 2
 
@@ -217,6 +218,7 @@ class TestIterationSpaceDats:
         expected[:, 1] += numpy.arange(start=3, stop=2 * nnodes, step=4)
         assert all(vd2.data[:, 0] == expected[:, 0])
         assert all(vd2.data[:, 1] == expected[:, 1])
+
 
 if __name__ == '__main__':
     import os

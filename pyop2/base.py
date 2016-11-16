@@ -36,6 +36,8 @@ information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
 from __future__ import absolute_import, print_function, division
+import six
+from six.moves import map, zip
 
 from contextlib import contextmanager
 import itertools
@@ -218,6 +220,7 @@ class Access(object):
     def __repr__(self):
         return "Access(%r)" % self._mode
 
+
 READ = Access("READ")
 """The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
 
@@ -314,18 +317,27 @@ class Arg(object):
         else:
             self._block_shape = None
 
+    @property
+    def _key(self):
+        return (self.data, self._map, self._idx, self._access)
+
+    def __hash__(self):
+        # FIXME: inconsistent with the equality predicate, but (loop
+        # fusion related) code generation relies on object identity as
+        # the equality predicate when using Args as dict keys.
+        return id(self)
+
     def __eq__(self, other):
         """:class:`Arg`\s compare equal of they are defined on the same data,
         use the same :class:`Map` with the same index and the same access
         descriptor."""
-        return self.data == other.data and self._map == other._map and \
-            self._idx == other._idx and self._access == other._access
+        return self._key == other._key
 
     def __ne__(self, other):
         """:class:`Arg`\s compare equal of they are defined on the same data,
         use the same :class:`Map` with the same index and the same access
         descriptor."""
-        return not self == other
+        return not self.__eq__(other)
 
     def __str__(self):
         return "OP2 Arg: dat %s, map %s, index %s, access %s" % \
@@ -1403,9 +1415,9 @@ class Halo(object):
         self._sends = sends
         self._receives = receives
         # The user might have passed lists, not numpy arrays, so fix that here.
-        for i, a in self._sends.iteritems():
+        for i, a in six.iteritems(self._sends):
             self._sends[i] = np.asarray(a)
-        for i, a in self._receives.iteritems():
+        for i, a in six.iteritems(self._receives):
             self._receives[i] = np.asarray(a)
         self._global_to_petsc_numbering = gnn2unn
         self.comm = dup_comm(comm)
@@ -1429,11 +1441,11 @@ class Halo(object):
         receives = self.receives
         if reverse:
             sends, receives = receives, sends
-        for dest, ele in sends.iteritems():
+        for dest, ele in six.iteritems(sends):
             dat._send_buf[dest] = dat._data[ele]
             dat._send_reqs[dest] = self.comm.Isend(dat._send_buf[dest],
                                                    dest=dest, tag=dat._id)
-        for source, ele in receives.iteritems():
+        for source, ele in six.iteritems(receives):
             dat._recv_buf[source] = dat._data[ele]
             dat._recv_reqs[source] = self.comm.Irecv(dat._recv_buf[source],
                                                      source=source, tag=dat._id)
@@ -1458,7 +1470,7 @@ class Halo(object):
         if reverse:
             receives = self.sends
         maybe_setflags(dat._data, write=True)
-        for source, buf in dat._recv_buf.iteritems():
+        for source, buf in six.iteritems(dat._recv_buf):
             if reverse:
                 dat._data[receives[source]] += buf
             else:
@@ -1501,11 +1513,11 @@ class Halo(object):
     def verify(self, s):
         """Verify that this :class:`Halo` is valid for a given
 :class:`Set`."""
-        for dest, sends in self.sends.iteritems():
+        for dest, sends in six.iteritems(self.sends):
             assert (sends >= 0).all() and (sends < s.size).all(), \
                 "Halo send to %d is invalid (outside owned elements)" % dest
 
-        for source, receives in self.receives.iteritems():
+        for source, receives in six.iteritems(self.receives):
             assert (receives >= s.size).all() and \
                 (receives < s.total_size).all(), \
                 "Halo receive from %d is invalid (not in halo elements)" % \
@@ -2033,26 +2045,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         """This is not a mixed type and therefore of length 1."""
         return 1
 
-    def __eq__(self, other):
-        """:class:`Dat`\s compare equal if defined on the same
-        :class:`DataSet` and containing the same data."""
-        try:
-            if self._is_allocated and other._is_allocated:
-                return (self._dataset == other._dataset and
-                        self.dtype == other.dtype and
-                        np.array_equal(self._data, other._data))
-            elif not (self._is_allocated or other._is_allocated):
-                return (self._dataset == other._dataset and
-                        self.dtype == other.dtype)
-            return False
-        except AttributeError:
-            return False
-
-    def __ne__(self, other):
-        """:class:`Dat`\s compare equal if defined on the same
-        :class:`DataSet` and containing the same data."""
-        return not self == other
-
     def __str__(self):
         return "OP2 Dat: %s on (%s) with datatype %s" \
                % (self._name, self._dataset, self.dtype.name)
@@ -2498,19 +2490,18 @@ class MixedDat(Dat):
         """Return number of contained :class:`Dats`\s."""
         return len(self._dats)
 
+    def __hash__(self):
+        return hash(self._dats)
+
     def __eq__(self, other):
         """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
         are."""
-        try:
-            return self._dats == other._dats
-        # Deal with the case of comparing to a different type
-        except AttributeError:
-            return False
+        return type(self) == type(other) and self._dats == other._dats
 
     def __ne__(self, other):
         """:class:`MixedDat`\s are equal if all their contained :class:`Dat`\s
         are."""
-        return not self == other
+        return not self.__eq__(other)
 
     def __str__(self):
         return "OP2 MixedDat composed of Dats: %s" % (self._dats,)
@@ -2651,20 +2642,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         ignored."""
         return _make_object('Arg', data=self, access=access)
 
-    def __eq__(self, other):
-        """:class:`Global`\s compare equal when having the same ``dim`` and
-        ``data``."""
-        try:
-            return (self._dim == other._dim and
-                    np.array_equal(self._data, other._data))
-        except AttributeError:
-            return False
-
-    def __ne__(self, other):
-        """:class:`Global`\s compare equal when having the same ``dim`` and
-        ``data``."""
-        return not self == other
-
     def __iter__(self):
         """Yield self when iterated over."""
         yield self
@@ -2791,6 +2768,7 @@ class IterationIndex(object):
         """Yield self when iterated over."""
         yield self
 
+
 i = IterationIndex()
 """Shorthand for constructing :class:`IterationIndex` objects.
 
@@ -2866,7 +2844,7 @@ class Map(object):
         self._top_mask = {}
 
         if offset is not None and bt_masks is not None:
-            for name, mask in bt_masks.iteritems():
+            for name, mask in six.iteritems(bt_masks):
                 self._bottom_mask[name] = np.zeros(len(offset))
                 self._bottom_mask[name][mask[0]] = -1
                 self._top_mask[name] = np.zeros(len(offset))
@@ -2892,9 +2870,6 @@ class Map(object):
     def __len__(self):
         """This is not a mixed type and therefore of length 1."""
         return 1
-
-    def __getslice__(self, i, j):
-        raise NotImplementedError("Slicing maps is not currently implemented")
 
     @cached_property
     def _argtype(self):
@@ -3412,7 +3387,7 @@ class Sparsity(ObjectCached):
             nest = configuration["matnest"]
         if block_sparse is None:
             block_sparse = configuration["block_sparsity"]
-        return (cache, ) + (tuple(dsets), tuple(sorted(uniquify(maps))), name, nest, block_sparse), {}
+        return (cache,) + (tuple(dsets), frozenset(maps), name, nest, block_sparse), {}
 
     @classmethod
     def _cache_key(cls, dsets, maps, name, nest, *args, **kwargs):
@@ -3443,7 +3418,7 @@ class Sparsity(ObjectCached):
         sparsity. Similarly, the toset of all the maps which appear
         second must be common and will form the column :class:`Set` of
         the ``Sparsity``."""
-        return zip(self._rmaps, self._cmaps)
+        return list(zip(self._rmaps, self._cmaps))
 
     @cached_property
     def cmaps(self):
@@ -3638,8 +3613,8 @@ class Mat(DataCarrier):
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path, flatten=False):
         path = as_tuple(path, _MapArg, 2)
-        path_maps = [arg and arg.map for arg in path]
-        path_idxs = [arg and arg.idx for arg in path]
+        path_maps = tuple(arg and arg.map for arg in path)
+        path_idxs = tuple(arg and arg.idx for arg in path)
         if configuration["type_check"] and tuple(path_maps) not in self.sparsity:
             raise MapValueError("Path maps not in sparsity maps")
         return _make_object('Arg', data=self, map=path_maps, access=access,
@@ -3834,9 +3809,9 @@ class Kernel(Cached):
         # HACK: Temporary fix!
         if isinstance(code, Node):
             code = code.gencode()
-        return md5(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                   str(headers) + version + str(configuration['loop_fusion']) +
-                   str(ldargs) + str(cpp)).hexdigest()
+        return md5(six.b(str(hash(code)) + name + str(opts) + str(include_dirs) +
+                         str(headers) + version + str(configuration['loop_fusion']) +
+                         str(ldargs) + str(cpp))).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
@@ -4000,6 +3975,7 @@ class IterationRegion(object):
 
     def __repr__(self):
         return "%r" % self._iterate
+
 
 ON_BOTTOM = IterationRegion("ON_BOTTOM")
 """Iterate over the cells at the bottom of the column in an extruded mesh."""
@@ -4212,7 +4188,7 @@ class ParLoop(LazyComputation):
         for arg in self.global_reduction_args:
             arg.reduction_end(self.comm)
         # Finalise global increments
-        for i, glob in self._reduced_globals.iteritems():
+        for i, glob in six.iteritems(self._reduced_globals):
             # These can safely access the _data member directly
             # because lazy evaluation has ensured that any pending
             # updates to glob happened before this par_loop started

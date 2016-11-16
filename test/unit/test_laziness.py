@@ -159,6 +159,7 @@ sum(unsigned int* sum, unsigned int* x)
         assert sum(y.data) == nelems
         assert not base._trace.in_queue(pl_copy)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

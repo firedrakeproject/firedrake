@@ -148,4 +148,5 @@ class Configuration(dict):
         self._set.add(key)
         super(Configuration, self).__setitem__(key, value)
 
+
 configuration = Configuration()

@@ -34,6 +34,7 @@
 """Common utility classes/functions."""
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import os
 import sys
@@ -253,12 +254,6 @@ def flatten(iterable):
     return (x for e in iterable for x in e)
 
 
-def uniquify(iterable):
-    """Remove duplicates in given iterable, preserving order."""
-    uniq = set()
-    return (x for x in iterable if x not in uniq and (uniq.add(x) or True))
-
-
 def parser(description=None, group=False):
     """Create default argparse.ArgumentParser parser for pyop2 programs."""
     parser = argparse.ArgumentParser(description=description,
@@ -270,7 +265,7 @@ def parser(description=None, group=False):
         'pyop2', 'backend configuration options') if group else parser
 
     g.add_argument('-d', '--debug', default=argparse.SUPPRESS,
-                   type=int, choices=range(8),
+                   type=int, choices=list(range(8)),
                    help='set debug level' if group else 'set pyop2 debug level')
     g.add_argument('-l', '--log-level', default='WARN',
                    choices=['CRITICAL', 'ERROR', 'WARN', 'INFO', 'DEBUG'],

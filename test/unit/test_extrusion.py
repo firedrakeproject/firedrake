@@ -55,6 +55,7 @@ NUM_DIMS = 2
 def _seed():
     return 0.02041724
 
+
 nelems = 32
 nnodes = nelems + 2
 nedges = 2 * nelems + 1
@@ -503,6 +504,7 @@ void comp_vol(double A[1], double *x[], double *y[])
                      xtr_f(op2.READ, xtr_elem_node))
 
         assert_allclose(sum(xtr_b.data), 6.0, eps)
+
 
 if __name__ == '__main__':
     import os

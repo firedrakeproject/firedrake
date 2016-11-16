@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import pytest
 import numpy
@@ -43,6 +44,7 @@ from coffee.base import *
 
 def _seed():
     return 0.02041724
+
 
 nelems = 8
 
@@ -79,17 +81,17 @@ def g():
 
 @pytest.fixture
 def x(dindset):
-    return op2.Dat(dindset, range(nelems), numpy.uint32, "x")
+    return op2.Dat(dindset, list(range(nelems)), numpy.uint32, "x")
 
 
 @pytest.fixture
 def x2(dindset2):
-    return op2.Dat(dindset2, range(nelems) * 2, numpy.uint32, "x2")
+    return op2.Dat(dindset2, list(range(nelems)) * 2, numpy.uint32, "x2")
 
 
 @pytest.fixture
 def xl(dindset):
-    return op2.Dat(dindset, range(nelems), numpy.uint64, "xl")
+    return op2.Dat(dindset, list(range(nelems)), numpy.uint64, "xl")
 
 
 @pytest.fixture
@@ -99,14 +101,14 @@ def y(dindset):
 
 @pytest.fixture
 def iter2ind1(iterset, indset):
-    u_map = numpy.array(range(nelems), dtype=numpy.uint32)
+    u_map = numpy.array(list(range(nelems)), dtype=numpy.uint32)
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 1, u_map, "iter2ind1")
 
 
 @pytest.fixture
 def iter2ind2(iterset, indset):
-    u_map = numpy.array(range(nelems) * 2, dtype=numpy.uint32)
+    u_map = numpy.array(list(range(nelems)) * 2, dtype=numpy.uint32)
     random.shuffle(u_map, _seed)
     return op2.Map(iterset, indset, 2, u_map, "iter2ind2")
 
@@ -345,11 +347,11 @@ class TestGeneratedCodeCache:
 
     @pytest.fixture
     def a(cls, diterset):
-        return op2.Dat(diterset, range(nelems), numpy.uint32, "a")
+        return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "a")
 
     @pytest.fixture
     def b(cls, diterset):
-        return op2.Dat(diterset, range(nelems), numpy.uint32, "b")
+        return op2.Dat(diterset, list(range(nelems)), numpy.uint32, "b")
 
     def test_same_args(self, iterset, iter2ind1, x, a):
         self.cache.clear()
@@ -523,7 +525,7 @@ void kernel_swap(unsigned int* x[2])
         assert len(self.cache) == 1
 
     def test_change_dat_dtype_matters(self, iterset, diterset):
-        d = op2.Dat(diterset, range(nelems), numpy.uint32)
+        d = op2.Dat(diterset, list(range(nelems)), numpy.uint32)
         self.cache.clear()
         assert len(self.cache) == 0
 
@@ -534,7 +536,7 @@ void kernel_swap(unsigned int* x[2])
         base._trace.evaluate(set([d]), set())
         assert len(self.cache) == 1
 
-        d = op2.Dat(diterset, range(nelems), numpy.int32)
+        d = op2.Dat(diterset, list(range(nelems)), numpy.int32)
         op2.par_loop(k, iterset, d(op2.WRITE))
 
         base._trace.evaluate(set([d]), set())

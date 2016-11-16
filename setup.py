@@ -127,6 +127,8 @@ class sdist(_sdist):
         cythonize(sparsity_sources, language="c++", include_path=includes)
         cythonize(computeind_sources)
         _sdist.run(self)
+
+
 cmdclass['sdist'] = sdist
 
 setup(name='PyOP2',

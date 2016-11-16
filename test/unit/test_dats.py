@@ -32,6 +32,7 @@
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import pytest
 import numpy as np
@@ -48,7 +49,7 @@ def s():
 
 @pytest.fixture
 def d1(s):
-    return op2.Dat(s, range(nelems), dtype=np.float64)
+    return op2.Dat(s, list(range(nelems)), dtype=np.float64)
 
 
 @pytest.fixture
@@ -100,7 +101,7 @@ class TestDat:
     def test_copy_subset(self, s, d1):
         """Copy method should copy values on a subset"""
         d2 = op2.Dat(s)
-        ss = op2.Subset(s, range(1, nelems, 2))
+        ss = op2.Subset(s, list(range(1, nelems, 2)))
         d1.copy(d2, subset=ss)
         assert (d1.data_ro[ss.indices] == d2.data_ro[ss.indices]).all()
         assert (d2.data_ro[::2] == 0).all()
@@ -130,6 +131,7 @@ class TestDat:
         mdat2 = op2.MixedDat([d1, d1])
         mdat2.load(output)
         assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
+
 
 if __name__ == '__main__':
     import os
