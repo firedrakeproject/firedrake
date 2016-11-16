@@ -270,6 +270,7 @@ class TestMixedIndirectLoop:
                      d(op2.READ))
         assert all(mdat[0].data == 1.0) and mdat[1].data == 4096.0
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

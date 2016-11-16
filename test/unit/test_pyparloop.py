@@ -201,6 +201,7 @@ class TestPyParLoop:
 
         assert (mat.values == expected).all()
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

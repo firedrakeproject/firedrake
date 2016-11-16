@@ -132,6 +132,7 @@ class TestDat:
         mdat2.load(output)
         assert all(all(d.data_ro == d_.data_ro) for d, d_ in zip(mdat, mdat2))
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

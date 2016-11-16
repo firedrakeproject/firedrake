@@ -220,6 +220,7 @@ class Access(object):
     def __repr__(self):
         return "Access(%r)" % self._mode
 
+
 READ = Access("READ")
 """The :class:`Global`, :class:`Dat`, or :class:`Mat` is accessed read-only."""
 
@@ -2767,6 +2768,7 @@ class IterationIndex(object):
         """Yield self when iterated over."""
         yield self
 
+
 i = IterationIndex()
 """Shorthand for constructing :class:`IterationIndex` objects.
 
@@ -3973,6 +3975,7 @@ class IterationRegion(object):
 
     def __repr__(self):
         return "%r" % self._iterate
+
 
 ON_BOTTOM = IterationRegion("ON_BOTTOM")
 """Iterate over the cells at the bottom of the column in an extruded mesh."""
