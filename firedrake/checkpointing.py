@@ -290,6 +290,7 @@ class DumbCheckpoint(object):
             free_comm(self.comm)
             del self.comm
 
+
 class HDF5File(object):
 
     """An object to mimic the DOLFIN HDF5File class.
