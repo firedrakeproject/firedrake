@@ -293,7 +293,7 @@ class DumbCheckpoint(object):
 
 class HDF5File(object):
 
-    """An object to mimic the DOLFIN HDF5File class.
+    """An object to facilitate checkpointing.
 
     This checkpoint object is capable of writing :class:`~.Function`\s
     to disk in parallel (using HDF5) and reloading them on the same
@@ -304,8 +304,6 @@ class HDF5File(object):
          :data:`~.FILE_CREATE`, or :data:`~.FILE_UPDATE`)
     :arg comm: communicator the writes should be collective
          over.
-
-    The argument names are carefully chosen to match DOLFIN's HDF5File.
 
     This object can be used in a context manager (in which case it
     closes the file when the scope is exited).
