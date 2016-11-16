@@ -11,8 +11,6 @@ produces the resulting kernel AST returned by: `compile_slate_expression`
 The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as all low-level
 numerical linear algebra operations are performed using the `Eigen::Matrix` methods
 built into Eigen.
-
-Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
 """
 
 import sys
@@ -25,7 +23,6 @@ from coffee.visitor import Visitor
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 
 from slate import *
-from slate_assertions import *
 
 from singledispatch import singledispatch
 
@@ -136,7 +133,7 @@ def compile_slate_expression(slate_expr):
 
     # Only SLATE expressions are allowed as inputs
     if not isinstance(slate_expr, Tensor):
-        expecting_slate_expr(slate_expr)
+        raise ValueError("Expecting a `slate.Tensor` expression, not a %s" % slate_expr)
 
     # SLATE currently does not support arguments in mixed function spaces
     # TODO: Implement something akin to a FormSplitter for SLATE tensors

@@ -188,7 +188,6 @@ def test_slate_eq():
     f, = F.coefficients()
     N = slate.Matrix(f * inner(grad(u), grad(v)) * dx + u * v * dx)
 
-    assert isinstance(A == B, slate.SlateEquation)
     assert A == B
     assert B == A
     assert C == B
@@ -270,7 +269,7 @@ def test_illegal_inverse():
     sigma = TrialFunction(RT)
     v = TestFunction(DG)
     A = slate.Matrix(v * div(sigma) * dx)
-    with pytest.raises(Exception):
+    with pytest.raises(AssertionError):
         A.inv
 
 

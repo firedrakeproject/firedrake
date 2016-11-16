@@ -14,18 +14,13 @@ in SLATE to express complicated linear algebra operations.
 system)
 
 All SLATE expressions are handled by a specialized linear
-algebra compiler, the SLATE Linear Algebra Compiler (SLAC),
-which interprets SLATE expressions and produces C++ kernel
-functions to be executed within the Firedrake architecture.
-
-Written by: Thomas Gibson (t.gibson15@imperial.ac.uk)
+algebra compiler, which interprets SLATE expressions and
+produces C++ kernel functions to be executed within the
+Firedrake architecture.
 """
 
 import hashlib
 import operator
-
-from slate_assertions import *
-from slate_equation import SlateEquation
 
 from ufl.algorithms.domain_analysis import canonicalize_metadata
 from ufl.algorithms.map_integrands import map_integrand_dags
@@ -85,21 +80,28 @@ class SlateIntegral(object):
 
 
 class Tensor(object):
-    """An abstract representation of a finite element
-    tensor in SLATE."""
+    """An abstract representation of a finite element tensor in SLATE.
+    All derived tensors, `Scalar`, `Vector`, and `Matrix`, as well as all
+    `BinaryOp` and `UnaryOp` objects derive from this class.
+
+    :arg arguments: a tuple of :class:`ufl.Argument` objects that are provided by
+                    an input `ufl.Form` in the user-facing subclasses: `Scalar`,
+                    `Vector` and `Matrix`.
+
+    :arg coefficients: a tuple of :class:`ufl.Coefficient` objects provided by
+                       a `ufl.Form` object when instantiating a user-facing subclass.
+
+    :arg integrals: a tuple of :class:`ufl.Integral` objects provided by a `ufl.Form`.
+                    These allow us to determine the domain of integration for the `Tensor`.
+    """
 
     # Initializing tensor id class variable for output purposes
-    tensor_id = 0
+    id = 0
 
     def __init__(self, arguments, coefficients, integrals):
-        """Constructor for the Tensor class.
-
-        :arg arugments: list of arguments of the associated UFL form
-        :arg coefficients: list of coefficients of the associated UFL form
-        :arg integrals: list of integrals of the associated UFL form
-        """
-
-        self.tensor_id = Tensor.tensor_id
+        """Constructor for the Tensor class."""
+        self.id = Tensor.id
+        Tensor.id += 1
         self._arguments = arguments
         self._coefficients = coefficients
         self._integrals = _sorted_integrals(integrals)
@@ -133,7 +135,7 @@ class Tensor(object):
 
         # Compute relevant attributes for signature computation
         self._coefficient_numbering = dict((c, i) for i, c in enumerate(self._coefficients))
-        self._domain_numering = dict((d, i) for i, d in enumerate(self._integral_domains))
+        self._domain_numbering = dict((d, i) for i, d in enumerate(self._integral_domains))
 
         self._hash = None
         self._signature = None
@@ -185,8 +187,9 @@ class Tensor(object):
         return not self.equals(other)
 
     def __eq__(self, other):
-        """Evaluation of the "==" operator using the SLATE class: SlateEquation."""
-        return SlateEquation(self, other)
+        """Evaluation of the "==" operator using the :class:`ufl.Equation`."""
+        from ufl.equation import Equation
+        return Equation(self, other)
 
     # Essential properties
     @property
@@ -234,9 +237,8 @@ class Tensor(object):
 
     def integrals_by_type(self, integral_type):
         """Returns a tuple of integrals corresponding with a particular domain type."""
+        assert integral_type in ['cell', 'interior_facet', 'exterior_facet'], ("Integral type %s is not supported." % integral_type)
 
-        slate_assert(integral_type in ['cell', 'interior_facet', 'exterior_facet'],
-                     "Integral type %s is not supported." % integral_type)
         return tuple(it for it in self.integrals() if it.integral_type() == integral_type)
 
     def ufl_domains(self):
@@ -252,16 +254,14 @@ class Tensor(object):
         a single domain of integration occuring in the tensor.
 
         The function will fail if multiple domains are found."""
-
         domains = self.ufl_domains()
-        slate_assert(all(domain == domains[0] for domain in domains),
-                     "All integrals must share the same domain of integration.")
+        assert all(domain == domains[0] for domain in domains), "All integrals must share the same domain of integration."
+
         return domains[0]
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         `{domain:{integral_type: subdomain_data}}`."""
-
         # Scalar case
         if self.rank == 0:
             return None
@@ -282,16 +282,15 @@ class Tensor(object):
             if data is None:
                 subdomain_data[domain][it_type] = subdata
             elif subdata is not None:
-                slate_assert(data.ufl_id() == subdata.ufl_id(),
-                             "Integrals in the tensor must have the same subdomain_data objects.")
+                assert(data.ufl_id() == subdata.ufl_id(),
+                       "Integrals in the tensor must have the same subdomain_data objects.")
 
         return subdomain_data
 
     # Signature and hash methods
     def _compute_renumbering(self):
         """Renumbers coefficients by including integration domains."""
-
-        dn = self._domain_numering
+        dn = self._domain_numbering
         cn = self._coefficient_numbering
         renumbering = {}
         renumbering.update(dn)
@@ -309,7 +308,6 @@ class Tensor(object):
     def _compute_signature(self, renumbering):
         """Computes the signature of the tensor from the integrals."""
         # TODO: Is there a better/cheaper way of doing this?!
-
         integrals = self._integrals
         integrands = [integral.integrand() for integral in integrals]
 
@@ -331,7 +329,6 @@ class Tensor(object):
 
     def signature(self):
         """Signature for use in caching. Reproduced from ufl."""
-
         if self._signature is None:
             self._signature = self._compute_signature(self._compute_renumbering())
 
@@ -347,78 +344,88 @@ class Tensor(object):
 
 
 class Scalar(Tensor):
-    """An abstract representation of a rank-0 tensor object in SLATE."""
+    """A scalar representation of a 0-form. This class wraps the
+    relevant information provided from a :class:`ufl.Form` object
+    for use in symbolic linear algebra computations.
+
+    Note that this class will complain if you provide an incompatible
+    form object as input. The `Scalar` class expects a form of rank 0.
+
+    :arg form: a :class:`ufl.Form` object representing a 0-form.
+    """
 
     def __init__(self, form):
-        """Constructor for the Scalar class.
-
-        : arg form: a ufl form representing a scalar object:
-                    i.e. form = Constant(1.0, domain=mesh)*dx.
-        """
-
+        """Constructor for the Scalar class."""
         r = len(form.arguments())
         if r != 0:
-            rank_error(0, r)
+            raise Exception("Cannot create a `slate.Scalar` from a form with rank %d" % r)
         self.form = form
         self.check_integrals(form.integrals())
-        Tensor.tensor_id += 1
         super(Scalar, self).__init__(arguments=(),
                                      coefficients=form.coefficients(),
                                      integrals=form.integrals())
 
     def __str__(self, prec=None):
         """String representation of a SLATE Scalar object."""
-        return "S_%d" % self.tensor_id
+        return "S_%d" % self.id
 
     __repr__ = __str__
 
 
 class Vector(Tensor):
-    """An abstract representation of a rank-1 tensor object in SLATE."""
+    """A vector representation of a 1-form. This class wraps the
+    relevant information provided from a :class:`ufl.Form` object
+    for use in symbolic linear algebra computations.
+
+    Note that this class will complain if you provide an incompatible
+    form object as input. The `Vector` class expects a form of rank 1.
+
+    :arg form: a :class:`ufl.Form` object representing a 1-form.
+    """
 
     def __init__(self, form):
-        """Constructor for the Vector class.
-
-        :arg form: a ufl form."""
-
+        """Constructor for the Vector class."""
         r = len(form.arguments())
         if r != 1:
-            rank_error(1, r)
+            raise Exception("Cannot create a `slate.Vector` from a form with rank %d" % r)
         self.form = form
         self.check_integrals(form.integrals())
-        Tensor.tensor_id += 1
         super(Vector, self).__init__(arguments=form.arguments(),
                                      coefficients=form.coefficients(),
                                      integrals=form.integrals())
 
     def __str__(self, prec=None):
         """String representation of a SLATE Vector object."""
-        return "V_%d" % self.tensor_id
+        return "V_%d" % self.id
 
     __repr__ = __str__
 
 
 class Matrix(Tensor):
-    """An abstract representation of a rank-2 tensor object in SLATE."""
+    """A matrix representation of a 2-form. This class wraps the
+    relevant information provided from a :class:`ufl.Form` object
+    for use in symbolic linear algebra computations.
+
+    Note that this class will complain if you provide an incompatible
+    form object as input. The `Matrix` class expects a form of rank 2.
+
+    :arg form: a :class:`ufl.Form` object representing a 2-form.
+    """
 
     def __init__(self, form):
-        """Constructor for the Matrix class.
-
-        :arg form: a ufl form."""
-
+        """Constructor for the Matrix class."""
         r = len(form.arguments())
         if r != 2:
-            rank_error(2, r)
+            raise Exception("Cannot create a `slate.Matrix` from a form with rank %d" % r)
         self.form = form
         self.check_integrals(form.integrals())
-        Tensor.tensor_id += 1
         super(Matrix, self).__init__(arguments=form.arguments(),
                                      coefficients=form.coefficients(),
                                      integrals=form.integrals())
 
     def __str__(self, prec=None):
         """String representation of a rank-2 tensor object in SLATE."""
-        return "M_%d" % self.tensor_id
+        return "M_%d" % self.id
 
     __repr__ = __str__
 
@@ -432,12 +439,10 @@ class Inverse(Tensor):
         :arg A: a SLATE tensor."""
 
         if isinstance(A, (Scalar, Vector)):
-            expecting_slate_object(Matrix, A)
-        slate_assert(A.shape[0] == A.shape[1],
-                     "The inverse can only be computed on square tensors.")
+            raise Exception("Expecting a `slate.Matrix` object, not %r" % A)
+        assert A.shape[0] == A.shape[1], "The inverse can only be computed on square tensors."
 
         self.children = A
-        Tensor.tensor_id += 1
         super(Inverse, self).__init__(arguments=A.arguments()[::-1],
                                       coefficients=A.coefficients(),
                                       integrals=A.get_ufl_integrals())
@@ -463,11 +468,7 @@ class Transpose(Tensor):
         """Constructor for the Transpose class.
 
         :arg A: a SLATE tensor."""
-
-        slate_assert(not isinstance(A, Scalar),
-                     "Cannot take the transpose of a scalar.")
         self.children = A
-        Tensor.tensor_id += 1
         super(Transpose, self).__init__(arguments=A.arguments()[::-1],
                                         coefficients=A.coefficients(),
                                         integrals=A.get_ufl_integrals())
@@ -496,9 +497,8 @@ class UnaryOp(Tensor):
         :arg tensor: a SLATE tensor."""
 
         if not isinstance(A, Tensor):
-            expecting_slate_object(Tensor, type(A))
+            raise Exception("Expecting a `slate.Tensor` object, not %r" % A)
         self.children = A
-        Tensor.tensor_id += 1
         super(UnaryOp, self).__init__(arguments=A.arguments(),
                                       coefficients=A.coefficients(),
                                       integrals=self.get_uop_integrals(A))
@@ -567,17 +567,11 @@ class BinaryOp(Tensor):
     Such operations take two operands and returns a tensor-valued expression."""
 
     def __init__(self, A, B):
-        """Constructor for the BinaryOp class.
-
-        :arg A: a SLATE tensor.
-        :arg B: a SLATE tensor."""
-
-        slate_assert((isinstance(A, Tensor) and isinstance(B, Tensor)),
-                     "Both operands must be SLATE tensors. The operands given are of type (%s, %s)" % (type(A), type(B)))
+        """Constructor for the BinaryOp class."""
+        assert isinstance(A, Tensor) and isinstance(B, Tensor), ("Both operands must be SLATE tensors. The operands given are of type (%s, %s)" % (type(A), type(B)))
 
         self.check_dimensions(A, B)
         self.children = A, B
-        Tensor.tensor_id += 1
         super(BinaryOp, self).__init__(arguments=self.get_bop_arguments(A, B),
                                        coefficients=self.get_bop_coefficients(A, B),
                                        integrals=self.get_bop_integrals(A, B))
@@ -660,7 +654,7 @@ class TensorAdd(BinaryOp):
         attempting to perform tensor addition."""
 
         if A.shape != B.shape:
-            dimension_error(A.shape, B.shape)
+            raise Exception("Cannot perform the operation of addition on %s-tensor with a %s-tensor." % (A.shape, B.shape))
 
     @classmethod
     def get_bop_arguments(cls, A, B):
@@ -693,7 +687,7 @@ class TensorSub(BinaryOp):
         attempting to perform tensor subtraction."""
 
         if A.shape != B.shape:
-            dimension_error(A.shape, B.shape)
+            raise Exception("Cannot perform the operation of substraction on %s-tensor with a %s-tensor." % (A.shape, B.shape))
 
     @classmethod
     def get_bop_arguments(cls, A, B):
@@ -729,7 +723,7 @@ class TensorMul(BinaryOp):
         attempting to perform tensor multiplication."""
 
         if A.shape[1] != B.shape[0]:
-            dimension_error(A.shape, B.shape)
+            raise Exception("Cannot perform the operation of multiplication on %s-tensor with a %s-tensor." % (A.shape, B.shape))
 
     @classmethod
     def get_bop_arguments(cls, A, B):
@@ -742,8 +736,8 @@ class TensorMul(BinaryOp):
             return A.arguments()
         argsA = A.arguments()
         argsB = B.arguments()
-        slate_assert(argsA[-1].function_space() == argsB[0].function_space(),
-                     "Cannot perform the contraction over middle arguments. They need to be in the space function space.")
+        assert argsA[-1].function_space() == argsB[0].function_space(), ("Cannot perform the contraction over middle arguments. They need to be in the space function space.")
+
         return argsA[:-1] + argsB[1:]
 
     @classmethod
@@ -761,7 +755,6 @@ class TensorMul(BinaryOp):
             return A.get_ufl_integrals() + B.get_ufl_integrals()
         integrandA = A.get_ufl_integrals()[-1].integrand()
         integrandB = B.get_ufl_integrals()[0].integrand()
-        slate_assert(integrandA.ufl_domain().coordinates.function_space() ==
-                     integrandB.ufl_domain().coordinates.function_space(),
-                     "Cannot perform contraction over middle integrals. The integrands must be in the space function space.")
+        assert (integrandA.ufl_domain().coordinates.function_space() ==
+                integrandB.ufl_domain().coordinates.function_space()), "Cannot perform contraction over middle integrals. The integrands must be in the space function space."
         return A.get_ufl_integrals()[:-1] + B.get_ufl_integrals()[1:]

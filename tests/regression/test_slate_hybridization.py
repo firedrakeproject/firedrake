@@ -2,18 +2,19 @@
 
 sigma + grad(u) = 0,
 u + div(sigma) = f,
-u = 0 on boundary,
 
 using hybridisation with SLATE performing the forward elimination.
-The corresponding finite element variational problem:
+The corresponding finite element variational problem is:
 
-<tau, sigma> - <div(tau), u> + <<[tau.n], lambda>> = 0 for all tau
-<v, u> + <v, div(sigma)> = <v, f> for all v
-<<gamma, [sigma.n]>> = 0 for all gamma
+dot(sigma, tau)*dx - u*div(tau)*dx + lambdar*dot(tau, n)*dS = 0
+div(sigma)*v*dx + u*v*dx = f*v*dx
+gammar*dot(sigma, n)*dS = 0
 
-is solved using broken Raviart-Thomas elements of degree k for
+for all tau, v, and gammar.
+
+This is solved using broken Raviart-Thomas elements of degree k for
 (sigma, tau), discontinuous Galerkin elements of degree k - 1
-for (u, v), and HDiv-Trace elements of degree k - 1 for (lambda, gamma).
+for (u, v), and HDiv-Trace elements of degree k - 1 for (lambdar, gammar).
 
 The forcing function is chosen as:
 
@@ -63,7 +64,8 @@ def test_slate_hybridization(degree):
     local_trace = gammar('+') * dot(sigma, n) * dS
     L = f * v * dx
 
-    # Enforce homogeneous Dirichlet boundary conditions
+    # Trace variables are 0 on the boundary of the domain
+    # so we remove their contribution on all exterior edges
     bcs = DirichletBC(T, Constant(0.0), (1, 2, 3, 4))
 
     # Perform the Schur-complement with SLATE expressions
@@ -99,9 +101,9 @@ def test_slate_hybridization(degree):
     tau, v = TestFunctions(W2)
     ref = Function(W2)
     a = dot(sigma, tau) * dx - div(tau) * u * dx + u * v * dx + v * div(sigma) * dx
-    l = f * v * dx
+    L = f * v * dx
     # Need to slam it with preconditioning due to the system's indefiniteness
-    solve(a == l, ref, solver_parameters={'pc_type': 'fieldsplit',
+    solve(a == L, ref, solver_parameters={'pc_type': 'fieldsplit',
                                           'pc_fieldsplit_type': 'schur',
                                           'ksp_type': 'cg',
                                           'ksp_rtol': 1e-14,
