@@ -85,9 +85,9 @@ def test_attributes(f, dumpfile):
         with pytest.raises(KeyError):
             attrs = h5.attributes("/foo")
             attrs["nprocs"] = 1
-            with pytest.raises(KeyError):
-                attrs = h5.attributes("/bar")
-                attrs["nprocs"]
+        with pytest.raises(KeyError):
+            attrs = h5.attributes("/bar")
+            attrs["nprocs"]
 
         h5.write(mesh.coordinates, "/coords")
         attrs = h5.attributes("/coords")
