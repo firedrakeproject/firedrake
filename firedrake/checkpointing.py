@@ -4,9 +4,10 @@ from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from firedrake import hdf5interface as h5i
 import firedrake
 import numpy as np
+import os
 
 
-__all__ = ["DumbCheckpoint", "FILE_READ", "FILE_CREATE", "FILE_UPDATE"]
+__all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE"]
 
 
 FILE_READ = PETSc.Viewer.Mode.READ
@@ -276,6 +277,163 @@ class DumbCheckpoint(object):
             return (name in self.h5file[obj].attrs)
         except KeyError:
             return False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):
+        self.close()
+        if hasattr(self, "comm"):
+            free_comm(self.comm)
+            del self.comm
+
+class HDF5File(object):
+
+    """An object to mimic the DOLFIN HDF5File class.
+
+    This checkpoint object is capable of writing :class:`~.Function`\s
+    to disk in parallel (using HDF5) and reloading them on the same
+    number of processes and a :func:`~.Mesh` constructed identically.
+
+    :arg filename:
+    :arg file_mode: the access mode (one of :data:`~.FILE_READ`,
+         :data:`~.FILE_CREATE`, or :data:`~.FILE_UPDATE`)
+    :arg comm: communicator the writes should be collective
+         over.
+
+    The argument names are carefully chosen to match DOLFIN's HDF5File.
+
+    This object can be used in a context manager (in which case it
+    closes the file when the scope is exited).
+
+    .. note::
+
+       This object contains both a PETSc ``Viewer``, used for storing
+       and loading :class:`~.Function` data, and an :class:`h5py:File`
+       opened on the same file handle.  *DO NOT* call
+       :meth:`h5py:File.close` on the latter, this will cause
+       breakages.
+
+    """
+    def __init__(self, filename, file_mode, comm=None):
+        self.comm = dup_comm(comm or COMM_WORLD)
+
+        if file_mode == 'r':
+            self.mode = FILE_READ
+        elif file_mode == 'w':
+            self.mode = FILE_CREATE
+        elif file_mode == 'a':
+            self.mode = FILE_UPDATE
+
+        self._filename = filename
+        self.new_file()
+
+    def new_file(self):
+        """
+        Open a new on-disk file for writing checkpoint data.
+        """
+        self.close()
+        name = self._filename
+
+        import os
+        exists = os.path.exists(name)
+        if self.mode == FILE_READ and not exists:
+            raise IOError("File '%s' does not exist, cannot be opened for reading" % name)
+        mode = self.mode
+        if mode == FILE_UPDATE and not exists:
+            mode = FILE_CREATE
+
+        # Create the directory if necessary
+        dirname = os.path.dirname(name)
+        try:
+            os.makedirs(dirname)
+        except OSError:
+            pass
+
+        self._vwr = PETSc.ViewerHDF5().create(name, mode=mode,
+                                              comm=self.comm)
+        if self.mode == FILE_READ:
+            nprocs = self.attributes('/')['nprocs']
+            if nprocs != self.comm.size:
+                raise ValueError("Process mismatch: written on %d, have %d" %
+                                 (nprocs, self.comm.size))
+        else:
+            self.attributes('/')['nprocs'] = self.comm.size
+
+    @property
+    def vwr(self):
+        """The PETSc Viewer used to store and load function data."""
+        if hasattr(self, '_vwr'):
+            return self._vwr
+        self.new_file()
+        return self._vwr
+
+    @property
+    def h5file(self):
+        """An h5py File object pointing at the open file handle."""
+        if hasattr(self, '_h5file'):
+            return self._h5file
+        self._h5file = h5i.get_h5py_file(self.vwr)
+        return self._h5file
+
+    def close(self):
+        """Close the checkpoint file (flushing any pending writes)"""
+        if hasattr(self, "_vwr"):
+            self._vwr.destroy()
+            del self._vwr
+        if hasattr(self, "_h5file"):
+            self._h5file.flush()
+            del self._h5file
+
+    def flush(self):
+        """Flush any pending writes."""
+        self._h5file.flush()
+
+    def write(self, function, path):
+        """Store a function in the checkpoint file.
+
+        :arg function: The function to store.
+        :arg path: the path to store the function under.
+        """
+        if self.mode is FILE_READ:
+            raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
+        if not isinstance(function, firedrake.Function):
+            raise ValueError("Can only store functions")
+        name = os.path.basename(path)
+        group = os.path.dirname(path)
+        with function.dat.vec_ro as v:
+            self.vwr.pushGroup(group)
+            oname = v.getName()
+            v.setName(name)
+            v.view(self.vwr)
+            v.setName(oname)
+            self.vwr.popGroup()
+
+    def read(self, function, path):
+        """Store a function from the checkpoint file.
+
+        :arg function: The function to load values into.
+        :arg path: the path under which the function is stored.
+        """
+        if not isinstance(function, firedrake.Function):
+            raise ValueError("Can only load functions")
+        name = os.path.basename(path)
+        group = os.path.dirname(path)
+
+        with function.dat.vec as v:
+            self.vwr.pushGroup(group)
+            oname = v.getName()
+            v.setName(name)
+            v.load(self.vwr)
+            v.setName(oname)
+            self.vwr.popGroup()
+
+    def attributes(self, obj):
+        """:arg obj: The path to the group."""
+        return self.h5file[obj].attrs
 
     def __enter__(self):
         return self
