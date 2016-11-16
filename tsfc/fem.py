@@ -189,10 +189,7 @@ def translate_argument(terminal, mt, ctx):
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     argument_index = ctx.argument_indices[terminal.number()]
     result = gem.Indexed(M, argument_index + vi)
-    if vi:
-        return gem.ComponentTensor(result, vi)
-    else:
-        return result
+    return gem.ComponentTensor(result, vi)
 
 
 @translate.register(Coefficient)
@@ -218,10 +215,7 @@ def translate_coefficient(terminal, mt, ctx):
     result = gem.Product(gem.Indexed(M, alpha + vi),
                          gem.Indexed(vec, alpha))
     result = gem.optimise.contraction(gem.IndexSum(result, alpha))
-    if vi:
-        return gem.ComponentTensor(result, vi)
-    else:
-        return result
+    return gem.ComponentTensor(result, vi)
 
 
 def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
