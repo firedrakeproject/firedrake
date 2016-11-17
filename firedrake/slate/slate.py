@@ -30,9 +30,7 @@ from ufl.domain import join_domains, sort_domains
 from ufl.form import _sorted_integrals
 
 
-__all__ = ['CheckRestrictions', 'RemoveRestrictions',
-           'SlateIntegral', 'Tensor',
-           'Scalar', 'Vector', 'Matrix',
+__all__ = ['Tensor', 'Scalar', 'Vector', 'Matrix',
            'Inverse', 'Transpose', 'UnaryOp', 'Negative', 'Positive',
            'BinaryOp', 'TensorAdd', 'TensorSub', 'TensorMul']
 
@@ -45,15 +43,6 @@ class CheckRestrictions(MultiFunction):
 
     def negative_restrictions(self, o):
         raise ValueError("Cell-wise integrals must contain only positive restrictions.")
-
-
-class RemoveRestrictions(MultiFunction):
-    """UFL MultiFunction for removing any restrictions on the integrals of forms."""
-
-    expr = MultiFunction.reuse_if_untouched
-
-    def positive_restricted(self, o):
-        return self(o.ufl_operands[0])
 
 
 class SlateIntegral(object):

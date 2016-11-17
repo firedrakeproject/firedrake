@@ -568,7 +568,8 @@ class MeshTopology(object):
         the local facet numbers on each cell. This has a type :data:`np.int8`.
 
         The i-th local facet is exterior if the value of this array is :data:`0`
-        and interior if the value is :data:`1`."""
+        and interior if the value is :data:`1`.
+        """
         cell_facets = dmplex.cell_to_facets(self._plex, self._cell_numbering,
                                             self.cell_closure)
         nfacet = cell_facets.shape[1]

@@ -561,7 +561,7 @@ def cell_to_facets(PETSc.DM plex,
 
     cell_facets[c, i]
 
-    If this result is :data:`0`, then the local facet `data:`ci` is an
+    If this result is :data:`0`, then the local facet :data:`ci` is an
     exterior facet, otherwise if the result is :data:`1` it is interior.
 
     :arg plex: The DMPlex object representing the mesh topology.
@@ -570,8 +570,8 @@ def cell_to_facets(PETSc.DM plex,
     cdef:
         PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
         PetscInt f, fstart, fend, point
-        char *int_label = <char *>"interior_facets"
-        PetscBool isinterior
+        char *int_label = <char *>"exterior_facets"
+        PetscBool is_exterior
         const PetscInt *facets
         DMLabel label
         np.ndarray[np.int8_t, ndim=2, mode="c"] cell_facets
@@ -583,21 +583,22 @@ def cell_to_facets(PETSc.DM plex,
     cell_facets = np.full((cend - cstart, nfacet), -1, dtype=np.int8)
     CHKERR(DMGetLabel(plex.dm, int_label, &label))
     CHKERR(DMLabelCreateIndex(label, fstart, fend))
+
     for c in range(cstart, cend):
         CHKERR(DMPlexGetCone(plex.dm, c, &facets))
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
 
         for f in range(nfacet):
             fi = 0
-            CHKERR(DMLabelHasPoint(label, facets[f], &isinterior))
+            CHKERR(DMLabelHasPoint(label, facets[f], &is_exterior))
 
             for p in range(nclosure):
                 point = cell_closures[cell, p]
                 if point == facets[f]:
-                    if isinterior:
-                        cell_facets[cell, fi] = 1
-                    else:
+                    if is_exterior:
                         cell_facets[cell, fi] = 0
+                    else:
+                        cell_facets[cell, fi] = 1
                     break
                 if fstart <= point < fend:
                     fi += 1

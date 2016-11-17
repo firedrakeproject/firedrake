@@ -15,6 +15,7 @@ built into Eigen.
 
 import sys
 import firedrake
+import tsfc
 import operator
 
 from coffee import base as ast
@@ -24,13 +25,23 @@ from firedrake.tsfc_interface import SplitKernel, KernelInfo
 
 from slate import *
 
-from singledispatch import singledispatch
+from functools import partial
 
+from ufl.algorithms.multifunction import MultiFunction
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.form import Form
 
 
 __all__ = ['compile_slate_expression']
+
+
+class RemoveRestrictions(MultiFunction):
+    """UFL MultiFunction for removing any restrictions on the integrals of forms."""
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def positive_restricted(self, o):
+        return self(o.ufl_operands[0])
 
 
 class Transformer(Visitor):
@@ -42,9 +53,9 @@ class Transformer(Visitor):
     argument when calling the visitor."""
 
     def visit_object(self, o, *args, **kwargs):
-        """Visits a a COFFEE object and returns it.
+        """Visits an object and returns it.
 
-        i.e. string ---> string
+        e.g. string ---> string
         """
         return o
 
@@ -82,12 +93,10 @@ class Transformer(Visitor):
             return o
 
         template = "template <typename Derived>"
-        pred = ["static", "inline"]
         body = ops[3]
         args, _ = body.operands()
         nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived> & %s = const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n" % (name, name))] + args
         ops[3] = nargs
-        ops[4] = pred
         ops[6] = template
 
         return o.reconstruct(*ops, **okwargs)
@@ -120,28 +129,28 @@ class Transformer(Visitor):
         return ast.FunCall(ast.Symbol(name), *shape)
 
 
-def compile_slate_expression(slate_expr):
+def compile_slate_expression(slate_expr, tsfc_parameters=None):
     """Takes a SLATE expression `slate_expr` and returns the
     appropriate :class:`firedrake.op2.Kernel` object representing
     the SLATE expression.
 
     :arg slate_expr: a SLATE expression.
-    :arg testing: an optional argument that changes the output of
-    the function to return coordinates, coefficents, facet_flag and
-    the resulting op2.Kernel. This argument is for testing purposes.
-    """
 
+    :arg tsfc_parameters: an optional `dict` of form compiler parameters to
+                          be passed onto TSFC during the compilation of
+                          integral forms.
+    """
     # Only SLATE expressions are allowed as inputs
     if not isinstance(slate_expr, Tensor):
-        raise ValueError("Expecting a `slate.Tensor` expression, not a %s" % slate_expr)
+        raise ValueError("Expecting a `slate.Tensor` expression, not a %r" % slate_expr)
 
     # SLATE currently does not support arguments in mixed function spaces
-    # TODO: Implement something akin to a FormSplitter for SLATE tensors
+    # TODO: Get PyOP2 to write into mixed dats
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
         raise NotImplementedError("Compiling mixed slate expressions")
 
     # Initialize variables: dtype and dictionary objects.
-    dtype = "double"
+    dtype = tsfc.parameters.SCALAR_TYPE
     shape = slate_expr.shape
     temps = {}
     kernel_exprs = {}
@@ -157,85 +166,6 @@ def compile_slate_expression(slate_expr):
     # this to indicate that we need to loop over cell facets later on.
     need_cell_facets = False
 
-    # Auxillary functions for constructing matrix and vector types.
-    def mat_type(shape):
-        """Returns the Eigen::Matrix declaration of the tensor."""
-
-        if len(shape) == 1:
-            rows = shape[0]
-            cols = 1
-        else:
-            if not len(shape) == 2:
-                raise NotImplementedError("%d-rank tensors are not currently supported." % len(shape))
-            rows = shape[0]
-            cols = shape[1]
-        if cols != 1:
-            order = ", Eigen::RowMajor"
-        else:
-            order = ""
-
-        return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
-
-    def map_type(matrix):
-        """Returns an eigen map to output the resulting matrix
-        in an appropriate data array."""
-
-        return "Eigen::Map<%s >" % matrix
-
-    # Compile integrals associated with a temporary using TSFC
-    @singledispatch
-    def get_kernel_expr(expr):
-        """Retrieves the TSFC kernel function for a specific tensor."""
-
-        raise NotImplementedError("Expression of type %s not supported.",
-                                  type(expr).__name__)
-
-    @get_kernel_expr.register(Scalar)
-    @get_kernel_expr.register(Vector)
-    @get_kernel_expr.register(Matrix)
-    def get_kernel_expr_tensor(expr):
-        """Compile integral forms using TSFC form compiler."""
-
-        # No need to store identical variables more than once
-        if expr not in temps.keys():
-            sym = "T%d" % len(temps)
-            temp = ast.Symbol(sym)
-            temp_type = mat_type(expr.shape)
-            temps[expr] = temp
-            statements.append(ast.Decl(temp_type, temp))
-
-            # Compile integrals using TSFC
-            integrals = expr.form.integrals()
-            kernel_exprs[expr] = []
-            mapper = RemoveRestrictions()
-            for i, it in enumerate(integrals):
-                typ = it.integral_type()
-                form = Form([it])
-                prefix = "subkernel%d_%d_%s_" % (len(kernel_exprs), i, typ)
-
-                if typ == "interior_facet":
-                    # Reconstruct "interior_facet" integrals to be of type "exterior_facet."
-                    # This is because we are performing `local` operations, iterating over cells.
-                    # An "interior_facet" is locally an "exterior_facet."
-                    newit = map_integrand_dags(mapper, it)
-                    newit = newit.reconstruct(integral_type="exterior_facet")
-                    form = Form([newit])
-
-                tsfc_compiled_form = firedrake.tsfc_interface.compile_form(form, prefix)
-                kernel_exprs[expr].append((typ, tsfc_compiled_form))
-        return
-
-    @get_kernel_expr.register(UnaryOp)
-    @get_kernel_expr.register(BinaryOp)
-    @get_kernel_expr.register(Transpose)
-    @get_kernel_expr.register(Inverse)
-    def get_kernel_expr_ops(expr):
-        """Map operands of expressions into
-        `get_kernel_expr` recursively."""
-
-        map(get_kernel_expr, expr.operands)
-        return
-
     # initialize coordinate and facet symbols
     coordsym = ast.Symbol("coords")
     coords = None
@@ -243,165 +173,97 @@ def compile_slate_expression(slate_expr):
     inc = []
 
     # Provide the SLATE expression as input to extract kernel functions
-    get_kernel_expr(slate_expr)
+    get_kernel_expr(slate_expr, tsfc_parameters, temps, kernel_exprs, statements)
 
     # Now we construct the body of the macro kernel
     for exp, t in temps.items():
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
 
-        for (typ, klist) in kernel_exprs[exp]:
-            for ks in klist:
-                clist = []
-                kinfo = ks[1]
-                kernel = kinfo.kernel
-                if typ not in ['cell', 'interior_facet', 'exterior_facet']:
-                    raise NotImplementedError("Integral type %s not currently supported." % typ)
+        for klist in kernel_exprs[exp]:
+            clist = []
+            index = klist[0]
+            kinfo = klist[1]
+            kernel = kinfo.kernel
+            integral_type = kinfo[1]
 
-                # Checking for facet integrals
-                if typ in ['interior_facet', 'exterior_facet']:
-                    need_cell_facets = True
+            if integral_type not in ['cell', 'interior_facet', 'exterior_facet']:
+                raise NotImplementedError("Integral type %s not currently supported." % integral_type)
 
-                # Checking coordinates
-                coordinates = exp.ufl_domain().coordinates
-                if coords is not None:
-                    assert coordinates == coords
+            # Checking for facet integrals
+            if integral_type in ['interior_facet', 'exterior_facet']:
+                need_cell_facets = True
+
+            # Checking coordinates
+            coordinates = exp.ufl_domain().coordinates
+            if coords is not None:
+                assert coordinates == coords
+            else:
+                coords = coordinates
+
+            # Extracting coefficients
+            for cindex in list(kinfo[5]):
+                coeff = exp.coefficients()[cindex]
+                clist.append(coeffmap[coeff])
+
+            # Defining tensor matrices of appropriate size
+            inc.extend(kernel._include_dirs)
+            try:
+                row, col = index
+            except ValueError:
+                row = index[0]
+                col = 0
+            rshape = exp.shapes[0][row]
+            rstart = sum(exp.shapes[0][:row])
+            try:
+                cshape = exp.shapes[1][col]
+                cstart = sum(exp.shapes[1][:col])
+            except KeyError:
+                cshape = 1
+                cstart = 0
+
+            # Creating sub-block if tensor is mixed.
+            if (rshape, cshape) != exp.shape:
+                tensor = ast.FlatBlock("%s.block<%d,%d>(%d, %d)" %
+                                       (t, rshape, cshape,
+                                        rstart, cstart))
+            else:
+                tensor = t
+
+            # Facet integral loop
+            if integral_type in ['interior_facet', 'exterior_facet']:
+                itsym = ast.Symbol("i0")
+                block = []
+                nfacet = exp.ufl_domain().ufl_cell().num_facets()
+                clist.append(ast.FlatBlock("&%s" % itsym))
+
+                # Check if facet is exterior (they are the only allowed
+                # facet integral type in SLATE)
+                if integral_type == 'exterior_facet':
+                    # Perform facet integral loop
+                    checker = 1
                 else:
-                    coords = coordinates
+                    checker = 0
 
-                # Extracting coefficients
-                for cindex in list(kinfo[5]):
-                    coeff = exp.coefficients()[cindex]
-                    clist.append(coeffmap[coeff])
+                # Construct the body of the facet loop
+                block.append(ast.If(ast.Eq(ast.Symbol(cellfacetsym,
+                                                      rank=(itsym, )),
+                                           checker),
+                                    [ast.Block([ast.FunCall(kernel.name,
+                                                            tensor,
+                                                            coordsym,
+                                                            *clist)],
+                                               open_scope=True)]))
+                # Assemble loop
+                loop = ast.For(ast.Decl("unsigned int", itsym, init=0),
+                               ast.Less(itsym, nfacet),
+                               ast.Incr(itsym, 1), block)
+                statements.append(loop)
+            else:
+                statements.append(ast.FunCall(kernel.name,
+                                              tensor,
+                                              coordsym,
+                                              *clist))
 
-                # Defining tensor matrices of appropriate size
-                inc.extend(kernel._include_dirs)
-                try:
-                    row, col = ks[0]
-                except:
-                    row = ks[0][0]
-                    col = 0
-                rshape = exp.shapes[0][row]
-                rstart = sum(exp.shapes[0][:row])
-                try:
-                    cshape = exp.shapes[1][col]
-                    cstart = sum(exp.shapes[1][:col])
-                except:
-                    cshape = 1
-                    cstart = 0
-
-                # Creating sub-block if tensor is mixed.
-                if (rshape, cshape) != exp.shape:
-                    tensor = ast.FlatBlock("%s.block<%d,%d>(%d, %d)" %
-                                           (t, rshape, cshape,
-                                            rstart, cstart))
-                else:
-                    tensor = t
-
-                # Facet integral loop
-                if typ in ['interior_facet', 'exterior_facet']:
-                    itsym = ast.Symbol("i0")
-                    block = []
-                    mesh = coords.function_space().mesh()
-                    nfacet = mesh._plex.getConeSize(mesh._plex.getHeightStratum(0)[0])
-                    clist.append(ast.FlatBlock("&%s" % itsym))
-
-                    # Check if facet is interior or exterior
-                    if typ == 'exterior_facet':
-                        isinterior = 0
-                    else:
-                        isinterior = 1
-
-                    # Construct the body of the facet loop
-                    block.append(ast.If(ast.Eq(ast.Symbol(cellfacetsym,
-                                                          rank=(itsym, )),
-                                               isinterior),
-                                        [ast.Block([ast.FunCall(kernel.name,
-                                                                tensor,
-                                                                coordsym,
-                                                                *clist)],
-                                                   open_scope=True)]))
-                    # Assemble loop
-                    loop = ast.For(ast.Decl("unsigned int", itsym, init=0),
-                                   ast.Less(itsym, nfacet),
-                                   ast.Incr(itsym, 1), block)
-                    statements.append(loop)
-                else:
-                    statements.append(ast.FunCall(kernel.name,
-                                                  tensor,
-                                                  coordsym,
-                                                  *clist))
-
-    # Now we convert the entire SLATE expression for the final result as a
-    # C-string, which expresses the linear algebra operations needed.
-    def pars(expr, prec=None, parent=None):
-        """Parses a slate expression and returns a string representation."""
-
-        if prec is None or parent >= prec:
-            return expr
-        return "(%s)" % expr
-
-    @singledispatch
-    def get_c_str(expr, temps, prec=None):
-        """Translates a SLATE expression into its equivalent
-        representation in C."""
-        raise NotImplementedError("Expression of type %s not supported.",
-                                  type(expr).__name__)
-
-    @get_c_str.register(Scalar)
-    @get_c_str.register(Vector)
-    @get_c_str.register(Matrix)
-    def get_c_str_tensors(expr, temps, prec=None):
-        """Generates code representation of the SLATE tensor
-        via COFFEE gencode method."""
-
-        return temps[expr].gencode()
-
-    @get_c_str.register(UnaryOp)
-    def get_c_str_uop(expr, temps, prec=None):
-        """Generates code representation of the unary
-        SLATE operators."""
-
-        op = {operator.neg: '-',
-              operator.pos: '+'}[expr.op]
-        prec = expr.prec
-        result = "%s%s" % (op, get_c_str(expr.children,
-                                         temps,
-                                         prec))
-
-        return pars(result, expr.prec, prec)
-
-    @get_c_str.register(BinaryOp)
-    def get_c_str_bop(expr, temps, prec=None):
-        """Generates code representation of the binary
-        SLATE operations."""
-
-        op = {operator.add: '+',
-              operator.sub: '-',
-              operator.mul: '*'}[expr.op]
-        prec = expr.prec
-        result = "%s %s %s" % (get_c_str(expr.children[0], temps,
-                                         prec),
-                               op,
-                               get_c_str(expr.children[1], temps,
-                                         prec))
-
-        return pars(result, expr.prec, prec)
-
-    @get_c_str.register(Inverse)
-    def get_c_str_inv(expr, temps, prec=None):
-        """Generates code representation of the
-        inverse operation."""
-
-        return "(%s).inverse()" % get_c_str(expr.children, temps)
-
-    @get_c_str.register(Transpose)
-    def get_c_str_t(expr, temps, prec=None):
-        """Generates code representation of the
-        transpose operation."""
-
-        return "(%s).transpose()" % get_c_str(expr.children, temps)
-
-    # Creating c statement for the resulting linear algebra expression
     result_type = map_type(mat_type(shape))
     result_sym = ast.Symbol("T%d" % len(temps))
     result_data_sym = ast.Symbol("A%d" % len(temps))
@@ -412,6 +274,8 @@ def compile_slate_expression(slate_expr):
                                       dtype, result_data_sym))
 
     statements.append(result_statement)
+
+    # Call the get_c_str method to return the full C/C++ statement
     c_string = ast.FlatBlock(get_c_str(slate_expr, temps))
     statements.append(ast.Assign(result_sym, c_string))
 
@@ -436,13 +300,12 @@ def compile_slate_expression(slate_expr):
     transformkernel = Transformer()
     oriented = False
     for v in kernel_exprs.values():
-        for (_, ks) in v:
-            for k in ks:
-                oriented = oriented or k.kinfo.oriented
-                # TODO: Think about this. Is this true for SLATE?
-                assert k.kinfo.subdomain_id == "otherwise"
-                kast = transformkernel.visit(k.kinfo.kernel._ast)
-                klist.append(kast)
+        for ks in v:
+            oriented = oriented or ks.kinfo.oriented
+            # TODO: Think about this. Is this true for SLATE?
+            assert ks.kinfo.subdomain_id == "otherwise"
+            kast = transformkernel.visit(ks.kinfo.kernel._ast)
+            klist.append(kast)
 
     klist.append(kernel)
     kernelast = ast.Node(klist)
@@ -459,7 +322,7 @@ def compile_slate_expression(slate_expr):
     # TODO: What happens for multiple ufl domains?
     assert len(slate_expr.ufl_domains()) == 1
     kinfo = KernelInfo(kernel=op2kernel,
-                       integral_type=slate_expr.integrals()[0].integral_type(),
+                       integral_type="cell",
                        oriented=oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
@@ -468,3 +331,199 @@ def compile_slate_expression(slate_expr):
     idx = tuple([0]*len(slate_expr.arguments()))
 
     return (SplitKernel(idx, kinfo), )
+
+
+def get_c_str(expr, temps, prec=None):
+    """Translates a SLATE expression into its equivalent
+    representation in C. This is done by using COFFEE's
+    code generation functionality and we construct an
+    appropriate C/C++ representation of the `slate.Tensor`
+    expression.
+
+    :arg expr: a :class:`slate.Tensor` expression.
+
+    :arg temps: a `dict` of temporaries which map a given
+                `slate.Tensor` object to its corresponding
+                representation as a `coffee.Symbol` object.
+
+    :arg prec: an argument dictating the order of precedence
+               in the linear algebra operations. This ensures
+               that parentheticals are placed appropriately
+               and the order in which linear algebra operations
+               are performed are correct.
+
+    Returns
+        This function returns a `string` which represents the
+        C/C++ code representation of the `slate.Tensor` expr.
+    """
+    if isinstance(expr, (Scalar, Vector, Matrix)):
+        return temps[expr].gencode()
+
+    elif isinstance(expr, UnaryOp):
+        op = {operator.neg: '-',
+              operator.pos: '+'}[expr.op]
+        prec = expr.prec
+        result = "%s%s" % (op, get_c_str(expr.children,
+                                         temps,
+                                         prec))
+
+        return parenthesize(result, expr.prec, prec)
+
+    elif isinstance(expr, BinaryOp):
+        op = {operator.add: '+',
+              operator.sub: '-',
+              operator.mul: '*'}[expr.op]
+        prec = expr.prec
+        result = "%s %s %s" % (get_c_str(expr.children[0], temps,
+                                         prec),
+                               op,
+                               get_c_str(expr.children[1], temps,
+                                         prec))
+
+        return parenthesize(result, expr.prec, prec)
+
+    elif isinstance(expr, Inverse):
+        return "(%s).inverse()" % get_c_str(expr.children, temps)
+
+    elif isinstance(expr, Transpose):
+        return "(%s).transpose()" % get_c_str(expr.children, temps)
+
+    else:
+        # If expression is not recognized, throw a NotImplementedError.
+        raise NotImplementedError("Expression of type %s not supported.",
+                                  type(expr).__name__)
+
+
+def get_kernel_expr(expr, parameters=None, temps=None, kernel_exprs=None, statements=None):
+    """Retrieves the TSFC kernel function for a slate expression.
+    Compiled integral forms use the TSFC form compiler. This function
+    walks through the nodes of a given :class:`slate.Tensor` which is
+    typically comprised of few or several :class:`slate.BinaryOp` or
+    :class:`slate.UnaryOp` objects.
+
+    :arg expr: a :class:`slate.Tensor` expression.
+
+    :arg parameters: optional `dict` of parameters to pass to the form compiler.
+
+    :arg temps: an :obj:`dict` whose entries are :class:`coffee.Symbol` objects
+    which represent a terminal `slate.Tensor` object (the keys are the corresponding
+    `slate.Tensor` objects). The `temps` argument is initialized as an empty `dict`
+    and gets populated in the body of the function.
+
+    :arg kernel_exprs: an :obj:`dict` whose entries are TSFC compiled forms. The keys
+    correspond to the associated `slate.Tensor` object where the kernels are used to
+    dictate how to populate the tensor. The `kernel_exprs` argument is initialized as
+    an empty `dict` and gets populated in the body of the function.
+
+    :arg statements: a :obj:`list` of :class:`coffee.FlatBlock` statements which
+    provide the relevant information for building the kernel functions in
+    :meth:`compile_slate_expression`. This object is initialized as an empty list.
+
+    Returns:
+        temps: returned with all assigned temporaries.
+        kernel_exprs: returned with all relevant kernel functions
+                      provided by TSFC.
+        statemenets: returned with appropriate declarations and
+                     `coffee.base` objects for building the full
+                     kernel.
+    """
+    temps = {} or temps
+    kernel_exprs = {} or kernel_exprs
+    statements = [] or statements
+
+    if isinstance(expr, (Scalar, Vector, Matrix)):
+        # No need to store identical variables more than once
+        if expr in temps.keys():
+            return temps, kernel_exprs, statements
+        else:
+            sym = "T%d" % len(temps)
+            temp = ast.Symbol(sym)
+            temp_type = mat_type(expr.shape)
+            temps[expr] = temp
+            statements.append(ast.Decl(temp_type, temp))
+
+            # Compile integrals using TSFC
+            integrals = expr.form.integrals()
+            mapper = RemoveRestrictions()
+            integrals = map(partial(map_integrand_dags, mapper), integrals)
+            prefix = "subkernel%d_" % len(kernel_exprs)
+
+            int_fac_integrals = filter(lambda x: x.integral_type() == "interior_facet",
+                                       integrals)
+            # Reconstruct all interior_facet integrals to be of type: exterior_facet
+            # This is because locally over each element, we view them as being "exterior"
+            # with respect to that element.
+            int_fac_integrals = [it.reconstruct(integral_type="exterior_facet")
+                                 for it in int_fac_integrals]
+            other_integrals = filter(lambda x: x.integral_type() != "interior_facet",
+                                     integrals)
+
+            compiled_forms = []
+            if len(int_fac_integrals) != 0:
+                intf_form = Form(int_fac_integrals)
+                compiled_forms.extend(firedrake.tsfc_interface.compile_form(intf_form,
+                                                                            prefix+"int_ext_conv",
+                                                                            parameters=parameters))
+            other_form = Form(other_integrals)
+            compiled_forms.extend(firedrake.tsfc_interface.compile_form(other_form,
+                                                                        prefix,
+                                                                        parameters=parameters))
+            kernel_exprs[expr] = tuple(compiled_forms)
+            return temps, kernel_exprs, statements
+
+    elif isinstance(expr, (UnaryOp, BinaryOp, Transpose, Inverse)):
+        # Map the children to :meth:`get_kernel_expr` recursively
+        map(lambda x: get_kernel_expr(x, parameters, temps, kernel_exprs, statements),
+            expr.operands)
+        return
+    else:
+        # If none of the expressions are recognized, raise NotImplementedError
+        raise NotImplementedError("Expression of type %s not supported.",
+                                  type(expr).__name__)
+
+
+def mat_type(shape):
+    """Returns the Eigen::Matrix declaration of the tensor.
+
+    :arg shape: a tuple of integers the denote the shape of
+                the :class:`slate.Tensor` object.
+
+    Returns: Returns a string indicating the appropriate declaration
+             of the `slate.Tensor` in the appropriate Eigen C++ template
+             library syntax.
+    """
+
+    if len(shape) == 1:
+        rows = shape[0]
+        cols = 1
+    else:
+        if not len(shape) == 2:
+            raise NotImplementedError("%d-rank tensors are not currently supported." % len(shape))
+        rows = shape[0]
+        cols = shape[1]
+    if cols != 1:
+        order = ", Eigen::RowMajor"
+    else:
+        order = ""
+
+    return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
+
+
+def map_type(matrix):
+    """Returns an eigen map to output the resulting matrix
+    in an appropriate data array.
+
+    :arg matrix: a string returned from :meth:`mat_type`; a
+                 string denoting the appropriate declaration
+                 of an `Eigen::Matrix` object.
+    """
+
+    return "Eigen::Map<%s >" % matrix
+
+
+def parenthesize(expr, prec=None, parent=None):
+    """Parenthezises a slate expression and returns a string. This function is
+    fairly self-explanatory."""
+    if prec is None or parent >= prec:
+        return expr
+    return "(%s)" % expr
