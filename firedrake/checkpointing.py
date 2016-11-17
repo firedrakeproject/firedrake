@@ -299,7 +299,7 @@ class HDF5File(object):
     to disk in parallel (using HDF5) and reloading them on the same
     number of processes and a :func:`~.Mesh` constructed identically.
 
-    :arg filename:
+    :arg filename: filename (including suffix ".h5) of checkpoint file.
     :arg file_mode: the access mode (one of :data:`~.FILE_READ`,
          :data:`~.FILE_CREATE`, or :data:`~.FILE_UPDATE`)
     :arg comm: communicator the writes should be collective
@@ -328,6 +328,8 @@ class HDF5File(object):
             self.mode = FILE_UPDATE
 
         self._filename = filename
+        self._time = None
+        self._tidx = -1
         self.new_file()
 
     def new_file(self):
@@ -391,18 +393,25 @@ class HDF5File(object):
         """Flush any pending writes."""
         self._h5file.flush()
 
-    def write(self, function, path):
+    def write(self, function, path, timestamp=None):
         """Store a function in the checkpoint file.
 
         :arg function: The function to store.
         :arg path: the path to store the function under.
+        :arg timestamp: timestamp to add in front of path
         """
         if self.mode is FILE_READ:
             raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only store functions")
-        name = os.path.basename(path)
+        if timestamp is None:
+            name = os.path.basename(path)
+        else:
+            stampedpath = "/" + str(timestamp) + path
+            name = os.path.basename(stampedpath)
+			self.write_attribute(stampedpath, "timestamp", timestamp)
         group = os.path.dirname(path)
+        
         with function.dat.vec_ro as v:
             self.vwr.pushGroup(group)
             oname = v.getName()
