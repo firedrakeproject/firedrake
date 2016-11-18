@@ -196,8 +196,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if inverse and rank != 2:
         raise ValueError("Can only assemble the inverse of a 2-form")
 
-    integrals = f.integrals()
-
     zero_tensor = lambda: None
 
     if is_mat:
@@ -232,8 +230,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             # bottom and interior horizontal facets will use the cell to dofs map
             # coming from the base mesh as a starting point for the actual dynamic map
             # computation.
-            for integral in integrals:
-                integral_type = integral.integral_type()
+            for kernel in kernels:
+                integral_type = kernel.kinfo.integral_type
                 if integral_type == "cell":
                     cell_domains.append(op2.ALL)
                 elif integral_type == "exterior_facet":

@@ -4,7 +4,7 @@ tensors. It is similar in principle to most linear algebra
 libraries in notation.
 
 The design of SLATE was heavily influenced by UFL, and
-utilizes much of UFLs functionality for FEM-specific form
+utilizes much of UFL's functionality for FEM-specific form
 manipulation.
 
 Unlike UFL, however, once forms are assembled into SLATE
@@ -19,15 +19,11 @@ produces C++ kernel functions to be executed within the
 Firedrake architecture.
 """
 
-import hashlib
 import operator
 
-from ufl.algorithms.domain_analysis import canonicalize_metadata
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
-from ufl.algorithms.signature import compute_expression_hashdata, compute_terminal_hashdata
 from ufl.domain import join_domains, sort_domains
-from ufl.form import _sorted_integrals
 
 
 __all__ = ['Tensor', 'Scalar', 'Vector', 'Matrix',
@@ -45,66 +41,24 @@ class CheckRestrictions(MultiFunction):
         raise ValueError("Cell-wise integrals must contain only positive restrictions.")
 
 
-class SlateIntegral(object):
-    """An integral wrapping class that behaves like a UFL integral,
-    but doesn't have integrands in the same way. Its purpose is to
-    provide the appropriate integration domains and subdomain data."""
-
-    def __init__(self, ufl_integral):
-        """Constructor for the SlateIntegral class.
-
-        :arg ufl_integral: a ufl integral object."""
-
-        self._itype = ufl_integral.integral_type()
-        self._subdomain_data = ufl_integral.subdomain_data()
-        super(SlateIntegral, self).__init__()
-
-    def integral_type(self):
-        """Returns the integral type of the "integral"."""
-        return self._itype
-
-    def subdomain_data(self):
-        """Returns the subdomain data of the "integral"."""
-        return self._subdomain_data
-
-
 class Tensor(object):
     """An abstract representation of a finite element tensor in SLATE.
     All derived tensors, `Scalar`, `Vector`, and `Matrix`, as well as all
-    `BinaryOp` and `UnaryOp` objects derive from this class.
-
-    :arg arguments: a tuple of :class:`ufl.Argument` objects that are provided by
-                    an input `ufl.Form` in the user-facing subclasses: `Scalar`,
-                    `Vector` and `Matrix`.
-
-    :arg coefficients: a tuple of :class:`ufl.Coefficient` objects provided by
-                       a `ufl.Form` object when instantiating a user-facing subclass.
-
-    :arg integrals: a tuple of :class:`ufl.Integral` objects provided by a `ufl.Form`.
-                    These allow us to determine the domain of integration for the `Tensor`.
+    `BinaryOp` and `UnaryOp` objects derive from this abstract base class.
     """
-
     # Initializing tensor id class variable for output purposes
     id = 0
 
-    def __init__(self, arguments, coefficients, integrals):
+    def __init__(self):
         """Constructor for the Tensor class."""
         self.id = Tensor.id
         Tensor.id += 1
-        self._arguments = arguments
-        self._coefficients = coefficients
-        self._integrals = _sorted_integrals(integrals)
-
-        slate_integrals = []
-        for integral in self._integrals:
-            slate_integrals.append(SlateIntegral(integral))
-        self._slate_integrals = tuple(slate_integrals)
 
         # Compute Tensor shape information
         shape = []
         shapes = {}
 
-        for i, arg in enumerate(self._arguments):
+        for i, arg in enumerate(self.arguments()):
             V = arg.function_space()
             shapelist = []
 
@@ -116,20 +70,12 @@ class Tensor(object):
 
         self.shapes = shapes
         self.shape = tuple(shape)
-        self.rank = len(self._arguments)
+        self.rank = len(self.arguments())
 
-        # Compute integration domains
-        integral_domains = join_domains([it.ufl_domain() for it in self._integrals])
-        self._integral_domains = sort_domains(integral_domains)
-
-        # Compute relevant attributes for signature computation
-        self._coefficient_numbering = dict((c, i) for i, c in enumerate(self._coefficients))
-        self._domain_numbering = dict((d, i) for i, d in enumerate(self._integral_domains))
-
+        self._integral_domains = None
+        self._subdomain_data = None
         self._hash = None
-        self._signature = None
 
-    # Overloaded operations for the tensor algebra
     def __add__(self, other):
         return TensorAdd(self, other)
 
@@ -157,30 +103,6 @@ class Tensor(object):
     def __pos__(self):
         return Positive(self)
 
-    def equals(self, other):
-        """Evaluates the boolean expression `A == B`."""
-
-        if not isinstance(other, Tensor):
-            return False
-        if len(self.arguments()) != len(other.arguments()):
-            return False
-        if len(self.coefficients()) != len(other.coefficients()):
-            return False
-        if len(self._integrals) != len(other._integrals):
-            return False
-        return (self._arguments == other._arguments and
-                self._coefficients == other._coefficients and
-                self._integrals == other._integrals)
-
-    def __ne__(self, other):
-        return not self.equals(other)
-
-    def __eq__(self, other):
-        """Evaluation of the "==" operator using the :class:`ufl.Equation`."""
-        from ufl.equation import Equation
-        return Equation(self, other)
-
-    # Essential properties
     @property
     def inv(self):
         return Inverse(self)
@@ -194,7 +116,6 @@ class Tensor(object):
         """Returns the tensor objects which this tensor operates on."""
         return ()
 
-    # Analyze integrals of tensor
     @classmethod
     def check_integrals(cls, integrals):
         """Checks for positive restrictions on integrals."""
@@ -203,32 +124,45 @@ class Tensor(object):
         for it in integrals:
             map_integrand_dags(mapper, it)
 
-    # Accessor methods
-    def arguments(self):
-        """Returns a tuple of arguments associated with the tensor."""
-        return self._arguments
+    def generate_integral_info(self, integrals):
+        """This function generates all relevant information for
+        assembly that relies on :class:`ufl.Integral` objects.
+        This function will generate the following information:
 
-    def coefficients(self):
-        """Returns a tuple of coefficients associated with the tensor."""
-        return self._coefficients
+        (1) ufl_domains, which come from the integrals themselves;
+        (2) and subdomain_data, which is a mapping on the tensor that maps
+            integral_type to subdomain_id.
 
-    def get_ufl_integrals(self):
-        """Returns the associated ufl integrals with the tensor
-        (This is necessary for form compilation).
+        :arg integrals: `ufl.Integral` objects that come from a `ufl.Form`
+        """
+        # Compute integration domains
+        if self._integral_domains is None:
+            integral_domains = join_domains([it.ufl_domain() for it in integrals])
+            self._integral_domains = sort_domains(integral_domains)
 
-        This function should really only be called on base-Tensor objects
-        like an individual Vector or Matrix rather than a full SLATE expr."""
-        return self._integrals
+        # Generate subdomain data
+        if self._subdomain_data is None:
+            # Scalar case
+            if self.rank == 0:
+                # subdomain_data should be None
+                return
+            else:
+                # Initializing subdomain_data
+                subdomain_data = {}
+                for domain in self._integral_domains:
+                    subdomain_data[domain] = {}
 
-    def integrals(self):
-        """Returns a tuple of SlateIntegrals associated with the tensor."""
-        return self._slate_integrals
+                    for integral in integrals:
+                        domain = integral.ufl_domain()
+                        it_type = integral.integral_type()
+                        subdata = integral.subdomain_data()
 
-    def integrals_by_type(self, integral_type):
-        """Returns a tuple of integrals corresponding with a particular domain type."""
-        assert integral_type in ['cell', 'interior_facet', 'exterior_facet'], ("Integral type %s is not supported." % integral_type)
-
-        return tuple(it for it in self.integrals() if it.integral_type() == integral_type)
+                        data = subdomain_data[domain].get(it_type)
+                        if data is None:
+                            subdomain_data[domain][it_type] = subdata
+                        elif subdata is not None:
+                            assert data.ufl_id() == subdata.ufl_id(), "Integrals in the tensor must have the same subdomain_data objects."
+                self._subdomain_data = subdomain_data
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -236,11 +170,8 @@ class Tensor(object):
         return self._integral_domains
 
     def ufl_domain(self):
-        """This function is written under the assumption that it will be called
-        on a fully constructed SLATE expression (or an individual tensor object
-        such as a matrix with one form associated with it), where the integrals
-        have been contracted to integrals on a single domain. This function returns
-        a single domain of integration occuring in the tensor.
+        """This function returns a single domain of integration occuring
+        in the tensor.
 
         The function will fail if multiple domains are found."""
         domains = self.ufl_domains()
@@ -251,83 +182,14 @@ class Tensor(object):
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         `{domain:{integral_type: subdomain_data}}`."""
-        # Scalar case
-        if self.rank == 0:
-            return None
-        integration_domains = self.ufl_domains()
-        integrals = self._integrals
-
-        # Initializing subdomain_data
-        subdomain_data = {}
-        for domain in integration_domains:
-            subdomain_data[domain] = {}
-
-        for integral in integrals:
-            domain = integral.ufl_domain()
-            it_type = integral.integral_type()
-            subdata = integral.subdomain_data()
-
-            data = subdomain_data[domain].get(it_type)
-            if data is None:
-                subdomain_data[domain][it_type] = subdata
-            elif subdata is not None:
-                assert(data.ufl_id() == subdata.ufl_id(),
-                       "Integrals in the tensor must have the same subdomain_data objects.")
-
-        return subdomain_data
-
-    # Signature and hash methods
-    def _compute_renumbering(self):
-        """Renumbers coefficients by including integration domains."""
-        dn = self._domain_numbering
-        cn = self._coefficient_numbering
-        renumbering = {}
-        renumbering.update(dn)
-        renumbering.update(cn)
-
-        n = len(dn)
-        for c in cn:
-            d = c.ufl_domain()
-            if d is not None and d not in renumbering:
-                renumbering[d] = n
-                n += 1
-
-        return renumbering
-
-    def _compute_signature(self, renumbering):
-        """Computes the signature of the tensor from the integrals."""
-        # TODO: Is there a better/cheaper way of doing this?!
-        integrals = self._integrals
-        integrands = [integral.integrand() for integral in integrals]
-
-        terminal_hashdata = compute_terminal_hashdata(integrands, renumbering)
-
-        hashdata = []
-        for integral in integrals:
-            integrand_hashdata = compute_expression_hashdata(integral.integrand(),
-                                                             terminal_hashdata)
-            domain_hashdata = integral.ufl_domain()._ufl_signature_data_(renumbering)
-
-            integral_hashdata = (integrand_hashdata, domain_hashdata,
-                                 integral.integral_type(),
-                                 integral.subdomain_id(),
-                                 canonicalize_metadata(integral.metadata()), )
-            hashdata.append(integral_hashdata)
-
-        return hashlib.sha512(str(hashdata).encode('utf-8')).hexdigest()
-
-    def signature(self):
-        """Signature for use in caching. Reproduced from ufl."""
-        if self._signature is None:
-            self._signature = self._compute_signature(self._compute_renumbering())
-
-        return self._signature
+        return self._subdomain_data
 
     def __hash__(self):
         """Returns a hash code for use in dictionary objects."""
         if self._hash is None:
             self._hash = hash((type(self), )
-                              + tuple(hash(it) for it in self._integrals))
+                              + tuple(hash(a) for a in self.arguments())
+                              + tuple(hash(c) for c in self.coefficients()))
 
         return self._hash
 
@@ -350,9 +212,17 @@ class Scalar(Tensor):
             raise Exception("Cannot create a `slate.Scalar` from a form with rank %d" % r)
         self.form = form
         self.check_integrals(form.integrals())
-        super(Scalar, self).__init__(arguments=(),
-                                     coefficients=form.coefficients(),
-                                     integrals=form.integrals())
+        super(Scalar, self).__init__()
+        # Generate integral data after tensor has been initialized
+        self.generate_integral_info(form.integrals())
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self.form.arguments()
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.form.coefficients()
 
     def __str__(self, prec=None):
         """String representation of a SLATE Scalar object."""
@@ -379,9 +249,17 @@ class Vector(Tensor):
             raise Exception("Cannot create a `slate.Vector` from a form with rank %d" % r)
         self.form = form
         self.check_integrals(form.integrals())
-        super(Vector, self).__init__(arguments=form.arguments(),
-                                     coefficients=form.coefficients(),
-                                     integrals=form.integrals())
+        super(Vector, self).__init__()
+        # Generate integral data after tensor has been initialized
+        self.generate_integral_info(form.integrals())
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self.form.arguments()
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.form.coefficients()
 
     def __str__(self, prec=None):
         """String representation of a SLATE Vector object."""
@@ -408,9 +286,17 @@ class Matrix(Tensor):
             raise Exception("Cannot create a `slate.Matrix` from a form with rank %d" % r)
         self.form = form
         self.check_integrals(form.integrals())
-        super(Matrix, self).__init__(arguments=form.arguments(),
-                                     coefficients=form.coefficients(),
-                                     integrals=form.integrals())
+        super(Matrix, self).__init__()
+        # Generate integral data after tensor has been initialized
+        self.generate_integral_info(form.integrals())
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self.form.arguments()
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.form.coefficients()
 
     def __str__(self, prec=None):
         """String representation of a rank-2 tensor object in SLATE."""
@@ -426,15 +312,36 @@ class Inverse(Tensor):
         """Constructor for the Inverse class.
 
         :arg A: a SLATE tensor."""
-
         if isinstance(A, (Scalar, Vector)):
             raise Exception("Expecting a `slate.Matrix` object, not %r" % A)
         assert A.shape[0] == A.shape[1], "The inverse can only be computed on square tensors."
-
         self.children = A
-        super(Inverse, self).__init__(arguments=A.arguments()[::-1],
-                                      coefficients=A.coefficients(),
-                                      integrals=A.get_ufl_integrals())
+        super(Inverse, self).__init__()
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self.children.arguments()[::-1]
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.children.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor."""
+        return self.children.ufl_domains()
+
+    def ufl_domain(self):
+        """This function returns a single domain of integration occuring
+        in the tensor.
+
+        The function will fail if multiple domains are found."""
+        return self.children.ufl_domain()
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        `{domain:{integral_type: subdomain_data}}`."""
+        return self.children.subdomain_data()
 
     @property
     def operands(self):
@@ -458,9 +365,32 @@ class Transpose(Tensor):
 
         :arg A: a SLATE tensor."""
         self.children = A
-        super(Transpose, self).__init__(arguments=A.arguments()[::-1],
-                                        coefficients=A.coefficients(),
-                                        integrals=A.get_ufl_integrals())
+        super(Transpose, self).__init__()
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self.children.arguments()[::-1]
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.children.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor."""
+        return self.children.ufl_domains()
+
+    def ufl_domain(self):
+        """This function returns a single domain of integration occuring
+        in the tensor.
+
+        The function will fail if multiple domains are found."""
+        return self.children.ufl_domain()
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        `{domain:{integral_type: subdomain_data}}`."""
+        return self.children.subdomain_data()
 
     @property
     def operands(self):
@@ -488,18 +418,32 @@ class UnaryOp(Tensor):
         if not isinstance(A, Tensor):
             raise Exception("Expecting a `slate.Tensor` object, not %r" % A)
         self.children = A
-        super(UnaryOp, self).__init__(arguments=A.arguments(),
-                                      coefficients=A.coefficients(),
-                                      integrals=self.get_uop_integrals(A))
+        super(UnaryOp, self).__init__()
 
-    @classmethod
-    def get_uop_integrals(cls, A):
-        """Returns the integrals of the resulting tensor after the
-        unary operation (Positive or Negative)
-        is performed.
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self.children.arguments()
 
-        Method is implemented in subclass."""
-        pass
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self.children.coefficients()
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor."""
+        return self.children.ufl_domains()
+
+    def ufl_domain(self):
+        """This function returns a single domain of integration occuring
+        in the tensor.
+
+        The function will fail if multiple domains are found."""
+        return self.children.ufl_domain()
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        `{domain:{integral_type: subdomain_data}}`."""
+        return self.children.subdomain_data()
 
     @property
     def operands(self):
@@ -529,26 +473,12 @@ class Negative(UnaryOp):
     prec = 1
     op = operator.neg
 
-    @classmethod
-    def get_uop_integrals(cls, A):
-        """Returns the integrals of Negative(A)."""
-
-        integrals = []
-        for it in A.get_ufl_integrals():
-            integrals.append(-it)
-        return tuple(integrals)
-
 
 class Positive(UnaryOp):
     """Abstract SLATE class representing the positive operation on a tensor."""
 
     prec = 1
     op = operator.pos
-
-    @classmethod
-    def get_uop_integrals(cls, A):
-        """Returns the integrals of Positive(A)."""
-        return A.get_ufl_integrals()
 
 
 class BinaryOp(Tensor):
@@ -561,9 +491,43 @@ class BinaryOp(Tensor):
 
         self.check_dimensions(A, B)
         self.children = A, B
-        super(BinaryOp, self).__init__(arguments=self.get_bop_arguments(A, B),
-                                       coefficients=self.get_bop_coefficients(A, B),
-                                       integrals=self.get_bop_integrals(A, B))
+        super(BinaryOp, self).__init__()
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        A, B = self.children
+        return self.get_bop_arguments(A, B)
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        A, B = self.children
+        return self.get_bop_coefficients(A, B)
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor."""
+        A, B = self.children
+        # TODO: We need to have a discussion on how we should handle ufl_domains
+        assert len(A.ufl_domains()) == 1
+        assert len(B.ufl_domains()) == 1
+        assert A.ufl_domains() == B.ufl_domains()
+        return A.ufl_domains()
+
+    def ufl_domain(self):
+        """This function returns a single domain of integration occuring
+        in the tensor.
+
+        The function will fail if multiple domains are found."""
+        domains = self.ufl_domains()
+        assert all(domain == domains[0] for domain in domains), "All integrals must share the same domain of integration."
+
+        return domains[0]
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        `{domain:{integral_type: subdomain_data}}`."""
+        # TODO: We need to have a discussion on how we need to handle subdomain_data
+        return self.children[0].subdomain_data()
 
     @classmethod
     def check_dimensions(cls, A, B):
@@ -595,14 +559,6 @@ class BinaryOp(Tensor):
                 clist.append(c)
 
         return tuple(list(A_coeffs) + clist)
-
-    @classmethod
-    def get_bop_integrals(cls, A, B):
-        """Returns the expected integrals of the resulting tensor
-        of performing a specific binary operation on two tensors.
-
-        Implemented in subclass."""
-        pass
 
     @property
     def operands(self):
@@ -657,12 +613,6 @@ class TensorAdd(BinaryOp):
             return A.arguments()
         return A.arguments()
 
-    @classmethod
-    def get_bop_integrals(cls, A, B):
-        """Returns the appropriate integrals of the resulting
-        tensor via tensor addition."""
-        return A.get_ufl_integrals() + B.get_ufl_integrals()
-
 
 class TensorSub(BinaryOp):
     """Abstract SLATE class representing tensor subtraction."""
@@ -689,13 +639,6 @@ class TensorSub(BinaryOp):
         elif isinstance(B, Scalar):
             return A.arguments()
         return A.arguments()
-
-    @classmethod
-    def get_bop_integrals(cls, A, B):
-        """Returns the appropriate integrals of the resulting
-        tensor via tensor subtraction."""
-        # TODO: Is it wasteful to declare an Negative tensor?
-        return A.get_ufl_integrals() + Negative(B).get_ufl_integrals()
 
 
 class TensorMul(BinaryOp):
@@ -728,22 +671,3 @@ class TensorMul(BinaryOp):
         assert argsA[-1].function_space() == argsB[0].function_space(), ("Cannot perform the contraction over middle arguments. They need to be in the space function space.")
 
         return argsA[:-1] + argsB[1:]
-
-    @classmethod
-    def get_bop_integrals(cls, A, B):
-        """Returns the integrals of a tensor resulting
-        from multiplying two tensors A and B.
-
-        Note that is is only for book-keeping. The objective is to
-        keep integrals corresponding to the arguments left during
-        the contraction over indices. The integrals are used to help
-        determine the domain of integration."""
-
-        # If no middled integrals to contract, just concatenate
-        if len(A.get_ufl_integrals()) == 1 and len(B.get_ufl_integrals()) == 1:
-            return A.get_ufl_integrals() + B.get_ufl_integrals()
-        integrandA = A.get_ufl_integrals()[-1].integrand()
-        integrandB = B.get_ufl_integrals()[0].integrand()
-        assert (integrandA.ufl_domain().coordinates.function_space() ==
-                integrandB.ufl_domain().coordinates.function_space()), "Cannot perform contraction over middle integrals. The integrands must be in the space function space."
-        return A.get_ufl_integrals()[:-1] + B.get_ufl_integrals()[1:]

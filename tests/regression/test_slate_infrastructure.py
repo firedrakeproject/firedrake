@@ -76,34 +76,6 @@ def test_coefficients():
     assert (slate.Matrix(f * u * v * dx) + slate.Matrix(g * inner(grad(u), grad(v)) * dx)).coefficients() == (f, g)
 
 
-def test_integrals():
-    V = function_space()
-    A = mass(V)
-    B = A + stiffness(V)
-    F = load(V)
-    f, = F.coefficients()
-    G = boundary_load(V)
-
-    assert isinstance(A.integrals(), tuple)
-    assert len(A.integrals()) == 1
-    assert isinstance(A.integrals()[0], slate.SlateIntegral)
-    assert A.integrals()[0].integral_type() == "cell"
-    assert A.integrals_by_type("cell") == A.integrals()
-    assert A.integrals_by_type("interior_facet") == ()
-    assert isinstance(B.integrals(), tuple)
-    assert len(B.integrals()) == 2
-    assert [isinstance(B.integrals()[i], slate.SlateIntegral) for i in range(len(B.integrals()))]
-    assert B.integrals_by_type("cell") == B.integrals()
-    assert B.integrals_by_type("exterior_facet") == ()
-    assert isinstance(F.integrals(), tuple)
-    assert len(F.integrals()) == 1
-    assert F.integrals()[0].integral_type() == "cell"
-    assert isinstance(G.integrals(), tuple)
-    assert len(G.integrals()) == 1
-    assert G.integrals()[0].integral_type() == "exterior_facet"
-    assert len(G.integrals_by_type("exterior_facet")) == 1
-
-
 def test_unary_ops():
     V = function_space()
     A = mass(V)
@@ -173,42 +145,6 @@ def test_slate_expression_coeffs():
     assert (A*F).coefficients() == (f,)
     assert (B*G).coefficients() == (g,)
     assert (A*G + B*F).coefficients() == (g, f)
-
-
-def test_slate_eq():
-    V = function_space()
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    A = slate.Matrix(inner(grad(u), grad(v)) * dx + u * v * dx)
-    B = A
-    C = B
-    F = load(V)
-    G = boundary_load(V)
-    M = slate.Matrix((u/2)**2*(v + 1)**2 * dx)
-    f, = F.coefficients()
-    N = slate.Matrix(f * inner(grad(u), grad(v)) * dx + u * v * dx)
-
-    assert A == B
-    assert B == A
-    assert C == B
-    assert B == C
-    assert A == C
-    assert C == A
-    assert A + B == B + A
-    assert F != G
-    assert A*F == A*F
-    assert B*G == A*G
-    assert A*F + A*G == C*F + B*G
-    assert M*A != A*M
-    assert A*G != M*G
-    assert M*A == M*C
-    assert A*(N + M) == C*(N + M)
-    assert A*G == C*G
-    assert A != M
-    assert A != N
-    assert A != mass(V)
-    assert A != F
-    assert A != u * v * dx
 
 
 def test_rank_error_scalar():
