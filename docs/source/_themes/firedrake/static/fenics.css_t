@@ -190,7 +190,7 @@ div.body h3,
 div.body h4,
 div.body h5,
 div.body h6 {
-    font-family: "NeutonRegular", sans-serif;
+    font-family: "Comfortaa", sans-serif;
     background-color: #ffffff;
     font-weight: normal;
     color: #222;
@@ -708,12 +708,6 @@ img[alt="build status"] {
 
 /* Modifications for the FEniCS '15 website */
 
-div[class^="fenics_15"] h1,
-div[class^="fenics_15"] h2,
-div[class^="fenics_15"] h3,
-div[class^="fenics_15"] h4 {
-    font-family: 'Comfortaa', cursive;
-}
 
 div.fenics_15 #sponsors img {
     padding-left: 20px;

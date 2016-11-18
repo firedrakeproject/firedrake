@@ -81,6 +81,7 @@ def test_adv_diff_on_quadrilaterals_serial():
 def test_adv_diff_on_quadrilaterals_parallel():
     run_adv_diff_on_quadrilaterals()
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

@@ -104,6 +104,7 @@ def test_assemble_mat_with_tensor(mesh):
     # Make sure we get the result of the last assembly
     assert np.allclose(M.M.values, 2*assemble(a).M.values, rtol=1e-14)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

@@ -50,6 +50,7 @@ def test_extrusion_rhs_bcs_quadrilateral():
     res1, res2 = run_test(1, 1, quadrilateral=True, test_mode=True)
     assert (res1 < 1.e-13 and res2 < 1.e-13)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

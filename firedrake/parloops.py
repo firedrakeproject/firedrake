@@ -30,6 +30,7 @@ class _DirectLoop(object):
 
         return "direct"
 
+
 direct = _DirectLoop()
 """A singleton object which can be used in a :func:`par_loop` in place
 of the measure in order to indicate that the loop is a direct loop
@@ -40,7 +41,7 @@ def indirect_measure(mesh, measure):
     return mesh.measure_set(measure.integral_type(),
                             measure.subdomain_id())
 
-"""Map a measure to the correct maps."""
+
 _maps = {
     'cell': {
         'nodes': lambda x: x.cell_node_map(),
@@ -59,6 +60,7 @@ _maps = {
         'itspace': lambda mesh, measure: mesh
     }
 }
+"""Map a measure to the correct maps."""
 
 
 def _form_kernel(kernel, measure, args, **kwargs):
