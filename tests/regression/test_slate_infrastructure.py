@@ -10,27 +10,27 @@ def function_space():
 def mass(fs):
     u = TrialFunction(fs)
     v = TestFunction(fs)
-    return slate.Matrix(u * v * dx)
+    return Tensor(u * v * dx)
 
 
 def stiffness(fs):
     u = TrialFunction(fs)
     v = TestFunction(fs)
-    return slate.Matrix(inner(grad(u), grad(v)) * dx)
+    return Tensor(inner(grad(u), grad(v)) * dx)
 
 
 def load(fs):
     f = Function(fs)
     f.interpolate(Expression("cos(x[0]*pi*2)"))
     v = TestFunction(fs)
-    return slate.Vector(f * v * dx)
+    return Tensor(f * v * dx)
 
 
 def boundary_load(fs):
     f = Function(fs)
     f.interpolate(Expression("cos(x[1]*pi*2)"))
     v = TestFunction(fs)
-    return slate.Vector(f * v * ds)
+    return Tensor(f * v * ds)
 
 
 def test_arguments():
@@ -40,7 +40,7 @@ def test_arguments():
     v, u = M.arguments()
     F = load(V)
     f, = F.coefficients()
-    S = slate.Scalar(f * dx)
+    S = Tensor(f * dx)
 
     assert len(N.arguments()) == 2
     assert len(M.arguments()) == 2
@@ -50,10 +50,10 @@ def test_arguments():
     assert len(S.arguments()) == 0
     assert S.arguments() == ()
 
-    assert slate.Vector(v * dx).arguments() == (v,)
-    assert (slate.Vector(v * dx) + slate.Vector(f * v * ds)).arguments() == (v,)
+    assert Tensor(v * dx).arguments() == (v,)
+    assert (Tensor(v * dx) + Tensor(f * v * ds)).arguments() == (v,)
     assert (M + N).arguments() == (v, u)
-    assert (slate.Matrix((f * v) * u * dx) + slate.Matrix((u * 3) * (v / 2) * dx)).arguments() == (v, u)
+    assert (Tensor((f * v) * u * dx) + Tensor((u * 3) * (v / 2) * dx)).arguments() == (v, u)
 
 
 def test_coefficients():
@@ -65,15 +65,15 @@ def test_coefficients():
     f.interpolate(Expression("cos(x[0]*pi*2)"))
     g.interpolate(Expression("cos(x[1]*pi*2)"))
 
-    assert slate.Scalar(f * dx).coefficients() == (f,)
-    assert (slate.Scalar(f * dx) + slate.Scalar(f * ds)).coefficients() == (f,)
-    assert (slate.Scalar(f * dx) + slate.Scalar(g * dS)).coefficients() == (f, g)
-    assert slate.Vector(f * v * dx).coefficients() == (f,)
-    assert (slate.Vector(f * v * ds) + slate.Vector(f * v * dS)).coefficients() == (f,)
-    assert (slate.Vector(f * v * dx) + slate.Vector(g * v * ds)).coefficients() == (f, g)
-    assert slate.Matrix(f * u * v * dx).coefficients() == (f,)
-    assert (slate.Matrix(f * u * v * dx) + slate.Matrix(f * inner(grad(u), grad(v)) * dx)).coefficients() == (f,)
-    assert (slate.Matrix(f * u * v * dx) + slate.Matrix(g * inner(grad(u), grad(v)) * dx)).coefficients() == (f, g)
+    assert Tensor(f * dx).coefficients() == (f,)
+    assert (Tensor(f * dx) + Tensor(f * ds)).coefficients() == (f,)
+    assert (Tensor(f * dx) + Tensor(g * dS)).coefficients() == (f, g)
+    assert Tensor(f * v * dx).coefficients() == (f,)
+    assert (Tensor(f * v * ds) + Tensor(f * v * dS)).coefficients() == (f,)
+    assert (Tensor(f * v * dx) + Tensor(g * v * ds)).coefficients() == (f, g)
+    assert Tensor(f * u * v * dx).coefficients() == (f,)
+    assert (Tensor(f * u * v * dx) + Tensor(f * inner(grad(u), grad(v)) * dx)).coefficients() == (f,)
+    assert (Tensor(f * u * v * dx) + Tensor(g * inner(grad(u), grad(v)) * dx)).coefficients() == (f, g)
 
 
 def test_unary_ops():
@@ -81,14 +81,11 @@ def test_unary_ops():
     A = mass(V)
     B = stiffness(V)
     F = load(V)
-    G = boundary_load(V)
 
     assert isinstance(A.T, slate.Transpose)
     assert isinstance(B.inv, slate.Inverse)
     assert isinstance(-A, slate.Negative)
-    assert isinstance(+B, slate.Positive)
     assert isinstance(-F, slate.Negative)
-    assert isinstance(+G, slate.Positive)
 
 
 def test_binary_ops():
@@ -147,23 +144,6 @@ def test_slate_expression_coeffs():
     assert (A*G + B*F).coefficients() == (g, f)
 
 
-def test_rank_error_scalar():
-    V = function_space()
-    v = TestFunction(V)
-    with pytest.raises(Exception):
-        slate.Scalar(v * dx)
-
-
-def test_rank_error_vector():
-    with pytest.raises(Exception):
-        slate.Vector(1 * dx)
-
-
-def test_rank_error_matrix():
-    with pytest.raises(Exception):
-        slate.Matrix(1 * dx)
-
-
 def test_dimension_error_matvecadd():
     V = function_space()
     A = mass(V)
@@ -204,7 +184,7 @@ def test_illegal_inverse():
     DG = FunctionSpace(mesh, "DG", 0)
     sigma = TrialFunction(RT)
     v = TestFunction(DG)
-    A = slate.Matrix(v * div(sigma) * dx)
+    A = Tensor(v * div(sigma) * dx)
     with pytest.raises(AssertionError):
         A.inv
 

@@ -11,24 +11,25 @@ produces the resulting kernel AST returned by: `compile_slate_expression`.
 The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as all low-level numerical
 linear algebra operations are performed using the `Eigen::Matrix` methods built into Eigen.
 """
+from __future__ import absolute_import, print_function, division
 
 import sys
-import firedrake
-import tsfc
-import operator
 
 from coffee import base as ast
 from coffee.visitor import Visitor
 
-from firedrake.tsfc_interface import SplitKernel, KernelInfo
-
-from slate import *
+from firedrake.constant import Constant
+from firedrake.tsfc_interface import SplitKernel, KernelInfo, compile_form
+from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp
+from firedrake import op2
 
 from functools import partial
 
 from ufl.algorithms.multifunction import MultiFunction
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.form import Form
+
+from tsfc.parameters import SCALAR_TYPE
 
 
 __all__ = ['compile_slate_expression']
@@ -140,8 +141,8 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
                           integral forms.
     """
     # Only SLATE expressions are allowed as inputs
-    if not isinstance(slate_expr, Tensor):
-        raise ValueError("Expecting a `slate.Tensor` expression, not a %r" % slate_expr)
+    if not isinstance(slate_expr, TensorBase):
+        raise ValueError("Expecting a `slate.TensorBase` expression, not a %r" % slate_expr)
 
     # SLATE currently does not support arguments in mixed function spaces
     # TODO: Get PyOP2 to write into mixed dats
@@ -149,7 +150,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
         raise NotImplementedError("Compiling mixed slate expressions")
 
     # Initialize variables: dtype and dictionary objects.
-    dtype = tsfc.parameters.SCALAR_TYPE
+    dtype = SCALAR_TYPE
     shape = slate_expr.shape
     temps = {}
     kernel_exprs = {}
@@ -282,7 +283,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     arglist = [result, ast.Decl("%s **" % dtype, coordsym)]
     for c in coeffs:
         ctype = "%s **" % dtype
-        if isinstance(c, firedrake.Constant):
+        if isinstance(c, Constant):
             ctype = "%s *" % dtype
         arglist.append(ast.Decl(ctype, coeffmap[c]))
 
@@ -311,12 +312,11 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     inc.append('%s/lib/python2.7/site-packages/petsc/include/eigen3/' % sys.prefix)
 
     # Produce the op2 kernel object for assembly
-    op2kernel = firedrake.op2.Kernel(kernelast,
-                                     "slac_compile_slate",
-                                     cpp=True,
-                                     include_dirs=inc,
-                                     headers=['#include <Eigen/Dense>',
-                                              '#define restrict'])
+    op2kernel = op2.Kernel(kernelast,
+                           "slac_compile_slate",
+                           cpp=True,
+                           include_dirs=inc,
+                           headers=['#include <Eigen/Dense>', '#define restrict __restrict'])
 
     # TODO: What happens for multiple ufl domains?
     assert len(slate_expr.ufl_domains()) == 1
@@ -355,38 +355,34 @@ def get_c_str(expr, temps, prec=None):
         This function returns a `string` which represents the
         C/C++ code representation of the `slate.Tensor` expr.
     """
-    if isinstance(expr, (Scalar, Vector, Matrix)):
+    if isinstance(expr, Tensor):
         return temps[expr].gencode()
 
     elif isinstance(expr, UnaryOp):
-        op = {operator.neg: '-',
-              operator.pos: '+'}[expr.op]
-        prec = expr.prec
-        result = "%s%s" % (op, get_c_str(expr.children,
-                                         temps,
-                                         prec))
+        if expr.op == "Transpose":
+            return "(%s).transpose()" % get_c_str(expr.tensor, temps)
+        elif expr.op == "Inverse":
+            return "(%s).inverse()" % get_c_str(expr.tensor, temps)
+        elif expr.op == "Negative":
+            prec = expr.prec
+            result = "-%s" % get_c_str(expr.tensor, temps, prec)
 
-        return parenthesize(result, expr.prec, prec)
+            return parenthesize(result, expr.prec, prec)
+        else:
+            raise ValueError("Unrecognized unary operation.")
 
     elif isinstance(expr, BinaryOp):
-        op = {operator.add: '+',
-              operator.sub: '-',
-              operator.mul: '*'}[expr.op]
+        op = {"Addition": '+',
+              "Subtraction": '-',
+              "Multiplication": '*'}[expr.op]
         prec = expr.prec
-        result = "%s %s %s" % (get_c_str(expr.children[0], temps,
+        result = "%s %s %s" % (get_c_str(expr.operands[0], temps,
                                          prec),
                                op,
-                               get_c_str(expr.children[1], temps,
+                               get_c_str(expr.operands[1], temps,
                                          prec))
 
         return parenthesize(result, expr.prec, prec)
-
-    elif isinstance(expr, Inverse):
-        return "(%s).inverse()" % get_c_str(expr.children, temps)
-
-    elif isinstance(expr, Transpose):
-        return "(%s).transpose()" % get_c_str(expr.children, temps)
-
     else:
         # If expression is not recognized, throw a NotImplementedError.
         raise NotImplementedError("Expression of type %s not supported.",
@@ -430,7 +426,7 @@ def get_kernel_expr(expr, parameters=None, temps=None, kernel_exprs=None, statem
     kernel_exprs = {} or kernel_exprs
     statements = [] or statements
 
-    if isinstance(expr, (Scalar, Vector, Matrix)):
+    if isinstance(expr, Tensor):
         # No need to store identical variables more than once
         if expr in temps.keys():
             return temps, kernel_exprs, statements
@@ -460,17 +456,17 @@ def get_kernel_expr(expr, parameters=None, temps=None, kernel_exprs=None, statem
             compiled_forms = []
             if len(int_fac_integrals) != 0:
                 intf_form = Form(int_fac_integrals)
-                compiled_forms.extend(firedrake.tsfc_interface.compile_form(intf_form,
-                                                                            prefix+"int_ext_conv",
-                                                                            parameters=parameters))
+                compiled_forms.extend(compile_form(intf_form,
+                                                   prefix+"int_ext_conv",
+                                                   parameters=parameters))
             other_form = Form(other_integrals)
-            compiled_forms.extend(firedrake.tsfc_interface.compile_form(other_form,
-                                                                        prefix,
-                                                                        parameters=parameters))
+            compiled_forms.extend(compile_form(other_form,
+                                               prefix,
+                                               parameters=parameters))
             kernel_exprs[expr] = tuple(compiled_forms)
             return temps, kernel_exprs, statements
 
-    elif isinstance(expr, (UnaryOp, BinaryOp, Transpose, Inverse)):
+    elif isinstance(expr, (UnaryOp, BinaryOp)):
         # Map the children to :meth:`get_kernel_expr` recursively
         map(lambda x: get_kernel_expr(x, parameters, temps, kernel_exprs, statements),
             expr.operands)

@@ -30,7 +30,7 @@ def test_cg_scalar_mass(cell):
     v = TestFunction(V)
     mass = u*v*dx
 
-    A = assemble(slate.Matrix(mass))
+    A = assemble(Tensor(mass))
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)
@@ -49,7 +49,7 @@ def test_dg_scalar_mass(cell):
     v = TestFunction(V)
     mass = u*v*dx
 
-    A = assemble(slate.Matrix(mass))
+    A = assemble(Tensor(mass))
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)
@@ -71,7 +71,7 @@ def test_vector_family_mass(cell, fe_family):
     v = TestFunction(V)
     mass = dot(u, v)*dx
 
-    A = assemble(slate.Matrix(mass))
+    A = assemble(Tensor(mass))
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)
@@ -94,7 +94,7 @@ def test_broken_vector_family_mass(cell, fe_family):
     v = TestFunction(V)
     mass = dot(u, v)*dx
 
-    A = assemble(slate.Matrix(mass))
+    A = assemble(Tensor(mass))
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)
@@ -112,7 +112,7 @@ def test_RT_mass_on_quads(fe_family):
     v = TestFunction(V)
     mass = dot(u, v)*dx
 
-    A = assemble(slate.Matrix(mass))
+    A = assemble(Tensor(mass))
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)
@@ -131,7 +131,7 @@ def test_broken_RT_quad_mass(fe_family):
     v = TestFunction(V)
     mass = dot(u, v)*dx
 
-    A = assemble(slate.Matrix(mass))
+    A = assemble(Tensor(mass))
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)
@@ -146,7 +146,7 @@ def test_curl_mass_on_quads(fe_family):
     v = TestFunction(V)
     mass = dot(u, v)*dx
 
-    A = assemble(slate.Matrix(mass))
+    A = assemble(Tensor(mass))
     ref = assemble(mass)
 
     assert np.allclose(A.M.values, ref.M.values)

@@ -69,11 +69,11 @@ def test_slate_hybridization(degree):
     bcs = DirichletBC(T, Constant(0.0), (1, 2, 3, 4))
 
     # Perform the Schur-complement with SLATE expressions
-    A = slate.Matrix(Mass_v + Mass_p + Div - Div_adj)
-    K = slate.Matrix(local_trace)
+    A = slate.Tensor(Mass_v + Mass_p + Div - Div_adj)
+    K = slate.Tensor(local_trace)
     Schur = -K * A.inv * K.T
 
-    F = slate.Vector(L)
+    F = slate.Tensor(L)
     RHS = -K * A.inv * F
 
     S = assemble(Schur, bcs=bcs)

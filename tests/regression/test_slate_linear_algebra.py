@@ -29,7 +29,7 @@ def test_scalar_field_left_inverse(cell):
     v = TestFunction(V)
     form = u*v*dx
 
-    A = slate.Matrix(form)
+    A = Tensor(form)
     Result = assemble(A.inv * A)
     nnode = V.node_count
     assert (np.array(Result.M.values) - np.identity(nnode) <= 1e-13).all()
@@ -47,7 +47,7 @@ def test_scalar_field_right_inverse(cell):
     v = TestFunction(V)
     form = u*v*dx
 
-    A = slate.Matrix(form)
+    A = Tensor(form)
     Result = assemble(A * A.inv)
     nnode = V.node_count
     assert (np.array(Result.M.values) - np.identity(nnode) <= 1e-13).all()
@@ -66,7 +66,7 @@ def test_symmetry(cell):
     v = TestFunction(V)
     form = u*v*dx + inner(grad(u), grad(v))*dx
 
-    A = slate.Matrix(form)
+    A = Tensor(form)
     M1 = assemble(A)
     M2 = assemble(A.T)
     assert (np.array(M1.M.values) - np.array(M2.M.values) <= 1e-13).all()
@@ -85,8 +85,26 @@ def test_negation(cell):
     v = TestFunction(V)
     form = u*v*dx
 
-    A = slate.Matrix(form)
+    A = Tensor(form)
     M = assemble(A - A)
+    assert (np.array(M.M.values) <= 1e-13).all()
+
+
+@pytest.mark.parametrize("cell", (interval,
+                                  triangle,
+                                  tetrahedron,
+                                  quadrilateral))
+def test_add_the_negative(cell):
+    """Tests that adding the negative of an expression gives
+    you zero."""
+    mesh = gen_mesh(cell)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    form = u*v*dx
+
+    A = Tensor(form)
+    M = assemble(A + -A)
     assert (np.array(M.M.values) <= 1e-13).all()
 
 

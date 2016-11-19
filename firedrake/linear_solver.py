@@ -134,7 +134,7 @@ class LinearSolver(solving_utils.ParametersMixin):
         if len(self._W) > 1 and self.near_nullspace is not None:
             self.near_nullspace._apply(self._W.dof_dset.field_ises, near=True)
         if self.A.has_bcs:
-            if isinstance(self.A.a, slate.Tensor):
+            if isinstance(self.A.a, slate.TensorBase):
                 # Don't need action
                 b_bc = self._b
                 b_bc.assign(b)

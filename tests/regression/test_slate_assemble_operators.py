@@ -31,7 +31,7 @@ def test_poisson_operator(degree, cell):
     v = TestFunction(V)
     form = inner(grad(u), grad(v))*dx
 
-    P = assemble(slate.Matrix(form))
+    P = assemble(Tensor(form))
     ref = assemble(form)
 
     assert np.allclose(P.M.values, ref.M.values)
@@ -51,7 +51,7 @@ def test_helmholtz_operator(degree, cell):
     v = TestFunction(V)
     form = (inner(grad(u), grad(v)) + u*v)*dx
 
-    H = assemble(slate.Matrix(form))
+    H = assemble(Tensor(form))
     ref = assemble(form)
 
     assert np.allclose(H.M.values, ref.M.values)

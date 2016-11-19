@@ -89,7 +89,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
-    if isinstance(f, (ufl.form.Form, slate.Tensor)):
+    if isinstance(f, (ufl.form.Form, slate.TensorBase)):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
                          inverse=inverse, mat_type=mat_type,
@@ -180,7 +180,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
-    if isinstance(f, slate.Tensor):
+    if isinstance(f, slate.TensorBase):
         kernels = slac.compile_slate_expression(f, tsfc_parameters=form_compiler_parameters)
     else:
         kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
@@ -367,6 +367,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets) in kernels:
             m = domains[domain_number]
             subdomain_data = f.subdomain_data()[m]
+            # Find argument space indices
             if is_mat:
                 i, j = indices
             elif is_vec:
