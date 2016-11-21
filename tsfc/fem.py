@@ -20,6 +20,7 @@ from finat.quadrature import make_quadrature
 from tsfc import ufl2gem, geometric
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
+from tsfc.logging import logger
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import PARAMETERS
 from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
@@ -214,7 +215,7 @@ def translate_coefficient(terminal, mt, ctx):
     vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     result = gem.Product(gem.Indexed(M, alpha + vi),
                          gem.Indexed(vec, alpha))
-    result = gem.optimise.contraction(gem.IndexSum(result, alpha))
+    result = gem.optimise.contraction(gem.IndexSum(result, alpha), logger=logger)
     return gem.ComponentTensor(result, vi)
 
 
