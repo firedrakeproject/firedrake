@@ -2734,9 +2734,21 @@ class Global(DataCarrier, _EmptyDataMixin):
 
         other.data = np.copy(self.data_ro)
 
+    class Zero(LazyComputation):
+        def __init__(self, g):
+            super(Global.Zero, self).__init__(reads=[], writes=[g], incs=[])
+            self.g = g
+
+        def _run(self):
+            self.g._data[...] = 0
+
+    @cached_property
+    def _zero_loop(self):
+        return self.Zero(self)
+
     @collective
     def zero(self):
-        self.data[...] = 0
+        self._zero_loop.enqueue()
 
     @collective
     def halo_exchange_begin(self):
