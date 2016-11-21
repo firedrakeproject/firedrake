@@ -328,9 +328,19 @@ class HDF5File(object):
             self.mode = FILE_UPDATE
 
         self._filename = filename
-        self._time = None
-        self._tidx = -1
+        self._timestamps = []
         self.new_file()
+
+    def set_timestamp(self, t):
+        """Set the timestamp for storing.
+
+        :arg t: The timestamp value.
+        """
+        self._timestamps.append(t)        
+        if self.mode == FILE_READ:
+            return
+        attr = self.attributes("/")["stored_timestamps"]
+        attr.append(self._timestamps[-1])
 
     def new_file(self):
         """
@@ -399,17 +409,24 @@ class HDF5File(object):
         :arg function: The function to store.
         :arg path: the path to store the function under.
         :arg timestamp: timestamp to add in front of path
+
+        This function is timestamp-aware and stores in the appropriate folder
+        if :meth:`set_timestamp` has been called.
         """
         if self.mode is FILE_READ:
             raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only store functions")
+        
         if timestamp is None:
             name = os.path.basename(path)
         else:
-            stampedpath = "/" + str(timestamp) + path
+            suffix = "/%.15e" % timestamp
+            stampedpath = path + suffix
             name = os.path.basename(stampedpath)
-			self.write_attribute(stampedpath, "timestamp", timestamp)
+            attr = self.attributes(stampedpath)
+            attr["timestamp"] = timestamp
+            self.set_timestamp(timestamp)
         group = os.path.dirname(path)
         
         with function.dat.vec_ro as v:
@@ -420,7 +437,7 @@ class HDF5File(object):
             v.setName(oname)
             self.vwr.popGroup()
 
-    def read(self, function, path):
+    def read(self, function, path, timestamp=None):
         """Store a function from the checkpoint file.
 
         :arg function: The function to load values into.
@@ -428,8 +445,14 @@ class HDF5File(object):
         """
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only load functions")
-        name = os.path.basename(path)
-        group = os.path.dirname(path)
+        if timestamp is None:
+            name = os.path.basename(path)
+            group = os.path.dirname(path)
+        else:
+            suffix = "/%.15e" % timestamp
+            stampedpath = path + suffix
+            name = os.path.basename(stampedpath)
+            group = os.path.dirname(stampedpath)
 
         with function.dat.vec as v:
             self.vwr.pushGroup(group)
