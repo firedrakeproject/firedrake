@@ -431,3 +431,36 @@ void kernel_max(double* x, double* g)
                      g_double(op2.INC))
         assert_allclose(g_uint32.data[0], g_double.data[0])
         assert g_uint32.data[0] == set.size
+
+    def test_inc_repeated_loop(self, set):
+        g = op2.Global(1, 0, dtype=numpy.uint32)
+        k = """void k(unsigned int* g) { *g += 1; }"""
+        op2.par_loop(op2.Kernel(k, "k"),
+                     set,
+                     g(op2.INC))
+        assert_allclose(g.data, set.size)
+        op2.par_loop(op2.Kernel(k, "k"),
+                     set,
+                     g(op2.INC))
+        assert_allclose(g.data, 2*set.size)
+        g.zero()
+        op2.par_loop(op2.Kernel(k, "k"),
+                     set,
+                     g(op2.INC))
+        assert_allclose(g.data, set.size)
+
+    def test_inc_reused_loop(self, set):
+        from pyop2.base import collecting_loops
+        g = op2.Global(1, 0, dtype=numpy.uint32)
+        k = """void k(unsigned int* g) { *g += 1; }"""
+        with collecting_loops(True):
+            loop = op2.par_loop(op2.Kernel(k, "k"),
+                                set,
+                                g(op2.INC))
+        loop()
+        assert_allclose(g.data, set.size)
+        loop()
+        assert_allclose(g.data, 2*set.size)
+        g.zero()
+        loop()
+        assert_allclose(g.data, set.size)
