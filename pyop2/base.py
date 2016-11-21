@@ -4048,8 +4048,9 @@ class ParLoop(LazyComputation):
         for i, arg in enumerate(args):
             if arg._is_global_reduction and arg.access == INC:
                 glob = arg.data
-                self._reduced_globals[i] = glob
-                args[i].data = _make_object('Global', glob.dim, data=np.zeros_like(glob.data_ro), dtype=glob.dtype)
+                tmp = _make_object('Global', glob.dim, data=np.zeros_like(glob.data_ro), dtype=glob.dtype)
+                self._reduced_globals[tmp] = glob
+                args[i].data = tmp
 
         # Always use the current arguments, also when we hit cache
         self._actual_args = args
@@ -4142,6 +4143,10 @@ class ParLoop(LazyComputation):
             iterset = self.iterset
             arglist = self.arglist
             fun = self._jitmodule
+            # Need to ensure INC globals are zero on entry to the loop
+            # in case it's reused.
+            for g in six.iterkeys(self._reduced_globals):
+                g._data[...] = 0
             self._compute(iterset.core_part, fun, *arglist)
             self.halo_exchange_end()
             self._compute(iterset.owned_part, fun, *arglist)
@@ -4215,7 +4220,7 @@ class ParLoop(LazyComputation):
         for arg in self.global_reduction_args:
             arg.reduction_end(self.comm)
         # Finalise global increments
-        for i, glob in six.iteritems(self._reduced_globals):
+        for tmp, glob in six.iteritems(self._reduced_globals):
             # These can safely access the _data member directly
             # because lazy evaluation has ensured that any pending
             # updates to glob happened before this par_loop started
@@ -4223,7 +4228,7 @@ class ParLoop(LazyComputation):
             # data back from the device if necessary.
             # In fact we can't access the properties directly because
             # that forces an infinite loop.
-            glob._data += self.args[i].data._data
+            glob._data += tmp._data
 
     @collective
     def update_arg_data_state(self):
