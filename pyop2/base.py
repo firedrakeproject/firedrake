@@ -539,9 +539,7 @@ class Arg(object):
             "Doing global reduction only makes sense for Globals"
         if self.access is not READ and self._in_flight:
             self._in_flight = False
-            # Must have a copy here, because otherwise we just grab a
-            # pointer.
-            self.data._data = np.copy(self.data._buf)
+            self.data._data[:] = self.data._buf[:]
 
 
 class Set(object):
