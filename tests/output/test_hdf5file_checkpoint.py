@@ -101,6 +101,7 @@ def test_attributes(f, dumpfile):
 
         assert attrs["dimension"] == mesh.coordinates.dat.cdim
 
+
 def test_store_read_only_ioerror(f, dumpfile):
     # Make file
     with HDF5File(dumpfile, "w") as h5:
@@ -108,6 +109,7 @@ def test_store_read_only_ioerror(f, dumpfile):
     with HDF5File(dumpfile, "r") as h5:
         with pytest.raises(IOError):
             h5.write(f, "/function")
+
 
 def test_multiple_timestamps(f, dumpfile):
     with HDF5File(dumpfile, "w") as h5:
@@ -117,7 +119,6 @@ def test_multiple_timestamps(f, dumpfile):
         timestamps = h5.get_timestamps()
 
         assert np.allclose(timestamps, [0.1, 0.2])
-
 
 
 if __name__ == "__main__":
