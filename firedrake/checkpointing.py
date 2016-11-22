@@ -328,7 +328,7 @@ class HDF5File(object):
             self.mode = FILE_UPDATE
 
         self._filename = filename
-        self._timestamps = []
+        self._timestamps = []#np.array((0,), dtype = float)
         self.new_file()
 
     def set_timestamp(self, t):
@@ -339,8 +339,10 @@ class HDF5File(object):
         self._timestamps.append(t)        
         if self.mode == FILE_READ:
             return
-        attr = self.attributes("/")["stored_timestamps"]
-        attr.append(self._timestamps[-1])
+        attrs = self.attributes("/")
+        timestamps = attrs.get("stored_timestamps", [])
+        #timestamps.append(self._timestamps[-1])
+        attrs["stored_timestamps"] = np.concatenate((timestamps, [self._timestamps[-1]]))
 
     def new_file(self):
         """
