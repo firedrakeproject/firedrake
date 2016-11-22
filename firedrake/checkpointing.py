@@ -299,7 +299,7 @@ class HDF5File(object):
     to disk in parallel (using HDF5) and reloading them on the same
     number of processes and a :func:`~.Mesh` constructed identically.
 
-    :arg filename: filename (including suffix ".h5) of checkpoint file.
+    :arg filename: filename (including suffix .h5) of checkpoint file.
     :arg file_mode: the access mode (one of :data:`~.FILE_READ`,
          :data:`~.FILE_CREATE`, or :data:`~.FILE_UPDATE`)
     :arg comm: communicator the writes should be collective
@@ -328,47 +328,23 @@ class HDF5File(object):
             self.mode = FILE_UPDATE
 
         self._filename = filename
-        self._timestamps = []#np.array((0,), dtype = float)
-        self.new_file()
 
-    def set_timestamp(self, t):
-        """Set the timestamp for storing.
-
-        :arg t: The timestamp value.
-        """
-        self._timestamps.append(t)        
-        if self.mode == FILE_READ:
-            return
-        attrs = self.attributes("/")
-        timestamps = attrs.get("stored_timestamps", [])
-        #timestamps.append(self._timestamps[-1])
-        attrs["stored_timestamps"] = np.concatenate((timestamps, [self._timestamps[-1]]))
-
-    def new_file(self):
-        """
-        Open a new on-disk file for writing checkpoint data.
-        """
-        self.close()
-        name = self._filename
-
-        import os
-        exists = os.path.exists(name)
+        exists = os.path.exists(filename)
         if self.mode == FILE_READ and not exists:
-            raise IOError("File '%s' does not exist, cannot be opened for reading" % name)
-        mode = self.mode
-        if mode == FILE_UPDATE and not exists:
-            mode = FILE_CREATE
+            raise IOError("File '%s' does not exist, cannot be opened for reading" % filename)
+        if file_mode == FILE_UPDATE and not exists:
+            file_mode = FILE_CREATE
 
         # Create the directory if necessary
-        dirname = os.path.dirname(name)
+        dirname = os.path.dirname(filename)
         try:
             os.makedirs(dirname)
         except OSError:
             pass
 
-        self._vwr = PETSc.ViewerHDF5().create(name, mode=mode,
+        self._vwr = PETSc.ViewerHDF5().create(filename, mode=file_mode,
                                               comm=self.comm)
-        if self.mode == FILE_READ:
+        if file_mode == FILE_READ:
             nprocs = self.attributes('/')['nprocs']
             if nprocs != self.comm.size:
                 raise ValueError("Process mismatch: written on %d, have %d" %
@@ -379,9 +355,6 @@ class HDF5File(object):
     @property
     def vwr(self):
         """The PETSc Viewer used to store and load function data."""
-        if hasattr(self, '_vwr'):
-            return self._vwr
-        self.new_file()
         return self._vwr
 
     @property
@@ -391,6 +364,24 @@ class HDF5File(object):
             return self._h5file
         self._h5file = h5i.get_h5py_file(self.vwr)
         return self._h5file
+
+    def _set_timestamp(self, t):
+        """Set the timestamp for storing.
+
+        :arg t: The timestamp value.
+        """
+        if self.mode == FILE_READ:
+            return
+        attrs = self.attributes("/")
+        timestamps = attrs.get("stored_timestamps", [])
+        attrs["stored_timestamps"] = np.concatenate((timestamps, [t]))
+
+    def get_timestamps(self):
+        """Get the timestamps this HDF5File knows about."""
+
+        attrs = self.attributes("/")
+        timestamps = attrs.get("stored_timestamps", [])
+        return timestamps
 
     def close(self):
         """Close the checkpoint file (flushing any pending writes)"""
@@ -410,27 +401,23 @@ class HDF5File(object):
 
         :arg function: The function to store.
         :arg path: the path to store the function under.
-        :arg timestamp: timestamp to add in front of path
-
-        This function is timestamp-aware and stores in the appropriate folder
-        if :meth:`set_timestamp` has been called.
+        :arg timestamp: timestamp associated with function, or None for
+                        stationary data
         """
         if self.mode is FILE_READ:
             raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only store functions")
-        
+
         if timestamp is None:
             name = os.path.basename(path)
         else:
             suffix = "/%.15e" % timestamp
             stampedpath = path + suffix
             name = os.path.basename(stampedpath)
-            attr = self.attributes(stampedpath)
-            attr["timestamp"] = timestamp
-            self.set_timestamp(timestamp)
+
         group = os.path.dirname(path)
-        
+
         with function.dat.vec_ro as v:
             self.vwr.pushGroup(group)
             oname = v.getName()
@@ -438,6 +425,11 @@ class HDF5File(object):
             v.view(self.vwr)
             v.setName(oname)
             self.vwr.popGroup()
+
+        if timestamp is not None:
+            attr = self.attributes(stampedpath)
+            attr["timestamp"] = timestamp
+            self._set_timestamp(timestamp)
 
     def read(self, function, path, timestamp=None):
         """Store a function from the checkpoint file.
