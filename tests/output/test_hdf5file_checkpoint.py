@@ -2,6 +2,7 @@ import pytest
 from firedrake import *
 import numpy as np
 from mpi4py import MPI
+import math
 
 
 @pytest.fixture(scope="module",
@@ -55,6 +56,11 @@ def run_store_load(mesh, fs, degree, dumpfile):
 
     assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
 
+    with HDF5File(dumpfile, "w", comm=mesh.comm) as h5:
+        h5.write(f, "/solution", timestamp=math.pi)
+        h5.read(f2, "/solution", timestamp=math.pi)
+
+    assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
 
 def test_checkpoint_fails_for_non_function(dumpfile):
     dumpfile = MPI.COMM_WORLD.bcast(dumpfile, root=0)
