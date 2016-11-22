@@ -109,12 +109,6 @@ def convert_finiteelement(element):
     return lmbda(cell, element.degree())
 
 
-# MixedElement case
-@convert.register(ufl.MixedElement)
-def convert_mixedelement(element):
-    raise ValueError("FInAT does not implement generic mixed element.")
-
-
 # VectorElement case
 @convert.register(ufl.VectorElement)
 def convert_vectorelement(element):
