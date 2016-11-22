@@ -332,8 +332,8 @@ class HDF5File(object):
         exists = os.path.exists(filename)
         if self.mode == FILE_READ and not exists:
             raise IOError("File '%s' does not exist, cannot be opened for reading" % filename)
-        if file_mode == FILE_UPDATE and not exists:
-            file_mode = FILE_CREATE
+        if self.mode == FILE_UPDATE and not exists:
+            self.mode = FILE_CREATE
 
         # Create the directory if necessary
         dirname = os.path.dirname(filename)
@@ -342,9 +342,9 @@ class HDF5File(object):
         except OSError:
             pass
 
-        self._vwr = PETSc.ViewerHDF5().create(filename, mode=file_mode,
+        self._vwr = PETSc.ViewerHDF5().create(filename, mode=self.mode,
                                               comm=self.comm)
-        if file_mode == FILE_READ:
+        if self.mode == FILE_READ:
             nprocs = self.attributes('/')['nprocs']
             if nprocs != self.comm.size:
                 raise ValueError("Process mismatch: written on %d, have %d" %
@@ -413,8 +413,8 @@ class HDF5File(object):
             name = os.path.basename(path)
         else:
             suffix = "/%.15e" % timestamp
-            stampedpath = path + suffix
-            name = os.path.basename(stampedpath)
+            path = path + suffix
+            name = os.path.basename(path)
 
         group = os.path.dirname(path)
 
@@ -427,7 +427,7 @@ class HDF5File(object):
             self.vwr.popGroup()
 
         if timestamp is not None:
-            attr = self.attributes(stampedpath)
+            attr = self.attributes(path)
             attr["timestamp"] = timestamp
             self._set_timestamp(timestamp)
 

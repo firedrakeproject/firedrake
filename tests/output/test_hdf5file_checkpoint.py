@@ -105,12 +105,10 @@ def test_store_read_only_ioerror(f, dumpfile):
 
 def test_multiple_timestamps(f, dumpfile):
     with HDF5File(dumpfile, "w") as h5:
-        h5.set_timestamp(0.1)
-        h5.write(f, "/solution")
-        h5.set_timestamp(0.2)
-        h5.write(f, "/solution")
+        h5.write(f, "/solution", timestamp=0.1)
+        h5.write(f, "/solution", timestamp=0.2)
 
-        timestamps = h5.attributes("/")["stored_timestamps"]
+        timestamps = h5.get_timestamps()
 
         assert np.allclose(timestamps, [0.1, 0.2])
 
