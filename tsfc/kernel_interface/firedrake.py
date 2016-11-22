@@ -283,8 +283,8 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
                          pointers=[("const", "restrict"), ("restrict",)],
                          qualifiers=["const"])
 
-    scalar_size = numpy.prod(scalar_shape)
-    tensor_size = numpy.prod(tensor_shape)
+    scalar_size = numpy.prod(scalar_shape, dtype=int)
+    tensor_size = numpy.prod(tensor_shape, dtype=int)
     expression = gem.reshape(
         gem.Variable(name, (scalar_size, tensor_size)),
         scalar_shape, tensor_shape
@@ -318,7 +318,7 @@ def prepare_arguments(arguments, indices, interior_facet=False):
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
     shapes = tuple(element.index_shape for element in elements)
 
-    c_shape = numpy.array([numpy.prod(shape) for shape in shapes])
+    c_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
     if interior_facet:
         c_shape *= 2
     c_shape = tuple(c_shape)
