@@ -36,17 +36,20 @@ def f():
     return f
 
 
-def run_store_load(mesh, fs, degree, dumpfile):
+def run_write_read(mesh, fs, degree, dumpfile):
 
     V = FunctionSpace(mesh, fs, degree)
 
     f = Function(V, name="f")
-
     expr = Expression("x[0]*x[1]")
-
     f.interpolate(expr)
 
+    g = Function(V, name="g")
+    expr = Expression("1+x[0]*x[1]")
+    g.interpolate(expr)
+
     f2 = Function(V, name="f")
+    g2 = Function(V, name="g")
 
     dumpfile = mesh.comm.bcast(dumpfile, root=0)
 
@@ -58,7 +61,12 @@ def run_store_load(mesh, fs, degree, dumpfile):
 
     with HDF5File(dumpfile, "w", comm=mesh.comm) as h5:
         h5.write(f, "/solution", timestamp=math.pi)
+        h5.write(g, "/solution", timestamp=0.1)
         h5.read(f2, "/solution", timestamp=math.pi)
+        h5.read(g2, "/solution", timestamp=0.1)
+
+        with g2.dat.vec as x, f2.dat.vec as y:
+            assert x.max() > y.max()
 
     assert np.allclose(f.dat.data_ro, f2.dat.data_ro)
 
@@ -70,13 +78,13 @@ def test_checkpoint_fails_for_non_function(dumpfile):
             h5.write(np.arange(10), "/solution")
 
 
-def test_store_load(mesh, fs, degree, dumpfile):
-    run_store_load(mesh, fs, degree, dumpfile)
+def test_write_read(mesh, fs, degree, dumpfile):
+    run_write_read(mesh, fs, degree, dumpfile)
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_store_load_parallel(mesh, fs, degree, dumpfile):
-    run_store_load(mesh, fs, degree, dumpfile)
+def test_write_read_parallel(mesh, fs, degree, dumpfile):
+    run_write_read(mesh, fs, degree, dumpfile)
 
 
 def test_checkpoint_read_not_exist_ioerror(dumpfile):
@@ -103,7 +111,7 @@ def test_attributes(f, dumpfile):
         assert attrs["dimension"] == mesh.coordinates.dat.cdim
 
 
-def test_store_read_only_ioerror(f, dumpfile):
+def test_write_read_only_ioerror(f, dumpfile):
     # Make file
     with HDF5File(dumpfile, "w") as h5:
         pass
