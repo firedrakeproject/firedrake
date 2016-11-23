@@ -1,5 +1,5 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import map
+from six.moves import range, zip
 
 import numpy
 from itertools import product
@@ -9,7 +9,7 @@ import coffee.base as coffee
 import gem
 
 from tsfc.kernel_interface.common import KernelBuilderBase
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_element
 from tsfc.coffee import SCALAR_TYPE, cumulative_strides
 
 
@@ -39,6 +39,21 @@ class KernelBuilder(KernelBuilderBase):
                 '+': gem.VariableIndex(gem.Variable("facet_0", ())),
                 '-': gem.VariableIndex(gem.Variable("facet_1", ()))
             }
+
+    def coefficient(self, ufl_coefficient, restriction):
+        """A function that maps :class:`ufl.Coefficient`s to GEM
+        expressions."""
+        kernel_arg = self.coefficient_map[ufl_coefficient]
+        if ufl_coefficient.ufl_element().family() == 'Real':
+            return kernel_arg
+        elif not isinstance(kernel_arg, tuple):
+            return gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[restriction])
+        elif restriction == '+':
+            return kernel_arg[0]
+        elif restriction == '-':
+            return kernel_arg[1]
+        else:
+            assert False
 
     def set_arguments(self, arguments, indices):
         """Process arguments.
@@ -154,21 +169,33 @@ def prepare_coefficients(coefficients, coefficient_numbers, name, interior_facet
     varexp = gem.Variable(name, (None, None))
     expressions = []
     for coefficient_number, coefficient in zip(coefficient_numbers, coefficients):
+        cells_shape = ()
+        tensor_shape = ()
         if coefficient.ufl_element().family() == 'Real':
-            shape = coefficient.ufl_shape
+            scalar_shape = coefficient.ufl_shape
         else:
-            fiat_element = create_element(coefficient.ufl_element())
-            shape = (fiat_element.space_dimension(),)
-            if interior_facet:
-                shape = (2,) + shape
+            finat_element = create_element(coefficient.ufl_element())
+            if hasattr(finat_element, '_base_element'):
+                scalar_shape = finat_element._base_element.index_shape
+                tensor_shape = finat_element.index_shape[len(scalar_shape):]
+            else:
+                scalar_shape = finat_element.index_shape
 
-        alpha = tuple(gem.Index() for s in shape)
+            if interior_facet:
+                cells_shape = (2,)
+
+        cells_indices = tuple(gem.Index() for s in cells_shape)
+        tensor_indices = tuple(gem.Index() for s in tensor_shape)
+        scalar_indices = tuple(gem.Index() for s in scalar_shape)
+        shape = cells_shape + tensor_shape + scalar_shape
+        alpha = cells_indices + tensor_indices + scalar_indices
+        beta = cells_indices + scalar_indices + tensor_indices
         expressions.append(gem.ComponentTensor(
             gem.FlexiblyIndexed(
                 varexp, ((coefficient_number, ()),
                          (0, tuple(zip(alpha, shape))))
             ),
-            alpha
+            beta
         ))
 
     return funarg, expressions
@@ -198,34 +225,29 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
                                pointers=[("",)],
                                qualifiers=["const"])]
 
-    fiat_element = create_element(coefficient.ufl_element())
-    shape = (fiat_element.space_dimension(),)
-    gdim = coefficient.ufl_element().cell().geometric_dimension()
-    assert len(shape) == 1 and shape[0] % gdim == 0
-    num_nodes = shape[0] // gdim
+    finat_element = create_element(coefficient.ufl_element())
+    shape = finat_element.index_shape
+    size = numpy.prod(shape, dtype=int)
 
-    # Translate coords from XYZXYZXYZXYZ into XXXXYYYYZZZZ
-    # NOTE: See dolfin/mesh/Cell.h:get_coordinate_dofs for ordering scheme
-    indices = list(map(int, numpy.arange(num_nodes * gdim).reshape(num_nodes, gdim).transpose().flat))
     if not interior_facet:
-        variable = gem.Variable(name, shape)
-        expression = gem.ListTensor([gem.Indexed(variable, (i,)) for i in indices])
+        variable = gem.Variable(name, (size,))
+        expression = gem.reshape(variable, shape)
     else:
-        variable0 = gem.Variable(name+"_0", shape)
-        variable1 = gem.Variable(name+"_1", shape)
-        expression = gem.ListTensor([[gem.Indexed(variable0, (i,)) for i in indices],
-                                     [gem.Indexed(variable1, (i,)) for i in indices]])
+        variable0 = gem.Variable(name+"_0", (size,))
+        variable1 = gem.Variable(name+"_1", (size,))
+        expression = (gem.reshape(variable0, shape),
+                      gem.reshape(variable1, shape))
 
     return funargs, expression
 
 
-def prepare_arguments(arguments, indices, interior_facet=False):
+def prepare_arguments(arguments, multiindices, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
     :arg arguments: UFL Arguments
-    :arg indices: Argument indices
+    :arg multiindices: Argument multiindices
     :arg interior_facet: interior facet integral?
     :returns: (funarg, prepare, expressions)
          funarg      - :class:`coffee.Decl` function argument
@@ -238,29 +260,46 @@ def prepare_arguments(arguments, indices, interior_facet=False):
     varexp = gem.Variable("A", (None,))
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    space_dimensions = tuple(element.space_dimension() for element in elements)
-    for i, sd in zip(indices, space_dimensions):
-        i.set_extent(sd)
+    ushape = tuple(numpy.prod(element.index_shape, dtype=int) for element in elements)
+
+    # Flat indices and flat shape
+    indices = []
+    shape = []
+    for element, multiindex in zip(elements, multiindices):
+        if hasattr(element, '_base_element'):
+            scalar_shape = element._base_element.index_shape
+            tensor_shape = element.index_shape[len(scalar_shape):]
+        else:
+            scalar_shape = element.index_shape
+            tensor_shape = ()
+
+        haha = tensor_shape + scalar_shape
+        if interior_facet and haha:
+            haha = (haha[0] * 2,) + haha[1:]
+        shape.extend(haha)
+        indices.extend(multiindex[len(scalar_shape):] + multiindex[:len(scalar_shape)])
+    indices = tuple(indices)
+    shape = tuple(shape)
 
     if arguments and interior_facet:
-        shape = tuple(2 * element.space_dimension() for element in elements)
-        strides = cumulative_strides(shape)
+        result_shape = tuple(2 * sd for sd in ushape)
+        strides = cumulative_strides(result_shape)
 
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
             offset = sum(r * sd * stride
-                         for r, sd, stride in zip(restrictions, space_dimensions, strides))
+                         for r, sd, stride in zip(restrictions, ushape, strides))
             expressions.append(gem.FlexiblyIndexed(
                 varexp,
                 ((offset,
                   tuple((i, s) for i, s in zip(indices, shape))),)
             ))
     else:
-        shape = space_dimensions
-        expressions = [gem.FlexiblyIndexed(varexp, ((0, tuple(zip(indices, space_dimensions))),))]
+        result_shape = ushape
+        expressions = [gem.FlexiblyIndexed(varexp, ((0, tuple(zip(indices, shape))),))]
 
     zero = coffee.FlatBlock(
         str.format("memset({name}, 0, {size} * sizeof(*{name}));\n",
-                   name=funarg.sym.gencode(), size=numpy.product(shape, dtype=int))
+                   name=funarg.sym.gencode(), size=numpy.product(result_shape, dtype=int))
     )
     return funarg, [zero], expressions
