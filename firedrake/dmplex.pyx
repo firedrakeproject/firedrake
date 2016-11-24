@@ -566,12 +566,13 @@ def cell_to_facets(PETSc.DM plex,
 
     :arg plex: The DMPlex object representing the mesh topology.
     :arg cell_numbering: PETSc.Section describing the global cell numbering
-    :arg cell_closures: 2D array of ordered cell closures."""
+    :arg cell_closures: 2D array of ordered cell closures.
+    """
     cdef:
         PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
         PetscInt f, fstart, fend, point
-        char *int_label = <char *>"exterior_facets"
-        PetscBool is_exterior
+        char *int_label = <char *>"interior_facets"
+        PetscBool is_interior
         const PetscInt *facets
         DMLabel label
         np.ndarray[np.int8_t, ndim=2, mode="c"] cell_facets
@@ -585,23 +586,16 @@ def cell_to_facets(PETSc.DM plex,
     CHKERR(DMLabelCreateIndex(label, fstart, fend))
 
     for c in range(cstart, cend):
-        CHKERR(DMPlexGetCone(plex.dm, c, &facets))
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        fi = 0
+        for p in range(nclosure):
+            point = cell_closures[cell, p]
+            if fstart <= point < fend:
+                # This is a facet point
+                DMLabelHasPoint(label, point, &is_interior)
+                cell_facets[cell, fi] = <np.int8_t>is_interior
+                fi += 1
 
-        for f in range(nfacet):
-            fi = 0
-            CHKERR(DMLabelHasPoint(label, facets[f], &is_exterior))
-
-            for p in range(nclosure):
-                point = cell_closures[cell, p]
-                if point == facets[f]:
-                    if is_exterior:
-                        cell_facets[cell, fi] = 0
-                    else:
-                        cell_facets[cell, fi] = 1
-                    break
-                if fstart <= point < fend:
-                    fi += 1
     CHKERR(DMLabelDestroyIndex(label))
     return cell_facets
 

@@ -49,25 +49,11 @@ class TensorBase(object):
         """Constructor for the TensorBase abstract class."""
         self.id = TensorBase.id
         TensorBase.id += 1
-        self._integral_domains = None
-        self._subdomain_data = None
         self._hash = None
 
     @cached_property
-    def shape(self):
-        """Computes the shape information of the local tensor."""
-        shape = []
-        for i, arg in enumerate(self.arguments()):
-            V = arg.function_space()
-            shapelist = []
-            for fs in V:
-                shapelist.append(fs.fiat_element.space_dimension() * fs.dim)
-            shape.append(sum(shapelist))
-        return tuple(shape)
-
-    @cached_property
     def shapes(self):
-        """Computers the internal shape information of its components.
+        """Computes the internal shape information of its components.
         This is particularly useful to know if the tensor comes from a
         mixed form.
         """
@@ -79,6 +65,14 @@ class TensorBase(object):
                 shapelist.append(fs.fiat_element.space_dimension() * fs.dim)
             shapes[i] = tuple(shapelist)
         return shapes
+
+    @cached_property
+    def shape(self):
+        """Computes the shape information of the local tensor."""
+        shape = []
+        for shapelist in self.shapes.values():
+            shape.append(sum(shapelist))
+        return tuple(shape)
 
     @cached_property
     def rank(self):
@@ -117,61 +111,6 @@ class TensorBase(object):
     def __neg__(self):
         return Negative(self)
 
-    def __pos__(self):
-        return self
-
-    def check_integrals(self, integrals):
-        """Checks for positive restrictions on integrals."""
-        mapper = CheckRestrictions()
-        for it in integrals:
-            map_integrand_dags(mapper, it)
-
-    def generate_integral_info(self, integrals):
-        """This function generates all relevant information for
-        assembly that relies on :class:`ufl.Integral` objects.
-        This function will generate the following information:
-
-        (1) ufl_domains, which come from the integrals themselves;
-        (2) and subdomain_data, which is a mapping on the tensor that maps
-            integral_type to subdomain_id.
-
-        :arg integrals: `ufl.Integral` objects that come from a `ufl.Form`
-        """
-        # Compute integration domains
-        if self._integral_domains is None:
-            integral_domains = join_domains([it.ufl_domain() for it in integrals])
-            self._integral_domains = sort_domains(integral_domains)
-
-        # Generate subdomain data
-        if self._subdomain_data is None:
-            # Scalar case
-            if self.rank == 0:
-                # subdomain_data should be None
-                return
-            else:
-                # Initializing subdomain_data
-                subdomain_data = {}
-                for domain in self._integral_domains:
-                    subdomain_data[domain] = {}
-
-                    for integral in integrals:
-                        domain = integral.ufl_domain()
-                        it_type = integral.integral_type()
-                        subdata = integral.subdomain_data()
-
-                        data = subdomain_data[domain].get(it_type)
-                        if data is None:
-                            subdomain_data[domain][it_type] = subdata
-                        elif subdata is not None:
-                            assert data.ufl_id() == subdata.ufl_id(), "Integrals in the tensor must have the same subdomain_data objects."
-                self._subdomain_data = subdomain_data
-
-    def ufl_domains(self):
-        """Returns the integration domains of the integrals associated with
-        the tensor.
-        """
-        return self._integral_domains
-
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
         in the tensor.
@@ -182,12 +121,6 @@ class TensorBase(object):
         assert all(domain == domains[0] for domain in domains), "All integrals must share the same domain of integration."
 
         return domains[0]
-
-    def subdomain_data(self):
-        """Returns a mapping on the tensor:
-        `{domain:{integral_type: subdomain_data}}`.
-        """
-        return self._subdomain_data
 
     def __hash__(self):
         """Returns a hash code for use in dictionary objects."""
@@ -225,15 +158,42 @@ class Tensor(TensorBase):
         """Constructor for the Tensor class."""
         if not isinstance(form, Form):
             raise NotImplementedError("Only UFL forms are currently supported for creating SLATE tensors.")
+
         r = len(form.arguments())
         if r not in (0, 1, 2):
             raise NotImplementedError("Currently don't support tensors of rank %d." % r)
-        self.check_integrals(form.integrals())
-        self.form = form
+
+        # Checks for positive restrictions on integrals
+        integrals = form.integrals()
+        mapper = CheckRestrictions()
+        for it in integrals:
+            map_integrand_dags(mapper, it)
+
         super(Tensor, self).__init__()
 
-        # Generate ufl.Integral data from input form
-        self.generate_integral_info(form.integrals())
+        self.form = form
+
+        # Generate integral domains
+        integral_domains = join_domains([it.ufl_domain() for it in integrals])
+        self._integral_domains = sort_domains(integral_domains)
+
+        # Generate subdomain data
+        subdomain_data = {}
+        for domain in self._integral_domains:
+            subdomain_data[domain] = {}
+
+            for integral in integrals:
+                domain = integral.ufl_domain()
+                it_type = integral.integral_type()
+                subdata = integral.subdomain_data()
+
+                data = subdomain_data[domain].get(it_type)
+                if data is None:
+                    subdomain_data[domain][it_type] = subdata
+                elif subdata is not None:
+                    assert data.ufl_id() == subdata.ufl_id(), "Integrals in the tensor must have the same subdomain_data objects."
+
+        self._subdomain_data = subdomain_data
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
@@ -243,23 +203,25 @@ class Tensor(TensorBase):
         """Returns a tuple of coefficients associated with the tensor."""
         return self.form.coefficients()
 
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        return self._integral_domains
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        `{domain:{integral_type: subdomain_data}}`.
+        """
+        return self._subdomain_data
+
     def __str__(self, prec=None):
         """String representation of a tensor object in SLATE."""
-        if self.rank == 0:
-            return "S_%d" % self.id
-        elif self.rank == 1:
-            return "V_%d" % self.id
-        elif self.rank == 2:
-            return "M_%d" % self.id
+        return ["S", "V", "M"][self.rank] + "_%d" % self.id
 
     def __repr__(self):
         """SLATE representation of the tensor object."""
-        if self.rank == 0:
-            return "Scalar(%r)" % self.form
-        elif self.rank == 1:
-            return "Vector(%r)" % self.form
-        elif self.rank == 2:
-            return "Matrix(%r)" % self.form
+        return ["Scalar", "Vector", "Matrix"][self.rank] + "(%r)" % self.form
 
 
 class UnaryOp(TensorBase):
@@ -271,7 +233,7 @@ class UnaryOp(TensorBase):
 
         (1) the inverse of a tensor, `A.inv`, implemented in the subclass
             `Inverse`;
-        (2) the tranpose of a tensor, `A.T`, implemented in the subclass
+        (2) the transpose of a tensor, `A.T`, implemented in the subclass
             `Transpose`;
         (3) and the negative operation, `-A` (subclass `Negative`).
 
@@ -284,15 +246,8 @@ class UnaryOp(TensorBase):
 
     def __init__(self, A):
         """Constructor for the UnaryOp class."""
-        if not isinstance(A, TensorBase):
-            raise Exception("Expecting a `slate.TensorBase` object, not %r" % A)
-        self.tensor = A
-        self.check_operand_inversion(A)
         super(UnaryOp, self).__init__()
-
-    def arguments(self):
-        """Returns a tuple of arguments associated with the tensor."""
-        return self.get_uop_arguments(self.tensor)
+        self.tensor = A
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
@@ -310,41 +265,10 @@ class UnaryOp(TensorBase):
         """
         return self.tensor.subdomain_data()
 
-    @classmethod
-    def check_operand_inversion(cls, A):
-        pass
-
-    @classmethod
-    def get_uop_arguments(cls, A):
-        """Returns the expected arguments of the resulting tensor of
-        performing a specific unary operation on a tensor.
-
-        Implemented in subclass.
-        """
-        pass
-
     @property
     def operands(self):
         """Returns an iterable of the operands of this operation."""
         return (self.tensor,)
-
-    def __str__(self, prec=None):
-        """String representation of a resulting tensor after a unary
-        operation is performed.
-        """
-        if self.op == "Inverse":
-            return "(%s).inv" % self.tensor
-
-        elif self.op == "Transpose":
-            return "(%s).T" % self.tensor
-
-        elif self.op == "Negative":
-            if prec is None or self.prec >= prec:
-                par = lambda x: x
-            else:
-                par = lambda x: "(%s)" % x
-
-            return par("-%s" % self.tensor.__str__(prec=self.prec))
 
     def __repr__(self):
         """SLATE representation of the resulting tensor."""
@@ -357,20 +281,23 @@ class Inverse(UnaryOp):
     prec = None
     op = "Inverse"
 
-    @classmethod
-    def check_operand_inversion(cls, A):
-        """Ensures that the tensor satisfies the necessary conditions for taking
-        inverses.
-        """
+    def __init__(self, A):
+        """Constructor for the Inverse class."""
         assert A.rank == 2, "The tensor must be rank 2."
         assert A.shape[0] == A.shape[1], "The inverse can only be computed on square tensors."
+        super(Inverse, self).__init__(A)
 
-    @classmethod
-    def get_uop_arguments(cls, A):
+    def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return A.arguments()[::-1]
+        return self.tensor.arguments()[::-1]
+
+    def __str__(self, prec=None):
+        """String representation of a resulting tensor after a unary
+        operation is performed.
+        """
+        return "(%s).inv" % self.tensor
 
 
 class Transpose(UnaryOp):
@@ -379,12 +306,21 @@ class Transpose(UnaryOp):
     prec = None
     op = "Transpose"
 
-    @classmethod
-    def get_uop_arguments(cls, A):
+    def __init__(self, A):
+        """Constructor for the Transpose class."""
+        super(Transpose, self).__init__(A)
+
+    def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return A.arguments()[::-1]
+        return self.tensor.arguments()[::-1]
+
+    def __str__(self, prec=None):
+        """String representation of a resulting tensor after a unary
+        operation is performed.
+        """
+        return "(%s).T" % self.tensor
 
 
 class Negative(UnaryOp):
@@ -393,12 +329,26 @@ class Negative(UnaryOp):
     prec = 1
     op = "Negative"
 
-    @classmethod
-    def get_uop_arguments(cls, A):
+    def __init__(self, A):
+        """Constructor for the Inverse class."""
+        super(Negative, self).__init__(A)
+
+    def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return A.arguments()
+        return self.tensor.arguments()
+
+    def __str__(self, prec=None):
+        """String representation of a resulting tensor after a unary
+        operation is performed.
+        """
+        if prec is None or self.prec >= prec:
+            par = lambda x: x
+        else:
+            par = lambda x: "(%s)" % x
+
+        return par("-%s" % self.tensor.__str__(prec=self.prec))
 
 
 class BinaryOp(TensorBase):
@@ -425,20 +375,23 @@ class BinaryOp(TensorBase):
 
     def __init__(self, A, B):
         """Constructor for the BinaryOp class."""
-        assert isinstance(A, TensorBase) and isinstance(B, TensorBase), ("Both operands must be slate.TensorBase objects. The operands given are of type (%s, %s)" % (type(A), type(B)))
-        self.check_dimensions(A, B)
-        self.tensors = A, B
         super(BinaryOp, self).__init__()
-
-    def arguments(self):
-        """Returns a tuple of arguments associated with the tensor."""
-        A, B = self.tensors
-        return self.get_bop_arguments(A, B)
+        self.tensors = A, B
 
     def coefficients(self):
-        """Returns a tuple of coefficients associated with the tensor."""
+        """Returns the expected coefficients of the resulting tensor
+        of performing a binary operation on two tensors. Note that
+        the coefficients are handled the same way for all binary operations.
+        """
         A, B = self.tensors
-        return self.get_bop_coefficients(A, B)
+        clist = []
+        A_coeffs = A.coefficients()
+        uniqueAcoeffs = set(A_coeffs)
+        for c in B.coefficients():
+            if c not in uniqueAcoeffs:
+                clist.append(c)
+
+        return tuple(list(A_coeffs) + clist)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -451,45 +404,19 @@ class BinaryOp(TensorBase):
         """Returns a mapping on the tensor:
         `{domain:{integral_type: subdomain_data}}`.
         """
-        # TODO: We need to have a discussion on how we need to handle subdomain_data
         A, B = self.tensors
         if A.rank == 0:
             return B.subdomain_data()
         elif B.rank == 0:
             return A.subdomain_data()
-        return A.subdomain_data()
+        else:
+            # Join subdomain_data
+            sd_dict = A.subdomain_data()[A.ufl_domain()]
+            for sd_key_B in B.subdomain_data()[B.ufl_domain()].keys():
+                if sd_key_B not in sd_dict.keys():
+                    sd_dict.update({sd_key_B: B.subdomain_data()[B.ufl_domain()][sd_key_B]})
 
-    @classmethod
-    def check_dimensions(cls, A, B):
-        """Performs a check on the shapes of the tensors before
-        performing the binary operation.
-
-        Implemented in subclass.
-        """
-        pass
-
-    @classmethod
-    def get_bop_arguments(cls, A, B):
-        """Returns the expected arguments of the resulting tensor of
-        performing a specific binary operation on two tensors.
-
-        Implemented in subclass."""
-        pass
-
-    @classmethod
-    def get_bop_coefficients(cls, A, B):
-        """Returns the expected coefficients of the resulting tensor
-        of performing a binary operation on two tensors. Note that
-        the coefficients are handled the same way for all binary operations.
-        """
-        clist = []
-        A_coeffs = A.coefficients()
-        uniqueAcoeffs = set(A_coeffs)
-        for c in B.coefficients():
-            if c not in uniqueAcoeffs:
-                clist.append(c)
-
-        return tuple(list(A_coeffs) + clist)
+            return {self.ufl_domain(): sd_dict}
 
     @property
     def operands(self):
@@ -519,24 +446,24 @@ class BinaryOp(TensorBase):
 
 
 class TensorAdd(BinaryOp):
-    """Abstract SLATE class representing tensor addition."""
+    """Abstract SLATE class representing matrix-matrix, vector-vector
+     or scalar-scalar addition.
 
+    :arg A: a :class:`TensorBase` object.
+    :arg B: another :class:`TensorBase` object.
+    """
     prec = 1
     op = "Addition"
 
-    @classmethod
-    def check_dimensions(cls, A, B):
-        """Checks the shapes of the tensors A and B before
-        attempting to perform tensor addition.
-        """
+    def __init__(self, A, B):
+        """Constructor for the TensorAdd class."""
         if A.shape != B.shape:
             raise Exception("Cannot perform the operation of addition on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+        super(TensorAdd, self).__init__(A, B)
 
-    @classmethod
-    def get_bop_arguments(cls, A, B):
-        """Returns the appropriate arguments of the resulting
-        tensor via tensor addition.
-        """
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        A, B = self.tensors
         # Scalars distribute over sums
         if A.rank == 0:
             return B.arguments()
@@ -546,24 +473,24 @@ class TensorAdd(BinaryOp):
 
 
 class TensorSub(BinaryOp):
-    """Abstract SLATE class representing tensor subtraction."""
+    """Abstract SLATE class representing matrix-matrix, vector-vector
+     or scalar-scalar subtraction.
 
+    :arg A: a :class:`TensorBase` object.
+    :arg B: another :class:`TensorBase` object.
+    """
     prec = 1
     op = "Subtraction"
 
-    @classmethod
-    def check_dimensions(cls, A, B):
-        """Checks the shapes of the tensors A and B before
-        attempting to perform tensor subtraction."""
-
+    def __init__(self, A, B):
+        """Constructor for the TensorSub class."""
         if A.shape != B.shape:
-            raise Exception("Cannot perform the operation of substraction on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+            raise Exception("Cannot perform the operation of subtraction on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+        super(TensorSub, self).__init__(A, B)
 
-    @classmethod
-    def get_bop_arguments(cls, A, B):
-        """Returns the appropriate arguments of the resulting
-        tensor via tensor subtraction.
-        """
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        A, B = self.tensors
         # Scalars distribute over sums
         if A.rank == 0:
             return B.arguments()
@@ -574,26 +501,26 @@ class TensorSub(BinaryOp):
 
 class TensorMul(BinaryOp):
     """Abstract SLATE class representing standard tensor multiplication.
+    This includes Matrix-Matrix, Matrix-Vector, Scalar-Matrix, and
+    Scalar-Vector multiplication.
 
-    This includes Matrix-Matrix and Matrix-Vector multiplication.
+    :arg A: a :class:`TensorBase` object.
+    :arg B: another :class:`TensorBase` object.
     """
-
     prec = 2
     op = "Multiplication"
 
-    @classmethod
-    def check_dimensions(cls, A, B):
-        """Checks the shapes of the tensors A and B before
-        attempting to perform tensor multiplication.
-        """
+    def __init__(self, A, B):
+        """Constructor for the TensorMul class."""
         if A.shape[1] != B.shape[0]:
             raise Exception("Cannot perform the operation of multiplication on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+        super(TensorMul, self).__init__(A, B)
 
-    @classmethod
-    def get_bop_arguments(cls, A, B):
+    def arguments(self):
         """Returns the arguments of a tensor resulting
         from multiplying two tensors A and B.
         """
+        A, B = self.tensors
         # Scalar case
         if A.rank == 0:
             return B.arguments()

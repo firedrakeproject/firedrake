@@ -54,7 +54,8 @@ def test_slate_hybridization(degree):
 
     # Define the source function
     f = Function(DG)
-    f.interpolate(Expression("(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2)"))
+    x, y = SpatialCoordinate(mesh)
+    f.interpolate((1+8*pi*pi)*sin(x*pi*2)*sin(y*pi*2))
 
     # Define finite element variational forms
     Mass_v = dot(sigma, tau) * dx

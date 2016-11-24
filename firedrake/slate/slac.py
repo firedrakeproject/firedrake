@@ -207,6 +207,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
 
             # Defining tensor matrices of appropriate size
             inc.extend(kernel._include_dirs)
+            # Need to address the case that the tensor is mixed
             try:
                 row, col = index
             except ValueError:
@@ -264,15 +265,13 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
                                               coordsym,
                                               *clist))
 
-    result_type = map_type(mat_type(shape))
     result_sym = ast.Symbol("T%d" % len(temps))
     result_data_sym = ast.Symbol("A%d" % len(temps))
+    result_type = map_type(mat_type(shape))
     result = ast.Decl(dtype, ast.Symbol(result_data_sym, shape))
-
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" %
                                      (result_type, result_sym,
                                       dtype, result_data_sym))
-
     statements.append(result_statement)
 
     # Call the get_c_str method to return the full C/C++ statement
@@ -487,7 +486,6 @@ def mat_type(shape):
              of the `slate.Tensor` in the appropriate Eigen C++ template
              library syntax.
     """
-
     if len(shape) == 1:
         rows = shape[0]
         cols = 1
