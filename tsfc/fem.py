@@ -14,6 +14,7 @@ from ufl.classes import (Argument, Coefficient, CellVolume, FacetArea,
                          GeometricQuantity, QuadratureWeight)
 
 import gem
+from gem.node import traversal
 from gem.optimise import ffc_rounding
 from gem.utils import cached_property
 
@@ -251,6 +252,13 @@ def translate_coefficient(terminal, mt, ctx):
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
+    assert set(result.free_indices) <= set(ctx.point_set.indices)
+
+    # Detect Jacobian of affine cells
+    if not result.free_indices and all(numpy.count_nonzero(node.array) <= 2
+                                       for node in traversal((result,))
+                                       if isinstance(node, gem.Literal)):
+        result = gem.optimise.aggressive_unroll(result)
     return result
 
 
