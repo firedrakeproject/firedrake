@@ -1,9 +1,11 @@
 from __future__ import absolute_import, print_function, division
+from six import iterkeys, iteritems, itervalues
 from six.moves import map
 
 import collections
 import itertools
 
+import numpy
 from singledispatch import singledispatch
 
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
@@ -151,46 +153,51 @@ def translate_facetarea(terminal, mt, ctx):
     return ctx.facetarea()
 
 
-def basis_evaluation(element, ps, derivative=0, entity=None, epsilon=0.0):
-    # TODO: clean up, potentially remove this function.
-    import numpy
+def fiat_to_ufl(fiat_dict, order):
+    # All derivative multiindices must be of the same dimension.
+    dimension, = list(set(len(alpha) for alpha in iterkeys(fiat_dict)))
 
-    finat_result = element.basis_evaluation(derivative, ps, entity)
-    i = element.get_indices()
-    vi = element.get_value_indices()
+    # All derivative tables must have the same shape.
+    shape, = list(set(table.shape for table in itervalues(fiat_dict)))
+    sigma = tuple(gem.Index(extent=extent) for extent in shape)
 
-    dimension = element.cell.get_spatial_dimension()
+    # Convert from FIAT to UFL format
     eye = numpy.eye(dimension, dtype=int)
-    tensor = numpy.empty((dimension,) * derivative, dtype=object)
+    tensor = numpy.empty((dimension,) * order, dtype=object)
     for multiindex in numpy.ndindex(tensor.shape):
         alpha = tuple(eye[multiindex, :].sum(axis=0))
-        tensor[multiindex] = gem.Indexed(finat_result[alpha], i + vi)
-    di = tuple(gem.Index(extent=dimension) for _ in range(derivative))
-    if derivative:
-        tensor = gem.Indexed(gem.ListTensor(tensor), di)
+        tensor[multiindex] = gem.Indexed(fiat_dict[alpha], sigma)
+    delta = tuple(gem.Index(extent=dimension) for _ in range(order))
+    if order > 0:
+        tensor = gem.Indexed(gem.ListTensor(tensor), delta)
     else:
         tensor = tensor[()]
-    # A numerical hack that FFC used to apply on FIAT tables still
-    # lives on after ditching FFC and switching to FInAT.
-    tensor = ffc_rounding(tensor, epsilon)
-    return gem.ComponentTensor(tensor, i + vi + di)
+    return gem.ComponentTensor(tensor, sigma + delta)
 
 
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
+    argument_index = ctx.argument_indices[terminal.number()]
+    sigma = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     element = create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        return basis_evaluation(element,
-                                ctx.point_set,
-                                derivative=mt.local_derivatives,
-                                entity=(ctx.integration_dim, entity_id),
-                                epsilon=ctx.epsilon)
-    M = ctx.entity_selector(callback, mt.restriction)
-    vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    argument_index = ctx.argument_indices[terminal.number()]
-    result = gem.Indexed(M, argument_index + vi)
-    return gem.ComponentTensor(result, vi)
+        finat_dict = element.basis_evaluation(mt.local_derivatives,
+                                              ctx.point_set,
+                                              (ctx.integration_dim, entity_id))
+        # Filter out irrelevant derivatives
+        filtered_dict = {alpha: table
+                         for alpha, table in iteritems(finat_dict)
+                         if sum(alpha) == mt.local_derivatives}
+
+        # Change from FIAT to UFL arrangement
+        square = fiat_to_ufl(filtered_dict, mt.local_derivatives)
+
+        # A numerical hack that FFC used to apply on FIAT tables still
+        # lives on after ditching FFC and switching to FInAT.
+        return ffc_rounding(square, ctx.epsilon)
+    table = ctx.entity_selector(callback, mt.restriction)
+    return gem.ComponentTensor(gem.Indexed(table, argument_index + sigma), sigma)
 
 
 @translate.register(Coefficient)
@@ -203,20 +210,48 @@ def translate_coefficient(terminal, mt, ctx):
 
     element = create_element(terminal.ufl_element())
 
-    def callback(entity_id):
-        return basis_evaluation(element,
-                                ctx.point_set,
-                                derivative=mt.local_derivatives,
-                                entity=(ctx.integration_dim, entity_id),
-                                epsilon=ctx.epsilon)
-    M = ctx.entity_selector(callback, mt.restriction)
+    # Collect FInAT tabulation for all entities
+    per_derivative = collections.defaultdict(list)
+    for entity_id in ctx.entity_ids:
+        finat_dict = element.basis_evaluation(mt.local_derivatives,
+                                              ctx.point_set,
+                                              (ctx.integration_dim, entity_id))
+        for alpha, table in iteritems(finat_dict):
+            # Filter out irrelevant derivatives
+            if sum(alpha) == mt.local_derivatives:
+                # A numerical hack that FFC used to apply on FIAT
+                # tables still lives on after ditching FFC and
+                # switching to FInAT.
+                table = ffc_rounding(table, ctx.epsilon)
+                per_derivative[alpha].append(table)
 
-    alpha = element.get_indices()
-    vi = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    result = gem.Product(gem.Indexed(M, alpha + vi),
-                         gem.Indexed(vec, alpha))
-    result = gem.optimise.contraction(gem.IndexSum(result, alpha), logger=logger)
-    return gem.ComponentTensor(result, vi)
+    # Merge entity tabulations for each derivative
+    if len(ctx.entity_ids) == 1:
+        def take_singleton(xs):
+            x, = xs  # asserts singleton
+            return x
+        per_derivative = {alpha: take_singleton(tables)
+                          for alpha, tables in iteritems(per_derivative)}
+    else:
+        f = ctx.facet_number(mt.restriction)
+        per_derivative = {alpha: gem.select_expression(tables, f)
+                          for alpha, tables in iteritems(per_derivative)}
+
+    # Coefficient evaluation
+    beta = element.get_indices()
+    zeta = element.get_value_indices()
+    value_dict = {}
+    for alpha, table in iteritems(per_derivative):
+        value = gem.IndexSum(gem.Product(gem.Indexed(table, beta + zeta),
+                                         gem.Indexed(vec, beta)),
+                             beta)
+        optimised_value = gem.optimise.contraction(value, logger=logger)
+        value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
+
+    # Change from FIAT to UFL arrangement
+    result = fiat_to_ufl(value_dict, mt.local_derivatives)
+    assert result.shape == mt.expr.ufl_shape
+    return result
 
 
 def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
