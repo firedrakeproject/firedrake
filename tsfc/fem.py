@@ -23,7 +23,6 @@ from finat.quadrature import make_quadrature
 from tsfc import ufl2gem, geometric
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
-from tsfc.logging import logger
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import PARAMETERS
 from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
@@ -246,7 +245,7 @@ def translate_coefficient(terminal, mt, ctx):
         value = gem.IndexSum(gem.Product(gem.Indexed(table, beta + zeta),
                                          gem.Indexed(vec, beta)),
                              beta)
-        optimised_value = gem.optimise.contraction(value, logger=logger)
+        optimised_value = gem.optimise.contraction(value)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
     # Change from FIAT to UFL arrangement
