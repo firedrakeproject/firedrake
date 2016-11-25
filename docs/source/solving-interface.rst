@@ -457,6 +457,40 @@ precondition the Krylov system solving for :math:`S`, you can also use
 a `least squares commutator <LSC_>`_, see the relevant section of the
 `PETSc manual pages <fieldsplit_>`_ for more details.
 
+Specifying assembled matrix types
++++++++++++++++++++++++++++++++++
+
+Firedrake supports assembling linear operators in a number of
+different formats.  Either as assembled sparse matrices, or as
+matrix-free operators that only provide matrix-vector products.  Since
+matrix-free actions require special preconditioning, they have
+:doc:`their own section in the manual <matrix-free>`.  Even in the
+sparse matrix case there are a few options.  Firedrake can build
+nested block matrices, or monolithic sparse matrices.  The latter
+admit a wider range of preconditioners, but are memory-inefficient
+when using fieldsplit preconditioning.  Even monolithic matrices have
+choices, specifically, if there is a block structure, whether that
+should be exploited or not.  Again the trade-off is between memory
+efficiency (in the block case) and access to a slightly smaller range
+of preconditioners.
+
+The default matrix type can be set with the global parameter
+``parameters["default_matrix_type"]``.  In the case where the matrix
+is assembled as a nested matrix, there is a choice as to the type of
+the blocks (they may be "aij" or "baij").  The default choice can be
+controlled with ``parameters["default_sub_matrix_type"]``.  For
+finer-grained control over the matrix type, one can provide it when
+calling :func:`~.assemble` through the ``mat_type`` and
+``sub_mat_type`` keyword arguments.  When using variational solvers,
+the matrix type is controlled through use of the ``solver_parameters``
+dictionary by specifying the ``"mat_type"`` entry.
+
+.. note::
+
+   It is not currently possible to control the matrix type of
+   sub-matrices through the solving interface.  If you need this
+   functionality, please :doc:`get in touch <contact>`
+
 More block preconditioners
 ++++++++++++++++++++++++++
 
