@@ -3390,8 +3390,8 @@ class Sparsity(ObjectCached):
         return (cache,) + (tuple(dsets), frozenset(maps), name, nest, block_sparse), {}
 
     @classmethod
-    def _cache_key(cls, dsets, maps, name, nest, *args, **kwargs):
-        return (dsets, maps, nest)
+    def _cache_key(cls, dsets, maps, name, nest, block_sparse, *args, **kwargs):
+        return (dsets, maps, nest, block_sparse)
 
     def __getitem__(self, idx):
         """Return :class:`Sparsity` block with row and column given by ``idx``
