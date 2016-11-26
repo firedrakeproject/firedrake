@@ -5,6 +5,7 @@ from firedrake import hdf5interface as h5i
 import firedrake
 import numpy as np
 import os
+import h5py
 
 
 __all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE"]
@@ -300,40 +301,24 @@ class HDF5File(object):
     number of processes and a :func:`~.Mesh` constructed identically.
 
     :arg filename: filename (including suffix .h5) of checkpoint file.
-    :arg file_mode: the access mode (one of :data:`~.FILE_READ`,
-         :data:`~.FILE_CREATE`, or :data:`~.FILE_UPDATE`)
+    :arg file_mode: the access mode, passed directly to h5py, see
+        :class:`h5py:File` for details on the meaning.
     :arg comm: communicator the writes should be collective
          over.
 
     This object can be used in a context manager (in which case it
     closes the file when the scope is exited).
 
-    .. note::
-
-       This object contains both a PETSc ``Viewer``, used for storing
-       and loading :class:`~.Function` data, and an :class:`h5py:File`
-       opened on the same file handle.  *DO NOT* call
-       :meth:`h5py:File.close` on the latter, this will cause
-       breakages.
-
     """
     def __init__(self, filename, file_mode, comm=None):
         self.comm = dup_comm(comm or COMM_WORLD)
 
-        if file_mode == 'r':
-            self.mode = FILE_READ
-        elif file_mode == 'w':
-            self.mode = FILE_CREATE
-        elif file_mode == 'a':
-            self.mode = FILE_UPDATE
-
         self._filename = filename
+        self._mode = file_mode
 
         exists = os.path.exists(filename)
-        if self.mode == FILE_READ and not exists:
+        if file_mode == 'r' and not exists:
             raise IOError("File '%s' does not exist, cannot be opened for reading" % filename)
-        if self.mode == FILE_UPDATE and not exists:
-            self.mode = FILE_CREATE
 
         # Create the directory if necessary
         dirname = os.path.dirname(filename)
@@ -342,9 +327,13 @@ class HDF5File(object):
         except OSError:
             pass
 
-        self._vwr = PETSc.ViewerHDF5().create(filename, mode=self.mode,
-                                              comm=self.comm)
-        if self.mode == FILE_READ:
+        # Try to use MPI
+        try:
+            self._h5file = h5py.File(filename, file_mode, driver="mpio", comm=self.comm)
+        except NameError:  # the error you get if h5py isn't compiled against parallel HDF5
+            raise RuntimeError("h5py *must* be installed with MPI support")
+
+        if file_mode == 'r':
             nprocs = self.attributes('/')['nprocs']
             if nprocs != self.comm.size:
                 raise ValueError("Process mismatch: written on %d, have %d" %
@@ -352,25 +341,12 @@ class HDF5File(object):
         else:
             self.attributes('/')['nprocs'] = self.comm.size
 
-    @property
-    def vwr(self):
-        """The PETSc Viewer used to store and load function data."""
-        return self._vwr
-
-    @property
-    def h5file(self):
-        """An h5py File object pointing at the open file handle."""
-        if hasattr(self, '_h5file'):
-            return self._h5file
-        self._h5file = h5i.get_h5py_file(self.vwr)
-        return self._h5file
-
     def _set_timestamp(self, t):
         """Set the timestamp for storing.
 
         :arg t: The timestamp value.
         """
-        if self.mode == FILE_READ:
+        if self._mode == 'r':
             return
         attrs = self.attributes("/")
         timestamps = attrs.get("stored_timestamps", [])
@@ -385,10 +361,7 @@ class HDF5File(object):
 
     def close(self):
         """Close the checkpoint file (flushing any pending writes)"""
-        if hasattr(self, "_vwr"):
-            self._vwr.destroy()
-            del self._vwr
-        if hasattr(self, "_h5file"):
+        if hasattr(self, '_h5file'):
             self._h5file.flush()
             del self._h5file
 
@@ -404,27 +377,24 @@ class HDF5File(object):
         :arg timestamp: timestamp associated with function, or None for
                         stationary data
         """
-        if self.mode is FILE_READ:
+        if self._mode == 'r':
             raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only store functions")
 
-        if timestamp is None:
-            name = os.path.basename(path)
-        else:
+        if timestamp is not None:
             suffix = "/%.15e" % timestamp
             path = path + suffix
-            name = os.path.basename(path)
-
-        group = os.path.dirname(path)
 
         with function.dat.vec_ro as v:
-            self.vwr.pushGroup(group)
-            oname = v.getName()
-            v.setName(name)
-            v.view(self.vwr)
-            v.setName(oname)
-            self.vwr.popGroup()
+            dset = self._h5file.create_dataset(path, shape=(v.getSize(),), dtype=function.dat.dtype)
+
+            # Another MPI/non-MPI difference
+            try:
+                with dset.collective:
+                    dset[slice(*v.getOwnershipRange())] = v.array_r
+            except AttributeError:
+                dset[slice(*v.getOwnershipRange())] = v.array_r
 
         if timestamp is not None:
             attr = self.attributes(path)
@@ -439,26 +409,17 @@ class HDF5File(object):
         """
         if not isinstance(function, firedrake.Function):
             raise ValueError("Can only load functions")
-        if timestamp is None:
-            name = os.path.basename(path)
-            group = os.path.dirname(path)
-        else:
+        if timestamp is not None:
             suffix = "/%.15e" % timestamp
-            stampedpath = path + suffix
-            name = os.path.basename(stampedpath)
-            group = os.path.dirname(stampedpath)
+            path = path + suffix
 
         with function.dat.vec as v:
-            self.vwr.pushGroup(group)
-            oname = v.getName()
-            v.setName(name)
-            v.load(self.vwr)
-            v.setName(oname)
-            self.vwr.popGroup()
+            dset = self._h5file[path]
+            v.array[:] = dset[slice(*v.getOwnershipRange())]
 
     def attributes(self, obj):
         """:arg obj: The path to the group."""
-        return self.h5file[obj].attrs
+        return self._h5file[obj].attrs
 
     def __enter__(self):
         return self
