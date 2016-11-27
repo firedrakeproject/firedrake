@@ -1,19 +1,18 @@
-"""This is SLATE's Linear Algebra Compiler (SLAC). This module is responsible for
-generating C++ kernel functions representing symbolic linear algebra expressions
-written in SLATE.
+"""This is SLATE's Linear Algebra Compiler. This module is responsible for generating
+C++ kernel functions representing symbolic linear algebra expressions written in SLATE.
 
 This linear algebra compiler uses both Firedrake's form compiler, the Two-Stage
 Form Compiler (TSFC) and COFFEE's kernel abstract syntax tree (AST) optimizer. TSFC
-provides SLAC with appropriate kernel functions (in C) for evaluating integral expressions
-(finite element variational forms written in UFL). COFFEE's AST optimizing framework
-produces the resulting kernel AST returned by: `compile_slate_expression`.
+provides this compiler with appropriate kernel functions (in C) for evaluating integral
+expressions (finite element variational forms written in UFL). COFFEE's AST optimizing
+framework produces the resulting kernel AST returned by: `compile_slate_expression`.
 
 The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as all low-level numerical
 linear algebra operations are performed using the `Eigen::Matrix` methods built into Eigen.
 """
 from __future__ import absolute_import, print_function, division
 
-import sys
+import petsc
 
 from coffee import base as ast
 from coffee.visitor import Visitor
@@ -95,7 +94,8 @@ class Transformer(Visitor):
         template = "template <typename Derived>"
         body = ops[3]
         args, _ = body.operands()
-        nargs = [ast.FlatBlock("Eigen::MatrixBase<Derived> & %s = const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n" % (name, name))] + args
+        eigen_arg = "Eigen::MatrixBase<Derived> & {0} = const_cast<Eigen::MatrixBase<Derived> &>({0}_);\n".format(name)
+        nargs = [ast.FlatBlock(eigen_arg)] + args
         ops[3] = nargs
         ops[6] = template
 
@@ -308,7 +308,9 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
 
     klist.append(kernel)
     kernelast = ast.Node(klist)
-    inc.append('%s/lib/python2.7/site-packages/petsc/include/eigen3/' % sys.prefix)
+
+    # Need to get the correct PETSc directory
+    inc.append(petsc.get_petsc_dir() + '/include/eigen3/')
 
     # Produce the op2 kernel object for assembly
     op2kernel = op2.Kernel(kernelast,

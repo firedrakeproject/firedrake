@@ -1,22 +1,17 @@
-"""SLATE is a symbolic language defining a framework for
-performing linear algebra operations on finite element
-tensors. It is similar in principle to most linear algebra
-libraries in notation.
+"""SLATE is a symbolic language defining a framework for performing linear algebra
+operations on finite element tensors. It is similar in principle to most linear
+algebra libraries in notation.
 
-The design of SLATE was heavily influenced by UFL, and
-utilizes much of UFL's functionality for FEM-specific form
-manipulation.
+The design of SLATE was heavily influenced by UFL, and utilizes much of UFL's
+functionality for FEM-specific form manipulation.
 
-Unlike UFL, however, once forms are assembled into SLATE
-`Tensor` objects, one can utilize the operations defined
-in SLATE to express complicated linear algebra operations.
-(Such as the Schur-complement reduction of a block-matrix
-system)
+Unlike UFL, however, once forms are assembled into SLATE `Tensor` objects, one can
+utilize the operations defined in SLATE to express complicated linear algebra operations
+(such as the Schur-complement reduction of a block-matrix system).
 
-All SLATE expressions are handled by a specialized linear
-algebra compiler, which interprets SLATE expressions and
-produces C++ kernel functions to be executed within the
-Firedrake architecture.
+All SLATE expressions are handled by a specialized linear algebra compiler, which interprets
+SLATE expressions and produces C++ kernel functions to be executed within the Firedrake
+architecture.
 """
 from __future__ import absolute_import, print_function, division
 
