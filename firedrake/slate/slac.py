@@ -134,7 +134,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     appropriate :class:`firedrake.op2.Kernel` object representing
     the SLATE expression.
 
-    :arg slate_expr: a SLATE expression.
+    :arg slate_expr: a :class:'TensorBase' expression.
 
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
                           be passed onto TSFC during the compilation of
@@ -267,7 +267,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
 
     result_sym = ast.Symbol("T%d" % len(temps))
     result_data_sym = ast.Symbol("A%d" % len(temps))
-    result_type = map_type(mat_type(shape))
+    result_type = "Eigen::Map<%s >" % mat_type(shape)
     result = ast.Decl(dtype, ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" %
                                      (result_type, result_sym,
@@ -340,7 +340,7 @@ def get_c_str(expr, temps, prec=None):
     appropriate C/C++ representation of the `slate.Tensor`
     expression.
 
-    :arg expr: a :class:`slate.Tensor` expression.
+    :arg expr: a :class:`slate.TensorBase` expression.
 
     :arg temps: a `dict` of temporaries which map a given
                 `slate.Tensor` object to its corresponding
@@ -365,10 +365,13 @@ def get_c_str(expr, temps, prec=None):
         elif expr.op == "Inverse":
             return "(%s).inverse()" % get_c_str(expr.tensor, temps)
         elif expr.op == "Negative":
-            prec = expr.prec
-            result = "-%s" % get_c_str(expr.tensor, temps, prec)
+            result = "-%s" % get_c_str(expr.tensor, temps, expr.prec)
 
-            return parenthesize(result, expr.prec, prec)
+            # Make sure we parenthesize correctly
+            if expr.prec is None or prec >= expr.prec:
+                return result
+            else:
+                return "(%s)" % result
         else:
             raise ValueError("Unrecognized unary operation.")
 
@@ -376,14 +379,17 @@ def get_c_str(expr, temps, prec=None):
         op = {"Addition": '+',
               "Subtraction": '-',
               "Multiplication": '*'}[expr.op]
-        prec = expr.prec
         result = "%s %s %s" % (get_c_str(expr.operands[0], temps,
-                                         prec),
+                                         expr.prec),
                                op,
                                get_c_str(expr.operands[1], temps,
-                                         prec))
+                                         expr.prec))
 
-        return parenthesize(result, expr.prec, prec)
+        # Make sure we parenthesize correctly
+        if expr.prec is None or prec >= expr.prec:
+            return result
+        else:
+            return "(%s)" % result
     else:
         # If expression is not recognized, throw a NotImplementedError.
         raise NotImplementedError("Expression of type %s not supported.",
@@ -488,7 +494,9 @@ def mat_type(shape):
              of the `slate.Tensor` in the appropriate Eigen C++ template
              library syntax.
     """
-    if len(shape) == 1:
+    if len(shape) == 0:
+        raise NotImplementedError("Scalar-valued expressions cannot be declared as an Eigen::MatrixBase object.")
+    elif len(shape) == 1:
         rows = shape[0]
         cols = 1
     else:
@@ -502,23 +510,3 @@ def mat_type(shape):
         order = ""
 
     return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
-
-
-def map_type(matrix):
-    """Returns an eigen map to output the resulting matrix
-    in an appropriate data array.
-
-    :arg matrix: a string returned from :meth:`mat_type`; a
-                 string denoting the appropriate declaration
-                 of an `Eigen::Matrix` object.
-    """
-
-    return "Eigen::Map<%s >" % matrix
-
-
-def parenthesize(expr, prec=None, parent=None):
-    """Parenthezises a slate expression and returns a string. This function is
-    fairly self-explanatory."""
-    if prec is None or parent >= prec:
-        return expr
-    return "(%s)" % expr
