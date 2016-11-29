@@ -289,7 +289,7 @@ def adjust_tsfc_shapes(knl, variable_to_dim_nbf):
         if arg.name in variable_to_dim_nbf:
             dim, nbf = variable_to_dim_nbf[arg.name]
             assert arg.shape[1] == dim*nbf
-            assert arg.shape[2] == 1
+            assert len(arg.shape) == 2 or arg.shape[2] == 1
 
             args.append(lp.GlobalArg(
                 arg.name,
@@ -397,7 +397,7 @@ class LoopyImplicitMatrixContext(object):
 
         variable_to_dim_nbf = {
             "coords": (coord_fs.dim,
-                       coord_fs.cell_node_map().values.shape[1])
+                       coord_fs.cell_node_map().values.shape[1]),
         }
         for i, coeff in enumerate(coeffs):
             nbf = coeff.function_space().cell_node_map().values.shape[1]
@@ -405,23 +405,16 @@ class LoopyImplicitMatrixContext(object):
             variable_to_dim_nbf["w_"+str(i)] = (dim, nbf)
 
         unflatter = TsfcCoefficientIndexUnflattener(variable_to_dim_nbf)
+
         knl = knl.copy(
             instructions=[
-            insn.with_transformed_expressions(unflatter) for insn in knl.instructions])
+                insn.with_transformed_expressions(unflatter) for insn in knl.instructions])
 
+        # variable_to_dim_nbf["A0"] = (test_space.dim,
+        #                              test_space.cell_node_map().values.shape[1])
         knl = adjust_tsfc_shapes(knl, variable_to_dim_nbf)
 
         # now set up space to hold scattered coefficients
-        # FIXME: check for VectorElements.
-        def c_to_shp(c):
-            return tuple(
-                list(c.function_space().cell_node_map().values.shape)+[1])
-
-        self.scattered_coeffs = [np.zeros(c_to_shp(c))
-                                 for c in self.action.coefficients()]
-
-        # also need scattered coordinate fields.
-
 
         import pyopencl as cl
         self.ctx = cl.create_some_context(interactive=False)
@@ -480,8 +473,7 @@ class LoopyImplicitMatrixContext(object):
                     "nelements": np.int32,
                     "ltg"+str(fspace_nr): np.int32,
                     thing+"_global": np.float64,
-                    })
-
+                })
 
             knl = lp.fuse_kernels(
                 (scatter_knl, knl),
@@ -489,23 +481,26 @@ class LoopyImplicitMatrixContext(object):
 
             knl = lp.assignment_to_subst(knl, thing)
 
-        # FIXME A0 not yet vector-ready
+        knl = lp.add_dtypes(knl,
+                            {"A0": np.float64})
+
         gather_knl = lp.make_kernel(
             "{{ [iel, ibf_A0, idim_A0]: 0 <= iel < nelements and 0 <= ibf_A0 < {nbf} and 0 <= idim_A0 < {dim} }}"
             .format(
                 nbf=test_space.cell_node_map().values.shape[1],
                 dim=test_space.dim
-                ),
+            ),
             """
             A0_global[{dim} * ltg_A0[iel, ibf_A0] + idim_A0] = (
                 A0_global[{dim} * ltg_A0[iel, ibf_A0] + idim_A0]
-                + A0[iel, ibf_A0])  {{atomic}}
+                + A0[iel, ibf_A0 + {nbf}*idim_A0])  {{atomic}}
             """
             .format(
-                dim=test_space.dim
-                ),
+                dim=test_space.dim,
+                nbf=test_space.cell_node_map().values.shape[1]
+            ),
             [
-                lp.GlobalArg("A0_global", np.float64, shape=Function(test_space).dat.shape, for_atomic=True),
+                lp.GlobalArg("A0_global", np.float64, shape=(self._y.vector().size(),), for_atomic=True),
                 lp.GlobalArg("ltg_A0", np.int32, shape=lp.auto),
                 "..."])
         # A0writes = [ins for ins in knl.instructions
@@ -520,7 +515,7 @@ class LoopyImplicitMatrixContext(object):
         gather_knl = lp.add_dtypes(gather_knl, {
             "nelements": np.int32,
             "A0": np.float64,
-            })
+        })
         knl = lp.fuse_kernels(
             (knl, gather_knl),
             data_flow=[("A0", 0, 1)])
@@ -529,7 +524,6 @@ class LoopyImplicitMatrixContext(object):
         knl = lp.infer_unknown_types(knl)
 
         knl = lp.make_reduction_inames_unique(knl)
-        
 
         self.knl = knl
 
