@@ -192,8 +192,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         impmat = matrix.ImplicitMatrix
     else:
         matfree = False
-    #matfree = mat_type == "matfree"
-    #loopy = mat_type == "loopy"
     nest = mat_type == "nest"
     if is_mat:
         if matfree:  # intercept matrix-free matrices here

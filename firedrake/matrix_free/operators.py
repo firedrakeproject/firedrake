@@ -93,16 +93,15 @@ class ImplicitMatrixContext(object):
         test_space, trial_space = [
             a.arguments()[i].function_space() for i in (0, 1)
         ]
-        from firedrake import function
 
-        self._y = function.Function(test_space)
-        self._x = function.Function(trial_space)
+        self._y = Function(test_space)
+        self._x = Function(trial_space)
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
-        self._xbc = function.Function(trial_space)
-        self._ybc = function.Function(test_space)
+        self._xbc = Function(trial_space)
+        self._ybc = Function(test_space)
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
@@ -391,7 +390,6 @@ class LoopyImplicitMatrixContext(object):
         for rule in list(six.itervalues(knl.substitutions)):
             knl = lp.precompute(knl, rule.name, rule.arguments)
 
-
         mesh = test_space.mesh()
         coords = mesh.coordinates
         coord_fs = coords.function_space()
@@ -586,7 +584,6 @@ class LoopyImplicitMatrixContext(object):
 
         with self._y.dat.vec_ro as v:
             v.copy(Y)
-
 
     def multTranspose(self, mat, Y, X):
         # As for mult, just everything swapped round.
