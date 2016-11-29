@@ -93,10 +93,9 @@ class ImplicitMatrixContext(object):
         test_space, trial_space = [
             a.arguments()[i].function_space() for i in (0, 1)
         ]
-        from firedrake import function
 
-        self._y = function.Function(test_space)
-        self._x = function.Function(trial_space)
+        self._y = Function(test_space)
+        self._x = Function(trial_space)
 
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
@@ -607,7 +606,6 @@ class LoopyImplicitMatrixContext(object):
 
         with self._y.dat.vec_ro as v:
             v.copy(Y)
-
 
     def multTranspose(self, mat, Y, X):
         # As for mult, just everything swapped round.

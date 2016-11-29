@@ -217,8 +217,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         impmat = matrix.ImplicitMatrix
     else:
         matfree = False
-    #matfree = mat_type == "matfree"
-    #loopy = mat_type == "loopy"
     nest = mat_type == "nest"
 >>>>>>> Added loopy matrix type, parallel to matfree.  Needs refactoring and generalizing loopy kernels.
     if is_mat:
