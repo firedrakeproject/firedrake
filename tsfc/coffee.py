@@ -17,7 +17,6 @@ import coffee.base as coffee
 from gem import gem, impero as imp
 
 from tsfc.parameters import SCALAR_TYPE
-from tsfc.logging import logger
 
 
 class Bunch(object):
@@ -370,16 +369,18 @@ def _expression_flexiblyindexed(expr, parameters):
             rank.append(parameters.index_names[i])
             offset.append((s, off))
         else:
-            # Warn that this might break COFFEE
-            logger.warning("Multiple free indices in FlexiblyIndexed: might break COFFEE.")
-            index_expr = reduce(
-                coffee.Sum,
-                [coffee.Prod(coffee.Symbol(parameters.index_names[i]),
-                             coffee.Symbol(str(s)))
-                 for i, s in iss],
-                coffee.Symbol(str(off))
-            )
-            rank.append(index_expr)
+            parts = []
+            if off:
+                parts += [coffee.Symbol(str(off))]
+            for i, s in iss:
+                index_sym = coffee.Symbol(parameters.index_names[i])
+                assert s
+                if s == 1:
+                    parts += [index_sym]
+                else:
+                    parts += [coffee.Prod(index_sym, coffee.Symbol(str(s)))]
+            assert parts
+            rank.append(reduce(coffee.Sum, parts))
             offset.append((1, 0))
 
     return coffee.Symbol(var.symbol, rank=tuple(rank), offset=tuple(offset))
