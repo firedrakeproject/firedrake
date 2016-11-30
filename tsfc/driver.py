@@ -93,6 +93,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     argument_indices = tuple(tuple(gem.Index(extent=e)
                                    for e in create_element(arg.ufl_element()).index_shape)
                              for arg in arguments)
+    flat_argument_indices = tuple(chain(*argument_indices))
     quadrature_indices = []
 
     # Dict mapping domains to index in original_form.ufl_domains()
@@ -159,8 +160,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        for quadrature_index in quadrature_multiindex:
-            ir = [gem.index_sum(expr, quadrature_index) for expr in ir]
+        ir = [gem.index_sum(expr, quadrature_multiindex) for expr in ir]
         irs.append(ir)
 
     # Sum the expressions that are part of the same restriction
@@ -175,7 +175,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         builder.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
-                                        tuple(quadrature_indices) + tuple(chain(*argument_indices)),
+                                        tuple(quadrature_indices) + flat_argument_indices,
                                         remove_zeros=True)
 
     # Generate COFFEE
@@ -188,7 +188,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, flat_argument_indices)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)

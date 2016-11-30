@@ -13,7 +13,7 @@ def test_loop_fusion():
 
     def make_expression(i, j):
         A = Variable('A', (6,))
-        s = IndexSum(Indexed(A, (j,)), j)
+        s = IndexSum(Indexed(A, (j,)), (j,))
         return Product(Indexed(A, (i,)), s)
 
     e1 = make_expression(i, j)
