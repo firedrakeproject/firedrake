@@ -95,6 +95,8 @@ def get_node_set(mesh, nodes_per_entity):
         node_set = op2.ExtrudedSet(node_set, layers=mesh.layers)
 
     assert global_numbering.getStorageSize() == node_set.total_size
+    if not extruded and node_set.total_size >= (1 << 28):
+        raise RuntimeError("Problems with more than %d nodes per process unsupported", (1 << 28))
     return node_set
 
 
