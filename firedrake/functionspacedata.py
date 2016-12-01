@@ -503,10 +503,10 @@ class FunctionSpaceData(object):
                         # And in the generated code we can then
                         # extract the information to discard the
                         # correct entries.
-                        val = 2 ** (30 - bc.function_space().component)
                         # bcids is sorted, so use searchsorted to find indices
                         idx = numpy.searchsorted(bcids, bc.nodes)
-                        negids[idx] += val
+                        # Set appropriate bit
+                        negids[idx] |= (1 << (30 - bc.function_space().component))
                         decorate = True
                 node_list_bc = numpy.arange(self.node_set.total_size,
                                             dtype=numpy.int32)
