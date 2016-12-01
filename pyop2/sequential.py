@@ -368,7 +368,7 @@ class Arg(base.Arg):
                     }
                     for ( int k = 0; k < %(cdim)d; k++ ) {
                         if ( discard && (%(drop_full_col)d || ((tmp & (1 << (30 - k))) != 0)) ) {
-                            colmap[j*%(rdim)d + k] = -1;
+                            colmap[j*%(cdim)d + k] = -1;
                         } else {
                             colmap[j*%(cdim)d + k] = (block_col)*%(cdim)d + k;
                         }
