@@ -157,6 +157,44 @@ def test_cant_subscript_3_cmpt(m):
         V.sub(3)
 
 
+def test_stokes_component_all():
+    mesh = UnitSquareMesh(10, 10)
+
+    # Define function spaces
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+
+    # applyBcsComponentWise = True
+    bc0 = DirichletBC(W.sub(0).sub(0), 0, [3, 4])
+    bc1 = DirichletBC(W.sub(0).sub(1), 0, [3, 4])
+    bc2 = DirichletBC(W.sub(0).sub(0), 1, 1)
+    bc3 = DirichletBC(W.sub(0).sub(1), 0, 1)
+    bcs_cmp = [bc0, bc1, bc2, bc3]
+    bc0 = DirichletBC(W.sub(0), Constant((0.0, 0.0)), [3, 4])
+    bc1 = DirichletBC(W.sub(0), Constant((1.0, 0.0)), 1)
+    bcs_all = [bc0, bc1]
+
+    # Define variational problem
+    (u, p) = TrialFunctions(W)
+    (v, q) = TestFunctions(W)
+    f = Constant((0.0, 0.0))
+    a = inner(grad(u), grad(v))*dx + div(v)*p*dx + q*div(u)*dx
+    L = inner(f, v)*dx
+
+    Uall = Function(W)
+    solve(a == L, Uall, bcs=bcs_all, solver_parameters={"mat_type": "aij",
+                                                        "pc_type": "lu",
+                                                        "pc_factor_shift_type": "nonzero"})
+    Ucmp = Function(W)
+    solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters={"mat_type": "aij",
+                                                        "pc_type": "lu",
+                                                        "pc_factor_shift_type": "nonzero"})
+
+    for a, b in zip(Uall.split(), Ucmp.split()):
+        assert np.allclose(a.dat.data_ro, b.dat.data_ro)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
