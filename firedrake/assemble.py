@@ -17,7 +17,7 @@ from firedrake import parameters
 from firedrake import solving
 from firedrake import utils
 from firedrake.slate import slate
-from firedrake.slate import slac
+from firedrake.slate import linear_algebra_compiler as slac
 
 
 __all__ = ["assemble"]

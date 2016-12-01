@@ -225,7 +225,7 @@ def test_illegal_compile():
     v = TestFunction(V)
     form = v * dx
     with pytest.raises(Exception):
-        slate.slac.compile_slate_expression(form)
+        slate.linear_algebra_compiler.compile_slate_expression(form)
 
 
 if __name__ == '__main__':

@@ -15,17 +15,18 @@ architecture.
 """
 from __future__ import absolute_import, print_function, division
 
+from firedrake.slate.utils import CheckRestrictions
 from firedrake.utils import cached_property
 
-from ufl.form import Form
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.algorithms.multifunction import MultiFunction
+from ufl.coefficient import Coefficient
+from ufl.form import Form
 from ufl.domain import join_domains, sort_domains
 
 
 __all__ = ['TensorBase', 'Tensor', 'Inverse', 'Transpose',
            'UnaryOp', 'Negative', 'BinaryOp', 'TensorAdd',
-           'TensorSub', 'TensorMul']
+           'TensorSub', 'TensorMul', 'TensorAction']
 
 
 class TensorBase(object):
@@ -97,6 +98,9 @@ class TensorBase(object):
         return self.__sub__(other)
 
     def __mul__(self, other):
+        # if other is a ufl.Coefficient, return action
+        if isinstance(other, Coefficient):
+            return TensorAction(self, other)
         return TensorMul(self, other)
 
     def __rmul__(self, other):
@@ -206,11 +210,15 @@ class Tensor(TensorBase):
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
-        `{domain:{integral_type: subdomain_data}}`.
+        ``{domain:{integral_type: subdomain_data}}``.
         """
         return self._subdomain_data
 
-    def __str__(self, prec=None):
+    def _output_string(self, prec=None):
+        """Creates a string representation of the tensor."""
+        return self.__str__()
+
+    def __str__(self):
         """String representation of a tensor object in SLATE."""
         return ["S", "V", "M"][self.rank] + "_%d" % self.id
 
@@ -274,7 +282,6 @@ class Inverse(UnaryOp):
     """An abstract SLATE class representing the tranpose of a tensor."""
 
     prec = None
-    op = "Inverse"
 
     def __init__(self, A):
         """Constructor for the Inverse class."""
@@ -288,22 +295,19 @@ class Inverse(UnaryOp):
         """
         return self.tensor.arguments()[::-1]
 
-    def __str__(self, prec=None):
-        """String representation of a resulting tensor after a unary
-        operation is performed.
-        """
+    def _output_string(self, prec=None):
+        """Creates a string representation of the inverse of a square tensor."""
         return "(%s).inv" % self.tensor
+
+    def __str__(self):
+        """Returns a string representation."""
+        return self._output_string(self.prec)
 
 
 class Transpose(UnaryOp):
     """An abstract SLATE class representing the tranpose of a tensor."""
 
     prec = None
-    op = "Transpose"
-
-    def __init__(self, A):
-        """Constructor for the Transpose class."""
-        super(Transpose, self).__init__(A)
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
@@ -311,22 +315,19 @@ class Transpose(UnaryOp):
         """
         return self.tensor.arguments()[::-1]
 
-    def __str__(self, prec=None):
-        """String representation of a resulting tensor after a unary
-        operation is performed.
-        """
+    def _output_string(self, prec=None):
+        """Creates a string representation of the transpose of a tensor."""
         return "(%s).T" % self.tensor
+
+    def __str__(self):
+        """Returns a string representation."""
+        return self._output_string(self.prec)
 
 
 class Negative(UnaryOp):
     """Abstract SLATE class representing the negation of a tensor object."""
 
     prec = 1
-    op = "Negative"
-
-    def __init__(self, A):
-        """Constructor for the Inverse class."""
-        super(Negative, self).__init__(A)
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
@@ -334,7 +335,7 @@ class Negative(UnaryOp):
         """
         return self.tensor.arguments()
 
-    def __str__(self, prec=None):
+    def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
         operation is performed.
         """
@@ -343,7 +344,11 @@ class Negative(UnaryOp):
         else:
             par = lambda x: "(%s)" % x
 
-        return par("-%s" % self.tensor.__str__(prec=self.prec))
+        return par("-%s" % self.tensor._output_string(prec=self.prec))
+
+    def __str__(self):
+        """Returns a string representation."""
+        return self._output_string(self.prec)
 
 
 class BinaryOp(TensorBase):
@@ -418,26 +423,28 @@ class BinaryOp(TensorBase):
         """Returns an iterable of the operands of the binary operation."""
         return self.tensors
 
-    def __str__(self, prec=None):
-        """String representation of the binary operation."""
-
-        ops = {"Addition": '+',
-               "Subtraction": '-',
-               "Multiplication": '*'}
+    def _output_string(self, prec=None):
+        """Creates a string representation of the binary operation."""
+        ops = {TensorAdd: '+',
+               TensorSub: '-',
+               TensorMul: '*'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
             par = lambda x: "(%s)" % x
-        operand1 = self.operands[0].__str__(prec=self.prec)
-        operand2 = self.operands[1].__str__(prec=self.prec)
-        result = "%s %s %s" % (operand1, ops[self.op], operand2)
+        operand1 = self.operands[0]._output_string(prec=self.prec)
+        operand2 = self.operands[1]._output_string(prec=self.prec)
+
+        result = "%s %s %s" % (operand1, ops[type(self)], operand2)
 
         return par(result)
 
+    def __str__(self):
+        """String representation."""
+        return self._output_string(self.prec)
+
     def __repr__(self):
-        return "%s(%r, %r)" % (type(self).__name__,
-                               self.operands[0],
-                               self.operands[1])
+        return "%s(%r, %r)" % (type(self).__name__, self.operands[0], self.operands[1])
 
 
 class TensorAdd(BinaryOp):
@@ -448,7 +455,6 @@ class TensorAdd(BinaryOp):
     :arg B: another :class:`TensorBase` object.
     """
     prec = 1
-    op = "Addition"
 
     def __init__(self, A, B):
         """Constructor for the TensorAdd class."""
@@ -458,13 +464,7 @@ class TensorAdd(BinaryOp):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        A, B = self.tensors
-        # Scalars distribute over sums
-        if A.rank == 0:
-            return B.arguments()
-        elif B.rank == 0:
-            return A.arguments()
-        return A.arguments()
+        return self.tensors[0].arguments()
 
 
 class TensorSub(BinaryOp):
@@ -475,7 +475,6 @@ class TensorSub(BinaryOp):
     :arg B: another :class:`TensorBase` object.
     """
     prec = 1
-    op = "Subtraction"
 
     def __init__(self, A, B):
         """Constructor for the TensorSub class."""
@@ -485,13 +484,7 @@ class TensorSub(BinaryOp):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        A, B = self.tensors
-        # Scalars distribute over sums
-        if A.rank == 0:
-            return B.arguments()
-        elif B.rank == 0:
-            return A.arguments()
-        return A.arguments()
+        return self.tensors[0].arguments()
 
 
 class TensorMul(BinaryOp):
@@ -503,7 +496,6 @@ class TensorMul(BinaryOp):
     :arg B: another :class:`TensorBase` object.
     """
     prec = 2
-    op = "Multiplication"
 
     def __init__(self, A, B):
         """Constructor for the TensorMul class."""
@@ -516,11 +508,6 @@ class TensorMul(BinaryOp):
         from multiplying two tensors A and B.
         """
         A, B = self.tensors
-        # Scalar case
-        if A.rank == 0:
-            return B.arguments()
-        elif B.rank == 0:
-            return A.arguments()
         argsA = A.arguments()
         argsB = B.arguments()
         assert argsA[-1].function_space() == argsB[0].function_space(), ("Cannot perform the contraction over middle arguments. They need to be in the space function space.")
@@ -528,11 +515,55 @@ class TensorMul(BinaryOp):
         return argsA[:-1] + argsB[1:]
 
 
-class CheckRestrictions(MultiFunction):
-    """UFL MultiFunction for enforcing cell-wise integrals to contain
-    only positive restrictions.
+class TensorAction(TensorBase):
     """
-    expr = MultiFunction.reuse_if_untouched
+    """
+    def __init__(self, tensor, coefficient):
+        """Constructor for the TensorAction class."""
+        assert isinstance(coefficient, Coefficient), "Action can only be performed on a ufl.Coefficient object."
+        assert isinstance(tensor, TensorBase), "The tensor must be a SLATE `TensorBase` object."
+        super(TensorAction, self).__init__()
+        self.tensor = tensor
+        self._acting_coefficient = coefficient
+        self._arguments = tensor.arguments()[:-1]
 
-    def negative_restrictions(self, o):
-        raise ValueError("Cell-wise integrals must contain only positive restrictions.")
+        coeffs = tensor.coefficients()
+        if coefficient not in coeffs:
+            coeffs += (coefficient,)
+        self._coefficients = coeffs
+
+        # TODO: Have a think about this...
+        self._integral_domains = tensor.ufl_domains()
+        self._subdomain_data = tensor.subdomain_data()
+
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+        return self._arguments
+
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+        return self._coefficients
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        return self._integral_domains
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        `{domain:{integral_type: subdomain_data}}`.
+        """
+        return self._subdomain_data
+
+    def _output_string(self, prec=None):
+        """Creates a string representation."""
+        return self.__str__()
+
+    def __str__(self):
+        """String representation of a tensor object in SLATE."""
+        return ["S", "V"][self.rank] + "_%d" % self.id
+
+    def __repr__(self):
+        """SLATE representation of the action of a tensor on a coefficient."""
+        return "Action(%r, %r)" % (self.tensor, self._acting_coefficient)

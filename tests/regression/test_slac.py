@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from firedrake.slate.slac import compile_slate_expression
+from firedrake.slate.linear_algebra_compiler import compile_slate_expression
 
 
 @pytest.fixture(scope='module', params=[interval,
