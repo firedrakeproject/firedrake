@@ -518,6 +518,9 @@ class TensorMul(BinaryOp):
 class TensorAction(TensorBase):
     """
     """
+
+    prec = 2
+
     def __init__(self, tensor, coefficient):
         """Constructor for the TensorAction class."""
         assert isinstance(coefficient, Coefficient), "Action can only be performed on a ufl.Coefficient object."

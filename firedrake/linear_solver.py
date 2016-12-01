@@ -120,7 +120,7 @@ class LinearSolver(solving_utils.ParametersMixin):
             bc.apply(b)
         from firedrake.assemble import _assemble
         if isinstance(self.A.a, slate.TensorBase):
-            return _assemble(slate.Tensor(ufl.action(self.A.a.form, b)))
+            return _assemble(self.A.a * b)
         else:
             return _assemble(ufl.action(self.A.a, b))
 

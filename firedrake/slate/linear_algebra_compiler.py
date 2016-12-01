@@ -38,20 +38,19 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
                           be passed onto TSFC during the compilation of ufl forms.
     """
-    # Only SLATE expressions are allowed as inputs
     if not isinstance(slate_expr, TensorBase):
         raise ValueError("Expecting a `slate.TensorBase` expression, not a %r" % slate_expr)
 
-    # SLATE currently does not support arguments in mixed function spaces
     # TODO: Get PyOP2 to write into mixed dats
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
         raise NotImplementedError("Compiling mixed slate expressions")
 
-    # Initialize variables: dtype and dictionary objects.
+    # Initialize type, shape and statements list
     dtype = SCALAR_TYPE
     shape = slate_expr.shape
     statements = []
 
+    # Create a builder for the SLATE expression
     builder = SlateKernelBuilder(expression=slate_expr, tsfc_parameters=tsfc_parameters)
 
     # initialize coordinate and facet symbols
@@ -60,6 +59,8 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     cellfacetsym = ast.Symbol("cell_facets")
     inc = []
 
+    need_cell_facets = False
+    # Now we construct the list of statements to provide to the builder
     for exp, t in builder.temps.items():
         statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
@@ -72,9 +73,6 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
 
             if integral_type not in ["cell", "interior_facet", "exterior_facet"]:
                 raise NotImplementedError("Integral type %s not currently supported." % integral_type)
-
-            if integral_type in ["interior_facet", "exterior_facet"]:
-                builder.require_cell_facets()
 
             coordinates = exp.ufl_domain().coordinates
             if coords is not None:
@@ -90,28 +88,54 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
 
             tensor = eigen_tensor(exp, t, index)
 
-            if builder.needs_cell_facets:
+            if integral_type in ["interior_facet", "exterior_facet"]:
+                need_cell_facets = True
                 itsym = ast.Symbol("i0")
                 clist.append(ast.FlatBlock("&%s" % itsym))
                 loop_body = []
                 nfacet = exp.ufl_domain().ufl_cell().num_facets()
 
-                if kinfo.integral_type == "exterior_facet":
+                if integral_type == "exterior_facet":
                     checker = 1
                 else:
                     checker = 0
                 loop_body.append(ast.If(ast.Eq(ast.Symbol(cellfacetsym, rank=(itsym,)), checker),
-                                        [ast.Block([ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist)],
+                                        [ast.Block([ast.FunCall(kinfo.kernel.name,
+                                                                tensor,
+                                                                coordsym,
+                                                                *clist)],
                                                    open_scope=True)]))
                 loop = ast.For(ast.Decl("unsigned int", itsym, init=0), ast.Less(itsym, nfacet),
                                ast.Incr(itsym, 1), loop_body)
                 statements.append(loop)
-
-            elif isinstance(exp, TensorAction):
-                # Implement something that generates a loop for applying action
-                pass
             else:
                 statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
+
+    # Now we handle any auxilliary terms that require assembled data (if any)
+    aux_temps = {}
+    if bool(builder.data_exprs):  # empty `dict` objects evaluate to False
+        for i, exp in enumerate(builder.data_exprs.keys()):
+            if isinstance(exp, TensorAction):
+                acting_tensor, acting_coefficient = builder.data_exprs[exp]
+
+                temp = ast.Symbol("WT%d" % i)
+                # TODO: think about the shape of this temporary
+                cshape = acting_tensor.shape[1]
+                statements.append(ast.Decl(eigen_matrixbase_type(shape=(cshape,)), temp))
+                statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+                itersym = ast.Symbol("i1")
+
+                # TODO: what needs to happen to assign coefficient values to a vector...
+                action_loop = ast.For(ast.Decl("unsigned int", itersym, init=0),
+                                      ast.Less(itersym, cshape),
+                                      ast.Incr(itersym, 1),
+                                      ast.Assign(ast.Symbol(temp, rank=(itersym,)),
+                                                 ast.Symbol(builder.coefficient_map()[acting_coefficient],
+                                                            rank=(itersym, 0))))
+                statements.append(action_loop)
+                aux_temps[acting_coefficient] = temp
+            else:
+                raise NotImplementedError("Type %s not implemented." % type(exp))
 
     result_sym = ast.Symbol("T%d" % len(builder.temps))
     result_data_sym = ast.Symbol("A%d" % len(builder.temps))
@@ -120,7 +144,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type, result_sym, dtype, result_data_sym))
     statements.append(result_statement)
 
-    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, builder.temps))
+    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, builder.temps, aux_temps))
     statements.append(ast.Assign(result_sym, cpp_string))
 
     args = [result, ast.Decl("%s **" % dtype, coordsym)]
@@ -131,7 +155,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
             ctype = "%s **" % dtype
         args.append(ast.Decl(ctype, builder.coefficient_map()[c]))
 
-    if builder.needs_cell_facets:
+    if need_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
 
     macro_kernel_name = "compile_slate"
@@ -150,20 +174,18 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=range(len(slate_expr.coefficients())),
-                       needs_cell_facets=builder.needs_cell_facets)
+                       needs_cell_facets=need_cell_facets)
     idx = tuple([0]*slate_expr.rank)
 
     return (SplitKernel(idx, kinfo),)
 
 
-def metaphrase_slate_to_cpp(expr, temps, prec=None):
+def metaphrase_slate_to_cpp(expr, temps, aux_temps, prec=None):
     """Translates a SLATE expression into its equivalent representation in the Eigen C++ syntax.
 
     :arg expr: a :class:`slate.TensorBase` expression.
-
     :arg temps: a `dict` of temporaries which map a given `slate.TensorBase` object to its
                 corresponding representation as a `coffee.Symbol` object.
-
     :arg prec: an argument dictating the order of precedence in the linear algebra operations.
                This ensures that parentheticals are placed appropriately and the order in which
                linear algebra operations are performed are correct.
@@ -172,20 +194,20 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         This function returns a `string` which represents the C/C++ code representation
         of the `slate.TensorBase` expr.
     """
-    if isinstance(expr, (Tensor, TensorAction)):
+    if isinstance(expr, Tensor):
         return temps[expr].gencode()
 
     elif isinstance(expr, Transpose):
-        return "(%s).transpose()" % metaphrase_slate_to_cpp(expr.tensor, temps)
+        return "(%s).transpose()" % metaphrase_slate_to_cpp(expr.tensor, temps, aux_temps)
 
     elif isinstance(expr, Inverse):
-        return "(%s).inverse()" % metaphrase_slate_to_cpp(expr.tensor, temps)
+        return "(%s).inverse()" % metaphrase_slate_to_cpp(expr.tensor, temps, aux_temps)
 
     elif isinstance(expr, Negative):
-        result = "-%s" % metaphrase_slate_to_cpp(expr.tensor, temps, expr.prec)
+        result = "-%s" % metaphrase_slate_to_cpp(expr.tensor, temps, aux_temps, expr.prec)
 
         # Make sure we parenthesize correctly
-        if expr.prec is None or prec >= expr.prec:
+        if prec is None or prec >= expr.prec:
             return result
         else:
             return "(%s)" % result
@@ -194,12 +216,23 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         op = {TensorAdd: '+',
               TensorSub: '-',
               TensorMul: '*'}[type(expr)]
-        result = "%s %s %s" % (metaphrase_slate_to_cpp(expr.operands[0], temps, expr.prec),
+        result = "%s %s %s" % (metaphrase_slate_to_cpp(expr.operands[0], temps, aux_temps, expr.prec),
                                op,
-                               metaphrase_slate_to_cpp(expr.operands[1], temps, expr.prec))
+                               metaphrase_slate_to_cpp(expr.operands[1], temps, aux_temps, expr.prec))
 
         # Make sure we parenthesize correctly
-        if expr.prec is None or prec >= expr.prec:
+        if prec is None or prec >= expr.prec:
+            return result
+        else:
+            return "(%s)" % result
+
+    elif isinstance(expr, TensorAction):
+        tensor = expr.tensor
+        c = expr._acting_coefficient
+        result = "%s * %s" % (metaphrase_slate_to_cpp(tensor, temps, aux_temps, expr.prec),
+                              aux_temps[c])
+
+        if prec is None or prec >= expr.prec:
             return result
         else:
             return "(%s)" % result
@@ -236,8 +269,15 @@ def eigen_matrixbase_type(shape):
     return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
 
 
-def eigen_tensor(expr, temp, index):
-    """
+def eigen_tensor(expr, temporary, index):
+    """Returns an appropriate assignment statement for populating a particular `Eigen::MatrixBase` tensor.
+    If the tensor is mixed, then access to the :meth:`block` of the eigen tensor is provided. Otherwise,
+    not block information is needed and the tensor is returned as is.
+
+    :arg expr: a `slate.Tensor` node.
+    :arg temporary: the associated temporary of the expr argument.
+    :arg index: a tuple of integers used to determine row and column information. This is provided by the
+                SplitKernel associated with the expr.
     """
     try:
         row, col = index
@@ -255,8 +295,8 @@ def eigen_tensor(expr, temp, index):
 
     # Create sub-block if tensor is mixed
     if (rshape, cshape) != expr.shape:
-        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temp, rshape, cshape, rstart, cstart))
+        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary, rshape, cshape, rstart, cstart))
     else:
-        tensor = temp
+        tensor = temporary
 
     return tensor

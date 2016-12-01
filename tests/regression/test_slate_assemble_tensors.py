@@ -70,7 +70,7 @@ def test_assemble_matrix(rank_two_tensor):
 
 
 def test_assemble_vector_into_tensor(gen_mesh):
-    V = FunctionSpace(gen_mesh, "CG", 1)
+    V = FunctionSpace(gen_mesh, "DG", 1)
     v = TestFunction(V)
     f = Function(V)
     # Assemble a SLATE tensor into f
@@ -100,43 +100,6 @@ def test_vector_family_mass(fe_family):
     mass with SLATE assembled mass.
     """
     V = FunctionSpace(UnitSquareMesh(1, 1), fe_family, 1)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    mass = dot(u, v)*dx
-
-    A = assemble(Tensor(mass))
-    ref = assemble(mass)
-
-    assert np.allclose(A.M.values, ref.M.values)
-
-
-@pytest.mark.parametrize("fe_family", ("RTCE",
-                                       "RTCF"))
-def test_RT_mass_on_quads(fe_family):
-    """Tests mass of a vector-valued element
-    family defined on quadrilaterals. This is the RT
-    HDiv-conforming element.
-    """
-    mesh = UnitSquareMesh(1, 1, quadrilateral=True)
-    V = FunctionSpace(mesh, fe_family, 1)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    mass = dot(u, v)*dx
-
-    A = assemble(Tensor(mass))
-    ref = assemble(mass)
-
-    assert np.allclose(A.M.values, ref.M.values)
-
-
-@pytest.mark.parametrize("fe_family", ("NCE",
-                                       "NCF"))
-def test_curl_mass_on_quads(fe_family):
-    """Test mass of a vector-valued element family defined
-    on quadrilaterals. This is the HCurl-conforming element.
-    """
-    mesh = ExtrudedMesh(UnitSquareMesh(1, 1, quadrilateral=True), 1)
-    V = FunctionSpace(mesh, fe_family, 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     mass = dot(u, v)*dx
