@@ -25,6 +25,8 @@ from firedrake import op2
 
 from tsfc.parameters import SCALAR_TYPE
 
+from ufl.coefficient import Coefficient
+
 
 __all__ = ['compile_slate_expression']
 
@@ -60,8 +62,9 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     inc = []
 
     need_cell_facets = False
+    temps = builder.temps
     # Now we construct the list of statements to provide to the builder
-    for exp, t in builder.temps.items():
+    for exp, t in temps.items():
         statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
 
@@ -111,31 +114,11 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
             else:
                 statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
 
-    # Now we handle any auxilliary terms that require assembled data (if any)
-    aux_temps = {}
-    if bool(builder.data_exprs):  # empty `dict` objects evaluate to False
-        for i, exp in enumerate(builder.data_exprs.keys()):
-            if isinstance(exp, TensorAction):
-                acting_tensor, acting_coefficient = builder.data_exprs[exp]
-
-                temp = ast.Symbol("WT%d" % i)
-                # TODO: think about the shape of this temporary
-                cshape = acting_tensor.shape[1]
-                statements.append(ast.Decl(eigen_matrixbase_type(shape=(cshape,)), temp))
-                statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
-                itersym = ast.Symbol("i1")
-
-                # TODO: what needs to happen to assign coefficient values to a vector...
-                action_loop = ast.For(ast.Decl("unsigned int", itersym, init=0),
-                                      ast.Less(itersym, cshape),
-                                      ast.Incr(itersym, 1),
-                                      ast.Assign(ast.Symbol(temp, rank=(itersym,)),
-                                                 ast.Symbol(builder.coefficient_map()[acting_coefficient],
-                                                            rank=(itersym, 0))))
-                statements.append(action_loop)
-                aux_temps[acting_coefficient] = temp
-            else:
-                raise NotImplementedError("Type %s not implemented." % type(exp))
+    # Now we handle any terms that require auxiliary data (if any)
+    if bool(builder.aux_exprs):
+        aux_temps, aux_statements = auxiliary_information(builder)
+        temps.update(aux_temps)
+        statements.extend(aux_statements)
 
     result_sym = ast.Symbol("T%d" % len(builder.temps))
     result_data_sym = ast.Symbol("A%d" % len(builder.temps))
@@ -144,7 +127,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type, result_sym, dtype, result_data_sym))
     statements.append(result_statement)
 
-    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, builder.temps, aux_temps))
+    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, temps))
     statements.append(ast.Assign(result_sym, cpp_string))
 
     args = [result, ast.Decl("%s **" % dtype, coordsym)]
@@ -180,12 +163,56 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     return (SplitKernel(idx, kinfo),)
 
 
-def metaphrase_slate_to_cpp(expr, temps, aux_temps, prec=None):
+def auxiliary_information(builder):
+    """This function generates any auxiliary information regarding special handling of
+    expressions that do not have any integral forms or subkernels associated with it.
+
+    :arg builder: a :class:`SlateKernelBuilder` object that contains all the necessary
+                  temporary and expression information.
+
+    Returns: a mapping of the form ``{aux_node: aux_temp}``, where `aux_node` is an
+             already assembled data-object provided as a `ufl.Coefficient` and `aux_temp`
+             is the corresponding temporary.
+
+             a list of auxiliary statements are returned that contain temporary declarations
+             and any code-blocks needed to evaluate the expression.
+    """
+    aux_temps = {}
+    aux_statements = []
+    for i, exp in enumerate(builder.aux_exprs):
+        if isinstance(exp, TensorAction):
+            acting_tensor = exp.tensor
+            acting_coefficient = exp._acting_coefficient
+            assert isinstance(acting_coefficient, Coefficient)
+
+            temp = ast.Symbol("WT%d" % i)
+            # TODO: think about the shape of this temporary
+            cshape = acting_tensor.shape[1]
+            aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(cshape,)), temp))
+            aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+            itersym = ast.Symbol("i1")
+
+            # TODO: what needs to happen to assign coefficient values to a vector...
+            action_loop = ast.For(ast.Decl("unsigned int", itersym, init=0),
+                                  ast.Less(itersym, cshape),
+                                  ast.Incr(itersym, 1),
+                                  ast.Assign(ast.Symbol(temp, rank=(itersym,)),
+                                             ast.Symbol(builder.coefficient_map()[acting_coefficient],
+                                                        rank=(itersym, 0))))
+            aux_statements.append(action_loop)
+            aux_temps[acting_coefficient] = temp
+        else:
+            raise NotImplementedError("Auxiliary expression type %s not currently implemented." % type(exp))
+
+    return aux_temps, aux_statements
+
+
+def metaphrase_slate_to_cpp(expr, temps, prec=None):
     """Translates a SLATE expression into its equivalent representation in the Eigen C++ syntax.
 
     :arg expr: a :class:`slate.TensorBase` expression.
-    :arg temps: a `dict` of temporaries which map a given `slate.TensorBase` object to its
-                corresponding representation as a `coffee.Symbol` object.
+    :arg temps: a `dict` of temporaries which map a given expression to its corresponding
+                representation as a `coffee.Symbol` object.
     :arg prec: an argument dictating the order of precedence in the linear algebra operations.
                This ensures that parentheticals are placed appropriately and the order in which
                linear algebra operations are performed are correct.
@@ -198,13 +225,13 @@ def metaphrase_slate_to_cpp(expr, temps, aux_temps, prec=None):
         return temps[expr].gencode()
 
     elif isinstance(expr, Transpose):
-        return "(%s).transpose()" % metaphrase_slate_to_cpp(expr.tensor, temps, aux_temps)
+        return "(%s).transpose()" % metaphrase_slate_to_cpp(expr.tensor, temps)
 
     elif isinstance(expr, Inverse):
-        return "(%s).inverse()" % metaphrase_slate_to_cpp(expr.tensor, temps, aux_temps)
+        return "(%s).inverse()" % metaphrase_slate_to_cpp(expr.tensor, temps)
 
     elif isinstance(expr, Negative):
-        result = "-%s" % metaphrase_slate_to_cpp(expr.tensor, temps, aux_temps, expr.prec)
+        result = "-%s" % metaphrase_slate_to_cpp(expr.tensor, temps, expr.prec)
 
         # Make sure we parenthesize correctly
         if prec is None or prec >= expr.prec:
@@ -216,9 +243,9 @@ def metaphrase_slate_to_cpp(expr, temps, aux_temps, prec=None):
         op = {TensorAdd: '+',
               TensorSub: '-',
               TensorMul: '*'}[type(expr)]
-        result = "%s %s %s" % (metaphrase_slate_to_cpp(expr.operands[0], temps, aux_temps, expr.prec),
+        result = "%s %s %s" % (metaphrase_slate_to_cpp(expr.operands[0], temps, expr.prec),
                                op,
-                               metaphrase_slate_to_cpp(expr.operands[1], temps, aux_temps, expr.prec))
+                               metaphrase_slate_to_cpp(expr.operands[1], temps, expr.prec))
 
         # Make sure we parenthesize correctly
         if prec is None or prec >= expr.prec:
@@ -229,8 +256,7 @@ def metaphrase_slate_to_cpp(expr, temps, aux_temps, prec=None):
     elif isinstance(expr, TensorAction):
         tensor = expr.tensor
         c = expr._acting_coefficient
-        result = "%s * %s" % (metaphrase_slate_to_cpp(tensor, temps, aux_temps, expr.prec),
-                              aux_temps[c])
+        result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor, temps, expr.prec), temps[c])
 
         if prec is None or prec >= expr.prec:
             return result
