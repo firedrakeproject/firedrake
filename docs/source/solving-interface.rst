@@ -460,7 +460,7 @@ a `least squares commutator <LSC_>`_, see the relevant section of the
 Specifying assembled matrix types
 +++++++++++++++++++++++++++++++++
 
-Firedrake supports assembling linear operators in a number of
+Firedrake supports the assembly of linear operators in a number of
 different formats.  Either as assembled sparse matrices, or as
 matrix-free operators that only provide matrix-vector products.  Since
 matrix-free actions require special preconditioning, they have
