@@ -135,7 +135,7 @@ class GlobalDataSet(base.GlobalDataSet):
         """
         lgmap = PETSc.LGMap()
         lgmap.create(indices=np.arange(1, dtype=PETSc.IntType),
-                     bsize=self.cdim)
+                     bsize=self.cdim, comm=self.comm)
         return lgmap
 
     @utils.cached_property
@@ -158,11 +158,12 @@ class GlobalDataSet(base.GlobalDataSet):
         nlocal_rows = 0
         for dset in self:
             nlocal_rows += dset.size * dset.cdim
-        offset = mpi.MPI.comm.scan(nlocal_rows)
+        offset = self.comm.scan(nlocal_rows)
         offset -= nlocal_rows
         for dset in self:
             nrows = dset.size * dset.cdim
-            iset = PETSc.IS().createStride(nrows, first=offset, step=1)
+            iset = PETSc.IS().createStride(nrows, first=offset, step=1,
+                                           comm=self.comm)
             iset.setBlockSize(dset.cdim)
             ises.append(iset)
             offset += nrows
@@ -178,11 +179,17 @@ class GlobalDataSet(base.GlobalDataSet):
     @utils.cached_property
     def layout_vec(self):
         """A PETSc Vec compatible with the dof layout of this DataSet."""
-        vec = PETSc.Vec().create()
+        vec = PETSc.Vec().create(comm=self.comm)
         size = (self.size * self.cdim, None)
         vec.setSizes(size, bsize=self.cdim)
         vec.setUp()
         return vec
+
+    @utils.cached_property
+    def dm(self):
+        dm = PETSc.DMShell().create(comm=self.comm)
+        dm.setGlobalVector(self.layout_vec)
+        return dm
 
 
 class MixedDataSet(DataSet, base.MixedDataSet):
@@ -770,7 +777,6 @@ class Mat(base.Mat):
         else:
             mat = _DatMat(self.sparsity)
         self.handle = mat
-        self._version_set_zero()
 
     def __call__(self, access, path, flatten=False):
         """Override the parent __call__ method in order to special-case global
@@ -953,7 +959,8 @@ class _DatMatPayload(object):
         self.dat.data[...] = 0.0
 
     def mult(self, mat, x, y):
-        with self.dat.vec as v:
+        '''Y = mat x'''
+        with self.dat.vec_ro as v:
             if self.sizes[0][0] is None:
                 # Row matrix
                 out = v.dot(x)
@@ -967,11 +974,73 @@ class _DatMatPayload(object):
                     v.copy(y)
                     a = np.zeros(1)
                     if x.comm.rank == 0:
-                        a[0] = x.getArray()
+                        a[0] = x.array_r
+                    else:
+                        x.array_r
                     x.comm.tompi4py().bcast(a)
                     return y.scale(a)
                 else:
                     return v.pointwiseMult(x, y)
+
+    def multTranspose(self, mat, x, y):
+        with self.dat.vec_ro as v:
+            if self.sizes[0][0] is None:
+                # Row matrix
+                if x.sizes[1] == 1:
+                    v.copy(y)
+                    a = np.zeros(1)
+                    if x.comm.rank == 0:
+                        a[0] = x.array_r
+                    else:
+                        x.array_r
+                    x.comm.tompi4py().bcast(a)
+                    y.scale(a)
+                else:
+                    v.pointwiseMult(x, y)
+            else:
+                # Column matrix
+                out = v.dot(x)
+                if y.comm.rank == 0:
+                    y.array[0] = out
+                else:
+                    y.array[...]
+
+    def multTransposeAdd(self, mat, x, y, z):
+        ''' z = y + mat^Tx '''
+        with self.dat.vec_ro as v:
+            if self.sizes[0][0] is None:
+                # Row matrix
+                if x.sizes[1] == 1:
+                    v.copy(z)
+                    a = np.zeros(1)
+                    if x.comm.rank == 0:
+                        a[0] = x.array_r
+                    else:
+                        x.array_r
+                    x.comm.tompi4py().bcast(a)
+                    if y == z:
+                        # Last two arguments are aliased.
+                        tmp = y.duplicate()
+                        y.copy(tmp)
+                        y = tmp
+                    z.scale(a)
+                    z.axpy(1, y)
+                else:
+                    if y == z:
+                        # Last two arguments are aliased.
+                        tmp = y.duplicate()
+                        y.copy(tmp)
+                        y = tmp
+                    v.pointwiseMult(x, z)
+                    return z.axpy(1, y)
+            else:
+                # Column matrix
+                out = v.dot(x)
+                y = y.array_r
+                if z.comm.rank == 0:
+                    z.array[0] = out + y[0]
+                else:
+                    z.array[...]
 
     def duplicate(self, mat, copy=True):
         if copy:
@@ -1014,6 +1083,18 @@ class _GlobalMatPayload(object):
             result.array[...] = self.global_.data_ro * x.array
         else:
             result.array[...]
+
+    def multTransposeAdd(self, mat, x, y, z):
+        if z.comm.rank == 0:
+            ax = self.global_.data_ro * x.array_r
+            if y == z:
+                z.array[...] += ax
+            else:
+                z.array[...] = ax + y.array_r
+        else:
+            x.array_r
+            y.array_r
+            z.array[...]
 
     def duplicate(self, mat, copy=True):
         if copy:
