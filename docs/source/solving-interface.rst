@@ -225,10 +225,10 @@ uniform interface for solving linear systems using Krylov subspace
 methods.  By default, the solve call will use GMRES using an
 incomplete LU factorisation to precondition the problem.  To change
 the Krylov method used in solving the problem, we set the
-``'ksp_type'`` option.  For example, if we want to solve a Helmholtz
-equation, we know the operator is symmetric positive definite, and
-therefore can choose the conjugate gradient method, rather than
-GMRES.
+``'ksp_type'`` option.  For example, if we want to solve a modified
+Helmholtz equation, we know the operator is symmetric positive
+definite, and therefore can choose the conjugate gradient method,
+rather than GMRES.
 
 .. code-block:: python
 
@@ -339,7 +339,7 @@ and pressure of the fluid), we can exploit PETSc's ability to build
 preconditioners from Schur complements.  This is one type of
 preconditioner based on PETSc's `fieldsplit`_ technology.  To take a
 concrete example, let us consider solving the dual form of the
-Helmholtz equation:
+modified Helmholtz equation:
 
 .. math::
 
