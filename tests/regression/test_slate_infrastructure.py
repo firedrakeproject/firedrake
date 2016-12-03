@@ -3,7 +3,7 @@ from firedrake import *
 
 
 @pytest.fixture(scope='module', params=[interval, triangle, quadrilateral])
-def gen_mesh(request):
+def mesh(request):
     """Generate a mesh according to the cell provided."""
     cell = request.param
     if cell == interval:
@@ -17,12 +17,12 @@ def gen_mesh(request):
 
 
 @pytest.fixture(scope='module', params=['cg1', 'cg2', 'dg0', 'dg1'])
-def function_space(request, gen_mesh):
+def function_space(request, mesh):
     """Generates function spaces for testing SLATE tensor assembly."""
-    cg1 = FunctionSpace(gen_mesh, "CG", 1)
-    cg2 = FunctionSpace(gen_mesh, "CG", 2)
-    dg0 = FunctionSpace(gen_mesh, "DG", 0)
-    dg1 = FunctionSpace(gen_mesh, "DG", 1)
+    cg1 = FunctionSpace(mesh, "CG", 1)
+    cg2 = FunctionSpace(mesh, "CG", 2)
+    dg0 = FunctionSpace(mesh, "DG", 0)
+    dg1 = FunctionSpace(mesh, "DG", 1)
     return {'cg1': cg1,
             'cg2': cg2,
             'dg0': dg0,
@@ -181,16 +181,16 @@ def test_illegal_add_sub():
     c.interpolate(Expression("1"))
     s = Tensor(c * dx)
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         A + b
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         s + b
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         b - A
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         A - s
 
 
@@ -199,14 +199,19 @@ def test_illegal_mul():
     V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
+
+    W = FunctionSpace(mesh, "CG", 2)
+    w = TrialFunction(W)
+    x = TestFunction(W)
+
     A = Tensor(u * v * dx)
-    b = Tensor(v * dx)
+    B = Tensor(w * x * dx)
 
-    with pytest.raises(Exception):
-        b * A
+    with pytest.raises(ValueError):
+        B * A
 
-    with pytest.raises(Exception):
-        b.T * A
+    with pytest.raises(ValueError):
+        A * B
 
 
 def test_illegal_inverse():
@@ -221,11 +226,12 @@ def test_illegal_inverse():
 
 
 def test_illegal_compile():
+    from firedrake.slate import linear_algebra_compiler as slac
     V = FunctionSpace(UnitSquareMesh(1, 1), "CG", 1)
     v = TestFunction(V)
     form = v * dx
-    with pytest.raises(Exception):
-        slate.linear_algebra_compiler.compile_slate_expression(form)
+    with pytest.raises(ValueError):
+        slac.compile_slate_expression(form)
 
 
 if __name__ == '__main__':

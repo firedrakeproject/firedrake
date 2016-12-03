@@ -33,10 +33,14 @@ class SlateKernelBuilder(object):
         """
         assert isinstance(expression, TensorBase)
         self.expression = expression
+        self.needs_cell_facets = False
 
         # Initialize temporaries, auxiliary expressions and tsfc kernels
         self.temps, self.aux_exprs = prepare_temps_and_aux_exprs(expression)
         self.kernel_exprs = prepare_tsfc_kernels(self.temps, tsfc_parameters=tsfc_parameters)
+
+    def require_cell_facets(self):
+        self.needs_cell_facets = True
 
     def coefficient_map(self):
         """Returns a mapping from `ufl.Coefficient` to its corresponding `coffee.base.Symbol` object."""

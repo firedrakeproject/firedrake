@@ -180,7 +180,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
+    is_slate_expr = False
     if isinstance(f, slate.TensorBase):
+        is_slate_expr = True
         kernels = slac.compile_slate_expression(f, tsfc_parameters=form_compiler_parameters)
     else:
         kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
@@ -224,32 +226,42 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         cell_domains = []
         exterior_facet_domains = []
         interior_facet_domains = []
+
+        # For horizontal facets of extruded meshes, the corresponding domain
+        # in the base mesh is the cell domain. Hence all the maps used for top
+        # bottom and interior horizontal facets will use the cell to dofs map
+        # coming from the base mesh as a starting point for the actual dynamic map
+        # computation.
+        def integral_domains(integral_type):
+            if integral_type == "cell":
+                cell_domains.append(op2.ALL)
+            elif integral_type == "exterior_facet":
+                exterior_facet_domains.append(op2.ALL)
+            elif integral_type == "interior_facet":
+                interior_facet_domains.append(op2.ALL)
+            elif integral_type == "exterior_facet_bottom":
+                cell_domains.append(op2.ON_BOTTOM)
+            elif integral_type == "exterior_facet_top":
+                cell_domains.append(op2.ON_TOP)
+            elif integral_type == "exterior_facet_vert":
+                exterior_facet_domains.append(op2.ALL)
+            elif integral_type == "interior_facet_horiz":
+                cell_domains.append(op2.ON_INTERIOR_FACETS)
+            elif integral_type == "interior_facet_vert":
+                interior_facet_domains.append(op2.ALL)
+            else:
+                raise ValueError('Unknown integral type "%s"' % integral_type)
+
         if tensor is None:
-            # For horizontal facets of extrded meshes, the corresponding domain
-            # in the base mesh is the cell domain. Hence all the maps used for top
-            # bottom and interior horizontal facets will use the cell to dofs map
-            # coming from the base mesh as a starting point for the actual dynamic map
-            # computation.
-            for kernel in kernels:
-                integral_type = kernel.kinfo.integral_type
-                if integral_type == "cell":
-                    cell_domains.append(op2.ALL)
-                elif integral_type == "exterior_facet":
-                    exterior_facet_domains.append(op2.ALL)
-                elif integral_type == "interior_facet":
-                    interior_facet_domains.append(op2.ALL)
-                elif integral_type == "exterior_facet_bottom":
-                    cell_domains.append(op2.ON_BOTTOM)
-                elif integral_type == "exterior_facet_top":
-                    cell_domains.append(op2.ON_TOP)
-                elif integral_type == "exterior_facet_vert":
-                    exterior_facet_domains.append(op2.ALL)
-                elif integral_type == "interior_facet_horiz":
-                    cell_domains.append(op2.ON_INTERIOR_FACETS)
-                elif integral_type == "interior_facet_vert":
-                    interior_facet_domains.append(op2.ALL)
-                else:
-                    raise ValueError('Unknown integral type "%s"' % integral_type)
+            # SLATE expressions do not contain integrals. Therefore, we loop over the kernels
+            # in order to determine integral domain information. Otherwise, we loop over the
+            # integrals of the ufl form.
+            if is_slate_expr:
+                for kernel in kernels:
+                    integral_domains(kernel.kinfo.integral_type)
+            else:
+                for integral in f.integrals():
+                    integral_domains(integral.integral_type())
 
             # To avoid an extra check for extruded domains, the maps that are being passed in
             # are DecoratedMaps. For the non-extruded case the DecoratedMaps don't restrict the

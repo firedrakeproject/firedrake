@@ -459,7 +459,7 @@ class TensorAdd(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the TensorAdd class."""
         if A.shape != B.shape:
-            raise Exception("Cannot perform the operation of addition on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+            raise ValueError("Cannot perform the operation of addition on %s-tensor with a %s-tensor." % (A.shape, B.shape))
         super(TensorAdd, self).__init__(A, B)
 
     def arguments(self):
@@ -479,7 +479,7 @@ class TensorSub(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the TensorSub class."""
         if A.shape != B.shape:
-            raise Exception("Cannot perform the operation of subtraction on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+            raise ValueError("Cannot perform the operation of subtraction on %s-tensor with a %s-tensor." % (A.shape, B.shape))
         super(TensorSub, self).__init__(A, B)
 
     def arguments(self):
@@ -488,9 +488,10 @@ class TensorSub(BinaryOp):
 
 
 class TensorMul(BinaryOp):
-    """Abstract SLATE class representing standard tensor multiplication.
-    This includes Matrix-Matrix, Matrix-Vector, Scalar-Matrix, and
-    Scalar-Vector multiplication.
+    """Abstract SLATE class representing the interior product or two tensors.
+    By interior product, we mean an operation that results in a tensor of equal or
+    lower rank via performing a contraction on arguments. This includes Matrix-Matrix
+    and Matrix-Vector multiplication.
 
     :arg A: a :class:`TensorBase` object.
     :arg B: another :class:`TensorBase` object.
@@ -500,7 +501,7 @@ class TensorMul(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the TensorMul class."""
         if A.shape[1] != B.shape[0]:
-            raise Exception("Cannot perform the operation of multiplication on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+            raise ValueError("Cannot perform the operation of multiplication on %s-tensor with a %s-tensor." % (A.shape, B.shape))
         super(TensorMul, self).__init__(A, B)
 
     def arguments(self):
@@ -516,7 +517,13 @@ class TensorMul(BinaryOp):
 
 
 class TensorAction(TensorBase):
-    """
+    """Abstract SLATE class representing the action of a SLATE tensor on a
+    UFL coefficient. This class can be interpreted as representing standard
+    matrix-vector multiplication, except the vector is an assembled coefficient
+    rather than a SLATE object.
+
+    :arg tensor: a :class:`TensorBase` object.
+    :arg coefficient: a :class:`ufl.Coefficient` object.
     """
 
     prec = 2

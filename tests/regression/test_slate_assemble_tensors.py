@@ -4,7 +4,7 @@ from firedrake import *
 
 
 @pytest.fixture(scope='module', params=[interval, triangle, tetrahedron, quadrilateral])
-def gen_mesh(request):
+def mesh(request):
     """Generate a mesh according to the cell provided."""
     cell = request.param
     if cell == interval:
@@ -20,12 +20,12 @@ def gen_mesh(request):
 
 
 @pytest.fixture(scope='module', params=['cg1', 'cg2', 'dg0', 'dg1'])
-def function_space(request, gen_mesh):
+def function_space(request, mesh):
     """Generates function spaces for testing SLATE tensor assembly."""
-    cg1 = FunctionSpace(gen_mesh, "CG", 1)
-    cg2 = FunctionSpace(gen_mesh, "CG", 2)
-    dg0 = FunctionSpace(gen_mesh, "DG", 0)
-    dg1 = FunctionSpace(gen_mesh, "DG", 1)
+    cg1 = FunctionSpace(mesh, "CG", 1)
+    cg2 = FunctionSpace(mesh, "CG", 2)
+    dg0 = FunctionSpace(mesh, "DG", 0)
+    dg1 = FunctionSpace(mesh, "DG", 1)
     return {'cg1': cg1,
             'cg2': cg2,
             'dg0': dg0,
@@ -58,6 +58,12 @@ def rank_two_tensor(mass):
     return Tensor(mass)
 
 
+def test_tensor_action(mass, f):
+    V = assemble(Tensor(mass) * f)
+    ref = assemble(action(mass, f))
+    assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
+
+
 def test_assemble_vector(rank_one_tensor):
     V = assemble(rank_one_tensor)
     assert isinstance(V, Function)
@@ -69,8 +75,8 @@ def test_assemble_matrix(rank_two_tensor):
     assert np.allclose(M.M.values, assemble(rank_two_tensor.form).M.values, rtol=1e-14)
 
 
-def test_assemble_vector_into_tensor(gen_mesh):
-    V = FunctionSpace(gen_mesh, "DG", 1)
+def test_assemble_vector_into_tensor(mesh):
+    V = FunctionSpace(mesh, "DG", 1)
     v = TestFunction(V)
     f = Function(V)
     # Assemble a SLATE tensor into f
@@ -80,8 +86,8 @@ def test_assemble_vector_into_tensor(gen_mesh):
     assert np.allclose(f.dat.data, 2*assemble(Tensor(v * dx)).dat.data, rtol=1e-14)
 
 
-def test_assemble_matrix_into_tensor(gen_mesh):
-    V = FunctionSpace(gen_mesh, "DG", 0)
+def test_assemble_matrix_into_tensor(mesh):
+    V = FunctionSpace(mesh, "DG", 0)
     u = TestFunction(V)
     v = TrialFunction(V)
     M = assemble(Tensor(u * v * dx))
@@ -110,11 +116,11 @@ def test_vector_family_mass(fe_family):
     assert np.allclose(A.M.values, ref.M.values)
 
 
-def test_poisson_operator(gen_mesh):
+def test_poisson_operator(mesh):
     """Assemble the Poisson operator in SLATE and
     compare with Firedrake.
     """
-    V = FunctionSpace(gen_mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = inner(grad(u), grad(v))*dx
@@ -125,11 +131,11 @@ def test_poisson_operator(gen_mesh):
     assert np.allclose(P.M.values, ref.M.values)
 
 
-def test_helmholtz_operator(gen_mesh):
+def test_helmholtz_operator(mesh):
     """Assemble the (nice) Helmholtz operator in SLATE and
     compare with Firedrake.
     """
-    V = FunctionSpace(gen_mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = (inner(grad(u), grad(v)) + u*v)*dx

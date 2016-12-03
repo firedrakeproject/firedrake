@@ -61,10 +61,9 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     cellfacetsym = ast.Symbol("cell_facets")
     inc = []
 
-    need_cell_facets = False
-    temps = builder.temps
     # Now we construct the list of statements to provide to the builder
-    for exp, t in temps.items():
+    context_temps = builder.temps.copy()
+    for exp, t in context_temps.items():
         statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
 
@@ -92,7 +91,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
             tensor = eigen_tensor(exp, t, index)
 
             if integral_type in ["interior_facet", "exterior_facet"]:
-                need_cell_facets = True
+                builder.require_cell_facets()
                 itsym = ast.Symbol("i0")
                 clist.append(ast.FlatBlock("&%s" % itsym))
                 loop_body = []
@@ -117,7 +116,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     # Now we handle any terms that require auxiliary data (if any)
     if bool(builder.aux_exprs):
         aux_temps, aux_statements = auxiliary_information(builder)
-        temps.update(aux_temps)
+        context_temps.update(aux_temps)
         statements.extend(aux_statements)
 
     result_sym = ast.Symbol("T%d" % len(builder.temps))
@@ -127,7 +126,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type, result_sym, dtype, result_data_sym))
     statements.append(result_statement)
 
-    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, temps))
+    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, context_temps))
     statements.append(ast.Assign(result_sym, cpp_string))
 
     args = [result, ast.Decl("%s **" % dtype, coordsym)]
@@ -138,7 +137,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
             ctype = "%s **" % dtype
         args.append(ast.Decl(ctype, builder.coefficient_map()[c]))
 
-    if need_cell_facets:
+    if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
 
     macro_kernel_name = "compile_slate"
@@ -157,7 +156,7 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=range(len(slate_expr.coefficients())),
-                       needs_cell_facets=need_cell_facets)
+                       needs_cell_facets=builder.needs_cell_facets)
     idx = tuple([0]*slate_expr.rank)
 
     return (SplitKernel(idx, kinfo),)
@@ -185,14 +184,13 @@ def auxiliary_information(builder):
             acting_coefficient = exp._acting_coefficient
             assert isinstance(acting_coefficient, Coefficient)
 
-            temp = ast.Symbol("WT%d" % i)
+            temp = ast.Symbol("C%d" % i)
             # TODO: think about the shape of this temporary
             cshape = acting_tensor.shape[1]
             aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(cshape,)), temp))
             aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
             itersym = ast.Symbol("i1")
 
-            # TODO: what needs to happen to assign coefficient values to a vector...
             action_loop = ast.For(ast.Decl("unsigned int", itersym, init=0),
                                   ast.Less(itersym, cshape),
                                   ast.Incr(itersym, 1),
@@ -205,6 +203,12 @@ def auxiliary_information(builder):
             raise NotImplementedError("Auxiliary expression type %s not currently implemented." % type(exp))
 
     return aux_temps, aux_statements
+
+
+def parenthesize(arg, prec=None, parent=None):
+    if prec is None or prec >= parent:
+        return arg
+    return "(%s)" % arg
 
 
 def metaphrase_slate_to_cpp(expr, temps, prec=None):
@@ -232,12 +236,7 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
 
     elif isinstance(expr, Negative):
         result = "-%s" % metaphrase_slate_to_cpp(expr.tensor, temps, expr.prec)
-
-        # Make sure we parenthesize correctly
-        if prec is None or prec >= expr.prec:
-            return result
-        else:
-            return "(%s)" % result
+        return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, BinaryOp):
         op = {TensorAdd: '+',
@@ -247,21 +246,14 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
                                op,
                                metaphrase_slate_to_cpp(expr.operands[1], temps, expr.prec))
 
-        # Make sure we parenthesize correctly
-        if prec is None or prec >= expr.prec:
-            return result
-        else:
-            return "(%s)" % result
+        return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, TensorAction):
         tensor = expr.tensor
         c = expr._acting_coefficient
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor, temps, expr.prec), temps[c])
 
-        if prec is None or prec >= expr.prec:
-            return result
-        else:
-            return "(%s)" % result
+        return parenthesize(result, expr.prec, prec)
     else:
         # If expression is not recognized, throw a NotImplementedError.
         raise NotImplementedError("Expression of type %s not supported.", type(expr).__name__)

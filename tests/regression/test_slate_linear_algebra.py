@@ -4,7 +4,7 @@ from firedrake import *
 
 
 @pytest.fixture(scope='module', params=[interval, triangle, tetrahedron, quadrilateral])
-def gen_mesh(request):
+def mesh(request):
     """Generate a mesh according to the cell provided."""
     cell = request.param
     if cell == interval:
@@ -19,9 +19,9 @@ def gen_mesh(request):
         raise ValueError("%s cell not recognized" % cell)
 
 
-def test_left_inverse(gen_mesh):
+def test_left_inverse(mesh):
     """Tests the SLATE expression A.inv * A = I"""
-    V = FunctionSpace(gen_mesh, "DG", 1)
+    V = FunctionSpace(mesh, "DG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
@@ -32,9 +32,9 @@ def test_left_inverse(gen_mesh):
     assert (Result.M.values - np.identity(nnode) <= 1e-13).all()
 
 
-def test_right_inverse(gen_mesh):
+def test_right_inverse(mesh):
     """Tests the SLATE expression A * A.inv = I"""
-    V = FunctionSpace(gen_mesh, "DG", 1)
+    V = FunctionSpace(mesh, "DG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
@@ -45,11 +45,11 @@ def test_right_inverse(gen_mesh):
     assert (Result.M.values - np.identity(nnode) <= 1e-13).all()
 
 
-def test_symmetry(gen_mesh):
+def test_symmetry(mesh):
     """Tests that the SLATE matrices associated with a
     symmetric bilinear form is symmetric.
     """
-    V = FunctionSpace(gen_mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx + inner(grad(u), grad(v))*dx
@@ -60,11 +60,11 @@ def test_symmetry(gen_mesh):
     assert (M1.M.values - M2.M.values <= 1e-13).all()
 
 
-def test_subtract_to_zero(gen_mesh):
+def test_subtract_to_zero(mesh):
     """Tests that subtracting two identical matrices results
     in the zero matrix.
     """
-    V = FunctionSpace(gen_mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
@@ -74,11 +74,11 @@ def test_subtract_to_zero(gen_mesh):
     assert (M.M.values <= 1e-13).all()
 
 
-def test_add_the_negative(gen_mesh):
+def test_add_the_negative(mesh):
     """Adding the negative of a matrix gives
     you the zero matrix.
     """
-    V = FunctionSpace(gen_mesh, "CG", 1)
+    V = FunctionSpace(mesh, "CG", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
     form = u*v*dx
