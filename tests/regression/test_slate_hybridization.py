@@ -30,7 +30,7 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.parametrize("degree", range(1, 4))
+@pytest.mark.parametrize("degree", range(1, 3))
 def test_slate_hybridization(degree):
     # Create a mesh
     mesh = UnitSquareMesh(8, 8)
@@ -48,7 +48,6 @@ def test_slate_hybridization(degree):
 
     # Define the trial and test functions
     sigma, u = TrialFunctions(W)
-    lambdar = TrialFunction(T)
     tau, v = TestFunctions(W)
     gammar = TestFunction(T)
 
@@ -85,15 +84,30 @@ def test_slate_hybridization(degree):
     solve(S, lambda_sol, E, solver_parameters={'pc_type': 'lu',
                                                'ksp_type': 'cg'})
 
-    # Now we assemble the global system for the velocities and pressures
-    # and use the multipliers to reconstruct the two unknowns
-    global_trace = jump(tau, n=n) * lambdar('+') * dS
-    R = assemble(L - action(global_trace, lambda_sol))
-    A_o = assemble(Mass_v + Mass_p + Div - Div_adj, mat_type='aij')
-    solution = Function(W)
-    solve(A_o, solution, R, solver_parameters={'ksp_type': 'preonly',
-                                               'pc_type': 'lu'})
-    sigma_h, u_h = solution.split()
+    # Currently, SLATE can only assemble one expression at a time.
+    # However, we may still write out the pressure and velocity reconstructions
+    # in SLATE and obtain our solutions by assembling the SLATE tensor expressions.
+    # NOTE: SLATE cannot assemble expressions that result in a tensor with arguments
+    # in a mixed function space (yet). Therefore we have to separate the arguments
+    # from the mixed space:
+    sigma = TrialFunction(BRT)
+    tau = TestFunction(BRT)
+    u = TrialFunction(DG)
+    v = TestFunction(DG)
+
+    A_v = Tensor(dot(sigma, tau) * dx)
+    A_p = Tensor(u * v * dx)
+    B = Tensor(div(sigma) * v * dx)
+    K = Tensor(dot(sigma, n) * gammar('+') * dS)
+    F = Tensor(f * v * dx)
+
+    # SLATE expression for pressure recovery:
+    u_sol = (B * A_v.inv * B.T + A_p).inv * (F + B * A_v.inv * K.T * lambda_sol)
+    u_h = assemble(u_sol)
+
+    # SLATE expression for velocity recovery
+    sigma_sol = A_v.inv * (B.T * u_h - K.T * lambda_sol)
+    sigma_h = assemble(sigma_sol)
 
     # Now we compare the hybridized solution to the non-hybridized computation
     V = FunctionSpace(mesh, "RT", degree)
