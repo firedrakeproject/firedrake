@@ -54,15 +54,16 @@ class Transformer(Visitor):
         if all(new is old for new, old in zip(ops, o.operands()[0])):
             return o
 
-        template = "template <typename Derived>"
-        body = ops[3]
-        args, _ = body.operands()
-        eigen_arg = "Eigen::MatrixBase<Derived> & {0} = const_cast<Eigen::MatrixBase<Derived> &>({0}_);\n".format(name)
-        nargs = [ast.FlatBlock(eigen_arg)] + args
-        ops[3] = nargs
-        ops[6] = template
+        ret, kernel_name, kernel_args, body, pred, headers, template = ops
 
-        return o.reconstruct(*ops, **okwargs)
+        body_statements, _ = body.operands()
+        eigen_statement = "Eigen::MatrixBase<Derived> & {0} = const_cast<Eigen::MatrixBase<Derived> &>({0}_);\n".format(name)
+        new_body = [ast.FlatBlock(eigen_statement)] + body_statements
+        eigen_template = "template <typename Derived>"
+
+        new_ops = (ret, kernel_name, kernel_args, new_body, pred, headers, eigen_template)
+
+        return o.reconstruct(*new_ops, **okwargs)
 
     def visit_Decl(self, o, *args, **kwargs):
         """Visits a declared tensor and changes its type to

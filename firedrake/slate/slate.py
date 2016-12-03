@@ -405,18 +405,13 @@ class BinaryOp(TensorBase):
         `{domain:{integral_type: subdomain_data}}`.
         """
         A, B = self.tensors
-        if A.rank == 0:
-            return B.subdomain_data()
-        elif B.rank == 0:
-            return A.subdomain_data()
-        else:
-            # Join subdomain_data
-            sd_dict = A.subdomain_data()[A.ufl_domain()]
-            for sd_key_B in B.subdomain_data()[B.ufl_domain()].keys():
-                if sd_key_B not in sd_dict.keys():
-                    sd_dict.update({sd_key_B: B.subdomain_data()[B.ufl_domain()][sd_key_B]})
+        # Join subdomain_data
+        sd_dict = A.subdomain_data()[A.ufl_domain()]
+        for int_type_B in B.subdomain_data()[B.ufl_domain()].keys():
+            if int_type_B not in sd_dict.keys():
+                sd_dict.update({int_type_B: B.subdomain_data()[B.ufl_domain()][int_type_B]})
 
-            return {self.ufl_domain(): sd_dict}
+        return {self.ufl_domain(): sd_dict}
 
     @property
     def operands(self):

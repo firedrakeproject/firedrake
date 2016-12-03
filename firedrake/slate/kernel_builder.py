@@ -1,6 +1,5 @@
 from __future__ import absolute_import, print_function, division
 
-
 from coffee import base as ast
 
 from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, TensorAction
