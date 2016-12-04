@@ -96,9 +96,9 @@ Firedrake code
 Using this form, we can now implement this eigenvalue problem in
 Firedrake. We import the Firedrake, PETSc, and SLEPc. ::
 
-   from \ firedrake import *
-   from \ firedrake.petsc import PETSc
-   from \ slepc4py import SLEPc
+   from firedrake import *
+   from firedrake.petsc import PETSc
+   from slepc4py import SLEPc
 
 We specify the geometry to be a square geometry with :math:`50` cells
 with length :math:`1`. ::
