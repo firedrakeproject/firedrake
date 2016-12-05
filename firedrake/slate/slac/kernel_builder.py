@@ -3,7 +3,7 @@ from __future__ import absolute_import, print_function, division
 from coffee import base as ast
 
 from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, TensorAction
-from firedrake.slate.utils import RemoveRestrictions, Transformer
+from firedrake.slate.slac.utils import RemoveRestrictions, Transformer
 from firedrake.tsfc_interface import compile_form
 
 from functools import partial

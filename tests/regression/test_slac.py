@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from firedrake.slate.linear_algebra_compiler import compile_slate_expression
+from firedrake.slate import compile_slate_expression as compile_slate
 
 
 @pytest.fixture(scope='module', params=[interval,
@@ -62,8 +62,8 @@ def test_determinism(tensor):
     a numerically deterministic system. That is, produced kernels
     are consistent.
     """
-    kernel1 = compile_slate_expression(tensor)
-    kernel2 = compile_slate_expression(tensor)
+    kernel1 = compile_slate(tensor)
+    kernel2 = compile_slate(tensor)
 
     # Checking equivalence of kernels
     assert kernel1[0].kinfo.kernel._ast == kernel2[0].kinfo.kernel._ast

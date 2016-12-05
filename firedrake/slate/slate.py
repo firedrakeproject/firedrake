@@ -15,10 +15,12 @@ architecture.
 """
 from __future__ import absolute_import, print_function, division
 
-from firedrake.slate.utils import CheckRestrictions
+from collections import OrderedDict
+
 from firedrake.utils import cached_property
 
 from ufl.algorithms.map_integrands import map_integrand_dags
+from ufl.algorithms.multifunction import MultiFunction
 from ufl.coefficient import Coefficient
 from ufl.form import Form
 from ufl.domain import join_domains, sort_domains
@@ -27,6 +29,16 @@ from ufl.domain import join_domains, sort_domains
 __all__ = ['TensorBase', 'Tensor', 'Inverse', 'Transpose',
            'UnaryOp', 'Negative', 'BinaryOp', 'TensorAdd',
            'TensorSub', 'TensorMul', 'TensorAction']
+
+
+class CheckRestrictions(MultiFunction):
+    """UFL MultiFunction for enforcing cell-wise integrals to contain
+    only positive (outward) restrictions.
+    """
+    expr = MultiFunction.reuse_if_untouched
+
+    def negative_restrictions(self, o):
+        raise ValueError("Cell-wise integrals must contain only positive restrictions.")
 
 
 class TensorBase(object):
@@ -105,7 +117,8 @@ class TensorBase(object):
 
     def __rmul__(self, other):
         """Tensor multiplication is not commutative in general."""
-        return TensorMul(other, self)
+        assert isinstance(other, TensorBase)
+        return other.__mul__(self)
 
     def __neg__(self):
         return Negative(self)
@@ -264,7 +277,7 @@ class UnaryOp(TensorBase):
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
-        `{domain:{integral_type: subdomain_data}}`.
+        ``{domain:{integral_type: subdomain_data}}``.
         """
         return self.tensor.subdomain_data()
 
@@ -384,14 +397,8 @@ class BinaryOp(TensorBase):
         the coefficients are handled the same way for all binary operations.
         """
         A, B = self.tensors
-        clist = []
-        A_coeffs = A.coefficients()
-        uniqueAcoeffs = set(A_coeffs)
-        for c in B.coefficients():
-            if c not in uniqueAcoeffs:
-                clist.append(c)
-
-        return tuple(list(A_coeffs) + clist)
+        # Returns an ordered tuple of coefficients (no duplicates)
+        return tuple(OrderedDict.fromkeys(A.coefficients() + B.coefficients()))
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -402,7 +409,7 @@ class BinaryOp(TensorBase):
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
-        `{domain:{integral_type: subdomain_data}}`.
+        ``{domain:{integral_type: subdomain_data}}``.
         """
         A, B = self.tensors
         # Join subdomain_data
@@ -449,6 +456,7 @@ class TensorAdd(BinaryOp):
     :arg A: a :class:`TensorBase` object.
     :arg B: another :class:`TensorBase` object.
     """
+
     prec = 1
 
     def __init__(self, A, B):
@@ -469,6 +477,7 @@ class TensorSub(BinaryOp):
     :arg A: a :class:`TensorBase` object.
     :arg B: another :class:`TensorBase` object.
     """
+
     prec = 1
 
     def __init__(self, A, B):
@@ -491,6 +500,7 @@ class TensorMul(BinaryOp):
     :arg A: a :class:`TensorBase` object.
     :arg B: another :class:`TensorBase` object.
     """
+
     prec = 2
 
     def __init__(self, A, B):
@@ -531,13 +541,10 @@ class TensorAction(TensorBase):
         self.tensor = tensor
         self._acting_coefficient = coefficient
         self._arguments = tensor.arguments()[:-1]
+        self._coefficients = tuple(OrderedDict.fromkeys(tensor.coefficients()
+                                                        + (coefficient,)))
 
-        coeffs = tensor.coefficients()
-        if coefficient not in coeffs:
-            coeffs += (coefficient,)
-        self._coefficients = coeffs
-
-        # TODO: Have a think about this...
+        # TODO: Is this sufficient?
         self._integral_domains = tensor.ufl_domains()
         self._subdomain_data = tensor.subdomain_data()
 
@@ -557,7 +564,7 @@ class TensorAction(TensorBase):
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
-        `{domain:{integral_type: subdomain_data}}`.
+        ``{domain:{integral_type: subdomain_data}}``.
         """
         return self._subdomain_data
 

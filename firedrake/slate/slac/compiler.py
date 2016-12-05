@@ -20,7 +20,7 @@ from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slate import (TensorBase, Tensor, Transpose, Inverse, Negative,
                                    BinaryOp, TensorAdd, TensorSub, TensorMul, TensorAction)
-from firedrake.slate.kernel_builder import SlateKernelBuilder
+from firedrake.slate.slac.kernel_builder import SlateKernelBuilder
 from firedrake import op2
 
 from tsfc.parameters import SCALAR_TYPE

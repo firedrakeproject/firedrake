@@ -16,8 +16,7 @@ from firedrake import matrix
 from firedrake import parameters
 from firedrake import solving
 from firedrake import utils
-from firedrake.slate import slate
-from firedrake.slate import linear_algebra_compiler as slac
+from firedrake.slate import slate, compile_slate_expression as compile_slate
 
 
 __all__ = ["assemble"]
@@ -183,7 +182,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     is_slate_expr = False
     if isinstance(f, slate.TensorBase):
         is_slate_expr = True
-        kernels = slac.compile_slate_expression(f, tsfc_parameters=form_compiler_parameters)
+        kernels = compile_slate(f, tsfc_parameters=form_compiler_parameters)
     else:
         kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
     rank = len(f.arguments())

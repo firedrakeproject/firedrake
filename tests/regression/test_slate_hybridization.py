@@ -3,8 +3,9 @@
 sigma + grad(u) = 0,
 u + div(sigma) = f,
 
-using hybridisation with SLATE performing the forward elimination.
-The corresponding finite element variational problem is:
+using hybridisation with SLATE performing the forward elimination and
+backwards reconstructions. The corresponding finite element variational
+problem is:
 
 dot(sigma, tau)*dx - u*div(tau)*dx + lambdar*dot(tau, n)*dS = 0
 div(sigma)*v*dx + u*v*dx = f*v*dx

@@ -91,16 +91,6 @@ class Transformer(Visitor):
         return ast.FunCall(ast.Symbol(name), *shape)
 
 
-class CheckRestrictions(MultiFunction):
-    """UFL MultiFunction for enforcing cell-wise integrals to contain
-    only positive restrictions.
-    """
-    expr = MultiFunction.reuse_if_untouched
-
-    def negative_restrictions(self, o):
-        raise ValueError("Cell-wise integrals must contain only positive restrictions.")
-
-
 class RemoveRestrictions(MultiFunction):
     """UFL MultiFunction for removing any restrictions on the integrals of forms."""
     expr = MultiFunction.reuse_if_untouched
