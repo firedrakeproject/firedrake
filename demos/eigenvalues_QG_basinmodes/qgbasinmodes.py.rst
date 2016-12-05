@@ -219,9 +219,13 @@ that were found. ::
    p = plot(eigenmodes_imag)
    p.show()
 
+Below is a plot of the spatial structure of the real part of one of the eigenmodes computed above.
+   
 .. figure:: eigenmode_real.png
    :align: center
-	
+
+Below is a plot of the spatial structure of the imaginary part of one of the eigenmodes computed above.
+
 .. figure:: eigenmode_imag.png
    :align: center
 
