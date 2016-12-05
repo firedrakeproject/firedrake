@@ -97,13 +97,13 @@ class KernelBuilder(KernelBuilderBase):
                 # coefficients, but each integral only requires one.
                 coefficient_numbers.append(i)
 
-        funarg, expressions = prepare_coefficients(
-            coefficients, coefficient_numbers, "w",
-            interior_facet=self.interior_facet)
-
-        self.coefficient_args = [funarg]
-        for i, coefficient in enumerate(coefficients):
-            self.coefficient_map[coefficient] = expressions[i]
+        self.coefficient_args = [
+            coffee.Decl(SCALAR_TYPE, coffee.Symbol("w"),
+                        pointers=[("const",), ()],
+                        qualifiers=["const"])
+        ]
+        for c, n in zip(coefficients, coefficient_numbers):
+            self.coefficient_map[c] = prepare_coefficient(c, n, "w", self.interior_facet)
 
     def construct_kernel(self, name, body):
         """Construct a fully built :class:`Kernel`.
@@ -146,59 +146,46 @@ class KernelBuilder(KernelBuilderBase):
         return True
 
 
-def prepare_coefficients(coefficients, coefficient_numbers, name, interior_facet=False):
+def prepare_coefficient(coefficient, coefficient_number, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
-    Coefficients.  Mixed element Coefficients are rearranged here for
-    interior facet integrals.
+    Coefficients.
 
-    :arg coefficient: iterable of UFL Coefficients
-    :arg coefficient_numbers: iterable of coefficient indices in the original form
+    :arg coefficient: UFL Coefficient
+    :arg coefficient_numbers: coefficient index in the original form
     :arg name: unique name to refer to the Coefficient in the kernel
     :arg interior_facet: interior facet integral?
-    :returns: (funarg, expressions)
-         funarg     - :class:`coffee.Decl` function argument
-         expressions- GEM expressions referring to the Coefficient
-                      values
+    :returns: GEM expression referring to the Coefficient value
     """
-    assert len(coefficients) == len(coefficient_numbers)
-
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
-                         pointers=[("const",), ()],
-                         qualifiers=["const"])
-
     varexp = gem.Variable(name, (None, None))
-    expressions = []
-    for coefficient_number, coefficient in zip(coefficient_numbers, coefficients):
-        cells_shape = ()
-        tensor_shape = ()
-        if coefficient.ufl_element().family() == 'Real':
-            scalar_shape = coefficient.ufl_shape
+
+    cells_shape = ()
+    tensor_shape = ()
+    if coefficient.ufl_element().family() == 'Real':
+        scalar_shape = coefficient.ufl_shape
+    else:
+        finat_element = create_element(coefficient.ufl_element())
+        if hasattr(finat_element, '_base_element'):
+            scalar_shape = finat_element._base_element.index_shape
+            tensor_shape = finat_element.index_shape[len(scalar_shape):]
         else:
-            finat_element = create_element(coefficient.ufl_element())
-            if hasattr(finat_element, '_base_element'):
-                scalar_shape = finat_element._base_element.index_shape
-                tensor_shape = finat_element.index_shape[len(scalar_shape):]
-            else:
-                scalar_shape = finat_element.index_shape
+            scalar_shape = finat_element.index_shape
 
-            if interior_facet:
-                cells_shape = (2,)
+        if interior_facet:
+            cells_shape = (2,)
 
-        cells_indices = tuple(gem.Index() for s in cells_shape)
-        tensor_indices = tuple(gem.Index() for s in tensor_shape)
-        scalar_indices = tuple(gem.Index() for s in scalar_shape)
-        shape = cells_shape + tensor_shape + scalar_shape
-        alpha = cells_indices + tensor_indices + scalar_indices
-        beta = cells_indices + scalar_indices + tensor_indices
-        expressions.append(gem.ComponentTensor(
-            gem.FlexiblyIndexed(
-                varexp, ((coefficient_number, ()),
-                         (0, tuple(zip(alpha, shape))))
-            ),
-            beta
-        ))
-
-    return funarg, expressions
+    cells_indices = tuple(gem.Index() for s in cells_shape)
+    tensor_indices = tuple(gem.Index() for s in tensor_shape)
+    scalar_indices = tuple(gem.Index() for s in scalar_shape)
+    shape = cells_shape + tensor_shape + scalar_shape
+    alpha = cells_indices + tensor_indices + scalar_indices
+    beta = cells_indices + scalar_indices + tensor_indices
+    return gem.ComponentTensor(
+        gem.FlexiblyIndexed(
+            varexp, ((coefficient_number, ()),
+                     (0, tuple(zip(alpha, shape))))
+        ),
+        beta
+    )
 
 
 def prepare_coordinates(coefficient, name, interior_facet=False):
