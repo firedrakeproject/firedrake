@@ -13,9 +13,10 @@ License along with Firedrake. If not, see <http://www.gnu.org/licenses/>.
 
 Included packages:
 
-Firedrake includes one third-party package:
+Firedrake includes two third-party packages:
 
 - pylit (in source directory pylit)
+- virtualenv-clone (in script directory as clone.py)
 
-Please see pylit/README.rst for its license.
+Please see pylit/README.rst for their licenses.
 
