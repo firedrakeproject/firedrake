@@ -677,10 +677,11 @@ def pip_uninstall(package):
 
 
 def build_and_install_h5py():
+    import shutil
     log.info("Installing h5py\n")
     # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
-        os.rmdir("h5py-2.5.0")
+        shutil.rmtree("h5py-2.5.0")
     if os.path.exists("h5py.tar.gz"):
         os.remove("h5py.tar.gz")
     if os.path.exists("h5py"):
