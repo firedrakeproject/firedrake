@@ -57,7 +57,7 @@ from pyop2.sparsity import build_sparsity
 from pyop2.version import __version__ as version
 
 from coffee.base import Node, FlatBlock
-from coffee.visitors import FindInstances, EstimateFlops
+from coffee.visitors import Find, EstimateFlops
 from coffee import base as ast
 from functools import reduce
 
@@ -3865,7 +3865,7 @@ class Kernel(Cached):
         else:
             self._ast = code
             self._code = self._ast_to_c(self._ast, opts)
-            search = FindInstances(ast.FunDecl, ast.FlatBlock).visit(self._ast)
+            search = Find((ast.FunDecl, ast.FlatBlock)).visit(self._ast)
             fundecls, flatblocks = search[ast.FunDecl], search[ast.FlatBlock]
             assert len(fundecls) >= 1, "Illegal Kernel"
             fundecl, = [fd for fd in fundecls if fd.name == self._name]

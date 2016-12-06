@@ -54,7 +54,7 @@ from pyop2.fusion.interface import slope, lazy_trace_name
 
 import coffee
 from coffee import base as ast
-from coffee.visitors import FindInstances
+from coffee.visitors import Find
 
 
 class FusionArg(sequential.Arg):
@@ -238,8 +238,7 @@ class Kernel(sequential.Kernel, tuple):
             main = duplicates[0]
             if main._ast:
                 main_ast = dcopy(main._ast)
-                finder = FindInstances((ast.FunDecl, ast.FunCall))
-                found = finder.visit(main_ast, ret=FindInstances.default_retval())
+                found = Find((ast.FunDecl, ast.FunCall)).visit(main_ast)
                 for fundecl in found[ast.FunDecl]:
                     new_name = "%s_%d" % (fundecl.name, i)
                     # Need to change the name of any inner functions too
