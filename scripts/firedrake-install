@@ -681,8 +681,10 @@ def build_and_install_h5py():
     log.info("Installing h5py\n")
     # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
+        log.info("Removing old h5py-2.5.0 source")
         shutil.rmtree("h5py-2.5.0")
     if os.path.exists("h5py.tar.gz"):
+        log.info("Removing old h5py.tar.gz")
         os.remove("h5py.tar.gz")
     if os.path.exists("h5py"):
         changed = git_update("h5py")
