@@ -363,6 +363,11 @@ class HDF5File(object):
         """Close the checkpoint file (flushing any pending writes)"""
         if hasattr(self, '_h5file'):
             self._h5file.flush()
+            # Need to explicitly close the h5py File so that all
+            # objects referencing it are cleaned up, otherwise we
+            # close the file, but there are still open objects and we
+            # get a refcounting error in HDF5.
+            self._h5file.close()
             del self._h5file
 
     def flush(self):
