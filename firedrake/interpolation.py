@@ -264,6 +264,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
                           ast.FlatBlock("%s" % code))
                for i, code in enumerate(expression.code)]
 
+    dim = coords_space.dim
     ndof = to_element.space_dimension()
     xndof = coords_element.space_dimension()
     nfdof = to_element.space_dimension() * numpy.prod(fs.dim, dtype=int)
@@ -272,18 +273,18 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
                       qualifiers=["const"], init=X_str)
     init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.dim,)))
     init_pi = ast.Decl(typ="double", sym="pi", qualifiers=["const"],
-                       init=3.141592653589793)
+                       init="3.141592653589793")
     init = ast.Block([init_X, init_x, init_pi])
     incr_x = ast.Incr(ast.Symbol(x, rank=(d,)),
                       ast.Prod(ast.Symbol(X, rank=(k, i_)),
                                ast.Symbol(x_, rank=(i_, d))))
     assign_x = ast.Assign(ast.Symbol(x, rank=(d,)), 0)
     loop_x = ast.For(init=ast.Decl("unsigned int", i_, 0),
-                     cond=ast.Less(i_, 3),
+                     cond=ast.Less(i_, xndof),
                      incr=ast.Incr(i_, 1), body=[incr_x])
 
     block = ast.For(init=ast.Decl("unsigned int", d, 0),
-                    cond=ast.Less(d, 3),
+                    cond=ast.Less(d, dim),
                     incr=ast.Incr(d, 1), body=[assign_x, loop_x])
     loop = ast.c_for(k, ndof,
                      ast.Block([block] + ass_exp, open_scope=True))
