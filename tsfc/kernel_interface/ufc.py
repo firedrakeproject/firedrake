@@ -4,6 +4,8 @@ from six.moves import range, zip
 import numpy
 from itertools import product
 
+from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
+
 import coffee.base as coffee
 
 import gem
@@ -24,7 +26,7 @@ class KernelBuilder(KernelBuilderBase):
         self.local_tensor = None
         self.coordinates_args = None
         self.coefficient_args = None
-        self.coefficient_split = None
+        self.coefficient_split = {}
 
         if self.interior_facet:
             self._cell_orientations = (gem.Variable("cell_orientation_0", ()),
@@ -84,26 +86,29 @@ class KernelBuilder(KernelBuilderBase):
         :arg form_data: UFL form data
         """
         coefficients = []
-        coefficient_numbers = []
         # enabled_coefficients is a boolean array that indicates which
         # of reduced_coefficients the integral requires.
         for i in range(len(integral_data.enabled_coefficients)):
             if integral_data.enabled_coefficients[i]:
                 coefficient = form_data.reduced_coefficients[i]
-                coefficients.append(coefficient)
-                # This is which coefficient in the original form the
-                # current coefficient is.
-                # Consider f*v*dx + g*v*ds, the full form contains two
-                # coefficients, but each integral only requires one.
-                coefficient_numbers.append(i)
+                if type(coefficient.ufl_element()) == ufl_MixedElement:
+                    split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
+                             for element in coefficient.ufl_element().sub_elements()]
+                    space_dims = [numpy.prod(create_element(element).index_shape, dtype=int)
+                                  for element in coefficient.ufl_element().sub_elements()]
+                    offsets = numpy.cumsum([0] + space_dims[:-1])
+                    coefficients.extend((c, i, o) for c, o in zip(split, offsets))
+                    self.coefficient_split[coefficient] = split
+                else:
+                    coefficients.append((coefficient, i, 0))
 
         self.coefficient_args = [
             coffee.Decl(SCALAR_TYPE, coffee.Symbol("w"),
                         pointers=[("const",), ()],
                         qualifiers=["const"])
         ]
-        for c, n in zip(coefficients, coefficient_numbers):
-            self.coefficient_map[c] = prepare_coefficient(c, n, "w", self.interior_facet)
+        for c, n, o in coefficients:
+            self.coefficient_map[c] = prepare_coefficient(c, n, o, "w", self.interior_facet)
 
     def construct_kernel(self, name, body):
         """Construct a fully built :class:`Kernel`.
@@ -146,12 +151,13 @@ class KernelBuilder(KernelBuilderBase):
         return True
 
 
-def prepare_coefficient(coefficient, coefficient_number, name, interior_facet=False):
+def prepare_coefficient(coefficient, number, offset, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
     :arg coefficient: UFL Coefficient
-    :arg coefficient_numbers: coefficient index in the original form
+    :arg number: coefficient index in the original form
+    :arg offset: subcoefficient DoFs start at this offset
     :arg name: unique name to refer to the Coefficient in the kernel
     :arg interior_facet: interior facet integral?
     :returns: GEM expression referring to the Coefficient value
@@ -181,8 +187,8 @@ def prepare_coefficient(coefficient, coefficient_number, name, interior_facet=Fa
     beta = cells_indices + scalar_indices + tensor_indices
     return gem.ComponentTensor(
         gem.FlexiblyIndexed(
-            varexp, ((coefficient_number, ()),
-                     (0, tuple(zip(alpha, shape))))
+            varexp, ((number, ()),
+                     (offset, tuple(zip(alpha, shape))))
         ),
         beta
     )
