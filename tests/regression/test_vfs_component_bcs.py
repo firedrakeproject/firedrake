@@ -195,6 +195,40 @@ def test_stokes_component_all():
         assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 
+def test_component_full_bcs():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+
+    bc0 = DirichletBC(V, Constant((0, 0)), [3, 4])
+    bc1 = DirichletBC(V, Constant((1, 0)), 1)
+    bcs_full = [bc0, bc1]
+
+    bc0 = DirichletBC(V.sub(0), 0, [3, 4])
+    bc1 = DirichletBC(V.sub(1), 0, [3, 4])
+    bc2 = DirichletBC(V.sub(0), 1, 1)
+    bc3 = DirichletBC(V.sub(1), 0, 1)
+    bcs_cmp = [bc0, bc1, bc2, bc3]
+
+    bc0 = DirichletBC(V, Constant((0, 0)), [3, 4])
+    bc1 = DirichletBC(V.sub(0), 1, 1)
+    bc2 = DirichletBC(V.sub(1), 0, 1)
+    bcs_mixed = [bc0, bc1, bc2]
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v))*dx
+
+    def asarray(A):
+        return A.M.handle[:, :]
+
+    A_full = asarray(assemble(a, bcs=bcs_full, mat_type="aij"))
+    A_cmp = asarray(assemble(a, bcs=bcs_cmp, mat_type="aij"))
+    A_mixed = asarray(assemble(a, bcs=bcs_mixed, mat_type="aij"))
+
+    assert np.allclose(A_full, A_cmp)
+    assert np.allclose(A_mixed, A_full)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
