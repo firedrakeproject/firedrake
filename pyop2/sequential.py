@@ -345,13 +345,13 @@ class Arg(base.Arg):
                 for ( int j = 0; j < %(nrows)d; j++ ) {
                     block_row = %(rowmap)s[i*%(nrows)d + j];
                     discard = 0;
+                    tmp = -(block_row + 1);
                     if ( block_row < 0 ) {
-                        tmp = -(block_row + 1);
                         discard = 1;
                         block_row = tmp & ~0x70000000;
                     }
                     for ( int k = 0; k < %(rdim)d; k++ ) {
-                        if ( discard && (%(drop_full_row)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                        if ( discard && (!(tmp & 0x70000000) || %(drop_full_row)d || ((tmp & (1 << (30 - k))) != 0)) ) {
                             rowmap[j*%(rdim)d + k] = -1;
                         } else {
                             rowmap[j*%(rdim)d + k] = (block_row)*%(rdim)d + k;
@@ -361,13 +361,13 @@ class Arg(base.Arg):
                 for ( int j = 0; j < %(ncols)d; j++ ) {
                     discard = 0;
                     block_col = %(colmap)s[i*%(ncols)d + j];
+                    tmp = -(block_col + 1);
                     if ( block_col < 0 ) {
-                        tmp = -(block_col + 1);
                         discard = 1;
                         block_col = tmp & ~0x70000000;
                     }
                     for ( int k = 0; k < %(cdim)d; k++ ) {
-                        if ( discard && (%(drop_full_col)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                        if ( discard && (!(tmp & 0x70000000) || %(drop_full_col)d || ((tmp & (1 << (30 - k))) != 0)) ) {
                             colmap[j*%(cdim)d + k] = -1;
                         } else {
                             colmap[j*%(cdim)d + k] = (block_col)*%(cdim)d + k;
