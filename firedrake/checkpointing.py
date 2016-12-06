@@ -4,9 +4,11 @@ from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from firedrake import hdf5interface as h5i
 import firedrake
 import numpy as np
+import os
+import h5py
 
 
-__all__ = ["DumbCheckpoint", "FILE_READ", "FILE_CREATE", "FILE_UPDATE"]
+__all__ = ["DumbCheckpoint", "HDF5File", "FILE_READ", "FILE_CREATE", "FILE_UPDATE"]
 
 
 FILE_READ = PETSc.Viewer.Mode.READ
@@ -276,6 +278,148 @@ class DumbCheckpoint(object):
             return (name in self.h5file[obj].attrs)
         except KeyError:
             return False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
+    def __del__(self):
+        self.close()
+        if hasattr(self, "comm"):
+            free_comm(self.comm)
+            del self.comm
+
+
+class HDF5File(object):
+
+    """An object to facilitate checkpointing.
+
+    This checkpoint object is capable of writing :class:`~.Function`\s
+    to disk in parallel (using HDF5) and reloading them on the same
+    number of processes and a :func:`~.Mesh` constructed identically.
+
+    :arg filename: filename (including suffix .h5) of checkpoint file.
+    :arg file_mode: the access mode (one of :data:`~.FILE_READ`,
+         :data:`~.FILE_CREATE`, or :data:`~.FILE_UPDATE`)
+    :arg comm: communicator the writes should be collective
+         over.
+
+    This object can be used in a context manager (in which case it
+    closes the file when the scope is exited).
+
+    """
+    def __init__(self, filename, file_mode, comm=None):
+        self.comm = dup_comm(comm or COMM_WORLD)
+
+        self._filename = filename
+        self._mode = file_mode
+
+        exists = os.path.exists(filename)
+        if file_mode == 'r' and not exists:
+            raise IOError("File '%s' does not exist, cannot be opened for reading" % filename)
+
+        # Create the directory if necessary
+        dirname = os.path.dirname(filename)
+        try:
+            os.makedirs(dirname)
+        except OSError:
+            pass
+
+        # Try to use MPI
+        try:
+            self._h5file = h5py.File(filename, file_mode, driver="mpio", comm=self.comm)
+        except NameError: # the error you get if h5py isn't compiled against parallel HDF5
+            self._h5file = h5py.File(filename, file_mode)
+
+        if file_mode == 'r':
+            nprocs = self.attributes('/')['nprocs']
+            if nprocs != self.comm.size:
+                raise ValueError("Process mismatch: written on %d, have %d" %
+                                 (nprocs, self.comm.size))
+        else:
+            self.attributes('/')['nprocs'] = self.comm.size
+
+    def _set_timestamp(self, t):
+        """Set the timestamp for storing.
+
+        :arg t: The timestamp value.
+        """
+        if self._mode == 'r':
+            return
+        attrs = self.attributes("/")
+        timestamps = attrs.get("stored_timestamps", [])
+        attrs["stored_timestamps"] = np.concatenate((timestamps, [t]))
+
+    def get_timestamps(self):
+        """Get the timestamps this HDF5File knows about."""
+
+        attrs = self.attributes("/")
+        timestamps = attrs.get("stored_timestamps", [])
+        return timestamps
+
+    def close(self):
+        """Close the checkpoint file (flushing any pending writes)"""
+        if hasattr(self, '_h5file'):
+            self._h5file.flush()
+            del self._h5file
+
+    def flush(self):
+        """Flush any pending writes."""
+        self._h5file.flush()
+
+    def write(self, function, path, timestamp=None):
+        """Store a function in the checkpoint file.
+
+        :arg function: The function to store.
+        :arg path: the path to store the function under.
+        :arg timestamp: timestamp associated with function, or None for
+                        stationary data
+        """
+        if self._mode == 'r':
+            raise IOError("Cannot store to checkpoint opened with mode 'FILE_READ'")
+        if not isinstance(function, firedrake.Function):
+            raise ValueError("Can only store functions")
+
+        if timestamp is not None:
+            suffix = "/%.15e" % timestamp
+            path = path + suffix
+
+        with function.dat.vec_ro as v:
+            dset = self._h5file.create_dataset(path, shape=(v.getSize(),), dtype=function.dat.dtype)
+
+            # Another MPI/non-MPI difference
+            try:
+                with dset.collective:
+                    dset[slice(*v.getOwnershipRange())] = v.array_r
+            except AttributeError:
+                dset[slice(*v.getOwnershipRange())] = v.array_r
+
+        if timestamp is not None:
+            attr = self.attributes(path)
+            attr["timestamp"] = timestamp
+            self._set_timestamp(timestamp)
+
+    def read(self, function, path, timestamp=None):
+        """Store a function from the checkpoint file.
+
+        :arg function: The function to load values into.
+        :arg path: the path under which the function is stored.
+        """
+        if not isinstance(function, firedrake.Function):
+            raise ValueError("Can only load functions")
+        if timestamp is not None:
+            suffix = "/%.15e" % timestamp
+            path = path + suffix
+
+        with function.dat.vec as v:
+            dset = self._h5file[path]
+            v.array[:] = dset[slice(*v.getOwnershipRange())]
+
+    def attributes(self, obj):
+        """:arg obj: The path to the group."""
+        return self._h5file[obj].attrs
 
     def __enter__(self):
         return self
