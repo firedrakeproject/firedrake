@@ -103,7 +103,7 @@ class Vector(object):
         except AttributeError:
             self += other
         return self
-    
+
     def __sub__(self, other):
         """Add other to self"""
         diff = self.copy()
