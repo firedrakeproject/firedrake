@@ -194,12 +194,16 @@ Additionally we can find the number of converged eigenvalues. ::
 
 We now get the real and imaginary parts of the eigenvalue and
 eigenvector for the leading eigenpair (that with the largest in
-magnitude imaginary part). ::
+magnitude imaginary part).  First we check if we actually managed to
+converge any eigenvalues at all. ::
 
    if nconv == 0:
        import sys
        warning("Did not converge any eigenvalues")
        sys.exit(1)
+
+If we did, we go ahead and extract them from the SLEPc eigenvalue
+solver::
 
    vr, vi = petsc_a.getVecs()
 
