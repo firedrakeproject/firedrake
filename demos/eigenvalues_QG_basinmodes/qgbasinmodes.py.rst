@@ -18,7 +18,7 @@ for a particular differential operator. This requires using
 `PETSc <https://www.mcs.anl.gov/petsc/>`__ matrices
 and eigenvalue solvers in `SLEPc <http://slepc.upv.es>`__.
 
-This demo requires SLEPc and slepc4py to be installed.  This is most easily 
+This demo requires SLEPc and slepc4py to be installed.  This is most easily
 achieved by providing the optional `--slepc` flag to either `firedrake-install`
 (for a new installation), or `firedrake-update` (to add SLEPc to an existing
 installation).
@@ -76,7 +76,7 @@ To use a finite element method it is necessary to formulate the weak
 form and then we can use SLEPc in Firedrake to compute eigenvalue
 problems easily.
 To begin, we multiply this equation by a Test Function :math:`\phi`
-and integrate over the domain :math:`A`. 
+and integrate over the domain :math:`A`.
 
 .. math::
 
@@ -84,9 +84,9 @@ and integrate over the domain :math:`A`.
 
 To remove the Laplacian operator we use integration by parts and the Divergence theorem to obtain
 
-  .. math::
+.. math::
 
-     \iint_{A} \phi \cdot \nabla^{2}\hat{\psi} \,dA = - \iint_{A} \nabla\phi \cdot \nabla\hat{\psi}\,dA + \oint_{\partial A} \phi \cdot \frac{\partial \hat{\psi}}{\partial n} \,dS
+   \iint_{A} \phi \cdot \nabla^{2}\hat{\psi} \,dA = - \iint_{A} \nabla\phi \cdot \nabla\hat{\psi}\,dA + \oint_{\partial A} \phi \cdot \frac{\partial \hat{\psi}}{\partial n} \,dS
 
 No-normal flow boundary conditions are required and mathematically this
 means that the streamfunction must be a constant on the boundary. Since
@@ -119,8 +119,8 @@ with length :math:`1`. ::
 
    Lx   = 1.
    Ly   = 1.
-   n0   = 50 
-   mesh = RectangleMesh(n0, n0, Lx, Ly, reorder=None) 
+   n0   = 50
+   mesh = RectangleMesh(n0, n0, Lx, Ly, reorder=None)
 
 Next we define the function spaces within which our solution will
 reside. ::
@@ -131,7 +131,7 @@ We impose zero Dirichlet boundary conditions, in a strong sense, which
 guarantee that we have no-normal flow at the boundary walls. ::
 
    bc = DirichletBC(Vcg, 0.0, "on_boundary")
-   
+
 The two non-dimensional parameters are the :math:`\beta` parameter, set
 by the sphericity of the Earth, and the Froude number, the relative
 importance of rotation to stratification. ::
@@ -220,7 +220,7 @@ that were found. ::
    p.show()
 
 Below is a plot of the spatial structure of the real part of one of the eigenmodes computed above.
-   
+
 .. figure:: eigenmode_real.png
    :align: center
 
@@ -232,7 +232,3 @@ Below is a plot of the spatial structure of the imaginary part of one of the eig
 .. rubric:: References
 
 .. bibliography:: qg_refs.bib
-
-
-			      
-
