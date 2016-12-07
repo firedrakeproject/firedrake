@@ -139,11 +139,9 @@ importance of rotation to stratification. ::
    beta = Constant('1.0')
    F    = Constant('1.0')
 
-Additionally, we can create some Functions and arrays to store our
-solutions. ::
+Additionally, we can create some Functions to store the eigenmodes. ::
 
    eigenmodes_real, eigenmodes_imag = Function(Vcg), Function(Vcg)
-   eigenvaluer, eigenvaluei = [], []
 
 We define the Test Function :math:`\phi` and the Trial Function
 :math:`\psi` in our function space. ::
@@ -163,7 +161,7 @@ mass matrix :math:`M`, since that is where we used integration by parts. ::
 We can declare how many eigenpairs, eigenfunctions and eigenvalues, we
 want to find ::
 
-   num_eigenvalues = 2
+   num_eigenvalues = 1
 
 Next we will impose parameters onto our eigenvalue solver. The first is
 specifying that we have an generalized eigenvalue problem that is
@@ -193,16 +191,19 @@ the PETSc parameters we previously declared. ::
 Additionally we can find the number of converged eigenvalues. ::
 
    nconv = es.getConverged()
-   print nconv
 
-In the range of all converged eigenpairs (nconv), we can retrieve all
-real and imaginary parts of the eigenvalues.  ::
+We now get the real and imaginary parts of the eigenvalue and
+eigenvector for the leading eigenpair (that with the largest in
+magnitude imaginary part). ::
+
+   if nconv == 0:
+       import sys
+       warning("Did not converge any eigenvalues")
+       sys.exit(1)
 
    vr, vi = petsc_a.getVecs()
-   for i in range(nconv):
-       lam = es.getEigenpair(i, vr, vi)
-       eigenvaluer.append(lam.real)
-       eigenvaluei.append(lam.imag)
+
+   lam = es.getEigenpair(0, vr, vi)
 
 and we gather the final eigenfunctions ::
 
@@ -211,8 +212,7 @@ and we gather the final eigenfunctions ::
 We can now list and show plots for the eigenvalues and eigenfunctions
 that were found. ::
 
-   print eigenvaluei
-   print eigenvaluer
+   print "Leading eigenvalue is:", lam
 
    p = plot(eigenmodes_real)
    p.show()
