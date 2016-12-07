@@ -192,7 +192,8 @@ selecting the figures.
 
 For 2D functions, both surface plots and contour plots are supported. By
 default, the :func:`plot <firedrake.plot.plot>` will return a surface plot in the
-colour map of coolwarm. Contour plotting could be enabled by passing the keyword argument ``contour=True``.
+colour map of coolwarm. Contour plotting could be enabled by passing the keyword
+argument ``contour=True``.
 
 
 Selecting the output space when outputting multiple functions
