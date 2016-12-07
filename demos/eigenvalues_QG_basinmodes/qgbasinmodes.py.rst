@@ -1,7 +1,10 @@
 Oceanic Basin Modes: Quasi-Geostrophic approach
 ===============================================
 
-Contributed by Christine Kaufhold and Francis Poulin.
+.. rst-class:: emphasis
+
+   This tutorial was contributed by Christine Kaufhold and `Francis
+   Poulin <mailto:fpoulin@uwaterloo.ca>`__.
 
 As a continuation of the Quasi-Geostrophic (QG) model described in the
 other tutorial, we will now see how we can use Firedrake to compute
