@@ -632,7 +632,8 @@ A runnable python script version of this demo is available `here
 
 .. rubric:: References
 
-.. bibliography:: saddle_point.bib
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
 
 .. _PETSc: http://mcs.anl.gov/petsc/
 .. _hypre: http://acts.nersc.gov/hypre/
