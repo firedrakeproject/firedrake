@@ -10,7 +10,7 @@ Quasi-Geostrophic Model
 The Quasi-Geostrophic (QG) model is very important in geophysical fluid
 dynamics as it describes some aspects of large-scale flows in the oceans
 and atmosphere very well. The interested reader can find derivations in
-:cite:`Pedlosky:1992` and :cite:`Vallis:2006`.
+:cite:`QG-Pedlosky:1992` and :cite:`QG-Vallis:2006`.
 
 In these notes we present the nonlinear equations for the one-layer QG
 model with a free-surface. Then, the weak form will be derived as is
@@ -70,7 +70,7 @@ homogeneous Dirichlet boundary conditions on the test function.
 Evolution Equation
 ~~~~~~~~~~~~~~~~~~
 
-The SSPRK3 method used as explained in :cite:`Gottlieb:2005` can be written as
+The SSPRK3 method used as explained in :cite:`QG-Gottlieb:2005` can be written as
 
 .. math::
 
@@ -258,4 +258,6 @@ A python script version of this demo can be found `here <qg_1layer_wave.py>`__.
 
 .. rubric:: References
 
-.. bibliography:: qg_refs.bib
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
+   :keyprefix: QG-

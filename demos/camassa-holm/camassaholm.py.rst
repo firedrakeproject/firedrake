@@ -252,4 +252,5 @@ A python script version of this demo can be found `here <camassaholm.py>`__.
 
 .. rubric:: References
 
-.. bibliography:: camassaholm_refs.bib
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames

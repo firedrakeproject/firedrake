@@ -30,7 +30,7 @@ Governing PDE
 We first briefly recap the nonlinear, one-layer QG equation that we
 :doc:`considered previously </demos/qg_1layer_wave.py>`.
 The interested reader can find the
-derivations in :cite:`Pedlosky:1992` and :cite:`Vallis:2006`.
+derivations in :cite:`QGeval-Pedlosky:1992` and :cite:`QGeval-Vallis:2006`.
 This model consists of an evolution equation
 for the Potential Vorticity, :math:`q`, and an elliptic problem through
 which we can determine the streamfunction,
@@ -231,4 +231,6 @@ Below is a plot of the spatial structure of the imaginary part of one of the eig
 
 .. rubric:: References
 
-.. bibliography:: qg_refs.bib
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
+   :keyprefix: QGeval-
