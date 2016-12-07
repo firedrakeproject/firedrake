@@ -28,7 +28,7 @@ installation).
 
 
 Governing PDE
-=============
+~~~~~~~~~~~~~
 
 We first briefly recap the nonlinear, one-layer QG equation that we
 :doc:`considered previously </demos/qg_1layer_wave.py>`.
