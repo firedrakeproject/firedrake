@@ -186,14 +186,14 @@ in a animated fashion. The plus and minus buttons can change the speed of the
 animation.
 
 When used in Jupyter Notebook, plotting multiple 1D functions using additional
-key word argument ``interactive=True`` when calling the function 
+keyword argument ``interactive=True`` when calling the function 
 :func:`plot <firedrake.plot.plot>` will generate an interactive slider for
 selecting the figures. 
 
 For 2D functions, both surface plots and contour plots are supported. By
 default, the :func:`plot <firedrake.plot.plot>` will return a surface plot in the
-colour map of coolwarm. Contour plotting could be enabled by passing the key
-work argument ``contour=True``.
+colour map of coolwarm. Contour plotting could be enabled by passing the keyword
+argument ``contour=True``.
 
 
 Selecting the output space when outputting multiple functions
