@@ -28,6 +28,7 @@ import weakref
 
 import FIAT
 import finat
+from finat.fiat_elements import FiatElementBase
 
 import ufl
 from ufl.algorithms.elementtransformations import reconstruct_element
@@ -59,6 +60,16 @@ element is supported, but must be handled specially because it doesn't
 have a direct FIAT equivalent."""
 
 
+class FiatElementWrapper(FiatElementBase):
+    def __init__(self, element, degree=None):
+        super(FiatElementWrapper, self).__init__(element)
+        self._degree = degree
+
+    @property
+    def degree(self):
+        return self._degree or super(FiatElementWrapper, self).degree
+
+
 def as_fiat_cell(cell):
     """Convert a ufl cell to a FIAT cell.
 
@@ -70,11 +81,8 @@ def as_fiat_cell(cell):
 
 def fiat_compat(element):
     from tsfc.fiatinterface import create_element
-    from finat.fiat_elements import FiatElementBase
-    cell = as_fiat_cell(element.cell())
-    finat_element = FiatElementBase(cell, spanning_degree(element))
-    finat_element._fiat_element = create_element(element)
-    return finat_element
+    return FiatElementWrapper(create_element(element),
+                              degree=spanning_degree(element))
 
 
 @singledispatch
