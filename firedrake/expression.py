@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 import numpy as np
+import collections
 import ufl
 
 from pyop2 import op2
@@ -220,14 +221,9 @@ def to_expression(val, **kwargs):
     :arg \*\*kwargs: keyword arguments passed to the
          :class:`Expression` constructor (which see).
     """
-    
-    if isinstance(val, str):
-        expr = [val]
+    if isinstance(val, collections.Iterable) and not isinstance(val, str):
+        expr = ["%s" % v for v in val]
     else:
-        try:
-            expr = ["%s" % v for v in val]
-        except TypeError:
-            # Not iterable
-            expr = "%s" % val
+        expr = "%s" % val
 
     return Expression(code=expr, **kwargs)
