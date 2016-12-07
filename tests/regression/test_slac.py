@@ -1,12 +1,9 @@
 import pytest
 from firedrake import *
-from firedrake.slate import compile_slate_expression as compile_slate
+from firedrake.slate import compile_expression as compile_slate
 
 
-@pytest.fixture(scope='module', params=[interval,
-                                        triangle,
-                                        tetrahedron,
-                                        quadrilateral])
+@pytest.fixture(scope='module', params=[interval, triangle, tetrahedron, quadrilateral])
 def mesh(request):
     cell = request.param
     if cell == interval:
@@ -47,14 +44,11 @@ def tensor(V, int_type, request):
     else:
         raise ValueError("Not recognized parameter: %s" % request.param)
 
-    if int_type == "cell":
-        return Tensor(inner(u, v)*dx)
-    elif int_type == "exterior_facet":
-        return Tensor(inner(u, v)*ds)
-    elif int_type == "interior_facet":
-        return Tensor(inner(u, v)*dS)
-    else:
-        raise ValueError("Integral type %s not recognized" % int_type)
+    measure = {"cell": dx,
+               "interior_facet": dS,
+               "exterior_facet": ds}
+
+    return Tensor(inner(u, v) * measure[int_type])
 
 
 def test_determinism(tensor):

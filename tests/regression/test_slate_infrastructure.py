@@ -226,7 +226,7 @@ def test_illegal_inverse():
 
 
 def test_illegal_compile():
-    from firedrake.slate import compile_slate_expression as compile_slate
+    from firedrake.slate import compile_expression as compile_slate
     V = FunctionSpace(UnitSquareMesh(1, 1), "CG", 1)
     v = TestFunction(V)
     form = v * dx

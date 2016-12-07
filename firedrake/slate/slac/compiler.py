@@ -18,9 +18,10 @@ from coffee import base as ast
 
 from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
-from firedrake.slate.slate import (TensorBase, Tensor, Transpose, Inverse, Negative,
-                                   BinaryOp, TensorAdd, TensorSub, TensorMul, TensorAction)
-from firedrake.slate.slac.kernel_builder import SlateKernelBuilder
+from firedrake.slate.slate import (TensorBase, Tensor,
+                                   Transpose, Inverse, Negative,
+                                   Add, Sub, Mul, Action)
+from firedrake.slate.slac.kernel_builder import KernelBuilder
 from firedrake import op2
 
 from tsfc.parameters import SCALAR_TYPE
@@ -28,10 +29,10 @@ from tsfc.parameters import SCALAR_TYPE
 from ufl.coefficient import Coefficient
 
 
-__all__ = ['compile_slate_expression']
+__all__ = ['compile_expression']
 
 
-def compile_slate_expression(slate_expr, tsfc_parameters=None):
+def compile_expression(slate_expr, tsfc_parameters=None):
     """Takes a SLATE expression `slate_expr` and returns the appropriate
     :class:`firedrake.op2.Kernel` object representing the SLATE expression.
 
@@ -47,15 +48,14 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
         raise NotImplementedError("Compiling mixed slate expressions")
 
-    # Initialize type, shape and statements list
-    dtype = SCALAR_TYPE
+    # Initialize shape and statements list
     shape = slate_expr.shape
     statements = []
 
     # Create a builder for the SLATE expression
-    builder = SlateKernelBuilder(expression=slate_expr, tsfc_parameters=tsfc_parameters)
+    builder = KernelBuilder(expression=slate_expr, tsfc_parameters=tsfc_parameters)
 
-    # initialize coordinate and facet symbols
+    # Initialize coordinate and facet symbols
     coordsym = ast.Symbol("coords")
     coords = None
     cellfacetsym = ast.Symbol("cell_facets")
@@ -91,7 +91,8 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
             tensor = eigen_tensor(exp, t, index)
 
             if integral_type in ["interior_facet", "exterior_facet"]:
-                builder.require_cell_facets()
+                if not builder.needs_cell_facets:
+                    builder.require_cell_facets()
                 itsym = ast.Symbol("i0")
                 clist.append(ast.FlatBlock("&%s" % itsym))
                 loop_body = []
@@ -122,19 +123,22 @@ def compile_slate_expression(slate_expr, tsfc_parameters=None):
     result_sym = ast.Symbol("T%d" % len(builder.temps))
     result_data_sym = ast.Symbol("A%d" % len(builder.temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(dtype, ast.Symbol(result_data_sym, shape))
-    result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type, result_sym, dtype, result_data_sym))
+    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+    result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
+                                                             result_sym,
+                                                             SCALAR_TYPE,
+                                                             result_data_sym))
     statements.append(result_statement)
 
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, context_temps))
     statements.append(ast.Assign(result_sym, cpp_string))
 
-    args = [result, ast.Decl("%s **" % dtype, coordsym)]
+    args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
     for c in slate_expr.coefficients():
         if isinstance(c, Constant):
-            ctype = "%s *" % dtype
+            ctype = "%s *" % SCALAR_TYPE
         else:
-            ctype = "%s **" % dtype
+            ctype = "%s **" % SCALAR_TYPE
         args.append(ast.Decl(ctype, builder.coefficient_map()[c]))
 
     if builder.needs_cell_facets:
@@ -179,7 +183,7 @@ def auxiliary_information(builder):
     aux_temps = {}
     aux_statements = []
     for i, exp in enumerate(builder.aux_exprs):
-        if isinstance(exp, TensorAction):
+        if isinstance(exp, Action):
             acting_tensor = exp.tensor
             acting_coefficient = exp._acting_coefficient
             assert isinstance(acting_coefficient, Coefficient)
@@ -238,17 +242,17 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         result = "-%s" % metaphrase_slate_to_cpp(expr.tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, BinaryOp):
-        op = {TensorAdd: '+',
-              TensorSub: '-',
-              TensorMul: '*'}[type(expr)]
+    elif isinstance(expr, (Add, Sub, Mul)):
+        op = {Add: '+',
+              Sub: '-',
+              Mul: '*'}[type(expr)]
         result = "%s %s %s" % (metaphrase_slate_to_cpp(expr.operands[0], temps, expr.prec),
                                op,
                                metaphrase_slate_to_cpp(expr.operands[1], temps, expr.prec))
 
         return parenthesize(result, expr.prec, prec)
 
-    elif isinstance(expr, TensorAction):
+    elif isinstance(expr, Action):
         tensor = expr.tensor
         c = expr._acting_coefficient
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor, temps, expr.prec), temps[c])

@@ -2,7 +2,7 @@ from __future__ import absolute_import, print_function, division
 
 from coffee import base as ast
 
-from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, TensorAction
+from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, Action
 from firedrake.slate.slac.utils import RemoveRestrictions, Transformer
 from firedrake.tsfc_interface import compile_form
 
@@ -12,7 +12,7 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.form import Form
 
 
-class SlateKernelBuilder(object):
+class KernelBuilder(object):
     """A helper class for constructing SLATE kernels.
 
     This class provides access to all temporaries and subkernels associated with a SLATE
@@ -24,7 +24,7 @@ class SlateKernelBuilder(object):
     provided by the method `construct_ast`.
     """
     def __init__(self, expression, tsfc_parameters=None):
-        """Constructor for the SlateKernelBuilder class.
+        """Constructor for the KernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
         :arg tsfc_parameters: an optional `dict` of parameters to provide to TSFC when
@@ -164,7 +164,7 @@ def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
         if expression not in temps.keys():
             temps[expression] = ast.Symbol("T%d" % len(temps))
 
-    elif isinstance(expression, TensorAction):
+    elif isinstance(expression, Action):
         # This is a special case where we need to handle this expression separately from the rest
         aux_exprs.append(expression)
         # Pass in the acting tensor to extract any necessary temporaries

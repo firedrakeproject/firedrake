@@ -27,8 +27,7 @@ from ufl.domain import join_domains, sort_domains
 
 
 __all__ = ['TensorBase', 'Tensor', 'Inverse', 'Transpose',
-           'UnaryOp', 'Negative', 'BinaryOp', 'TensorAdd',
-           'TensorSub', 'TensorMul', 'TensorAction']
+           'Negative', 'Add', 'Sub', 'Mul', 'Action']
 
 
 class CheckRestrictions(MultiFunction):
@@ -96,14 +95,14 @@ class TensorBase(object):
         return Transpose(self)
 
     def __add__(self, other):
-        return TensorAdd(self, other)
+        return Add(self, other)
 
     def __radd__(self, other):
         """Ordering of tensor addition does not matter."""
         return self.__add__(other)
 
     def __sub__(self, other):
-        return TensorSub(self, other)
+        return Sub(self, other)
 
     def __rsub__(self, other):
         """Ordering of tensor subtraction does not matter."""
@@ -112,8 +111,8 @@ class TensorBase(object):
     def __mul__(self, other):
         # if other is a ufl.Coefficient, return action
         if isinstance(other, Coefficient):
-            return TensorAction(self, other)
-        return TensorMul(self, other)
+            return Action(self, other)
+        return Mul(self, other)
 
     def __rmul__(self, other):
         """Tensor multiplication is not commutative in general."""
@@ -141,6 +140,10 @@ class TensorBase(object):
                               + tuple(hash(a) for a in self.arguments())
                               + tuple(hash(c) for c in self.coefficients()))
         return self._hash
+
+    def __str__(self):
+        """Returns a string representation."""
+        return self._output_string(self.prec)
 
 
 class Tensor(TensorBase):
@@ -312,10 +315,6 @@ class Inverse(UnaryOp):
         """Creates a string representation of the inverse of a square tensor."""
         return "(%s).inv" % self.tensor
 
-    def __str__(self):
-        """Returns a string representation."""
-        return self._output_string(self.prec)
-
 
 class Transpose(UnaryOp):
     """An abstract SLATE class representing the tranpose of a tensor."""
@@ -331,10 +330,6 @@ class Transpose(UnaryOp):
     def _output_string(self, prec=None):
         """Creates a string representation of the transpose of a tensor."""
         return "(%s).T" % self.tensor
-
-    def __str__(self):
-        """Returns a string representation."""
-        return self._output_string(self.prec)
 
 
 class Negative(UnaryOp):
@@ -358,10 +353,6 @@ class Negative(UnaryOp):
             par = lambda x: "(%s)" % x
 
         return par("-%s" % self.tensor._output_string(prec=self.prec))
-
-    def __str__(self):
-        """Returns a string representation."""
-        return self._output_string(self.prec)
 
 
 class BinaryOp(TensorBase):
@@ -427,9 +418,9 @@ class BinaryOp(TensorBase):
 
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
-        ops = {TensorAdd: '+',
-               TensorSub: '-',
-               TensorMul: '*'}
+        ops = {Add: '+',
+               Sub: '-',
+               Mul: '*'}
         if prec is None or self.prec >= prec:
             par = lambda x: x
         else:
@@ -441,15 +432,11 @@ class BinaryOp(TensorBase):
 
         return par(result)
 
-    def __str__(self):
-        """String representation."""
-        return self._output_string(self.prec)
-
     def __repr__(self):
         return "%s(%r, %r)" % (type(self).__name__, self.operands[0], self.operands[1])
 
 
-class TensorAdd(BinaryOp):
+class Add(BinaryOp):
     """Abstract SLATE class representing matrix-matrix, vector-vector
      or scalar-scalar addition.
 
@@ -460,17 +447,17 @@ class TensorAdd(BinaryOp):
     prec = 1
 
     def __init__(self, A, B):
-        """Constructor for the TensorAdd class."""
+        """Constructor for the Add class."""
         if A.shape != B.shape:
             raise ValueError("Cannot perform the operation of addition on %s-tensor with a %s-tensor." % (A.shape, B.shape))
-        super(TensorAdd, self).__init__(A, B)
+        super(Add, self).__init__(A, B)
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         return self.tensors[0].arguments()
 
 
-class TensorSub(BinaryOp):
+class Sub(BinaryOp):
     """Abstract SLATE class representing matrix-matrix, vector-vector
      or scalar-scalar subtraction.
 
@@ -481,17 +468,17 @@ class TensorSub(BinaryOp):
     prec = 1
 
     def __init__(self, A, B):
-        """Constructor for the TensorSub class."""
+        """Constructor for the Sub class."""
         if A.shape != B.shape:
             raise ValueError("Cannot perform the operation of subtraction on %s-tensor with a %s-tensor." % (A.shape, B.shape))
-        super(TensorSub, self).__init__(A, B)
+        super(Sub, self).__init__(A, B)
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         return self.tensors[0].arguments()
 
 
-class TensorMul(BinaryOp):
+class Mul(BinaryOp):
     """Abstract SLATE class representing the interior product or two tensors.
     By interior product, we mean an operation that results in a tensor of equal or
     lower rank via performing a contraction on arguments. This includes Matrix-Matrix
@@ -504,10 +491,10 @@ class TensorMul(BinaryOp):
     prec = 2
 
     def __init__(self, A, B):
-        """Constructor for the TensorMul class."""
+        """Constructor for the Mul class."""
         if A.shape[1] != B.shape[0]:
             raise ValueError("Cannot perform the operation of multiplication on %s-tensor with a %s-tensor." % (A.shape, B.shape))
-        super(TensorMul, self).__init__(A, B)
+        super(Mul, self).__init__(A, B)
 
     def arguments(self):
         """Returns the arguments of a tensor resulting
@@ -521,7 +508,7 @@ class TensorMul(BinaryOp):
         return argsA[:-1] + argsB[1:]
 
 
-class TensorAction(TensorBase):
+class Action(TensorBase):
     """Abstract SLATE class representing the action of a SLATE tensor on a
     UFL coefficient. This class can be interpreted as representing standard
     matrix-vector multiplication, except the vector is an assembled coefficient
@@ -534,10 +521,10 @@ class TensorAction(TensorBase):
     prec = 2
 
     def __init__(self, tensor, coefficient):
-        """Constructor for the TensorAction class."""
+        """Constructor for the Action class."""
         assert isinstance(coefficient, Coefficient), "Action can only be performed on a ufl.Coefficient object."
         assert isinstance(tensor, TensorBase), "The tensor must be a SLATE `TensorBase` object."
-        super(TensorAction, self).__init__()
+        super(Action, self).__init__()
         self.tensor = tensor
         self._acting_coefficient = coefficient
         self._arguments = tensor.arguments()[:-1]
@@ -574,7 +561,7 @@ class TensorAction(TensorBase):
 
     def __str__(self):
         """String representation of a tensor object in SLATE."""
-        return ["S", "V"][self.rank] + "_%d" % self.id
+        return "(%s) * %s" % (self.tensor, self._acting_coefficient)
 
     def __repr__(self):
         """SLATE representation of the action of a tensor on a coefficient."""
