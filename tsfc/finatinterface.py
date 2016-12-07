@@ -26,13 +26,13 @@ from __future__ import absolute_import, print_function, division
 from singledispatch import singledispatch
 import weakref
 
-import FIAT
 import finat
 from finat.fiat_elements import FiatElementBase
 
 import ufl
 from ufl.algorithms.elementtransformations import reconstruct_element
 
+from tsfc.fiatinterface import as_fiat_cell
 from tsfc.ufl_utils import spanning_degree
 
 
@@ -68,15 +68,6 @@ class FiatElementWrapper(FiatElementBase):
     @property
     def degree(self):
         return self._degree or super(FiatElementWrapper, self).degree
-
-
-def as_fiat_cell(cell):
-    """Convert a ufl cell to a FIAT cell.
-
-    :arg cell: the :class:`ufl.Cell` to convert."""
-    if not isinstance(cell, ufl.AbstractCell):
-        raise ValueError("Expecting a UFL Cell")
-    return FIAT.ufc_cell(cell)
 
 
 def fiat_compat(element):
