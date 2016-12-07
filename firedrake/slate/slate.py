@@ -65,20 +65,14 @@ class TensorBase(object):
         """
         shapes = {}
         for i, arg in enumerate(self.arguments()):
-            V = arg.function_space()
-            shapelist = []
-            for fs in V:
-                shapelist.append(fs.fiat_element.space_dimension() * fs.dim)
-            shapes[i] = tuple(shapelist)
+            shapes[i] = tuple(fs.fiat_element.space_dimension() * fs.dim
+                              for fs in arg.function_space())
         return shapes
 
     @cached_property
     def shape(self):
         """Computes the shape information of the local tensor."""
-        shape = []
-        for shapelist in self.shapes.values():
-            shape.append(sum(shapelist))
-        return tuple(shape)
+        return tuple(sum(shapelist) for shapelist in self.shapes.values())
 
     @cached_property
     def rank(self):
@@ -136,8 +130,9 @@ class TensorBase(object):
         The function will fail if multiple domains are found.
         """
         domains = self.ufl_domains()
-        assert all(domain == domains[0] for domain in domains), "All integrals must share the same domain of integration."
-
+        assert all(domain == domains[0] for domain in domains), (
+            "All integrals must share the same domain of integration."
+        )
         return domains[0]
 
     def __str__(self):
@@ -181,7 +176,7 @@ class Tensor(TensorBase):
     def __init__(self, form):
         """Constructor for the Tensor class."""
         if not isinstance(form, Form):
-            raise NotImplementedError("Only UFL forms are currently supported for creating SLATE tensors.")
+            raise ValueError("Only UFL forms are acceptable inputs for creating terminal tensors.")
 
         r = len(form.arguments())
         if r not in (0, 1, 2):
@@ -215,8 +210,9 @@ class Tensor(TensorBase):
                 if data is None:
                     subdomain_data[domain][it_type] = subdata
                 elif subdata is not None:
-                    assert data.ufl_id() == subdata.ufl_id(), "Integrals in the tensor must have the same subdomain_data objects."
-
+                    assert data.ufl_id() == subdata.ufl_id(), (
+                        "Integrals in the tensor must have the same subdomain_data objects."
+                    )
         self._subdomain_data = subdomain_data
 
     def arguments(self):
@@ -315,7 +311,9 @@ class Inverse(UnaryOp):
     def __init__(self, A):
         """Constructor for the Inverse class."""
         assert A.rank == 2, "The tensor must be rank 2."
-        assert A.shape[0] == A.shape[1], "The inverse can only be computed on square tensors."
+        assert A.shape[0] == A.shape[1], (
+            "The inverse can only be computed on square tensors."
+        )
         super(Inverse, self).__init__(A)
 
     def arguments(self):
@@ -467,7 +465,8 @@ class Add(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the Add class."""
         if A.shape != B.shape:
-            raise ValueError("Cannot perform the operation of addition on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+            raise ValueError("Cannot perform the operation on a %s-tensor with a %s-tensor."
+                             % (A.shape, B.shape))
         super(Add, self).__init__(A, B)
 
     def arguments(self):
@@ -488,7 +487,8 @@ class Sub(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the Sub class."""
         if A.shape != B.shape:
-            raise ValueError("Cannot perform the operation of subtraction on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+            raise ValueError("Cannot perform the operation on a %s-tensor with a %s-tensor."
+                             % (A.shape, B.shape))
         super(Sub, self).__init__(A, B)
 
     def arguments(self):
@@ -511,7 +511,8 @@ class Mul(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the Mul class."""
         if A.shape[1] != B.shape[0]:
-            raise ValueError("Cannot perform the operation of multiplication on %s-tensor with a %s-tensor." % (A.shape, B.shape))
+            raise ValueError("Cannot perform the operation on a %s-tensor with a %s-tensor."
+                             % (A.shape, B.shape))
         super(Mul, self).__init__(A, B)
 
     def arguments(self):
@@ -521,8 +522,10 @@ class Mul(BinaryOp):
         A, B = self.tensors
         argsA = A.arguments()
         argsB = B.arguments()
-        assert argsA[-1].function_space() == argsB[0].function_space(), ("Cannot perform the contraction over middle arguments. They need to be in the space function space.")
-
+        assert argsA[-1].function_space() == argsB[0].function_space(), (
+            "Cannot perform the contraction over middle arguments. "
+            "They need to be in the space function space."
+        )
         return argsA[:-1] + argsB[1:]
 
 
@@ -540,8 +543,12 @@ class Action(TensorBase):
 
     def __init__(self, tensor, coefficient):
         """Constructor for the Action class."""
-        assert isinstance(coefficient, Coefficient), "Action can only be performed on a ufl.Coefficient object."
-        assert isinstance(tensor, TensorBase), "The tensor must be a SLATE `TensorBase` object."
+        assert isinstance(coefficient, Coefficient), (
+            "Action can only be performed on a ufl.Coefficient object."
+        )
+        assert isinstance(tensor, TensorBase), (
+            "The tensor must be a SLATE `TensorBase` object."
+        )
         super(Action, self).__init__()
         self.tensor = tensor
         self._acting_coefficient = coefficient
