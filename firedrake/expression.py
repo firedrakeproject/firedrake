@@ -220,10 +220,14 @@ def to_expression(val, **kwargs):
     :arg \*\*kwargs: keyword arguments passed to the
          :class:`Expression` constructor (which see).
     """
-    try:
-        expr = ["%s" % v for v in val]
-    except TypeError:
-        # Not iterable
-        expr = "%s" % val
+    
+    if isinstance(val, str):
+        expr = [val]
+    else:
+        try:
+            expr = ["%s" % v for v in val]
+        except TypeError:
+            # Not iterable
+            expr = "%s" % val
 
     return Expression(code=expr, **kwargs)
