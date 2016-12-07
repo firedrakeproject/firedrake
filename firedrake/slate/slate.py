@@ -56,7 +56,6 @@ class TensorBase(object):
         """Constructor for the TensorBase abstract class."""
         self.id = TensorBase.id
         TensorBase.id += 1
-        self._hash = None
 
     @cached_property
     def shapes(self):
@@ -116,11 +115,19 @@ class TensorBase(object):
 
     def __rmul__(self, other):
         """Tensor multiplication is not commutative in general."""
-        assert isinstance(other, TensorBase)
         return other.__mul__(self)
 
     def __neg__(self):
         return Negative(self)
+
+    def __eq__(self, other):
+        """Determines whether two TensorBase objects are equal using their
+        associated keys.
+        """
+        return self._key() == other._key()
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
@@ -133,17 +140,17 @@ class TensorBase(object):
 
         return domains[0]
 
-    def __hash__(self):
-        """Returns a hash code for use in dictionary objects."""
-        if self._hash is None:
-            self._hash = hash((type(self), )
-                              + tuple(hash(a) for a in self.arguments())
-                              + tuple(hash(c) for c in self.coefficients()))
-        return self._hash
-
     def __str__(self):
         """Returns a string representation."""
         return self._output_string(self.prec)
+
+    @cached_property
+    def _hash_id(self):
+        """Returns a hash id for use in dictionary objects."""
+        return hash(self._key())
+
+    def __hash__(self):
+        return self._hash_id
 
 
 class Tensor(TensorBase):
@@ -168,6 +175,8 @@ class Tensor(TensorBase):
     These are all under the same type `slate.Tensor`. The attribute `self.rank`
     is used to determine what kind of tensor object is being handled.
     """
+
+    prec = None
 
     def __init__(self, form):
         """Constructor for the Tensor class."""
@@ -232,15 +241,15 @@ class Tensor(TensorBase):
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
-        return self.__str__()
-
-    def __str__(self):
-        """String representation of a tensor object in SLATE."""
         return ["S", "V", "M"][self.rank] + "_%d" % self.id
 
     def __repr__(self):
         """SLATE representation of the tensor object."""
         return ["Scalar", "Vector", "Matrix"][self.rank] + "(%r)" % self.form
+
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self.form)
 
 
 class UnaryOp(TensorBase):
@@ -292,6 +301,10 @@ class UnaryOp(TensorBase):
     def __repr__(self):
         """SLATE representation of the resulting tensor."""
         return "%s(%r)" % (type(self).__name__, self.tensor)
+
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self.tensor)
 
 
 class Inverse(UnaryOp):
@@ -435,6 +448,11 @@ class BinaryOp(TensorBase):
     def __repr__(self):
         return "%s(%r, %r)" % (type(self).__name__, self.operands[0], self.operands[1])
 
+    def _key(self):
+        """Returns a key for hash and equality."""
+        A, B = self.tensors
+        return (type(self), A, B)
+
 
 class Add(BinaryOp):
     """Abstract SLATE class representing matrix-matrix, vector-vector
@@ -530,8 +548,6 @@ class Action(TensorBase):
         self._arguments = tensor.arguments()[:-1]
         self._coefficients = tuple(OrderedDict.fromkeys(tensor.coefficients()
                                                         + (coefficient,)))
-
-        # TODO: Is this sufficient?
         self._integral_domains = tensor.ufl_domains()
         self._subdomain_data = tensor.subdomain_data()
 
@@ -557,12 +573,12 @@ class Action(TensorBase):
 
     def _output_string(self, prec=None):
         """Creates a string representation."""
-        return self.__str__()
-
-    def __str__(self):
-        """String representation of a tensor object in SLATE."""
         return "(%s) * %s" % (self.tensor, self._acting_coefficient)
 
     def __repr__(self):
         """SLATE representation of the action of a tensor on a coefficient."""
         return "Action(%r, %r)" % (self.tensor, self._acting_coefficient)
+
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self.tensor, self._acting_coefficient)

@@ -226,7 +226,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         cell_domains = []
         exterior_facet_domains = []
         interior_facet_domains = []
-
         if tensor is None:
             # For horizontal facets of extruded meshes, the corresponding domain
             # in the base mesh is the cell domain. Hence all the maps used for top
