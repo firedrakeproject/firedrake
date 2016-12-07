@@ -164,6 +164,34 @@ def test_create_subdm_caching(W):
     assert iset1 is iset3
 
 
+def test_matrix_types(W):
+    a = inner(TestFunction(W), TrialFunction(W))*dx
+
+    with pytest.raises(ValueError):
+        assemble(a, mat_type="baij")
+
+    A = assemble(a)
+    assert A.M.handle.getType() == parameters["default_matrix_type"]
+
+    A = assemble(a, mat_type="aij")
+
+    assert A.M.handle.getType() == "seqaij"
+
+    A = assemble(a, mat_type="nest")
+
+    assert A.M.handle.getType() == "nest"
+
+    assert A.M[1, 1].handle.getType() == "seq" + parameters["default_sub_matrix_type"]
+
+    A = assemble(a, mat_type="nest", sub_mat_type="aij")
+
+    assert A.M[1, 1].handle.getType() == "seqaij"
+
+    A = assemble(a, mat_type="nest", sub_mat_type="baij")
+
+    assert A.M[1, 1].handle.getType() == "seqbaij"
+
+
 if __name__ == "__main__":
     import os
     pytest.main(os.path.abspath(__file__))

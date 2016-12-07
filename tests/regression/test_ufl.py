@@ -17,6 +17,7 @@ def test_cellsize_2d(n):
 def test_cellsize_3d(n):
     assert abs(assemble(CellSize(UnitCubeMesh(n, n, n))*dx) - sqrt(3)/n) < 5e-12
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

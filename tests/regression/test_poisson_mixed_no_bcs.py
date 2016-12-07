@@ -90,6 +90,7 @@ def test_hdiv_convergence(testcase, convrate):
         l2err[ii - start] = poisson_mixed(ii, quadrilateral=True)[0]
     assert (np.log2(l2err[:-1] / l2err[1:]) > convrate).all()
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

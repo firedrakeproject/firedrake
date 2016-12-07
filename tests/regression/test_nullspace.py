@@ -124,7 +124,6 @@ def test_near_nullspace(tmpdir):
     mesh = UnitSquareMesh(100, 100)
     x, y = SpatialCoordinate(mesh)
     dim = 2
-    parameters["pyop2_options"]["block_sparsity"] = False
     V = VectorFunctionSpace(mesh, "Lagrange", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -157,13 +156,15 @@ def test_near_nullspace(tmpdir):
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % w_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
-        'pc_type': 'gamg'}, near_nullspace=nsp)
+        'pc_type': 'gamg',
+        'mat_type': 'aij'}, near_nullspace=nsp)
 
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
-        'pc_type': 'gamg'})
+        'pc_type': 'gamg',
+        'mat_type': 'aij'})
 
     # check that both solutions are equal to the exact solution
     assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < 1e-7

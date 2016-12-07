@@ -254,12 +254,8 @@ def _extract_args(*args, **kwargs):
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
                     "options_prefix", "appctx"]
-    transfer_nest = False
     if "nest" in kwargs:
-        from firedrake.logging import warning, RED
-        warning(RED % "The 'nest' argument is deprecated, please set 'mat_type' in the solver parameters")
-        nest = kwargs.pop("nest")
-        transfer_nest = True
+        raise DeprecationWarning("The 'nest' argument is deprecated, please set 'mat_type' in the solver parameters")
 
     for kwarg in kwargs.iterkeys():
         if kwarg not in valid_kwargs:
@@ -304,10 +300,6 @@ def _extract_args(*args, **kwargs):
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
 
-    if transfer_nest and nest is not None:
-        solver_parameters["mat_type"] = "nest" if nest else "aij"
-        if Jp is not None:
-            solver_parameters["pmat_type"] = solver_parameters["mat_type"]
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
 

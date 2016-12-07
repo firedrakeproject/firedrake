@@ -108,5 +108,6 @@ class TestTSFCCache:
         assert len(k) == 2 and 'cell_integral' in kernel_name[0] and \
             'exterior_facet_integral' in kernel_name[1]
 
+
 if __name__ == '__main__':
     pytest.main(os.path.abspath(__file__))

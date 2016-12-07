@@ -71,6 +71,7 @@ def test_laplace_physical_ev(parallel=False):
 def test_laplace_parallel():
     test_laplace_physical_ev(parallel=True)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

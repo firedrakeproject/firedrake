@@ -21,6 +21,7 @@ def test_Taylor():
 
     assert(numpy.abs(v0.dat.data - v0_1.dat.data).max() < 1.0e-10)
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

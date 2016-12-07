@@ -80,6 +80,7 @@ def test_topbottom(P2):
 
     assert max(abs(u.dat.data - u_exact.dat.data)) < 1.0e-6
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

@@ -54,8 +54,26 @@ pipeline:
       # Run tests as the firedrake user, pushing in the current path.
       - cd firedrake/src/firedrake
       - sudo -EHu firedrake env PATH="$PATH" py.test --cov firedrake -n 4 -v tests/
-
+      # Create XML coverage report
+      - coverage xml -o /drone/src/coverage.xml
       # Run the dolfin-adjoint tests
       - cd ../dolfin-adjoint
       - sudo -EHu firedrake env PATH="$PATH" py.test -v tests_firedrake/
-
+  # Codecov
+  codecov:
+    image: alpine:3.3
+    pull: true
+    environment:
+      - CI_BUILD_URL=${DRONE_BUILD_LINK}
+    commands:
+      - apk add --no-cache curl bash git
+      - curl -s https://codecov.io/bash > codecov
+      - chmod 755 ./codecov
+      - ./codecov -X gcov -r "$DRONE_REPO" -B "$DRONE_BRANCH" -C "$DRONE_COMMIT" -b "$DRONE_BUILD_NUMBER" -P "$DRONE_PULL_REQUEST" -T "$DRONE_TAG"
+  # Slack notification
+  slack:
+    image: plugins/slack
+    channel: drone
+    user: drone
+    when:
+      status: [ success, failure ]

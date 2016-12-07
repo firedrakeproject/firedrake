@@ -274,6 +274,7 @@ class directory(object):
     def __exit__(self, *args):
         os.chdir(self.olddir)
 
+
 options = config["options"]
 
 # Apply short cut package names.
@@ -646,14 +647,6 @@ def clean(package):
     os.chdir("..")
 
 
-def get_h5py():
-    log.info("Downloading h5py\n")
-    import urllib
-    urllib.urlretrieve("https://codeload.github.com/h5py/h5py/tar.gz/2.5.0",
-                       "h5py.tar.gz")
-    run_cmd(["tar", "-zxvf", "h5py.tar.gz"])
-
-
 def pip_uninstall(package):
     log.info("Removing existing %s installations\n" % package)
     # Uninstalling something with pip is an absolute disaster.  We
@@ -680,19 +673,24 @@ def pip_uninstall(package):
                 again = True
         i += 1
         if i > 10:
-            raise InstallError("pip claims it uninstalled h5py more than 10 times.  Something is probably broken.")
+            raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
 
 
 def build_and_install_h5py():
-    pip_uninstall("h5py")
-
+    import shutil
     log.info("Installing h5py\n")
+    # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
-        clean("h5py-2.5.0")
+        log.info("Removing old h5py-2.5.0 source")
+        shutil.rmtree("h5py-2.5.0")
+    if os.path.exists("h5py.tar.gz"):
+        log.info("Removing old h5py.tar.gz")
+        os.remove("h5py.tar.gz")
+    if os.path.exists("h5py"):
+        changed = git_update("h5py")
     else:
-        get_h5py()
-
-    os.chdir("h5py-2.5.0")
+        git_clone("git+https://github.com/h5py/h5py.git")
+        changed = True
 
     if args.honour_petsc_dir:
         petsc_dir = os.environ["PETSC_DIR"]
@@ -710,14 +708,16 @@ def build_and_install_h5py():
     log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
     oldcc = os.environ.get("CC", None)
     os.environ["CC"] = options["mpicc"] or "mpicc"
-    run_cmd(python + ["setup.py", "configure", "--hdf5=%s" % hdf5_dir])
-    run_cmd(python + ["setup.py", "build"])
-    run_cmd(pyinstall)
+    os.environ["HDF5_DIR"] = hdf5_dir
+    os.environ["HDF5_MPI"] = "ON"
+    if changed:
+        # Only uninstall if things changed.
+        pip_uninstall("h5py")
+        install("h5py/")
     if oldcc is None:
         del os.environ["CC"]
     else:
         os.environ["CC"] = oldcc
-    os.chdir("..")
 
 
 def build_and_install_glpsol():

@@ -56,6 +56,7 @@ def test_l2_conv_parallel():
     print '[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv
     assert (l2_conv > 2.8).all()
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

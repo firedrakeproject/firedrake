@@ -134,6 +134,7 @@ def interpolatetest(f, expr, x):
         expr = (expr,) * f.function_space().dim
     return evaluate(f.interpolate(Expression(expr)).dat.data, x)
 
+
 exprtest = lambda expr, x: evaluate(assemble(expr).dat.data, x)
 assigntest = lambda f, expr, x: evaluate(f.assign(expr).dat.data, x)
 iaddtest = partial(ioptest, op=iadd)

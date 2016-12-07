@@ -18,6 +18,7 @@ def test_pyop2_custom_init():
     assert op2.configuration['debug'] is True
     op2.configuration.reset()
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

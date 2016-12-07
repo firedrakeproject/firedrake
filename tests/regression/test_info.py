@@ -12,5 +12,6 @@ def test_info():
     log(ERROR, "You should see this error message")
     log(WARNING, "You should NOT see this warning")
 
+
 if __name__ == "__main__":
     test_info()

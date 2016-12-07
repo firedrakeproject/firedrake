@@ -89,6 +89,7 @@ def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_serial():
 def test_firedrake_helmholtz_on_quadrilateral_mesh_from_file_parallel():
     run_firedrake_helmholtz_on_quadrilateral_mesh_from_file()
 
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
