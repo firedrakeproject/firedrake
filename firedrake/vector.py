@@ -103,6 +103,23 @@ class Vector(object):
         except AttributeError:
             self += other
         return self
+    
+    def __sub__(self, other):
+        """Add other to self"""
+        diff = self.copy()
+        try:
+            diff.dat -= other.dat
+        except AttributeError:
+            diff -= other
+        return diff
+
+    def __isub__(self, other):
+        """Add other to self"""
+        try:
+            self.dat -= other.dat
+        except AttributeError:
+            self -= other
+        return self
 
     def apply(self, action):
         """Finalise vector assembly. This is not actually required in
