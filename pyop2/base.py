@@ -4186,6 +4186,7 @@ class ParLoop(LazyComputation):
             arg.halo_exchange_end(update_inc=self._only_local)
 
     @collective
+    @timed_function("ParLoopRHaloBegin")
     def reverse_halo_exchange_begin(self):
         """Start reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
@@ -4195,7 +4196,7 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_begin(reverse=True)
 
     @collective
-    @timed_function("ParLoopReverseHaloEnd")
+    @timed_function("ParLoopRHaloEnd")
     def reverse_halo_exchange_end(self):
         """Finish reverse halo exchanges (to gather remote data)"""
         if self.is_direct:
@@ -4205,14 +4206,14 @@ class ParLoop(LazyComputation):
                 arg.data.halo_exchange_end(reverse=True)
 
     @collective
-    @timed_function("ParLoopReductionBegin")
+    @timed_function("ParLoopRednBegin")
     def reduction_begin(self):
         """Start reductions"""
         for arg in self.global_reduction_args:
             arg.reduction_begin(self.comm)
 
     @collective
-    @timed_function("ParLoopReductionEnd")
+    @timed_function("ParLoopRednEnd")
     def reduction_end(self):
         """End reductions"""
         for arg in self.global_reduction_args:
