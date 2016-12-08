@@ -72,6 +72,26 @@ def test_view_reshape(vector):
     assert [(1,), (2,), (5,), (6,)] == actual
 
 
+def test_reshape_shape(vector):
+    expression = gem.reshape(gem.view(vector, slice(5, 11)), (3, 2))
+    assert expression.shape == (3, 2)
+
+    actual = [convert(expression, multiindex)
+              for multiindex in numpy.ndindex(expression.shape)]
+
+    assert [(i,) for i in range(5, 11)] == actual
+
+
+def test_reshape_reshape(vector):
+    expression = gem.reshape(gem.reshape(vector, (4, 3)), (2, 2), (3,))
+    assert expression.shape == (2, 2, 3)
+
+    actual = [convert(expression, multiindex)
+              for multiindex in numpy.ndindex(expression.shape)]
+
+    assert [(i,) for i in range(12)] == actual
+
+
 if __name__ == "__main__":
     import os
     import sys
