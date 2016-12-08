@@ -290,6 +290,9 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
         scalar_shape, tensor_shape
     )
 
+    if interior_facet:
+        expression = (gem.partial_indexed(expression, (0,)),
+                      gem.partial_indexed(expression, (1,)))
     return funarg, expression
 
 

@@ -42,21 +42,6 @@ class KernelBuilder(KernelBuilderBase):
                 '-': gem.VariableIndex(gem.Variable("facet_1", ()))
             }
 
-    def coefficient(self, ufl_coefficient, restriction):
-        """A function that maps :class:`ufl.Coefficient`s to GEM
-        expressions."""
-        kernel_arg = self.coefficient_map[ufl_coefficient]
-        if ufl_coefficient.ufl_element().family() == 'Real':
-            return kernel_arg
-        elif not isinstance(kernel_arg, tuple):
-            return gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[restriction])
-        elif restriction == '+':
-            return kernel_arg[0]
-        elif restriction == '-':
-            return kernel_arg[1]
-        else:
-            assert False
-
     def set_arguments(self, arguments, indices):
         """Process arguments.
 
@@ -185,9 +170,13 @@ def prepare_coefficient(coefficient, number, offset, name, interior_facet=False)
     shape = cells_shape + tensor_shape + scalar_shape
     alpha = cells_indices + tensor_indices + scalar_indices
     beta = cells_indices + scalar_indices + tensor_indices
-    return gem.ComponentTensor(gem.Indexed(gem.reshape(gem.view(varexp, slice(number, number + 1), slice(numpy.prod(shape, dtype=int))), (), shape),
-                                           alpha),
-                               beta)
+    expression = gem.ComponentTensor(gem.Indexed(gem.reshape(gem.view(varexp, slice(number, number + 1), slice(numpy.prod(shape, dtype=int))), (), shape),
+                                                 alpha),
+                                     beta)
+    if interior_facet:
+        expression = (gem.partial_indexed(expression, (0,)),
+                      gem.partial_indexed(expression, (1,)))
+    return expression
 
 
 def prepare_coordinates(coefficient, name, interior_facet=False):
