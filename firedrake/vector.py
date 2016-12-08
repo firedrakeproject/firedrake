@@ -101,7 +101,7 @@ class Vector(object):
         try:
             self.dat += other.dat
         except AttributeError:
-            self += other
+            self.dat += other
         return self
 
     def __sub__(self, other):
@@ -118,7 +118,7 @@ class Vector(object):
         try:
             self.dat -= other.dat
         except AttributeError:
-            self -= other
+            self.dat -= other
         return self
 
     def apply(self, action):

@@ -90,8 +90,10 @@ def test_addition(f):
     v = f.vector()
     y = Vector(v)
     w = v + y
-
     assert (w.array() == 4.).all()
+
+    w = v + 3.
+    assert (w.array() == 5.).all()
 
 
 def test_iadd(f):
@@ -99,7 +101,6 @@ def test_iadd(f):
     v = f.vector()
     y = Vector(v)
     v += y
-
     assert (v.array() == 4.).all()
 
 
@@ -108,8 +109,10 @@ def test_subtraction(f):
     v = f.vector()
     y = Vector(v)
     w = v - y
-
     assert (w.array() == 0.).all()
+
+    w = v - 3.0
+    assert (w.array() == -1.).all()
 
 
 def test_isub(f):
@@ -117,7 +120,6 @@ def test_isub(f):
     v = f.vector()
     y = Vector(v)
     v -= y
-
     assert (v.array() == 0.).all()
 
 
