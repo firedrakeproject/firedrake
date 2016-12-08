@@ -2,7 +2,7 @@ from __future__ import absolute_import, print_function, division
 from six.moves import range, zip
 
 import numpy
-from itertools import product
+from itertools import chain, product
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
 
@@ -12,7 +12,7 @@ import gem
 
 from tsfc.kernel_interface.common import KernelBuilderBase
 from tsfc.finatinterface import create_element
-from tsfc.coffee import SCALAR_TYPE, cumulative_strides
+from tsfc.coffee import SCALAR_TYPE
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -185,13 +185,9 @@ def prepare_coefficient(coefficient, number, offset, name, interior_facet=False)
     shape = cells_shape + tensor_shape + scalar_shape
     alpha = cells_indices + tensor_indices + scalar_indices
     beta = cells_indices + scalar_indices + tensor_indices
-    return gem.ComponentTensor(
-        gem.FlexiblyIndexed(
-            varexp, ((number, ()),
-                     (offset, tuple(zip(alpha, shape))))
-        ),
-        beta
-    )
+    return gem.ComponentTensor(gem.Indexed(gem.reshape(gem.view(varexp, slice(number, number + 1), slice(numpy.prod(shape, dtype=int))), (), shape),
+                                           alpha),
+                               beta)
 
 
 def prepare_coordinates(coefficient, name, interior_facet=False):
@@ -256,6 +252,7 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
     ushape = tuple(numpy.prod(element.index_shape, dtype=int) for element in elements)
 
     # Flat indices and flat shape
+    reordered_multiindices = []
     indices = []
     shape = []
     for element, multiindex in zip(elements, multiindices):
@@ -267,32 +264,28 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
             tensor_shape = ()
 
         haha = tensor_shape + scalar_shape
-        if interior_facet and haha:
-            haha = (haha[0] * 2,) + haha[1:]
+        if interior_facet:
+            haha = (2,) + haha
         shape.extend(haha)
-        indices.extend(multiindex[len(scalar_shape):] + multiindex[:len(scalar_shape)])
+        reordered_multiindex = multiindex[len(scalar_shape):] + multiindex[:len(scalar_shape)]
+        reordered_multiindices.append(reordered_multiindex)
+        indices.extend(reordered_multiindex)
     indices = tuple(indices)
     shape = tuple(shape)
 
     if arguments and interior_facet:
         result_shape = tuple(2 * sd for sd in ushape)
-        strides = cumulative_strides(result_shape)
-
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
-            offset = sum(r * sd * stride
-                         for r, sd, stride in zip(restrictions, ushape, strides))
-            expressions.append(gem.FlexiblyIndexed(
-                varexp,
-                ((offset,
-                  tuple((i, s) for i, s in zip(indices, shape))),)
-            ))
+            flat_multiindex = tuple(chain(*[(restriction,) + multiindex
+                                            for restriction, multiindex in zip(restrictions, reordered_multiindices)]))
+            expressions.append(gem.Indexed(gem.reshape(varexp, shape), flat_multiindex))
     else:
         result_shape = ushape
-        expressions = [gem.FlexiblyIndexed(varexp, ((0, tuple(zip(indices, shape))),))]
+        expressions = [gem.Indexed(gem.reshape(varexp, shape), indices)]
 
     zero = coffee.FlatBlock(
         str.format("memset({name}, 0, {size} * sizeof(*{name}));\n",
                    name=funarg.sym.gencode(), size=numpy.product(result_shape, dtype=int))
     )
-    return funarg, [zero], expressions
+    return funarg, [zero], gem.optimise.remove_componenttensors(expressions)
