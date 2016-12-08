@@ -1,9 +1,12 @@
 from __future__ import absolute_import, print_function, division
 from six.moves import range
 
-import gem
+from itertools import product
+
 import numpy
 import pytest
+
+import gem
 import tsfc
 
 
@@ -36,6 +39,16 @@ def test_reshape(vector):
               for multiindex in numpy.ndindex(expression.shape)]
 
     assert [(i,) for i in range(12)] == actual
+
+
+def test_view(matrix):
+    expression = gem.view(matrix, slice(3, 8), slice(5, 12))
+    assert expression.shape == (5, 7)
+
+    actual = [convert(expression, multiindex)
+              for multiindex in numpy.ndindex(expression.shape)]
+
+    assert list(product(range(3, 8), range(5, 12))) == actual
 
 
 if __name__ == "__main__":

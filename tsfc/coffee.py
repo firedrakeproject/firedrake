@@ -323,18 +323,6 @@ def _expression_indexed(expr, parameters):
                           rank=tuple(rank))
 
 
-def cumulative_strides(strides):
-    """Calculate cumulative strides from per-dimension capacities.
-
-    For example:
-
-        [2, 3, 4] ==> [12, 4, 1]
-
-    """
-    temp = numpy.flipud(numpy.cumprod(numpy.flipud(list(strides)[1:])))
-    return list(temp) + [1]
-
-
 @_expression.register(gem.FlexiblyIndexed)
 def _expression_flexiblyindexed(expr, parameters):
     var = expression(expr.children[0], parameters)
