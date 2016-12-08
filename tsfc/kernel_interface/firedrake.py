@@ -2,7 +2,7 @@ from __future__ import absolute_import, print_function, division
 
 import numpy
 from collections import namedtuple
-from itertools import product
+from itertools import chain, product
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
 
@@ -293,13 +293,13 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
     return funarg, expression
 
 
-def prepare_arguments(arguments, indices, interior_facet=False):
+def prepare_arguments(arguments, multiindices, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
     :arg arguments: UFL Arguments
-    :arg indices: Argument indices
+    :arg multiindices: Argument multiindices
     :arg interior_facet: interior facet integral?
     :returns: (funarg, expression)
          funarg      - :class:`coffee.Decl` function argument
@@ -327,21 +327,17 @@ def prepare_arguments(arguments, indices, interior_facet=False):
     varexp = gem.Variable("A", c_shape)
 
     if not interior_facet:
-        expression = gem.FlexiblyIndexed(
-            varexp,
-            tuple((0, tuple(zip(alpha, shape)))
-                  for shape, alpha in zip(shapes, indices))
-        )
-        return funarg, [expression]
+        flat_multiindex = tuple(chain(*multiindices))
+        expression = gem.Indexed(gem.reshape(varexp, *shapes), flat_multiindex)
+        return funarg, gem.optimise.remove_componenttensors([expression])
     else:
         expressions = []
         for restrictions in product((0, 1), repeat=len(arguments)):
-            expressions.append(gem.FlexiblyIndexed(
-                varexp,
-                tuple((0, ((r, 2),) + tuple(zip(alpha, shape)))
-                      for r, shape, alpha in zip(restrictions, shapes, indices))
-            ))
-        return funarg, expressions
+            shapes_ = tuple((2,) + shape for shape in shapes)
+            flat_multiindex = tuple(chain(*[(restriction,) + multiindex
+                                            for restriction, multiindex in zip(restrictions, multiindices)]))
+            expressions.append(gem.Indexed(gem.reshape(varexp, *shapes_), flat_multiindex))
+        return funarg, gem.optimise.remove_componenttensors(expressions)
 
 
 cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),
