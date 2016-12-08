@@ -58,7 +58,7 @@ from .scheduler import *
 import coffee
 from coffee import base as ast
 from coffee.utils import ItSpace
-from coffee.visitors import FindInstances, SymbolReferences
+from coffee.visitors import Find, SymbolReferences
 
 
 class Inspector(Cached):
@@ -526,11 +526,11 @@ def build_soft_fusion_kernel(loops, loop_chain_index):
     asts = [k._ast for k in kernels]
     base_ast, fuse_asts = dcopy(asts[0]), asts[1:]
 
-    base_fundecl = FindInstances(ast.FunDecl).visit(base_ast)[ast.FunDecl][0]
+    base_fundecl = Find(ast.FunDecl).visit(base_ast)[ast.FunDecl][0]
     base_fundecl.body[:] = [ast.Block(base_fundecl.body, open_scope=True)]
     for unique_id, _fuse_ast in enumerate(fuse_asts, 1):
         fuse_ast = dcopy(_fuse_ast)
-        fuse_fundecl = FindInstances(ast.FunDecl).visit(fuse_ast)[ast.FunDecl][0]
+        fuse_fundecl = Find(ast.FunDecl).visit(fuse_ast)[ast.FunDecl][0]
         # 1) Extend function name
         base_fundecl.name = "%s_%s" % (base_fundecl.name, fuse_fundecl.name)
         # 2) Concatenate the arguments in the signature
@@ -573,7 +573,7 @@ def build_hard_fusion_kernel(base_loop, fuse_loop, fusion_map, loop_chain_index)
     adjacent to the main kernel1 iteration has been executed.
     """
 
-    finder = FindInstances((ast.FunDecl, ast.PreprocessNode))
+    finder = Find((ast.FunDecl, ast.PreprocessNode))
 
     base = base_loop.kernel
     base_ast = dcopy(base._ast)
