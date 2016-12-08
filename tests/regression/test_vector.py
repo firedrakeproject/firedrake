@@ -94,6 +94,15 @@ def test_subtraction(f):
     assert (w.array() == 0.).all()
 
 
+def test_isub(f):
+    f.interpolate(Expression("2"))
+    v = f.vector()
+    y = Vector(v)
+    v -= y
+
+    assert (v.array() == 0.).all()
+
+
 def test_scale(f):
     f.interpolate(Expression("3"))
     v = f.vector()
