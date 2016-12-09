@@ -195,7 +195,6 @@ def test_stokes_component_all():
         assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 
-@pytest.mark.xfail(reason="Don't set all high bits for overlapping nodes")
 def test_component_full_bcs(V):
     bc0 = DirichletBC(V, Constant((0, 0)), [3, 4])
     bc1 = DirichletBC(V, Constant((1, 0)), 1)
@@ -227,7 +226,6 @@ def test_component_full_bcs(V):
     assert np.allclose(A_mixed, A_full)
 
 
-@pytest.mark.xfail(reason="Don't set all high bits for overlapping nodes")
 def test_component_full_bcs_overlap(V):
     u = TrialFunction(V)
     v = TestFunction(V)
