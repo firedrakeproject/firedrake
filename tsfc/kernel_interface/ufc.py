@@ -2,13 +2,16 @@ from __future__ import absolute_import, print_function, division
 from six.moves import range, zip
 
 import numpy
-from itertools import chain, product
+from itertools import product
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
 
 import coffee.base as coffee
 
 import gem
+from gem.optimise import remove_componenttensors as prune
+
+from finat import TensorFiniteElement
 
 from tsfc.kernel_interface.common import KernelBuilderBase
 from tsfc.finatinterface import create_element
@@ -191,10 +194,16 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
          expression - GEM expression referring to the Coefficient
                       values
     """
+    finat_element = create_element(coefficient.ufl_element())
+    shape = finat_element.index_shape
+    size = numpy.prod(shape, dtype=int)
+
     if not interior_facet:
         funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
                                pointers=[("",)],
                                qualifiers=["const"])]
+        variable = gem.Variable(name, (size,))
+        expression = gem.reshape(variable, shape)
     else:
         funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name+"_0"),
                                pointers=[("",)],
@@ -202,15 +211,6 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
                    coffee.Decl(SCALAR_TYPE, coffee.Symbol(name+"_1"),
                                pointers=[("",)],
                                qualifiers=["const"])]
-
-    finat_element = create_element(coefficient.ufl_element())
-    shape = finat_element.index_shape
-    size = numpy.prod(shape, dtype=int)
-
-    if not interior_facet:
-        variable = gem.Variable(name, (size,))
-        expression = gem.reshape(variable, shape)
-    else:
         variable0 = gem.Variable(name+"_0", (size,))
         variable1 = gem.Variable(name+"_1", (size,))
         expression = (gem.reshape(variable0, shape),
@@ -237,44 +237,49 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
     funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A"), pointers=[()])
     varexp = gem.Variable("A", (None,))
 
-    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    ushape = tuple(numpy.prod(element.index_shape, dtype=int) for element in elements)
+    if len(arguments) == 0:
+        # No arguments
+        zero = coffee.FlatBlock(
+            "memset({name}, 0, sizeof(*{name}));\n".format(name=funarg.sym.gencode())
+        )
+        return funarg, [zero], [gem.reshape(varexp, ())]
 
-    # Flat indices and flat shape
-    reordered_multiindices = []
-    indices = []
-    shape = []
+    elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
+    transposed_shapes = []
+    transposed_indices = []
     for element, multiindex in zip(elements, multiindices):
-        if hasattr(element, '_base_element'):
-            scalar_shape = element._base_element.index_shape
+        if isinstance(element, TensorFiniteElement):
+            scalar_shape = element.base_element.index_shape
             tensor_shape = element.index_shape[len(scalar_shape):]
         else:
             scalar_shape = element.index_shape
             tensor_shape = ()
 
-        haha = tensor_shape + scalar_shape
-        if interior_facet:
-            haha = (2,) + haha
-        shape.extend(haha)
-        reordered_multiindex = multiindex[len(scalar_shape):] + multiindex[:len(scalar_shape)]
-        reordered_multiindices.append(reordered_multiindex)
-        indices.extend(reordered_multiindex)
-    indices = tuple(indices)
-    shape = tuple(shape)
+        transposed_shapes.append(tensor_shape + scalar_shape)
+        scalar_rank = len(scalar_shape)
+        transposed_indices.extend(multiindex[scalar_rank:] + multiindex[:scalar_rank])
+    transposed_indices = tuple(transposed_indices)
 
-    if arguments and interior_facet:
-        result_shape = tuple(2 * sd for sd in ushape)
-        expressions = []
-        for restrictions in product((0, 1), repeat=len(arguments)):
-            flat_multiindex = tuple(chain(*[(restriction,) + multiindex
-                                            for restriction, multiindex in zip(restrictions, reordered_multiindices)]))
-            expressions.append(gem.Indexed(gem.reshape(varexp, shape), flat_multiindex))
+    def expression(restricted):
+        return gem.Indexed(gem.reshape(restricted, *transposed_shapes),
+                           transposed_indices)
+
+    u_shape = numpy.array([numpy.prod(element.index_shape, dtype=int)
+                           for element in elements])
+    if interior_facet:
+        c_shape = tuple(2 * u_shape)
+        slicez = [[slice(r * s, (r + 1) * s)
+                   for r, s in zip(restrictions, u_shape)]
+                  for restrictions in product((0, 1), repeat=len(arguments))]
     else:
-        result_shape = ushape
-        expressions = [gem.Indexed(gem.reshape(varexp, shape), indices)]
+        c_shape = tuple(u_shape)
+        slicez = [[slice(s) for s in u_shape]]
+
+    expressions = [expression(gem.view(gem.reshape(varexp, c_shape), *slices))
+                   for slices in slicez]
 
     zero = coffee.FlatBlock(
         str.format("memset({name}, 0, {size} * sizeof(*{name}));\n",
-                   name=funarg.sym.gencode(), size=numpy.product(result_shape, dtype=int))
+                   name=funarg.sym.gencode(), size=numpy.product(c_shape, dtype=int))
     )
-    return funarg, [zero], gem.optimise.remove_componenttensors(expressions)
+    return funarg, [zero], prune(expressions)
