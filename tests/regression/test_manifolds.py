@@ -96,8 +96,10 @@ def test_manifold_parallel():
 def test_contravariant_piola_facet_integral(space):
     if space == "RTCF":
         mesh = UnitCubedSphereMesh(refinement_level=2)
-    else:
+    elif space == "RT":
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    else:
+        mesh = UnitOctahedralSphereMesh(refinement_level=2)
     global_normal = Expression(("x[0]", "x[1]", "x[2]"))
     mesh.init_cell_orientations(global_normal)
     V = FunctionSpace(mesh, space, 1)
@@ -116,8 +118,10 @@ def test_contravariant_piola_facet_integral(space):
 def test_covariant_piola_facet_integral(space):
     if space == "RTCE":
         mesh = UnitCubedSphereMesh(refinement_level=2)
-    else:
+    elif space == "N1curl":
         mesh = UnitIcosahedralSphereMesh(refinement_level=2)
+    else:
+        mesh = UnitOctahedralSphereMesh(refinement_level=2)
     global_normal = Expression(("x[0]", "x[1]", "x[2]"))
     mesh.init_cell_orientations(global_normal)
     V = FunctionSpace(mesh, space, 1)

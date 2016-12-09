@@ -207,6 +207,20 @@ def test_icosahedral_sphere_mesh_num_exterior_facets_parallel():
     run_icosahedral_sphere_mesh_num_exterior_facets()
 
 
+def run_octahedral_sphere_mesh_num_exterior_facets():
+    m = UnitOctahedralSphereMesh(0)
+    assert_num_exterior_facets_equals_zero(m)
+
+
+def test_octahedral_sphere_mesh_num_exterior_facets():
+    run_octahedral_sphere_mesh_num_exterior_facets()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_octahedral_sphere_mesh_num_exterior_facets_parallel():
+    run_octahedral_sphere_mesh_num_exterior_facets()
+
+
 def run_cubed_sphere_mesh_num_exterior_facets():
     m = UnitCubedSphereMesh(0)
     assert_num_exterior_facets_equals_zero(m)

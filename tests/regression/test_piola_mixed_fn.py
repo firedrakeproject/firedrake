@@ -25,8 +25,9 @@ def test_project():
     assert np.allclose(out.dat.data[1], f.dat.data[1], rtol=1e-5)
 
 
-def test_sphere_project():
-    mesh = UnitIcosahedralSphereMesh(0)
+@pytest.mark.parametrize('MeshClass', [UnitIcosahedralSphereMesh, UnitOctahedralSphereMesh])
+def test_sphere_project(MeshClass):
+    mesh = MeshClass(0)
     mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
     U1 = FunctionSpace(mesh, "RT", 1)
     U2 = FunctionSpace(mesh, "CG", 2)

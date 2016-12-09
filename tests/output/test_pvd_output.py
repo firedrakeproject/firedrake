@@ -4,13 +4,14 @@ from firedrake import *
 
 
 @pytest.fixture(params=["interval", "square[tri]", "square[quad]",
-                        "tet", "sphere[tri]", "sphere[quad]"])
+                        "tet", "sphere[tri1]", "sphere[tri2]", "sphere[quad]"])
 def mesh(request):
     return {"interval": partial(UnitIntervalMesh, 10),
             "square[tri]": partial(UnitSquareMesh, 3, 3),
             "square[quad]": partial(UnitSquareMesh, 3, 3, quadrilateral=True),
             "tet": partial(UnitCubeMesh, 3, 3, 3),
-            "sphere[tri]": UnitIcosahedralSphereMesh,
+            "sphere[tri1]": UnitIcosahedralSphereMesh,
+            "sphere[tri2]": UnitOctahedralSphereMesh,
             "sphere[quad]": UnitCubedSphereMesh}[request.param]()
 
 
