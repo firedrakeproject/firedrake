@@ -170,6 +170,25 @@ def test_integral_information(mass, stiffness, load, boundary_load, zero_rank_te
     assert (F + G).subdomain_data() == (F.form + G.form).subdomain_data()
 
 
+def test_equality_relations(function_space):
+    # Small test to check hash functions
+    V = function_space
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    f = Function(V)
+
+    A = Tensor(u * v * dx)
+    B = Tensor(inner(grad(u), grad(v)) * dx)
+
+    assert A == Tensor(u * v * dx)
+    assert B != A
+    assert B * f != A * f
+    assert A + B == Tensor(u * v * dx) + Tensor(inner(grad(u), grad(v)) * dx)
+    assert A*B != B*A
+    assert B.T != B.inv
+    assert A != -A
+
+
 def test_illegal_add_sub():
     mesh = UnitSquareMesh(1, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -192,6 +211,30 @@ def test_illegal_add_sub():
 
     with pytest.raises(ValueError):
         A - s
+
+
+def test_ops_NotImplementedError():
+    mesh = UnitSquareMesh(1, 1)
+    V = FunctionSpace(mesh, "DG", 0)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    f = Function(V)
+    A = Tensor(u * v * dx)
+
+    with pytest.raises(NotImplementedError):
+        A + f
+
+    with pytest.raises(NotImplementedError):
+        f + A
+
+    with pytest.raises(NotImplementedError):
+        A - f
+
+    with pytest.raises(NotImplementedError):
+        f - A
+
+    with pytest.raises(NotImplementedError):
+        f * A
 
 
 def test_illegal_mul():

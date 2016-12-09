@@ -88,18 +88,36 @@ class TensorBase(object):
         return Transpose(self)
 
     def __add__(self, other):
-        return Add(self, other)
+        if isinstance(other, TensorBase):
+            return Add(self, other)
+        else:
+            raise NotImplementedError("Operand type(s) for + not implemented: '%s' '%s'"
+                                      % (type(self), type(other)))
 
     def __radd__(self, other):
-        """Ordering of tensor addition does not matter."""
-        return self.__add__(other)
+        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
+        # delegate action to other.
+        if not isinstance(other, TensorBase):
+            raise NotImplementedError("Operand type(s) for + not implemented: '%s' '%s'"
+                                      % (type(other), type(self)))
+        else:
+            other.__add__(self)
 
     def __sub__(self, other):
-        return Sub(self, other)
+        if isinstance(other, TensorBase):
+            return Sub(self, other)
+        else:
+            raise NotImplementedError("Operand type(s) for - not implemented: '%s' '%s'"
+                                      % (type(self), type(other)))
 
     def __rsub__(self, other):
-        """Ordering of tensor subtraction does not matter."""
-        return self.__sub__(other)
+        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
+        # delegate action to other.
+        if not isinstance(other, TensorBase):
+            raise NotImplementedError("Operand type(s) for - not implemented: '%s' '%s'"
+                                      % (type(other), type(self)))
+        else:
+            other.__sub__(self)
 
     def __mul__(self, other):
         # if other is a ufl.Coefficient, return action
@@ -108,8 +126,13 @@ class TensorBase(object):
         return Mul(self, other)
 
     def __rmul__(self, other):
-        """Tensor multiplication is not commutative in general."""
-        return other.__mul__(self)
+        # If other is not a TensorBase, raise NotImplementedError. Otherwise,
+        # delegate action to other.
+        if not isinstance(other, TensorBase):
+            raise NotImplementedError("Operand type(s) for * not implemented: '%s' '%s'"
+                                      % (type(other), type(self)))
+        else:
+            other.__mul__(self)
 
     def __neg__(self):
         return Negative(self)
