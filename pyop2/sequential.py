@@ -54,7 +54,7 @@ from pyop2.petsc_base import DataSet, MixedDataSet       # noqa: F401
 from pyop2.petsc_base import Global, GlobalDataSet       # noqa: F401
 from pyop2.petsc_base import Dat, MixedDat, Mat          # noqa: F401
 from pyop2.configuration import configuration
-from pyop2.exceptions import *
+from pyop2.exceptions import *  # noqa: F401
 from pyop2.mpi import collective
 from pyop2.profiling import timed_region
 from pyop2.utils import as_tuple, cached_property, strip, get_petsc_dir
@@ -166,9 +166,6 @@ class Arg(base.Arg):
 
     def c_global_reduction_name(self, count=None):
         return self.c_arg_name()
-
-    def c_local_tensor_name(self, i, j):
-        return self.c_kernel_arg_name(i, j)
 
     def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
         if self._is_dat_view and not self._is_direct:
@@ -331,26 +328,6 @@ class Arg(base.Arg):
                     'insert': "INSERT_VALUES" if self.access == WRITE else "ADD_VALUES"})
         ret = " "*16 + "{\n" + "\n".join(ret) + "\n" + " "*16 + "}"
         return ret
-
-    def c_local_tensor_dec(self, extents, i, j):
-        if self._is_mat:
-            size = 1
-        else:
-            size = self.data.split[i].cdim
-        return tuple([d * size for d in extents])
-
-    def c_zero_tmp(self, i, j):
-        t = self.ctype
-        if self.data[i, j]._is_scalar_field:
-            idx = ''.join(["[i_%d]" % ix for ix in range(len(self.data.dims))])
-            return "%(name)s%(idx)s = (%(t)s)0" % \
-                {'name': self.c_kernel_arg_name(i, j), 't': t, 'idx': idx}
-        elif self.data[i, j]._is_vector_field:
-            size = np.prod(self.data[i, j].dims)
-            return "memset(%(name)s, 0, sizeof(%(t)s) * %(size)s)" % \
-                {'name': self.c_kernel_arg_name(i, j), 't': t, 'size': size}
-        else:
-            raise RuntimeError("Don't know how to zero temp array for %s" % self)
 
     def c_add_offset(self, is_facet=False):
         if not self.map.iterset._extruded:
@@ -570,20 +547,6 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                             "nfofs": " + %d" % o if o else "",
                             "mxofs": " + %d" % (mxofs[0] * dim) if mxofs else ""}
                            for o in range(dim)])
-
-    def c_buffer_scatter_offset(self, count, i, j, ofs_name):
-        if self.data.dataset._extruded:
-            return '%(ofs_name)s = %(map_name)s[i_0]' % {
-                'ofs_name': ofs_name,
-                'map_name': 'xtr_%s' % self.c_map_name(0, i),
-            }
-        else:
-            return '%(ofs_name)s = %(map_name)s[i * %(arity)d + i_0] * %(dim)s' % {
-                'ofs_name': ofs_name,
-                'map_name': self.c_map_name(0, i),
-                'arity': self.map.arity,
-                'dim': self.data.split[i].cdim
-            }
 
 
 class JITModule(base.JITModule):
@@ -855,17 +818,6 @@ def wrapper_snippets(itspace, args,
 
     def itspace_loop(i, d):
         return "for (int i_%d=0; i_%d<%d; ++i_%d) {" % (i, i, d, i)
-
-    def c_const_arg(c):
-        return '%s *%s_' % (c.ctype, c.name)
-
-    def c_const_init(c):
-        d = {'name': c.name,
-             'type': c.ctype}
-        if c.cdim == 1:
-            return '%(name)s = *%(name)s_' % d
-        tmp = '%(name)s[%%(i)s] = %(name)s_[%%(i)s]' % d
-        return ';\n'.join([tmp % {'i': i} for i in range(c.cdim)])
 
     def extrusion_loop():
         if direct:
