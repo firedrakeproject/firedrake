@@ -713,6 +713,9 @@ def build_and_install_h5py():
     if changed:
         # Only uninstall if things changed.
         pip_uninstall("h5py")
+        # Pip installing from dirty directory is potentially unsafe.
+        with directory("h5py/"):
+            check_call(["git", "clean", "-fdx"])
         install("h5py/")
     if oldcc is None:
         del os.environ["CC"]
