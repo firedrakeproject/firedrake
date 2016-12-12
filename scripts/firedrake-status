@@ -114,7 +114,7 @@ for dir in sorted(os.listdir(firedrake_env + "/src")):
 
 status_string = ""
 status_string += "Status of components:\n"
-componentformat = "|{:30}|{:30}|{:10}|{!s:10}|\n"
+componentformat = "|{:20}|{:30}|{:10}|{!s:10}|\n"
 header = componentformat.format("Package", "Branch", "Revision", "Modified")
 line = "-" * (len(header) - 1) + "\n"
 status_string += line + header + line
