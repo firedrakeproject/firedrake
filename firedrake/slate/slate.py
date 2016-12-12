@@ -327,7 +327,12 @@ class UnaryOp(TensorBase):
 
 
 class Inverse(UnaryOp):
-    """An abstract SLATE class representing the tranpose of a tensor."""
+    """An abstract SLATE class representing the inverse of a tensor.
+
+    .. warning::
+
+       This class will raise an error if the tensor is not square.
+    """
 
     prec = None
 
@@ -351,7 +356,7 @@ class Inverse(UnaryOp):
 
 
 class Transpose(UnaryOp):
-    """An abstract SLATE class representing the tranpose of a tensor."""
+    """An abstract SLATE class representing the transpose of a tensor."""
 
     prec = None
 
