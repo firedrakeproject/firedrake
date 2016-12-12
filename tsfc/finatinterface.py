@@ -55,9 +55,9 @@ supported_elements = {
     "Q": None,
 }
 """A :class:`.dict` mapping UFL element family names to their
-FIAT-equivalent constructors.  If the value is ``None``, the UFL
+FInAT-equivalent constructors.  If the value is ``None``, the UFL
 element is supported, but must be handled specially because it doesn't
-have a direct FIAT equivalent."""
+have a direct FInAT equivalent."""
 
 
 class FiatElementWrapper(FiatElementBase):
@@ -78,7 +78,7 @@ def fiat_compat(element):
 
 @singledispatch
 def convert(element):
-    """Handler for converting UFL elements to FIAT elements.
+    """Handler for converting UFL elements to FInAT elements.
 
     :arg element: The UFL element to convert.
 
@@ -138,9 +138,9 @@ _cache = weakref.WeakKeyDictionary()
 
 
 def create_element(element):
-    """Create a FIAT element (suitable for tabulating with) given a UFL element.
+    """Create a FInAT element (suitable for tabulating with) given a UFL element.
 
-    :arg element: The UFL element to create a FIAT element from.
+    :arg element: The UFL element to create a FInAT element from.
     """
     try:
         return _cache[element]
