@@ -80,10 +80,6 @@ class MixedElement(object):
         """Tabulate a mixed element by appropriately splatting
         together the tabulation of the individual elements.
         """
-        # FIXME: Could we reorder the basis functions so that indexing
-        # in the form compiler for mixed interior facets becomes
-        # easier?
-        # Would probably need to redo entity_dofs as well.
         shape = (self.space_dimension(), self.num_components(), len(points))
 
         output = {}

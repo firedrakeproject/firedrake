@@ -1,7 +1,8 @@
 from __future__ import absolute_import, print_function, division
-from tsfc import fiatinterface as f
+from tsfc import finatinterface as f
 import pytest
 import ufl
+import finat
 
 
 @pytest.fixture(params=["BDM",
@@ -31,20 +32,12 @@ def ufl_vector_element(triangle_names):
     return ufl.VectorElement(triangle_names, ufl.triangle, 2)
 
 
-@pytest.mark.parametrize("mixed",
-                         [False, True])
-def test_triangle_vector(mixed, ufl_element, ufl_vector_element):
+def test_triangle_vector(ufl_element, ufl_vector_element):
     scalar = f.create_element(ufl_element)
-    vector = f.create_element(ufl_vector_element, vector_is_mixed=mixed)
+    vector = f.create_element(ufl_vector_element)
 
-    if not mixed:
-        assert isinstance(scalar, f.supported_elements[ufl_element.family()])
-        assert isinstance(vector, f.supported_elements[ufl_element.family()])
-
-    else:
-        assert isinstance(vector, f.MixedElement)
-        assert isinstance(vector.elements()[0], f.supported_elements[ufl_element.family()])
-        assert len(vector.elements()) == ufl_vector_element.num_sub_elements()
+    assert isinstance(vector, finat.TensorFiniteElement)
+    assert scalar == vector.base_element
 
 
 @pytest.fixture(params=["CG", "DG"])
@@ -71,10 +64,9 @@ def test_tensor_prod_simple(ufl_A, ufl_B):
     A = f.create_element(ufl_A)
     B = f.create_element(ufl_B)
 
-    assert isinstance(tensor, f.supported_elements[tensor_ufl.family()])
+    assert isinstance(tensor, finat.TensorProductElement)
 
-    assert tensor.A is A
-    assert tensor.B is B
+    assert tensor.factors == (A, B)
 
 
 def test_cache_hit(ufl_element):
@@ -89,17 +81,6 @@ def test_cache_hit_vector(ufl_vector_element):
     B = f.create_element(ufl_vector_element)
 
     assert A is B
-
-    assert all(a == A.elements()[0] for a in A.elements())
-
-
-def test_cache_miss_vector(ufl_vector_element):
-    A = f.create_element(ufl_vector_element)
-    B = f.create_element(ufl_vector_element, vector_is_mixed=False)
-
-    assert A is not B
-
-    assert A.elements()[0] is not B
 
 
 if __name__ == "__main__":

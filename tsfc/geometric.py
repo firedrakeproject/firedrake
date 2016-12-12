@@ -3,7 +3,7 @@ expressions."""
 
 from __future__ import absolute_import, print_function, division
 
-from numpy import allclose, vstack
+from numpy import allclose, asarray, vstack
 from singledispatch import singledispatch
 
 from ufl.classes import (CellCoordinate, CellEdgeVectors,
@@ -98,13 +98,25 @@ def translate_cell_edge_vectors(terminal, mt, params):
 
 @translate.register(CellCoordinate)
 def translate_cell_coordinate(terminal, mt, params):
-    return gem.partial_indexed(params.index_selector(lambda i: gem.Literal(params.entity_points[i]),
-                                                     mt.restriction),
-                               (params.point_index,))
+    ps = params.point_set
+    if params.integration_dim == params.fiat_cell.get_dimension():
+        return ps.expression
+
+    # This destroys the structure of the quadrature points, but since
+    # this code path is only used to implement CellCoordinate in facet
+    # integrals, hopefully it does not matter much.
+    point_shape = tuple(index.extent for index in ps.indices)
+
+    def callback(entity_id):
+        t = params.fiat_cell.get_entity_transform(params.integration_dim, entity_id)
+        data = asarray(list(map(t, ps.points)))
+        return gem.Literal(data.reshape(point_shape + data.shape[1:]))
+
+    return gem.partial_indexed(params.entity_selector(callback, mt.restriction),
+                               ps.indices)
 
 
 @translate.register(FacetCoordinate)
 def translate_facet_coordinate(terminal, mt, params):
     assert params.integration_dim != params.fiat_cell.get_dimension()
-    points = params.points
-    return gem.partial_indexed(gem.Literal(points), (params.point_index,))
+    return params.point_set.expression

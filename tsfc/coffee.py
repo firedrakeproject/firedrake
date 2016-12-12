@@ -182,15 +182,9 @@ def statement_evaluate(leaf, parameters):
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, gem.Constant):
         assert parameters.declare[leaf]
-        # Take all axes except the last one
-        axes = tuple(range(len(expr.array.shape) - 1))
-        nz_indices, = expr.array.any(axis=axes).nonzero()
-        nz_bounds = tuple([(i, 0)] for i in expr.array.shape[:-1])
-        nz_bounds += ([(max(nz_indices) - min(nz_indices) + 1, min(nz_indices))],)
-        init = coffee.SparseArrayInit(expr.array, parameters.precision, nz_bounds)
         return coffee.Decl(SCALAR_TYPE,
                            _decl_symbol(expr, parameters),
-                           init,
+                           coffee.ArrayInit(expr.array, parameters.precision),
                            qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
@@ -329,18 +323,6 @@ def _expression_indexed(expr, parameters):
                           rank=tuple(rank))
 
 
-def cumulative_strides(strides):
-    """Calculate cumulative strides from per-dimension capacities.
-
-    For example:
-
-        [2, 3, 4] ==> [12, 4, 1]
-
-    """
-    temp = numpy.flipud(numpy.cumprod(numpy.flipud(list(strides)[1:])))
-    return list(temp) + [1]
-
-
 @_expression.register(gem.FlexiblyIndexed)
 def _expression_flexiblyindexed(expr, parameters):
     var = expression(expr.children[0], parameters)
@@ -351,40 +333,27 @@ def _expression_flexiblyindexed(expr, parameters):
     rank = []
     offset = []
     for off, idxs in expr.dim2idxs:
-        if idxs:
-            indices, strides = zip(*idxs)
-            strides = cumulative_strides(strides)
-        else:
-            indices = ()
-            strides = ()
+        for index, stride in idxs:
+            assert isinstance(index, gem.Index)
 
-        iss = []
-        for i, s in zip(indices, strides):
-            if isinstance(i, int):
-                off += i * s
-            elif isinstance(i, gem.Index):
-                iss.append((i, s))
-            else:
-                raise AssertionError("Unexpected index type!")
-
-        if len(iss) == 0:
+        if len(idxs) == 0:
             rank.append(off)
             offset.append((1, 0))
-        elif len(iss) == 1:
-            (i, s), = iss
-            rank.append(parameters.index_names[i])
-            offset.append((s, off))
+        elif len(idxs) == 1:
+            (index, stride), = idxs
+            rank.append(parameters.index_names[index])
+            offset.append((stride, off))
         else:
             parts = []
             if off:
                 parts += [coffee.Symbol(str(off))]
-            for i, s in iss:
-                index_sym = coffee.Symbol(parameters.index_names[i])
-                assert s
-                if s == 1:
+            for index, stride in idxs:
+                index_sym = coffee.Symbol(parameters.index_names[index])
+                assert stride
+                if stride == 1:
                     parts += [index_sym]
                 else:
-                    parts += [coffee.Prod(index_sym, coffee.Symbol(str(s)))]
+                    parts += [coffee.Prod(index_sym, coffee.Symbol(str(stride)))]
             assert parts
             rank.append(reduce(coffee.Sum, parts))
             offset.append((1, 0))

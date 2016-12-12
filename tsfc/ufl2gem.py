@@ -112,9 +112,9 @@ class Mixin(object):
 
         if o.ufl_shape:
             indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(IndexSum(Indexed(summand, indices), index), indices)
+            return ComponentTensor(IndexSum(Indexed(summand, indices), (index,)), indices)
         else:
-            return IndexSum(summand, index)
+            return IndexSum(summand, (index,))
 
     def variable(self, o, expression, label):
         # Only used by UFL AD, at this point, the bare expression is

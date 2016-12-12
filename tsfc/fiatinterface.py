@@ -38,7 +38,7 @@ from ufl.algorithms.elementtransformations import reconstruct_element
 from .mixedelement import MixedElement
 
 
-__all__ = ("create_element", "create_quadrature", "supported_elements", "as_fiat_cell")
+__all__ = ("create_element", "supported_elements", "as_fiat_cell")
 
 
 supported_elements = {
@@ -155,30 +155,6 @@ def as_fiat_cell(cell):
     if not isinstance(cell, ufl.AbstractCell):
         raise ValueError("Expecting a UFL Cell")
     return FIAT.ufc_cell(cell)
-
-
-def create_quadrature(cell, degree, scheme="default"):
-    """Create a quadrature rule.
-
-    :arg cell: The FIAT cell.
-    :arg degree: The degree of polynomial that should be integrated
-        exactly by the rule.
-    :kwarg scheme: optional scheme to use (either ``"default"``, or
-         ``"canonical"``).
-
-    .. note ::
-
-       If the cell is a tensor product cell, the degree should be a
-       tuple, indicating the degree in each direction of the tensor
-       product.
-    """
-    if scheme not in ("default", "canonical"):
-        raise ValueError("Unknown quadrature scheme '%s'" % scheme)
-
-    rule = FIAT.create_quadrature(cell, degree, scheme)
-    if len(rule.get_points()) > 900:
-        raise RuntimeError("Requested a quadrature rule with %d points" % len(rule.get_points()))
-    return rule
 
 
 @singledispatch

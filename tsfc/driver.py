@@ -4,6 +4,7 @@ from six.moves import range
 import collections
 import time
 from functools import reduce
+from itertools import chain
 
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
@@ -14,9 +15,13 @@ import gem
 import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
+from finat.point_set import PointSet
+from finat.quadrature import AbstractQuadratureRule, make_quadrature
+
 from tsfc import fem, ufl_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
-from tsfc.fiatinterface import QuadratureRule, as_fiat_cell, create_quadrature
+from tsfc.fiatinterface import as_fiat_cell
+from tsfc.finatinterface import create_element
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters
 
@@ -85,7 +90,10 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     fiat_cell = as_fiat_cell(cell)
     integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
 
-    argument_indices = tuple(gem.Index(name=name) for arg, name in zip(arguments, ['j', 'k']))
+    argument_indices = tuple(tuple(gem.Index(extent=e)
+                                   for e in create_element(arg.ufl_element()).index_shape)
+                             for arg in arguments)
+    flat_argument_indices = tuple(chain(*argument_indices))
     quadrature_indices = []
 
     # Dict mapping domains to index in original_form.ufl_domains()
@@ -95,13 +103,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     return_variables = builder.set_arguments(arguments, argument_indices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
-    if ufl_utils.is_element_affine(mesh.ufl_coordinate_element()):
-        # For affine mesh geometries we prefer code generation that
-        # composes well with optimisations.
-        builder.set_coordinates(coordinates, mode='list_tensor')
-    else:
-        # Otherwise we use the approach that might be faster (?)
-        builder.set_coordinates(coordinates)
+    builder.set_coordinates(coordinates)
 
     builder.set_coefficients(integral_data, form_data)
 
@@ -133,56 +135,59 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         # parameters override per-integral metadata
         params.update(parameters)
 
+        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
+        integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
+
         # Check if the integral has a quad degree attached, otherwise use
         # the estimated polynomial degree attached by compute_form_data
         quadrature_degree = params.get("quadrature_degree",
                                        params["estimated_polynomial_degree"])
-        integration_cell = fiat_cell.construct_subelement(integration_dim)
-        quad_rule = params.get("quadrature_rule",
-                               create_quadrature(integration_cell,
-                                                 quadrature_degree))
+        try:
+            quad_rule = params["quadrature_rule"]
+        except KeyError:
+            integration_cell = fiat_cell.construct_subelement(integration_dim)
+            quad_rule = make_quadrature(integration_cell, quadrature_degree)
 
-        if not isinstance(quad_rule, QuadratureRule):
+        if not isinstance(quad_rule, AbstractQuadratureRule):
             raise ValueError("Expected to find a QuadratureRule object, not a %s" %
                              type(quad_rule))
 
-        integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
-        integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
-        quadrature_index = gem.Index(name='ip')
-        quadrature_indices.append(quadrature_index)
+        quadrature_multiindex = quad_rule.point_set.indices
+        quadrature_indices += quadrature_multiindex
+
         config = kernel_cfg.copy()
-        config.update(quadrature_rule=quad_rule, point_index=quadrature_index)
+        config.update(quadrature_rule=quad_rule)
         ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
         if parameters["unroll_indexsum"]:
             ir = opt.unroll_indexsum(ir, max_extent=parameters["unroll_indexsum"])
-        irs.append([(gem.IndexSum(expr, quadrature_index)
-                     if quadrature_index in expr.free_indices
-                     else expr)
-                    for expr in ir])
+        ir = [gem.index_sum(expr, quadrature_multiindex) for expr in ir]
+        irs.append(ir)
 
     # Sum the expressions that are part of the same restriction
     ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))
 
     # Need optimised roots for COFFEE
-    ir = opt.remove_componenttensors(ir)
+    ir = impero_utils.preprocess_gem(ir)
 
     # Look for cell orientations in the IR
     if builder.needs_cell_orientations(ir):
         builder.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
-                                        tuple(quadrature_indices) + argument_indices,
+                                        tuple(quadrature_indices) + flat_argument_indices,
                                         remove_zeros=True)
 
     # Generate COFFEE
-    index_names = [(index, index.name) for index in argument_indices]
+    index_names = [(si, name + str(n))
+                   for index, name in zip(argument_indices, ['j', 'k'])
+                   for n, si in enumerate(index)]
     if len(quadrature_indices) == 1:
         index_names.append((quadrature_indices[0], 'ip'))
     else:
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, flat_argument_indices)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)
@@ -208,18 +213,12 @@ def cellvolume_generator(domain, coordinate_coefficient, kernel_config):
         from ufl import dx
         integrand, degree = ufl_utils.one_times(dx(domain=domain))
         integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
-
         interface = CellVolumeKernelInterface(kernel_config["interface"], restriction)
-        quadrature_index = gem.Index(name='q')
 
         config = {k: v for k, v in kernel_config.items()
                   if k in ["ufl_cell", "precision", "index_cache"]}
-        config.update(interface=interface,
-                      quadrature_degree=degree,
-                      point_index=quadrature_index)
-        expr, = fem.compile_ufl(integrand, **config)
-        if quadrature_index in expr.free_indices:
-            expr = gem.IndexSum(expr, quadrature_index)
+        config.update(interface=interface, quadrature_degree=degree)
+        expr, = fem.compile_ufl(integrand, point_sum=True, **config)
         return expr
     return cellvolume
 
@@ -231,13 +230,9 @@ def facetarea_generator(domain, coordinate_coefficient, kernel_config, integral_
         integrand, degree = ufl_utils.one_times(Measure(integral_type, domain=domain))
         integrand = ufl_utils.replace_coordinates(integrand, coordinate_coefficient)
 
-        quadrature_index = gem.Index(name='q')
-
         config = kernel_config.copy()
-        config.update(quadrature_degree=degree, point_index=quadrature_index)
-        expr, = fem.compile_ufl(integrand, **config)
-        if quadrature_index in expr.free_indices:
-            expr = gem.IndexSum(expr, quadrature_index)
+        config.update(quadrature_degree=degree)
+        expr, = fem.compile_ufl(integrand, point_sum=True, **config)
         return expr
     return facetarea
 
@@ -287,14 +282,13 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
 
     # Translate to GEM
-    point_index = gem.Index(name='p')
+    point_set = PointSet(points)
     config = dict(interface=builder,
                   ufl_cell=coordinates.ufl_domain().ufl_cell(),
                   precision=parameters["precision"],
-                  points=points,
-                  point_index=point_index)
+                  point_set=point_set)
     config["cellvolume"] = cellvolume_generator(coordinates.ufl_domain(), coordinates, config)
-    ir, = fem.compile_ufl(expression, **config)
+    ir, = fem.compile_ufl(expression, point_sum=False, **config)
 
     # Deal with non-scalar expressions
     value_shape = ir.shape
@@ -304,11 +298,13 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
 
     # Build kernel body
     return_shape = (len(points),) + value_shape
-    return_indices = (point_index,) + tensor_indices
+    return_indices = point_set.indices + tensor_indices
     return_var = gem.Variable('A', return_shape)
     return_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
+    ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([return_expr], [ir], return_indices)
+    point_index, = point_set.indices
     body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"])
 
     # Handle cell orientations
