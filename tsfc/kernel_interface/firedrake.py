@@ -2,7 +2,7 @@ from __future__ import absolute_import, print_function, division
 
 import numpy
 from collections import namedtuple
-from itertools import product
+from itertools import chain, product
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
 
@@ -10,6 +10,9 @@ import coffee.base as coffee
 
 import gem
 from gem.node import traversal
+from gem.optimise import remove_componenttensors as prune
+
+from finat import TensorFiniteElement
 
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
@@ -268,38 +271,40 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
 
     finat_element = create_element(coefficient.ufl_element())
 
-    # TODO: move behind the FInAT interface!
-    if hasattr(finat_element, '_base_element'):
-        scalar_shape = finat_element._base_element.index_shape
+    if isinstance(finat_element, TensorFiniteElement):
+        scalar_shape = finat_element.base_element.index_shape
         tensor_shape = finat_element.index_shape[len(scalar_shape):]
     else:
         scalar_shape = finat_element.index_shape
         tensor_shape = ()
-
-    if interior_facet:
-        scalar_shape = (2,) + scalar_shape
+    scalar_size = numpy.prod(scalar_shape, dtype=int)
+    tensor_size = numpy.prod(tensor_shape, dtype=int)
 
     funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
                          pointers=[("const", "restrict"), ("restrict",)],
                          qualifiers=["const"])
 
-    scalar_size = numpy.prod(scalar_shape, dtype=int)
-    tensor_size = numpy.prod(tensor_shape, dtype=int)
-    expression = gem.reshape(
-        gem.Variable(name, (scalar_size, tensor_size)),
-        scalar_shape, tensor_shape
-    )
-
+    if not interior_facet:
+        expression = gem.reshape(
+            gem.Variable(name, (scalar_size, tensor_size)),
+            scalar_shape, tensor_shape
+        )
+    else:
+        varexp = gem.Variable(name, (2 * scalar_size, tensor_size))
+        plus = gem.view(varexp, slice(scalar_size), slice(tensor_size))
+        minus = gem.view(varexp, slice(scalar_size, 2 * scalar_size), slice(tensor_size))
+        expression = (gem.reshape(plus, scalar_shape, tensor_shape),
+                      gem.reshape(minus, scalar_shape, tensor_shape))
     return funarg, expression
 
 
-def prepare_arguments(arguments, indices, interior_facet=False):
+def prepare_arguments(arguments, multiindices, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Arguments.  Vector Arguments are rearranged here for interior
     facet integrals.
 
     :arg arguments: UFL Arguments
-    :arg indices: Argument indices
+    :arg multiindices: Argument multiindices
     :arg interior_facet: interior facet integral?
     :returns: (funarg, expression)
          funarg      - :class:`coffee.Decl` function argument
@@ -318,30 +323,24 @@ def prepare_arguments(arguments, indices, interior_facet=False):
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
     shapes = tuple(element.index_shape for element in elements)
 
-    c_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
+    def expression(restricted):
+        return gem.Indexed(gem.reshape(restricted, *shapes),
+                           tuple(chain(*multiindices)))
+
+    u_shape = numpy.array([numpy.prod(shape, dtype=int) for shape in shapes])
     if interior_facet:
-        c_shape *= 2
-    c_shape = tuple(c_shape)
+        c_shape = tuple(2 * u_shape)
+        slicez = [[slice(r * s, (r + 1) * s)
+                   for r, s in zip(restrictions, u_shape)]
+                  for restrictions in product((0, 1), repeat=len(arguments))]
+    else:
+        c_shape = tuple(u_shape)
+        slicez = [[slice(s) for s in u_shape]]
 
     funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=c_shape))
     varexp = gem.Variable("A", c_shape)
-
-    if not interior_facet:
-        expression = gem.FlexiblyIndexed(
-            varexp,
-            tuple((0, tuple(zip(alpha, shape)))
-                  for shape, alpha in zip(shapes, indices))
-        )
-        return funarg, [expression]
-    else:
-        expressions = []
-        for restrictions in product((0, 1), repeat=len(arguments)):
-            expressions.append(gem.FlexiblyIndexed(
-                varexp,
-                tuple((0, ((r, 2),) + tuple(zip(alpha, shape)))
-                      for r, shape, alpha in zip(restrictions, shapes, indices))
-            ))
-        return funarg, expressions
+    expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
+    return funarg, prune(expressions)
 
 
 cell_orientations_coffee_arg = coffee.Decl("int", coffee.Symbol("cell_orientations"),

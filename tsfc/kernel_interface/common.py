@@ -32,8 +32,10 @@ class KernelBuilderBase(KernelInterface):
         kernel_arg = self.coefficient_map[ufl_coefficient]
         if ufl_coefficient.ufl_element().family() == 'Real':
             return kernel_arg
+        elif not self.interior_facet:
+            return kernel_arg
         else:
-            return gem.partial_indexed(kernel_arg, {None: (), '+': (0,), '-': (1,)}[restriction])
+            return kernel_arg[{'+': 0, '-': 1}[restriction]]
 
     def cell_orientation(self, restriction):
         """Cell orientation as a GEM expression."""
