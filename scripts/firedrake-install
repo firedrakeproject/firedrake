@@ -710,7 +710,7 @@ def build_and_install_h5py():
     os.environ["CC"] = options["mpicc"] or "mpicc"
     os.environ["HDF5_DIR"] = hdf5_dir
     os.environ["HDF5_MPI"] = "ON"
-    if changed:
+    if changed or args.rebuild:
         # Only uninstall if things changed.
         pip_uninstall("h5py")
         # Pip installing from dirty directory is potentially unsafe.
