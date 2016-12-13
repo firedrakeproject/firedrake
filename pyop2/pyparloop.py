@@ -157,8 +157,6 @@ class ParLoop(base.ParLoop):
                     else:
                         arg.data._data[arg.map.values_with_halo[idx, arg.idx:arg.idx+1]] = tmp[:]
                 elif arg._is_mat:
-                    if arg._flatten:
-                        raise NotImplementedError  # Need to sort out the permutation.
                     if arg.access is base.INC:
                         arg.data.addto_values(arg.map[0].values_with_halo[idx],
                                               arg.map[1].values_with_halo[idx],

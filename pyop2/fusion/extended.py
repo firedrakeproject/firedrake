@@ -72,7 +72,7 @@ class FusionArg(sequential.Arg):
         :arg c_index: if True, will provide the kernel with the iteration index of this
             Arg's set. Otherwise, code generation is unaffected.
         """
-        super(FusionArg, self).__init__(arg.data, arg.map, arg.idx, arg.access, arg._flatten)
+        super(FusionArg, self).__init__(arg.data, arg.map, arg.idx, arg.access)
         self.gather = gather or arg.gather
         self.c_index = c_index or arg.c_index
 
@@ -83,11 +83,10 @@ class FusionArg(sequential.Arg):
     def c_vec_dec(self, is_facet=False):
         if self.gather == 'onlymap':
             facet_mult = 2 if is_facet else 1
-            cdim = self.data.cdim if self._flatten else 1
             return "%(type)s %(vec_name)s[%(arity)s];\n" % \
                 {'type': self.ctype,
                  'vec_name': self.c_vec_name(),
-                 'arity': self.map.arity * cdim * facet_mult}
+                 'arity': self.map.arity * facet_mult}
         else:
             return super(FusionArg, self).c_vec_dec(is_facet)
 

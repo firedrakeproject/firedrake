@@ -481,8 +481,8 @@ void comp_vol(double A[1], double *x[], double *y[])
             iterset, xtr_nodes, 1, vertex_to_xtr_coords, "v2xtr_layer", v2xtr_layer_offset)
 
         op2.par_loop(extrusion_kernel, iterset,
-                     coords_xtr(op2.INC, map_xtr, flatten=True),
-                     coords(op2.READ, map_2d, flatten=True),
+                     coords_xtr(op2.INC, map_xtr),
+                     coords(op2.READ, map_2d),
                      layer(op2.READ, layer_xtr))
 
         # Assemble the main matrix.
@@ -499,8 +499,8 @@ void comp_vol(double A[1], double *x[], double *y[])
         xtr_f = op2.Dat(d_lnodes_xtr, xtr_f_vals, numpy.int32, "xtr_f")
 
         op2.par_loop(vol_comp_rhs, xtr_elements,
-                     xtr_b(op2.INC, xtr_elem_node[op2.i[0]], flatten=True),
-                     coords_xtr(op2.READ, xtr_elem_node, flatten=True),
+                     xtr_b(op2.INC, xtr_elem_node[op2.i[0]]),
+                     coords_xtr(op2.READ, xtr_elem_node),
                      xtr_f(op2.READ, xtr_elem_node))
 
         assert_allclose(sum(xtr_b.data), 6.0, eps)
