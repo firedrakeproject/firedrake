@@ -1,6 +1,9 @@
+"""Functions to translate UFL finite element objects and reference
+geometric quantities into GEM expressions."""
+
 from __future__ import absolute_import, print_function, division
 from six import iterkeys, iteritems, itervalues
-from six.moves import map
+from six.moves import map, range, zip
 
 import collections
 import itertools
@@ -10,8 +13,14 @@ from singledispatch import singledispatch
 
 from ufl.corealg.map_dag import map_expr_dag, map_expr_dags
 from ufl.corealg.multifunction import MultiFunction
-from ufl.classes import (Argument, Coefficient, CellVolume, FacetArea,
-                         GeometricQuantity, QuadratureWeight)
+from ufl.classes import (Argument, CellCoordinate, CellEdgeVectors,
+                         CellFacetJacobian, CellOrientation,
+                         CellVolume, Coefficient, FacetArea,
+                         FacetCoordinate, GeometricQuantity,
+                         QuadratureWeight, ReferenceCellVolume,
+                         ReferenceFacetVolume, ReferenceNormal)
+
+from FIAT.reference_element import make_affine_mapping
 
 import gem
 from gem.node import traversal
@@ -20,11 +29,11 @@ from gem.utils import cached_property
 
 from finat.quadrature import make_quadrature
 
-from tsfc import ufl2gem, geometric
+from tsfc import ufl2gem
 from tsfc.finatinterface import create_element, as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import analyse_modified_terminal
-from tsfc.parameters import PARAMETERS
+from tsfc.parameters import NUMPY_TYPE, PARAMETERS
 from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
 
 
@@ -140,7 +149,100 @@ def translate_quadratureweight(terminal, mt, ctx):
 
 @translate.register(GeometricQuantity)
 def translate_geometricquantity(terminal, mt, ctx):
-    return geometric.translate(terminal, mt, ctx)
+    raise NotImplementedError("Cannot handle geometric quantity type: %s" % type(terminal))
+
+
+@translate.register(CellOrientation)
+def translate_cell_orientation(terminal, mt, ctx):
+    return ctx.cell_orientation(mt.restriction)
+
+
+@translate.register(ReferenceCellVolume)
+def translate_reference_cell_volume(terminal, mt, ctx):
+    return gem.Literal(ctx.fiat_cell.volume())
+
+
+@translate.register(ReferenceFacetVolume)
+def translate_reference_facet_volume(terminal, mt, ctx):
+    # FIXME: simplex only code path
+    dim = ctx.fiat_cell.get_spatial_dimension()
+    facet_cell = ctx.fiat_cell.construct_subelement(dim - 1)
+    return gem.Literal(facet_cell.volume())
+
+
+@translate.register(CellFacetJacobian)
+def translate_cell_facet_jacobian(terminal, mt, ctx):
+    cell = ctx.fiat_cell
+    facet_dim = ctx.integration_dim
+    assert facet_dim != cell.get_dimension()
+
+    def callback(entity_id):
+        return gem.Literal(make_cell_facet_jacobian(cell, facet_dim, entity_id))
+    return ctx.entity_selector(callback, mt.restriction)
+
+
+def make_cell_facet_jacobian(cell, facet_dim, facet_i):
+    facet_cell = cell.construct_subelement(facet_dim)
+    xs = facet_cell.get_vertices()
+    ys = cell.get_vertices_of_subcomplex(cell.get_topology()[facet_dim][facet_i])
+
+    # Use first 'dim' points to make an affine mapping
+    dim = cell.get_spatial_dimension()
+    A, b = make_affine_mapping(xs[:dim], ys[:dim])
+
+    for x, y in zip(xs[dim:], ys[dim:]):
+        # The rest of the points are checked to make sure the
+        # mapping really *is* affine.
+        assert numpy.allclose(y, A.dot(x) + b)
+
+    return A
+
+
+@translate.register(ReferenceNormal)
+def translate_reference_normal(terminal, mt, ctx):
+    def callback(facet_i):
+        n = ctx.fiat_cell.compute_reference_normal(ctx.integration_dim, facet_i)
+        return gem.Literal(n)
+    return ctx.entity_selector(callback, mt.restriction)
+
+
+@translate.register(CellEdgeVectors)
+def translate_cell_edge_vectors(terminal, mt, ctx):
+    from FIAT.reference_element import TensorProductCell as fiat_TensorProductCell
+    fiat_cell = ctx.fiat_cell
+    if isinstance(fiat_cell, fiat_TensorProductCell):
+        raise NotImplementedError("CellEdgeVectors not implemented on TensorProductElements yet")
+
+    nedges = len(fiat_cell.get_topology()[1])
+    vecs = numpy.vstack(map(fiat_cell.compute_edge_tangent, range(nedges))).astype(NUMPY_TYPE)
+    assert vecs.shape == terminal.ufl_shape
+    return gem.Literal(vecs)
+
+
+@translate.register(CellCoordinate)
+def translate_cell_coordinate(terminal, mt, ctx):
+    ps = ctx.point_set
+    if ctx.integration_dim == ctx.fiat_cell.get_dimension():
+        return ps.expression
+
+    # This destroys the structure of the quadrature points, but since
+    # this code path is only used to implement CellCoordinate in facet
+    # integrals, hopefully it does not matter much.
+    point_shape = tuple(index.extent for index in ps.indices)
+
+    def callback(entity_id):
+        t = ctx.fiat_cell.get_entity_transform(ctx.integration_dim, entity_id)
+        data = numpy.asarray(list(map(t, ps.points)))
+        return gem.Literal(data.reshape(point_shape + data.shape[1:]))
+
+    return gem.partial_indexed(ctx.entity_selector(callback, mt.restriction),
+                               ps.indices)
+
+
+@translate.register(FacetCoordinate)
+def translate_facet_coordinate(terminal, mt, ctx):
+    assert ctx.integration_dim != ctx.fiat_cell.get_dimension()
+    return ctx.point_set.expression
 
 
 @translate.register(CellVolume)
