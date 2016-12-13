@@ -6,7 +6,7 @@ import numpy as np
 from FIAT.reference_element import UFCInterval, UFCTriangle, UFCTetrahedron
 from FIAT.reference_element import FiredrakeQuadrilateral, TensorProductCell
 
-from tsfc.geometric import make_cell_facet_jacobian
+from tsfc.fem import make_cell_facet_jacobian
 
 interval = UFCInterval()
 triangle = UFCTriangle()
