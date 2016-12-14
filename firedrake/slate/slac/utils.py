@@ -6,9 +6,48 @@ from coffee.visitor import Visitor
 from ufl.algorithms.multifunction import MultiFunction
 
 
+class RemoveRestrictions(MultiFunction):
+    """UFL MultiFunction for removing any restrictions on the integrals of forms."""
+    expr = MultiFunction.reuse_if_untouched
+
+    def positive_restricted(self, o):
+        return self(o.ufl_operands[0])
+
+
+class SymbolBho(ast.Symbol):
+    """A functionally equivalent representation of a `coffee.Symbol`,
+    with modified output for rank calls. This is syntactically necessary
+    for C++ generated code.
+    """
+
+    def _genpoints(self):
+        """Parenthesize indices during loop assignment"""
+        pt_paren = lambda p: "%s" % p
+        pt_ofs_paren = lambda p, o: "%s*%s+%s" % (p, o[0], o[1])
+        pt_ofs_stride_paren = lambda p, o: "%s+%s" % (p, o)
+        result = []
+
+        if not self.offset:
+            for p in self.rank:
+                result.append(pt_paren(p))
+        else:
+            for p, ofs in zip(self.rank, self.offset):
+                if ofs == (1, 0):
+                    result.append(pt_paren(p))
+                elif ofs[0] == 1:
+                    result.append(pt_ofs_stride_paren(p, ofs[1]))
+                else:
+                    result.append(pt_ofs_paren(p, ofs))
+        result = ', '.join(i for i in result)
+
+        return "(%s)" % result
+
+
 class Transformer(Visitor):
     """Replaces all out-put tensor references with a specified
-    name of :type: `Eigen::Matrix` with appropriate shape.
+    name of :type: `Eigen::Matrix` with appropriate shape. This
+    class is primarily for COFFEE acrobatics, jumping through
+    nodes and redefining where appropriate.
 
     The default name of :data:`"A"` is assigned, otherwise a
     specified name may be passed as the :data:`name` keyword
@@ -57,8 +96,9 @@ class Transformer(Visitor):
         ret, kernel_name, kernel_args, body, pred, headers, template = ops
 
         body_statements, _ = body.operands()
-        eigen_statement = "Eigen::MatrixBase<Derived> & {0} = const_cast<Eigen::MatrixBase<Derived> &>({0}_);\n".format(name)
-        new_body = [ast.FlatBlock(eigen_statement)] + body_statements
+        new_dec = ast.Decl(typ="Eigen::MatrixBase<Derived> &", sym=name,
+                           init="const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n" % name)
+        new_body = [new_dec] + body_statements
         eigen_template = "template <typename Derived>"
 
         new_ops = (ret, kernel_name, kernel_args, new_body, pred, headers, eigen_template)
@@ -79,21 +119,12 @@ class Transformer(Visitor):
         return o.reconstruct(newtype, ast.Symbol("%s_" % name))
 
     def visit_Symbol(self, o, *args, **kwargs):
-        """Visits a COFFEE symbol and redefines it as a FunCall object.
+        """Visits a COFFEE symbol and redefines it as a SymbolBho object.
 
         i.e. A[j][k] ---> A(j, k)
         """
         name = kwargs.get("name", "A")
         if o.symbol != name:
             return o
-        shape = o.rank
 
-        return ast.FunCall(ast.Symbol(name), *shape)
-
-
-class RemoveRestrictions(MultiFunction):
-    """UFL MultiFunction for removing any restrictions on the integrals of forms."""
-    expr = MultiFunction.reuse_if_untouched
-
-    def positive_restricted(self, o):
-        return self(o.ufl_operands[0])
+        return SymbolBho(o.symbol, o.rank, o.offset)
