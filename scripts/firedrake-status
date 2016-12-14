@@ -85,9 +85,6 @@ for key, val in config["environment"].iteritems():
 
 status = OrderedDict()
 for dir in sorted(os.listdir(firedrake_env + "/src")):
-    if dir.startswith("h5py"):
-        continue
-
     try:
         os.chdir(firedrake_env + "/src/" + dir)
     except OSError as e:

@@ -686,10 +686,25 @@ def build_and_install_h5py():
     if os.path.exists("h5py.tar.gz"):
         log.info("Removing old h5py.tar.gz")
         os.remove("h5py.tar.gz")
+
+    url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
     if os.path.exists("h5py"):
-        changed = git_update("h5py")
+        changed = False
+        with directory("h5py"):
+            # Rewrite old h5py/h5py remote to firedrakeproject/h5py remote.
+            plain_url = split_requirements_url(url)[1]
+            current_remote = check_output(["git", "remote", "-v"]).split()[1]
+            proto = "https" if current_remote.startswith("https") else "ssh"
+            new_remote = git_url(plain_url, proto)
+            if new_remote != current_remote and "h5py/h5py.git" in current_remote:
+                log.info("Updating git remote for h5py from %s to %s", current_remote, new_remote)
+                check_call(["git", "remote", "set-url", "origin", new_remote])
+                check_call(["git", "fetch", "-p", "origin"])
+                check_call(["git", "checkout", "firedrake"])
+                changed = True
+        changed |= git_update("h5py")
     else:
-        git_clone("git+https://github.com/h5py/h5py.git")
+        git_clone(url)
         changed = True
 
     if args.honour_petsc_dir:
