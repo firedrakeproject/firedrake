@@ -365,7 +365,6 @@ class LoopyImplicitMatrixContext(object):
             cbsize = 1
 
         self.block_size = (rbsize, cbsize)
-
         self.action = action(self.a, self._x)
         self.actionT = action(self.aT, self._y)
 
@@ -377,11 +376,13 @@ class LoopyImplicitMatrixContext(object):
         kernel, = compile_form(self.action)
 
         # A bit complicated since we are allowing a general number of
-        # coefficients
+        # coefficients, each of which can be in a mixed space
         coeffs = self.action.coefficients()
-        ws_labels = ["w_" + str(i) for i, _ in enumerate(coeffs)]
+        fcoeffs = [x for c in coeffs for x in c.split()]
+        ws_labels = ["w_" + str(i) for i, _ in enumerate(fcoeffs)]
         things_to_batch = tuple(["A0"] + ws_labels + ["coords"])
         things_to_infer = string.join(things_to_batch, ",")
+        print kernel.ast
         knl = tsfc_to_loopy(kernel._ir)
 
         knl = lp.add_and_infer_dtypes(knl, {things_to_infer: np.float64})
@@ -390,8 +391,7 @@ class LoopyImplicitMatrixContext(object):
         for rule in list(six.itervalues(knl.substitutions)):
             knl = lp.precompute(knl, rule.name, rule.arguments)
 
-        mesh = test_space.mesh()
-        coords = mesh.coordinates
+        coords = test_space.mesh().coordinates
         coord_fs = coords.function_space()
 
         variable_to_dim_nbf = {
@@ -399,7 +399,8 @@ class LoopyImplicitMatrixContext(object):
                        coord_fs.cell_node_map().values.shape[1]),
         }
 
-        for i, coeff in enumerate(coeffs):
+        for i, coeff in enumerate(fcoeffs):
+            print coeff
             nbf = coeff.function_space().cell_node_map().values.shape[1]
             dim = coeff.function_space().dim
             variable_to_dim_nbf["w_"+str(i)] = (dim, nbf)
@@ -410,17 +411,7 @@ class LoopyImplicitMatrixContext(object):
             instructions=[
                 insn.with_transformed_expressions(unflatter) for insn in knl.instructions])
 
-        # variable_to_dim_nbf["A0"] = (test_space.dim,
-        #                              test_space.cell_node_map().values.shape[1])
         knl = adjust_tsfc_shapes(knl, variable_to_dim_nbf)
-
-        # now set up space to hold scattered coefficients
-
-        import pyopencl as cl
-        self.ctx = cl.create_some_context(interactive=False)
-        self.queue = cl.CommandQueue(self.ctx)
-
-        # Create scatter kernels for each coefficient, then fuse
 
         # for coords and each coeff, fuse in a copy of scatter_knl,
         # then bind kernel_args to the non-scattered vectors.
@@ -429,17 +420,27 @@ class LoopyImplicitMatrixContext(object):
         fspaces_in_form = []
         fspace_to_number[coord_fs] = 0
         fspaces_in_form.append(coord_fs)
-        for coeff in coeffs:
+        for coeff in fcoeffs:
             fs = coeff.function_space()
             if fs not in fspace_to_number:
                 fspace_to_number[fs] = len(fspace_to_number)
                 fspaces_in_form.append(fs)
 
-        things_with_fspaces = (
+        # the bits of the test space are also function spaces that
+        # might or might not appear among the coefficients
+        for ts in test_space.split():
+            if ts not in fspace_to_number:
+                fspace_to_number[fs] = len(fspace_to_number)
+                fspaces_in_form.append(fs)
+
+        # we need to handle scatter kernels for the coordinates
+        # and coefficients.
+        things_to_scatter = (
             [("coords", coord_fs)]
             + [("w_%d" % i, coeff.function_space())
-               for i, coeff in enumerate(coeffs)])
-        for thing, fspace in things_with_fspaces:
+               for i, coeff in enumerate(fcoeffs)])
+
+        for thing, fspace in things_to_scatter:
             fspace_nr = fspace_to_number[fspace]
             ltg_cur = fspace.cell_node_map().values
             ibf = "ibf%d" % fspace_nr
@@ -484,41 +485,50 @@ class LoopyImplicitMatrixContext(object):
         knl = lp.add_dtypes(knl,
                             {"A0": np.float64})
 
-        gather_knl = lp.make_kernel(
-            "{{ [iel, ibf_A0, idim_A0]: 0 <= iel < nelements and 0 <= ibf_A0 < {nbf} and 0 <= idim_A0 < {dim} }}"
-            .format(
-                nbf=test_space.cell_node_map().values.shape[1],
-                dim=test_space.dim
-            ),
-            """
-            A0_global[{dim} * ltg_A0[iel, ibf_A0] + idim_A0] = (
+        for ka in knl.args:
+            if ka.name == "A0":
+                A0shp = ka.shape
+                break
+
+        offset = 0
+
+        # the test space may be a mixed space.  Need to loop over its bits
+        # fuse the ltg mapping with the appropriate IS for the field
+        for ts in test_space.split():
+            ltg_cur = fspace.cell_node_map().values
+            ibf = "ibf%d_g" % fspace_nr
+            idim = "idim%d_g" % fspace_nr
+
+            gather_knl = lp.make_kernel(
+                "{{ [iel, ibf_A0, idim_A0]: 0 <= iel < nelements and 0 <= ibf_A0 < {nbf} and 0 <= idim_A0 < {dim} }}"
+                .format(
+                    nbf=ts.cell_node_map().values.shape[1],
+                    dim=ts.dim
+                ),
+                """
+                A0_global[{dim} * ltg_A0[iel, ibf_A0] + idim_A0] = (
                 A0_global[{dim} * ltg_A0[iel, ibf_A0] + idim_A0]
                 + A0[iel, ibf_A0 + {nbf}*idim_A0])  {{atomic}}
-            """
-            .format(
-                dim=test_space.dim,
-                nbf=test_space.cell_node_map().values.shape[1]
-            ),
-            [
-                lp.GlobalArg("A0_global", np.float64, shape=(self._y.vector().size(),), for_atomic=True),
-                lp.GlobalArg("ltg_A0", np.int32, shape=lp.auto),
-                "..."])
-        # A0writes = [ins for ins in knl.instructions
-        #             if ins.assignee.aggregate.name == "A0"]
-        # assert len(A0writes) == 1
-        # # snip off the x = x + y and make it x = y.
-        # insn = A0writes[0]
-        # rvalue = insn.expression
-        # newrvalue = rvalue.children[1]
-        # insn.expression = newrvalue
+                """
+                .format(
+                    dim=ts.dim,
+                    nbf=ts.cell_node_map().values.shape[1]
+                ),
+                [
+                    lp.GlobalArg("A0_global", np.float64, shape=(self._y.vector().size(),), for_atomic=True),
+                    lp.GlobalArg("ltg_A0", np.int32, shape=lp.auto),
+                    lp.GlobalArg("A0", np.float64, shape=A0shp),
+                    "..."])
 
-        gather_knl = lp.add_dtypes(gather_knl, {
-            "nelements": np.int32,
-            "A0": np.float64,
-        })
-        knl = lp.fuse_kernels(
-            (knl, gather_knl),
-            data_flow=[("A0", 0, 1)])
+            gather_knl = lp.add_dtypes(gather_knl, {
+                "nelements": np.int32,
+                "A0": np.float64,
+            })
+            knl = lp.fuse_kernels(
+                (knl, gather_knl),
+                data_flow=[("A0", 0, 1)])
+
+            offset = offset + np.amax(ts.cell_node_map().values)
 
         knl = lp.assignment_to_subst(knl, "A0")
         knl = lp.infer_unknown_types(knl)
@@ -541,6 +551,11 @@ class LoopyImplicitMatrixContext(object):
         kernel_args["ltg_A0"] = test_space.cell_node_map().values
 
         self.kernel_args = kernel_args
+
+        # Now get device/queue set up for mat-vec
+        import pyopencl as cl
+        self.ctx = cl.create_some_context(interactive=False)
+        self.queue = cl.CommandQueue(self.ctx)
 
     def mult(self, mat, X, Y):
 

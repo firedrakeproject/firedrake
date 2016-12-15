@@ -32,7 +32,8 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "oriented",
                                      "subdomain_id",
                                      "domain_number",
-                                     "coefficient_map"])
+                                     "coefficient_map",
+                                     "IR"])
 
 
 class TSFCKernel(Cached):
@@ -82,6 +83,7 @@ class TSFCKernel(Cached):
             # No need for a barrier after this, since non root
             # processes will never race on this file.
             with gzip.open(tempfile, 'wb') as f:
+                print val
                 cPickle.dump(val, f)
             os.rename(tempfile, filepath)
         comm.barrier()
@@ -115,13 +117,20 @@ class TSFCKernel(Cached):
             ast = kernel.ast
             ast = ast if not parameters.get("assemble_inverse", False) else _inverse(ast)
             # Unwind coefficient numbering
+            print map(type, kernel._ir)
+
+            blah = {}
+            blah[tuple(kernel._ir)] = None
+            
             numbers = tuple(number_map[c] for c in kernel.coefficient_numbers)
             kernels.append(KernelInfo(kernel=Kernel(ast, ast.name, opts=opts),
                                       integral_type=kernel.integral_type,
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=kernel.domain_number,
-                                      coefficient_map=numbers))
+                                      coefficient_map=numbers,
+                                      IR=tuple(kernel._ir)))
+
         self.kernels = tuple(kernels)
         self._initialized = True
 
