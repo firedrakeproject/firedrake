@@ -9,7 +9,7 @@ from firedrake.tsfc_interface import compile_form
 from functools import partial
 
 from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl.form import Form
+from ufl import Form, MixedElement
 
 
 class KernelBuilder(object):
@@ -34,30 +34,41 @@ class KernelBuilder(object):
         self.expression = expression
         self.needs_cell_facets = False
 
+        # Generate coefficient map (both mixed and non-mixed cases handled)
+        self.coefficient_map = prepare_coefficients(expression)
+
         # Initialize temporaries, auxiliary expressions and tsfc kernels
         self.temps, self.aux_exprs = prepare_temps_and_aux_exprs(expression)
         self.kernel_exprs = prepare_tsfc_kernels(self.temps, tsfc_parameters=tsfc_parameters)
 
     def require_cell_facets(self):
+        """Assigns `self.needs_cell_facets` to be `True` if facet integrals are present."""
         self.needs_cell_facets = True
 
-    def coefficient_map(self):
-        """Returns a mapping from `ufl.Coefficient` to its corresponding `coffee.base.Symbol` object."""
-        return dict((c, ast.Symbol("w%d" % i))
-                    for i, c in enumerate(self.expression.coefficients()))
+    def extract_coefficient(self, coefficient):
+        """Extracts a coefficient from the coefficient_map. This handles both the case when
+        the coefficient is defined on a mixed or non-mixed function space.
+        """
+        if type(coefficient.ufl_element()) == MixedElement:
+            sub_coeffs = coefficient.split()
+            return tuple(self.coefficient_map[c] for c in sub_coeffs)
+        else:
+            return (self.coefficient_map[coefficient],)
 
     def construct_ast(self, name, args, statements):
-        """Constructs the full kernel AST of a given SLATE expression. The :class:`Transformer` is used to
-        perform the conversion from standard C into the Eigen C++ template library syntax.
+        """Constructs the full kernel AST of a given SLATE expression. The :class:`Transformer`
+        is used to perform the conversion from standard C into the Eigen C++ template library
+        syntax.
 
         :arg name: a string denoting the name of the macro kernel.
         :arg args: a list of arguments for the macro_kernel.
-        :arg statements: a `coffee.base.Block` of instructions, which contains declarations of temporaries,
-                         function calls to all subkernels and any auxilliary information needed to evaulate
-                         the SLATE expression. E.g. facet integral loops and action loops.
+        :arg statements: a `coffee.base.Block` of instructions, which contains declarations
+                         of temporaries, function calls to all subkernels and any auxilliary
+                         information needed to evaulate the SLATE expression.
+                         E.g. facet integral loops and action loops.
 
-        Returns: the full kernel AST to be converted into a PyOP2 kernel, as well as any orientation
-                 information.
+        Returns: the full kernel AST to be converted into a PyOP2 kernel, as well as any
+                 orientation information.
         """
         # all kernel body statements must be wrapped up as a coffee.base.Block
         assert isinstance(statements, ast.Block)
@@ -71,13 +82,27 @@ class KernelBuilder(object):
         for kernel_items in self.kernel_exprs.values():
             for ks in kernel_items:
                 oriented = oriented or ks.kinfo.oriented
-                # TODO: Is this true for SLATE?
+                # TODO: Extend multiple domains support
                 assert ks.kinfo.subdomain_id == "otherwise"
                 kast = transformer.visit(ks.kinfo.kernel._ast)
                 kernel_list.append(kast)
         kernel_list.append(macro_kernel)
 
         return ast.Node(kernel_list), oriented
+
+
+def prepare_coefficients(expression):
+    """Prepares the coefficient map that maps a `ufl.Coefficient` to `coffee.Symbol`"""
+    coefficient_map = {}
+
+    for i, coefficient in enumerate(expression.coefficients()):
+        if type(coefficient.ufl_element()) == MixedElement:
+            for j, sub_coeff in enumerate(coefficient.split()):
+                coefficient_map[sub_coeff] = ast.Symbol("w_%d_%d" % (i, j))
+        else:
+            coefficient_map[coefficient] = ast.Symbol("w_%d" % i)
+
+    return coefficient_map
 
 
 def prepare_tsfc_kernels(temps, tsfc_parameters=None):
@@ -88,10 +113,11 @@ def prepare_tsfc_kernels(temps, tsfc_parameters=None):
     where `terminal_node` objects are :class:`slate.Tensor` nodes and `kernels` is an iterable
     of `namedtuple` objects, `SplitKernel`, provided by TSFC.
 
-    This mapping is used in :class:`SlateKernelBuilder` to provide direct access to all `SplitKernel`
-    objects associated with a `slate.Tensor` node.
+    This mapping is used in :class:`SlateKernelBuilder` to provide direct access to all
+    `SplitKernel` objects associated with a `slate.Tensor` node.
 
-    :arg temps: a mapping of the form ``{terminal_node: symbol_name}`` (see :meth:`prepare_temporaries`).
+    :arg temps: a mapping of the form ``{terminal_node: symbol_name}``
+                (see :meth:`prepare_temporaries`).
     :arg tsfc_parameters: an optional `dict` of parameters to pass onto TSFC.
     """
     kernel_exprs = {}
@@ -133,19 +159,19 @@ def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
     :class:`coffee.base.Symbol` objects.
 
     In addition, this function will return a list `aux_exprs` of any expressions that require
-    special handling in the compiler. This includes expressions that require performing operations
-    on already assembled data.
+    special handling in the compiler. This includes expressions that require performing
+    operations on already assembled data.
 
     This mapping is used in the :class:`SlateKernelBuilder` to provide direct access to all
     temporaries associated with a particular slate expression.
 
     :arg expression: a :class:`slate.TensorBase` object.
     :arg temps: a dictionary that becomes populated recursively and is later returned as the
-                temporaries map. This argument is initialized as an empty `dict` before recursion
-                starts.
-    :arg aux_exprs: a list that becomes populated recursively and is later returned as the list of
-                    auxiliary expressions that require special handling in SLATE's linear algebra
-                    compiler
+                temporaries map. This argument is initialized as an empty `dict` before
+                recursion starts.
+    :arg aux_exprs: a list that becomes populated recursively and is later returned as the
+                    list of auxiliary expressions that require special handling in SLATE's
+                    linear algebra compiler
 
     Returns: the arguments temps and aux_exprs.
     """

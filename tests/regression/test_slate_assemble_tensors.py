@@ -146,6 +146,18 @@ def test_helmholtz_operator(mesh):
     assert np.allclose(H.M.values, ref.M.values)
 
 
+def test_mixed_coefficient_tensor(mesh):
+    V = FunctionSpace(mesh, "CG", 1)
+    U = FunctionSpace(mesh, "DG", 0)
+    W = V * U
+    f = Function(W)
+    f.assign(1)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    T = Tensor(f[0] * u * v * dx)
+    assemble(T).M.values
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

@@ -12,8 +12,6 @@ linear algebra operations are performed using the `Eigen::Matrix` methods built 
 """
 from __future__ import absolute_import, print_function, division
 
-import petsc
-
 from coffee import base as ast
 
 from firedrake.constant import Constant
@@ -24,12 +22,38 @@ from firedrake.slate.slate import (TensorBase, Tensor,
 from firedrake.slate.slac.kernel_builder import KernelBuilder
 from firedrake import op2
 
+from os import environ as env, path
+
 from tsfc.parameters import SCALAR_TYPE
 
 from ufl.coefficient import Coefficient
 
+import sys
+
 
 __all__ = ['compile_expression']
+
+
+def get_petsc_dir():
+    """Ensures that we get the correct PETSc directory information to access the
+    Eigen3 library. This is especially important if one is using a custom PETSc
+    intallation. This function is lifted from setup.py
+    """
+    try:
+        petsc_arch = env.get('PETSC_ARCH', '')
+        petsc_dir = env['PETSC_DIR']
+        if petsc_arch:
+            return (petsc_dir, path.join(petsc_dir, petsc_arch))
+        return (petsc_dir,)
+    except KeyError:
+        try:
+            import petsc
+            return (petsc.get_petsc_dir(), )
+        except ImportError:
+            sys.exit("""Error: Could not find PETSc library.  Please report a bug""")
+
+
+PETSC_DIR = get_petsc_dir()
 
 
 def compile_expression(slate_expr, tsfc_parameters=None):
@@ -37,7 +61,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     :class:`firedrake.op2.Kernel` object representing the SLATE expression.
 
     :arg slate_expr: a :class:'TensorBase' expression.
-
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
                           be passed onto TSFC during the compilation of ufl forms.
     """
@@ -84,15 +107,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
             for cindex in kinfo.coefficient_map:
                 c = exp.coefficients()[cindex]
-                clist.append(builder.coefficient_map()[c])
+                clist.extend(builder.extract_coefficient(c))
 
             inc.extend(kinfo.kernel._include_dirs)
 
             tensor = eigen_tensor(exp, t, index)
 
             if integral_type in ["interior_facet", "exterior_facet"]:
-                if not builder.needs_cell_facets:
-                    builder.require_cell_facets()
+                builder.require_cell_facets()
                 itsym = ast.Symbol("i0")
                 clist.append(ast.FlatBlock("&%s" % itsym))
                 loop_body = []
@@ -133,13 +155,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, context_temps))
     statements.append(ast.Assign(result_sym, cpp_string))
 
+    # Generate arguments for the macro kernel
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
     for c in slate_expr.coefficients():
         if isinstance(c, Constant):
             ctype = "%s *" % SCALAR_TYPE
         else:
             ctype = "%s **" % SCALAR_TYPE
-        args.append(ast.Decl(ctype, builder.coefficient_map()[c]))
+        args.extend([ast.Decl(ctype, sym_c) for sym_c in builder.extract_coefficient(c)])
 
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
@@ -149,7 +172,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                  args=args,
                                                  statements=ast.Block(statements))
 
-    inc.append(petsc.get_petsc_dir() + '/include/eigen3/')
+    inc.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
     op2kernel = op2.Kernel(kernel_ast, macro_kernel_name, cpp=True, include_dirs=inc,
                            headers=['#include <Eigen/Dense>', '#define restrict __restrict'])
 
@@ -189,7 +212,6 @@ def auxiliary_information(builder):
             assert isinstance(acting_coefficient, Coefficient)
 
             temp = ast.Symbol("C%d" % i)
-            # TODO: think about the shape of this temporary
             cshape = acting_tensor.shape[1]
             aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(cshape,)), temp))
             aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
@@ -199,7 +221,7 @@ def auxiliary_information(builder):
                                   ast.Less(itersym, cshape),
                                   ast.Incr(itersym, 1),
                                   ast.Assign(ast.Symbol(temp, rank=(itersym,)),
-                                             ast.Symbol(builder.coefficient_map()[acting_coefficient],
+                                             ast.Symbol(builder.coefficient_map[acting_coefficient],
                                                         rank=(itersym, 0))))
             aux_statements.append(action_loop)
             aux_temps[acting_coefficient] = temp
@@ -210,6 +232,7 @@ def auxiliary_information(builder):
 
 
 def parenthesize(arg, prec=None, parent=None):
+    """Parenthesizes an expression."""
     if prec is None or prec >= parent:
         return arg
     return "(%s)" % arg
@@ -292,14 +315,15 @@ def eigen_matrixbase_type(shape):
 
 
 def eigen_tensor(expr, temporary, index):
-    """Returns an appropriate assignment statement for populating a particular `Eigen::MatrixBase` tensor.
-    If the tensor is mixed, then access to the :meth:`block` of the eigen tensor is provided. Otherwise,
-    not block information is needed and the tensor is returned as is.
+    """Returns an appropriate assignment statement for populating a particular
+    `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
+    :meth:`block` of the eigen tensor is provided. Otherwise, no block information
+    is needed and the tensor is returned as is.
 
     :arg expr: a `slate.Tensor` node.
     :arg temporary: the associated temporary of the expr argument.
-    :arg index: a tuple of integers used to determine row and column information. This is provided by the
-                SplitKernel associated with the expr.
+    :arg index: a tuple of integers used to determine row and column information.
+                This is provided by the SplitKernel associated with the expr.
     """
     try:
         row, col = index
@@ -317,7 +341,9 @@ def eigen_tensor(expr, temporary, index):
 
     # Create sub-block if tensor is mixed
     if (rshape, cshape) != expr.shape:
-        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary, rshape, cshape, rstart, cstart))
+        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
+                                                             rshape, cshape,
+                                                             rstart, cstart))
     else:
         tensor = temporary
 
