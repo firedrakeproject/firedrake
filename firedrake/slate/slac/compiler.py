@@ -22,7 +22,7 @@ from firedrake.slate.slate import (TensorBase, Tensor,
 from firedrake.slate.slac.kernel_builder import KernelBuilder
 from firedrake import op2
 
-from os import environ as env, path
+from pyop2.utils import get_petsc_dir
 
 from tsfc.parameters import SCALAR_TYPE
 
@@ -30,29 +30,8 @@ from ufl.coefficient import Coefficient
 
 import numpy as np
 
-import sys
-
 
 __all__ = ['compile_expression']
-
-
-def get_petsc_dir():
-    """Ensures that we get the correct PETSc directory information to access the
-    Eigen3 library. This is especially important if one is using a custom PETSc
-    intallation. This function is lifted from setup.py
-    """
-    try:
-        petsc_arch = env.get('PETSC_ARCH', '')
-        petsc_dir = env['PETSC_DIR']
-        if petsc_arch:
-            return (petsc_dir, path.join(petsc_dir, petsc_arch))
-        return (petsc_dir,)
-    except KeyError:
-        try:
-            import petsc
-            return (petsc.get_petsc_dir(), )
-        except ImportError:
-            sys.exit("""Error: Could not find PETSc library.  Please report a bug""")
 
 
 PETSC_DIR = get_petsc_dir()
