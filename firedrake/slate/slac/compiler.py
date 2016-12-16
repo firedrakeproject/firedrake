@@ -28,6 +28,8 @@ from tsfc.parameters import SCALAR_TYPE
 
 from ufl.coefficient import Coefficient
 
+import numpy as np
+
 import sys
 
 
@@ -207,22 +209,29 @@ def auxiliary_information(builder):
     aux_statements = []
     for i, exp in enumerate(builder.aux_exprs):
         if isinstance(exp, Action):
-            acting_tensor = exp.tensor
             acting_coefficient = exp._acting_coefficient
             assert isinstance(acting_coefficient, Coefficient)
 
             temp = ast.Symbol("C%d" % i)
-            cshape = acting_tensor.shape[1]
-            aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(cshape,)), temp))
+            V = acting_coefficient.function_space()
+            nnodes = V.fiat_element.space_dimension()
+            ndofs = np.prod(V.ufl_element().value_shape())
+            aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(ndofs*nnodes,)), temp))
             aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
-            itersym = ast.Symbol("i1")
 
-            action_loop = ast.For(ast.Decl("unsigned int", itersym, init=0),
-                                  ast.Less(itersym, cshape),
-                                  ast.Incr(itersym, 1),
-                                  ast.Assign(ast.Symbol(temp, rank=(itersym,)),
-                                             ast.Symbol(builder.coefficient_map[acting_coefficient],
-                                                        rank=(itersym, 0))))
+            # Now we unpack the coefficient and insert its entries into a 1D vector temporary
+            isym = ast.Symbol("i1")
+            jsym = ast.Symbol("j1")
+            action_loop = ast.For(ast.Decl("unsigned int", isym, init=0),
+                                  ast.Less(isym, nnodes),
+                                  ast.Incr(isym, 1),
+                                  ast.For(ast.Decl("unsigned int", jsym, init=0),
+                                          ast.Less(jsym, ndofs),
+                                          ast.Incr(jsym, 1),
+                                          ast.Assign(ast.Symbol(temp,
+                                                                rank=(ast.Sum(ast.Prod(ndofs, isym), jsym),)),
+                                                     ast.Symbol(builder.coefficient_map[acting_coefficient],
+                                                                rank=(isym, jsym)))))
             aux_statements.append(action_loop)
             aux_temps[acting_coefficient] = temp
         else:

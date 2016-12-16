@@ -19,24 +19,36 @@ def mesh(request):
         raise ValueError("%s cell not recognized" % cell)
 
 
-@pytest.fixture(scope='module', params=['cg1', 'cg2', 'dg0', 'dg1'])
+@pytest.fixture(scope='module', params=['cg1', 'cg2', 'dg0', 'dg1',
+                                        'vcg1', 'vcg2', 'tcg1', 'tcg2'])
 def function_space(request, mesh):
     """Generates function spaces for testing SLATE tensor assembly."""
     cg1 = FunctionSpace(mesh, "CG", 1)
     cg2 = FunctionSpace(mesh, "CG", 2)
     dg0 = FunctionSpace(mesh, "DG", 0)
     dg1 = FunctionSpace(mesh, "DG", 1)
+    vcg1 = VectorFunctionSpace(mesh, "CG", 1)
+    vcg2 = VectorFunctionSpace(mesh, "CG", 2)
+    tcg1 = TensorFunctionSpace(mesh, "CG", 1)
+    tcg2 = TensorFunctionSpace(mesh, "CG", 2)
     return {'cg1': cg1,
             'cg2': cg2,
             'dg0': dg0,
-            'dg1': dg1}[request.param]
+            'dg1': dg1,
+            'vcg1': vcg1,
+            'vcg2': vcg2,
+            'tcg1': tcg1,
+            'tcg2': tcg2}[request.param]
 
 
 @pytest.fixture
 def f(function_space):
     """Generate a Firedrake function given a particular function space."""
     f = Function(function_space)
-    f.interpolate(Expression("x[0]"))
+    if function_space.rank >= 1:
+        f.interpolate(Expression(("x[0]",) * function_space.dim))
+    else:
+        f.interpolate(Expression("x[0]"))
     return f
 
 
@@ -58,15 +70,8 @@ def rank_two_tensor(mass):
     return Tensor(mass)
 
 
-def test_tensor_action(mass, f):
-    V = assemble(Tensor(mass) * f)
-    ref = assemble(action(mass, f))
-    assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
-
-
 def test_assemble_vector(rank_one_tensor):
     V = assemble(rank_one_tensor)
-    assert isinstance(V, Function)
     assert np.allclose(V.dat.data, assemble(rank_one_tensor.form).dat.data, rtol=1e-14)
 
 
