@@ -70,8 +70,16 @@ def rank_two_tensor(mass):
     return Tensor(mass)
 
 
+def test_tensor_action(mass, f):
+    V = assemble(Tensor(mass) * f)
+    ref = assemble(action(mass, f))
+    assert isinstance(V, Function)
+    assert np.allclose(V.dat.data, ref.dat.data, rtol=1e-14)
+
+
 def test_assemble_vector(rank_one_tensor):
     V = assemble(rank_one_tensor)
+    assert isinstance(V, Function)
     assert np.allclose(V.dat.data, assemble(rank_one_tensor.form).dat.data, rtol=1e-14)
 
 
