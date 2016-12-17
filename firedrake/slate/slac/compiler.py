@@ -88,6 +88,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
             for cindex in kinfo.coefficient_map:
                 c = exp.coefficients()[cindex]
+                # Handles both mixed and non-mixed coefficient cases
                 clist.extend(builder.extract_coefficient(c))
 
             inc.extend(kinfo.kernel._include_dirs)
@@ -193,25 +194,29 @@ def auxiliary_information(builder):
 
             temp = ast.Symbol("C%d" % i)
             V = acting_coefficient.function_space()
-            nnodes = V.fiat_element.space_dimension()
-            ndofs = np.prod(V.ufl_element().value_shape())
-            aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(ndofs*nnodes,)), temp))
+            node_extent = V.fiat_element.space_dimension()
+            dof_extent = np.prod(V.ufl_element().value_shape())
+            aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(dof_extent * node_extent,)), temp))
             aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
 
             # Now we unpack the coefficient and insert its entries into a 1D vector temporary
             isym = ast.Symbol("i1")
             jsym = ast.Symbol("j1")
-            action_loop = ast.For(ast.Decl("unsigned int", isym, init=0),
-                                  ast.Less(isym, nnodes),
-                                  ast.Incr(isym, 1),
-                                  ast.For(ast.Decl("unsigned int", jsym, init=0),
-                                          ast.Less(jsym, ndofs),
-                                          ast.Incr(jsym, 1),
-                                          ast.Assign(ast.Symbol(temp,
-                                                                rank=(ast.Sum(ast.Prod(ndofs, isym), jsym),)),
-                                                     ast.Symbol(builder.coefficient_map[acting_coefficient],
-                                                                rank=(isym, jsym)))))
-            aux_statements.append(action_loop)
+            tensor_index = ast.Sum(ast.Prod(dof_extent, isym), jsym)
+            # Inner-loop running over dof_extent
+            inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
+                                 ast.Less(jsym, dof_extent),
+                                 ast.Incr(jsym, 1),
+                                 ast.Assign(ast.Symbol(temp, rank=(tensor_index,)),
+                                            ast.Symbol(builder.coefficient_map[acting_coefficient],
+                                                       rank=(isym, jsym))))
+            # Outer-loop running over node_extent
+            loop = ast.For(ast.Decl("unsigned int", isym, init=0),
+                           ast.Less(isym, node_extent),
+                           ast.Incr(isym, 1),
+                           inner_loop)
+
+            aux_statements.append(loop)
             aux_temps[acting_coefficient] = temp
         else:
             raise NotImplementedError("Auxiliary expression type %s not currently implemented." % type(exp))
