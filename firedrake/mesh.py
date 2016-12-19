@@ -564,8 +564,8 @@ class MeshTopology(object):
 
     @utils.cached_property
     def cell_to_facet_map(self):
-        """Return a :class:`op2.Dat` that maps from a cell index to
-        the local facet numbers on each cell. This has a type :data:`np.int8`.
+        """Return a :class:`op2.Dat` that maps from a cell index to the local
+        facet types on each cell.
 
         The i-th local facet is exterior if the value of this array is :data:`0`
         and interior if the value is :data:`1`.

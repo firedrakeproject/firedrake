@@ -1,6 +1,6 @@
 import pytest
 from firedrake import *
-from firedrake.slate import compile_expression as compile_slate
+from firedrake.slate.slac import compile_expression as compile_slate
 
 
 @pytest.fixture(scope='module', params=[interval, triangle, tetrahedron, quadrilateral])

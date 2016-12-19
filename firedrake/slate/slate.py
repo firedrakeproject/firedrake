@@ -23,11 +23,11 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
 from ufl.coefficient import Coefficient
 from ufl.form import Form
-from ufl.domain import join_domains, sort_domains
+from ufl.domain import join_domains
 
 
-__all__ = ['TensorBase', 'Tensor', 'Inverse', 'Transpose',
-           'Negative', 'Add', 'Sub', 'Mul', 'Action']
+__all__ = ['Tensor', 'Inverse', 'Transpose', 'Negative',
+           'Add', 'Sub', 'Mul', 'Action']
 
 
 class CheckRestrictions(MultiFunction):
@@ -215,29 +215,6 @@ class Tensor(TensorBase):
 
         self.form = form
 
-        # Generate integral domains
-        integral_domains = join_domains([it.ufl_domain() for it in integrals])
-        self._integral_domains = sort_domains(integral_domains)
-
-        # Generate subdomain data
-        subdomain_data = {}
-        for domain in self._integral_domains:
-            subdomain_data[domain] = {}
-
-            for integral in integrals:
-                domain = integral.ufl_domain()
-                it_type = integral.integral_type()
-                subdata = integral.subdomain_data()
-
-                data = subdomain_data[domain].get(it_type)
-                if data is None:
-                    subdomain_data[domain][it_type] = subdata
-                elif subdata is not None:
-                    assert data.ufl_id() == subdata.ufl_id(), (
-                        "Integrals in the tensor must have the same subdomain_data objects."
-                    )
-        self._subdomain_data = subdomain_data
-
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         return self.form.arguments()
@@ -250,13 +227,13 @@ class Tensor(TensorBase):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return self._integral_domains
+        return self.form.ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return self._subdomain_data
+        return self.form.subdomain_data()
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -274,15 +251,6 @@ class Tensor(TensorBase):
 class UnaryOp(TensorBase):
     """An abstract SLATE class for representing unary operations on a
     Tensor object.
-
-    The currently supported unary operations on a SLATE :class:`TensorBase`
-    expression are the following:
-
-        (1) the inverse of a tensor, `A.inv`, implemented in the subclass
-            `Inverse`;
-        (2) the transpose of a tensor, `A.T`, implemented in the subclass
-            `Transpose`;
-        (3) and the negative operation, `-A` (subclass `Negative`).
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
             (:class:`Tensor`) or any derived expression resulting from any number
@@ -398,16 +366,6 @@ class BinaryOp(TensorBase):
     """An abstract SLATE class representing binary operations on tensors.
     Such operations take two operands and returns a tensor-valued expression.
 
-    The currently supported binary operations include the following:
-
-        (1) The addition of two identical-rank :class:`TensorBase` objects. That is,
-            the addition of two scalars, vectors or matrices. This operation is
-            implemented in the subclass `TensorAdd`.
-        (2) The subtraction of two scalar, vector or matrix expressions. See `TensorSub`.
-        (3) The multiplication of two matrices, the action of a matrix on a vector or
-            the action of a scalar on any other rank tensor. All cases are handled by the
-            `TensorMul` subclass.
-
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
             (:class:`Tensor`) or any derived expression resulting from any number
             of linear algebra operations on `Tensor` objects. For example,
@@ -499,7 +457,11 @@ class Add(BinaryOp):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self.tensors[0].arguments()
+        A, B = self.tensors
+        assert [argA.function_space() == argB.function_space()
+                for argA in A.arguments()
+                for argB in B.arguments()], "Arguments must share the same function space."
+        return A.arguments()
 
 
 class Sub(BinaryOp):
@@ -521,7 +483,11 @@ class Sub(BinaryOp):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self.tensors[0].arguments()
+        A, B = self.tensors
+        assert [argA.function_space() == argB.function_space()
+                for argA in A.arguments()
+                for argB in B.arguments()], "Arguments must share the same function space."
+        return A.arguments()
 
 
 class Mul(BinaryOp):
@@ -552,7 +518,7 @@ class Mul(BinaryOp):
         argsB = B.arguments()
         assert argsA[-1].function_space() == argsB[0].function_space(), (
             "Cannot perform the contraction over middle arguments. "
-            "They need to be in the space function space."
+            "They need to be in the same function space."
         )
         return argsA[:-1] + argsB[1:]
 
@@ -577,34 +543,35 @@ class Action(TensorBase):
         assert isinstance(tensor, TensorBase), (
             "The tensor must be a SLATE `TensorBase` object."
         )
+        V = coefficient.function_space()
+        assert tensor.arguments()[-1].function_space() == V, (
+            "Argument function space must be the same as the "
+            "coefficient function space."
+        )
         super(Action, self).__init__()
         self.tensor = tensor
         self._acting_coefficient = coefficient
-        self._arguments = tensor.arguments()[:-1]
-        self._coefficients = tuple(OrderedDict.fromkeys(tensor.coefficients()
-                                                        + (coefficient,)))
-        self._integral_domains = tensor.ufl_domains()
-        self._subdomain_data = tensor.subdomain_data()
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self._arguments
+        return self.tensor.arguments()[:-1]
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
-        return self._coefficients
+        return tuple(OrderedDict.fromkeys(self.tensor.coefficients()
+                                          + (self._acting_coefficient,)))
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return self._integral_domains
+        return self.tensor.ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return self._subdomain_data
+        return self.tensor.subdomain_data()
 
     def _output_string(self, prec=None):
         """Creates a string representation."""

@@ -14,30 +14,30 @@ class RemoveRestrictions(MultiFunction):
         return self(o.ufl_operands[0])
 
 
-class SymbolBho(ast.Symbol):
+class SymbolWithFuncallIndexing(ast.Symbol):
     """A functionally equivalent representation of a `coffee.Symbol`,
     with modified output for rank calls. This is syntactically necessary
-    for C++ generated code.
+    when referring to symbols of Eigen::MatrixBase objects.
     """
 
     def _genpoints(self):
         """Parenthesize indices during loop assignment"""
-        pt_paren = lambda p: "%s" % p
-        pt_ofs_paren = lambda p, o: "%s*%s+%s" % (p, o[0], o[1])
-        pt_ofs_stride_paren = lambda p, o: "%s+%s" % (p, o)
+        pt = lambda p: "%s" % p
+        pt_ofs = lambda p, o: "%s*%s+%s" % (p, o[0], o[1])
+        pt_ofs_stride = lambda p, o: "%s+%s" % (p, o)
         result = []
 
         if not self.offset:
             for p in self.rank:
-                result.append(pt_paren(p))
+                result.append(pt(p))
         else:
             for p, ofs in zip(self.rank, self.offset):
                 if ofs == (1, 0):
-                    result.append(pt_paren(p))
+                    result.append(pt(p))
                 elif ofs[0] == 1:
-                    result.append(pt_ofs_stride_paren(p, ofs[1]))
+                    result.append(pt_ofs_stride(p, ofs[1]))
                 else:
-                    result.append(pt_ofs_paren(p, ofs))
+                    result.append(pt_ofs(p, ofs))
         result = ', '.join(i for i in result)
 
         return "(%s)" % result
@@ -119,7 +119,8 @@ class Transformer(Visitor):
         return o.reconstruct(newtype, ast.Symbol("%s_" % name))
 
     def visit_Symbol(self, o, *args, **kwargs):
-        """Visits a COFFEE symbol and redefines it as a SymbolBho object.
+        """Visits a COFFEE symbol and redefines it as a Symbol with
+        FunCall indexing.
 
         i.e. A[j][k] ---> A(j, k)
         """
@@ -127,4 +128,4 @@ class Transformer(Visitor):
         if o.symbol != name:
             return o
 
-        return SymbolBho(o.symbol, o.rank, o.offset)
+        return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
