@@ -32,7 +32,7 @@ Key Dates
 ---------
 
 * Early registration deadline: 10 February 2017
-* Abstract deadline: 10 February 2017
+* `Abstract <https://easychair.org/conferences/?conf=firedrake17>`_ deadline: 10 February 2017
 * Workshop: 27-28 March 2017
 
 
@@ -70,9 +70,9 @@ Kensington Campus. Further details will follow soon.
 Registration
 ------------
 
-Registration will open shortly. Full registration before 10 February
-will cost £50, rising to £75 thereafter. Student early registration
-will be £40 rising to £75 after 10 February.
+.. raw:: html
+   
+   <div style="width:100%; text-align:left;"><iframe src="https://eventbrite.co.uk/tickets-external?eid=30454608554&ref=etckt" frameborder="0" height="800" width="100%" vspace="0" hspace="0" marginheight="5" marginwidth="5" scrolling="auto" allowtransparency="true"></iframe><div style="padding:10px 0 5px; margin:2px; width:100%; text-align:left;" ><a class="powered-by-eb" style="color: #ADB0B6; text-decoration: none;" target="_blank" href="http://www.eventbrite.co.uk/">Powered by Eventbrite</a></div></div>
 
 
 Further details

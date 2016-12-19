@@ -1,3 +1,8 @@
+.. image:: images/david_talking.jpg
+   :width: 50%
+   :alt: David Ham explaining Firedrake
+   :align: right
+
 Firedrake events
 ----------------
 
