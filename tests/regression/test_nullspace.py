@@ -27,6 +27,21 @@ def test_nullspace(V):
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
 
 
+def test_orthonormalize():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    a = Function(V).interpolate(Constant((2, 0)))
+    b = Function(V).interpolate(Constant((0, 2)))
+
+    basis = VectorSpaceBasis([a, b])
+    assert basis.is_orthogonal()
+    assert not basis.is_orthonormal()
+
+    basis.orthonormalize()
+    assert basis.is_orthogonal()
+    assert basis.is_orthonormal()
+
+
 def test_transpose_nullspace():
     errors = []
     for n in range(4, 10):
@@ -147,8 +162,8 @@ def test_near_nullspace(tmpdir):
     n2 = as_vector([y - 0.5, -(x - 0.5)])
     ns = [n0, n1, n2]
     n_interp = [interpolate(n, V) for n in ns]
-    n_normalized = [interpolate(n*(1.0/sqrt(n.dat.inner(n.dat))), V) for n in n_interp]
-    nsp = VectorSpaceBasis(vecs=n_normalized)
+    nsp = VectorSpaceBasis(vecs=n_interp)
+    nsp.orthonormalize()
 
     wo_nns_log = str(tmpdir.join("wo_nns_log"))
     w_nns_log = str(tmpdir.join("w_nns_log"))
