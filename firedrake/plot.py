@@ -137,6 +137,9 @@ def plot_mesh(mesh, axes=None, **kwargs):
     else:
         idx = (0, 1, 0)
     coords = coordinates.dat.data_ro
+    if tdim == gdim and tdim == 1:
+        # Pad 1D array with zeros
+        coords = np.dstack((coords, np.zeros_like(coords))).reshape(-1, 2)
     vertices = coords[cell[:, idx]]
     figure = plt.figure()
     if axes is None:
@@ -156,7 +159,7 @@ def plot_mesh(mesh, axes=None, **kwargs):
     for setter, idx in zip(["set_xlim",
                             "set_ylim",
                             "set_zlim"],
-                           range(gdim)):
+                           range(coords.shape[1])):
         try:
             setter = getattr(axes, setter)
         except AttributeError:
@@ -164,6 +167,9 @@ def plot_mesh(mesh, axes=None, **kwargs):
         amin = coords[:, idx].min()
         amax = coords[:, idx].max()
         extra = (amax - amin) / 20
+        if extra == 0.0:
+            # 1D interval
+            extra = 0.5
         amin -= extra
         amax += extra
         setter(amin, amax)
