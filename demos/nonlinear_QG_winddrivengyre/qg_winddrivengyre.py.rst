@@ -1,13 +1,17 @@
 Wind-Driven Gyres: Quasi-Geostrophic Limit
 ==========================================
 
+Contributed by Christine Kaufhold and Francis Poulin.
+
 Building on the previous two demos that used the Quasi-Geostrophic
-(QG) model (insert two links), we now consider how to determine a
+(QG) model for the :doc:`time-stepping </demos/qg_1layer_wave.py>` and
+:doc:`eigenvalue problem </demos/qgbasinmodes.py>`,
+we now consider how to determine a
 wind-driven gyre solution that includes bottom bottom drag and
 nonlinear advection. This is referred to as the Nonlinear Stommel
 Problem.
 
-This is a classical problem going back to Stommel (1949) (link). Even
+This is a classical problem going back to :cite:`Stommel:1949`. Even
 though it is far too simple to describe the dynamics of the real
 oceans quantitatively, it did explain qualitatively why we have
 western intensification in the world’s gyres. The curl of the wind
@@ -15,8 +19,8 @@ stress adds vorticity into the gyres and the latitudinal variation in
 the Coriolis parameter causes a weak equatorward flow away from the
 boundaries (Sverdrup flow). It is because of the dissipation that
 arises near the boundaries that we must have western intensification.
-This was first shown by Stommel (1949) using simple bottom drag but it
-was only years later after Munk (1953) did a similar calculation using
+This was first shown by :cite:`Stommel:1949` using simple bottom drag but it
+was only years later after :cite:`Munk:1953` did a similar calculation using
 lateral viscosity that people took the idea seriously.
 
 After three quarters of a century we are still unable to parametrize
@@ -24,8 +28,9 @@ the dissipative effects of the small scales so it is very difficult to
 get a good quantiative predictions as to the mean structure of the
 gyre that is generated. However, this demo aims to compute the
 structure of the oceanic gyre given particular parameters. The
-interested reader can read more about this in (Vallis chapter 14). In
-this tutorial we will consider the nonlinear Stommel problem.
+interested reader can read more about this in
+:cite:`Pedlosky:1992` and :cite:`Vallis:2006`.
+In this tutorial we will consider the nonlinear Stommel problem.
 
 Governing PDE:Stommel Problem
 =============================
@@ -58,7 +63,7 @@ as to generate a single gyre,
 .. math:: Q_{winds} = \tau \cos\left( \pi \left[\frac{y}{L_y} - \frac{1}{2} \right] \right)
 
 where :math:`L_y` is the length of our domain and :math:`\tau` is the strength of our wind forcing. By putting a :math:`2` in front of the :math:`\pi` we
-get a double gyre (Vallis, 2005).
+get a double gyre :cite:`Vallis:2005`.
 
 If we only look for steady solutions
 in time, we can ignore the time derivative term, and we get
@@ -239,3 +244,17 @@ nonlinear solution. We do this by defining a weak form.  (Note: this can probabl
 
   file = File(“Difference between Linear and Nonlinear Streamfunction.pvd”)
   file.write(difference) 
+
+Below is a contour plot of the linear solution to the QG wind-driven Stommel gyre.
+   
+.. figure:: fig_gyre.png
+   :align: center
+
+Below is a contour plot of the difference between the linear and nonlinear solutions to the QG wind-driven Stommel gyre.
+
+.. figure:: fig_diff.png
+   :align: center
+
+.. rubric:: References
+
+.. bibliography:: qg_refs.bib
