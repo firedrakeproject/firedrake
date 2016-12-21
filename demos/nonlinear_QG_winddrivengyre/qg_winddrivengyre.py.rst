@@ -31,12 +31,12 @@ Governing PDE:Stommel Problem
 =============================
 
 The nonlinear, one-layer, QG model equation that is driven by the winds
-above (say :math:`Q_{winds}`, which is the vorticity of the winds that
+above (say :math:`Q_{winds})`, which is the vorticity of the winds that
 drive the ocean from above) is,
 
 .. math:: \partial_{t}q + \vec{u} \cdot \vec{\nabla} q + \beta v = -rq + Q_{winds}
 
-with the Potential Voritcity and geostrophic velocities defined as
+with the Potential Voritcity (PV) and geostrophic velocities defined as
 
 .. math::
 
@@ -193,8 +193,7 @@ We set-up an elliptic inverter for this problem, and solve for the
 linear streamfunction, ::
 
   linear_problem = LinearVariationalProblem(a, L, psi_lin, bcs=bc)
-  linear_solver = LinearVariationalSolver(linear_problem,
-  solver_parameters= ’ksp_type’:’preonly’, ’pc_type’:’lu’)
+  linear_solver = LinearVariationalSolver(linear_problem, solver_parameters= ’ksp_type’:’preonly’, ’pc_type’:’lu’)
   linear_solver.solve()
 
 We will redefine the nonlinear stream-function as it’s guess, the
@@ -214,8 +213,7 @@ We solve for the nonlinear streamfunction now by setting up another
 elliptic inverter, ::
 
   nonlinear_problem = NonlinearVariationalProblem(G, psi_non, bcs=bc)
-  nonlinear_solver = NonlinearVariationalSolver(nonlinear_problem,
-  solver_parameters= ’snes_type’: ’newtonls’, ’ksp_type’:’preonly’,
+  nonlinear_solver = NonlinearVariationalSolver(nonlinear_problem, solver_parameters= ’snes_type’: ’newtonls’, ’ksp_type’:’preonly’,
   ’pc_type’:’lu’) nonlinear_solver.solve()
 
 Now that we have the full solution to the nonlinear Stommel problem,
