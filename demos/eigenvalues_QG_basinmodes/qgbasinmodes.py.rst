@@ -114,7 +114,7 @@ Firedrake. We import the Firedrake, PETSc, and SLEPc libraries. ::
    except ImportError:
        import sys
        warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
-       sys.exit(1)
+       sys.exit(0)
 
 
 We specify the geometry to be a square geometry with :math:`50` cells
