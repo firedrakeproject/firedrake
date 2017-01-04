@@ -169,11 +169,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
-<<<<<<< 3298f224b5a97aa6e13e30f02a7a69b6cdbe4237
     if mat_type not in ["matfree", "aij", "baij", "nest", "loopy"]:
-=======
-    if mat_type not in ["matfree", "aij", "nest", "loopy"]:
->>>>>>> Added loopy matrix type, parallel to matfree.  Needs refactoring and generalizing loopy kernels.
         raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
     if sub_mat_type is None:
         sub_mat_type = parameters.parameters["default_sub_matrix_type"]
@@ -207,18 +203,6 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     zero_tensor = lambda: None
 
-<<<<<<< 3298f224b5a97aa6e13e30f02a7a69b6cdbe4237
-=======
-    if mat_type == "loopy":
-        matfree = True
-        impmat = matrix.LoopyImplicitMatrix
-    elif mat_type == "matfree":
-        matfree = True
-        impmat = matrix.ImplicitMatrix
-    else:
-        matfree = False
-    nest = mat_type == "nest"
->>>>>>> Added loopy matrix type, parallel to matfree.  Needs refactoring and generalizing loopy kernels.
     if is_mat:
         matfree = mat_type == "matfree" or mat_type == "loopy"
         nest = mat_type == "nest"
@@ -244,18 +228,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                                  impmat, " with mat_type ", mat_type)
             tensor.assemble()
             return tensor
-#        elif loopy:
-#            if tensor is None:
-#                return matrix.LoopyImplicitMatrix(
-#                    f, bcs,
-#                    fc_params=form_compiler_parameters,
-#                    appctx=appctx)
-#            if not isinstance(tensor, matrix.LoopyImplicitMatrix):
-#                raise ValueError(
-#                    "Expecting loopy implicit matrix with loopy mat type"
-#                )
-#            tensor.assemble()
-#            return tensor
+
         test, trial = f.arguments()
 
         map_pairs = []
