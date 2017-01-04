@@ -25,8 +25,8 @@ which are relevant depend a little on which functionality you used.
 
 For Firedrake itself, please cite :cite:`Rathgeber2015`.  If you use
 the :doc:`extruded mesh </extruded-meshes>` functionality please cite
-:cite:`McRae2014` and :cite:`Bercea2016`. When using quadrilateral meshes,
-please cite :cite:`Homolya2016` and :cite:`McRae2014`.
+:cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
+please cite :cite:`Homolya2016` and :cite:`McRae2016`.
 
 If your work relies on the kernel-level performance optimisations that
 Firedrake performs using `COFFEE

@@ -79,8 +79,10 @@ parameters.add(Parameters("form_compiler", **default_parameters()))
 
 parameters["reorder_meshes"] = True
 
-# One of nest, aij or matfree
+# One of nest, aij, baij or matfree
 parameters["default_matrix_type"] = "nest"
+# One of aij or baij
+parameters["default_sub_matrix_type"] = "baij"
 
 parameters["type_check_safe_par_loops"] = False
 

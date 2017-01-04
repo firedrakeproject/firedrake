@@ -318,9 +318,9 @@ if options["minimal_petsc"]:
     # If you change these minimal PETSc options, you will have to
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre"""
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre --download-eigen"""
 else:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -647,14 +647,6 @@ def clean(package):
     os.chdir("..")
 
 
-def get_h5py():
-    log.info("Downloading h5py\n")
-    import urllib
-    urllib.urlretrieve("https://codeload.github.com/h5py/h5py/tar.gz/2.5.0",
-                       "h5py.tar.gz")
-    run_cmd(["tar", "-zxvf", "h5py.tar.gz"])
-
-
 def pip_uninstall(package):
     log.info("Removing existing %s installations\n" % package)
     # Uninstalling something with pip is an absolute disaster.  We
@@ -681,19 +673,39 @@ def pip_uninstall(package):
                 again = True
         i += 1
         if i > 10:
-            raise InstallError("pip claims it uninstalled h5py more than 10 times.  Something is probably broken.")
+            raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
 
 
 def build_and_install_h5py():
-    pip_uninstall("h5py")
-
+    import shutil
     log.info("Installing h5py\n")
+    # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
-        clean("h5py-2.5.0")
-    else:
-        get_h5py()
+        log.info("Removing old h5py-2.5.0 source")
+        shutil.rmtree("h5py-2.5.0")
+    if os.path.exists("h5py.tar.gz"):
+        log.info("Removing old h5py.tar.gz")
+        os.remove("h5py.tar.gz")
 
-    os.chdir("h5py-2.5.0")
+    url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
+    if os.path.exists("h5py"):
+        changed = False
+        with directory("h5py"):
+            # Rewrite old h5py/h5py remote to firedrakeproject/h5py remote.
+            plain_url = split_requirements_url(url)[1]
+            current_remote = check_output(["git", "remote", "-v"]).split()[1]
+            proto = "https" if current_remote.startswith("https") else "ssh"
+            new_remote = git_url(plain_url, proto)
+            if new_remote != current_remote and "h5py/h5py.git" in current_remote:
+                log.info("Updating git remote for h5py from %s to %s", current_remote, new_remote)
+                check_call(["git", "remote", "set-url", "origin", new_remote])
+                check_call(["git", "fetch", "-p", "origin"])
+                check_call(["git", "checkout", "firedrake"])
+                changed = True
+        changed |= git_update("h5py")
+    else:
+        git_clone(url)
+        changed = True
 
     if args.honour_petsc_dir:
         petsc_dir = os.environ["PETSC_DIR"]
@@ -711,14 +723,19 @@ def build_and_install_h5py():
     log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
     oldcc = os.environ.get("CC", None)
     os.environ["CC"] = options["mpicc"] or "mpicc"
-    run_cmd(python + ["setup.py", "configure", "--hdf5=%s" % hdf5_dir])
-    run_cmd(python + ["setup.py", "build"])
-    run_cmd(pyinstall)
+    os.environ["HDF5_DIR"] = hdf5_dir
+    os.environ["HDF5_MPI"] = "ON"
+    if changed or args.rebuild:
+        # Only uninstall if things changed.
+        pip_uninstall("h5py")
+        # Pip installing from dirty directory is potentially unsafe.
+        with directory("h5py/"):
+            check_call(["git", "clean", "-fdx"])
+        install("h5py/")
     if oldcc is None:
         del os.environ["CC"]
     else:
         os.environ["CC"] = oldcc
-    os.chdir("..")
 
 
 def build_and_install_glpsol():

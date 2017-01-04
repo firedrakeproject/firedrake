@@ -17,6 +17,7 @@ descriptions = OrderedDict([
     ("tsfc", "The Two Stage Form Compiler"),
     ("COFFEE", "A Compiler for Fast Expression Evaluation"),
     ("ufl", "The Unified Form Language"),
+    ("FInAT", "a smarter library of finite elements"),
     ("fiat", "The Finite Element Automated Tabulator"),
     ("petsc", "Portable, Extensible Toolkit for Scientific Computation"),
     ("petsc4py", "The Python interface to PETSc")])
@@ -28,6 +29,7 @@ projects = dict(
      ("tsfc", "firedrakeproject"),
      ("COFFEE", "coneoproject"),
      ("ufl", "firedrakeproject"),
+     ("FInAT", "FInAT"),
      ("fiat", "firedrakeproject"),
      ("petsc", "firedrakeproject"),
      ("petsc4py", "firedrakeproject")])

@@ -95,6 +95,8 @@ def get_node_set(mesh, nodes_per_entity):
         node_set = op2.ExtrudedSet(node_set, layers=mesh.layers)
 
     assert global_numbering.getStorageSize() == node_set.total_size
+    if not extruded and node_set.total_size >= (1 << 28):
+        raise RuntimeError("Problems with more than %d nodes per process unsupported", (1 << 28))
     return node_set
 
 
@@ -482,13 +484,24 @@ class FunctionSpaceData(object):
             # Cache miss.
             # Any top and bottom bcs (for the extruded case) are handled elsewhere.
             nodes = [bc.nodes for bc in lbcs if bc.sub_domain not in ['top', 'bottom']]
-            decorate = False
+            decorate = any(bc.function_space().component is not None for
+                           bc in lbcs)
             if nodes:
                 bcids = reduce(numpy.union1d, nodes)
                 negids = numpy.copy(bcids)
                 for bc in lbcs:
                     if bc.sub_domain in ["top", "bottom"]:
                         continue
+                    if decorate and bc.function_space().component is None:
+                        # Some of the other entries will be marked
+                        # with high bits, so we need to set all the
+                        # high bits for these bcs
+                        idx = numpy.searchsorted(bcids, bc.nodes)
+                        if bc.function_space().dim > 3:
+                            raise ValueError("Can't have component BCs with more than three components (have %d)", bc.function_space().dim)
+                        for cmp in range(bc.function_space().dim):
+                            negids[idx] |= (1 << (30 - cmp))
+
                     # FunctionSpace with component is IndexedVFS
                     if bc.function_space().component is not None:
                         # For indexed VFS bcs, we encode the component
@@ -503,11 +516,10 @@ class FunctionSpaceData(object):
                         # And in the generated code we can then
                         # extract the information to discard the
                         # correct entries.
-                        val = 2 ** (30 - bc.function_space().component)
                         # bcids is sorted, so use searchsorted to find indices
                         idx = numpy.searchsorted(bcids, bc.nodes)
-                        negids[idx] += val
-                        decorate = True
+                        # Set appropriate bit
+                        negids[idx] |= (1 << (30 - bc.function_space().component))
                 node_list_bc = numpy.arange(self.node_set.total_size,
                                             dtype=numpy.int32)
                 # Fix up for extruded, doesn't commute with indexedvfs

@@ -169,6 +169,10 @@ class _SNESContext(object):
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
+    :arg pre_jacobian_callback: User-defined function called immediately
+        before Jacobian assembly
+    :arg pre_function_callback: User-defined function called immediately
+        before residual assembly
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -176,7 +180,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problem, mat_type, pmat_type, appctx=None):
+    def __init__(self, problem, mat_type, pmat_type, appctx=None, pre_jacobian_callback=None, pre_function_callback=None):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
         if pmat_type is None:
             pmat_type = mat_type
@@ -189,6 +193,8 @@ class _SNESContext(object):
         loopypmatfree = pmat_type == 'loopy'
 
         self._problem = problem
+        self._pre_jacobian_callback = pre_jacobian_callback
+        self._pre_function_callback = pre_function_callback
 
         fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -339,6 +345,9 @@ class _SNESContext(object):
         with ctx._x.dat.vec as v:
             X.copy(v)
 
+        if ctx._pre_function_callback is not None:
+            ctx._pre_function_callback(X)
+
         ctx._assemble_residual()
 
         # no mat_type -- it's a vector!
@@ -374,6 +383,9 @@ class _SNESContext(object):
         # copy guess in from X.
         with ctx._x.dat.vec as v:
             X.copy(v)
+
+        if ctx._pre_jacobian_callback is not None:
+            ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()

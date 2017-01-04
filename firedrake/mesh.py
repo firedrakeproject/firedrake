@@ -77,7 +77,7 @@ class _Facets(object):
             else:
                 base = self.mesh._base_mesh.exterior_facets.set
             return op2.ExtrudedSet(base, layers=self.mesh.layers)
-        return op2.Set(size, "%s_%s_facets" % (self.mesh.name, self.kind),
+        return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
     @utils.cached_property
@@ -562,6 +562,20 @@ class MeshTopology(object):
         return _Facets(self, interior_facet_classes, "interior",
                        interior_facet_cell, interior_local_facet_number)
 
+    @utils.cached_property
+    def cell_to_facet_map(self):
+        """Return a :class:`op2.Dat` that maps from a cell index to the local
+        facet types on each cell.
+
+        The i-th local facet is exterior if the value of this array is :data:`0`
+        and interior if the value is :data:`1`.
+        """
+        cell_facets = dmplex.cell_to_facets(self._plex, self._cell_numbering,
+                                            self.cell_closure)
+        nfacet = cell_facets.shape[1]
+        return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
+                       name="cell-to-local-facet-map")
+
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
 
@@ -634,7 +648,7 @@ class MeshTopology(object):
     @utils.cached_property
     def cell_set(self):
         size = list(self._entity_classes[self.cell_dimension(), :])
-        return op2.Set(size, "%s_cells" % self.name, comm=self.comm)
+        return op2.Set(size, "Cells", comm=self.comm)
 
     def cell_subset(self, subdomain_id, all_integer_subdomain_ids=None):
         """Return a subset over cells with the given subdomain_id.
