@@ -386,6 +386,8 @@ def pick_mode(mode):
         import tsfc.coffee_mode as m
     elif mode == "spectral":
         import tsfc.spectral as m
+    elif mode == "tensor":
+        import tsfc.tensor as m
     else:
         raise ValueError("Unknown mode: {}".format(mode))
     return m
