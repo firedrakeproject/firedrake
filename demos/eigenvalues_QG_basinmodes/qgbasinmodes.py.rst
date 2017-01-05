@@ -203,7 +203,7 @@ converge any eigenvalues at all. ::
    if nconv == 0:
        import sys
        warning("Did not converge any eigenvalues")
-       sys.exit(1)
+       sys.exit(0)
 
 If we did, we go ahead and extract them from the SLEPc eigenvalue
 solver::
