@@ -221,10 +221,14 @@ that were found. ::
 
    print "Leading eigenvalue is:", lam
 
-   p = plot(eigenmodes_real)
-   p.show()
-   p = plot(eigenmodes_imag)
-   p.show()
+   try:
+       from matplotlib import pyplot
+       plot(eigenmodes_real)
+       pyplot.gcf().show()
+       plot(eigenmodes_imag)
+       pyplot.gcf().show()
+   except ImportError:
+       warning("Matplotlib not available, not plotting eigemodes")
 
 Below is a plot of the spatial structure of the real part of one of the eigenmodes computed above.
 

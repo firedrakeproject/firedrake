@@ -7,7 +7,7 @@ from firedrake.mesh import MeshGeometry
 __all__ = ["plot"]
 
 
-def _plot_mult(functions, num_points=10, **kwargs):
+def _plot_mult(functions, num_points=10, axes=None, **kwargs):
     """Plot multiple functions on a figure, return a matplotlib figure
 
     :arg functions: Functions to be plotted
@@ -23,8 +23,7 @@ def _plot_mult(functions, num_points=10, **kwargs):
         return None
     interactive = kwargs.pop("interactive", False)
     if interactive:
-        interactive_multiple_plot(functions, num_points, **kwargs)
-        return
+        return interactive_multiple_plot(functions, num_points, axes=axes, **kwargs)
     import os
     from firedrake import __file__ as firedrake__file__
     figure, ax = plt.subplots()
@@ -91,7 +90,7 @@ def _plot_mult(functions, num_points=10, **kwargs):
         player.frame_interval *= 2
     minus_button.on_clicked(decrease_speed)
 
-    return figure
+    return ax
 
 
 def plot_mesh(mesh, axes=None, **kwargs):
@@ -213,7 +212,7 @@ def plot(function_or_mesh,
         if not all(isinstance(f, Function) for f in functions):
             raise TypeError("Expected Function, Mesh, or iterable of Functions, not %r",
                             type(function_or_mesh))
-        return plot_mesh(functions, num_sample_points, **kwargs)
+        return _plot_mult(functions, num_sample_points, axes=axes, **kwargs)
     # Single Function...
     function = function_or_mesh
     try:
@@ -293,7 +292,7 @@ def plot(function_or_mesh,
                                   gdim)
 
 
-def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
+def interactive_multiple_plot(functions, num_sample_points=10, axes=None, **kwargs):
     """Create an interactive plot for multiple 1D functions to be viewed in
     Jupyter Notebook
 
@@ -303,16 +302,23 @@ def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
     :arg kwargs: Additional key word arguments to be passed to
         ``matplotlib.plot``
     """
+    import matplotlib.pyplot as plt
     try:
         from ipywidgets import interact, IntSlider
     except ImportError:
         raise RuntimeError("Not in notebook")
 
+    if axes is None:
+        axes = plt.subplot(111)
+
     def display_plot(index):
-        return plot(functions[index], num_sample_points, **kwargs)
+        axes.clear()
+        return plot(functions[index], num_sample_points, axes=axes, **kwargs).figure
 
     interact(display_plot, index=IntSlider(min=0, max=len(functions)-1,
-                                           step=1, value=0))
+                                           step=1, value=0),
+             continuous_update=False)
+    return axes
 
 
 def piecewise_linear(points, axes=None, **kwargs):
@@ -330,7 +336,7 @@ def piecewise_linear(points, axes=None, **kwargs):
     if axes is None:
         axes = plt.subplot(111)
     axes.plot(points[0], points[1], **kwargs)
-    return plt.gcf()
+    return axes
 
 
 def _calculate_values(function, points, dimension, cell_mask=None):
@@ -478,7 +484,7 @@ def two_dimension_surface(function,
     axes.plot_trisurf(triangulation, Z, edgecolor='none',
                       antialiased=False, shade=False, cmap=cmap,
                       **kwargs)
-    return plt.gcf()
+    return axes
 
 
 def two_dimension_contour(function,
@@ -504,7 +510,7 @@ def two_dimension_contour(function,
         axes = figure.add_subplot(111, projection='3d')
     axes.tricontour(triangulation, Z, edgecolor='none',
                     antialiased=False, **kwargs)
-    return plt.gcf()
+    return axes
 
 
 def _bezier_calculate_points(function):
@@ -564,7 +570,7 @@ def bezier_plot(function, axes=None, **kwargs):
     patch = patches.PathPatch(path, facecolor='none', lw=2)
     axes.add_patch(patch)
     axes.plot(**kwargs)
-    return plt.gcf()
+    return axes
 
 
 def interp_bezier(pts, num_cells, axes=None, **kwargs):
@@ -601,7 +607,7 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
         axes = fig.add_subplot(111)
     axes.add_patch(patch)
     axes.plot(**kwargs)
-    return plt.gcf()
+    return axes
 
 
 def _points_to_bezier_curve(pts):
