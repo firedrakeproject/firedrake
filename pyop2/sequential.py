@@ -36,11 +36,11 @@ from __future__ import absolute_import, print_function, division
 from six.moves import range, zip
 
 import os
-import ctypes
 from textwrap import dedent
 from copy import deepcopy as dcopy
 from collections import OrderedDict
 
+from pyop2.datatypes import IntType, as_cstr, as_ctypes
 from pyop2 import base
 from pyop2 import compilation
 from pyop2 import petsc_base
@@ -109,7 +109,7 @@ class Arg(base.Arg):
             for i, map in enumerate(as_tuple(self.map, Map)):
                 if map is not None:
                     for j, m in enumerate(map):
-                        val += ", int *%s" % self.c_map_name(i, j)
+                        val += ", %s *%s" % (as_cstr(IntType), self.c_map_name(i, j))
         return val
 
     def c_vec_dec(self, is_facet=False):
@@ -255,6 +255,7 @@ class Arg(base.Arg):
                 rows_str = "rowmap"
                 cols_str = "colmap"
                 addto = "MatSetValuesLocal"
+                nbits = IntType.itemsize * 8 - 2
                 fdict = {'nrows': nrows,
                          'ncols': ncols,
                          'rdim': rdim,
@@ -262,33 +263,44 @@ class Arg(base.Arg):
                          'rowmap': self.c_map_name(0, i),
                          'colmap': self.c_map_name(1, j),
                          'drop_full_row': 0 if rmap.vector_index is not None else 1,
-                         'drop_full_col': 0 if cmap.vector_index is not None else 1}
+                         'drop_full_col': 0 if cmap.vector_index is not None else 1,
+                         'IntType': as_cstr(IntType),
+                         'NBIT': nbits,
+                         # UGH, need to make sure literals have
+                         # correct type ("long int" if using 64 bit
+                         # ints).
+                         'ONE': {62: "1L", 30: "1"}[nbits],
+                         'MASK': "0x%x%s" % (sum(2**(nbits - i) for i in range(3)),
+                                             {62: "L", 30: ""}[nbits])}
                 # Horrible hack alert
                 # To apply BCs to a component of a Dat with cdim > 1
                 # we encode which components to apply things to in the
                 # high bits of the map value
                 # The value that comes in is:
-                # -(row + 1 + sum_i 2 ** (30 - i))
+                # NBIT = (sizeof(IntType)*8 - 2)
+                # -(row + 1 + sum_i 2 ** (NBIT - i))
                 # where i are the components to zero
                 #
                 # So, the actual row (if it's negative) is:
-                # (~input) & ~0x70000000
+                # MASK = sum_i 2**(NBIT - i)
+                # (~input) & ~MASK
                 # And we can determine which components to zero by
-                # inspecting the high bits (1 << 30 - i)
+                # inspecting the high bits (1 << NBIT - i)
                 ret.append("""
-                PetscInt rowmap[%(nrows)d*%(rdim)d];
-                PetscInt colmap[%(ncols)d*%(cdim)d];
-                int discard, tmp, block_row, block_col;
+                %(IntType)s rowmap[%(nrows)d*%(rdim)d];
+                %(IntType)s colmap[%(ncols)d*%(cdim)d];
+                %(IntType)s block_row, block_col, tmp;
+                int discard;
                 for ( int j = 0; j < %(nrows)d; j++ ) {
                     block_row = %(rowmap)s[i*%(nrows)d + j];
                     discard = 0;
                     tmp = -(block_row + 1);
                     if ( block_row < 0 ) {
                         discard = 1;
-                        block_row = tmp & ~0x70000000;
+                        block_row = tmp & ~%(MASK)s;
                     }
                     for ( int k = 0; k < %(rdim)d; k++ ) {
-                        if ( discard && (!(tmp & 0x70000000) || %(drop_full_row)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                        if ( discard && (!(tmp & %(MASK)s) || %(drop_full_row)d || ((tmp & (%(ONE)s << (%(NBIT)s - k))) != 0)) ) {
                             rowmap[j*%(rdim)d + k] = -1;
                         } else {
                             rowmap[j*%(rdim)d + k] = (block_row)*%(rdim)d + k;
@@ -301,10 +313,10 @@ class Arg(base.Arg):
                     tmp = -(block_col + 1);
                     if ( block_col < 0 ) {
                         discard = 1;
-                        block_col = tmp & ~0x70000000;
+                        block_col = tmp & ~%(MASK)s;
                     }
                     for ( int k = 0; k < %(cdim)d; k++ ) {
-                        if ( discard && (!(tmp & 0x70000000) || %(drop_full_col)d || ((tmp & (1 << (30 - k))) != 0)) ) {
+                        if ( discard && (!(tmp & %(MASK)s) || %(drop_full_col)d || ((tmp & (%(ONE)s << (%(NBIT)s- k))) != 0)) ) {
                             colmap[j*%(cdim)d + k] = -1;
                         } else {
                             colmap[j*%(cdim)d + k] = (block_col)*%(cdim)d + k;
@@ -325,6 +337,7 @@ class Arg(base.Arg):
                     'ncols': ncols,
                     'rows': rows_str,
                     'cols': cols_str,
+                    'IntType': as_cstr(IntType),
                     'insert': "INSERT_VALUES" if self.access == WRITE else "ADD_VALUES"})
         ret = " "*16 + "{\n" + "\n".join(ret) + "\n" + " "*16 + "}"
         return ret
@@ -397,8 +410,10 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                 dim = m.arity
                 if is_facet:
                     dim *= 2
-                val.append("int xtr_%(name)s[%(dim)s];" %
-                           {'name': self.c_map_name(i, j), 'dim': dim})
+                val.append("%(IntType)s xtr_%(name)s[%(dim)s];" %
+                           {'name': self.c_map_name(i, j),
+                            'dim': dim,
+                            'IntType': as_cstr(IntType)})
         return '\n'.join(val)+'\n'
 
     def c_map_init(self, is_top=False, is_facet=False):
@@ -552,7 +567,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 class JITModule(base.JITModule):
 
     _wrapper = """
-void %(wrapper_name)s(int start, int end,
+void %(wrapper_name)s(int start,
+                      int end,
                       %(ssinds_arg)s
                       %(wrapper_args)s
                       %(layer_arg)s) {
@@ -561,7 +577,7 @@ void %(wrapper_name)s(int start, int end,
   %(map_decl)s
   %(vec_decs)s;
   for ( int n = start; n < end; n++ ) {
-    int i = %(index_expr)s;
+    %(IntType)s i = %(index_expr)s;
     %(vec_inits)s;
     %(map_init)s;
     %(extr_loop)s
@@ -657,6 +673,7 @@ void %(wrapper_name)s(int start, int end,
         #include <petsc.h>
         #include <stdbool.h>
         #include <math.h>
+        #include <inttypes.h>
         %(sys_headers)s
 
         %(kernel)s
@@ -715,7 +732,8 @@ void %(wrapper_name)s(int start, int end,
         return self._code_dict
 
     def set_argtypes(self, iterset, *args):
-        argtypes = [ctypes.c_int, ctypes.c_int]
+        index_type = as_ctypes(IntType)
+        argtypes = [index_type, index_type]
         if isinstance(iterset, Subset):
             argtypes.append(iterset._argtype)
         for arg in args:
@@ -732,8 +750,8 @@ void %(wrapper_name)s(int start, int end,
                             argtypes.append(m._argtype)
 
         if iterset._extruded:
-            argtypes.append(ctypes.c_int)
-            argtypes.append(ctypes.c_int)
+            argtypes.append(index_type)
+            argtypes.append(index_type)
 
         self._argtypes = argtypes
 
@@ -828,12 +846,12 @@ def wrapper_snippets(itspace, args,
         return "for (int j_0 = start_layer; j_0 < end_layer; ++j_0){"
 
     _ssinds_arg = ""
-    _index_expr = "n"
+    _index_expr = "(%s)n" % as_cstr(IntType)
     is_top = (iteration_region == ON_TOP)
     is_facet = (iteration_region == ON_INTERIOR_FACETS)
 
     if isinstance(itspace._iterset, Subset):
-        _ssinds_arg = "int* ssinds,"
+        _ssinds_arg = "%s* ssinds," % as_cstr(IntType)
         _index_expr = "ssinds[n]"
 
     _wrapper_args = ', '.join([arg.c_wrapper_arg() for arg in args])
@@ -1016,6 +1034,7 @@ def wrapper_snippets(itspace, args,
             'buffer_decl': _buf_decl,
             'buffer_gather': _buf_gather,
             'kernel_args': _kernel_args,
+            'IntType': as_cstr(IntType),
             'itset_loop_body': '\n'.join([itset_loop_body(i, j, shape, offsets, is_facet=(iteration_region == ON_INTERIOR_FACETS))
                                           for i, j, shape, offsets in itspace])}
 
@@ -1040,19 +1059,23 @@ def generate_cell_wrapper(itspace, args, forward_args=(), kernel_name=None, wrap
     snippets = wrapper_snippets(itspace, args, kernel_name=kernel_name, wrapper_name=wrapper_name)
 
     if itspace._extruded:
-        snippets['index_exprs'] = """int i = cell / nlayers;
-    int j = cell % nlayers;"""
-        snippets['nlayers_arg'] = ", int nlayers"
-        snippets['extr_pos_loop'] = "{" if direct else "for (int j_0 = 0; j_0 < j; ++j_0) {"
+        snippets['index_exprs'] = """{0} i = cell / nlayers;
+    {0} j = cell % nlayers;""".format(as_cstr(IntType))
+        snippets['nlayers_arg'] = ", {0} nlayers".format(as_cstr(IntType))
+        snippets['extr_pos_loop'] = "{" if direct else "for ({0} j_0 = 0; j_0 < j; ++j_0) {{".format(as_cstr(IntType))
     else:
-        snippets['index_exprs'] = "int i = cell;"
+        snippets['index_exprs'] = "{0} i = cell;".format(as_cstr(IntType))
         snippets['nlayers_arg'] = ""
         snippets['extr_pos_loop'] = ""
 
     snippets['wrapper_fargs'] = "".join("{1} farg{0}, ".format(i, arg) for i, arg in enumerate(forward_args))
     snippets['kernel_fargs'] = "".join("farg{0}, ".format(i) for i in range(len(forward_args)))
 
-    template = """static inline void %(wrapper_name)s(%(wrapper_fargs)s%(wrapper_args)s%(nlayers_arg)s, int cell)
+    snippets['IntType'] = as_cstr(IntType)
+    template = """
+#include <inttypes.h>
+
+static inline void %(wrapper_name)s(%(wrapper_fargs)s%(wrapper_args)s%(nlayers_arg)s, %(IntType)s cell)
 {
     %(user_code)s
     %(wrapper_decs)s;
