@@ -33,7 +33,6 @@ from FIAT.dual_set import DualSet
 from FIAT.quadrature import QuadratureRule  # noqa
 
 import ufl
-from ufl.algorithms.elementtransformations import reconstruct_element
 
 from .mixedelement import MixedElement
 
@@ -186,10 +185,7 @@ def _(element, vector_is_mixed):
             raise ValueError("%s is supported, but handled incorrectly" %
                              element.family())
         # Handle quadrilateral short names like RTCF and RTCE.
-        element = reconstruct_element(element,
-                                      element.family(),
-                                      quad_opc,
-                                      element.degree())
+        element = element.reconstruct(cell=quad_tpc)
         return FlattenToQuad(create_element(element, vector_is_mixed))
     return lmbda(cell, element.degree())
 
@@ -267,7 +263,7 @@ def _(element, vector_is_mixed):
     return MixedElement(fiat_elements)
 
 
-quad_opc = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
+quad_tpc = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))
 _cache = weakref.WeakKeyDictionary()
 
 

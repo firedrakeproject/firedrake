@@ -30,7 +30,6 @@ import finat
 from finat.fiat_elements import FiatElementBase
 
 import ufl
-from ufl.algorithms.elementtransformations import reconstruct_element
 
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.ufl_utils import spanning_degree
@@ -101,10 +100,7 @@ def convert_finiteelement(element):
             raise ValueError("%s is supported, but handled incorrectly" %
                              element.family())
         # Handle quadrilateral short names like RTCF and RTCE.
-        element = reconstruct_element(element,
-                                      element.family(),
-                                      quad_tpc,
-                                      element.degree())
+        element = element.reconstruct(cell=quad_tpc)
         return finat.QuadrilateralElement(create_element(element))
     return lmbda(cell, element.degree())
 
