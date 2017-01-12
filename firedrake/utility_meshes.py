@@ -9,7 +9,6 @@ from firedrake import mesh
 from firedrake import expression
 from firedrake import function
 from firedrake import functionspace
-from firedrake.petsc import PETSc
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -307,7 +306,8 @@ def UnitTriangleMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
-def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_WORLD):
+def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
+                  diagonal="left", comm=COMM_WORLD):
     """Generate a rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -318,6 +318,9 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_W
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg diagonal: For triangular meshes, should the diagonal got
+        from bottom left to top right (``"right"``), or top left to
+        bottom right (``"left"``).
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -331,26 +334,25 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_W
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
 
-    if quadrilateral:
-        dx = Lx / nx
-        dy = Ly / ny
-        xcoords = np.arange(0.0, Lx + 0.01 * dx, dx)
-        ycoords = np.arange(0.0, Ly + 0.01 * dy, dy)
-        coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
+    xcoords = np.linspace(0.0, Lx, nx + 1)
+    ycoords = np.linspace(0.0, Ly, ny + 1)
+    coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
 
-        # cell vertices
-        i, j = np.meshgrid(np.arange(nx), np.arange(ny))
-        cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
-        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
+    # cell vertices
+    i, j = np.meshgrid(np.arange(nx), np.arange(ny))
+    cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
+    cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
+    if not quadrilateral:
+        if diagonal == "left":
+            idx = [0, 1, 3, 1, 2, 3]
+        elif diagonal == "right":
+            idx = [0, 1, 2, 0, 2, 3]
+        else:
+            raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+        # two cells per cell above...
+        cells = cells[:, idx].reshape(-1, 3)
 
-        plex = mesh._from_cell_list(2, cells, coords, comm)
-    else:
-        boundary = PETSc.DMPlex().create(comm)
-        boundary.setDimension(1)
-        boundary.createSquareBoundary([0., 0.], [float(Lx), float(Ly)], [nx, ny])
-        boundary.setTriangleOptions("pqezQYSl")
-
-        plex = PETSc.DMPlex().generate(boundary)
+    plex = mesh._from_cell_list(2, cells, coords, comm)
 
     # mark boundary facets
     plex.createLabel("boundary_ids")
@@ -639,11 +641,30 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=COMM_WORLD):
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
 
-    # Create mesh from DMPlex
-    boundary = PETSc.DMPlex().create(comm)
-    boundary.setDimension(2)
-    boundary.createCubeBoundary([0., 0., 0.], [Lx, Ly, Lz], [nx, ny, nz])
-    plex = PETSc.DMPlex().generate(boundary)
+    xcoords = np.linspace(0, Lx, nx + 1)
+    ycoords = np.linspace(0, Ly, ny + 1)
+    zcoords = np.linspace(0, Lz, nz + 1)
+    # X moves fastest, then Y, then Z
+    coords = np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
+    i, j, k = np.meshgrid(np.arange(nx), np.arange(ny), np.arange(nz))
+    v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
+    v1 = v0 + 1
+    v2 = v0 + (nx + 1)
+    v3 = v1 + (nx + 1)
+    v4 = v0 + (nx + 1)*(ny + 1)
+    v5 = v1 + (nx + 1)*(ny + 1)
+    v6 = v2 + (nx + 1)*(ny + 1)
+    v7 = v3 + (nx + 1)*(ny + 1)
+
+    cells = [v0, v1, v3, v7,
+             v0, v1, v7, v5,
+             v0, v5, v7, v4,
+             v0, v3, v2, v7,
+             v0, v6, v4, v7,
+             v0, v2, v6, v7]
+    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+
+    plex = mesh._from_cell_list(3, cells, coords, comm)
 
     # Apply boundary IDs
     plex.createLabel("boundary_ids")
