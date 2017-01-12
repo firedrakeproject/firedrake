@@ -15,9 +15,13 @@ architecture.
 """
 from __future__ import absolute_import, print_function, division
 
+from abc import ABCMeta, abstractproperty, abstractmethod
+
 from collections import OrderedDict
 
 from firedrake.utils import cached_property
+
+from six import with_metaclass
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
@@ -40,7 +44,7 @@ class CheckRestrictions(MultiFunction):
         raise ValueError("Cell-wise integrals must contain only positive restrictions.")
 
 
-class TensorBase(object):
+class TensorBase(with_metaclass(ABCMeta)):
     """An abstract SLATE node class.
 
     .. warning::
@@ -141,7 +145,7 @@ class TensorBase(object):
         """Determines whether two TensorBase objects are equal using their
         associated keys.
         """
-        return self._key() == other._key()
+        return self._key == other._key
 
     def __ne__(self, other):
         return not self.__eq__(other)
@@ -165,9 +169,26 @@ class TensorBase(object):
     @cached_property
     def _hash_id(self):
         """Returns a hash id for use in dictionary objects."""
-        return hash(self._key())
+        return hash(self._key)
+
+    @abstractproperty
+    def _key(self):
+        """Returns a key for hash and equality.
+
+        This is used to generate a unique id associated with the
+        TensorBase object.
+        """
+
+    @abstractmethod
+    def _output_string(self):
+        """Creates a string representation of the tensor.
+
+        This is used when calling the `__str__` method on
+        TensorBase objects.
+        """
 
     def __hash__(self):
+        """Generates a hash for the TensorBase object."""
         return self._hash_id
 
 
@@ -243,6 +264,7 @@ class Tensor(TensorBase):
         """SLATE representation of the tensor object."""
         return ["Scalar", "Vector", "Matrix"][self.rank] + "(%r)" % self.form
 
+    @property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.form)
@@ -289,6 +311,7 @@ class UnaryOp(TensorBase):
         """SLATE representation of the resulting tensor."""
         return "%s(%r)" % (type(self).__name__, self.tensor)
 
+    @property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.tensor)
@@ -432,6 +455,7 @@ class BinaryOp(TensorBase):
     def __repr__(self):
         return "%s(%r, %r)" % (type(self).__name__, self.operands[0], self.operands[1])
 
+    @property
     def _key(self):
         """Returns a key for hash and equality."""
         A, B = self.tensors
@@ -581,6 +605,7 @@ class Action(TensorBase):
         """SLATE representation of the action of a tensor on a coefficient."""
         return "Action(%r, %r)" % (self.tensor, self._acting_coefficient)
 
+    @property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.tensor, self._acting_coefficient)
