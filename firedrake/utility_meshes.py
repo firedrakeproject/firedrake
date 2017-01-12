@@ -985,43 +985,8 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
 
-    if use_dmplex_refinement:
-        # vertices of a cube with an edge length of 2
-        vertices = np.array([[-1., -1., -1.],
-                             [1., -1., -1.],
-                             [-1., 1., -1.],
-                             [1., 1., -1.],
-                             [-1., -1., 1.],
-                             [1., -1., 1.],
-                             [-1., 1., 1.],
-                             [1., 1., 1.]])
-        # faces of the base cube
-        # bottom face viewed from above
-        # 2 3
-        # 0 1
-        # top face viewed from above
-        # 6 7
-        # 4 5
-        faces = np.array([[0, 1, 3, 2],  # bottom
-                          [4, 5, 7, 6],  # top
-                          [0, 1, 5, 4],
-                          [2, 3, 7, 6],
-                          [0, 2, 6, 4],
-                          [1, 3, 7, 5]], dtype=np.int32)
-
-        plex = mesh._from_cell_list(2, faces, vertices, comm)
-        plex.setRefinementUniform(True)
-        for i in range(refinement_level):
-            plex = plex.refine()
-
-        # rescale points to the sphere
-        # this is not the same as the gnonomic transformation
-        coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
-        scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
-        coords *= scale
-    else:
-        cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-        plex = mesh._from_cell_list(2, cells, coords, comm)
+    cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
+    plex = mesh._from_cell_list(2, cells, coords, comm)
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
 
