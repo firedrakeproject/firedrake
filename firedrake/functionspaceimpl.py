@@ -33,13 +33,11 @@ class WithGeometry(ufl.FunctionSpace):
     :arg mesh: The mesh with geometric information to use.
     """
     def __init__(self, function_space, mesh):
-        from firedrake.ufl_expr import reconstruct_element
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
 
-        element = reconstruct_element(function_space.ufl_element(),
-                                      cell=mesh.ufl_cell())
+        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
         super(WithGeometry, self).__init__(mesh, element)
         self.topological = function_space
 

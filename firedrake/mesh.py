@@ -1134,8 +1134,6 @@ def make_mesh_from_coordinates(coordinates):
 
     :arg coordinates: A :class:`~.Function`.
     """
-    from firedrake.ufl_expr import reconstruct_element
-
     if hasattr(coordinates, '_as_mesh_geometry'):
         mesh = coordinates._as_mesh_geometry()
         if mesh is not None:
@@ -1149,7 +1147,7 @@ def make_mesh_from_coordinates(coordinates):
     # Build coordinate element
     element = coordinates.ufl_element()
     cell = element.cell().reconstruct(geometric_dimension=V.dim)
-    element = reconstruct_element(element, cell=cell)
+    element = element.reconstruct(cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh.__init__(coordinates)
