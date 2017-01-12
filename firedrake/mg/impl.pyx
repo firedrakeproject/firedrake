@@ -451,7 +451,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     """
     cdef:
         np.ndarray[PetscInt, ndim=1, mode="c"] indices, cell_map
-        np.ndarray[PetscInt, ndim=2, mode="c"] permutations
+        np.ndarray[np.int32_t, ndim=2, mode="c"] permutations
         np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
         PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
 

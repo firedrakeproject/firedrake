@@ -11,7 +11,7 @@ from firedrake import *
 
 @pytest.fixture(scope='module')
 def mesh():
-    m = UnitIntervalMesh(4)
+    m = UnitIntervalMesh(10)
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 

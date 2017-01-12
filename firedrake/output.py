@@ -7,7 +7,7 @@ import os
 import ufl
 import weakref
 from pyop2.mpi import COMM_WORLD, dup_comm
-
+from pyop2.datatypes import IntType
 
 __all__ = ("File", )
 
@@ -78,7 +78,7 @@ def get_topology(coordinates):
     V = coordinates.function_space()
     mesh = V.ufl_domain().topology
     cell = mesh.ufl_cell()
-    values = V.cell_node_map().values.astype("int32")
+    values = V.cell_node_map().values
     # Non-simplex cells need reordering
     # Connectivity of bottom cell in extruded mesh
     if cells[cell] == VTK_QUADRILATERAL:
@@ -127,7 +127,7 @@ def get_topology(coordinates):
     else:
         scale = cell.num_vertices()
 
-    offsets = numpy.arange(cell_layers) * scale
+    offsets = numpy.arange(cell_layers, dtype=IntType) * scale
 
     # Add offsets going up the column
     num_cells = mesh.cell_set.size
@@ -140,7 +140,7 @@ def get_topology(coordinates):
     offsets = numpy.arange(start=cell.num_vertices(),
                            stop=cell.num_vertices() * (num_cells + 1),
                            step=cell.num_vertices(),
-                           dtype="int32")
+                           dtype=IntType)
     cell_types = numpy.full(num_cells, cells[cell], dtype="uint8")
     return (OFunction(connectivity, "connectivity", None),
             OFunction(offsets, "offsets", None),

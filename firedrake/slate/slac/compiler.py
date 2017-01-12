@@ -30,6 +30,7 @@ from firedrake.slate.slac.kernel_builder import KernelBuilder
 from firedrake import op2
 
 from pyop2.utils import get_petsc_dir
+from pyop2.datatypes import as_cstr
 
 from tsfc.parameters import SCALAR_TYPE
 
@@ -40,6 +41,8 @@ __all__ = ['compile_expression']
 
 
 PETSC_DIR = get_petsc_dir()
+
+cell_to_facets_dtype = np.dtype(np.int8)
 
 supported_integral_types = [
     "cell",
@@ -232,7 +235,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     if builder.needs_cell_facets:
-        args.append(ast.Decl("char *", cellfacetsym))
+        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
+                             cellfacetsym))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
