@@ -1,14 +1,18 @@
-"""This is SLATE's Linear Algebra Compiler. This module is responsible for generating
-C++ kernel functions representing symbolic linear algebra expressions written in SLATE.
+"""This is SLATE's Linear Algebra Compiler. This module is
+responsible for generating C++ kernel functions representing
+symbolic linear algebra expressions written in SLATE.
 
-This linear algebra compiler uses both Firedrake's form compiler, the Two-Stage
-Form Compiler (TSFC) and COFFEE's kernel abstract syntax tree (AST) optimizer. TSFC
-provides this compiler with appropriate kernel functions (in C) for evaluating integral
-expressions (finite element variational forms written in UFL). COFFEE's AST optimizing
-framework produces the resulting kernel AST returned by: `compile_slate_expression`.
+This linear algebra compiler uses both Firedrake's form compiler,
+the Two-Stage Form Compiler (TSFC) and COFFEE's kernel abstract
+syntax tree (AST) optimizer. TSFC provides this compiler with
+appropriate kernel functions (in C) for evaluating integral
+expressions (finite element variational forms written in UFL).
+COFFEE's AST optimizing framework produces the resulting kernel AST
+returned by: `compile_slate_expression`.
 
-The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as all low-level numerical
-linear algebra operations are performed using the `Eigen::Matrix` methods built into Eigen.
+The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as
+all low-level numerical linear algebra operations are performed using
+this templated function library.
 """
 from __future__ import absolute_import, print_function, division
 from six.moves import range
@@ -173,18 +177,19 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
 
 def auxiliary_information(builder):
-    """This function generates any auxiliary information regarding special handling of
-    expressions that do not have any integral forms or subkernels associated with it.
+    """This function generates any auxiliary information regarding special
+    handling of expressions that do not have any integral forms or subkernels
+    associated with it.
 
-    :arg builder: a :class:`SlateKernelBuilder` object that contains all the necessary
-                  temporary and expression information.
+    :arg builder: a :class:`SlateKernelBuilder` object that contains all the
+                  necessary temporary and expression information.
 
-    Returns: a mapping of the form ``{aux_node: aux_temp}``, where `aux_node` is an
-             already assembled data-object provided as a `ufl.Coefficient` and `aux_temp`
-             is the corresponding temporary.
+    Returns: a mapping of the form ``{aux_node: aux_temp}``, where `aux_node`
+             is an already assembled data-object provided as a `ufl.Coefficient`
+             and `aux_temp` is the corresponding temporary.
 
-             a list of auxiliary statements are returned that contain temporary declarations
-             and any code-blocks needed to evaluate the expression.
+             a list of auxiliary statements are returned that contain temporary
+             declarations and any code-blocks needed to evaluate the expression.
     """
     aux_temps = {}
     aux_statements = []
@@ -233,18 +238,20 @@ def parenthesize(arg, prec=None, parent=None):
 
 
 def metaphrase_slate_to_cpp(expr, temps, prec=None):
-    """Translates a SLATE expression into its equivalent representation in the Eigen C++ syntax.
+    """Translates a SLATE expression into its equivalent representation in
+    the Eigen C++ syntax.
 
     :arg expr: a :class:`slate.TensorBase` expression.
-    :arg temps: a `dict` of temporaries which map a given expression to its corresponding
-                representation as a `coffee.Symbol` object.
-    :arg prec: an argument dictating the order of precedence in the linear algebra operations.
-               This ensures that parentheticals are placed appropriately and the order in which
-               linear algebra operations are performed are correct.
+    :arg temps: a `dict` of temporaries which map a given expression to its
+                corresponding representation as a `coffee.Symbol` object.
+    :arg prec: an argument dictating the order of precedence in the linear
+               algebra operations. This ensures that parentheticals are placed
+               appropriately and the order in which linear algebra operations
+               are performed are correct.
 
     Returns
-        This function returns a `string` which represents the C/C++ code representation
-        of the `slate.TensorBase` expr.
+        This function returns a `string` which represents the C/C++ code
+        representation of the `slate.TensorBase` expr.
     """
     if isinstance(expr, Tensor):
         return temps[expr].gencode()
