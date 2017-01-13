@@ -179,13 +179,9 @@ def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
     # Prepare temporaries map and auxiliary expressions list
     if temps is None:
         temps = {}
-    else:
-        temps = temps
 
     if aux_exprs is None:
         aux_exprs = []
-    else:
-        aux_exprs = aux_exprs
 
     if isinstance(expression, Tensor):
         if expression not in temps.keys():
