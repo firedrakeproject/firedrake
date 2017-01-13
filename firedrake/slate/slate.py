@@ -284,37 +284,32 @@ class UnaryOp(TensorBase):
     def __init__(self, A):
         """Constructor for the UnaryOp class."""
         super(UnaryOp, self).__init__()
-        self.tensor = A
+        self.operands = A,
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
-        return self.tensor.coefficients()
+        return self.operands[0].coefficients()
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return self.tensor.ufl_domains()
+        return self.operands[0].ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return self.tensor.subdomain_data()
-
-    @property
-    def operands(self):
-        """Returns an iterable of the operands of this operation."""
-        return (self.tensor,)
+        return self.operands[0].subdomain_data()
 
     def __repr__(self):
         """SLATE representation of the resulting tensor."""
-        return "%s(%r)" % (type(self).__name__, self.tensor)
+        return "%s(%r)" % (type(self).__name__, self.operands[0])
 
     @property
     def _key(self):
         """Returns a key for hash and equality."""
-        return (type(self), self.tensor)
+        return (type(self), self.operands[0])
 
 
 class Inverse(UnaryOp):
@@ -339,11 +334,11 @@ class Inverse(UnaryOp):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return self.tensor.arguments()[::-1]
+        return self.operands[0].arguments()[::-1]
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a square tensor."""
-        return "(%s).inv" % self.tensor
+        return "(%s).inv" % self.operands[0]
 
 
 class Transpose(UnaryOp):
@@ -355,11 +350,11 @@ class Transpose(UnaryOp):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return self.tensor.arguments()[::-1]
+        return self.operands[0].arguments()[::-1]
 
     def _output_string(self, prec=None):
         """Creates a string representation of the transpose of a tensor."""
-        return "(%s).T" % self.tensor
+        return "(%s).T" % self.operands[0]
 
 
 class Negative(UnaryOp):
@@ -371,7 +366,7 @@ class Negative(UnaryOp):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return self.tensor.arguments()
+        return self.operands[0].arguments()
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
@@ -382,7 +377,7 @@ class Negative(UnaryOp):
         else:
             par = lambda x: "(%s)" % x
 
-        return par("-%s" % self.tensor._output_string(prec=self.prec))
+        return par("-%s" % self.operands[0]._output_string(prec=self.prec))
 
 
 class BinaryOp(TensorBase):
@@ -400,14 +395,14 @@ class BinaryOp(TensorBase):
     def __init__(self, A, B):
         """Constructor for the BinaryOp class."""
         super(BinaryOp, self).__init__()
-        self.tensors = A, B
+        self.operands = A, B
 
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor
         of performing a binary operation on two tensors. Note that
         the coefficients are handled the same way for all binary operations.
         """
-        A, B = self.tensors
+        A, B = self.operands
         # Returns an ordered tuple of coefficients (no duplicates)
         return tuple(OrderedDict.fromkeys(A.coefficients() + B.coefficients()))
 
@@ -415,14 +410,14 @@ class BinaryOp(TensorBase):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        A, B = self.tensors
+        A, B = self.operands
         return join_domains(A.ufl_domains() + B.ufl_domains())
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        A, B = self.tensors
+        A, B = self.operands
         # Join subdomain_data
         sd_dict = A.subdomain_data()[A.ufl_domain()]
         for int_type_B in B.subdomain_data()[B.ufl_domain()].keys():
@@ -430,11 +425,6 @@ class BinaryOp(TensorBase):
                 sd_dict.update({int_type_B: B.subdomain_data()[B.ufl_domain()][int_type_B]})
 
         return {self.ufl_domain(): sd_dict}
-
-    @property
-    def operands(self):
-        """Returns an iterable of the operands of the binary operation."""
-        return self.tensors
 
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
@@ -445,21 +435,22 @@ class BinaryOp(TensorBase):
             par = lambda x: x
         else:
             par = lambda x: "(%s)" % x
-        operand1 = self.operands[0]._output_string(prec=self.prec)
-        operand2 = self.operands[1]._output_string(prec=self.prec)
+        A, B = self.operands
+        operand1 = self.A._output_string(prec=self.prec)
+        operand2 = self.B._output_string(prec=self.prec)
 
         result = "%s %s %s" % (operand1, ops[type(self)], operand2)
 
         return par(result)
 
     def __repr__(self):
-        return "%s(%r, %r)" % (type(self).__name__, self.operands[0], self.operands[1])
+        A, B = self.operands
+        return "%s(%r, %r)" % (type(self).__name__, A, B)
 
     @property
     def _key(self):
         """Returns a key for hash and equality."""
-        A, B = self.tensors
-        return (type(self), A, B)
+        return (type(self), self.operands)
 
 
 class Add(BinaryOp):
@@ -481,7 +472,7 @@ class Add(BinaryOp):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        A, B = self.tensors
+        A, B = self.operands
         assert [argA.function_space() == argB.function_space()
                 for argA in A.arguments()
                 for argB in B.arguments()], "Arguments must share the same function space."
@@ -507,7 +498,7 @@ class Sub(BinaryOp):
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        A, B = self.tensors
+        A, B = self.operands
         assert [argA.function_space() == argB.function_space()
                 for argA in A.arguments()
                 for argB in B.arguments()], "Arguments must share the same function space."
@@ -537,7 +528,7 @@ class Mul(BinaryOp):
         """Returns the arguments of a tensor resulting
         from multiplying two tensors A and B.
         """
-        A, B = self.tensors
+        A, B = self.operands
         argsA = A.arguments()
         argsB = B.arguments()
         assert argsA[-1].function_space() == argsB[0].function_space(), (
@@ -573,39 +564,40 @@ class Action(TensorBase):
             "coefficient function space."
         )
         super(Action, self).__init__()
-        self.tensor = tensor
-        self._acting_coefficient = coefficient
+        self.operands = tensor, coefficient
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self.tensor.arguments()[:-1]
+        return self.operands[0].arguments()[:-1]
 
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
-        return tuple(OrderedDict.fromkeys(self.tensor.coefficients()
-                                          + (self._acting_coefficient,)))
+        return tuple(OrderedDict.fromkeys(self.operands[0].coefficients()
+                                          + (self.operands[1],)))
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return self.tensor.ufl_domains()
+        return self.operands[0].ufl_domains()
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
         ``{domain:{integral_type: subdomain_data}}``.
         """
-        return self.tensor.subdomain_data()
+        return self.operands[0].subdomain_data()
 
     def _output_string(self, prec=None):
         """Creates a string representation."""
-        return "(%s) * %s" % (self.tensor, self._acting_coefficient)
+        tensor, coefficient = self.operands
+        return "(%s) * %s" % (tensor, coefficient)
 
     def __repr__(self):
         """SLATE representation of the action of a tensor on a coefficient."""
-        return "Action(%r, %r)" % (self.tensor, self._acting_coefficient)
+        tensor, coefficient = self.operands
+        return "Action(%r, %r)" % (tensor, coefficient)
 
     @property
     def _key(self):
         """Returns a key for hash and equality."""
-        return (type(self), self.tensor, self._acting_coefficient)
+        return (type(self), self.operands)

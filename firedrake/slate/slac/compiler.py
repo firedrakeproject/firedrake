@@ -190,7 +190,7 @@ def auxiliary_information(builder):
     aux_statements = []
     for i, exp in enumerate(builder.aux_exprs):
         if isinstance(exp, Action):
-            acting_coefficient = exp._acting_coefficient
+            acting_coefficient = exp.operands[1]
             assert isinstance(acting_coefficient, Coefficient)
 
             temp = ast.Symbol("C%d" % i)
@@ -250,28 +250,33 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         return temps[expr].gencode()
 
     elif isinstance(expr, Transpose):
-        return "(%s).transpose()" % metaphrase_slate_to_cpp(expr.tensor, temps)
+        tensor = expr.operands[0]
+        return "(%s).transpose()" % metaphrase_slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, Inverse):
-        return "(%s).inverse()" % metaphrase_slate_to_cpp(expr.tensor, temps)
+        tensor = expr.operands[0]
+        return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, Negative):
-        result = "-%s" % metaphrase_slate_to_cpp(expr.tensor, temps, expr.prec)
+        tensor = expr.operands[0]
+        result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, (Add, Sub, Mul)):
         op = {Add: '+',
               Sub: '-',
               Mul: '*'}[type(expr)]
-        result = "%s %s %s" % (metaphrase_slate_to_cpp(expr.operands[0], temps, expr.prec),
+        A, B = expr.operands
+        result = "%s %s %s" % (metaphrase_slate_to_cpp(A, temps, expr.prec),
                                op,
-                               metaphrase_slate_to_cpp(expr.operands[1], temps, expr.prec))
+                               metaphrase_slate_to_cpp(B, temps, expr.prec))
 
         return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, Action):
-        tensor = expr.tensor
-        c = expr._acting_coefficient
+        tensor, c = expr.operands
+        # Extra check
+        assert isinstance(c, Coefficient)
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor, temps, expr.prec), temps[c])
 
         return parenthesize(result, expr.prec, prec)

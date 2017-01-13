@@ -195,7 +195,8 @@ def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
         # This is a special case where we need to handle this expression separately from the rest
         aux_exprs.append(expression)
         # Pass in the acting tensor to extract any necessary temporaries
-        prepare_temps_and_aux_exprs(expression.tensor, temps=temps, aux_exprs=aux_exprs)
+        tensor = expression.operands[0]
+        prepare_temps_and_aux_exprs(tensor, temps=temps, aux_exprs=aux_exprs)
 
     elif isinstance(expression, (UnaryOp, BinaryOp)):
         for operand in expression.operands:
