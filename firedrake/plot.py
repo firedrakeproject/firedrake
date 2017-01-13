@@ -217,16 +217,17 @@ def plot(function_or_mesh,
     function = function_or_mesh
     try:
         import matplotlib.pyplot as plt
+        from matplotlib import cm
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    if function.ufl_shape != ():
-        raise NotImplementedError("Plotting vector-valued functions is not supported")
     gdim = function.ufl_domain().geometric_dimension()
     tdim = function.ufl_domain().topological_dimension()
     if tdim != gdim:
         raise NotImplementedError("Not supported for topological dimension (%d) != geometric dimension (%d)",
                                   tdim, gdim)
     if gdim == 1:
+        if function.ufl_shape != ():
+            raise NotImplementedError("Plotting vector-valued functions is not supported")
         if function.ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
         bezier = kwargs.pop('bezier', False)
@@ -280,6 +281,23 @@ def plot(function_or_mesh,
                                  axes, **kwargs)
         return piecewise_linear(points, axes, **kwargs)
     elif gdim == 2:
+        if len(function.ufl_shape) > 1:
+            raise NotImplementedError("Plotting tensor valued functions not supported")
+        if len(function.ufl_shape) == 1:
+            # Vector-valued, produce a quiver plot interpolated at the
+            # mesh coordinates
+            coords = function.ufl_domain().coordinates.dat.data_ro
+            X, Y = coords.T
+            vals = np.asarray(function.at(coords))
+            C = np.linalg.norm(vals, axis=1)
+            U, V = vals.T
+            if axes is None:
+                fig = plt.figure()
+                axes = fig.add_subplot(111)
+            cmap = kwargs.pop("cmap", cm.coolwarm)
+            pivot = kwargs.pop("pivot", "mid")
+            axes.quiver(X, Y, U, V, C, cmap=cmap, pivot=pivot, **kwargs)
+            return axes
         is_contour = kwargs.pop('contour', False)
         if is_contour:
             return two_dimension_contour(function, num_sample_points,
