@@ -145,12 +145,12 @@ def prepare_tsfc_kernels(temps, tsfc_parameters=None):
         # Now we reconstruct all interior_facet integrals to be of type: exterior_facet
         # This is because locally over each cell, SLATE views them as being "exterior"
         # with respect to the cell.
-        interior_facet_intergrals = [it.reconstruct(integral_type="exterior_facet")
-                                     for it in interior_facet_intergrals]
+        new_ext_integrals = int_to_ext_facet_type_transform(interior_facet_integrals)
+
         # Now for the rest:
         other_integrals = list(filter(lambda x: x.integral_type() != "interior_facet", integrals))
 
-        forms = (Form(interior_facet_intergrals), Form(other_integrals))
+        forms = (Form(new_ext_integrals), Form(other_integrals))
         compiled_forms = []
         for form in forms:
             compiled_forms.extend(compile_form(form, prefix, parameters=tsfc_parameters))
@@ -158,6 +158,38 @@ def prepare_tsfc_kernels(temps, tsfc_parameters=None):
         kernel_exprs[expr] = tuple(compiled_forms)
 
     return kernel_exprs
+
+
+def int_to_ext_facet_type_transform(interior_facet_integrals):
+    """This function transforms integrals of type interior facet
+    to the corresponding exterior facet type. For example:
+
+    "interior_facet" >> "exterior_facet"
+    "interior_facet_horiz" >> "exterior_facet_top"
+    "interior_facet_vert" >> "exterior_facet_vert"
+
+    :arg interior_facet_integrals: an interable of `ufl.Integral` objects with
+                                   interior facet type.
+
+    Returns: Reconstructed integrals of exterior type.
+    """
+    new_ext_integrals = []
+
+    for it in interior_facet_integrals:
+        if it.integral_type() == "interior_facet":
+            new_it_type = "exterior_facet"
+        elif it.integral_type() == "interior_facet_horiz":
+            # TODO: Not sure if this is the way to go yet.
+            # Since positive restrictions are only allowed,
+            # choose the top facet?
+            new_it_type = "exterior_facet_top"
+        elif it.integral_type() == "interior_facet_vert":
+            new_it_type = "exterior_facet_vert"
+        else:
+            raise ValueError("Integral type %s type not recognized" % it.integral_type())
+        new_ext_integrals.append(it.reconstruct(integral_type=new_it_type))
+
+    return new_ext_integrals
 
 
 def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):

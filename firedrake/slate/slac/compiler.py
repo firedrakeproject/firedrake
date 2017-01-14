@@ -41,6 +41,21 @@ __all__ = ['compile_expression']
 
 PETSC_DIR = get_petsc_dir()
 
+supported_integral_types = [
+    "cell",
+    "interior_facet",
+    "exterior_facet",
+    "interior_facet_horiz",
+    "interior_facet_vert",
+    "exterior_facet_top",
+    "exterior_facet_bottom",
+    "exterior_facet_vert"
+]
+
+facet_integral_types = [typ for typ in supported_integral_types if "facet" in typ]
+
+exterior_facet_types = [typ for typ in facet_integral_types if "exterior" in typ]
+
 
 def compile_expression(slate_expr, tsfc_parameters=None):
     """Takes a SLATE expression `slate_expr` and returns the appropriate
@@ -82,7 +97,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             kinfo = splitkernel.kinfo
             integral_type = kinfo.integral_type
 
-            if integral_type not in ["cell", "interior_facet", "exterior_facet"]:
+            if integral_type not in supported_integral_types:
                 raise NotImplementedError("Integral type %s not currently supported." % integral_type)
 
             coordinates = exp.ufl_domain().coordinates
@@ -100,26 +115,18 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
             tensor = eigen_tensor(exp, t, index)
 
-            if integral_type in ["interior_facet", "exterior_facet"]:
+            if integral_type in facet_integral_types:
+                # Require cell facets
                 builder.require_cell_facets()
+
                 itsym = ast.Symbol("i0")
                 clist.append(ast.FlatBlock("&%s" % itsym))
-                loop_body = []
-                nfacet = exp.ufl_domain().ufl_cell().num_facets()
+                ufl_cell = exp.ufl_domain().ufl_cell()
+                coffee_symbols = (coordsym, itsym, cellfacetsym)
 
-                if integral_type == "exterior_facet":
-                    checker = 1
-                else:
-                    checker = 0
-                loop_body.append(ast.If(ast.Eq(ast.Symbol(cellfacetsym, rank=(itsym,)), checker),
-                                        [ast.Block([ast.FunCall(kinfo.kernel.name,
-                                                                tensor,
-                                                                coordsym,
-                                                                *clist)],
-                                                   open_scope=True)]))
-                loop = ast.For(ast.Decl("unsigned int", itsym, init=0), ast.Less(itsym, nfacet),
-                               ast.Incr(itsym, 1), loop_body)
+                loop = facet_integral_loop(kinfo, tensor, ufl_cell, clist, coffee_symbols)
                 statements.append(loop)
+
             else:
                 statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
 
@@ -174,6 +181,59 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     idx = tuple([0]*slate_expr.rank)
 
     return (SplitKernel(idx, kinfo),)
+
+
+def facet_integral_loop(kinfo, tensor, ufl_cell, clist, coffee_symbols):
+    """Generates a integral facet loop corresponding to a particular facet integral
+    type as a COFFEE AST node.
+
+    :arg kinfo: a `SplitKernel` object containing information about the compiled form.
+    :arg tensor: a string describing the `Eigen::MatrixBase` declaration of the tensor.
+    :arg ufl_cell: a `ufl.Cell` object that the integral form is defined on. This parameter
+                   is used to help determine the appropriate number of facets located on
+                   a particular cell.
+    :arg clist: a `list` of coefficient information described as a COFFEE AST node.
+    :arg coffee_symbols: a `tuple` of `coffee.Symbol` objects representing the following:
+                         (1) the coordinates provided to the kernel function, (2) the
+                         iteration symbol for the facet loops and (3) the cell facet index.
+
+    Returns: a `coffee.For` object describing the loop needed to locally evaluate the facet
+             integral.
+    """
+    from ufl import TensorProductCell
+
+    coordsym, itsym, cellfacetsym = coffee_symbols
+    integral_type = kinfo.integral_type
+
+    # Compute the correct number of facets for a particular facet measure
+    if integral_type in ["interior_facet", "exterior_facet"]:
+        # Non-extruded case
+        nfacet = ufl_cell.num_facets()
+
+    elif integral_type in ["interior_facet_vert", "exterior_facet_vert"]:
+        assert isinstance(ufl_cell, TensorProductCell)
+        # Extrusion case
+        A, _ = ufl_cell._cells
+        nfacet = A.num_facets()
+
+    else:
+        raise ValueError("Integral type %s not currently supported." % integral_type)
+
+    if integral_type in exterior_facet_types:
+        checker = 1
+    else:
+        checker = 0
+
+    loop_body = ast.If(ast.Eq(ast.Symbol(cellfacetsym, rank=(itsym,)), checker),
+                       [ast.Block([ast.FunCall(kinfo.kernel.name,
+                                               tensor,
+                                               coordsym,
+                                               *clist)],
+                                  open_scope=True)])
+    loop = ast.For(ast.Decl("unsigned int", itsym, init=0), ast.Less(itsym, nfacet),
+                   ast.Incr(itsym, 1), loop_body)
+
+    return loop
 
 
 def auxiliary_information(builder):
