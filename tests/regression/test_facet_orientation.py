@@ -1,6 +1,7 @@
 """Tests if nodes shared between cells (e.g. nodes on vertices, facets etc.)
 are interpreted consistently on CG spaces by the cells that share them.
 """
+from __future__ import absolute_import, print_function, division
 
 from os.path import abspath, dirname, join
 import pytest

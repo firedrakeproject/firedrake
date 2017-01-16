@@ -1,4 +1,5 @@
 # Test that integrals over the surface of a sphere do the right thing
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *

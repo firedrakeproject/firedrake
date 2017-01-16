@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from operator import iadd, isub, imul, idiv
 from functools import partial
 from itertools import permutations

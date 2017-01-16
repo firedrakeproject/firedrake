@@ -10,6 +10,7 @@ and the analytical solution
 
   u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
 """
+from __future__ import absolute_import, print_function, division
 
 from os.path import abspath, dirname, join
 import numpy as np
@@ -48,9 +49,9 @@ def helmholtz(x, quadrilateral=False, degree=2, mesh=None):
 
 def run_firedrake_helmholtz():
     diff = np.array([helmholtz(i)[0] for i in range(3, 6)])
-    print "l2 error norms:", diff
+    print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
-    print "convergence order:", conv
+    print("convergence order:", conv)
     assert (np.array(conv) > 2.8).all()
 
 
