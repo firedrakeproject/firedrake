@@ -31,7 +31,7 @@ from pyop2.utils import get_petsc_dir
 
 from tsfc.parameters import SCALAR_TYPE
 
-from ufl.coefficient import Coefficient
+from ufl import Coefficient, TensorProductCell
 
 import numpy as np
 
@@ -51,10 +51,6 @@ supported_integral_types = [
     "exterior_facet_bottom",
     "exterior_facet_vert"
 ]
-
-facet_integral_types = [typ for typ in supported_integral_types if "facet" in typ]
-
-exterior_facet_types = [typ for typ in facet_integral_types if "exterior" in typ]
 
 
 def compile_expression(slate_expr, tsfc_parameters=None):
@@ -85,6 +81,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     cellfacetsym = ast.Symbol("cell_facets")
     inc = []
 
+    # Special kernels dict for handling horizontal extruded case
+    # TODO: Avoid creating this variable?
+    extruded_horiz_kernels = {}
     # Now we construct the list of statements to provide to the builder
     context_temps = builder.temps.copy()
     for exp, t in context_temps.items():
@@ -115,20 +114,58 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
             tensor = eigen_tensor(exp, t, index)
 
-            if integral_type in facet_integral_types:
+            # Most facets are treated the same way: by looping over facet index.
+            if integral_type in ["interior_facet",
+                                 "exterior_facet",
+                                 "interior_facet_vert",
+                                 "exterior_facet_vert"]:
                 # Require cell facets
                 builder.require_cell_facets()
-
-                itsym = ast.Symbol("i0")
-                clist.append(ast.FlatBlock("&%s" % itsym))
                 ufl_cell = exp.ufl_domain().ufl_cell()
-                coffee_symbols = (coordsym, itsym, cellfacetsym)
-
-                loop = facet_integral_loop(kinfo, tensor, ufl_cell, clist, coffee_symbols)
+                loop = facet_integral_loop(kinfo, tensor, ufl_cell, coordsym, cellfacetsym)
                 statements.append(loop)
 
+            # The horizontal facets in the extruded case require special treatment.
+            # Instead of looping over facets, we loop over levels of the cell. This will
+            # determine when we call the "exterior_facet_top" and "exterior_facet_bottom"
+            # kernels.
+            elif integral_type in ["interior_facet_horiz",
+                                   "exterior_facet_bottom",
+                                   "exterior_facet_top"]:
+                extruded_horiz_kernels[exp] = builder.kernel_exprs[exp]
             else:
                 statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
+
+    # Now we handle the extruded horizontal facets
+    if bool(extruded_horiz_kernels):
+        for exp, klist in extruded_horiz_kernels.items():
+            assert isinstance(exp.ufl_domain().ufl_cell(), TensorProductCell)
+            assert len(klist) == 2, "Must have a top and bottom kernel"
+            levels = 2
+            lsym = ast.Symbol("level")
+
+            top_kernel = [splitkernel for splitkernel in klist
+                          if splitkernel.kinfo.integral_type == "exterior_facet_top"][0]
+            bottom_kernel = [splitkernel for splitkernel in klist
+                             if splitkernel.kinfo.integral_type == "exterior_facet_bottom"][0]
+
+            # Create dummy variable
+            # E = ast.Symbol("E")
+            iftop = [ast.If(ast.Eq(lsym, 1),
+                            [ast.Block([ast.FunCall(top_kernel.kinfo.kernel.name,
+                                                    eigen_tensor(exp, context_temps[exp],
+                                                                 top_kernel.indices),
+                                                    coordsym)])])]
+            ifbottom = [ast.If(ast.Eq(lsym, 0),
+                               [ast.Block([ast.FunCall(bottom_kernel.kinfo.kernel.name,
+                                                       eigen_tensor(exp, context_temps[exp],
+                                                                    bottom_kernel.indices),
+                                                       coordsym)])])]
+            body = ifbottom + iftop  # + [ast.Incr(context_temps[exp], E)]
+            # statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), E))
+            loop = ast.For(ast.Decl("unsigned int", lsym, init=0), ast.Less(lsym, levels),
+                           ast.Incr(lsym, 1), body)
+            statements.append(loop)
 
     # Now we handle any terms that require auxiliary data (if any)
     if bool(builder.aux_exprs):
@@ -183,7 +220,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     return (SplitKernel(idx, kinfo),)
 
 
-def facet_integral_loop(kinfo, tensor, ufl_cell, clist, coffee_symbols):
+def facet_integral_loop(kinfo, tensor, ufl_cell, coordsym, cellfacetsym):
     """Generates a integral facet loop corresponding to a particular facet integral
     type as a COFFEE AST node.
 
@@ -200,10 +237,8 @@ def facet_integral_loop(kinfo, tensor, ufl_cell, clist, coffee_symbols):
     Returns: a `coffee.For` object describing the loop needed to locally evaluate the facet
              integral.
     """
-    from ufl import TensorProductCell
-
-    coordsym, itsym, cellfacetsym = coffee_symbols
     integral_type = kinfo.integral_type
+    itsym = ast.Symbol("i0")
 
     # Compute the correct number of facets for a particular facet measure
     if integral_type in ["interior_facet", "exterior_facet"]:
@@ -219,7 +254,7 @@ def facet_integral_loop(kinfo, tensor, ufl_cell, clist, coffee_symbols):
     else:
         raise ValueError("Integral type %s not currently supported." % integral_type)
 
-    if integral_type in exterior_facet_types:
+    if integral_type in ["exterior_facet", "exterior_facet_vert"]:
         checker = 1
     else:
         checker = 0
@@ -228,7 +263,7 @@ def facet_integral_loop(kinfo, tensor, ufl_cell, clist, coffee_symbols):
                        [ast.Block([ast.FunCall(kinfo.kernel.name,
                                                tensor,
                                                coordsym,
-                                               *clist)],
+                                               ast.FlatBlock("&%s" % itsym))],
                                   open_scope=True)])
     loop = ast.For(ast.Decl("unsigned int", itsym, init=0), ast.Less(itsym, nfacet),
                    ast.Incr(itsym, 1), loop_body)

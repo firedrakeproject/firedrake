@@ -165,7 +165,8 @@ def int_to_ext_facet_type_transform(interior_facet_integrals):
     to the corresponding exterior facet type. For example:
 
     "interior_facet" >> "exterior_facet"
-    "interior_facet_horiz" >> "exterior_facet_top"
+    "interior_facet_horiz" >> adds both "exterior_facet_top"
+                                    and "exterior_facet_bottom"
     "interior_facet_vert" >> "exterior_facet_vert"
 
     :arg interior_facet_integrals: an interable of `ufl.Integral` objects with
@@ -177,17 +178,15 @@ def int_to_ext_facet_type_transform(interior_facet_integrals):
 
     for it in interior_facet_integrals:
         if it.integral_type() == "interior_facet":
-            new_it_type = "exterior_facet"
+            new_ext_integrals.append(it.reconstruct(integral_type="exterior_facet"))
         elif it.integral_type() == "interior_facet_horiz":
-            # TODO: Not sure if this is the way to go yet.
-            # Since positive restrictions are only allowed,
-            # choose the top facet?
-            new_it_type = "exterior_facet_top"
+            # We need the TSFC kernels for both the top and bottom facets of the cell
+            new_ext_integrals.extend((it.reconstruct(integral_type="exterior_facet_top"),
+                                      it.reconstruct(integral_type="exterior_facet_bottom")))
         elif it.integral_type() == "interior_facet_vert":
-            new_it_type = "exterior_facet_vert"
+            new_ext_integrals.append(it.reconstruct(integral_type="exterior_facet_vert"))
         else:
             raise ValueError("Integral type %s type not recognized" % it.integral_type())
-        new_ext_integrals.append(it.reconstruct(integral_type=new_it_type))
 
     return new_ext_integrals
 
