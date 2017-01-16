@@ -424,6 +424,8 @@ class Function(ufl.Coefficient):
 
         return self
 
+    __itruediv__ = __idiv__
+
     @utils.cached_property
     def _constant_ctypes(self):
         # Retrieve data from Python object

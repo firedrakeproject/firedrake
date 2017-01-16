@@ -52,7 +52,7 @@ def run_poisson(typ, ref_per_level=1):
 
     mesh = UnitSquareMesh(10, 10)
 
-    nlevel = 2 / ref_per_level
+    nlevel = 2 // ref_per_level
 
     mh = MeshHierarchy(mesh, nlevel, refinements_per_level=ref_per_level)
 
