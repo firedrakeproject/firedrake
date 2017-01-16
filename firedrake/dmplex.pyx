@@ -554,11 +554,11 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def cell_to_facets(PETSc.DM plex,
-                   PETSc.Section cell_numbering,
-                   np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures):
-    """Computes a mapping from cells to local facet numbers on a particular
-    cell (both interior and exterior facets). The i-th local facet is
+def cell_facet_labeling(PETSc.DM plex,
+                        PETSc.Section cell_numbering,
+                        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures):
+    """Computes a labeling for the facet numbers on a particular cell
+    (interior and exterior facet labels). The i-th local facet is
     represented as:
 
     cell_facets[c, i]

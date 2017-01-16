@@ -572,8 +572,9 @@ class MeshTopology(object):
         The i-th local facet is exterior if the value of this array is :data:`0`
         and interior if the value is :data:`1`.
         """
-        cell_facets = dmplex.cell_to_facets(self._plex, self._cell_numbering,
-                                            self.cell_closure)
+        cell_facets = dmplex.cell_facet_labeling(self._plex,
+                                                 self._cell_numbering,
+                                                 self.cell_closure)
         nfacet = cell_facets.shape[1]
         return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-map")
