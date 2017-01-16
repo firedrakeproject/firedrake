@@ -977,6 +977,7 @@ if osname == "Darwin":
         brew_install("automake")
         brew_install("cmake")
         brew_install("libtool")
+        brew_install("mercurial")
 
     else:
         log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
