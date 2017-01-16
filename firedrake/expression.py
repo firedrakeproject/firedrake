@@ -1,4 +1,6 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
+
 import numpy as np
 import collections
 import ufl
@@ -154,7 +156,7 @@ class Expression(ufl.Coefficient):
         # want every Expression to have all the properties of all
         # Expressions.
         cls = type(self.__class__.__name__, (self.__class__, ), {})
-        for slot, val in kwargs.iteritems():
+        for slot, val in iteritems(kwargs):
             # Save the argument for later reconstruction
             self._kwargs[slot] = val
             # Scalar arguments have to be treated specially

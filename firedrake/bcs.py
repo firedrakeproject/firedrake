@@ -1,5 +1,6 @@
 # A module implementing strong (Dirichlet) boundary conditions.
 from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 import numpy as np
 from ufl import as_ufl, UFLException
 
@@ -57,7 +58,7 @@ class DirichletBC(object):
         self._original_arg = self.function_arg
         if sub_domain == "on_boundary":
             self.sub_domain = \
-                map(int, V.mesh().topology.exterior_facets.unique_markers)
+                list(map(int, V.mesh().topology.exterior_facets.unique_markers))
         else:
             self.sub_domain = sub_domain
         self._currently_zeroed = False

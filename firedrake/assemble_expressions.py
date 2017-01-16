@@ -1,4 +1,6 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
+from six.moves import map, zip
 import weakref
 
 import ufl
@@ -44,7 +46,7 @@ def _ast(expr):
     try:
         return expr.ast
     except AttributeError:
-        for t, f in _ast_map.iteritems():
+        for t, f in iteritems(_ast_map):
             if isinstance(expr, t):
                 return f(expr)
         raise TypeError("No ast handler for %s" % str(type(expr)))
@@ -104,7 +106,7 @@ class AssignmentBase(Operator):
     _identity = Zero()
 
     def __init__(self, lhs, rhs):
-        operands = map(ufl.as_ufl, (lhs, rhs))
+        operands = list(map(ufl.as_ufl, (lhs, rhs)))
         super(AssignmentBase, self).__init__(operands)
         self.ufl_shape = lhs.ufl_shape
         # Sub function assignment, we've put a Zero in the lhs
@@ -502,7 +504,7 @@ class ExpressionWalker(ReuseTransformer):
 
         else:
             # For all other operators, just visit the children.
-            operands = map(self.visit, o.ufl_operands)
+            operands = list(map(self.visit, o.ufl_operands))
 
         return o._ufl_expr_reconstruct_(*operands)
 
