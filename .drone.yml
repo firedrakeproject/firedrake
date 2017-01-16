@@ -25,7 +25,7 @@ pipeline:
       - apt-get -y install sudo python-minimal python-pip
 
       # Fail fast on lint errors
-      - pip install -U flake8
+      - pip install -U flake8 flake8-future-import
       - cd $GIT_SOURCE_DIR
       - make lint
       - pip install virtualenv
