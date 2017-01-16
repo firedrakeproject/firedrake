@@ -8,7 +8,7 @@ __all__ = ["plot"]
 
 
 def _plot_mult(functions, num_points=10, axes=None, **kwargs):
-    """Plot multiple functions on a figure, return a matplotlib figure
+    """Plot multiple functions on a figure, return a matplotlib axes
 
     :arg functions: Functions to be plotted
     :arg num_points: Number of points per element
@@ -179,6 +179,7 @@ def plot_mesh(mesh, axes=None, **kwargs):
 def plot(function_or_mesh,
          num_sample_points=10,
          axes=None,
+         plot3d=False,
          **kwargs):
     """Plot a Firedrake object.
 
@@ -192,6 +193,7 @@ def plot(function_or_mesh,
         is used as a guide to the number of subdivisions to use when
         triangulating the surface.
     :arg axes: Axes to be plotted on
+    :kwarg plot3d: For 2D plotting, use matplotlib 3D functionality? (slow)
     :kwarg contour: For 2D plotting, True for a contour plot
     :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
         piece-wise linear
@@ -298,13 +300,9 @@ def plot(function_or_mesh,
             pivot = kwargs.pop("pivot", "mid")
             axes.quiver(X, Y, U, V, C, cmap=cmap, pivot=pivot, **kwargs)
             return axes
-        is_contour = kwargs.pop('contour', False)
-        if is_contour:
-            return two_dimension_contour(function, num_sample_points,
-                                         axes, **kwargs)
-        else:
-            return two_dimension_surface(function, num_sample_points,
-                                         axes, **kwargs)
+        return two_dimension_plot(function, num_sample_points,
+                                  axes, plot3d=plot3d, contour=kwargs.pop("contour", False),
+                                  **kwargs)
     else:
         raise NotImplementedError("Plotting functions with geometric dimension %d unsupported",
                                   gdim)
@@ -341,7 +339,7 @@ def interactive_multiple_plot(functions, num_sample_points=10, axes=None, **kwar
 
 def piecewise_linear(points, axes=None, **kwargs):
     """Plot a piece-wise linear plot for the given points, returns a
-    matplotlib figure
+    matplotlib axes.
 
     :arg points: Points to be plotted
     :arg axes: Axes to be plotted on
@@ -476,15 +474,19 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
     return triangulation, Z
 
 
-def two_dimension_surface(function,
-                          num_sample_points,
-                          axes=None,
-                          **kwargs):
-    """Plot a 2D function as surface plotting, return a matplotlib figure
+def two_dimension_plot(function,
+                       num_sample_points,
+                       axes=None,
+                       plot3d=False,
+                       contour=False,
+                       **kwargs):
+    """Plot a 2D function as surface plotting, return the axes drawn on.
 
     :arg function: 2D function for plotting
     :arg num_sample_points: Number of sample points per element
     :arg axes: Axes to be plotted on
+    :kwarg plot3d: Use 3D projection (slow for large meshes).
+    :kwarg contour: Produce contour plot?
     """
     try:
         import matplotlib.pyplot as plt
@@ -497,37 +499,26 @@ def two_dimension_surface(function,
 
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot(111, projection='3d')
+        if plot3d:
+            axes = figure.add_subplot(111, projection="3d")
+        else:
+            axes = figure.add_subplot(111)
     cmap = kwargs.pop('cmap', cm.coolwarm)
-    axes.plot_trisurf(triangulation, Z, edgecolor='none',
-                      antialiased=False, shade=False, cmap=cmap,
-                      **kwargs)
-    return axes
-
-
-def two_dimension_contour(function,
-                          num_sample_points,
-                          axes=None,
-                          **kwargs):
-    """Plot a 2D function as contour plotting, return a matplotlib figure
-
-    :arg function: 2D function for plotting
-    :arg num_sample_points: Number of sample points per element
-    :arg axes: Axes to be plotted on
-    """
-    try:
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-    except ImportError:
-        raise RuntimeError("Matplotlib not importable, is it installed?")
-    triangulation, Z = _two_dimension_triangle_func_val(function,
-                                                        num_sample_points)
-
-    if axes is None:
-        figure = plt.figure()
-        axes = figure.add_subplot(111, projection='3d')
-    axes.tricontour(triangulation, Z, edgecolor='none',
-                    antialiased=False, **kwargs)
+    if plot3d:
+        if contour:
+            axes.tricontour(triangulation, Z, edgecolor="none",
+                            cmap=cmap, antialiased=False, **kwargs)
+        else:
+            axes.plot_trisurf(triangulation, Z, edgecolor="none",
+                              cmap=cmap, antialiased=False,
+                              shade=False, **kwargs)
+        return axes
+    else:
+        if contour:
+            axes.tricontour(triangulation, Z, edgecolor="none",
+                            cmap=cmap, **kwargs)
+        else:
+            axes.tripcolor(triangulation, Z, cmap=cmap, **kwargs)
     return axes
 
 
@@ -550,7 +541,7 @@ def _bezier_calculate_points(function):
 
 def bezier_plot(function, axes=None, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
-    Bezier curve within each cell, return a matplotlib figure
+    Bezier curve within each cell, return a matplotlib axes
 
     :arg function: 1D function for plotting
     :arg axes: Axes for plotting, if None, a new one will be created
