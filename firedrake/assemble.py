@@ -477,7 +477,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     args.append(c_.dat(op2.READ, get_map(c_)))
             if needs_cell_facets:
                 assert integral_type == "cell"
-                extra_args.append(m.cell_to_facet_map(op2.READ))
+                extra_args.append(m.cell_to_facets(op2.READ))
 
             args.extend(extra_args)
             try:

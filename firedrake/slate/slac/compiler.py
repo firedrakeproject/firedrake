@@ -132,7 +132,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             elif integral_type in ["interior_facet_horiz",
                                    "exterior_facet_bottom",
                                    "exterior_facet_top"]:
-                extruded_horiz_kernels[exp] = builder.kernel_exprs[exp]
+                builder.require_cell_facets()
+                #extruded_horiz_kernels[exp] = builder.kernel_exprs[exp]
+                statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
             else:
                 statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
 
@@ -141,7 +143,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         for exp, klist in extruded_horiz_kernels.items():
             assert isinstance(exp.ufl_domain().ufl_cell(), TensorProductCell)
             assert len(klist) == 2, "Must have a top and bottom kernel"
-            levels = 2
+            nfacet = 2
             lsym = ast.Symbol("level")
 
             top_kernel = [splitkernel for splitkernel in klist
@@ -149,8 +151,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             bottom_kernel = [splitkernel for splitkernel in klist
                              if splitkernel.kinfo.integral_type == "exterior_facet_bottom"][0]
 
-            # Create dummy variable
-            # E = ast.Symbol("E")
             iftop = [ast.If(ast.Eq(lsym, 1),
                             [ast.Block([ast.FunCall(top_kernel.kinfo.kernel.name,
                                                     eigen_tensor(exp, context_temps[exp],
@@ -161,9 +161,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                        eigen_tensor(exp, context_temps[exp],
                                                                     bottom_kernel.indices),
                                                        coordsym)])])]
-            body = ifbottom + iftop  # + [ast.Incr(context_temps[exp], E)]
-            # statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), E))
-            loop = ast.For(ast.Decl("unsigned int", lsym, init=0), ast.Less(lsym, levels),
+            body = ifbottom + iftop
+            loop = ast.For(ast.Decl("unsigned int", lsym, init=0), ast.Less(lsym, nfacet),
                            ast.Incr(lsym, 1), body)
             statements.append(loop)
 
