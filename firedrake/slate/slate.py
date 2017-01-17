@@ -151,6 +151,14 @@ class TensorBase(with_metaclass(ABCMeta)):
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    @abstractmethod
+    def arguments(self):
+        """Returns a tuple of arguments associated with the tensor."""
+
+    @abstractmethod
+    def coefficients(self):
+        """Returns a tuple of coefficients associated with the tensor."""
+
     def ufl_domain(self):
         """This function returns a single domain of integration occuring
         in the tensor.
@@ -162,6 +170,18 @@ class TensorBase(with_metaclass(ABCMeta)):
             "All integrals must share the same domain of integration."
         )
         return domains[0]
+
+    @abstractmethod
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+
+    @abstractmethod
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        ``{domain:{integral_type: subdomain_data}}``.
+        """
 
     def __str__(self):
         """Returns a string representation."""
