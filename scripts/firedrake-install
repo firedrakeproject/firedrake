@@ -1,5 +1,5 @@
-#! /usr/bin/env python
-from __future__ import absolute_import, print_function, division
+#!/usr/bin/env python
+from __future__ import absolute_import, print_function, division, unicode_literals
 import logging
 import platform
 import subprocess
@@ -59,7 +59,7 @@ class FiredrakeConfiguration(dict):
 
 def deep_update(this, that):
     import collections
-    for k, v in that.iteritems():
+    for k, v in that.items():
         if isinstance(v, collections.Mapping) and k in this.keys():
             this[k] = deep_update(this.get(k, {}), v)
         else:
@@ -238,7 +238,7 @@ where shortname is one of the names given below:
     header = componentformat.format("Name", "Description")
     line = "-" * (len(header) - 1) + "\n"
     help_string += line + header + line
-    for package, d in firedrake_apps.iteritems():
+    for package, d in firedrake_apps.items():
         help_string += componentformat.format(package, d[0])
     help_string += line
     print(help_string)
@@ -343,7 +343,13 @@ def check_call(arguments, env=None):
 
 def check_output(args, env=None):
     try:
-        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
+        result = subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
+        if isinstance(result, str):
+            # Python 2
+            return result
+        else:
+            # Python 3
+            return result.decode()
     except subprocess.CalledProcessError as e:
         log.debug(e.output)
         raise
@@ -717,8 +723,7 @@ def build_and_install_h5py():
     else:
         try:
             petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
-
+                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
             petsc_arch = ""
         except subprocess.CalledProcessError:
             raise InstallError("Unable to find installed PETSc when building h5py")
@@ -784,7 +789,7 @@ def build_and_install_libspatialindex():
 
 def build_and_install_slepc():
     try:
-        petsc_dir = check_output(python + ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+        petsc_dir = check_output(python + ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
         petsc_arch = ""
     except subprocess.CalledProcessError:
         raise InstallError("Unable to find installed PETSc when building SLEPc")
@@ -830,7 +835,7 @@ def build_and_install_adjoint():
     else:
         try:
             petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
 
             petsc_arch = ""
         except subprocess.CalledProcessError:
@@ -1221,10 +1226,11 @@ if mode == "install":
         packages.remove("petsc4py")
         packages.remove("firedrake")
         v = sys.version_info
-        easyinstall = file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
-        new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
-        file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
-            easyinstall[:1] + new_packages + easyinstall[1:])
+        if v.major <= 2:
+            easyinstall = open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
+            new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
+            open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
+                easyinstall[:1] + new_packages + easyinstall[1:])
 
     build_update_script()
 
@@ -1245,7 +1251,7 @@ else:
         name = split_requirements_url(p)[0]
         deps.update(list_cloned_dependencies(name))
         deps[name] = p
-    packages = deps.keys()
+    packages = list(deps.keys())
     packages += ["firedrake"]
 
     # update packages.
