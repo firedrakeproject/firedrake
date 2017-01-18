@@ -399,7 +399,7 @@ class FunctionSpace(object):
 
     @property
     def dof_count(self):
-        """The number of degrees of freedom of this function space on 
+        """The number of degrees of freedom of this function space on
         this process. Cf. :attr:`node_count`."""
         return self.node_count*self.dim
 
