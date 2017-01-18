@@ -3,23 +3,26 @@ from firedrake import *
 import numpy as np
 
 
-@pytest.fixture(params=["periodic-interval",
-                        "periodic-square-tri", "periodic-square-quad"])
-def mesh(request):
-    if request.param == "periodic-interval":
-        return PeriodicUnitIntervalMesh(30)
-    elif request.param == "periodic-square-tri":
-        return PeriodicUnitSquareMesh(30, 30)
-    elif request.param == "periodic-square-quad":
-        return PeriodicUnitSquareMesh(30, 30, quadrilateral=True)
+@pytest.fixture(params=["periodic-interval1", "periodic-interval2",
+                        "periodic-square-tri1", "periodic-square-quad1"])
+def mesh_degree(request):
+    if request.param == "periodic-interval1":
+        return (PeriodicUnitIntervalMesh(30), 1)
+    if request.param == "periodic-interval2":
+        return (PeriodicUnitIntervalMesh(30), 2)
+    elif request.param == "periodic-square-tri1":
+        return (PeriodicUnitSquareMesh(30, 30), 1)
+    elif request.param == "periodic-square-quad1":
+        return (PeriodicUnitSquareMesh(30, 30, quadrilateral=True), 1)
 
 
-def test_constant_field(mesh):
+def test_constant_field(mesh_degree):
     # test function space
-    v = FunctionSpace(mesh, "DG", 1)
+    mesh, degree = mesh_degree
+    v = FunctionSpace(mesh, "DG", degree)
 
     # Create limiter
-    limiter = VertexBasedLimiter(v)
+    limiter = KuzminLimiter(v)
 
     # Set up constant field
     u0 = Constant(1)
@@ -29,29 +32,33 @@ def test_constant_field(mesh):
     limiter.apply(u)
     diff = assemble((u - u_old) ** 2 * dx) ** 0.5
     assert diff < 1.0e-10, "Failed on Constant function"
+    assert np.max(u.dat.data_ro) <= 1.0 + 1e-10, "Failed by exceeding max values"
+    assert np.min(u.dat.data_ro) >= 0.0 - 1e-10, "Failed by exceeding min values"
 
 
-def test_step_function_bounds(mesh):
+def test_step_function_bounds(mesh_degree):
+    mesh, degree = mesh_degree
     x = SpatialCoordinate(mesh)
 
     # test function space
-    v = FunctionSpace(mesh, "DG", 1)
+    v = FunctionSpace(mesh, "DG", degree)
 
     # Create limiter
-    limiter = VertexBasedLimiter(v)
+    limiter = KuzminLimiter(v)
 
-    # advecting velocity
+    # Generate step function
     u0 = conditional(x[0] < 0.5, 1., 0.)
     u = Function(v).interpolate(u0)
+
     limiter.apply(u)
+    assert np.max(u.dat.data_ro) <= 1.0 + 1e-10, "Failed by exceeding max values"
+    assert np.min(u.dat.data_ro) >= 0.0 - 1e-10, "Failed by exceeding min values"
 
-    assert np.max(u.dat.data_ro) <= 1.0, "Failed by exceeding max values"
-    assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
 
-
-def test_step_function_loop(mesh, iterations=100):
+def test_step_function_loop(mesh_degree, iterations=100):
+    mesh, degree = mesh_degree
     # test function space
-    v = FunctionSpace(mesh, "DG", 1)
+    v = FunctionSpace(mesh, "DG", degree)
     m = VectorFunctionSpace(mesh, "CG", 1)
 
     # advecting velocity
@@ -78,10 +85,11 @@ def test_step_function_loop(mesh, iterations=100):
     x = SpatialCoordinate(mesh)
 
     # Initial Conditions
-    D0 = conditional(x[0] < 0.5, 1., 0.)
+    D0 = conditional(x[0] > 0.5, 1, 0.)
 
     D = Function(v).interpolate(D0)
     D1.assign(D)
+    D1_old = Function(D1)
 
     t = 0.0
     T = iterations * dt
@@ -89,8 +97,7 @@ def test_step_function_loop(mesh, iterations=100):
     solver = LinearVariationalSolver(problem, solver_parameters={'ksp_type': 'cg'})
 
     # Make slope limiter
-    limiter = VertexBasedLimiter(v)
-    limiter.apply(D)
+    limiter = KuzminLimiter(v)
 
     while t < (T - dt / 2):
         D1.assign(D)
@@ -104,12 +111,17 @@ def test_step_function_loop(mesh, iterations=100):
         limiter.apply(D1)
         solver.solve()
         D.assign((1.0 / 3.0) * D + (2.0 / 3.0) * dD1)
-        limiter.apply(D1)
+        limiter.apply(D)
 
         t += dt
 
-    assert np.max(u.dat.data_ro) <= 1.0, "Failed by exceeding max values"
-    assert np.min(u.dat.data_ro) >= 0.0, "Failed by exceeding min values"
+    diff = assemble((D1 - D1_old) ** 2 * dx) ** 0.5
+    max = np.max(D1.dat.data_ro)
+    min = np.min(D1.dat.data_ro)
+    print "Max:", max, "Min:", min
+    print diff
+    assert max <= 1.0 + 1e-2, "Failed by exceeding max values"
+    assert min >= 0.0 - 1e-2, "Failed by exceeding min values"
 
 
 if __name__ == '__main__':
