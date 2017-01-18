@@ -391,7 +391,7 @@ class FunctionSpace(object):
 
     @property
     def node_count(self):
-        """The number of global nodes in the function space.  If the
+        """The number of local nodes in the function space.  If the
         :class:`FunctionSpace` has :attr:`rank` 0, this is equal to
         the :attr:`dof_count`, otherwise the :attr:`dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
@@ -399,7 +399,7 @@ class FunctionSpace(object):
 
     @property
     def dof_count(self):
-        """The number of global degrees of freedom in the function
+        """The number of local degrees of freedom in the function
         space. Cf. :attr:`node_count`."""
         return self.node_count*self.dim
 
