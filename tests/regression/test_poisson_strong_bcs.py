@@ -14,6 +14,7 @@ This has the analytical solution
 
   u(x, y) = 42*x[1]
 """
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -160,7 +161,7 @@ def test_poisson_analytic_preassembled(params, degree, quadrilateral):
 def test_poisson_analytic_linear_parallel():
     from mpi4py import MPI
     error = run_test_linear(1, 1)
-    print '[%d]' % MPI.COMM_WORLD.rank, 'error:', error
+    print('[%d]' % MPI.COMM_WORLD.rank, 'error:', error)
     assert error < 5e-6
 
 

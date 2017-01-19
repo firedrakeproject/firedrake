@@ -16,6 +16,7 @@ k+(1/2), where k is the degree of the trace space.
 The right hand side function used in this test is:
 f = cos(x[0]*pi*2)*cos(x[1]*pi*2)
 """
+from __future__ import absolute_import, print_function, division
 
 import pytest
 import numpy as np
@@ -80,7 +81,7 @@ def test_convergence_rates_trace_galerkin_projection(testdegree, convrate):
     l2errors = np.array([trace_galerkin_projection(testdegree, 1, r)
                          for r in range(1, 5)])
     conv = np.log2(l2errors[:-1] / l2errors[1:])[-1]
-    print "Convergence order: ", conv
+    print("Convergence order: ", conv)
     assert conv > 0.9*convrate
 
 

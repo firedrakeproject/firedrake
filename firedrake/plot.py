@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy as np
 from ufl import Cell
 from firedrake import Function, SpatialCoordinate, FunctionSpace
@@ -137,7 +137,7 @@ def plot(function,
         bezier = kwargs.pop('bezier', False)
         auto_resample = kwargs.pop('auto_resample', False)
         if bezier:
-            num_sample_points = int(num_sample_points / 3) * 3 + 1 \
+            num_sample_points = (num_sample_points // 3) * 3 + 1 \
                 if num_sample_points >= 4 else 4
         points = calculate_one_dim_points(function, num_sample_points)
         cell_boundary = np.fliplr(_get_cell_boundary(function).reshape(-1, 2))
@@ -164,7 +164,7 @@ def plot(function,
             num_points = int(width / cell_intersect.sum()
                              * total_cell_width / (x_end-x_begin))
             if bezier:
-                num_points = int(num_points / 3) * 3 + 1 \
+                num_points = (num_points // 3) * 3 + 1 \
                     if num_points >= 4 else 4
             points = calculate_one_dim_points(function, num_points, cell_mask)
             axes.cla()
@@ -490,7 +490,7 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
     pts = pts.T.reshape(num_cells, -1, 2)
     vertices = np.array([]).reshape(-1, 2)
     rows = np.arange(4)
-    cols = (np.arange((pts.shape[1] - 1) / 3) * 3).reshape(-1, 1)
+    cols = (np.arange((pts.shape[1] - 1) // 3) * 3).reshape(-1, 1)
     idx = rows + cols
     for i in range(num_cells):
         vertices = np.append(vertices,
@@ -498,7 +498,7 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
                              .transpose([1, 0, 2]).reshape(-1, 2))
     vertices = vertices.reshape(-1, 2)
     codes = np.tile([Path.MOVETO, Path.CURVE4, Path.CURVE4, Path.CURVE4],
-                    vertices.shape[0] / 4)
+                    vertices.shape[0] // 4)
     path = Path(vertices, codes)
     patch = patches.PathPatch(path, facecolor='none', lw=2)
     if axes is None:
@@ -521,8 +521,8 @@ def _points_to_bezier_curve(pts):
     :arg pts: Points on a 1D function
     """
     M = np.array([[1., 0., 0., 0.],
-                  [-5./6., 3., -3./2., 1./3.],
-                  [1./3., -3./2., 3., -5./6.],
+                  [-5/6, 3., -3/2., 1/3.],
+                  [1/3, -3/2, 3., -5/6],
                   [0., 0., 0., 1.]])
     return np.dot(M, pts)
 
@@ -536,7 +536,7 @@ def _bernstein(x, k, n):
     :arg n: value of n
     """
     from math import factorial
-    comb = factorial(n) / factorial(k) / factorial(n - k)
+    comb = factorial(n) // factorial(k) // factorial(n - k)
     return comb * (x ** k) * ((1 - x) ** (n - k))
 
 

@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy as np
 import sys
 import ufl
@@ -423,6 +423,8 @@ class Function(ufl.Coefficient):
             assemble_expressions.IDiv(self, expr))
 
         return self
+
+    __itruediv__ = __idiv__
 
     @utils.cached_property
     def _constant_ctypes(self):

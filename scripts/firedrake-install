@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+from __future__ import absolute_import, print_function, division
 import logging
 import platform
 import subprocess
@@ -239,7 +240,7 @@ where shortname is one of the names given below:
     for package, d in firedrake_apps.iteritems():
         help_string += componentformat.format(package, d[0])
     help_string += line
-    print help_string
+    print(help_string)
     sys.exit(0)
 
 # Set up logging
@@ -941,7 +942,7 @@ if travis:
         import time
         while True:
             time.sleep(60)
-            print "."
+            print(".")
 
     travis_writer = Process(target=stdout_writer)
     travis_writer.daemon = True
@@ -1333,7 +1334,7 @@ if mode == "update":
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
         from pyop2.compilation import clear_cache as pyop2_clear_cache
-        print 'Removing cached TSFC kernels from %s' % TSFCKernel._cachedir
+        print('Removing cached TSFC kernels from %s' % TSFCKernel._cachedir)
         clear_cache()
         pyop2_clear_cache()
     except:

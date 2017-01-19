@@ -49,7 +49,7 @@ before_install:
   - pip install -U --user pip
   - pip install -U --user virtualenv
   # Fail fast on lint errors
-  - pip install -U --user flake8
+  - pip install -U --user flake8 flake8-future-import
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then export PATH=$PATH:$HOME/Library/Python/2.7/bin; fi
   - make lint
 install:

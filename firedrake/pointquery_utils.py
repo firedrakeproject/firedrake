@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 from os import path
 import numpy
@@ -203,7 +203,7 @@ def compile_coordinate_element(ufl_coordinate_element):
         tabs = sorted((d, value.reshape(value.shape[:-1])) for d, value in tabs.iteritems())
 
         # Generate code for intermediate values
-        s_code, d_phis = ssa_arrays(map(lambda (k, v): v, tabs), prefix="t")
+        s_code, d_phis = ssa_arrays(map(lambda k_v: k_v[1], tabs), prefix="t")
         phi = d_phis.pop(0)
 
         for name, value in s_code:

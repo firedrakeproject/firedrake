@@ -14,11 +14,12 @@ ordering, but different numbers of dofs per node (e.g. FiniteElement
 vs VectorElement) can share the PyOP2 Set and Map data.
 """
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import numpy
 import FIAT
 from decorator import decorator
+from functools import reduce
 
 
 from FIAT.finite_element import entity_support_dofs

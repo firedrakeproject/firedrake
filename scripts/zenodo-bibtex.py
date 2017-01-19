@@ -1,5 +1,6 @@
 #!/usr/bin/python
 """This script forms part of the internal workings of Firedrake-Zenodo. It is not intended for direct user interaction."""
+from __future__ import absolute_import, print_function, division
 import cgi
 import cgitb
 cgitb.enable()
@@ -84,6 +85,6 @@ response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions/?access_t
 
 ids = find_ids(json.load(response), firedrake_tag)
 
-print "Content-Type: text/plain; charset=utf-8"
-print
-print get_bibtex(ids).encode("utf-8")
+print("Content-Type: text/plain; charset=utf-8")
+print()
+print(get_bibtex(ids).encode("utf-8"))

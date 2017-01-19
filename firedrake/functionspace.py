@@ -4,7 +4,7 @@ This module implements the user-visible API for constructing
 API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import ufl
 

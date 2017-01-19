@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 from pyop2.utils import maybe_setflags
 from mpi4py import MPI
 

@@ -1,4 +1,5 @@
 """Test curl-grad = 0 and div-curl = 0, using enriched function spaces"""
+from __future__ import absolute_import, print_function, division
 
 import pytest
 

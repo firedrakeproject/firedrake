@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 from numpy import prod
 
 from pyop2.mpi import COMM_WORLD

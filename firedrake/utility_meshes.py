@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy as np
 
 from pyop2.mpi import COMM_WORLD
@@ -53,7 +53,7 @@ def IntervalMesh(ncells, length_or_left, right=None, comm=COMM_WORLD):
     length = right - left
     if length < 0:
         raise ValueError("Requested mesh has negative length")
-    dx = float(length) / ncells
+    dx = length / ncells
     # This ensures the rightmost point is actually present.
     coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
@@ -218,10 +218,10 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
                 # get X coordinates for this cell
-                if(cell_X.min() < dx/2.0):
-                    if cell_X.max() < 3*dx/2.0:
+                if(cell_X.min() < dx/2):
+                    if cell_X.max() < 3*dx/2:
                         # We are in the first cell
-                        if(edge_X.min() < dx/2.0):
+                        if(edge_X.min() < dx/2):
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                         else:
@@ -229,14 +229,14 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
                             cell_closure[row][5] = edge_set[i]
                     else:
                         # We are in the last cell
-                        if(edge_X.min() < dx/2.0):
+                        if(edge_X.min() < dx/2):
                             # we are on right hand edge
                             cell_closure[row][5] = edge_set[i]
                         else:
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                 else:
-                    if(abs(cell_X.min()-edge_X.min()) < dx/2.0):
+                    if(abs(cell_X.min()-edge_X.min()) < dx/2):
                         # we are on left hand edge
                         cell_closure[row][4] = edge_set[i]
                     else:
@@ -278,7 +278,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
         Xvals = mcoords_ro[cell_nodes, 0]
-        if(Xvals.max() - Xvals.min() > Lx/2.0):
+        if(Xvals.max() - Xvals.min() > Lx/2):
             mcoords[cell_nodes[2:], 0] = Lx
         else:
             mcoords
@@ -332,8 +332,8 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_W
             raise ValueError("Number of cells must be a postive integer")
 
     if quadrilateral:
-        dx = float(Lx) / nx
-        dy = float(Ly) / ny
+        dx = Lx / nx
+        dy = Ly / ny
         xcoords = np.arange(0.0, Lx + 0.01 * dx, dx)
         ycoords = np.arange(0.0, Ly + 0.01 * dy, dy)
         coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
@@ -359,8 +359,8 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_W
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = float(Lx)/(2*nx)
-        ytol = float(Ly)/(2*ny)
+        xtol = Lx/(2*nx)
+        ytol = Ly/(2*ny)
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
@@ -652,9 +652,9 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=COMM_WORLD):
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = float(Lx)/(2*nx)
-        ytol = float(Ly)/(2*ny)
-        ztol = float(Lz)/(2*nz)
+        xtol = Lx/(2*nx)
+        ytol = Ly/(2*ny)
+        ztol = Lz/(2*nz)
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[3]) < xtol and abs(face_coords[6]) < xtol:
@@ -1134,7 +1134,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        eps = float(depth)/(2*nl)
+        eps = depth/(2*nl)
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             # index of x/y/z coordinates of the face element

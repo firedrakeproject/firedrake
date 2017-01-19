@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy as np
 import ctypes
 import os
@@ -1340,7 +1340,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     # Compute Coordinates of the extruded mesh
     if layer_height is None:
         # Default to unit
-        layer_height = 1.0 / layers
+        layer_height = 1 / layers
 
     if extrusion_type == 'radial_hedgehog':
         hfamily = "DG"

@@ -36,7 +36,7 @@ operations allow us to nest geometric multigrid preconditioning inside
 fieldsplit preconditioning, without having to set everything up in
 advance.
 """
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import weakref
 import numpy

@@ -10,6 +10,7 @@ and the analytical solution
 
   u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
 """
+from __future__ import absolute_import, print_function, division
 
 import pytest
 
@@ -53,7 +54,7 @@ def test_l2_conv(params):
 def test_l2_conv_parallel():
     from mpi4py import MPI
     l2_conv = run_convergence_test()
-    print '[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv
+    print('[%d]' % MPI.COMM_WORLD.rank, 'convergence rate:', l2_conv)
     assert (l2_conv > 2.8).all()
 
 
