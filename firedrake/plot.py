@@ -2,12 +2,13 @@ from __future__ import absolute_import, print_function, division
 import numpy as np
 from ufl import Cell
 from firedrake import Function, SpatialCoordinate, FunctionSpace
+from firedrake.mesh import MeshGeometry
 
 __all__ = ["plot"]
 
 
-def _plot_mult(functions, num_points=10, **kwargs):
-    """Plot multiple functions on a figure, return a matplotlib figure
+def _plot_mult(functions, num_points=10, axes=None, **kwargs):
+    """Plot multiple functions on a figure, return a matplotlib axes
 
     :arg functions: Functions to be plotted
     :arg num_points: Number of points per element
@@ -22,8 +23,7 @@ def _plot_mult(functions, num_points=10, **kwargs):
         return None
     interactive = kwargs.pop("interactive", False)
     if interactive:
-        interactive_multiple_plot(functions, num_points, **kwargs)
-        return
+        return interactive_multiple_plot(functions, num_points, axes=axes, **kwargs)
     import os
     from firedrake import __file__ as firedrake__file__
     figure, ax = plt.subplots()
@@ -90,17 +90,102 @@ def _plot_mult(functions, num_points=10, **kwargs):
         player.frame_interval *= 2
     minus_button.on_clicked(decrease_speed)
 
-    return figure
+    return ax
 
 
-def plot(function,
+def plot_mesh(mesh, axes=None, **kwargs):
+    """Plot a mesh.
+
+    :arg mesh: The mesh to plot.
+    :arg axes: Optional matplotlib axes to draw on.
+    :arg **kwargs: Extra keyword arguments to pass to matplotlib.
+
+    Note that high-order coordinate fields are downsampled to
+    piecewise linear first.
+
+    """
+    from matplotlib import pyplot as plt
+    gdim = mesh.geometric_dimension()
+    tdim = mesh.topological_dimension()
+    if tdim not in [1, 2]:
+        raise NotImplementedError("Not implemented except for %d-dimensional meshes", tdim)
+    if gdim == 3:
+        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+        from mpl_toolkits.mplot3d.art3d import Line3DCollection as Lines
+        projection = "3d"
+    else:
+        from matplotlib.collections import LineCollection as Lines
+        from matplotlib.collections import CircleCollection as Circles
+        projection = None
+    coordinates = mesh.coordinates
+    ele = coordinates.function_space().ufl_element()
+    if ele.degree() != 1:
+        # Interpolate to piecewise linear.
+        from firedrake import VectorFunctionSpace, interpolate
+        V = VectorFunctionSpace(mesh, ele.family(), 1)
+        coordinates = interpolate(coordinates, V)
+    quad = mesh.ufl_cell().cellname() == "quadrilateral"
+    cell = coordinates.cell_node_map().values
+    if tdim == 2:
+        if quad:
+            # permute for clockwise ordering
+            # Plus first vertex again to close loop
+            idx = (0, 1, 3, 2, 0)
+        else:
+            idx = (0, 1, 2, 0)
+    else:
+        idx = (0, 1, 0)
+    coords = coordinates.dat.data_ro
+    if tdim == gdim and tdim == 1:
+        # Pad 1D array with zeros
+        coords = np.dstack((coords, np.zeros_like(coords))).reshape(-1, 2)
+    vertices = coords[cell[:, idx]]
+    figure = plt.figure()
+    if axes is None:
+        axes = figure.add_subplot(111, projection=projection, **kwargs)
+
+    lines = Lines(vertices)
+
+    if gdim == 3:
+        axes.add_collection3d(lines)
+    else:
+        points = Circles([10] * coords.shape[0],
+                         offsets=coords,
+                         transOffset=axes.transData,
+                         edgecolors="black", facecolors="black")
+        axes.add_collection(lines)
+        axes.add_collection(points)
+    for setter, idx in zip(["set_xlim",
+                            "set_ylim",
+                            "set_zlim"],
+                           range(coords.shape[1])):
+        try:
+            setter = getattr(axes, setter)
+        except AttributeError:
+            continue
+        amin = coords[:, idx].min()
+        amax = coords[:, idx].max()
+        extra = (amax - amin) / 20
+        if extra == 0.0:
+            # 1D interval
+            extra = 0.5
+        amin -= extra
+        amax += extra
+        setter(amin, amax)
+    axes.set_aspect("equal")
+    return axes
+
+
+def plot(function_or_mesh,
          num_sample_points=10,
          axes=None,
+         plot3d=False,
          **kwargs):
-    """Plot a function or a list of functions and return a matplotlib
-    figure object. Default number of sampling points per element will be 10.
+    """Plot a Firedrake object.
 
-    :arg function: The function to plot.
+    :arg function_or_mesh: The :class:`~.Function` or :func:`~.Mesh`
+         to plot.  An iterable of :class:`~.Function`\s may also be
+         provided, in which case an animated plot will be available.
     :arg num_sample_points: Number of Sample points per element, ignored if
         degree < 4 where an exact Bezier curve will be used instead of
         sampling at points.  For 2D plots, the number of sampling
@@ -108,6 +193,7 @@ def plot(function,
         is used as a guide to the number of subdivisions to use when
         triangulating the surface.
     :arg axes: Axes to be plotted on
+    :kwarg plot3d: For 2D plotting, use matplotlib 3D functionality? (slow)
     :kwarg contour: For 2D plotting, True for a contour plot
     :kwarg bezier: For 1D plotting, interpolate using bezier curve instead of
         piece-wise linear
@@ -118,21 +204,33 @@ def plot(function,
     :arg kwargs: Additional keyword arguments passed to
         ``matplotlib.plot``.
     """
-    if not isinstance(function, Function):
-        if isinstance(function, list) and \
-                all(isinstance(f, Function) for f in function):
-            return _plot_mult(function, num_sample_points, **kwargs)
-        raise TypeError("Unexpected type")
+    # Sanitise input
+    if isinstance(function_or_mesh, MeshGeometry):
+        # Mesh...
+        return plot_mesh(function_or_mesh, axes=axes, **kwargs)
+    if not isinstance(function_or_mesh, Function):
+        # Maybe an iterable?
+        functions = tuple(function_or_mesh)
+        if not all(isinstance(f, Function) for f in functions):
+            raise TypeError("Expected Function, Mesh, or iterable of Functions, not %r",
+                            type(function_or_mesh))
+        return _plot_mult(functions, num_sample_points, axes=axes, **kwargs)
+    # Single Function...
+    function = function_or_mesh
     try:
         import matplotlib.pyplot as plt
+        from matplotlib import cm
     except ImportError:
         raise RuntimeError("Matplotlib not importable, is it installed?")
-    if function.ufl_shape != ():
-        raise RuntimeError("Unsupported Functionality")
-    if function.function_space().mesh().geometric_dimension() \
-            == function.function_space().mesh().topological_dimension() \
-            == 1:
-        if function.function_space().ufl_element().degree() < 4:
+    gdim = function.ufl_domain().geometric_dimension()
+    tdim = function.ufl_domain().topological_dimension()
+    if tdim != gdim:
+        raise NotImplementedError("Not supported for topological dimension (%d) != geometric dimension (%d)",
+                                  tdim, gdim)
+    if gdim == 1:
+        if function.ufl_shape != ():
+            raise NotImplementedError("Plotting vector-valued functions is not supported")
+        if function.ufl_element().degree() < 4:
             return bezier_plot(function, axes, **kwargs)
         bezier = kwargs.pop('bezier', False)
         auto_resample = kwargs.pop('auto_resample', False)
@@ -184,21 +282,33 @@ def plot(function,
                                  function.function_space().mesh().num_cells(),
                                  axes, **kwargs)
         return piecewise_linear(points, axes, **kwargs)
-    elif function.function_space().mesh().geometric_dimension() \
-            == function.function_space().mesh().topological_dimension() \
-            == 2:
-        is_contour = kwargs.pop('contour', False)
-        if is_contour:
-            return two_dimension_contour(function, num_sample_points,
-                                         axes, **kwargs)
-        else:
-            return two_dimension_surface(function, num_sample_points,
-                                         axes, **kwargs)
+    elif gdim == 2:
+        if len(function.ufl_shape) > 1:
+            raise NotImplementedError("Plotting tensor valued functions not supported")
+        if len(function.ufl_shape) == 1:
+            # Vector-valued, produce a quiver plot interpolated at the
+            # mesh coordinates
+            coords = function.ufl_domain().coordinates.dat.data_ro
+            X, Y = coords.T
+            vals = np.asarray(function.at(coords))
+            C = np.linalg.norm(vals, axis=1)
+            U, V = vals.T
+            if axes is None:
+                fig = plt.figure()
+                axes = fig.add_subplot(111)
+            cmap = kwargs.pop("cmap", cm.coolwarm)
+            pivot = kwargs.pop("pivot", "mid")
+            axes.quiver(X, Y, U, V, C, cmap=cmap, pivot=pivot, **kwargs)
+            return axes
+        return two_dimension_plot(function, num_sample_points,
+                                  axes, plot3d=plot3d, contour=kwargs.pop("contour", False),
+                                  **kwargs)
     else:
-        raise RuntimeError("Unsupported functionality")
+        raise NotImplementedError("Plotting functions with geometric dimension %d unsupported",
+                                  gdim)
 
 
-def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
+def interactive_multiple_plot(functions, num_sample_points=10, axes=None, **kwargs):
     """Create an interactive plot for multiple 1D functions to be viewed in
     Jupyter Notebook
 
@@ -208,21 +318,28 @@ def interactive_multiple_plot(functions, num_sample_points=10, **kwargs):
     :arg kwargs: Additional key word arguments to be passed to
         ``matplotlib.plot``
     """
+    import matplotlib.pyplot as plt
     try:
         from ipywidgets import interact, IntSlider
     except ImportError:
         raise RuntimeError("Not in notebook")
 
+    if axes is None:
+        axes = plt.subplot(111)
+
     def display_plot(index):
-        return plot(functions[index], num_sample_points, **kwargs)
+        axes.clear()
+        return plot(functions[index], num_sample_points, axes=axes, **kwargs).figure
 
     interact(display_plot, index=IntSlider(min=0, max=len(functions)-1,
-                                           step=1, value=0))
+                                           step=1, value=0),
+             continuous_update=False)
+    return axes
 
 
 def piecewise_linear(points, axes=None, **kwargs):
     """Plot a piece-wise linear plot for the given points, returns a
-    matplotlib figure
+    matplotlib axes.
 
     :arg points: Points to be plotted
     :arg axes: Axes to be plotted on
@@ -235,7 +352,7 @@ def piecewise_linear(points, axes=None, **kwargs):
     if axes is None:
         axes = plt.subplot(111)
     axes.plot(points[0], points[1], **kwargs)
-    return plt.gcf()
+    return axes
 
 
 def _calculate_values(function, points, dimension, cell_mask=None):
@@ -290,7 +407,7 @@ def _calculate_points(function, num_points, dimension, cell_mask=None):
         iu = np.triu_indices(num_points)
         points = np.array(np.meshgrid(points_1d, points_1d_rev)).T[iu]
     else:
-        raise RuntimeError("Unsupported functionality")
+        raise NotImplementedError("Unsupported cell type %r", mesh.ufl_cell())
     y_vals = _calculate_values(function, points, dimension, cell_mask)
     x_vals = _calculate_values(mesh.coordinates, points, dimension, cell_mask)
     return x_vals, y_vals
@@ -357,15 +474,19 @@ def _two_dimension_triangle_func_val(function, num_sample_points):
     return triangulation, Z
 
 
-def two_dimension_surface(function,
-                          num_sample_points,
-                          axes=None,
-                          **kwargs):
-    """Plot a 2D function as surface plotting, return a matplotlib figure
+def two_dimension_plot(function,
+                       num_sample_points,
+                       axes=None,
+                       plot3d=False,
+                       contour=False,
+                       **kwargs):
+    """Plot a 2D function as surface plotting, return the axes drawn on.
 
     :arg function: 2D function for plotting
     :arg num_sample_points: Number of sample points per element
     :arg axes: Axes to be plotted on
+    :kwarg plot3d: Use 3D projection (slow for large meshes).
+    :kwarg contour: Produce contour plot?
     """
     try:
         import matplotlib.pyplot as plt
@@ -378,38 +499,27 @@ def two_dimension_surface(function,
 
     if axes is None:
         figure = plt.figure()
-        axes = figure.add_subplot(111, projection='3d')
+        if plot3d:
+            axes = figure.add_subplot(111, projection="3d")
+        else:
+            axes = figure.add_subplot(111)
     cmap = kwargs.pop('cmap', cm.coolwarm)
-    axes.plot_trisurf(triangulation, Z, edgecolor='none',
-                      antialiased=False, shade=False, cmap=cmap,
-                      **kwargs)
-    return plt.gcf()
-
-
-def two_dimension_contour(function,
-                          num_sample_points,
-                          axes=None,
-                          **kwargs):
-    """Plot a 2D function as contour plotting, return a matplotlib figure
-
-    :arg function: 2D function for plotting
-    :arg num_sample_points: Number of sample points per element
-    :arg axes: Axes to be plotted on
-    """
-    try:
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-    except ImportError:
-        raise RuntimeError("Matplotlib not importable, is it installed?")
-    triangulation, Z = _two_dimension_triangle_func_val(function,
-                                                        num_sample_points)
-
-    if axes is None:
-        figure = plt.figure()
-        axes = figure.add_subplot(111, projection='3d')
-    axes.tricontour(triangulation, Z, edgecolor='none',
-                    antialiased=False, **kwargs)
-    return plt.gcf()
+    if plot3d:
+        if contour:
+            axes.tricontour(triangulation, Z, edgecolor="none",
+                            cmap=cmap, antialiased=False, **kwargs)
+        else:
+            axes.plot_trisurf(triangulation, Z, edgecolor="none",
+                              cmap=cmap, antialiased=False,
+                              shade=False, **kwargs)
+        return axes
+    else:
+        if contour:
+            axes.tricontour(triangulation, Z, edgecolor="none",
+                            cmap=cmap, **kwargs)
+        else:
+            axes.tripcolor(triangulation, Z, cmap=cmap, **kwargs)
+    return axes
 
 
 def _bezier_calculate_points(function):
@@ -431,7 +541,7 @@ def _bezier_calculate_points(function):
 
 def bezier_plot(function, axes=None, **kwargs):
     """Plot a 1D function on a function space with order no more than 4 using
-    Bezier curve within each cell, return a matplotlib figure
+    Bezier curve within each cell, return a matplotlib axes
 
     :arg function: 1D function for plotting
     :arg axes: Axes for plotting, if None, a new one will be created
@@ -469,7 +579,7 @@ def bezier_plot(function, axes=None, **kwargs):
     patch = patches.PathPatch(path, facecolor='none', lw=2)
     axes.add_patch(patch)
     axes.plot(**kwargs)
-    return plt.gcf()
+    return axes
 
 
 def interp_bezier(pts, num_cells, axes=None, **kwargs):
@@ -506,7 +616,7 @@ def interp_bezier(pts, num_cells, axes=None, **kwargs):
         axes = fig.add_subplot(111)
     axes.add_patch(patch)
     axes.plot(**kwargs)
-    return plt.gcf()
+    return axes
 
 
 def _points_to_bezier_curve(pts):

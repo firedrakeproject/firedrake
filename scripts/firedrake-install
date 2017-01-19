@@ -1125,6 +1125,9 @@ int main(int argc, char **argv) {
 
 
 if mode == "install":
+    if os.path.exists(firedrake_env):
+        log.warning("Specified virtualenv '%s' already exists", firedrake_env)
+        quit("Can't install into existing virtualenv '%s'" % firedrake_env)
     try:
         import virtualenv
     except:

@@ -55,11 +55,11 @@ def run_stokes_mini(mat_type, n):
 
     # We've set up Poiseuille flow, so we expect a parabolic velocity
     # field and a linearly decreasing pressure.
-    # Need to project the velocity expression because the mini element is not nodal!
-    uexact = Function(V).project(Expression(("x[1]*(1 - x[1])", "0.0")))
-    pexact = Function(P).interpolate(Expression("2*(L - x[0])", L=length))
+    x, y = SpatialCoordinate(mesh)
+    uexact = as_vector([y*(1 - y), 0])
+    pexact = 2*(length - x)
 
-    return errornorm(u, uexact, degree_rise=0), errornorm(p, pexact, degree_rise=0)
+    return errornorm(uexact, u, degree_rise=0), errornorm(pexact, p, degree_rise=0)
 
 
 @pytest.mark.parametrize('mat_type', ["aij", "nest"])
