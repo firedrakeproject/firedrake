@@ -1,10 +1,10 @@
 """Provides the interface to TSFC for compiling a form, and transforms the TSFC-
 generated code in order to make it suitable for passing to the backends."""
 from __future__ import absolute_import, print_function, division
+from six.moves import cPickle
 
 from hashlib import md5
 from os import path, environ, getuid, makedirs
-import cPickle
 import gzip
 import os
 import zlib

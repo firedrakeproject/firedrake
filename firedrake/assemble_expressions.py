@@ -102,7 +102,7 @@ class AssignmentBase(Operator):
 
     """Base class for UFL augmented assignments."""
 
-    __slots__ = ("ufl_shape", "_symbol", "_ast", "_visit")
+    __slots__ = ("ufl_shape",)
     _identity = Zero()
 
     def __init__(self, lhs, rhs):
@@ -136,7 +136,7 @@ class Assign(AssignmentBase):
     """A UFL assignment operator."""
     _symbol = "="
     _ast = ast.Assign
-    __slots__ = ("ufl_shape", "_symbol", "_ast", "_visit")
+    __slots__ = ("ufl_shape",)
 
     def _visit(self, transformer):
         lhs = self.ufl_operands[0]
