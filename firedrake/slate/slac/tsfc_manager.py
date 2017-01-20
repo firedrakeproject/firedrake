@@ -19,11 +19,12 @@ class TSFCKernelManager(object):
         )
         super(TSFCKernelManager, self).__init__()
         self.tensor = tensor
+        self._form = tensor.form
         self.parameters = parameters
 
         mapper = RemoveRestrictions()
         integrals = map(partial(map_integrand_dags, mapper),
-                        self.tensor.form.integrals())
+                        self._form.integrals())
         self.integrals_map = integral_transform_map(integrals)
         self.kernels = None
 

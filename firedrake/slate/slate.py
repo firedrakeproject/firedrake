@@ -42,7 +42,7 @@ class CheckRestrictions(MultiFunction):
     expr = MultiFunction.reuse_if_untouched
 
     def negative_restrictions(self, o):
-        raise ValueError("Cell-wise integrals must contain only positive restrictions.")
+        raise ValueError("Must contain only positive restrictions!")
 
 
 class TensorBase(with_metaclass(ABCMeta)):
@@ -96,14 +96,14 @@ class TensorBase(with_metaclass(ABCMeta)):
         if isinstance(other, TensorBase):
             return Add(self, other)
         else:
-            raise NotImplementedError("Operand type(s) for + not implemented: '%s' '%s'"
+            raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
                                       % (type(self), type(other)))
 
     def __radd__(self, other):
         # If other is not a TensorBase, raise NotImplementedError. Otherwise,
         # delegate action to other.
         if not isinstance(other, TensorBase):
-            raise NotImplementedError("Operand type(s) for + not implemented: '%s' '%s'"
+            raise NotImplementedError("Type(s) for + not supported: '%s' '%s'"
                                       % (type(other), type(self)))
         else:
             other.__add__(self)
@@ -112,14 +112,14 @@ class TensorBase(with_metaclass(ABCMeta)):
         if isinstance(other, TensorBase):
             return Sub(self, other)
         else:
-            raise NotImplementedError("Operand type(s) for - not implemented: '%s' '%s'"
+            raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
                                       % (type(self), type(other)))
 
     def __rsub__(self, other):
         # If other is not a TensorBase, raise NotImplementedError. Otherwise,
         # delegate action to other.
         if not isinstance(other, TensorBase):
-            raise NotImplementedError("Operand type(s) for - not implemented: '%s' '%s'"
+            raise NotImplementedError("Type(s) for - not supported: '%s' '%s'"
                                       % (type(other), type(self)))
         else:
             other.__sub__(self)
@@ -134,7 +134,7 @@ class TensorBase(with_metaclass(ABCMeta)):
         # If other is not a TensorBase, raise NotImplementedError. Otherwise,
         # delegate action to other.
         if not isinstance(other, TensorBase):
-            raise NotImplementedError("Operand type(s) for * not implemented: '%s' '%s'"
+            raise NotImplementedError("Type(s) for * not supported: '%s' '%s'"
                                       % (type(other), type(self)))
         else:
             other.__mul__(self)
@@ -241,11 +241,11 @@ class Tensor(TensorBase):
     def __init__(self, form):
         """Constructor for the Tensor class."""
         if not isinstance(form, Form):
-            raise ValueError("Only UFL forms are acceptable inputs for creating terminal tensors.")
+            raise ValueError("Only UFL forms are acceptable inputs.")
 
         r = len(form.arguments())
         if r not in (0, 1, 2):
-            raise NotImplementedError("Currently don't support tensors of rank %d." % r)
+            raise NotImplementedError("No support for tensors of rank %d." % r)
 
         # Checks for positive restrictions on integrals
         integrals = form.integrals()
@@ -296,10 +296,10 @@ class UnaryOp(TensorBase):
     Tensor object.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
-            (:class:`Tensor`) or any derived expression resulting from any number
-            of linear algebra operations on `Tensor` objects. For example,
-            another instance of a `UnaryOp` object is an acceptable input, or
-            a `BinaryOp` object.
+            (:class:`Tensor`) or any derived expression resulting from any
+            number of linear algebra operations on `Tensor` objects. For
+            example, another instance of a `UnaryOp` object is an acceptable
+            input, or a `BinaryOp` object.
     """
 
     def __init__(self, A):
@@ -358,7 +358,7 @@ class Inverse(UnaryOp):
         return self.operands[0].arguments()[::-1]
 
     def _output_string(self, prec=None):
-        """Creates a string representation of the inverse of a square tensor."""
+        """Creates a string representation of the inverse of a tensor."""
         return "(%s).inv" % self.operands[0]
 
 
@@ -406,10 +406,10 @@ class BinaryOp(TensorBase):
     Such operations take two operands and returns a tensor-valued expression.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
-            (:class:`Tensor`) or any derived expression resulting from any number
-            of linear algebra operations on `Tensor` objects. For example,
-            another instance of a `BinaryOp` object is an acceptable input, or
-            a `UnaryOp` object.
+            (:class:`Tensor`) or any derived expression resulting from any
+            number of linear algebra operations on `Tensor` objects. For
+            example, another instance of a `BinaryOp` object is an acceptable
+            input, or a `UnaryOp` object.
     :arg B: a :class:`TensorBase` object.
     """
 
@@ -441,9 +441,10 @@ class BinaryOp(TensorBase):
         A, B = self.operands
         # Join subdomain_data
         sd_dict = A.subdomain_data()[A.ufl_domain()]
-        for int_type_B in B.subdomain_data()[B.ufl_domain()].keys():
-            if int_type_B not in sd_dict.keys():
-                sd_dict.update({int_type_B: B.subdomain_data()[B.ufl_domain()][int_type_B]})
+        for it_type_B in B.subdomain_data()[B.ufl_domain()].keys():
+            if it_type_B not in sd_dict.keys():
+                data = B.subdomain_data()
+                sd_dict.update({it_type_B: data[B.ufl_domain()][it_type_B]})
 
         return {self.ufl_domain(): sd_dict}
 
@@ -457,8 +458,8 @@ class BinaryOp(TensorBase):
         else:
             par = lambda x: "(%s)" % x
         A, B = self.operands
-        operand1 = self.A._output_string(prec=self.prec)
-        operand2 = self.B._output_string(prec=self.prec)
+        operand1 = A._output_string(prec=self.prec)
+        operand2 = B._output_string(prec=self.prec)
 
         result = "%s %s %s" % (operand1, ops[type(self)], operand2)
 
@@ -487,7 +488,7 @@ class Add(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the Add class."""
         if A.shape != B.shape:
-            raise ValueError("Cannot perform the operation on a %s-tensor with a %s-tensor."
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
         super(Add, self).__init__(A, B)
 
@@ -496,7 +497,9 @@ class Add(BinaryOp):
         A, B = self.operands
         assert [argA.function_space() == argB.function_space()
                 for argA in A.arguments()
-                for argB in B.arguments()], "Arguments must share the same function space."
+                for argB in B.arguments()], (
+                    "Arguments must share the same function space."
+        )
         return A.arguments()
 
 
@@ -513,7 +516,7 @@ class Sub(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the Sub class."""
         if A.shape != B.shape:
-            raise ValueError("Cannot perform the operation on a %s-tensor with a %s-tensor."
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
         super(Sub, self).__init__(A, B)
 
@@ -522,15 +525,17 @@ class Sub(BinaryOp):
         A, B = self.operands
         assert [argA.function_space() == argB.function_space()
                 for argA in A.arguments()
-                for argB in B.arguments()], "Arguments must share the same function space."
+                for argB in B.arguments()], (
+                    "Arguments must share the same function space."
+        )
         return A.arguments()
 
 
 class Mul(BinaryOp):
     """Abstract SLATE class representing the interior product or two tensors.
-    By interior product, we mean an operation that results in a tensor of equal or
-    lower rank via performing a contraction on arguments. This includes Matrix-Matrix
-    and Matrix-Vector multiplication.
+    By interior product, we mean an operation that results in a tensor of
+    equal or lower rank via performing a contraction on arguments. This
+    includes Matrix-Matrix and Matrix-Vector multiplication.
 
     :arg A: a :class:`TensorBase` object.
     :arg B: another :class:`TensorBase` object.
@@ -541,7 +546,7 @@ class Mul(BinaryOp):
     def __init__(self, A, B):
         """Constructor for the Mul class."""
         if A.shape[1] != B.shape[0]:
-            raise ValueError("Cannot perform the operation on a %s-tensor with a %s-tensor."
+            raise ValueError("Illegal op on a %s-tensor with a %s-tensor."
                              % (A.shape, B.shape))
         super(Mul, self).__init__(A, B)
 

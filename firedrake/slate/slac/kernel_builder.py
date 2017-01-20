@@ -1,16 +1,20 @@
 from __future__ import absolute_import, print_function, division
 from six.moves import filter, map
 
+import collections
+
 from coffee import base as ast
 
 from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, Action
-from firedrake.slate.slac.utils import RemoveRestrictions, Transformer
-from firedrake.tsfc_interface import compile_form
+from firedrake.slate.slac.tsfc_manager import TSFCKernelManager
+from firedrake.slate.slac.utils import Transformer
 
-from functools import partial
+from ufl import MixedElement
 
-from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl import Form, MixedElement
+
+ExpressionData = collections.namedtuple("ExpressionData",
+                                        ["temporaries",
+                                         "auxiliary_exprs"])
 
 
 class KernelBuilder(object):
@@ -40,9 +44,9 @@ class KernelBuilder(object):
         # Generate coefficient map (both mixed and non-mixed cases handled)
         self.coefficient_map = prepare_coefficients(expression)
 
-        # Initialize temporaries, auxiliary expressions and tsfc kernels
-        self.temps, self.aux_exprs = prepare_temps_and_aux_exprs(expression)
-        self.kernel_exprs = prepare_tsfc_kernels(self.temps, tsfc_parameters=tsfc_parameters)
+        # Initialize temporaries, auxiliary expressions and tsfc managers
+        self.expr_data = generate_expr_data(expression)
+        self.tsfc_managers = gather_tsfc_managers(self.expr_data.temporaries)
 
     def require_cell_facets(self):
         """Assigns `self.needs_cell_facets` to be `True` if facet integrals
@@ -80,7 +84,8 @@ class KernelBuilder(object):
         # all kernel body statements must be wrapped up as a coffee.base.Block
         assert isinstance(statements, ast.Block)
 
-        macro_kernel = ast.FunDecl("void", name, args, statements, pred=["static", "inline"])
+        macro_kernel = ast.FunDecl("void", name, args,
+                                   statements, pred=["static", "inline"])
 
         kernel_list = []
         transformer = Transformer()
@@ -114,107 +119,19 @@ def prepare_coefficients(expression):
     return coefficient_map
 
 
-def prepare_tsfc_kernels(temps, tsfc_parameters=None):
-    """This function generates a mapping of the form:
-
-       ``kernel_exprs = {terminal_node: kernels}``
-
-    where `terminal_node` objects are :class:`slate.Tensor` nodes and
-    `kernels` is an iterable of `namedtuple` objects, `SplitKernel`, provided
-    by TSFC.
-
-    This mapping is used in :class:`SlateKernelBuilder` to provide direct
-    access to all `SplitKernel` objects associated with a `slate.Tensor` node.
-
-    :arg temps: a mapping of the form ``{terminal_node: symbol_name}``
-                (see :meth:`prepare_temporaries`).
-    :arg tsfc_parameters: an optional `dict` of parameters to pass onto TSFC.
+def gather_tsfc_managers(temps, tsfc_parameters=None):
     """
-    kernel_exprs = {}
+    """
+    kernel_managers = {}
 
     for expr in temps.keys():
-        integrals = expr.form.integrals()
-        mapper = RemoveRestrictions()
-        integrals = list(map(partial(map_integrand_dags, mapper), integrals))
-        prefix = "subkernel%d_" % len(kernel_exprs)
-
-        # Now we split integrals by type: interior_facet and all other cases
-        # First, the interior_facet case:
-        interior_facet_intergrals = list(filter(lambda x: x.integral_type() == "interior_facet", integrals))
-
-        # Now we reconstruct all interior_facet integrals to be of type: exterior_facet
-        # This is because locally over each cell, SLATE views them as being "exterior"
-        # with respect to the cell.
-        new_ext_integrals = int_to_ext_facet_type_transform(interior_facet_integrals)
-
-        # Now for the rest:
-        other_integrals = list(filter(lambda x: x.integral_type() != "interior_facet", integrals))
-
-        forms = (Form(new_ext_integrals), Form(other_integrals))
-        compiled_forms = []
-        for form in forms:
-            compiled_forms.extend(compile_form(form, prefix, parameters=tsfc_parameters))
-
-        kernel_exprs[expr] = tuple(compiled_forms)
-
-    return kernel_exprs
+        kernel_managers[expr] = TSFCKernelManager(tensor=expr,
+                                                  parameters=tsfc_parameters)
+    return kernel_managers
 
 
-def int_to_ext_facet_type_transform(interior_facet_integrals):
-    """This function transforms integrals of type interior facet
-    to the corresponding exterior facet type. For example:
-
-    "interior_facet" >> "exterior_facet"
-    "interior_facet_horiz" >> adds both "exterior_facet_top"
-                                    and "exterior_facet_bottom"
-    "interior_facet_vert" >> "exterior_facet_vert"
-
-    :arg interior_facet_integrals: an interable of `ufl.Integral` objects with
-                                   interior facet type.
-
-    Returns: Reconstructed integrals of exterior type.
+def generate_expr_data(expr, temps=None, aux_exprs=None):
     """
-    new_ext_integrals = []
-
-    for it in interior_facet_integrals:
-        if it.integral_type() == "interior_facet":
-            new_ext_integrals.append(it.reconstruct(integral_type="exterior_facet"))
-        elif it.integral_type() == "interior_facet_horiz":
-            # We need the TSFC kernels for both the top and bottom facets of the cell
-            new_ext_integrals.extend((it.reconstruct(integral_type="exterior_facet_top"),
-                                      it.reconstruct(integral_type="exterior_facet_bottom")))
-        elif it.integral_type() == "interior_facet_vert":
-            new_ext_integrals.append(it.reconstruct(integral_type="exterior_facet_vert"))
-        else:
-            raise ValueError("Integral type %s type not recognized" % it.integral_type())
-
-    return new_ext_integrals
-
-
-def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
-    """This function generates a mapping of the form:
-
-       ``temporaries = {terminal_node: symbol_name}``
-
-    where `terminal_node` objects are :class:`slate.Tensor` nodes, and
-    `symbol_name` are :class:`coffee.base.Symbol` objects.
-
-    In addition, this function will return a list `aux_exprs` of any
-    expressions that require special handling in the compiler. This includes
-    expressions that require performing operations on already assembled data.
-
-    This mapping is used in the :class:`SlateKernelBuilder` to provide direct
-    access to all temporaries associated with a particular slate expression.
-
-    :arg expression: a :class:`slate.TensorBase` object.
-    :arg temps: a dictionary that becomes populated recursively and is later
-                returned as the temporaries map. This argument is initialized
-                as an empty `dict` before recursion starts.
-    :arg aux_exprs: a list that becomes populated recursively and is returned
-                    as the list of auxiliary expressions that require special
-                    handling in SLATE's linear algebra compiler.
-
-    Returns: the arguments temps and aux_exprs.
     """
     # Prepare temporaries map and auxiliary expressions list
     if temps is None:
@@ -223,22 +140,19 @@ def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
     if aux_exprs is None:
         aux_exprs = []
 
-    if isinstance(expression, Tensor):
-        if expression not in temps.keys():
-            temps[expression] = ast.Symbol("T%d" % len(temps))
+    if isinstance(expr, Tensor):
+        if expr not in temps.keys():
+            temps[expr] = ast.Symbol("T%d" % len(temps))
 
-    elif isinstance(expression, Action):
-        # This is a special case where we need to handle this expression separately from the rest
-        aux_exprs.append(expression)
+    elif isinstance(expr, Action):
+        aux_exprs.append(expr)
         # Pass in the acting tensor to extract any necessary temporaries
-        tensor = expression.operands[0]
-        prepare_temps_and_aux_exprs(tensor, temps=temps, aux_exprs=aux_exprs)
+        generate_expr_data(expr.operands[0], temps=temps, aux_exprs=aux_exprs)
 
-    elif isinstance(expression, (UnaryOp, BinaryOp)):
-        for operand in expression.operands:
-            prepare_temps_and_aux_exprs(operand, temps=temps, aux_exprs=aux_exprs)
-
+    elif isinstance(expr, (UnaryOp, BinaryOp)):
+        map(lambda x: generate_expr_data(x, temps=temps,
+                                         aux_exprs=aux_exprs), expr.operands)
     else:
-        raise NotImplementedError("Expression of type %s not currently supported." % type(expression))
+        raise NotImplementedError("Type %s not supported." % type(expr))
 
-    return temps, aux_exprs
+    return ExpressionData(temps, aux_exprs)
