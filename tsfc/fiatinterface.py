@@ -187,6 +187,25 @@ def _(element, vector_is_mixed):
         # Handle quadrilateral short names like RTCF and RTCE.
         element = element.reconstruct(cell=quad_tpc)
         return FlattenToQuad(create_element(element, vector_is_mixed))
+
+    kind = element.variant()
+    if kind is None:
+        kind = 'equispaced'  # default variant
+
+    if element.family() == "Lagrange":
+        if kind == 'equispaced':
+            lmbda = FIAT.Lagrange
+        elif kind == 'spectral' and element.cell().cellname() == 'interval':
+            lmbda = FIAT.GaussLobattoLegendre
+        else:
+            raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
+    elif element.family() == "Discontinuous Lagrange":
+        if kind == 'equispaced':
+            lmbda = FIAT.DiscontinuousLagrange
+        elif kind == 'spectral' and element.cell().cellname() == 'interval':
+            lmbda = FIAT.GaussLegendre
+        else:
+            raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
     return lmbda(cell, element.degree())
 
 
