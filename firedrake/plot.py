@@ -298,7 +298,8 @@ def plot(function_or_mesh,
                 axes = fig.add_subplot(111)
             cmap = kwargs.pop("cmap", cm.coolwarm)
             pivot = kwargs.pop("pivot", "mid")
-            axes.quiver(X, Y, U, V, C, cmap=cmap, pivot=pivot, **kwargs)
+            mappable = axes.quiver(X, Y, U, V, C, cmap=cmap, pivot=pivot, **kwargs)
+            plt.colorbar(mappable)
             return axes
         return two_dimension_plot(function, num_sample_points,
                                   axes, plot3d=plot3d, contour=kwargs.pop("contour", False),
@@ -506,19 +507,21 @@ def two_dimension_plot(function,
     cmap = kwargs.pop('cmap', cm.coolwarm)
     if plot3d:
         if contour:
-            axes.tricontour(triangulation, Z, edgecolor="none",
-                            cmap=cmap, antialiased=False, **kwargs)
+            mappable = axes.tricontour(triangulation, Z, edgecolor="none",
+                                       cmap=cmap, antialiased=False, **kwargs)
         else:
-            axes.plot_trisurf(triangulation, Z, edgecolor="none",
-                              cmap=cmap, antialiased=False,
-                              shade=False, **kwargs)
+            mappable = axes.plot_trisurf(triangulation, Z, edgecolor="none",
+                                         cmap=cmap, antialiased=False,
+                                         shade=False, **kwargs)
+        plt.colorbar(mappable)
         return axes
     else:
         if contour:
-            axes.tricontour(triangulation, Z, edgecolor="none",
-                            cmap=cmap, **kwargs)
+            mappable = axes.tricontour(triangulation, Z, edgecolor="none",
+                                       cmap=cmap, **kwargs)
         else:
-            axes.tripcolor(triangulation, Z, cmap=cmap, **kwargs)
+            mappable = axes.tripcolor(triangulation, Z, cmap=cmap, **kwargs)
+        plt.colorbar(mappable)
     return axes
 
 
