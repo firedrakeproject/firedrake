@@ -59,10 +59,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     :arg slate_expr: a :class:'TensorBase' expression.
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
-                          be passed onto TSFC during the compilation of ufl forms.
+                          be passed onto TSFC during the compilation of
+                          ufl forms.
     """
     if not isinstance(slate_expr, TensorBase):
-        raise ValueError("Expecting a `slate.TensorBase` expression, not a %r" % slate_expr)
+        raise ValueError("Expecting a `TensorBase` expr, not %r" % slate_expr)
 
     # TODO: Get PyOP2 to write into mixed dats
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
@@ -73,7 +74,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     statements = []
 
     # Create a builder for the SLATE expression
-    builder = KernelBuilder(expression=slate_expr, tsfc_parameters=tsfc_parameters)
+    builder = KernelBuilder(expression=slate_expr,
+                            tsfc_parameters=tsfc_parameters)
 
     # Initialize coordinate and facet symbols
     coordsym = ast.Symbol("coords")
@@ -81,99 +83,97 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     cellfacetsym = ast.Symbol("cell_facets")
     inc = []
 
-    # Special kernels dict for handling horizontal extruded case
-    # TODO: Avoid creating this variable?
-    extruded_horiz_kernels = {}
     # Now we construct the list of statements to provide to the builder
-    context_temps = builder.temps.copy()
+    temps, aux_exprs, managers = builder.expr_data
+    context_temps = temps.copy()
+
     for exp, t in context_temps.items():
         statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
 
-        for splitkernel in builder.kernel_exprs[exp]:
-            clist = []
-            index = splitkernel.indices
-            kinfo = splitkernel.kinfo
-            integral_type = kinfo.integral_type
+        kernel_manager = managers[exp]
+        kernel_manager.execute_tsfc_compilation()
 
-            if integral_type not in supported_integral_types:
-                raise NotImplementedError("Integral type %s not currently supported." % integral_type)
+        for it_type, ktuple in kernel_manager.kernels.items():
 
+            if it_type not in supported_integral_types:
+                raise NotImplementedError("Type %s not supported." % it_type)
+
+            # Explicit checking of coordinates
             coordinates = exp.ufl_domain().coordinates
             if coords is not None:
                 assert coordinates == coords
             else:
                 coords = coordinates
 
-            for cindex in kinfo.coefficient_map:
-                c = exp.coefficients()[cindex]
-                # Handles both mixed and non-mixed coefficient cases
-                clist.extend(builder.extract_coefficient(c))
+            clist = []
 
-            inc.extend(kinfo.kernel._include_dirs)
+            if it_type in ["cell", "interior_facet", "exterior_facet",
+                           "interior_facet_vert", "exterior_facet_vert"]:
 
-            tensor = eigen_tensor(exp, t, index)
+                # If tensor is mixed, there will be more than one SplitKernel
+                for splitkernel in ktuple:
+                    index = splitkernel.indices
+                    kinfo = splitkernel.kinfo
 
-            # Most facets are treated the same way: by looping over facet index.
-            if integral_type in ["interior_facet",
-                                 "exterior_facet",
-                                 "interior_facet_vert",
-                                 "exterior_facet_vert"]:
-                # Require cell facets
-                builder.require_cell_facets()
-                ufl_cell = exp.ufl_domain().ufl_cell()
-                loop = facet_integral_loop(kinfo, tensor, ufl_cell, coordsym, cellfacetsym)
-                statements.append(loop)
+                    for cindex in kinfo.coefficient_map:
+                        c = exp.coefficients()[cindex]
+                        # Handles both mixed and non-mixed coefficient cases
+                        clist.extend(builder.coefficient(c))
 
-            # The horizontal facets in the extruded case require special treatment.
-            # Instead of looping over facets, we loop over levels of the cell. This will
-            # determine when we call the "exterior_facet_top" and "exterior_facet_bottom"
-            # kernels.
-            elif integral_type in ["interior_facet_horiz",
-                                   "exterior_facet_bottom",
-                                   "exterior_facet_top"]:
-                builder.require_cell_facets()
-                #extruded_horiz_kernels[exp] = builder.kernel_exprs[exp]
-                statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
+                    inc.extend(kinfo.kernel._include_dirs)
+                    tensor = eigen_tensor(exp, t, index)
+
+                    # Most facets are handled by looping over facet index.
+                    if it_type in ["interior_facet", "exterior_facet",
+                                   "interior_facet_vert",
+                                   "exterior_facet_vert"]:
+                        # Require cell facets
+                        builder.require_cell_facets()
+                        ufl_cell = exp.ufl_domain().ufl_cell()
+                        cxt_kernel = (it_type, splitkernel)
+                        loop = facet_integral_loop(cxt_kernel, tensor,
+                                                   ufl_cell, coordsym,
+                                                   cellfacetsym)
+                        statements.append(loop)
+                    else:
+                        statements.append(ast.FunCall(kinfo.kernel.name,
+                                                      tensor, coordsym,
+                                                      *clist))
+            elif it_type == "interior_facet_horiz":
+                raise NotImplementedError("Not ready yet!")
+                # The infamous interior horizontal facet
+                # will have two SplitKernels: one top,
+                # one bottom
+                top, = [k for k in ktuple
+                        if k.kinfo.integral_type == "exterior_facet_top"]
+                bottom, = [k for k in ktuple
+                           if k.kinfo.integral_type == "exterior_facet_bottom"]
+                assert top.indices == bottom.indices, (
+                    "Top and bottom kernels must have the same indices"
+                )
+                index = top.indices
+
+                # TODO: Check if this logic is sufficient
+                for cindex in set(bottom.kinfo.coefficient_map
+                                  + top.kinfo.coefficient_map):
+                    c = exp.coefficients()[cindex]
+                    clist.extend(builder.coefficient(c))
+
+                inc.extend(set(bottom.kinfo.kernel._include_dirs +
+                               top.kinfo.kernel._include_dirs))
+                tensor = eigen_tensor(exp, t, index)
             else:
-                statements.append(ast.FunCall(kinfo.kernel.name, tensor, coordsym, *clist))
-
-    # Now we handle the extruded horizontal facets
-    if bool(extruded_horiz_kernels):
-        for exp, klist in extruded_horiz_kernels.items():
-            assert isinstance(exp.ufl_domain().ufl_cell(), TensorProductCell)
-            assert len(klist) == 2, "Must have a top and bottom kernel"
-            nfacet = 2
-            lsym = ast.Symbol("level")
-
-            top_kernel = [splitkernel for splitkernel in klist
-                          if splitkernel.kinfo.integral_type == "exterior_facet_top"][0]
-            bottom_kernel = [splitkernel for splitkernel in klist
-                             if splitkernel.kinfo.integral_type == "exterior_facet_bottom"][0]
-
-            iftop = [ast.If(ast.Eq(lsym, 1),
-                            [ast.Block([ast.FunCall(top_kernel.kinfo.kernel.name,
-                                                    eigen_tensor(exp, context_temps[exp],
-                                                                 top_kernel.indices),
-                                                    coordsym)])])]
-            ifbottom = [ast.If(ast.Eq(lsym, 0),
-                               [ast.Block([ast.FunCall(bottom_kernel.kinfo.kernel.name,
-                                                       eigen_tensor(exp, context_temps[exp],
-                                                                    bottom_kernel.indices),
-                                                       coordsym)])])]
-            body = ifbottom + iftop
-            loop = ast.For(ast.Decl("unsigned int", lsym, init=0), ast.Less(lsym, nfacet),
-                           ast.Incr(lsym, 1), body)
-            statements.append(loop)
+                raise ValueError("Kernel type not recognized: %s" % it_type)
 
     # Now we handle any terms that require auxiliary data (if any)
-    if bool(builder.aux_exprs):
+    if bool(builder.expr_data.auxiliary_exprs):
         aux_temps, aux_statements = auxiliary_information(builder)
         context_temps.update(aux_temps)
         statements.extend(aux_statements)
 
-    result_sym = ast.Symbol("T%d" % len(builder.temps))
-    result_data_sym = ast.Symbol("A%d" % len(builder.temps))
+    result_sym = ast.Symbol("T%d" % len(builder.expr_data.temporaries))
+    result_data_sym = ast.Symbol("A%d" % len(builder.expr_data.temporaries))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
     result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
@@ -182,7 +182,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                              result_data_sym))
     statements.append(result_statement)
 
-    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr, context_temps))
+    cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
+                                                       context_temps))
     statements.append(ast.Assign(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
@@ -192,21 +193,28 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             ctype = "%s *" % SCALAR_TYPE
         else:
             ctype = "%s **" % SCALAR_TYPE
-        args.extend([ast.Decl(ctype, sym_c) for sym_c in builder.extract_coefficient(c)])
+        args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
 
     macro_kernel_name = "compile_slate"
+    stmt = ast.Block(statements)
     kernel_ast, oriented = builder.construct_ast(name=macro_kernel_name,
                                                  args=args,
-                                                 statements=ast.Block(statements))
+                                                 statements=stmt)
 
     inc.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
-    op2kernel = op2.Kernel(kernel_ast, macro_kernel_name, cpp=True, include_dirs=inc,
-                           headers=['#include <Eigen/Dense>', '#define restrict __restrict'])
+    op2kernel = op2.Kernel(kernel_ast,
+                           macro_kernel_name,
+                           cpp=True,
+                           include_dirs=inc,
+                           headers=['#include <Eigen/Dense>',
+                                    '#define restrict __restrict'])
 
-    assert len(slate_expr.ufl_domains()) == 1
+    assert len(slate_expr.ufl_domains()) == 1, (
+        "No support for multiple domains yet!"
+    )
     kinfo = KernelInfo(kernel=op2kernel,
                        integral_type="cell",
                        oriented=oriented,
@@ -219,52 +227,58 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     return (SplitKernel(idx, kinfo),)
 
 
-def facet_integral_loop(kinfo, tensor, ufl_cell, coordsym, cellfacetsym):
+def facet_integral_loop(cxt_kernel, tensor, ufl_cell, coordsym, cellfacetsym):
     """Generates a integral facet loop corresponding to a particular facet integral
     type as a COFFEE AST node.
 
-    :arg kinfo: a `SplitKernel` object containing information about the compiled form.
-    :arg tensor: a string describing the `Eigen::MatrixBase` declaration of the tensor.
-    :arg ufl_cell: a `ufl.Cell` object that the integral form is defined on. This parameter
-                   is used to help determine the appropriate number of facets located on
-                   a particular cell.
-    :arg clist: a `list` of coefficient information described as a COFFEE AST node.
-    :arg coffee_symbols: a `tuple` of `coffee.Symbol` objects representing the following:
-                         (1) the coordinates provided to the kernel function, (2) the
-                         iteration symbol for the facet loops and (3) the cell facet index.
+    :arg cxt_kernel: a tuple (it_type, `SplitKernel`) where it_type is the
+                     original (pre-modified) integral type and `SplitKernel'
+                     is the corresponding TSFC compiled form in the new
+                     exterior reference frame.
+    :arg tensor: a string describing the `Eigen::MatrixBase` declaration
+                 of the tensor.
+    :arg ufl_cell: a `ufl.Cell` object that the integral form is defined on.
+                   This parameter is used to help determine the appropriate
+                   number of facets located on a particular cell.
 
-    Returns: a `coffee.For` object describing the loop needed to locally evaluate the facet
-             integral.
+    Returns: a `coffee.For` object describing the loop needed to locally
+             evaluate the facet integral.
     """
-    integral_type = kinfo.integral_type
+    it_type, splitkernel = cxt_kernel
+    kinfo = splitkernel.kinfo
+    kit_type = kinfo.integral_type
     itsym = ast.Symbol("i0")
 
     # Compute the correct number of facets for a particular facet measure
-    if integral_type in ["interior_facet", "exterior_facet"]:
+    if it_type in ["interior_facet", "exterior_facet"]:
         # Non-extruded case
         nfacet = ufl_cell.num_facets()
 
-    elif integral_type in ["interior_facet_vert", "exterior_facet_vert"]:
+    elif it_type in ["interior_facet_vert", "exterior_facet_vert"]:
         assert isinstance(ufl_cell, TensorProductCell)
         # Extrusion case
         A, _ = ufl_cell._cells
         nfacet = A.num_facets()
 
     else:
-        raise ValueError("Integral type %s not currently supported." % integral_type)
+        raise ValueError(
+            "Integral type %s not currently supported." % it_type
+        )
 
-    if integral_type in ["exterior_facet", "exterior_facet_vert"]:
+    if kit_type in ["exterior_facet", "exterior_facet_vert"]:
         checker = 1
     else:
         checker = 0
 
-    loop_body = ast.If(ast.Eq(ast.Symbol(cellfacetsym, rank=(itsym,)), checker),
-                       [ast.Block([ast.FunCall(kinfo.kernel.name,
-                                               tensor,
-                                               coordsym,
-                                               ast.FlatBlock("&%s" % itsym))],
-                                  open_scope=True)])
-    loop = ast.For(ast.Decl("unsigned int", itsym, init=0), ast.Less(itsym, nfacet),
+    funcall_block = [ast.Block([ast.FunCall(kinfo.kernel.name,
+                                            tensor,
+                                            coordsym,
+                                            ast.FlatBlock("&%s" % itsym))],
+                               open_scope=True)]
+    loop_body = ast.If(ast.Eq(ast.Symbol(cellfacetsym, rank=(itsym,)),
+                              checker), funcall_block)
+    loop = ast.For(ast.Decl("unsigned int", itsym, init=0),
+                   ast.Less(itsym, nfacet),
                    ast.Incr(itsym, 1), loop_body)
 
     return loop
@@ -279,37 +293,42 @@ def auxiliary_information(builder):
                   necessary temporary and expression information.
 
     Returns: a mapping of the form ``{aux_node: aux_temp}``, where `aux_node`
-             is an already assembled data-object provided as a `ufl.Coefficient`
-             and `aux_temp` is the corresponding temporary.
+             is an already assembled data-object provided as a
+             `ufl.Coefficient` and `aux_temp` is the corresponding temporary.
 
              a list of auxiliary statements are returned that contain temporary
-             declarations and any code-blocks needed to evaluate the expression.
+             declarations and any code-blocks needed to evaluate the
+             expression.
     """
     aux_temps = {}
     aux_statements = []
-    for i, exp in enumerate(builder.aux_exprs):
+    for i, exp in enumerate(builder.expr_data.auxiliary_exprs):
         if isinstance(exp, Action):
-            acting_coefficient = exp.operands[1]
-            assert isinstance(acting_coefficient, Coefficient)
+            acting_coeff = exp.operands[1]
+            assert isinstance(acting_coeff, Coefficient)
 
             temp = ast.Symbol("C%d" % i)
-            V = acting_coefficient.function_space()
+            V = acting_coeff.function_space()
             node_extent = V.fiat_element.space_dimension()
             dof_extent = np.prod(V.ufl_element().value_shape())
-            aux_statements.append(ast.Decl(eigen_matrixbase_type(shape=(dof_extent * node_extent,)), temp))
+            typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
+            aux_statements.append(ast.Decl(typ, temp))
             aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
 
-            # Now we unpack the coefficient and insert its entries into a 1D vector temporary
+            # Now we unpack the coefficient and insert its entries into a
+            # 1D vector temporary
             isym = ast.Symbol("i1")
             jsym = ast.Symbol("j1")
             tensor_index = ast.Sum(ast.Prod(dof_extent, isym), jsym)
+
             # Inner-loop running over dof_extent
+            coeff_sym = ast.Symbol(builder.coefficient_map[acting_coeff],
+                                   rank=(isym, jsym))
+            coeff_temp = ast.Symbol(temp, rank=(tensor_index,))
             inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
                                  ast.Less(jsym, dof_extent),
                                  ast.Incr(jsym, 1),
-                                 ast.Assign(ast.Symbol(temp, rank=(tensor_index,)),
-                                            ast.Symbol(builder.coefficient_map[acting_coefficient],
-                                                       rank=(isym, jsym))))
+                                 ast.Assign(coeff_temp, coeff_sym))
             # Outer-loop running over node_extent
             loop = ast.For(ast.Decl("unsigned int", isym, init=0),
                            ast.Less(isym, node_extent),
@@ -317,9 +336,11 @@ def auxiliary_information(builder):
                            inner_loop)
 
             aux_statements.append(loop)
-            aux_temps[acting_coefficient] = temp
+            aux_temps[acting_coeff] = temp
         else:
-            raise NotImplementedError("Auxiliary expression type %s not currently implemented." % type(exp))
+            raise NotImplementedError(
+                "Auxiliary expr type %s not currently implemented." % type(exp)
+            )
 
     return aux_temps, aux_statements
 
@@ -378,12 +399,14 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         tensor, c = expr.operands
         # Extra check
         assert isinstance(c, Coefficient)
-        result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor, temps, expr.prec), temps[c])
+        result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
+                                                        temps,
+                                                        expr.prec), temps[c])
 
         return parenthesize(result, expr.prec, prec)
     else:
         # If expression is not recognized, throw a NotImplementedError.
-        raise NotImplementedError("Expression of type %s not supported.", type(expr).__name__)
+        raise NotImplementedError("Type %s not supported.", type(expr))
 
 
 def eigen_matrixbase_type(shape):
@@ -397,13 +420,17 @@ def eigen_matrixbase_type(shape):
              library syntax.
     """
     if len(shape) == 0:
-        raise NotImplementedError("Scalar-valued expressions cannot be declared as an Eigen::MatrixBase object.")
+        raise NotImplementedError(
+            "Scalar exprs cannot be declared as an Eigen::MatrixBase object."
+        )
     elif len(shape) == 1:
         rows = shape[0]
         cols = 1
     else:
         if not len(shape) == 2:
-            raise NotImplementedError("%d-rank tensors are not currently supported." % len(shape))
+            raise NotImplementedError(
+                "%d-rank tensors are not supported." % len(shape)
+            )
         rows = shape[0]
         cols = shape[1]
     if cols != 1:
@@ -417,13 +444,14 @@ def eigen_matrixbase_type(shape):
 def eigen_tensor(expr, temporary, index):
     """Returns an appropriate assignment statement for populating a particular
     `Eigen::MatrixBase` tensor. If the tensor is mixed, then access to the
-    :meth:`block` of the eigen tensor is provided. Otherwise, no block information
-    is needed and the tensor is returned as is.
+    :meth:`block` of the eigen tensor is provided. Otherwise, no block
+    information is needed and the tensor is returned as is.
 
     :arg expr: a `slate.Tensor` node.
     :arg temporary: the associated temporary of the expr argument.
-    :arg index: a tuple of integers used to determine row and column information.
-                This is provided by the SplitKernel associated with the expr.
+    :arg index: a tuple of integers used to determine row and column
+                information. This is provided by the SplitKernel
+                associated with the expr.
     """
     try:
         row, col = index

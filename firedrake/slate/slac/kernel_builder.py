@@ -14,7 +14,8 @@ from ufl import MixedElement
 
 ExpressionData = collections.namedtuple("ExpressionData",
                                         ["temporaries",
-                                         "auxiliary_exprs"])
+                                         "auxiliary_exprs",
+                                         "kernel_managers"])
 
 
 class KernelBuilder(object):
@@ -45,8 +46,11 @@ class KernelBuilder(object):
         self.coefficient_map = prepare_coefficients(expression)
 
         # Initialize temporaries, auxiliary expressions and tsfc managers
-        self.expr_data = generate_expr_data(expression)
-        self.tsfc_managers = gather_tsfc_managers(self.expr_data.temporaries)
+        temps, aux_exprs = generate_expr_data(expression)
+        tsfc_managers = gather_tsfc_managers(temps)
+        self.expr_data = ExpressionData(temporaries=temps,
+                                        auxiliary_exprs=aux_exprs,
+                                        kernel_managers=tsfc_managers)
 
     def require_cell_facets(self):
         """Assigns `self.needs_cell_facets` to be `True` if facet integrals
@@ -54,7 +58,7 @@ class KernelBuilder(object):
         """
         self.needs_cell_facets = True
 
-    def extract_coefficient(self, coefficient):
+    def coefficient(self, coefficient):
         """Extracts a coefficient from the coefficient_map. This handles both
         the case when the coefficient is defined on a mixed or non-mixed
         function space.
@@ -90,14 +94,17 @@ class KernelBuilder(object):
         kernel_list = []
         transformer = Transformer()
         oriented = False
-        # Assume self.kernel_exprs is populated at this point
-        for kernel_items in self.kernel_exprs.values():
-            for ks in kernel_items:
-                oriented = oriented or ks.kinfo.oriented
-                # TODO: Extend multiple domains support
-                assert ks.kinfo.subdomain_id == "otherwise"
-                kast = transformer.visit(ks.kinfo.kernel._ast)
-                kernel_list.append(kast)
+        # Assume self.expr_data is populated at this point
+        # with tsfc managers already compiled tsfc kernels
+        managers = self.expr_data.kernel_managers
+        for tsfc_manager in managers.values():
+            for kernel_items in tsfc_manager.kernels.values():
+                for splitkernel in kernel_items:
+                    oriented = oriented or splitkernel.kinfo.oriented
+                    # TODO: Extend multiple domains support
+                    assert splitkernel.kinfo.subdomain_id == "otherwise"
+                    kast = transformer.visit(splitkernel.kinfo.kernel._ast)
+                    kernel_list.append(kast)
         kernel_list.append(macro_kernel)
 
         return ast.Node(kernel_list), oriented
@@ -155,4 +162,4 @@ def generate_expr_data(expr, temps=None, aux_exprs=None):
     else:
         raise NotImplementedError("Type %s not supported." % type(expr))
 
-    return ExpressionData(temps, aux_exprs)
+    return temps, aux_exprs
