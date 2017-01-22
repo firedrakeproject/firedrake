@@ -83,97 +83,95 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     cellfacetsym = ast.Symbol("cell_facets")
     inc = []
 
-    # Now we construct the list of statements to provide to the builder
-    temps, aux_exprs, managers = builder.expr_data
-    context_temps = temps.copy()
+    for cxt_kernel in builder.context_kernels:
+        exp = cxt_kernel.tensor
+        t = builder.get_temporary(exp)
 
-    for exp, t in context_temps.items():
+        # Declare and initialize the temporary
         statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
         statements.append(ast.FlatBlock("%s.setZero();\n" % t))
 
-        kernel_manager = managers[exp]
-        kernel_manager.execute_tsfc_compilation()
+        it_type = cxt_kernel.original_integral_type
 
-        for it_type, ktuple in kernel_manager.kernels.items():
+        if it_type not in supported_integral_types:
+            raise NotImplementedError("Type %s not supported." % it_type)
 
-            if it_type not in supported_integral_types:
-                raise NotImplementedError("Type %s not supported." % it_type)
+        # Explicit checking of coordinates
+        coordinates = exp.ufl_domain().coordinates
+        if coords is not None:
+            assert coordinates == coords
+        else:
+            coords = coordinates
 
-            # Explicit checking of coordinates
-            coordinates = exp.ufl_domain().coordinates
-            if coords is not None:
-                assert coordinates == coords
-            else:
-                coords = coordinates
+        clist = []
 
-            clist = []
+        if it_type in ["cell", "interior_facet", "exterior_facet",
+                       "interior_facet_vert", "exterior_facet_vert"]:
 
-            if it_type in ["cell", "interior_facet", "exterior_facet",
-                           "interior_facet_vert", "exterior_facet_vert"]:
+            # If tensor is mixed, there will be more than one SplitKernel
+            for splitkernel in cxt_kernel.tsfc_kernels:
+                index = splitkernel.indices
+                kinfo = splitkernel.kinfo
 
-                # If tensor is mixed, there will be more than one SplitKernel
-                for splitkernel in ktuple:
-                    index = splitkernel.indices
-                    kinfo = splitkernel.kinfo
-
-                    for cindex in kinfo.coefficient_map:
-                        c = exp.coefficients()[cindex]
-                        # Handles both mixed and non-mixed coefficient cases
-                        clist.extend(builder.coefficient(c))
-
-                    inc.extend(kinfo.kernel._include_dirs)
-                    tensor = eigen_tensor(exp, t, index)
-
-                    # Most facets are handled by looping over facet index.
-                    if it_type in ["interior_facet", "exterior_facet",
-                                   "interior_facet_vert",
-                                   "exterior_facet_vert"]:
-                        # Require cell facets
-                        builder.require_cell_facets()
-                        ufl_cell = exp.ufl_domain().ufl_cell()
-                        cxt_kernel = (it_type, splitkernel)
-                        loop = facet_integral_loop(cxt_kernel, tensor,
-                                                   ufl_cell, coordsym,
-                                                   cellfacetsym)
-                        statements.append(loop)
-                    else:
-                        statements.append(ast.FunCall(kinfo.kernel.name,
-                                                      tensor, coordsym,
-                                                      *clist))
-            elif it_type == "interior_facet_horiz":
-                raise NotImplementedError("Not ready yet!")
-                # The infamous interior horizontal facet
-                # will have two SplitKernels: one top,
-                # one bottom
-                top, = [k for k in ktuple
-                        if k.kinfo.integral_type == "exterior_facet_top"]
-                bottom, = [k for k in ktuple
-                           if k.kinfo.integral_type == "exterior_facet_bottom"]
-                assert top.indices == bottom.indices, (
-                    "Top and bottom kernels must have the same indices"
-                )
-                index = top.indices
-
-                # TODO: Check if this logic is sufficient
-                for cindex in set(bottom.kinfo.coefficient_map
-                                  + top.kinfo.coefficient_map):
+                for cindex in kinfo.coefficient_map:
                     c = exp.coefficients()[cindex]
+                    # Handles both mixed and non-mixed coefficient cases
                     clist.extend(builder.coefficient(c))
 
-                inc.extend(set(bottom.kinfo.kernel._include_dirs +
-                               top.kinfo.kernel._include_dirs))
+                inc.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
-            else:
-                raise ValueError("Kernel type not recognized: %s" % it_type)
 
+                # Most facets are handled by looping over facet index.
+                if it_type in ["interior_facet", "exterior_facet",
+                               "interior_facet_vert",
+                               "exterior_facet_vert"]:
+                    # Require cell facets
+                    builder.require_cell_facets()
+                    ufl_cell = exp.ufl_domain().ufl_cell()
+                    cxt_tuple = (it_type, splitkernel)
+                    loop = facet_integral_loop(cxt_tuple, tensor,
+                                               ufl_cell, coordsym,
+                                               cellfacetsym)
+                    statements.append(loop)
+                else:
+                    statements.append(ast.FunCall(kinfo.kernel.name,
+                                                  tensor, coordsym,
+                                                  *clist))
+        elif it_type == "interior_facet_horiz":
+            raise NotImplementedError("Not ready yet!")
+            # The infamous interior horizontal facet
+            # will have two SplitKernels: one top,
+            # one bottom
+            top, = [k for k in cxt_kernel.tsfc_kernels
+                    if k.kinfo.integral_type == "exterior_facet_top"]
+            bottom, = [k for k in cxt_kernel.tsfc_kernels
+                       if k.kinfo.integral_type == "exterior_facet_bottom"]
+            assert top.indices == bottom.indices, (
+                "Top and bottom kernels must have the same indices"
+            )
+            index = top.indices
+
+            # TODO: Check if this logic is sufficient
+            for cindex in set(bottom.kinfo.coefficient_map
+                              + top.kinfo.coefficient_map):
+                c = exp.coefficients()[cindex]
+                clist.extend(builder.coefficient(c))
+
+            inc.extend(set(bottom.kinfo.kernel._include_dirs +
+                           top.kinfo.kernel._include_dirs))
+            tensor = eigen_tensor(exp, t, index)
+        else:
+            raise ValueError("Kernel type not recognized: %s" % it_type)
+
+    context_temps = builder.temps.copy()
     # Now we handle any terms that require auxiliary data (if any)
-    if bool(builder.expr_data.auxiliary_exprs):
+    if bool(builder.aux_exprs):
         aux_temps, aux_statements = auxiliary_information(builder)
         context_temps.update(aux_temps)
         statements.extend(aux_statements)
 
-    result_sym = ast.Symbol("T%d" % len(builder.expr_data.temporaries))
-    result_data_sym = ast.Symbol("A%d" % len(builder.expr_data.temporaries))
+    result_sym = ast.Symbol("T%d" % len(builder.temps))
+    result_data_sym = ast.Symbol("A%d" % len(builder.temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
     result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
@@ -200,9 +198,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     macro_kernel_name = "compile_slate"
     stmt = ast.Block(statements)
-    kernel_ast, oriented = builder.construct_ast(name=macro_kernel_name,
-                                                 args=args,
-                                                 statements=stmt)
+    macro_kernel = builder.construct_macro_kernel(name=macro_kernel_name,
+                                                  args=args,
+                                                  statements=stmt)
+    kernel_ast = builder.construct_ast([macro_kernel])
 
     inc.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
     op2kernel = op2.Kernel(kernel_ast,
@@ -216,8 +215,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         "No support for multiple domains yet!"
     )
     kinfo = KernelInfo(kernel=op2kernel,
-                       integral_type="cell",
-                       oriented=oriented,
+                       integral_type=builder.integral_type,
+                       oriented=builder.oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=tuple(range(len(slate_expr.coefficients()))),
@@ -227,14 +226,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     return (SplitKernel(idx, kinfo),)
 
 
-def facet_integral_loop(cxt_kernel, tensor, ufl_cell, coordsym, cellfacetsym):
+def facet_integral_loop(cxt_tuple, tensor, ufl_cell, coordsym, cellfacetsym):
     """Generates a integral facet loop corresponding to a particular facet integral
     type as a COFFEE AST node.
 
-    :arg cxt_kernel: a tuple (it_type, `SplitKernel`) where it_type is the
-                     original (pre-modified) integral type and `SplitKernel'
-                     is the corresponding TSFC compiled form in the new
-                     exterior reference frame.
+    :arg cxt_tuple: a tuple (it_type, `SplitKernel`) where it_type is the
+                    original (pre-modified) integral type and `SplitKernel'
+                    is the corresponding TSFC compiled form in the new
+                    exterior reference frame.
     :arg tensor: a string describing the `Eigen::MatrixBase` declaration
                  of the tensor.
     :arg ufl_cell: a `ufl.Cell` object that the integral form is defined on.
@@ -244,7 +243,7 @@ def facet_integral_loop(cxt_kernel, tensor, ufl_cell, coordsym, cellfacetsym):
     Returns: a `coffee.For` object describing the loop needed to locally
              evaluate the facet integral.
     """
-    it_type, splitkernel = cxt_kernel
+    it_type, splitkernel = cxt_tuple
     kinfo = splitkernel.kinfo
     kit_type = kinfo.integral_type
     itsym = ast.Symbol("i0")
@@ -302,7 +301,7 @@ def auxiliary_information(builder):
     """
     aux_temps = {}
     aux_statements = []
-    for i, exp in enumerate(builder.expr_data.auxiliary_exprs):
+    for i, exp in enumerate(builder.aux_exprs):
         if isinstance(exp, Action):
             acting_coeff = exp.operands[1]
             assert isinstance(acting_coeff, Coefficient)
