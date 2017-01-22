@@ -142,24 +142,34 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # The infamous interior horizontal facet
             # will have two SplitKernels: one top,
             # one bottom
-            top, = [k for k in cxt_kernel.tsfc_kernels
-                    if k.kinfo.integral_type == "exterior_facet_top"]
-            bottom, = [k for k in cxt_kernel.tsfc_kernels
-                       if k.kinfo.integral_type == "exterior_facet_bottom"]
-            assert top.indices == bottom.indices, (
-                "Top and bottom kernels must have the same indices"
+            top_sks = [k for k in cxt_kernel.tsfc_kernels
+                       if k.kinfo.integral_type == "exterior_facet_top"]
+            bottom_sks = [k for k in cxt_kernel.tsfc_kernels
+                          if k.kinfo.integral_type == "exterior_facet_bottom"]
+            assert len(top_sks) == len(bottom_sks), (
+                "Number of top and bottom kernels should be equal"
             )
-            index = top.indices
 
-            # TODO: Check if this logic is sufficient
-            for cindex in set(bottom.kinfo.coefficient_map
-                              + top.kinfo.coefficient_map):
-                c = exp.coefficients()[cindex]
-                clist.extend(builder.coefficient(c))
+            for top, bottom in zip(top_sks, bottom_sks):
+                # TODO: I am relying on order preservation here...
+                # need to think about the mixed fs case, where there
+                # is more than one splitkernel for both top and bottom.
+                # In the non-mixed setting, this should work just fine.
+                # Top and bottom kernels need to be sorted by kinfo.indices
+                assert top.indices == bottom.indices, (
+                    "Top and bottom kernels must have the same indices"
+                )
+                index = top.indices
 
-            inc.extend(set(bottom.kinfo.kernel._include_dirs +
-                           top.kinfo.kernel._include_dirs))
-            tensor = eigen_tensor(exp, t, index)
+                # TODO: Check if this logic is sufficient
+                for cindex in set(bottom.kinfo.coefficient_map
+                                  + top.kinfo.coefficient_map):
+                    c = exp.coefficients()[cindex]
+                    clist.extend(builder.coefficient(c))
+
+                inc.extend(set(bottom.kinfo.kernel._include_dirs +
+                               top.kinfo.kernel._include_dirs))
+                tensor = eigen_tensor(exp, t, index)
         else:
             raise ValueError("Kernel type not recognized: %s" % it_type)
 

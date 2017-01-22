@@ -32,9 +32,12 @@ def compile_terminal_form(tensor, tsfc_parameters=None):
 
     transformed_integrals = transform_integrals(integrals)
     cxt_kernels = []
-    prefix_key = "subkernel_%s" % tensor.__str__()
+    counter = 0
     for orig_it_type, integrals in transformed_integrals.items():
-        prefix = prefix_key + "%s_to_" % orig_it_type
+        prefix = "subkernel%d_%s_%s_to_" % (counter,
+                                            tensor.__str__(),
+                                            orig_it_type)
+        counter += 1
         kernels = tsfc_compile(Form(integrals), prefix,
                                parameters=tsfc_parameters)
         cxt_k = ContextKernel(tensor=tensor,
