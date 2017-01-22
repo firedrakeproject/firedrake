@@ -1,11 +1,14 @@
 from __future__ import absolute_import, print_function, division
 from six.moves import filter, map
 
+import collections
+
 from coffee import base as ast
 
 from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, Action
 from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 from firedrake.slate.slac.utils import Transformer
+from firedrake.utils import cached_property
 
 from ufl import MixedElement
 
@@ -57,7 +60,7 @@ class KernelBuilder(object):
     def get_temporary(self, expr):
         """
         """
-        if expr not in self.temps.keys():
+        if expr not in self.temps:
             raise ValueError("No temporary for the given expression")
 
         return self.temps[expr]
@@ -73,7 +76,7 @@ class KernelBuilder(object):
         else:
             return (self.coefficient_map[coefficient],)
 
-    @property
+    @cached_property
     def context_kernels(self):
         """
         """
@@ -82,6 +85,15 @@ class KernelBuilder(object):
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
                        for cxt_k in cxt_tuple]
         return cxt_kernels
+
+    @cached_property
+    def full_kernel_list(self):
+        """
+        """
+        cxt_kernels = self.context_kernels
+        splitkernels = [splitkernel for cxt_k in cxt_kernels
+                        for splitkernel in cxt_k.tsfc_kernels]
+        return splitkernels
 
     def construct_macro_kernel(self, name, args, statements):
         """Constructs a macro kernel function that calls any subkernels.
@@ -105,20 +117,19 @@ class KernelBuilder(object):
                                    statements, pred=["static", "inline"])
         return macro_kernel
 
-    def finalize_kernels(self):
+    def _finalize_kernels_and_update(self):
         """
         """
         kernel_list = []
         transformer = Transformer()
         oriented = self.oriented
 
-        for cxt_kernel in self.context_kernels:
-            for splitkernel in cxt_kernel.tsfc_kernels:
-                oriented = oriented or splitkernel.kinfo.oriented
-                # TODO: Extend multiple domains support
-                assert splitkernel.kinfo.subdomain_id == "otherwise"
-                kast = transformer.visit(splitkernel.kinfo.kernel._ast)
-                kernel_list.append(kast)
+        for splitkernel in self.full_kernel_list:
+            oriented = oriented or splitkernel.kinfo.oriented
+            # TODO: Extend multiple domains support
+            assert splitkernel.kinfo.subdomain_id == "otherwise"
+            kast = transformer.visit(splitkernel.kinfo.kernel._ast)
+            kernel_list.append(kast)
 
         self.oriented = oriented
         self.finalized_ast = kernel_list
@@ -129,7 +140,7 @@ class KernelBuilder(object):
         assert isinstance(macro_kernels, list), (
             "Please wrap all macro kernel functions in a list"
         )
-        self.finalize_kernels()
+        self._finalize_kernels_and_update()
         kernel_ast = self.finalized_ast
         kernel_ast.extend(macro_kernels)
 
@@ -156,7 +167,7 @@ def gather_context_kernels(temps, tsfc_parameters=None):
     """
     """
     cxt_list = [compile_terminal_form(expr, tsfc_parameters)
-                for expr in temps.keys()]
+                for expr in temps]
     return cxt_list
 
 
@@ -165,13 +176,13 @@ def generate_expr_data(expr, temps=None, aux_exprs=None):
     """
     # Prepare temporaries map and auxiliary expressions list
     if temps is None:
-        temps = {}
+        temps = collections.defaultdict()
 
     if aux_exprs is None:
         aux_exprs = []
 
     if isinstance(expr, Tensor):
-        if expr not in temps.keys():
+        if expr not in temps:
             temps[expr] = ast.Symbol("T%d" % len(temps))
 
     elif isinstance(expr, Action):

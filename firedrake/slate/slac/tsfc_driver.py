@@ -51,11 +51,10 @@ def transform_integrals(integrals):
     """
     """
 
-    transformed_integrals = {}
+    transformed_integrals = collections.defaultdict(list)
 
     for it in integrals:
         it_type = it.integral_type()
-        transformed_integrals.setdefault(it_type, [])
 
         if it_type == "cell" or it_type.startswith("exterior_facet"):
             # No need to reconstruct cell or exterior facet integrals
