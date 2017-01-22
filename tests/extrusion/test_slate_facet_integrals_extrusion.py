@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -9,7 +10,6 @@ def mesh(request):
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 
-@pytest.mark.xfail(raises=NotImplementedError)
 def test_scalar_field_facet_extr(mesh):
     DG = VectorFunctionSpace(mesh, "DG", 1)
     n = FacetNormal(mesh)

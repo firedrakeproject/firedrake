@@ -138,7 +138,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                   tensor, coordsym,
                                                   *clist))
         elif it_type == "interior_facet_horiz":
-            raise NotImplementedError("Not ready yet!")
             # The infamous interior horizontal facet
             # will have two SplitKernels: one top,
             # one bottom
@@ -150,26 +149,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 "Number of top and bottom kernels should be equal"
             )
 
-            for top, bottom in zip(top_sks, bottom_sks):
-                # TODO: I am relying on order preservation here...
-                # need to think about the mixed fs case, where there
-                # is more than one splitkernel for both top and bottom.
-                # In the non-mixed setting, this should work just fine.
-                # Top and bottom kernels need to be sorted by kinfo.indices
-                assert top.indices == bottom.indices, (
-                    "Top and bottom kernels must have the same indices"
-                )
-                index = top.indices
-
-                # TODO: Check if this logic is sufficient
-                for cindex in set(bottom.kinfo.coefficient_map
-                                  + top.kinfo.coefficient_map):
-                    c = exp.coefficients()[cindex]
-                    clist.extend(builder.coefficient(c))
-
-                inc.extend(set(bottom.kinfo.kernel._include_dirs +
-                               top.kinfo.kernel._include_dirs))
-                tensor = eigen_tensor(exp, t, index)
+            stmt, cl, incl = extruded_horizontal_facet((exp, t),
+                                                       builder.coefficient_map,
+                                                       top_sks,
+                                                       bottom_sks,
+                                                       coordsym)
+            clist.extend(cl)
+            incl.extend(incl)
+            statements.extend(stmt)
         else:
             raise ValueError("Kernel type not recognized: %s" % it_type)
 
@@ -234,6 +221,44 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     idx = tuple([0]*slate_expr.rank)
 
     return (SplitKernel(idx, kinfo),)
+
+
+def extruded_horizontal_facet(exp_t, coeff_map, top_sks, bottom_sks, coordsym):
+    """
+    """
+    exp, t = exp_t
+    inc = []
+    clist = []
+    stmt = []
+    for top, bottom in zip(top_sks, bottom_sks):
+        # TODO: I am relying on order preservation here...
+        # need to think about the mixed fs case, where there
+        # is more than one splitkernel for both top and bottom.
+        # In the non-mixed setting, this should work just fine.
+        # Top and bottom kernels need to be sorted by kinfo.indices
+        assert top.indices == bottom.indices, (
+            "Top and bottom kernels must have the same indices"
+        )
+        index = top.indices
+
+        # TODO: Check if this logic is sufficient
+        for cindex in set(bottom.kinfo.coefficient_map
+                          + top.kinfo.coefficient_map):
+            c = exp.coefficients()[cindex]
+            clist.extend(coeff_map(c))
+
+        # TODO: Check if this logic is sufficient
+        inc.extend(set(bottom.kinfo.kernel._include_dirs +
+                       top.kinfo.kernel._include_dirs))
+
+        tensor = eigen_tensor(exp, t, index)
+        top_funcall = ast.FunCall(top.kinfo.kernel.name,
+                                  tensor, coordsym)
+        bottom_funcall = ast.FunCall(bottom.kinfo.kernel.name,
+                                     tensor, coordsym)
+        stmt.extend((top_funcall, bottom_funcall))
+
+    return stmt, clist, inc
 
 
 def facet_integral_loop(cxt_tuple, tensor, ufl_cell, coordsym, cellfacetsym):
