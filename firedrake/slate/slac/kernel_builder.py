@@ -37,6 +37,7 @@ class KernelBuilder(object):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.needs_cell_facets = False
+        self.needs_mesh_levels = False
         self.oriented = False
         self.finalized_ast = None
 
@@ -56,6 +57,11 @@ class KernelBuilder(object):
         are present.
         """
         self.needs_cell_facets = True
+
+    def require_mesh_levels(self):
+        """
+        """
+        self.needs_mesh_levels = True
 
     def get_temporary(self, expr):
         """

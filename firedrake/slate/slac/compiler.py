@@ -31,7 +31,7 @@ from pyop2.utils import get_petsc_dir
 
 from tsfc.parameters import SCALAR_TYPE
 
-from ufl import Coefficient, TensorProductCell
+from ufl import Coefficient
 
 import numpy as np
 
@@ -81,6 +81,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     coordsym = ast.Symbol("coords")
     coords = None
     cellfacetsym = ast.Symbol("cell_facets")
+    mesh_level_sym = ast.Symbol("mesh_level")
     inc = []
 
     for cxt_kernel in builder.context_kernels:
@@ -105,8 +106,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
         clist = []
 
-        if it_type in ["cell", "interior_facet", "exterior_facet",
-                       "interior_facet_vert", "exterior_facet_vert"]:
+        if it_type == "cell":
+            # Nothing difficult about cellwise integrals. Just need
+            # to get coefficient info, include_dirs and append
+            # function calls to the appropriate subkernels.
 
             # If tensor is mixed, there will be more than one SplitKernel
             for splitkernel in cxt_kernel.tsfc_kernels:
@@ -120,27 +123,27 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
                 inc.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
+                statements.append(ast.FunCall(kinfo.kernel.name,
+                                              tensor, coordsym,
+                                              *clist))
 
-                # Most facets are handled by looping over facet index.
-                if it_type in ["interior_facet", "exterior_facet",
-                               "interior_facet_vert",
-                               "exterior_facet_vert"]:
-                    # Require cell facets
-                    builder.require_cell_facets()
-                    ufl_cell = exp.ufl_domain().ufl_cell()
-                    cxt_tuple = (it_type, splitkernel)
-                    loop = facet_integral_loop(cxt_tuple, tensor,
-                                               ufl_cell, coordsym,
-                                               cellfacetsym)
-                    statements.append(loop)
-                else:
-                    statements.append(ast.FunCall(kinfo.kernel.name,
-                                                  tensor, coordsym,
-                                                  *clist))
+        elif it_type in ["interior_facet", "exterior_facet",
+                         "interior_facet_vert", "exterior_facet_vert"]:
+            # These integral types will require accessing local facet
+            # information and looping over facet indices.
+            builder.require_cell_facets()
+            loop_stmt, cl, incl = facet_integral_loop(cxt_kernel, builder,
+                                                      clist, coordsym,
+                                                      cellfacetsym)
+            clist.extend(cl)
+            inc.extend(incl)
+            statements.append(loop_stmt)
+
         elif it_type == "interior_facet_horiz":
             # The infamous interior horizontal facet
             # will have two SplitKernels: one top,
             # one bottom
+            builder.require_mesh_levels()
             top_sks = [k for k in cxt_kernel.tsfc_kernels
                        if k.kinfo.integral_type == "exterior_facet_top"]
             bottom_sks = [k for k in cxt_kernel.tsfc_kernels
@@ -149,14 +152,29 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 "Number of top and bottom kernels should be equal"
             )
 
-            stmt, cl, incl = extruded_horizontal_facet((exp, t),
-                                                       builder.coefficient_map,
-                                                       top_sks,
-                                                       bottom_sks,
-                                                       coordsym)
+            stmt, cl, incl = extruded_int_horiz_facet(exp,
+                                                      builder,
+                                                      top_sks,
+                                                      bottom_sks,
+                                                      clist,
+                                                      coordsym,
+                                                      mesh_level_sym)
             clist.extend(cl)
-            incl.extend(incl)
-            statements.extend(stmt)
+            inc.extend(incl)
+            statements.append(stmt)
+
+        elif it_type in ["exterior_facet_bottom", "exterior_facet_top"]:
+            builder.require_mesh_levels()
+            stmt, cl, incl = extruded_top_bottom_facet(exp,
+                                                       builder,
+                                                       cxt_kernel,
+                                                       clist,
+                                                       coordsym,
+                                                       mesh_level_sym)
+            clist.extend(cl)
+            inc.extend(incl)
+            statements.append(stmt)
+
         else:
             raise ValueError("Kernel type not recognized: %s" % it_type)
 
@@ -189,6 +207,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         else:
             ctype = "%s **" % SCALAR_TYPE
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
+
+    if builder.needs_mesh_levels:
+        args.append(ast.Decl("char *", mesh_level_sym))
 
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
@@ -223,13 +244,19 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     return (SplitKernel(idx, kinfo),)
 
 
-def extruded_horizontal_facet(exp_t, coeff_map, top_sks, bottom_sks, coordsym):
+def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
+                             clist, coordsym, mesh_level_sym):
     """
     """
-    exp, t = exp_t
-    inc = []
-    clist = []
+    t = builder.get_temporary(exp)
+    coeff_map = builder.coefficient_map
+    incl = []
+    cl = clist
     stmt = []
+    nlevels = exp.ufl_domain().topological.layers
+
+    top_calls = []
+    bottom_calls = []
     for top, bottom in zip(top_sks, bottom_sks):
         # TODO: I am relying on order preservation here...
         # need to think about the mixed fs case, where there
@@ -245,77 +272,118 @@ def extruded_horizontal_facet(exp_t, coeff_map, top_sks, bottom_sks, coordsym):
         for cindex in set(bottom.kinfo.coefficient_map
                           + top.kinfo.coefficient_map):
             c = exp.coefficients()[cindex]
-            clist.extend(coeff_map(c))
+            cl.extend(coeff_map(c))
 
         # TODO: Check if this logic is sufficient
-        inc.extend(set(bottom.kinfo.kernel._include_dirs +
-                       top.kinfo.kernel._include_dirs))
+        incl.extend(set(bottom.kinfo.kernel._include_dirs +
+                        top.kinfo.kernel._include_dirs))
 
         tensor = eigen_tensor(exp, t, index)
-        top_funcall = ast.FunCall(top.kinfo.kernel.name,
-                                  tensor, coordsym)
-        bottom_funcall = ast.FunCall(bottom.kinfo.kernel.name,
-                                     tensor, coordsym)
-        stmt.extend((top_funcall, bottom_funcall))
+        top_calls.append(ast.FunCall(top.kinfo.kernel.name,
+                                     tensor, coordsym))
+        bottom_calls.append(ast.FunCall(bottom.kinfo.kernel.name,
+                                        tensor, coordsym))
 
-    return stmt, clist, inc
+        else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
+        inter_stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 1),
+                            (ast.Block(bottom_calls, open_scope=True),
+                             else_stmt))
+        stmt = ast.If(ast.Eq(mesh_level_sym, 0),
+                      (ast.Block(top_calls, open_scope=True),
+                       inter_stmt))
+    return stmt, cl, incl
 
 
-def facet_integral_loop(cxt_tuple, tensor, ufl_cell, coordsym, cellfacetsym):
-    """Generates a integral facet loop corresponding to a particular facet integral
-    type as a COFFEE AST node.
-
-    :arg cxt_tuple: a tuple (it_type, `SplitKernel`) where it_type is the
-                    original (pre-modified) integral type and `SplitKernel'
-                    is the corresponding TSFC compiled form in the new
-                    exterior reference frame.
-    :arg tensor: a string describing the `Eigen::MatrixBase` declaration
-                 of the tensor.
-    :arg ufl_cell: a `ufl.Cell` object that the integral form is defined on.
-                   This parameter is used to help determine the appropriate
-                   number of facets located on a particular cell.
-
-    Returns: a `coffee.For` object describing the loop needed to locally
-             evaluate the facet integral.
+def extruded_top_bottom_facet(exp, builder, cxt_kernel,
+                              clist, coordsym, mesh_level_sym):
     """
-    it_type, splitkernel = cxt_tuple
-    kinfo = splitkernel.kinfo
-    kit_type = kinfo.integral_type
+    """
+    t = builder.get_temporary(exp)
+    coeff_map = builder.coefficient_map
+    incl = []
+    cl = clist
+    stmt = []
+    nlevels = exp.ufl_domain().topological.layers
+
+    body = []
+    for splitkernel in cxt_kernel.tsfc_kernels:
+        index = splitkernel.indices
+        kinfo = splitkernel.kinfo
+
+        for cindex in kinfo.coefficient_map:
+            c = exp.coefficients()[cindex]
+            # Handles both mixed and non-mixed coefficient cases
+            cl.extend(coeff_map(c))
+
+        incl.extend(kinfo.kernel._include_dirs)
+        tensor = eigen_tensor(exp, t, index)
+        body.append(ast.FunCall(kinfo.kernel.name,
+                                tensor, coordsym, *cl))
+
+    if cxt_kernel.original_integral_type == "exterior_facet_bottom":
+        stmt = ast.If(ast.Eq(mesh_level_sym, 0),
+                      ast.Block(body, open_scope=True))
+    else:
+        stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 1),
+                      ast.Block(body, open_scope=True))
+    return stmt, cl, incl
+
+
+def facet_integral_loop(cxt_kernel, builder, clist, coordsym, cellfacetsym):
+    """
+    """
+    cl = clist
+    exp = cxt_kernel.tensor
+    it_type = cxt_kernel.original_integral_type
     itsym = ast.Symbol("i0")
 
     # Compute the correct number of facets for a particular facet measure
     if it_type in ["interior_facet", "exterior_facet"]:
         # Non-extruded case
-        nfacet = ufl_cell.num_facets()
+        nfacet = exp.ufl_domain().ufl_cell().num_facets()
 
     elif it_type in ["interior_facet_vert", "exterior_facet_vert"]:
-        assert isinstance(ufl_cell, TensorProductCell)
         # Extrusion case
-        A, _ = ufl_cell._cells
-        nfacet = A.num_facets()
+        base_cell = exp.ufl_domain().ufl_cell()._cells[0]
+        nfacet = base_cell.num_facets()
 
     else:
         raise ValueError(
-            "Integral type %s not currently supported." % it_type
+            "Integral type %s not supported." % it_type
         )
 
-    if kit_type in ["exterior_facet", "exterior_facet_vert"]:
-        checker = 1
-    else:
-        checker = 0
+    incl = []
+    funcalls = []
+    for splitkernel in cxt_kernel.tsfc_kernels:
+        index = splitkernel.indices
+        kinfo = splitkernel.kinfo
+        kit_type = kinfo.integral_type
+        for cindex in kinfo.coefficient_map:
+            c = exp.coefficients()[cindex]
+            # Handles both mixed and non-mixed coefficient cases
+            cl.extend(builder.coefficient(c))
 
-    funcall_block = [ast.Block([ast.FunCall(kinfo.kernel.name,
-                                            tensor,
-                                            coordsym,
-                                            ast.FlatBlock("&%s" % itsym))],
-                               open_scope=True)]
+        incl.extend(kinfo.kernel._include_dirs)
+        tensor = eigen_tensor(exp, builder.get_temporary(exp), index)
+
+        if kit_type in ["exterior_facet", "exterior_facet_vert"]:
+            checker = 1
+        else:
+            checker = 0
+
+        funcalls.append(ast.FunCall(kinfo.kernel.name,
+                                    tensor,
+                                    coordsym,
+                                    ast.FlatBlock("&%s" % itsym)))
+
     loop_body = ast.If(ast.Eq(ast.Symbol(cellfacetsym, rank=(itsym,)),
-                              checker), funcall_block)
-    loop = ast.For(ast.Decl("unsigned int", itsym, init=0),
-                   ast.Less(itsym, nfacet),
-                   ast.Incr(itsym, 1), loop_body)
+                              checker), [ast.Block(funcalls, open_scope=True)])
 
-    return loop
+    loop_stmt = ast.For(ast.Decl("unsigned int", itsym, init=0),
+                        ast.Less(itsym, nfacet),
+                        ast.Incr(itsym, 1), loop_body)
+
+    return loop_stmt, cl, incl
 
 
 def auxiliary_information(builder):
