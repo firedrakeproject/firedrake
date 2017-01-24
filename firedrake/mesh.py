@@ -476,7 +476,7 @@ class MeshTopology(object):
         elif cell.cellname() == "quadrilateral":
             from firedrake.citations import Citations
             Citations().register("Homolya2016")
-            Citations().register("McRae2014")
+            Citations().register("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
@@ -739,7 +739,7 @@ class ExtrudedMeshTopology(MeshTopology):
                              direction.
         """
         from firedrake.citations import Citations
-        Citations().register("McRae2014")
+        Citations().register("McRae2016")
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
