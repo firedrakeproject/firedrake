@@ -61,7 +61,7 @@ pipeline:
       - sudo -EHu firedrake env PATH="$PATH" py.test -v tests_firedrake/
   # Codecov
   codecov:
-    image: alpine:3.3
+    image: alpine:3.5
     pull: true
     environment:
       - CI_BUILD_URL=${DRONE_BUILD_LINK}
