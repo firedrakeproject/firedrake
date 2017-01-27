@@ -15,9 +15,7 @@ def test_scalar_field_facet_extr(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
     A = assemble(Tensor(dot(u, n)*dS_h)).dat.data
-    ref = assemble(jump(u, n=n)*dS_h +
-                   dot(u, n)*ds_t +
-                   dot(u, n)*ds_b).dat.data
+    ref = assemble(jump(u, n=n)*dS_h).dat.data
 
     assert np.allclose(A, ref, rtol=1e-8)
 

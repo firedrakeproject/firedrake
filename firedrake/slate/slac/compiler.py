@@ -209,7 +209,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     if builder.needs_mesh_levels:
-        args.append(ast.Decl("char *", mesh_level_sym))
+        args.append(ast.Decl("int", mesh_level_sym))
 
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
@@ -238,7 +238,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                        subdomain_id="otherwise",
                        domain_number=0,
                        coefficient_map=tuple(range(len(slate_expr.coefficients()))),
-                       needs_cell_facets=builder.needs_cell_facets)
+                       needs_cell_facets=builder.needs_cell_facets,
+                       pass_layer_arg=builder.needs_mesh_levels)
+
     idx = tuple([0]*slate_expr.rank)
 
     return (SplitKernel(idx, kinfo),)
@@ -285,7 +287,7 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
                                         tensor, coordsym))
 
         else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
-        inter_stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 1),
+        inter_stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 2),
                             (ast.Block(bottom_calls, open_scope=True),
                              else_stmt))
         stmt = ast.If(ast.Eq(mesh_level_sym, 0),
