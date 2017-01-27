@@ -94,16 +94,6 @@ def test_triangle_variant_spectral_fail():
         create_element(ufl_element)
 
 
-def test_triangle_x_interval_variant():
-    ufl_cell = ufl.TensorProductCell(ufl.triangle, ufl.interval)
-    ufl_element = ufl.FiniteElement('DG', ufl_cell, 2, variant=('equispaced', 'spectral'))
-    actual = create_element(ufl_element)
-
-    assert isinstance(actual, finat.TensorProductElement)
-    assert isinstance(actual.factors[0], finat.DiscontinuousLagrange)
-    assert isinstance(actual.factors[1], finat.GaussLegendre)
-
-
 def test_quadrilateral_variant_spectral_q():
     element = create_element(ufl.FiniteElement('Q', ufl.quadrilateral, 3, variant='spectral'))
     assert isinstance(element.product.factors[0], finat.GaussLobattoLegendre)
