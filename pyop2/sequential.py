@@ -609,6 +609,7 @@ void %(wrapper_name)s(int start, int end,
         self._args = args
         self._direct = kwargs.get('direct', False)
         self._iteration_region = kwargs.get('iterate', ALL)
+        self._pass_layer_arg = kwargs.get('pass_layer_arg', False)
         # Copy the class variables, so we don't overwrite them
         self._cppargs = dcopy(type(self)._cppargs)
         self._libraries = dcopy(type(self)._libraries)
@@ -709,7 +710,8 @@ void %(wrapper_name)s(int start, int end,
                                                kernel_name=self._kernel._name,
                                                user_code=self._kernel._user_code,
                                                wrapper_name=self._wrapper_name,
-                                               iteration_region=self._iteration_region)
+                                               iteration_region=self._iteration_region,
+                                               pass_layer_arg=self._pass_layer_arg)
         return self._code_dict
 
     def set_argtypes(self, iterset, *args):
@@ -781,7 +783,8 @@ class ParLoop(petsc_base.ParLoop):
     @cached_property
     def _jitmodule(self):
         return JITModule(self.kernel, self.it_space, *self.args,
-                         direct=self.is_direct, iterate=self.iteration_region)
+                         direct=self.is_direct, iterate=self.iteration_region,
+                         pass_layer_arg=self._pass_layer_arg)
 
     @collective
     def _compute(self, part, fun, *arglist):
@@ -792,7 +795,7 @@ class ParLoop(petsc_base.ParLoop):
 
 def wrapper_snippets(itspace, args,
                      kernel_name=None, wrapper_name=None, user_code=None,
-                     iteration_region=ALL):
+                     iteration_region=ALL, pass_layer_arg=False):
     """Generates code snippets for the wrapper,
     ready to be into a template.
 
@@ -914,6 +917,10 @@ def wrapper_snippets(itspace, args,
             _buf_gather[arg] = "\n".join([_itspace_loops, _buf_gather[arg], _itspace_loop_close])
     _kernel_args = ', '.join([arg.c_kernel_arg(count) if not arg._uses_itspace else _buf_name[arg]
                               for count, arg in enumerate(args)])
+
+    if pass_layer_arg:
+        _kernel_args += ", j_0"
+
     _buf_gather = ";\n".join(_buf_gather.values())
     _buf_decl = ";\n".join(_buf_decl.values())
 

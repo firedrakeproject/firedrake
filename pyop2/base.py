@@ -4040,6 +4040,14 @@ class ParLoop(LazyComputation):
         self._kernel = kernel
         self._is_layered = iterset._extruded
         self._iteration_region = kwargs.get("iterate", None)
+        self._pass_layer_arg = kwargs.get("pass_layer_arg", False)
+
+        if self._pass_layer_arg:
+            if self.is_direct:
+                raise ValueError("Can't request layer arg for direct iteration")
+            if not self._is_layered:
+                raise ValueError("Can't request layer arg for non-extruded iteration")
+
         # Are we only computing over owned set entities?
         self._only_local = isinstance(iterset, LocalSet)
 
@@ -4388,6 +4396,10 @@ def par_loop(kernel, it_space, *args, **kwargs):
               - ``ON_INTERIOR_FACETS`` iterate over all the layers
                  except the top layer, accessing data two adjacent (in
                  the extruded direction) cells at a time.
+
+    :kwarg pass_layer_arg: Should the wrapper pass the current layer
+        into the kernel (as an ``int``). Only makes sense for
+        indirect extruded iteration.
 
     .. warning ::
         It is the caller's responsibility that the number and type of all
