@@ -357,11 +357,13 @@ def extruded_top_bottom_facet(exp, builder, cxt_kernel,
                                 tensor, coordsym, *cl))
 
     if cxt_kernel.original_integral_type == "exterior_facet_bottom":
-        stmt = ast.If(ast.Eq(mesh_level_sym, 0),
-                      ast.Block(body, open_scope=True))
+        level = 0
     else:
-        stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 1),
-                      ast.Block(body, open_scope=True))
+        level = nlevels - 1
+
+    stmt = ast.If(ast.Eq(mesh_level_sym, level),
+                  [ast.Block(body, open_scope=True)])
+
     return stmt, cl, incl
 
 
@@ -388,6 +390,11 @@ def facet_integral_loop(cxt_kernel, builder, clist, coordsym, cellfacetsym):
     it_type = cxt_kernel.original_integral_type
     itsym = ast.Symbol("i0")
 
+    chker = {"interior_facet": 1,
+             "interior_facet_vert": 1,
+             "exterior_facet": 0,
+             "exterior_facet_vert": 0}
+
     # Compute the correct number of facets for a particular facet measure
     if it_type in ["interior_facet", "exterior_facet"]:
         # Non-extruded case
@@ -405,10 +412,10 @@ def facet_integral_loop(cxt_kernel, builder, clist, coordsym, cellfacetsym):
 
     incl = []
     funcalls = []
+    checker = chker[it_type]
     for splitkernel in cxt_kernel.tsfc_kernels:
         index = splitkernel.indices
         kinfo = splitkernel.kinfo
-        kit_type = kinfo.integral_type
         for cindex in kinfo.coefficient_map:
             c = exp.coefficients()[cindex]
             # Handles both mixed and non-mixed coefficient cases
@@ -416,11 +423,6 @@ def facet_integral_loop(cxt_kernel, builder, clist, coordsym, cellfacetsym):
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, builder.get_temporary(exp), index)
-
-        if kit_type in ["exterior_facet", "exterior_facet_vert"]:
-            checker = 1
-        else:
-            checker = 0
 
         funcalls.append(ast.FunCall(kinfo.kernel.name,
                                     tensor,

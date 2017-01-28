@@ -7,24 +7,26 @@ from firedrake import *
 @pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
     m = UnitSquareMesh(2, 2, quadrilateral=request.param)
-    return ExtrudedMesh(m, layers=4, layer_height=0.25)
+    return m
 
 
-def test_scalar_field_facet_extr(mesh):
+def test_facet_interior(mesh):
     DG = VectorFunctionSpace(mesh, "DG", 1)
     n = FacetNormal(mesh)
     u = TestFunction(DG)
-    A = assemble(Tensor(dot(u, n)*dS_h)).dat.data
-    ref = assemble(jump(u, n=n)*dS_h).dat.data
+    form = dot(u, n)*dS
+    A = assemble(Tensor(form)).dat.data
+    ref = assemble(jump(u, n=n)*dS).dat.data
 
     assert np.allclose(A, ref, rtol=1e-8)
 
 
-def test_scalar_field_vert_extr(mesh):
+def test_facet_exterior(mesh):
     DG = VectorFunctionSpace(mesh, "DG", 1)
     n = FacetNormal(mesh)
     u = TestFunction(DG)
-    A = assemble(Tensor(dot(u, n)*dS_v)).dat.data
-    ref = assemble(jump(u, n=n)*dS_v).dat.data
+    form = dot(u, n)*ds
+    A = assemble(Tensor(form)).dat.data
+    ref = assemble(form).dat.data
 
     assert np.allclose(A, ref, rtol=1e-8)
