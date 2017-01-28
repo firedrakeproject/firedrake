@@ -18,7 +18,16 @@ ContextKernel = collections.namedtuple("ContextKernel",
 
 
 def compile_terminal_form(tensor, tsfc_parameters=None):
-    """
+    """Compiles the TSFC form associated with a Slate :class:`Tensor`
+    object. This function will return a :namedtuple:`ContextKernel`
+    which stores information about the original tensor, integral types
+    and the corresponding TSFC kernels.
+
+    :arg tensor: A Slate `Tensor`.
+    :arg tsfc_parameters: An optional `dict` of parameters to provide
+                          TSFC.
+
+    Returns: A `ContextKernel` containing all relevant information.
     """
     from firedrake.tsfc_interface import compile_form as tsfc_compile
 
@@ -51,9 +60,16 @@ def compile_terminal_form(tensor, tsfc_parameters=None):
 
 
 def transform_integrals(integrals):
-    """
-    """
+    """Generates a mapping of the form:
 
+    ``{original_integral_type: transformed_integrals}``
+
+    where the original_integral_type is the pre-transformed
+    integral type. The transformed_integrals are an iterable
+    of `ufl.Integral`s with the appropriately modified type.
+    For example, an `interior_facet` integral will become
+    an `exterior_facet` integral.
+    """
     transformed_integrals = collections.defaultdict(list)
 
     for it in integrals:
