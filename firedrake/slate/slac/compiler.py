@@ -305,13 +305,13 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
         bottom_calls.append(ast.FunCall(bottom.kinfo.kernel.name,
                                         tensor, coordsym))
 
-        else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
-        inter_stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 1),
-                            (ast.Block(bottom_calls, open_scope=True),
-                             else_stmt))
-        stmt = ast.If(ast.Eq(mesh_level_sym, 0),
-                      (ast.Block(top_calls, open_scope=True),
-                       inter_stmt))
+    else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
+    inter_stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 1),
+                        (ast.Block(bottom_calls, open_scope=True),
+                         else_stmt))
+    stmt = ast.If(ast.Eq(mesh_level_sym, 0),
+                  (ast.Block(top_calls, open_scope=True),
+                   inter_stmt))
     return stmt, cl, incl
 
 
