@@ -30,3 +30,8 @@ def test_facet_exterior(mesh):
     ref = assemble(form).dat.data
 
     assert np.allclose(A, ref, rtol=1e-8)
+
+
+if __name__ == '__main__':
+    import os
+    pytest.main(os.path.abspath(__file__))
