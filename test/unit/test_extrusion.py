@@ -377,9 +377,7 @@ void comp_vol(double A[1], double *x[], double *y[])
                      dat.dataset.set, dat(op2.INC))
         assert numpy.allclose(dat.data[:], 1.0)
 
-    def test_extruded_layer_arg(self, elements, dat_coords,
-                                dat_field, coords_map, field_map,
-                                dat_f):
+    def test_extruded_layer_arg(self, elements, field_map, dat_f):
         """Tests that the layer argument is being passed when prompted
         to in the parloop."""
 
@@ -392,8 +390,8 @@ void comp_vol(double A[1], double *x[], double *y[])
                      pass_layer_arg=True)
         end = layers - 1
         start = 0
-        ref = np.array(range(start, end))
-        assert [dat_f.data[10*n:10*(n+1)] == ref
+        ref = np.arange(start, end)
+        assert [dat_f.data[end*n:end*(n+1)] == ref
                 for n in range(len(dat_f.data) + 1)]
 
     def test_write_data_field(self, elements, dat_coords, dat_field, coords_map, field_map, dat_f):
