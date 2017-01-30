@@ -68,16 +68,22 @@ class Citations(dict):
         PETSc.Options()["citations"] = None
 
 
-Citations().add("Rathgeber2015", """
-@Article{Rathgeber2015,
+Citations().add("Rathgeber2016", """
+@Article{Rathgeber2016,
   author =       {Florian Rathgeber and David A. Ham and Lawrence
                   Mitchell and Michael Lange and Fabio Luporini and
                   Andrew T. T. McRae and Gheorghe-Teodor Bercea and
                   Graham R. Markall and Paul H. J. Kelly},
   title =        {Firedrake: automating the finite element method by
                   composing abstractions},
-  journal =      {Submitted to ACM TOMS},
-  year =         2015,
+  journal =      {ACM Trans. Math. Softw.},
+  year =         2016,
+  volume =       {43},
+  number =       {3},
+  year =         {2016},
+  issn =         {0098-3500},
+  pages =        {24:1--24:27},
+  doi =          {10.1145/2998441},
   archiveprefix ={arXiv},
   eprint =       {1501.01809},
   url =          {http://arxiv.org/abs/1501.01809}
@@ -85,20 +91,25 @@ Citations().add("Rathgeber2015", """
 """)
 
 # Register the firedrake paper for citations
-Citations().register("Rathgeber2015")
+Citations().register("Rathgeber2016")
 
 # The rest are all registered only when using appropriate functionality.
-Citations().add("McRae2014", """
-@Article{McRae2014,
+Citations().add("McRae2016", """
+@Article{McRae2016,
   author =       {Andrew T. T. McRae and Gheorghe-Teodor Bercea and
                   Lawrence Mitchell and David A. Ham and Colin
                   J. Cotter},
   title =        {Automated generation and symbolic manipulation of
                   tensor product finite elements},
-  journal =      {Submitted to SIAM Journal on Scientific Computing},
-  year =         2014,
+  journal =      {SIAM Journal on Scientific Computing},
+  year =         2016,
+  volume =       38,
+  number =       5,
+  pages =        {S25--S47},
+  doi =          {10.1137/15M1021167},
   archiveprefix ={arXiv},
   eprint =       {1411.2940},
+  primaryclass = {math.NA},
   url =          {http://arxiv.org/abs/1411.2940}
 }
 """)
@@ -108,8 +119,12 @@ Citations().add("Homolya2016", """
   author =       {Mikl\'os Homolya and David A. Ham},
   title =        {A parallel edge orientation algorithm for
                   quadrilateral meshes},
-  journal =      {To appear in SIAM Journal on Scientific Computing},
+  journal =      {SIAM Journal on Scientific Computing},
   year =         2016,
+  volume =       38,
+  number =       5,
+  pages =        {S48--S61},
+  doi =          {10.1137/15M1021325},
   archiveprefix ={arXiv},
   eprint =       {1505.03357},
   url =          {http://arxiv.org/abs/1505.03357}
@@ -148,21 +163,41 @@ Citations().add("Luporini2016", """
 """)
 
 Citations().add("Bercea2016", """
-@article{Bercea2016,
-  author    = {Gheorghe{-}Teodor Bercea and
-               Andrew T. T. McRae and
-               David A. Ham and
-               Lawrence Mitchell and
-               Florian Rathgeber and
-               Luigi Nardi and
-               Fabio Luporini and
-               Paul H. J. Kelly},
-  title     = {A numbering algorithm for finite element on extruded meshes which
-               avoids the unstructured mesh penalty},
-  journal   = {Submitted to Geoscientific Model Development (GMD)},
-  year      = {2016},
+@Article{Bercea2016,
+  author =       {Gheorghe{-}Teodor Bercea and Andrew T. T. McRae and
+                  David A. Ham and Lawrence Mitchell and Florian
+                  Rathgeber and Luigi Nardi and Fabio Luporini and
+                  Paul H. J. Kelly},
+  title =        {A structure-exploiting numbering algorithm for
+                  finite elements on extruded meshes, and its
+                  performance evaluation in Firedrake},
+  journal =      {Geoscientific Model Development},
+  year =         2016,
+  volume =       9,
+  number =       10,
+  pages =        {3803--3815},
+  doi =          {10.5194/gmd-9-3803-2016},
   archiveprefix ={arXiv},
   eprint =       {1604.05937},
-  url       = {http://arxiv.org/abs/1604.05937}
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1604.05937}
+}
+""")
+
+Citations().add("Mitchell2016", """
+@Article{Mitchell2016,
+  author =       {Lawrence Mitchell and Eike Hermann M\"uller},
+  title =        {High level implementation of geometric multigrid
+                  solvers for finite element problems: applications in
+                  atmospheric modelling},
+  journal =      {Journal of Computational Physics},
+  year =         2016,
+  volume =       327,
+  pages =        {1--18},
+  doi =          {10.1016/j.jcp.2016.09.037},
+  archiveprefix ={arXiv},
+  eprint =       {1605.00492},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1605.00492}
 }
 """)
