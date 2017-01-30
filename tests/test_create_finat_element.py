@@ -1,8 +1,9 @@
 from __future__ import absolute_import, print_function, division
-from tsfc import finatinterface as f
 import pytest
+
 import ufl
 import finat
+from tsfc.finatinterface import create_element, supported_elements
 
 
 @pytest.fixture(params=["BDM",
@@ -23,8 +24,8 @@ def ufl_element(triangle_names):
 
 
 def test_triangle_basic(ufl_element):
-    element = f.create_element(ufl_element)
-    assert isinstance(element, f.supported_elements[ufl_element.family()])
+    element = create_element(ufl_element)
+    assert isinstance(element, supported_elements[ufl_element.family()])
 
 
 @pytest.fixture
@@ -33,8 +34,8 @@ def ufl_vector_element(triangle_names):
 
 
 def test_triangle_vector(ufl_element, ufl_vector_element):
-    scalar = f.create_element(ufl_element)
-    vector = f.create_element(ufl_vector_element)
+    scalar = create_element(ufl_element)
+    vector = create_element(ufl_vector_element)
 
     assert isinstance(vector, finat.TensorFiniteElement)
     assert scalar == vector.base_element
@@ -60,25 +61,61 @@ def ufl_B(tensor_name):
 def test_tensor_prod_simple(ufl_A, ufl_B):
     tensor_ufl = ufl.TensorProductElement(ufl_A, ufl_B)
 
-    tensor = f.create_element(tensor_ufl)
-    A = f.create_element(ufl_A)
-    B = f.create_element(ufl_B)
+    tensor = create_element(tensor_ufl)
+    A = create_element(ufl_A)
+    B = create_element(ufl_B)
 
     assert isinstance(tensor, finat.TensorProductElement)
 
     assert tensor.factors == (A, B)
 
 
+@pytest.mark.parametrize(('family', 'expected_cls'),
+                         [('P', finat.Lagrange),
+                          ('DP', finat.DiscontinuousLagrange)])
+def test_interval_variant_default(family, expected_cls):
+    ufl_element = ufl.FiniteElement(family, ufl.interval, 3)
+    assert isinstance(create_element(ufl_element), expected_cls)
+
+
+@pytest.mark.parametrize(('family', 'variant', 'expected_cls'),
+                         [('P', 'equispaced', finat.Lagrange),
+                          ('P', 'spectral', finat.GaussLobattoLegendre),
+                          ('DP', 'equispaced', finat.DiscontinuousLagrange),
+                          ('DP', 'spectral', finat.GaussLegendre)])
+def test_interval_variant(family, variant, expected_cls):
+    ufl_element = ufl.FiniteElement(family, ufl.interval, 3, variant=variant)
+    assert isinstance(create_element(ufl_element), expected_cls)
+
+
+def test_triangle_variant_spectral_fail():
+    ufl_element = ufl.FiniteElement('DP', ufl.triangle, 2, variant='spectral')
+    with pytest.raises(ValueError):
+        create_element(ufl_element)
+
+
+def test_quadrilateral_variant_spectral_q():
+    element = create_element(ufl.FiniteElement('Q', ufl.quadrilateral, 3, variant='spectral'))
+    assert isinstance(element.product.factors[0], finat.GaussLobattoLegendre)
+    assert isinstance(element.product.factors[1], finat.GaussLobattoLegendre)
+
+
+def test_quadrilateral_variant_spectral_dq():
+    element = create_element(ufl.FiniteElement('DQ', ufl.quadrilateral, 1, variant='spectral'))
+    assert isinstance(element.product.factors[0], finat.GaussLegendre)
+    assert isinstance(element.product.factors[1], finat.GaussLegendre)
+
+
 def test_cache_hit(ufl_element):
-    A = f.create_element(ufl_element)
-    B = f.create_element(ufl_element)
+    A = create_element(ufl_element)
+    B = create_element(ufl_element)
 
     assert A is B
 
 
 def test_cache_hit_vector(ufl_vector_element):
-    A = f.create_element(ufl_vector_element)
-    B = f.create_element(ufl_vector_element)
+    A = create_element(ufl_vector_element)
+    B = create_element(ufl_vector_element)
 
     assert A is B
 

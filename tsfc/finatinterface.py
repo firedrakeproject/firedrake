@@ -30,7 +30,6 @@ import finat
 from finat.fiat_elements import FiatElementBase
 
 import ufl
-from ufl.algorithms.elementtransformations import reconstruct_element
 
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.ufl_utils import spanning_degree
@@ -101,11 +100,28 @@ def convert_finiteelement(element):
             raise ValueError("%s is supported, but handled incorrectly" %
                              element.family())
         # Handle quadrilateral short names like RTCF and RTCE.
-        element = reconstruct_element(element,
-                                      element.family(),
-                                      quad_tpc,
-                                      element.degree())
+        element = element.reconstruct(cell=quad_tpc)
         return finat.QuadrilateralElement(create_element(element))
+
+    kind = element.variant()
+    if kind is None:
+        kind = 'equispaced'  # default variant
+
+    if element.family() == "Lagrange":
+        if kind == 'equispaced':
+            lmbda = finat.Lagrange
+        elif kind == 'spectral' and element.cell().cellname() == 'interval':
+            lmbda = finat.GaussLobattoLegendre
+        else:
+            raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
+    elif element.family() == "Discontinuous Lagrange":
+        kind = element.variant() or 'equispaced'
+        if kind == 'equispaced':
+            lmbda = finat.DiscontinuousLagrange
+        elif kind == 'spectral' and element.cell().cellname() == 'interval':
+            lmbda = finat.GaussLegendre
+        else:
+            raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
     return lmbda(cell, element.degree())
 
 
