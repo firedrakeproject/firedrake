@@ -1,10 +1,13 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
+
+cwd = abspath(dirname(__file__))
 
 
 @pytest.fixture
 def exodus_mesh():
-    return Mesh("../meshes/brick.e")
+    return Mesh(join(cwd, "..", "meshes", "brick.e"))
 
 
 @pytest.mark.parallel(nprocs=2)
