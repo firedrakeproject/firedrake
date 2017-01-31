@@ -77,7 +77,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     builder = KernelBuilder(expression=slate_expr,
                             tsfc_parameters=tsfc_parameters)
 
-    # Initialize coordinate and facet symbols
+    # Initialize coordinate and facet/mesh_level symbols
     coordsym = ast.Symbol("coords")
     coords = None
     cellfacetsym = ast.Symbol("cell_facets")
@@ -171,11 +171,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # These kernels will only be called if we are on
             # the top or bottom layers of the extruded mesh.
             builder.require_mesh_levels()
-            stmt, cl, incl = extruded_top_bottom_facet(exp,
-                                                       builder,
-                                                       cxt_kernel,
-                                                       clist,
-                                                       coordsym,
+            stmt, cl, incl = extruded_top_bottom_facet(cxt_kernel, builder,
+                                                       clist, coordsym,
                                                        mesh_level_sym)
             clist.extend(cl)
             inc.extend(incl)
@@ -194,6 +191,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         context_temps.update(aux_temps)
         statements.extend(aux_statements)
 
+    # Now we create the result statement by declaring its eigen type and
+    # using Eigen::Map to move between Eigen and C data structs.
     result_sym = ast.Symbol("T%d" % len(builder.temps))
     result_data_sym = ast.Symbol("A%d" % len(builder.temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
@@ -204,6 +203,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                              result_data_sym))
     statements.append(result_statement)
 
+    # Generate the complete c++ string performing the linear algebra operations
+    # on Eigen matrices/vectors
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
                                                        context_temps))
     statements.append(ast.Assign(result_sym, cpp_string))
@@ -223,13 +224,18 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
 
+    # NOTE: In the future we may want to have more than one "macro_kernel"
     macro_kernel_name = "compile_slate"
     stmt = ast.Block(statements)
     macro_kernel = builder.construct_macro_kernel(name=macro_kernel_name,
                                                   args=args,
                                                   statements=stmt)
+
+    # Tell the builder to construct the final ast
     kernel_ast = builder.construct_ast([macro_kernel])
 
+    # Now we wrap up the kernel ast as a PyOP2 kernel.
+    # Include the Eigen header files
     inc.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
     op2kernel = op2.Kernel(kernel_ast,
                            macro_kernel_name,
@@ -241,12 +247,16 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     assert len(slate_expr.ufl_domains()) == 1, (
         "No support for multiple domains yet!"
     )
+
+    # Send back a "TSFC-like" SplitKernel object with an
+    # index and KernelInfo
+    coeffs = slate_expr.coefficients()
     kinfo = KernelInfo(kernel=op2kernel,
                        integral_type=builder.integral_type,
                        oriented=builder.oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
+                       coefficient_map=tuple(range(len(coeffs))),
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_levels)
 
@@ -276,13 +286,11 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     Returns: A COFFEE code statement, updated coefficient info and updated
              include_dirs
     """
-    t = builder.get_temporary(exp)
-    coeff_map = builder.coefficient_map
-    incl = []
     cl = clist
-    stmt = []
+    t = builder.get_temporary(exp)
     nlevels = exp.ufl_domain().topological.layers - 1
 
+    incl = []
     top_calls = []
     bottom_calls = []
     for top, bottom in zip(top_sks, bottom_sks):
@@ -294,7 +302,7 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
         for cindex in set(bottom.kinfo.coefficient_map
                           + top.kinfo.coefficient_map):
             c = exp.coefficients()[cindex]
-            cl.extend(coeff_map(c))
+            cl.extend(builder.coefficient(c))
 
         incl.extend(set(bottom.kinfo.kernel._include_dirs +
                         top.kinfo.kernel._include_dirs))
@@ -315,16 +323,15 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     return stmt, cl, incl
 
 
-def extruded_top_bottom_facet(exp, builder, cxt_kernel,
-                              clist, coordsym, mesh_level_sym):
+def extruded_top_bottom_facet(cxt_kernel, builder, clist, coordsym,
+                              mesh_level_sym):
     """Generates a code statement for evaluating exterior top/bottom
     facet integrals.
 
-    :arg exp: A :class:`TensorBase` expression.
-    :arg builder: A :class:`KernelBuilder` containing the expression context.
     :arg cxt_kernel: A :namedtuple:`ContextKernel` containing all relevant
                      integral types and TSFC kernels associated with the
                      form nested in the expression.
+    :arg builder: A :class:`KernelBuilder` containing the expression context.
     :arg clist: A `list` of coefficient information to pass into the kernel
                 arguments. (This ensures any outside data is passed when
                 appropriate.)
@@ -335,13 +342,12 @@ def extruded_top_bottom_facet(exp, builder, cxt_kernel,
     Returns: A COFFEE code statement, updated coefficient info and updated
              include_dirs
     """
-    t = builder.get_temporary(exp)
-    coeff_map = builder.coefficient_map
-    incl = []
     cl = clist
-    stmt = []
+    exp = cxt_kernel.tensor
+    t = builder.get_temporary(exp)
     nlevels = exp.ufl_domain().topological.layers - 1
 
+    incl = []
     body = []
     for splitkernel in cxt_kernel.tsfc_kernels:
         index = splitkernel.indices
@@ -349,7 +355,7 @@ def extruded_top_bottom_facet(exp, builder, cxt_kernel,
 
         for cindex in kinfo.coefficient_map:
             c = exp.coefficients()[cindex]
-            cl.extend(coeff_map(c))
+            cl.extend(builder.coefficient(c))
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
@@ -387,6 +393,7 @@ def facet_integral_loop(cxt_kernel, builder, clist, coordsym, cellfacetsym):
     """
     cl = clist
     exp = cxt_kernel.tensor
+    t = builder.get_temporary(exp)
     it_type = cxt_kernel.original_integral_type
     itsym = ast.Symbol("i0")
 
@@ -422,7 +429,7 @@ def facet_integral_loop(cxt_kernel, builder, clist, coordsym, cellfacetsym):
             cl.extend(builder.coefficient(c))
 
         incl.extend(kinfo.kernel._include_dirs)
-        tensor = eigen_tensor(exp, builder.get_temporary(exp), index)
+        tensor = eigen_tensor(exp, t, index)
 
         funcalls.append(ast.FunCall(kinfo.kernel.name,
                                     tensor,
@@ -462,6 +469,8 @@ def auxiliary_information(builder):
             acting_coeff = exp.operands[1]
             assert isinstance(acting_coeff, Coefficient)
 
+            # Create a temporary for the assembled coefficient and
+            # compute its shape to declare as an Eigen::MatrixBase object
             temp = ast.Symbol("C%d" % i)
             V = acting_coeff.function_space()
             node_extent = V.fiat_element.space_dimension()
