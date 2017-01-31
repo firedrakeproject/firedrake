@@ -203,12 +203,13 @@ def _from_exodus(filename, comm):
     """
     plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
 
-    boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
-    plex.createLabel("boundary_ids")
-    for bid in boundary_ids:
-        faces = plex.getStratumIS("Face Sets", bid).getIndices()
-        for f in faces:
-            plex.setLabelValue("boundary_ids", f, bid)
+    if plex.hasLabel("Face Sets"):
+        boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
+        plex.createLabel("boundary_ids")
+        for bid in boundary_ids:
+            faces = plex.getStratumIS("Face Sets", bid).getIndices()
+            for f in faces:
+                plex.setLabelValue("boundary_ids", f, bid)
 
     return plex
 
