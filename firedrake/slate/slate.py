@@ -60,6 +60,7 @@ class TensorBase(with_metaclass(ABCMeta)):
 
     def __init__(self):
         """Constructor for the TensorBase abstract class."""
+        self._kernels = None
         self.id = TensorBase.id
         TensorBase.id += 1
 

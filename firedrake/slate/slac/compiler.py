@@ -81,6 +81,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
         raise NotImplementedError("Compiling mixed slate expressions")
 
+    # If the expression has already been symbolically compiled, then
+    # simply reuse the produced kernel.
+    if slate_expr._kernels is not None:
+        return slate_expr._kernels
+
     # Initialize shape and statements list
     shape = slate_expr.shape
     statements = []
@@ -276,7 +281,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     idx = tuple([0]*slate_expr.rank)
 
-    return (SplitKernel(idx, kinfo),)
+    kernels = (SplitKernel(idx, kinfo),)
+    slate_expr._kernels = kernels
+
+    return kernels
 
 
 def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
