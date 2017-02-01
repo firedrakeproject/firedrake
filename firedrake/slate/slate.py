@@ -20,9 +20,10 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict
 
+from firedrake.function import Function
 from firedrake.utils import cached_property
 
-from six import with_metaclass
+from six import with_metaclass, iteritems
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
@@ -46,7 +47,7 @@ class CheckRestrictions(MultiFunction):
 
 
 class TensorBase(with_metaclass(ABCMeta)):
-    """An abstract SLATE node class.
+    """An abstract Slate node class.
 
     .. warning::
 
@@ -226,7 +227,7 @@ class Tensor(TensorBase):
     a `slate.Tensor` object:
 
         (1) If the form is a bilinear form, namely a form with two
-            :class:`ufl.Argument` objects, then the SLATE Tensor will be
+            :class:`ufl.Argument` objects, then the Slate Tensor will be
             a rank-2 Matrix.
         (2) If the form has one `ufl.Argument` as in the case of a typical
             linear form, then this will create a rank-1 Vector.
@@ -291,8 +292,68 @@ class Tensor(TensorBase):
         return (type(self), self.form)
 
 
-class UnaryOp(TensorBase):
-    """An abstract SLATE class for representing unary operations on a
+class TensorOp(TensorBase):
+    """An abstract Slate class representing general operations on
+    existing Slate tensors.
+
+    :arg operands: an iterable of operands that are :class:`TensorBase`
+                   objects.
+    """
+
+    def __init__(self, *operands, **kwargs):
+        """Constructor for the TensorOp class."""
+        super(TensorOp, self).__init__()
+        self.operands = tuple(operands)
+        self.assembled_coeffs = kwargs.get("assembled_coeffs", None)
+
+    def coefficients(self):
+        """Returns the expected coefficients of the resulting tensor."""
+        coefficient_list = []
+        aux_coeffs = self.assembled_coeffs or ()
+        for op in self.operands:
+            coefficient_list.extend(op.coefficients())
+
+        return tuple(OrderedDict.fromkeys(tuple(coefficient_list) +
+                                          aux_coeffs))
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        collected_domains = []
+        aux_coeffs = self.assembled_coeffs or ()
+        for obj in self.operands + aux_coeffs:
+            collected_domains.extend(obj.ufl_domains())
+
+        return join_domains(collected_domains)
+
+    def subdomain_data(self):
+        """Returns a mapping on the tensor:
+        ``{domain:{integral_type: subdomain_data}}``.
+        """
+        sd = {}
+        for op in self.operands:
+            op_sd = op.subdomain_data()[op.ufl_domain()]
+
+            for it_type, domain in iteritems(op_sd):
+                if it_type not in sd:
+                    sd[it_type] = domain
+
+                else:
+                    assert sd[it_type] == domain, (
+                        "Domains must agree!"
+                    )
+
+        return {self.ufl_domain(): sd}
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self.operands, self.assembled_coeffs)
+
+
+class UnaryOp(TensorOp):
+    """An abstract Slate class for representing unary operations on a
     Tensor object.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
@@ -302,39 +363,14 @@ class UnaryOp(TensorBase):
             input, or a `BinaryOp` object.
     """
 
-    def __init__(self, A):
-        """Constructor for the UnaryOp class."""
-        super(UnaryOp, self).__init__()
-        self.operands = A,
-
-    def coefficients(self):
-        """Returns a tuple of coefficients associated with the tensor."""
-        return self.operands[0].coefficients()
-
-    def ufl_domains(self):
-        """Returns the integration domains of the integrals associated with
-        the tensor.
-        """
-        return self.operands[0].ufl_domains()
-
-    def subdomain_data(self):
-        """Returns a mapping on the tensor:
-        ``{domain:{integral_type: subdomain_data}}``.
-        """
-        return self.operands[0].subdomain_data()
-
     def __repr__(self):
         """SLATE representation of the resulting tensor."""
-        return "%s(%r)" % (type(self).__name__, self.operands[0])
-
-    @cached_property
-    def _key(self):
-        """Returns a key for hash and equality."""
-        return (type(self), self.operands[0])
+        tensor, = self.operands
+        return "%s(%r)" % (type(self).__name__, tensor)
 
 
 class Inverse(UnaryOp):
-    """An abstract SLATE class representing the inverse of a tensor.
+    """An abstract Slate class representing the inverse of a tensor.
 
     .. warning::
 
@@ -355,15 +391,17 @@ class Inverse(UnaryOp):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return self.operands[0].arguments()[::-1]
+        tensor, = self.operands
+        return tensor.arguments()[::-1]
 
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
-        return "(%s).inv" % self.operands[0]
+        tensor, = self.operands
+        return "(%s).inv" % tensor
 
 
 class Transpose(UnaryOp):
-    """An abstract SLATE class representing the transpose of a tensor."""
+    """An abstract Slate class representing the transpose of a tensor."""
 
     prec = None
 
@@ -371,15 +409,17 @@ class Transpose(UnaryOp):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return self.operands[0].arguments()[::-1]
+        tensor, = self.operands
+        return tensor.arguments()[::-1]
 
     def _output_string(self, prec=None):
         """Creates a string representation of the transpose of a tensor."""
-        return "(%s).T" % self.operands[0]
+        tensor, = self.operands
+        return "(%s).T" % tensor
 
 
 class Negative(UnaryOp):
-    """Abstract SLATE class representing the negation of a tensor object."""
+    """Abstract Slate class representing the negation of a tensor object."""
 
     prec = 1
 
@@ -387,7 +427,8 @@ class Negative(UnaryOp):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
         """
-        return self.operands[0].arguments()
+        tensor, = self.operands
+        return tensor.arguments()
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
@@ -398,11 +439,12 @@ class Negative(UnaryOp):
         else:
             par = lambda x: "(%s)" % x
 
-        return par("-%s" % self.operands[0]._output_string(prec=self.prec))
+        tensor, = self.operands
+        return par("-%s" % tensor._output_string(prec=self.prec))
 
 
-class BinaryOp(TensorBase):
-    """An abstract SLATE class representing binary operations on tensors.
+class BinaryOp(TensorOp):
+    """An abstract Slate class representing binary operations on tensors.
     Such operations take two operands and returns a tensor-valued expression.
 
     :arg A: a :class:`TensorBase` object. This can be a terminal tensor object
@@ -412,41 +454,6 @@ class BinaryOp(TensorBase):
             input, or a `UnaryOp` object.
     :arg B: a :class:`TensorBase` object.
     """
-
-    def __init__(self, A, B):
-        """Constructor for the BinaryOp class."""
-        super(BinaryOp, self).__init__()
-        self.operands = A, B
-
-    def coefficients(self):
-        """Returns the expected coefficients of the resulting tensor
-        of performing a binary operation on two tensors. Note that
-        the coefficients are handled the same way for all binary operations.
-        """
-        A, B = self.operands
-        # Returns an ordered tuple of coefficients (no duplicates)
-        return tuple(OrderedDict.fromkeys(A.coefficients() + B.coefficients()))
-
-    def ufl_domains(self):
-        """Returns the integration domains of the integrals associated with
-        the tensor.
-        """
-        A, B = self.operands
-        return join_domains(A.ufl_domains() + B.ufl_domains())
-
-    def subdomain_data(self):
-        """Returns a mapping on the tensor:
-        ``{domain:{integral_type: subdomain_data}}``.
-        """
-        A, B = self.operands
-        # Join subdomain_data
-        sd_dict = A.subdomain_data()[A.ufl_domain()]
-        for it_type_B in B.subdomain_data()[B.ufl_domain()].keys():
-            if it_type_B not in sd_dict.keys():
-                data = B.subdomain_data()
-                sd_dict.update({it_type_B: data[B.ufl_domain()][it_type_B]})
-
-        return {self.ufl_domain(): sd_dict}
 
     def _output_string(self, prec=None):
         """Creates a string representation of the binary operation."""
@@ -469,14 +476,9 @@ class BinaryOp(TensorBase):
         A, B = self.operands
         return "%s(%r, %r)" % (type(self).__name__, A, B)
 
-    @cached_property
-    def _key(self):
-        """Returns a key for hash and equality."""
-        return (type(self), self.operands)
-
 
 class Add(BinaryOp):
-    """Abstract SLATE class representing matrix-matrix, vector-vector
+    """Abstract Slate class representing matrix-matrix, vector-vector
      or scalar-scalar addition.
 
     :arg A: a :class:`TensorBase` object.
@@ -504,7 +506,7 @@ class Add(BinaryOp):
 
 
 class Sub(BinaryOp):
-    """Abstract SLATE class representing matrix-matrix, vector-vector
+    """Abstract Slate class representing matrix-matrix, vector-vector
      or scalar-scalar subtraction.
 
     :arg A: a :class:`TensorBase` object.
@@ -532,7 +534,7 @@ class Sub(BinaryOp):
 
 
 class Mul(BinaryOp):
-    """Abstract SLATE class representing the interior product or two tensors.
+    """Abstract Slate class representing the interior product or two tensors.
     By interior product, we mean an operation that results in a tensor of
     equal or lower rank via performing a contraction on arguments. This
     includes Matrix-Matrix and Matrix-Vector multiplication.
@@ -564,11 +566,11 @@ class Mul(BinaryOp):
         return argsA[:-1] + argsB[1:]
 
 
-class Action(TensorBase):
-    """Abstract SLATE class representing the action of a SLATE tensor on a
+class Action(TensorOp):
+    """Abstract Slate class representing the action of a Slate tensor on a
     UFL coefficient. This class can be interpreted as representing standard
     matrix-vector multiplication, except the vector is an assembled coefficient
-    rather than a SLATE object.
+    rather than a Slate object.
 
     :arg tensor: a :class:`TensorBase` object.
     :arg coefficient: a :class:`ufl.Coefficient` object.
@@ -578,8 +580,8 @@ class Action(TensorBase):
 
     def __init__(self, tensor, coefficient):
         """Constructor for the Action class."""
-        assert isinstance(coefficient, Coefficient), (
-            "Action can only be performed on a ufl.Coefficient object."
+        assert isinstance(coefficient, Function), (
+            "Action can only be performed on a firedrake.Function object."
         )
         assert isinstance(tensor, TensorBase), (
             "The tensor must be a SLATE `TensorBase` object."
@@ -589,42 +591,23 @@ class Action(TensorBase):
             "Argument function space must be the same as the "
             "coefficient function space."
         )
-        super(Action, self).__init__()
-        self.operands = tensor,
+        super(Action, self).__init__(tensor,
+                                     assembled_coeffs=(coefficient,))
         self.actee = coefficient
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
-        return self.operands[0].arguments()[:-1]
-
-    def coefficients(self):
-        """Returns a tuple of coefficients associated with the tensor."""
-        return tuple(OrderedDict.fromkeys(self.operands[0].coefficients()
-                                          + (self.actee,)))
-
-    def ufl_domains(self):
-        """Returns the integration domains of the integrals associated with
-        the tensor.
-        """
-        return self.operands[0].ufl_domains()
-
-    def subdomain_data(self):
-        """Returns a mapping on the tensor:
-        ``{domain:{integral_type: subdomain_data}}``.
-        """
-        return self.operands[0].subdomain_data()
+        tensor, = self.operands
+        return tensor.arguments()[:-1]
 
     def _output_string(self, prec=None):
         """Creates a string representation."""
-        tensor, coefficient = self.operands
+        tensor, = self.operands
+        coefficient = self.actee
         return "(%s) * %s" % (tensor, coefficient)
 
     def __repr__(self):
         """SLATE representation of the action of a tensor on a coefficient."""
-        tensor, coefficient = self.operands
+        tensor, = self.operands
+        coefficient = self.actee
         return "Action(%r, %r)" % (tensor, coefficient)
-
-    @cached_property
-    def _key(self):
-        """Returns a key for hash and equality."""
-        return (type(self), self.operands)
