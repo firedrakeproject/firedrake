@@ -2,6 +2,7 @@ from __future__ import absolute_import, print_function, division
 from os.path import abspath, dirname, join
 import pytest
 from firedrake import *
+import petsc4py as PETSc
 
 cwd = abspath(dirname(__file__))
 
