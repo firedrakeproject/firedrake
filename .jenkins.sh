@@ -2,9 +2,9 @@ export TEST_FILES="tests/extrusion/test_facet_integrals_2D.py tests/extrusion/te
 export PATH=/usr/local/bin:$PATH
 export CC=mpicc
 export
-#mkdir tmp
+mkdir tmp
 cd tmp
-#../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}
+../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}
 . ./firedrake/bin/activate
 pip install pytest-cov pytest-xdist
 cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
