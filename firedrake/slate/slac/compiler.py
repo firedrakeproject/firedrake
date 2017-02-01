@@ -474,7 +474,7 @@ def auxiliary_information(builder):
     aux_statements = []
     for i, exp in enumerate(builder.aux_exprs):
         if isinstance(exp, Action):
-            acting_coeff = exp.operands[1]
+            acting_coeff = exp.actee
             assert isinstance(acting_coeff, Coefficient)
 
             # Create a temporary for the assembled coefficient and
@@ -544,15 +544,15 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         return temps[expr].gencode()
 
     elif isinstance(expr, Transpose):
-        tensor = expr.operands[0]
+        tensor, = expr.operands
         return "(%s).transpose()" % metaphrase_slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, Inverse):
-        tensor = expr.operands[0]
+        tensor, = expr.operands
         return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, Negative):
-        tensor = expr.operands[0]
+        tensor, = expr.operands
         result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
@@ -568,7 +568,8 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, Action):
-        tensor, c = expr.operands
+        tensor, = expr.operands
+        c = expr.actee
         # Extra check
         assert isinstance(c, Coefficient)
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,

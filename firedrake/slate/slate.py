@@ -285,7 +285,7 @@ class Tensor(TensorBase):
         """SLATE representation of the tensor object."""
         return ["Scalar", "Vector", "Matrix"][self.rank] + "(%r)" % self.form
 
-    @property
+    @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.form)
@@ -327,7 +327,7 @@ class UnaryOp(TensorBase):
         """SLATE representation of the resulting tensor."""
         return "%s(%r)" % (type(self).__name__, self.operands[0])
 
-    @property
+    @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.operands[0])
@@ -469,7 +469,7 @@ class BinaryOp(TensorBase):
         A, B = self.operands
         return "%s(%r, %r)" % (type(self).__name__, A, B)
 
-    @property
+    @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.operands)
@@ -590,7 +590,8 @@ class Action(TensorBase):
             "coefficient function space."
         )
         super(Action, self).__init__()
-        self.operands = tensor, coefficient
+        self.operands = tensor,
+        self.actee = coefficient
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
@@ -599,7 +600,7 @@ class Action(TensorBase):
     def coefficients(self):
         """Returns a tuple of coefficients associated with the tensor."""
         return tuple(OrderedDict.fromkeys(self.operands[0].coefficients()
-                                          + (self.operands[1],)))
+                                          + (self.actee,)))
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
@@ -623,7 +624,7 @@ class Action(TensorBase):
         tensor, coefficient = self.operands
         return "Action(%r, %r)" % (tensor, coefficient)
 
-    @property
+    @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.operands)
