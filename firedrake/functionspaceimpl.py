@@ -389,16 +389,16 @@ class FunctionSpace(object):
 
     @property
     def node_count(self):
-        """The number of global nodes in the function space.  If the
-        :class:`FunctionSpace` has :attr:`rank` 0, this is equal to
-        the :attr:`dof_count`, otherwise the :attr:`dof_count` is
+        """The number of nodes (includes halo nodes) of this function space on
+        this process.  If the :class:`FunctionSpace` has :attr:`rank` 0, this
+        is equal to the :attr:`dof_count`, otherwise the :attr:`dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
         return self.node_set.total_size
 
     @property
     def dof_count(self):
-        """The number of global degrees of freedom in the function
-        space. Cf. :attr:`node_count`."""
+        """The number of degrees of freedom (includes halo nodes) of this
+        function space on this process. Cf. :attr:`node_count`."""
         return self.node_count*self.dim
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
