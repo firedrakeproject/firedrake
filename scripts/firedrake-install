@@ -1166,7 +1166,7 @@ if mode == "install":
     if not jenkins:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
     else:
-        check_call("ln", "-s", os.environ("WORKSPACE"), ".")
+        check_call("ln", "-s", os.environ["WORKSPACE"], ".")
     if ci and ci_testing_firedrake:
         if travis:
             pull_request = os.environ["TRAVIS_PULL_REQUEST"]
