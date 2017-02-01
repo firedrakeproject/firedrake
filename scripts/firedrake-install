@@ -80,6 +80,7 @@ branches = {}
 # Disgusting hack, are we running on travis/drone?
 travis = "TRAVIS" in os.environ
 drone = "DRONE" in os.environ
+jenkins = "JENKINS_HOME" in os.environ
 ci = travis or drone
 ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
@@ -1162,7 +1163,10 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+    if not jenkins:
+        git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+    else:
+        check_call("ln", "-s", os.environ("WORKSPACE"), ".")
     if ci and ci_testing_firedrake:
         if travis:
             pull_request = os.environ["TRAVIS_PULL_REQUEST"]

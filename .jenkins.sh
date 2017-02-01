@@ -6,4 +6,5 @@ export
 cd tmp
 #../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}
 . ./firedrake/bin/activate
+pip install pytest-cov pytest-xdist
 cd firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
