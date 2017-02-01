@@ -28,7 +28,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     """Evaluate f.
 
     :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
-            a :class:`~slate.TensorBase` expressions.
+            a :class:`~slate.TensorBase` expression.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
@@ -157,10 +157,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     .. warning::
 
-    If f is a 0-form wrapped as a Slate tensor, this will fail. 0-form tensors
-    cannot be expressed as an `Eigen::MatrixBase` object. However, rank-0
-    tensors may be used in a Slate expression, so long as the resulting rank
-    of the expression is 1 or 2.
+       If f is a 0-form wrapped as a Slate tensor, this will fail. However,
+       rank-0 tensors may be used in a Slate expression, so long as the
+       resulting rank of the expression is 1 or 2.
 
     :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be

@@ -61,9 +61,17 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
                           be passed onto TSFC during the compilation of
                           ufl forms.
+
+    Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
     if not isinstance(slate_expr, TensorBase):
         raise ValueError("Expecting a `TensorBase` expr, not %r" % slate_expr)
+
+    # TODO: Assembling 0-rank forms doesn't just "fall out" from
+    # Eigen. Will need to address this at some point. For now, we fail
+    # loudly
+    if slate_expr.rank == 0:
+        raise NotImplementedError("0-rank exprs not implemented yet. Sorry!")
 
     # TODO: Get PyOP2 to write into mixed dats
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
