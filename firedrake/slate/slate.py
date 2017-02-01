@@ -25,6 +25,8 @@ from firedrake.utils import cached_property
 
 from six import with_metaclass, iteritems
 
+from itertools import chain
+
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
 from ufl.coefficient import Coefficient
@@ -625,13 +627,12 @@ def merge_coefficients(operands, assembled_coeffs=None):
     :arg assembled_coeffs: a `tuple` of assembled data provided
                            as a `firedrake.Function`.
     """
-    coefficient_list = []
-    extra_data = assembled_coeffs or ()
-    for op in operands:
-        coefficient_list.extend(op.coefficients())
+    if assembled_coeffs is None:
+        coeffs = [op.coefficients() for op in operands]
+    else:
+        coeffs = [op.coefficients() for op in operands] + [assembled_coeffs]
 
-    return tuple(OrderedDict.fromkeys(tuple(coefficient_list) +
-                                      extra_data))
+    return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
 
 def merge_domains(operands, assembled_coeffs=None):
@@ -641,9 +642,10 @@ def merge_domains(operands, assembled_coeffs=None):
     :arg assembled_coeffs: a `tuple` of assembled data provided
                            as a `firedrake.Function`.
     """
-    collected_domains = []
-    extra_data = assembled_coeffs or ()
-    for obj in operands + extra_data:
-        collected_domains.extend(obj.ufl_domains())
+    if assembled_coeffs is None:
+        collected_domains = [op.ufl_domain() for op in operands]
+    else:
+        collected_domains = [obj.ufl_domain() for obj in operands +
+                             assembled_coeffs]
 
     return join_domains(collected_domains)
