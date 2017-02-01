@@ -490,7 +490,6 @@ def auxiliary_information(builder):
     for i, exp in enumerate(builder.aux_exprs):
         if isinstance(exp, Action):
             acting_coeff = exp.actee
-            assert isinstance(acting_coeff, Coefficient)
 
             # Create a temporary for the assembled coefficient and
             # compute its shape to declare as an Eigen::MatrixBase object
@@ -585,8 +584,6 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
     elif isinstance(expr, Action):
         tensor, = expr.operands
         c = expr.actee
-        # Extra check
-        assert isinstance(c, Coefficient)
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
                                                         temps,
                                                         expr.prec), temps[c])

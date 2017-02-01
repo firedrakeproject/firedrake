@@ -301,32 +301,20 @@ class TensorOp(TensorBase):
                    objects.
     """
 
-    def __init__(self, *operands, **kwargs):
+    def __init__(self, *operands):
         """Constructor for the TensorOp class."""
         super(TensorOp, self).__init__()
         self.operands = tuple(operands)
-        self.assembled_coeffs = kwargs.get("assembled_coeffs", None)
 
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""
-        coefficient_list = []
-        aux_coeffs = self.assembled_coeffs or ()
-        for op in self.operands:
-            coefficient_list.extend(op.coefficients())
-
-        return tuple(OrderedDict.fromkeys(tuple(coefficient_list) +
-                                          aux_coeffs))
+        return merge_coefficients(self.operands)
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        collected_domains = []
-        aux_coeffs = self.assembled_coeffs or ()
-        for obj in self.operands + aux_coeffs:
-            collected_domains.extend(obj.ufl_domains())
-
-        return join_domains(collected_domains)
+        return merge_domains(self.operands)
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -350,7 +338,7 @@ class TensorOp(TensorBase):
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
-        return (type(self), self.operands, self.assembled_coeffs)
+        return (type(self), self.operands)
 
 
 class UnaryOp(TensorOp):
@@ -592,14 +580,25 @@ class Action(TensorOp):
             "Argument function space must be the same as the "
             "coefficient function space."
         )
-        super(Action, self).__init__(tensor,
-                                     assembled_coeffs=(coefficient,))
+        super(Action, self).__init__(tensor)
         self.actee = coefficient
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
         tensor, = self.operands
         return tensor.arguments()[:-1]
+
+    def coefficients(self):
+        """Returns the expected coefficients of the resulting tensor."""
+        return merge_coefficients(self.operands,
+                                  assembled_coeffs=(self.actee,))
+
+    def ufl_domains(self):
+        """Returns the integration domains of the integrals associated with
+        the tensor.
+        """
+        return merge_domains(self.operands,
+                             assembled_coeffs=(self.actee,))
 
     def _output_string(self, prec=None):
         """Creates a string representation."""
@@ -612,3 +611,39 @@ class Action(TensorOp):
         tensor, = self.operands
         coefficient = self.actee
         return "Action(%r, %r)" % (tensor, coefficient)
+
+    @cached_property
+    def _key(self):
+        """Returns a key for hash and equality."""
+        return (type(self), self.operands, self.actee)
+
+
+def merge_coefficients(operands, assembled_coeffs=None):
+    """Returns a set of non-repeated coefficient objects.
+
+    :arg operands: a `tuple` of Slate tensors.
+    :arg assembled_coeffs: a `tuple` of assembled data provided
+                           as a `firedrake.Function`.
+    """
+    coefficient_list = []
+    extra_data = assembled_coeffs or ()
+    for op in operands:
+        coefficient_list.extend(op.coefficients())
+
+    return tuple(OrderedDict.fromkeys(tuple(coefficient_list) +
+                                      extra_data))
+
+
+def merge_domains(operands, assembled_coeffs=None):
+    """Returns a set of non-repeated ufl_domain objects.
+
+    :arg operands: a `tuple` of Slate tensors.
+    :arg assembled_coeffs: a `tuple` of assembled data provided
+                           as a `firedrake.Function`.
+    """
+    collected_domains = []
+    extra_data = assembled_coeffs or ()
+    for obj in operands + extra_data:
+        collected_domains.extend(obj.ufl_domains())
+
+    return join_domains(collected_domains)
