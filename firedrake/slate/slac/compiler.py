@@ -7,8 +7,8 @@ the Two-Stage Form Compiler (TSFC) and COFFEE's kernel abstract
 syntax tree (AST) optimizer. TSFC provides this compiler with
 appropriate kernel functions (in C) for evaluating integral
 expressions (finite element variational forms written in UFL).
-COFFEE's AST optimizing framework produces the resulting kernel AST
-returned by: `compile_slate_expression`.
+COFFEE's AST base helps with the construction of code blocks
+throughout the kernel returned by: `compile_expression`.
 
 The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as
 all low-level numerical linear algebra operations are performed using
