@@ -19,6 +19,8 @@ from six.moves import range
 
 from coffee import base as ast
 
+from collections import OrderedDict
+
 from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slate import (TensorBase, Tensor,
@@ -65,7 +67,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     Returns: A `tuple` containing a `SplitKernel(idx, kinfo)`
     """
     if not isinstance(slate_expr, TensorBase):
-        raise ValueError("Expecting a `TensorBase` expr, not %r" % slate_expr)
+        raise ValueError(
+            "Expecting a `TensorBase` expression, not %s" % type(slate_expr)
+        )
 
     # TODO: Assembling 0-rank forms doesn't just "fall out" from
     # Eigen. Will need to address this at some point. For now, we fail
@@ -226,11 +230,13 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             ctype = "%s **" % SCALAR_TYPE
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
-    if builder.needs_mesh_levels:
-        args.append(ast.Decl("int", mesh_level_sym))
-
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
+
+    # NOTE: We need to be careful about the ordering here. Mesh levels are
+    # added as the final argument to the kernel.
+    if builder.needs_mesh_levels:
+        args.append(ast.Decl("int", mesh_level_sym))
 
     # NOTE: In the future we may want to have more than one "macro_kernel"
     macro_kernel_name = "compile_slate"
@@ -301,24 +307,25 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     incl = []
     top_calls = []
     bottom_calls = []
-    for top, bottom in zip(top_sks, bottom_sks):
-        assert top.indices == bottom.indices, (
+    for top, btm in zip(top_sks, bottom_sks):
+        assert top.indices == btm.indices, (
             "Top and bottom kernels must have the same indices"
         )
         index = top.indices
 
-        for cindex in set(bottom.kinfo.coefficient_map
-                          + top.kinfo.coefficient_map):
+        c_set = top.kinfo.coefficient_map + btm.kinfo.coefficient_map
+        coefficient_map = tuple(OrderedDict.fromkeys(c_set))
+        for cindex in coefficient_map:
             c = exp.coefficients()[cindex]
             cl.extend(builder.coefficient(c))
 
-        incl.extend(set(bottom.kinfo.kernel._include_dirs +
-                        top.kinfo.kernel._include_dirs))
+        dirs = top.kinfo.kernel._include_dirs + btm.kinfo.kernel._include_dirs
+        incl.extend(tuple(OrderedDict.fromkeys(dirs)))
 
         tensor = eigen_tensor(exp, t, index)
         top_calls.append(ast.FunCall(top.kinfo.kernel.name,
                                      tensor, coordsym))
-        bottom_calls.append(ast.FunCall(bottom.kinfo.kernel.name,
+        bottom_calls.append(ast.FunCall(btm.kinfo.kernel.name,
                                         tensor, coordsym))
 
     else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
