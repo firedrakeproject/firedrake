@@ -94,8 +94,9 @@ class KernelBuilder(object):
         """
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form
 
-        cxt_list = [compile_terminal_form(expr, self.tsfc_parameters)
-                    for expr in self.temps]
+        cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
+                                          tsfc_parameters=self.tsfc_parameters)
+                    for i, expr in enumerate(self.temps)]
 
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
                        for cxt_k in cxt_tuple]

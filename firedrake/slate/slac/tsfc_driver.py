@@ -17,13 +17,15 @@ ContextKernel = collections.namedtuple("ContextKernel",
                                         "tsfc_kernels"])
 
 
-def compile_terminal_form(tensor, tsfc_parameters=None):
+def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
     """Compiles the TSFC form associated with a Slate :class:`Tensor`
     object. This function will return a :namedtuple:`ContextKernel`
     which stores information about the original tensor, integral types
     and the corresponding TSFC kernels.
 
     :arg tensor: A Slate `Tensor`.
+    :arg prefix: An optional `string` indicating the prefix for the
+                 subkernel.
     :arg tsfc_parameters: An optional `dict` of parameters to provide
                           TSFC.
 
@@ -34,20 +36,21 @@ def compile_terminal_form(tensor, tsfc_parameters=None):
     assert isinstance(tensor, Tensor), (
         "Only terminal tensors have forms associated with them!"
     )
-
+    # Sets a default name for the subkernel prefix.
+    # NOTE: the builder will choose a prefix independent of
+    # the tensor name for code idempotency reasons, but is not
+    # strictly required.
+    prefix = prefix or "subkernel%s_" % tensor.__str__()
     mapper = RemoveRestrictions()
     integrals = map(partial(map_integrand_dags, mapper),
                     tensor.form.integrals())
 
     transformed_integrals = transform_integrals(integrals)
     cxt_kernels = []
-    counter = 0
     for orig_it_type, integrals in transformed_integrals.items():
-        prefix = "subkernel%d_%s_%s_to_" % (counter,
-                                            tensor.__str__(),
-                                            orig_it_type)
-        counter += 1
-        kernels = tsfc_compile(Form(integrals), prefix,
+        subkernel_prefix = prefix + "%s_to_" % orig_it_type
+        kernels = tsfc_compile(Form(integrals),
+                               subkernel_prefix,
                                parameters=tsfc_parameters)
         cxt_k = ContextKernel(tensor=tensor,
                               original_integral_type=orig_it_type,
@@ -70,10 +73,11 @@ def transform_integrals(integrals):
     For example, an `interior_facet` integral will become
     an `exterior_facet` integral.
     """
-    transformed_integrals = collections.defaultdict(list)
+    transformed_integrals = collections.OrderedDict()
 
     for it in integrals:
         it_type = it.integral_type()
+        transformed_integrals.setdefault(it_type, list())
 
         if it_type == "cell" or it_type.startswith("exterior_facet"):
             # No need to reconstruct cell or exterior facet integrals
