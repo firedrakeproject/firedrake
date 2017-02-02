@@ -36,7 +36,7 @@ class KernelBuilder(object):
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
         self.needs_cell_facets = False
-        self.needs_mesh_levels = False
+        self.needs_mesh_layers = False
         self.oriented = False
         self.finalized_ast = None
 
@@ -63,11 +63,11 @@ class KernelBuilder(object):
         """
         self.needs_cell_facets = True
 
-    def require_mesh_levels(self):
-        """Assigns `self.needs_mesh_levels` to be `True` if mesh levels are
+    def require_mesh_layers(self):
+        """Assigns `self.needs_mesh_layers` to be `True` if mesh levels are
         needed.
         """
-        self.needs_mesh_levels = True
+        self.needs_mesh_layers = True
 
     def get_temporary(self, expr):
         """Extracts a temporary given a particular terminal expression."""

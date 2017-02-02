@@ -92,11 +92,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     builder = KernelBuilder(expression=slate_expr,
                             tsfc_parameters=tsfc_parameters)
 
-    # Initialize coordinate and facet/mesh_level symbols
+    # Initialize coordinate and facet/layer symbols
     coordsym = ast.Symbol("coords")
     coords = None
     cellfacetsym = ast.Symbol("cell_facets")
-    mesh_level_sym = ast.Symbol("mesh_level")
+    mesh_layer_sym = ast.Symbol("layer")
     inc = []
 
     for cxt_kernel in builder.context_kernels:
@@ -157,9 +157,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         elif it_type == "interior_facet_horiz":
             # The infamous interior horizontal facet
             # will have two SplitKernels: one top,
-            # one bottom. The mesh level will determine
+            # one bottom. The mesh layer will determine
             # which kernels we call.
-            builder.require_mesh_levels()
+            builder.require_mesh_layers()
             top_sks = [k for k in cxt_kernel.tsfc_kernels
                        if k.kinfo.integral_type == "exterior_facet_top"]
             bottom_sks = [k for k in cxt_kernel.tsfc_kernels
@@ -177,7 +177,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                       bottom_sks,
                                                       clist,
                                                       coordsym,
-                                                      mesh_level_sym)
+                                                      mesh_layer_sym)
             clist.extend(cl)
             inc.extend(incl)
             statements.append(stmt)
@@ -185,10 +185,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         elif it_type in ["exterior_facet_bottom", "exterior_facet_top"]:
             # These kernels will only be called if we are on
             # the top or bottom layers of the extruded mesh.
-            builder.require_mesh_levels()
+            builder.require_mesh_layers()
             stmt, cl, incl = extruded_top_bottom_facet(cxt_kernel, builder,
                                                        clist, coordsym,
-                                                       mesh_level_sym)
+                                                       mesh_layer_sym)
             clist.extend(cl)
             inc.extend(incl)
             statements.append(stmt)
@@ -236,10 +236,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
 
-    # NOTE: We need to be careful about the ordering here. Mesh levels are
+    # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
-    if builder.needs_mesh_levels:
-        args.append(ast.Decl("int", mesh_level_sym))
+    if builder.needs_mesh_layers:
+        args.append(ast.Decl("int", mesh_layer_sym))
 
     # NOTE: In the future we may want to have more than one "macro_kernel"
     macro_kernel_name = "compile_slate"
@@ -275,7 +275,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                        domain_number=0,
                        coefficient_map=tuple(range(len(coeffs))),
                        needs_cell_facets=builder.needs_cell_facets,
-                       pass_layer_arg=builder.needs_mesh_levels)
+                       pass_layer_arg=builder.needs_mesh_layers)
 
     idx = tuple([0]*slate_expr.rank)
 
@@ -286,7 +286,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
 
 def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
-                             clist, coordsym, mesh_level_sym):
+                             clist, coordsym, mesh_layer_sym):
     """Generates a code statement for evaluating interior horizontal
     facet integrals.
 
@@ -301,14 +301,14 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
                 appropriate.)
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
-    :arg mesh_level_sym: An `ast.Symbol` representing the mesh level.
+    :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
 
     Returns: A COFFEE code statement, updated coefficient info and updated
              include_dirs
     """
     cl = clist
     t = builder.get_temporary(exp)
-    nlevels = exp.ufl_domain().topological.layers - 1
+    nlayers = exp.ufl_domain().topological.layers - 1
 
     incl = []
     top_calls = []
@@ -335,17 +335,17 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
                                         tensor, coordsym))
 
     else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
-    inter_stmt = ast.If(ast.Eq(mesh_level_sym, nlevels - 1),
+    inter_stmt = ast.If(ast.Eq(mesh_layer_sym, nlayers - 1),
                         (ast.Block(bottom_calls, open_scope=True),
                          else_stmt))
-    stmt = ast.If(ast.Eq(mesh_level_sym, 0),
+    stmt = ast.If(ast.Eq(mesh_layer_sym, 0),
                   (ast.Block(top_calls, open_scope=True),
                    inter_stmt))
     return stmt, cl, incl
 
 
 def extruded_top_bottom_facet(cxt_kernel, builder, clist, coordsym,
-                              mesh_level_sym):
+                              mesh_layer_sym):
     """Generates a code statement for evaluating exterior top/bottom
     facet integrals.
 
@@ -358,7 +358,7 @@ def extruded_top_bottom_facet(cxt_kernel, builder, clist, coordsym,
                 appropriate.)
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
-    :arg mesh_level_sym: An `ast.Symbol` representing the mesh level.
+    :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
 
     Returns: A COFFEE code statement, updated coefficient info and updated
              include_dirs
@@ -366,7 +366,7 @@ def extruded_top_bottom_facet(cxt_kernel, builder, clist, coordsym,
     cl = clist
     exp = cxt_kernel.tensor
     t = builder.get_temporary(exp)
-    nlevels = exp.ufl_domain().topological.layers - 1
+    nlayers = exp.ufl_domain().topological.layers - 1
 
     incl = []
     body = []
@@ -384,11 +384,11 @@ def extruded_top_bottom_facet(cxt_kernel, builder, clist, coordsym,
                                 tensor, coordsym, *cl))
 
     if cxt_kernel.original_integral_type == "exterior_facet_bottom":
-        level = 0
+        layer = 0
     else:
-        level = nlevels - 1
+        layer = nlayers - 1
 
-    stmt = ast.If(ast.Eq(mesh_level_sym, level),
+    stmt = ast.If(ast.Eq(mesh_layer_sym, layer),
                   [ast.Block(body, open_scope=True)])
 
     return stmt, cl, incl
