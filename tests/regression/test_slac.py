@@ -57,8 +57,12 @@ def test_determinism(tensor):
     a numerically deterministic system. That is, produced kernels
     are consistent.
     """
-    kernel1 = compile_slate(tensor)
-    kernel2 = compile_slate(tensor)
+    A = tensor
+    # Reconstruct an identical tensor, but as a different instance
+    # of a Tensor
+    B = Tensor(tensor.form)
+    kernel1 = compile_slate(A)
+    kernel2 = compile_slate(B)
 
     # Checking equivalence of kernels
     assert kernel1[0].kinfo.kernel._ast == kernel2[0].kinfo.kernel._ast
