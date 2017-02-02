@@ -1,6 +1,6 @@
-"""This is SLATE's Linear Algebra Compiler. This module is
+"""This is Slate's Linear Algebra Compiler. This module is
 responsible for generating C++ kernel functions representing
-symbolic linear algebra expressions written in SLATE.
+symbolic linear algebra expressions written in Slate.
 
 This linear algebra compiler uses both Firedrake's form compiler,
 the Two-Stage Form Compiler (TSFC) and COFFEE's kernel abstract
@@ -54,8 +54,8 @@ supported_integral_types = [
 
 
 def compile_expression(slate_expr, tsfc_parameters=None):
-    """Takes a SLATE expression `slate_expr` and returns the appropriate
-    :class:`firedrake.op2.Kernel` object representing the SLATE expression.
+    """Takes a Slate expression `slate_expr` and returns the appropriate
+    :class:`firedrake.op2.Kernel` object representing the Slate expression.
 
     :arg slate_expr: a :class:'TensorBase' expression.
     :arg tsfc_parameters: an optional `dict` of form compiler parameters to
@@ -88,7 +88,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     shape = slate_expr.shape
     statements = []
 
-    # Create a builder for the SLATE expression
+    # Create a builder for the Slate expression
     builder = KernelBuilder(expression=slate_expr,
                             tsfc_parameters=tsfc_parameters)
 
@@ -487,12 +487,12 @@ def auxiliary_information(builder):
     aux_statements = []
     for i, exp in enumerate(builder.aux_exprs):
         if isinstance(exp, Action):
-            acting_coeff = exp.actee
+            actee, = exp.actee
 
             # Create a temporary for the assembled coefficient and
             # compute its shape to declare as an Eigen::MatrixBase object
             temp = ast.Symbol("C%d" % i)
-            V = acting_coeff.function_space()
+            V = actee.function_space()
             node_extent = V.fiat_element.space_dimension()
             dof_extent = np.prod(V.ufl_element().value_shape())
             typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
@@ -506,7 +506,7 @@ def auxiliary_information(builder):
             tensor_index = ast.Sum(ast.Prod(dof_extent, isym), jsym)
 
             # Inner-loop running over dof_extent
-            coeff_sym = ast.Symbol(builder.coefficient_map[acting_coeff],
+            coeff_sym = ast.Symbol(builder.coefficient_map[actee],
                                    rank=(isym, jsym))
             coeff_temp = ast.Symbol(temp, rank=(tensor_index,))
             inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
@@ -520,7 +520,7 @@ def auxiliary_information(builder):
                            inner_loop)
 
             aux_statements.append(loop)
-            aux_temps[acting_coeff] = temp
+            aux_temps[actee] = temp
         else:
             raise NotImplementedError(
                 "Auxiliary expr type %s not currently implemented." % type(exp)
@@ -537,7 +537,7 @@ def parenthesize(arg, prec=None, parent=None):
 
 
 def metaphrase_slate_to_cpp(expr, temps, prec=None):
-    """Translates a SLATE expression into its equivalent representation in
+    """Translates a Slate expression into its equivalent representation in
     the Eigen C++ syntax.
 
     :arg expr: a :class:`slate.TensorBase` expression.
@@ -581,7 +581,7 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
 
     elif isinstance(expr, Action):
         tensor, = expr.operands
-        c = expr.actee
+        c, = expr.actee
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
                                                         temps,
                                                         expr.prec), temps[c])

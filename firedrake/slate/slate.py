@@ -1,17 +1,17 @@
-"""SLATE is a symbolic language defining a framework for performing
+"""Slate is a symbolic language defining a framework for performing
 linear algebra operations on finite element tensors. It is similar
 in principle to most linear algebra libraries in notation.
 
-The design of SLATE was heavily influenced by UFL, and utilizes
+The design of Slate was heavily influenced by UFL, and utilizes
 much of UFL's functionality for FEM-specific form manipulation.
 
-Unlike UFL, however, once forms are assembled into SLATE `Tensor`
-objects, one can utilize the operations defined in SLATE to express
+Unlike UFL, however, once forms are assembled into Slate `Tensor`
+objects, one can utilize the operations defined in Slate to express
 complicated linear algebra operations (such as the Schur-complement
 reduction of a block-matrix system).
 
-All SLATE expressions are handled by a specialized linear algebra
-compiler, which interprets SLATE expressions and produces C++ kernel
+All Slate expressions are handled by a specialized linear algebra
+compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
 from __future__ import absolute_import, print_function, division
@@ -221,7 +221,7 @@ class Tensor(TensorBase):
     """This class is a symbolic representation of a finite element tensor
     derived from a bilinear or linear form. This class implements all
     supported ranks of general tensor (rank-0, rank-1 and rank-2 tensor
-    objects). This class is the primary user-facing class that the SLATE
+    objects). This class is the primary user-facing class that the Slate
     symbolic algebra supports.
 
     :arg form: a :class:`ufl.Form` object.
@@ -286,7 +286,7 @@ class Tensor(TensorBase):
         return ["S", "V", "M"][self.rank] + "_%d" % self.id
 
     def __repr__(self):
-        """SLATE representation of the tensor object."""
+        """Slate representation of the tensor object."""
         return ["Scalar", "Vector", "Matrix"][self.rank] + "(%r)" % self.form
 
     @cached_property
@@ -310,13 +310,15 @@ class TensorOp(TensorBase):
 
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""
-        return merge_coefficients(self.operands)
+        coeffs = [op.coefficients() for op in self.operands]
+        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return merge_domains(self.operands)
+        collected_domains = [op.ufl_domain() for op in self.operands]
+        return join_domains(collected_domains)
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -355,7 +357,7 @@ class UnaryOp(TensorOp):
     """
 
     def __repr__(self):
-        """SLATE representation of the resulting tensor."""
+        """Slate representation of the resulting tensor."""
         tensor, = self.operands
         return "%s(%r)" % (type(self).__name__, tensor)
 
@@ -575,7 +577,7 @@ class Action(TensorOp):
             "Action can only be performed on a firedrake.Function object."
         )
         assert isinstance(tensor, TensorBase), (
-            "The tensor must be a SLATE `TensorBase` object."
+            "The tensor must be a Slate `TensorBase` object."
         )
         V = coefficient.function_space()
         assert tensor.arguments()[-1].function_space() == V, (
@@ -583,7 +585,7 @@ class Action(TensorOp):
             "coefficient function space."
         )
         super(Action, self).__init__(tensor)
-        self.actee = coefficient
+        self.actee = coefficient,
 
     def arguments(self):
         """Returns a tuple of arguments associated with the tensor."""
@@ -592,60 +594,30 @@ class Action(TensorOp):
 
     def coefficients(self):
         """Returns the expected coefficients of the resulting tensor."""
-        return merge_coefficients(self.operands,
-                                  assembled_coeffs=(self.actee,))
+        coeffs = [op.coefficients() for op in self.operands] + [self.actee]
+        return tuple(OrderedDict.fromkeys(chain(*coeffs)))
 
     def ufl_domains(self):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        return merge_domains(self.operands,
-                             assembled_coeffs=(self.actee,))
+        collected_domains = [obj.ufl_domain() for obj in self.operands
+                             + self.actee]
+        return join_domains(collected_domains)
 
     def _output_string(self, prec=None):
         """Creates a string representation."""
         tensor, = self.operands
-        coefficient = self.actee
+        coefficient, = self.actee
         return "(%s) * %s" % (tensor, coefficient)
 
     def __repr__(self):
-        """SLATE representation of the action of a tensor on a coefficient."""
+        """Slate representation of the action of a tensor on a coefficient."""
         tensor, = self.operands
-        coefficient = self.actee
+        coefficient, = self.actee
         return "Action(%r, %r)" % (tensor, coefficient)
 
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.operands, self.actee)
-
-
-def merge_coefficients(operands, assembled_coeffs=None):
-    """Returns a set of non-repeated coefficient objects.
-
-    :arg operands: a `tuple` of Slate tensors.
-    :arg assembled_coeffs: a `tuple` of assembled data provided
-                           as a `firedrake.Function`.
-    """
-    if assembled_coeffs is None:
-        coeffs = [op.coefficients() for op in operands]
-    else:
-        coeffs = [op.coefficients() for op in operands] + [assembled_coeffs]
-
-    return tuple(OrderedDict.fromkeys(chain(*coeffs)))
-
-
-def merge_domains(operands, assembled_coeffs=None):
-    """Returns a set of non-repeated ufl_domain objects.
-
-    :arg operands: a `tuple` of Slate tensors.
-    :arg assembled_coeffs: a `tuple` of assembled data provided
-                           as a `firedrake.Function`.
-    """
-    if assembled_coeffs is None:
-        collected_domains = [op.ufl_domain() for op in operands]
-    else:
-        collected_domains = [obj.ufl_domain() for obj in operands +
-                             assembled_coeffs]
-
-    return join_domains(collected_domains)

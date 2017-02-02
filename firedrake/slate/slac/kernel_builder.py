@@ -13,15 +13,15 @@ from ufl import MixedElement
 
 
 class KernelBuilder(object):
-    """A helper class for constructing SLATE kernels.
+    """A helper class for constructing Slate kernels.
 
     This class provides access to all temporaries and subkernels associated
-    with a SLATE expression. If the SLATE expression contains nodes that
+    with a Slate expression. If the Slate expression contains nodes that
     require operations on already assembled data (such as the action of a
     slate tensor on a `ufl.Coefficient`), this class provides access to the
     expression which needs special handling.
 
-    Instructions for assembling the full kernel AST of a SLATE expression is
+    Instructions for assembling the full kernel AST of a Slate expression is
     provided by the method `construct_ast`.
     """
     def __init__(self, expression, tsfc_parameters=None):
@@ -121,7 +121,7 @@ class KernelBuilder(object):
         :arg statements: a `coffee.base.Block` of instructions, which contains
                          declarations of temporaries, function calls to all
                          subkernels and any auxilliary information needed to
-                         evaulate the SLATE expression.
+                         evaulate the Slate expression.
                          E.g. facet integral loops and action loops.
         """
         # all kernel body statements must be wrapped up as a coffee.base.Block
@@ -207,7 +207,7 @@ def generate_expr_data(expr, temps=None, aux_exprs=None):
                 as an empty `dict` before recursion starts.
     :arg aux_exprs: a list that becomes populated recursively and is later
                     returned as the list of auxiliary expressions that require
-                    special handling in SLATE's linear algebra compiler
+                    special handling in Slate's linear algebra compiler
 
     Returns: the arguments temps and aux_exprs.
     """
