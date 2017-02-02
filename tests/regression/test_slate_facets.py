@@ -14,9 +14,13 @@ def test_facet_interior(mesh):
     DG = VectorFunctionSpace(mesh, "DG", 1)
     n = FacetNormal(mesh)
     u = TestFunction(DG)
-    form = dot(u, n)*dS
+
+    f = project(Expression(("x[0]", "x[1]")), DG)
+
+    form = dot(f[0]*f[1]*u, n)*dS
+
     A = assemble(Tensor(form)).dat.data
-    ref = assemble(jump(u, n=n)*dS).dat.data
+    ref = assemble(jump(f[0]*f[1]*u, n=n)*dS).dat.data
 
     assert np.allclose(A, ref, rtol=1e-8)
 
@@ -25,7 +29,11 @@ def test_facet_exterior(mesh):
     DG = VectorFunctionSpace(mesh, "DG", 1)
     n = FacetNormal(mesh)
     u = TestFunction(DG)
-    form = dot(u, n)*ds
+
+    f = project(Expression(("x[0]", "x[1]")), DG)
+
+    form = dot(f[0]*f[1]*u, n)*ds
+
     A = assemble(Tensor(form)).dat.data
     ref = assemble(form).dat.data
 
