@@ -45,6 +45,9 @@ pipeline:
 
       # Activate the virtualenv
       - . firedrake/bin/activate
+      # pylint --py3k
+      - pip install pylint
+      - pylint --py3k --disable=round-builtin firedrake
       # scipy for the adjoint tests
       - pip install scipy
       - pip install pytest-cov

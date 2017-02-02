@@ -64,12 +64,15 @@ install:
   # This saves PETSc and petsc4py to speed up building
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
   - if [ "x$TEST_ADJOINT" != "x" ]; then pip install scipy; fi
+  # For pylint --py3k
+  - pip install pylint
   # For code coverage
   - pip install pytest-cov
 # command to run tests
 script:
   - cd firedrake/src
   - (cd firedrake; make lint)
+  - pylint --py3k --disable=round-builtin firedrake
   - (cd firedrake; py.test --cov firedrake --short -v ${TEST_FILES})
   - if [ "x$TEST_ADJOINT" != "x" ]; then (cd dolfin-adjoint; py.test -v tests_firedrake); fi
 after_success:
