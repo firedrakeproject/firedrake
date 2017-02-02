@@ -58,7 +58,7 @@ class DirichletBC(object):
         self._original_arg = self.function_arg
         if sub_domain == "on_boundary":
             self.sub_domain = \
-                list(map(int, V.mesh().topology.exterior_facets.unique_markers))
+                tuple(map(int, V.mesh().topology.exterior_facets.unique_markers))
         else:
             self.sub_domain = sub_domain
         self._currently_zeroed = False

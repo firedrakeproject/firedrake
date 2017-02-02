@@ -165,7 +165,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                        oriented=oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=list(range(len(slate_expr.coefficients()))),
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
                        needs_cell_facets=builder.needs_cell_facets)
     idx = tuple([0]*slate_expr.rank)
 
