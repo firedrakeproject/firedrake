@@ -64,8 +64,6 @@ install:
   # This saves PETSc and petsc4py to speed up building
   - (cd firedrake; ../../scripts/firedrake-install --write-cache)
   - if [ "x$TEST_ADJOINT" != "x" ]; then pip install scipy; fi
-  # For pylint --py3k
-  - pip install pylint
   # For code coverage
   - pip install pytest-cov
 # command to run tests
