@@ -1,5 +1,7 @@
 #! /usr/bin/env python
 from __future__ import absolute_import, print_function, division
+from six import iteritems
+
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from pprint import pformat
 import logging
@@ -67,7 +69,7 @@ print("Firedrake Configuration:")
 if not config:
     print("No configuration information found.")
 else:
-    for key, val in config["options"].iteritems():
+    for key, val in iteritems(config["options"]):
         print("    {}: {}".format(key, val))
 
     print("Additions:")
@@ -81,7 +83,7 @@ for var in ["PYTHONPATH", "PETSC_ARCH", "PETSC_DIR"]:
     config["environment"][var] = os.environ.get(var, None)
 
 print("Environment:")
-for key, val in config["environment"].iteritems():
+for key, val in iteritems(config["environment"]):
     print("    {}: {}".format(key, val))
 
 status = OrderedDict()
@@ -116,7 +118,7 @@ componentformat = "|{:20}|{:30}|{:10}|{!s:10}|\n"
 header = componentformat.format("Package", "Branch", "Revision", "Modified")
 line = "-" * (len(header) - 1) + "\n"
 status_string += line + header + line
-for dir, d in status.iteritems():
+for dir, d in iteritems(status):
     status_string += componentformat.format(dir, d["branch"], d["revision"], d["modified"])
 status_string += line
 

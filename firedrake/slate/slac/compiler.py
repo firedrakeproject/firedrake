@@ -11,6 +11,7 @@ The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as all low-leve
 linear algebra operations are performed using the `Eigen::Matrix` methods built into Eigen.
 """
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 from coffee import base as ast
 
@@ -164,7 +165,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                        oriented=oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=range(len(slate_expr.coefficients())),
+                       coefficient_map=tuple(range(len(slate_expr.coefficients()))),
                        needs_cell_facets=builder.needs_cell_facets)
     idx = tuple([0]*slate_expr.rank)
 

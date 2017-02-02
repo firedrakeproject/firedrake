@@ -289,9 +289,6 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 # Record of obsolete packages which --clean should remove from old installs.
 old_git_packages = ["instant", "ffc"]
 
-python = ["python"]
-pyinstall = ["python", "setup.py", "install"]
-
 if mode == "install":
     firedrake_env = os.path.abspath(args.virtualenv_name)
 else:
@@ -1150,7 +1147,7 @@ if mode == "install":
     run_pip(["install", "-U", "pip"])
 
 virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
-execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
+exec(open("%s/bin/activate_this.py" % firedrake_env).read(), virtual_env_vars)
 # Activating the virtual_env from within Python does not automatically set the environment variable.
 os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 

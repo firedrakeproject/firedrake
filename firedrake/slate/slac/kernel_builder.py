@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six.moves import filter, map
 
 from coffee import base as ast
 
@@ -125,12 +126,12 @@ def prepare_tsfc_kernels(temps, tsfc_parameters=None):
     for expr in temps.keys():
         integrals = expr.form.integrals()
         mapper = RemoveRestrictions()
-        integrals = map(partial(map_integrand_dags, mapper), integrals)
+        integrals = list(map(partial(map_integrand_dags, mapper), integrals))
         prefix = "subkernel%d_" % len(kernel_exprs)
 
         # Now we split integrals by type: interior_facet and all other cases
         # First, the interior_facet case:
-        interior_facet_intergrals = filter(lambda x: x.integral_type() == "interior_facet", integrals)
+        interior_facet_intergrals = list(filter(lambda x: x.integral_type() == "interior_facet", integrals))
 
         # Now we reconstruct all interior_facet integrals to be of type: exterior_facet
         # This is because locally over each cell, SLATE views them as being "exterior"
@@ -138,7 +139,7 @@ def prepare_tsfc_kernels(temps, tsfc_parameters=None):
         interior_facet_intergrals = [it.reconstruct(integral_type="exterior_facet")
                                      for it in interior_facet_intergrals]
         # Now for the rest:
-        other_integrals = filter(lambda x: x.integral_type() != "interior_facet", integrals)
+        other_integrals = list(filter(lambda x: x.integral_type() != "interior_facet", integrals))
 
         forms = (Form(interior_facet_intergrals), Form(other_integrals))
         compiled_forms = []
@@ -197,7 +198,8 @@ def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
         prepare_temps_and_aux_exprs(expression.tensor, temps=temps, aux_exprs=aux_exprs)
 
     elif isinstance(expression, (UnaryOp, BinaryOp)):
-        map(lambda x: prepare_temps_and_aux_exprs(x, temps=temps, aux_exprs=aux_exprs), expression.operands)
+        for operand in expression.operands:
+            prepare_temps_and_aux_exprs(operand, temps=temps, aux_exprs=aux_exprs)
 
     else:
         raise NotImplementedError("Expression of type %s not currently supported." % type(expression))

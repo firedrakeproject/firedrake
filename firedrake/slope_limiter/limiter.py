@@ -1,11 +1,11 @@
 from __future__ import absolute_import, print_function, division
+from six import with_metaclass
 from abc import ABCMeta, abstractmethod
 
 __all__ = ("Limiter",)
 
 
-class Limiter(object):
-    __metaclass__ = ABCMeta
+class Limiter(with_metaclass(ABCMeta)):
 
     @abstractmethod
     def __init__(self, space):

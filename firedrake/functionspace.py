@@ -5,6 +5,7 @@ API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
 from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 import ufl
 
@@ -235,7 +236,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
 
     # Check that function spaces are on the same mesh
     meshes = [space.mesh() for space in spaces]
-    for i in xrange(1, len(meshes)):
+    for i in range(1, len(meshes)):
         if meshes[i] is not meshes[0]:
             raise ValueError("All function spaces must be defined on the same mesh!")
 

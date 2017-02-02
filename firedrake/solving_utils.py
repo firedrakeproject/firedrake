@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
 import numpy
 import itertools
 from contextlib import contextmanager
@@ -62,12 +63,12 @@ class ParametersMixin(object):
             self.options_prefix = options_prefix
             # Remove those options from the dict that were passed on
             # the commandline.
-            self.parameters = dict((k, v) for k, v in parameters.iteritems()
-                                   if options_prefix + k not in self.commandline_options)
+            self.parameters = {k: v for k, v in iteritems(parameters)
+                               if options_prefix + k not in self.commandline_options}
             self.to_delete = set(parameters)
             # Now update parameters from options, so that they're
             # availabe to solver setup (for, e.g., matrix-free).
-            for k, v in PETSc.Options(self.options_prefix).getAll().iteritems():
+            for k, v in iteritems(PETSc.Options(self.options_prefix).getAll()):
                 self.parameters[k] = v
         self.options_object = PETSc.Options(self.options_prefix)
         self._setfromoptions = False
@@ -107,7 +108,7 @@ class ParametersMixin(object):
         """Context manager inside which the petsc options database
     contains the parameters from this object."""
         try:
-            for k, v in self.parameters.iteritems():
+            for k, v in iteritems(self.parameters):
                 if type(v) is bool:
                     if v:
                         self.options_object[k] = None

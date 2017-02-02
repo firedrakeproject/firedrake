@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 import numpy as np
 import ctypes
 import os
@@ -254,17 +255,17 @@ def _from_triangle(filename, dim, comm):
             nodecount = header[0]
             nodedim = header[1]
             assert nodedim == dim
-            coordinates = np.loadtxt(nodefile, usecols=range(1, dim+1), skiprows=1)
+            coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1)
             assert nodecount == coordinates.shape[0]
 
         with open(basename+".ele") as elefile:
             header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
             elecount = header[0]
             eledim = header[1]
-            eles = np.loadtxt(elefile, usecols=range(1, eledim+1), dtype=np.int32, skiprows=1)
+            eles = np.loadtxt(elefile, usecols=list(range(1, eledim+1)), dtype=np.int32, skiprows=1)
             assert elecount == eles.shape[0]
 
-        cells = map(lambda c: c-1, eles)
+        cells = list(map(lambda c: c-1, eles))
     else:
         tdim = comm.bcast(None, root=0)
         cells = None
@@ -277,7 +278,7 @@ def _from_triangle(filename, dim, comm):
         try:
             header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
             edgecount = header[0]
-            facets = np.loadtxt(facetfile, usecols=range(1, tdim+2), dtype=np.int32, skiprows=0)
+            facets = np.loadtxt(facetfile, usecols=list(range(1, tdim+2)), dtype=np.int32, skiprows=0)
             assert edgecount == facets.shape[0]
         finally:
             facetfile.close()
@@ -286,7 +287,7 @@ def _from_triangle(filename, dim, comm):
             vStart, vEnd = plex.getDepthStratum(0)   # vertices
             for facet in facets:
                 bid = facet[-1]
-                vertices = map(lambda v: v + vStart - 1, facet[:-1])
+                vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
                 join = plex.getJoin(vertices)
                 plex.setLabelValue("boundary_ids", join[0], bid)
 
@@ -466,7 +467,7 @@ class MeshTopology(object):
             a_closure = plex.getTransitiveClosure(cStart)[0]
 
             entity_per_cell = np.zeros(dim + 1, dtype=np.int32)
-            for dim in xrange(dim + 1):
+            for dim in range(dim + 1):
                 start, end = plex.getDepthStratum(dim)
                 entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end,
                                                a_closure))
@@ -875,7 +876,7 @@ class ExtrudedMeshTopology(MeshTopology):
     def _order_data_by_cell_index(self, column_list, cell_data):
         cell_list = []
         for col in column_list:
-            cell_list += range(col, col + (self.layers - 1))
+            cell_list += list(range(col, col + (self.layers - 1)))
         return cell_data[cell_list]
 
 
