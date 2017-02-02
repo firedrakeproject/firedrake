@@ -566,7 +566,7 @@ class Action(TensorOp):
     rather than a Slate object.
 
     :arg tensor: a :class:`TensorBase` object.
-    :arg coefficient: a :class:`ufl.Coefficient` object.
+    :arg coefficient: a :class:`firedrake.Function` object.
     """
 
     prec = 2

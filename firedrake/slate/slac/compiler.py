@@ -84,7 +84,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     if slate_expr._kernels is not None:
         return slate_expr._kernels
 
-    # Initialize shape and statements list
+    # Initialize coefficients, shape and statements list
+    expr_coeffs = slate_expr.coefficients()
     shape = slate_expr.shape
     statements = []
 
@@ -218,7 +219,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Generate arguments for the macro kernel
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
-    for c in slate_expr.coefficients():
+    for c in expr_coeffs:
         if isinstance(c, Constant):
             ctype = "%s *" % SCALAR_TYPE
         else:
@@ -259,13 +260,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Send back a "TSFC-like" SplitKernel object with an
     # index and KernelInfo
-    coeffs = slate_expr.coefficients()
     kinfo = KernelInfo(kernel=op2kernel,
                        integral_type=builder.integral_type,
                        oriented=builder.oriented,
                        subdomain_id="otherwise",
                        domain_number=0,
-                       coefficient_map=tuple(range(len(coeffs))),
+                       coefficient_map=tuple(range(len(expr_coeffs))),
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers)
 
