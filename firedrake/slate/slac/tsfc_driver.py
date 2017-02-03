@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
 
 import collections
 
@@ -47,7 +48,7 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
 
     transformed_integrals = transform_integrals(integrals)
     cxt_kernels = []
-    for orig_it_type, integrals in transformed_integrals.items():
+    for orig_it_type, integrals in iteritems(transformed_integrals):
         subkernel_prefix = prefix + "%s_to_" % orig_it_type
         kernels = tsfc_compile(Form(integrals),
                                subkernel_prefix,

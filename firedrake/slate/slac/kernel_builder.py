@@ -1,10 +1,8 @@
 from __future__ import absolute_import, print_function, division
 
-import collections
-
 from coffee import base as ast
 
-from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, Action
+from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
 from firedrake.slate.slac.utils import Transformer
 from firedrake.utils import cached_property
 
@@ -212,21 +210,21 @@ def generate_expr_data(expr, temps=None, aux_exprs=None):
     """
     # Prepare temporaries map and auxiliary expressions list
     if temps is None:
-        temps = collections.defaultdict()
+        temps = {}
 
     if aux_exprs is None:
         aux_exprs = []
 
     if isinstance(expr, Tensor):
-        if expr not in temps:
-            temps[expr] = ast.Symbol("T%d" % len(temps))
+        temps.setdefault(expr, ast.Symbol("T%d" % len(temps)))
 
-    elif isinstance(expr, Action):
-        aux_exprs.append(expr)
-        # Pass in the acting tensor to extract any necessary temporaries
-        generate_expr_data(expr.operands[0], temps=temps, aux_exprs=aux_exprs)
+    elif isinstance(expr, TensorOp):
+        # If we have an Action instance, store expr in aux_exprs for
+        # special handling in the compiler
+        if isinstance(expr, Action):
+            aux_exprs.append(expr)
 
-    elif isinstance(expr, (UnaryOp, BinaryOp)):
+        # Send operands through recursively
         map(lambda x: generate_expr_data(x, temps=temps,
                                          aux_exprs=aux_exprs), expr.operands)
     else:

@@ -15,6 +15,7 @@ compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
 from __future__ import absolute_import, print_function, division
+from six import with_metaclass, iteritems
 
 from abc import ABCMeta, abstractproperty, abstractmethod
 
@@ -23,15 +24,12 @@ from collections import OrderedDict
 from firedrake.function import Function
 from firedrake.utils import cached_property
 
-from six import with_metaclass, iteritems
-
 from itertools import chain
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
 from ufl.coefficient import Coefficient
 from ufl.form import Form
-from ufl.domain import join_domains
 
 
 __all__ = ['Tensor', 'Inverse', 'Transpose', 'Negative',
@@ -317,8 +315,8 @@ class TensorOp(TensorBase):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        collected_domains = [op.ufl_domain() for op in self.operands]
-        return join_domains(collected_domains)
+        collected_domains = [op.ufl_domains() for op in self.operands]
+        return tuple(OrderedDict.fromkeys(chain(*collected_domains)))
 
     def subdomain_data(self):
         """Returns a mapping on the tensor:
@@ -601,9 +599,9 @@ class Action(TensorOp):
         """Returns the integration domains of the integrals associated with
         the tensor.
         """
-        collected_domains = [obj.ufl_domain() for obj in self.operands
+        collected_domains = [obj.ufl_domains() for obj in self.operands
                              + self.actee]
-        return join_domains(collected_domains)
+        return tuple(OrderedDict.fromkeys(chain(*collected_domains)))
 
     def _output_string(self, prec=None):
         """Creates a string representation."""
