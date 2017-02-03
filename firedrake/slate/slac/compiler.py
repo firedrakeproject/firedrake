@@ -69,12 +69,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             "Expecting a `TensorBase` expression, not %s" % type(slate_expr)
         )
 
-    # TODO: Assembling 0-rank forms doesn't just "fall out" from
-    # Eigen. Will need to address this at some point. For now, we fail
-    # loudly
-    if slate_expr.rank == 0:
-        raise NotImplementedError("0-rank exprs not implemented yet. Sorry!")
-
     # TODO: Get PyOP2 to write into mixed dats
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
         raise NotImplementedError("Compiling mixed slate expressions")
@@ -86,7 +80,16 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Initialize coefficients, shape and statements list
     expr_coeffs = slate_expr.coefficients()
-    shape = slate_expr.shape
+
+    # We treat scalars as 1x1 MatrixBase objects, so we give
+    # the right shape to do so and everything just falls out.
+    # This bit here ensures the return result has the right
+    # shape
+    if slate_expr.rank == 0:
+        shape = (1,)
+    else:
+        shape = slate_expr.shape
+
     statements = []
 
     # Create a builder for the Slate expression
@@ -215,7 +218,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # on Eigen matrices/vectors
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
                                                        context_temps))
-    statements.append(ast.Assign(result_sym, cpp_string))
+    statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
@@ -292,8 +295,7 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
                    for the kernel.
     :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
 
-    Returns: A COFFEE code statement, updated coefficient info and updated
-             include_dirs
+    Returns: A COFFEE code statement and updated include_dirs
     """
     t = builder.get_temporary(exp)
     nlayers = exp.ufl_domain().topological.layers - 1
@@ -345,8 +347,7 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
                    for the kernel.
     :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
 
-    Returns: A COFFEE code statement, updated coefficient info and updated
-             include_dirs
+    Returns: A COFFEE code statement and updated include_dirs
     """
     exp = cxt_kernel.tensor
     t = builder.get_temporary(exp)
@@ -391,8 +392,7 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
                    for the kernel.
     :arg cellfacetsym: An `ast.Symbol` representing the cell facets.
 
-    Returns: A COFFEE code statement, updated coefficient info and updated
-             include_dirs
+    Returns: A COFFEE code statement and updated include_dirs
     """
     exp = cxt_kernel.tensor
     t = builder.get_temporary(exp)
@@ -586,9 +586,8 @@ def eigen_matrixbase_type(shape):
              library syntax.
     """
     if len(shape) == 0:
-        raise NotImplementedError(
-            "Scalar exprs cannot be declared as an Eigen::MatrixBase object."
-        )
+        rows = 1
+        cols = 1
     elif len(shape) == 1:
         rows = shape[0]
         cols = 1
@@ -619,26 +618,31 @@ def eigen_tensor(expr, temporary, index):
                 information. This is provided by the SplitKernel
                 associated with the expr.
     """
-    try:
-        row, col = index
-    except ValueError:
-        row = index[0]
-        col = 0
-    rshape = expr.shapes[0][row]
-    rstart = sum(expr.shapes[0][:row])
-    try:
-        cshape = expr.shapes[1][col]
-        cstart = sum(expr.shapes[1][:col])
-    except KeyError:
-        cshape = 1
-        cstart = 0
-
-    # Create sub-block if tensor is mixed
-    if (rshape, cshape) != expr.shape:
-        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
-                                                             rshape, cshape,
-                                                             rstart, cstart))
-    else:
+    if expr.rank == 0:
         tensor = temporary
+    else:
+        try:
+            row, col = index
+        except ValueError:
+            row = index[0]
+            col = 0
+        rshape = expr.shapes[0][row]
+        rstart = sum(expr.shapes[0][:row])
+        try:
+            cshape = expr.shapes[1][col]
+            cstart = sum(expr.shapes[1][:col])
+        except KeyError:
+            cshape = 1
+            cstart = 0
+
+        # Create sub-block if tensor is mixed
+        if (rshape, cshape) != expr.shape:
+            tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
+                                                                 rshape,
+                                                                 cshape,
+                                                                 rstart,
+                                                                 cstart))
+        else:
+            tensor = temporary
 
     return tensor
