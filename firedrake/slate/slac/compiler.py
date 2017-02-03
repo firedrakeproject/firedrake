@@ -129,6 +129,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # function calls to the appropriate subkernels.
 
             # If tensor is mixed, there will be more than one SplitKernel
+            incl = []
             for splitkernel in cxt_kernel.tsfc_kernels:
                 index = splitkernel.indices
                 kinfo = splitkernel.kinfo
@@ -138,7 +139,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 clist = [c for ci in kinfo.coefficient_map
                          for c in builder.coefficient(exp.coefficients()[ci])]
 
-                inc.extend(kinfo.kernel._include_dirs)
+                incl.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
                 statements.append(ast.FunCall(kinfo.kernel.name,
                                               tensor, coordsym,
@@ -151,7 +152,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             builder.require_cell_facets()
             loop_stmt, incl = facet_integral_loop(cxt_kernel, builder,
                                                   coordsym, cellfacetsym)
-            inc.extend(incl)
             statements.append(loop_stmt)
 
         elif it_type == "interior_facet_horiz":
@@ -177,7 +177,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                   bottom_sks,
                                                   coordsym,
                                                   mesh_layer_sym)
-            inc.extend(incl)
             statements.append(stmt)
 
         elif it_type in ["exterior_facet_bottom", "exterior_facet_top"]:
@@ -186,11 +185,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             builder.require_mesh_layers()
             stmt, incl = extruded_top_bottom_facet(cxt_kernel, builder,
                                                    coordsym, mesh_layer_sym)
-            inc.extend(incl)
             statements.append(stmt)
 
         else:
             raise ValueError("Kernel type not recognized: %s" % it_type)
+
+        # Don't duplicate include lines
+        inc_dir = list(set(incl) - set(inc))
+        inc.extend(inc_dir)
 
     # Now we handle any terms that require auxiliary data (if any)
     # and update our temporaries and code statements.
