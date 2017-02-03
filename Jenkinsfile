@@ -8,8 +8,9 @@ pipeline {
   stages {
     stage('Clean') {
       steps {
-        // Wipe the workspace so we are building completely clean
-        deleteDir()
+        dir('tmp') {
+          deleteDir()
+        }
       }
     }
     stage('Build') {
