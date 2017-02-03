@@ -1,4 +1,3 @@
-
 pipeline {
   agent any
   environment {
@@ -7,6 +6,10 @@ pipeline {
     CC = "mpicc"
   }
   stages {
+    stage('Clean') {
+      // Wipe the workspace so we are building completely clean
+      deleteDir()
+    }
     stage('Build') {
       steps {
         sh 'mkdir tmp'
