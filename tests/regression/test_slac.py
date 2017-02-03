@@ -4,7 +4,10 @@ from firedrake import *
 from firedrake.slate.slac import compile_expression as compile_slate
 
 
-@pytest.fixture(scope='module', params=[interval, triangle, tetrahedron, quadrilateral])
+@pytest.fixture(scope='module', params=[interval,
+                                        triangle,
+                                        tetrahedron,
+                                        quadrilateral])
 def mesh(request):
     cell = request.param
     if cell == interval:
@@ -52,10 +55,13 @@ def tensor(V, int_type, request):
     return Tensor(inner(u, v) * measure[int_type])
 
 
-def test_determinism(tensor):
+def test_determinism_and_caching(tensor):
     """Tests that the :meth:'compile_slate_expression' forms
     a numerically deterministic system. That is, produced kernels
     are consistent.
+
+    This test also checks that the caching mechanism is functioning
+    properly.
     """
     A = tensor
     # Reconstruct an identical tensor, but as a different instance
@@ -66,6 +72,13 @@ def test_determinism(tensor):
 
     # Checking equivalence of kernels
     assert kernel1[0].kinfo.kernel._ast == kernel2[0].kinfo.kernel._ast
+
+    # Checking cached kernels (they should be identical to previous one)
+    kernel_1a = compile_slate(B)  # Should be the same as A
+    _kernels = A._kernels
+
+    assert kernel_1a[0].kinfo.kernel._ast == kernel1[0].kinfo.kernel._ast
+    assert _kernels[0].kinfo.kernel._ast == kernel1[0].kinfo.kernel._ast
 
 
 if __name__ == '__main__':
