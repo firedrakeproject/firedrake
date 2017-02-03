@@ -17,6 +17,7 @@ pipeline {
       steps {
         sh 'mkdir tmp'
         dir('tmp') {
+          sh 'pip install virtualenv'
           sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
         }
       }
