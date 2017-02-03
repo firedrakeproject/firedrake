@@ -151,15 +151,9 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               collect_loops=False,
               allocate_only=False):
     """Assemble the form or Slate expression f and return a Firedrake object
-    representing the result. This will be a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms/rank-1 Slate tensors and a :class:`.Matrix`
-    for 2-forms/rank-2 Slate tensors.
-
-    .. warning::
-
-       If f is a 0-form wrapped as a Slate tensor, this will fail. However,
-       rank-0 tensors may be used in a Slate expression, so long as the
-       resulting rank of the expression is 1 or 2.
+    representing the result. This will be a :class:`float` for 0-forms/rank-0
+    Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
+    a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
     :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
