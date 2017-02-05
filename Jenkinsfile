@@ -43,7 +43,7 @@ cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
           timestamps {
             sh """
 . ./firedrake/bin/activate
-cd dolfin-adjoint; py.test -v tests_firedrake
+cd firedrake/src/dolfin-adjoint; py.test -v tests_firedrake
 """
           }
         }
