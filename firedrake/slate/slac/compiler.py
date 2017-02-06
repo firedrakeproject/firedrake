@@ -462,7 +462,8 @@ def auxiliary_information(builder):
 
     Returns: a mapping of the form ``{aux_node: aux_temp}``, where `aux_node`
              is an already assembled data-object provided as a
-             `ufl.Coefficient` and `aux_temp` is the corresponding temporary.
+             `firedrake.Function` and `aux_temp` is the corresponding
+             temporary.
 
              a list of auxiliary statements are returned that contain temporary
              declarations and any code-blocks needed to evaluate the
@@ -484,7 +485,7 @@ def auxiliary_information(builder):
             aux_statements.append(ast.Decl(typ, temp))
             aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
 
-            # Now we unpack the coefficient and insert its entries into a
+            # Now we unpack the function and insert its entries into a
             # 1D vector temporary
             isym = ast.Symbol("i1")
             jsym = ast.Symbol("j1")
