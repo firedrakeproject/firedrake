@@ -7,7 +7,9 @@ from ufl.algorithms.multifunction import MultiFunction
 
 
 class RemoveRestrictions(MultiFunction):
-    """UFL MultiFunction for removing any restrictions on the integrals of forms."""
+    """UFL MultiFunction for removing any restrictions on the
+    integrals of forms.
+    """
     expr = MultiFunction.reuse_if_untouched
 
     def positive_restricted(self, o):
@@ -96,12 +98,14 @@ class Transformer(Visitor):
         ret, kernel_name, kernel_args, body, pred, headers, template = ops
 
         body_statements, _ = body.operands()
+        decl_init = "const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n" % name
         new_dec = ast.Decl(typ="Eigen::MatrixBase<Derived> &", sym=name,
-                           init="const_cast<Eigen::MatrixBase<Derived> &>(%s_);\n" % name)
+                           init=decl_init)
         new_body = [new_dec] + body_statements
         eigen_template = "template <typename Derived>"
 
-        new_ops = (ret, kernel_name, kernel_args, new_body, pred, headers, eigen_template)
+        new_ops = (ret, kernel_name, kernel_args,
+                   new_body, pred, headers, eigen_template)
 
         return o.reconstruct(*new_ops, **okwargs)
 

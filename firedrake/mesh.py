@@ -565,18 +565,19 @@ class MeshTopology(object):
                        interior_facet_cell, interior_local_facet_number)
 
     @utils.cached_property
-    def cell_to_facet_map(self):
+    def cell_to_facets(self):
         """Return a :class:`op2.Dat` that maps from a cell index to the local
         facet types on each cell.
 
         The i-th local facet is exterior if the value of this array is :data:`0`
         and interior if the value is :data:`1`.
         """
-        cell_facets = dmplex.cell_to_facets(self._plex, self._cell_numbering,
-                                            self.cell_closure)
+        cell_facets = dmplex.cell_facet_labeling(self._plex,
+                                                 self._cell_numbering,
+                                                 self.cell_closure)
         nfacet = cell_facets.shape[1]
         return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
-                       name="cell-to-local-facet-map")
+                       name="cell-to-local-facet-dat")
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
