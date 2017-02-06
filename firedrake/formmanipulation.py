@@ -11,6 +11,31 @@ from ufl.corealg.map_dag import MultiFunction
 from firedrake.ufl_expr import Argument
 
 
+class ArgumentReplacer(MultiFunction):
+    """Replaces an argument with a new argument defined on
+    a new function space.
+    """
+
+    def __init__(self, arg_map):
+        """Replaces an argument.
+
+        :arg arg_map: a `dict` that maps a given argument to
+                      a new argument defined on a new function
+                      space.
+        """
+        self.arg_map = arg_map
+        super(ArgumentReplacer, self).__init__()
+
+    expr = MultiFunction.reuse_if_untouched
+
+    def argument(self, o):
+        """Given an argument, return a replacement argument.
+
+        :arg o: a `ufl.Argument` to be replaced.
+        """
+        return self.arg_map[o]
+
+
 class ExtractSubBlock(MultiFunction):
 
     """Extract a sub-block from a form."""
