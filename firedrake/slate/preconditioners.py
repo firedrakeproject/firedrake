@@ -28,7 +28,8 @@ class HybridizationPC(PCBase):
         """
         from firedrake import (FunctionSpace, TrialFunction, TestFunction,
                                Function, TrialFunctions, TestFunctions,
-                               BrokenElement, MixedElement, dS, FacetNormal)
+                               BrokenElement, MixedElement, dS,
+                               FacetNormal, Constant, DirichletBC)
         from firedrake.formmanipulation import ArgumentReplacer
         from ufl.algorithms.map_integrands import map_integrand_dags
 
@@ -39,14 +40,14 @@ class HybridizationPC(PCBase):
         test, trial = context.a.arguments()
 
         # Break the function spaces and define fully discontinuous spaces
-        V = test.function_space()
-        broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in V]
+        self.V = test.function_space()
+        broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in self.V]
         if len(broken_elements) == 1:
-            V_d = FunctionSpace(V.mesh(), broken_elements[0])
+            V_d = FunctionSpace(self.V.mesh(), broken_elements[0])
             arg_map = {test: TestFunction(V_d),
                        trial: TrialFunction(V_d)}
         else:
-            V_d = FunctionSpace(V.mesh(), MixedElement(broken_elements))
+            V_d = FunctionSpace(self.V.mesh(), MixedElement(broken_elements))
             arg_map = {test: TestFunctions(V_d),
                        trial: TrialFunctions(V_d)}
 
@@ -57,8 +58,10 @@ class HybridizationPC(PCBase):
 
         # Create the space of approximate traces:
         # the space of Lagrange multipliers
-        TraceSpace = FunctionSpace(V.mesh(), "HDiv Trace",
+        TraceSpace = FunctionSpace(self.V.mesh(), "HDiv Trace",
                                    V_d.ufl_element().degree() - 1)
+        self.trace_condition = DirichletBC(TraceSpace, Constant(0.0),
+                                           (1, 2, 3, 4))
 
         # Broken flux and scalar terms (solution via reconstruction)
         self.broken_solution = Function(V_d)
@@ -72,7 +75,7 @@ class HybridizationPC(PCBase):
         # multipliers
         A = Tensor(new_form)
         gammar = TestFunction(TraceSpace)
-        n = FacetNormal(V.mesh())
+        n = FacetNormal(self.V.mesh())
         K = Tensor(gammar('+') * ufl.dot(trial[0], n) * dS)
         self.schur_comp = K * A.inv * K.T
         self.schur_rhs = K * A.inv * self.broken_rhs
@@ -89,4 +92,47 @@ class HybridizationPC(PCBase):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
         """
-        assemble(self.schur_comp, tensor=self.schur_comp)
+        assemble(self.schur_comp, tensor=self.schur_comp,
+                 bcs=self.trace_condition)
+
+    def apply(self, pc, x, y):
+        """We solve the forward eliminated problem for the
+        approximate traces of the scalar solution (the multipliers)
+        and reconstruct the "broken flux and scalar variable."
+
+        Lastly, we project the broken solutions into the mimetic
+        non-broken finite element space.
+        """
+        from firedrake.solving import solve
+
+        # Transfer non-broken x into a firedrake function?
+
+        # Transfer non-broken rhs data into the broken rhs
+        with y.array as rhs:
+            self.broken_rhs.assign(rhs)
+
+        # Compute the rhs for the multiplier system
+        assemble(self.schur_rhs, tensor=self.schur_rhs)
+
+        # Solve the system for the Lagrange multipliers
+        solve(self.schur_comp, self.trace_solution, self.schur_rhs)
+
+        # Backwards reconstruction for flux and scalar unknowns
+        # and assemble into broken solution (?)
+
+        # Project the broken solution into non-broken spaces
+        # (U, W = self.V)
+
+    def applyTranspose(self, pc, x, y):
+        """Apply the transpose of the preconditioner."""
+        raise NotImplementedError("Not implemented yet, sorry!")
+
+    def view(self, pc, viewer=None):
+        """View the KSP solver to monitor the Lagrange multiplier
+        system.
+        """
+        super(HybridizationPC, self).view(pc, viewer)
+        viewer.printfASCII("KSP solver for the Lagrange multipliers\n")
+        viewer.pushASCIITab()
+        self.ksp.view(viewer)
+        viewer.popASCIITab()
