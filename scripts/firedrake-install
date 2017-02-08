@@ -80,6 +80,7 @@ branches = {}
 # Disgusting hack, are we running on travis/drone?
 travis = "TRAVIS" in os.environ
 drone = "DRONE" in os.environ
+jenkins = "JENKINS_URL" in os.environ
 ci = travis or drone
 ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
@@ -1159,23 +1160,26 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    git_clone("git+https://github.com/firedrakeproject/firedrake.git")
-    if ci and ci_testing_firedrake:
-        if travis:
-            pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-            commit = os.environ["TRAVIS_COMMIT"]
-        elif drone:
-            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
-            commit = os.environ["DRONE_COMMIT_SHA"]
-        else:
-            raise NotImplementedError("Unhandled CI type")
-        os.chdir("firedrake")
-        if pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
-            check_call(["git", "checkout", "FETCH_HEAD"])
-        else:
-            check_call(["git", "checkout", commit])
-        os.chdir("..")
+    if jenkins:
+        check_call(["ln", "-s", "../../../", "firedrake"])
+    else:
+        git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+        if ci and ci_testing_firedrake:
+            if travis:
+                pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+                commit = os.environ["TRAVIS_COMMIT"]
+            elif drone:
+                pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
+                commit = os.environ["DRONE_COMMIT_SHA"]
+            else:
+                raise NotImplementedError("Unhandled CI type")
+            os.chdir("firedrake")
+            if pull_request != "false":
+                check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
+                check_call(["git", "checkout", "FETCH_HEAD"])
+            else:
+                check_call(["git", "checkout", commit])
+                os.chdir("..")
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
