@@ -879,6 +879,9 @@ class Mat(base.Mat):
         if self.assembly_state is not Mat.ASSEMBLED:
             self.handle.assemble()
             self.assembly_state = Mat.ASSEMBLED
+            # Mark blocks as assembled as well.
+            for m in self:
+                m.handle.assemble()
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
