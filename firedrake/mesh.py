@@ -369,6 +369,8 @@ class MeshTopology(object):
         dim = plex.getDimension()
 
         cStart, cEnd = plex.getHeightStratum(0)  # cells
+        if cStart == cEnd:
+            raise RuntimeError("Mesh must have at least one cell on every process")
         cell_nfacets = plex.getConeSize(cStart)
 
         self._grown_halos = False
