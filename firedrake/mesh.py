@@ -367,6 +367,11 @@ class MeshTopology(object):
             # We distribute with overlap zero, in case we're going to
             # refine this mesh in parallel.  Later, when we actually use
             # it, we grow the halo.
+            partitioner = plex.getPartitioner()
+            if IntType.itemsize == 8:
+                # Default to Parmetis on 64bit ints (Chaco is 32 bit int only)
+                partitioner.setType(partitioner.Type.PARMETIS)
+            partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
         dim = plex.getDimension()
