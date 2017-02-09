@@ -106,15 +106,35 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    periodic_kernel = """double Y,pi;
-            Y = 0.5*(old_coords[0][1]-old_coords[1][1]);
-            pi=3.141592653589793;
-            for(int i=0;i<2;i++){
-            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
-            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
-            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
-            new_coords[i][0] *= L[0];
-            }"""
+    periodic_kernel = """
+    const double pi = 3.141592653589793;
+    const double eps = 1e-12;
+    double a = atan2(old_coords[0][1], old_coords[0][0]) / (2*pi);
+    double b = atan2(old_coords[1][1], old_coords[1][0]) / (2*pi);
+    int swap = 0;
+    if ( a >= b ) {
+        const double tmp = b;
+        b = a;
+        a = tmp;
+        swap = 1;
+    }
+    if ( fabs(b) < eps && a < -eps ) {
+        b = 1.0;
+    }
+    if ( a < -eps ) {
+        a += 1;
+    }
+    if ( b < -eps ) {
+        b += 1;
+    }
+    if ( swap ) {
+        const double tmp = b;
+        b = a;
+        a = tmp;
+    }
+    new_coords[0][0] = a * L[0];
+    new_coords[1][0] = b * L[0];
+    """
 
     cL = Constant(length)
 
