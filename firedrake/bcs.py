@@ -57,11 +57,7 @@ class DirichletBC(object):
         self.function_arg = g
         self.comm = V.comm
         self._original_arg = self.function_arg
-        if sub_domain == "on_boundary":
-            self.sub_domain = \
-                tuple(map(int, V.mesh().topology.exterior_facets.unique_markers))
-        else:
-            self.sub_domain = sub_domain
+        self.sub_domain = sub_domain
         self._currently_zeroed = False
         if method not in ["topological", "geometric"]:
             raise ValueError("Unknown boundary condition method %s" % method)
@@ -168,18 +164,30 @@ class DirichletBC(object):
         elif self.sub_domain == "top":
             return fs.top_nodes(method=self.method)
         else:
+            if self.sub_domain == "on_boundary":
+                ids = tuple(map(int, fs.mesh().topology.exterior_facets.unique_markers))
+            else:
+                ids = self.sub_domain
+
             if fs.extruded:
                 base_maps = fs.exterior_facet_boundary_node_map(
                     self.method).values_with_halo.take(
-                    fs._mesh._base_mesh.exterior_facets.subset(self.sub_domain).indices,
+                    fs._mesh._base_mesh.exterior_facets.subset(ids).indices,
                     axis=0)
                 facet_offset = fs.exterior_facet_boundary_node_map(self.method).offset
-                return np.unique(np.concatenate([base_maps + i * facet_offset
-                                                 for i in range(fs._mesh.layers - 1)]))
+                nodes = np.unique(np.concatenate([base_maps + i * facet_offset
+                                                  for i in range(fs._mesh.layers - 1)]))
+                if self.sub_domain == "on_boundary":
+                    # include the top and bottom nodes
+                    return np.unique(np.concatenate([nodes, fs.bottom_nodes(method=self.method),
+                                                     fs.top_nodes(method=self.method)]))
+                else:
+                    return nodes
+
             return np.unique(
                 fs.exterior_facet_boundary_node_map(
                     self.method).values_with_halo.take(
-                    fs._mesh.exterior_facets.subset(self.sub_domain).indices,
+                    fs._mesh.exterior_facets.subset(ids).indices,
                     axis=0))
 
     @utils.cached_property
