@@ -41,6 +41,9 @@ class HybridizationPC(PCBase):
 
         # Break the function spaces and define fully discontinuous spaces
         self.V = test.function_space()
+        if self.V.mesh().cell_set._extruded:
+            raise NotImplementedError("Not implemented on extruded meshes.")
+
         broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in self.V]
         if len(broken_elements) == 1:
             V_d = FunctionSpace(self.V.mesh(), broken_elements[0])
@@ -54,14 +57,14 @@ class HybridizationPC(PCBase):
         # Replace the problems arguments with arguments defined
         # on the new discontinuous spaces
         replacer = ArgumentReplacer(arg_map)
-        new_form = map_integrand_dags(replacer, context.a)
+        self.new_form = map_integrand_dags(replacer, context.a)
 
         # Create the space of approximate traces:
         # the space of Lagrange multipliers
         TraceSpace = FunctionSpace(self.V.mesh(), "HDiv Trace",
                                    V_d.ufl_element().degree() - 1)
         self.trace_condition = DirichletBC(TraceSpace, Constant(0.0),
-                                           (1, 2, 3, 4))
+                                           "on_boundary")
 
         # Broken flux and scalar terms (solution via reconstruction)
         self.broken_solution = Function(V_d)
@@ -73,7 +76,7 @@ class HybridizationPC(PCBase):
         # Create the symbolic Schur-reduction of the discontinuous
         # problem in Slate. Weakly enforce continuity via the Lagrange
         # multipliers
-        A = Tensor(new_form)
+        A = Tensor(self.new_form)
         gammar = TestFunction(TraceSpace)
         n = FacetNormal(self.V.mesh())
         K = Tensor(gammar('+') * ufl.dot(trial[0], n) * dS)
@@ -103,19 +106,17 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-        from firedrake.solving import solve
-
         # Transfer non-broken x into a firedrake function?
 
         # Transfer non-broken rhs data into the broken rhs
         with y.array as rhs:
-            self.broken_rhs.assign(rhs)
+            self.broken_rhs.interpolate(rhs)
 
         # Compute the rhs for the multiplier system
         assemble(self.schur_rhs, tensor=self.schur_rhs)
 
         # Solve the system for the Lagrange multipliers
-        solve(self.schur_comp, self.trace_solution, self.schur_rhs)
+        self.ksp.solve(self.schur_comp, self.trace_solution, self.schur_rhs)
 
         # Backwards reconstruction for flux and scalar unknowns
         # and assemble into broken solution (?)
