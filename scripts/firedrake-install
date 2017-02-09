@@ -54,7 +54,8 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["developer", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
-                           "slepc", "slope", "packages", "honour_pythonpath"]
+                           "slepc", "slope", "packages", "honour_pythonpath",
+                           "petsc_int_type"]
 
 
 def deep_update(this, that):
@@ -123,8 +124,13 @@ honoured.""",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
     parser.add_argument("--minimal-petsc", "--minimal_petsc", action="store_true",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
-    parser.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
-                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
+                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
+                       default="int32", type=str,
+                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
+
     parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
@@ -200,8 +206,13 @@ else:
                         help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
                         help="Install SLEPc along with PETSc")
-    parser.add_argument("--honour-petsc-dir", action="store_true",
-                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
+                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
+                       default="int32", type=str,
+                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
+
     parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true", default=config["options"].get("honour-pythonpath", False),
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--clean", action='store_true',
@@ -219,6 +230,11 @@ else:
     args.rebuild_script = legacy_args["rebuild_script"]
 
     args.packages = list(set(args.packages))  # remove duplicates
+
+    petsc_int_type_changed = False
+    if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
+        petsc_int_type_changed = True
+        args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
     if legacy:
@@ -316,9 +332,15 @@ if options["minimal_petsc"]:
     # If you change these minimal PETSc options, you will have to
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-chaco --download-hdf5 --download-hypre --download-eigen"""
+    if options["petsc_int_type"] == "int64":
+        petsc_opts = """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-eigen --with-64-bit-indices"""
+    else:
+        petsc_opts = """--download-chaco --download-hdf5 --download-hypre --download-eigen"""
 else:
-    petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
+    if options["petsc_int_type"] == "int64":
+        petsc_opts = """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-eigen --with-64-bit-indices"""
+    else:
+        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -327,6 +349,9 @@ else:
     for opt in petsc_opts.split():
         if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
             os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
+
+if mode == "update" and petsc_int_type_changed:
+    log.warning("""Force rebuilding all packages because PETSc int type changed""")
 
 
 def check_call(arguments, env=None):
