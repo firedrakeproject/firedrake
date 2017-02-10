@@ -168,7 +168,10 @@ class KernelBuilder(object):
         assert isinstance(macro_kernels, list), (
             "Please wrap all macro kernel functions in a list"
         )
-        self._finalize_kernels_and_update()
+        assert self.finalized_ast, (
+            "AST not finalized. Did you forget to call "
+            "builder._finalize_kernels_and_update()?"
+        )
         kernel_ast = self.finalized_ast
         kernel_ast.extend(macro_kernels)
 
