@@ -1160,7 +1160,7 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    if jenkins:
+    if jenkins and ci_testing_firedrake:
         check_call(["ln", "-s", "../../../", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
