@@ -1179,7 +1179,7 @@ if mode == "install":
                 check_call(["git", "checkout", "FETCH_HEAD"])
             else:
                 check_call(["git", "checkout", commit])
-                os.chdir("..")
+            os.chdir("..")
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
