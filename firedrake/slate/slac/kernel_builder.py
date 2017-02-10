@@ -1,4 +1,7 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
+
+from collections import OrderedDict
 
 from coffee import base as ast
 
@@ -41,7 +44,11 @@ class KernelBuilder(object):
         self.coefficient_map = prepare_coefficients(expression)
         # Initialize temporaries and any auxiliary expressions for special
         # handling
-        self.temps, self.aux_exprs = generate_expr_data(expression)
+        temps, aux_exprs = generate_expr_data(expression)
+        # Sort by temporary str: 'T0', 'T1', etc.
+        self.temps = OrderedDict(sorted(iteritems(temps),
+                                        key=lambda x: str(x[1])))
+        self.aux_exprs = aux_exprs
 
     @property
     def integral_type(self):
