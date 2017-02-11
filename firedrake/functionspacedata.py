@@ -18,12 +18,12 @@ from __future__ import absolute_import, print_function, division
 from six.moves import map, range
 
 import numpy
-import FIAT
+import finat
 from decorator import decorator
 from functools import reduce
 
 
-from FIAT.finite_element import entity_support_dofs
+from finat.finiteelementbase import entity_support_dofs
 
 from coffee import base as ast
 
@@ -106,7 +106,7 @@ def get_cell_node_list(mesh, entity_dofs, global_numbering):
     """Get the cell->node list for specified dof layout.
 
     :arg mesh: The mesh to use.
-    :arg entity_dofs: The FIAT entity_dofs dict.
+    :arg entity_dofs: The FInAT entity_dofs dict.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
     :returns: A numpy array mapping mesh cells to function space
@@ -140,7 +140,7 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering):
 
     :arg mesh: The mesh to use.
     :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
-    :arg entity_dofs: FIAT entity dofs.
+    :arg entity_dofs: FInAT entity dofs.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
     :returns: A dict mapping mesh entity sets to numpy arrays of
@@ -175,20 +175,20 @@ def get_dof_offset(mesh, key, entity_dofs, ndof):
 
     :arg mesh: The mesh to use.
     :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
-    :arg entity_dofs: The FIAT entity_dofs dict.
-    :arg ndof: The number of dofs (the FIAT space_dimension).
+    :arg entity_dofs: The FInAT entity_dofs dict.
+    :arg ndof: The number of dofs (the FInAT space_dimension).
     :returns: A numpy array of dof offsets (extruded) or ``None``.
     """
     return mesh.make_offset(entity_dofs, ndof)
 
 
 @cached
-def get_bt_masks(mesh, key, fiat_element):
+def get_bt_masks(mesh, key, finat_element):
     """Get masks for top and bottom dofs.
 
     :arg mesh: The mesh to use.
     :arg key: Canonicalised entity_dofs (see :func:`entity_dofs_key`).
-    :arg fiat_element: The FIAT element.
+    :arg finat_element: The FInAT element.
     :returns: A dict mapping ``"topological"`` and ``"geometric"``
         keys to bottom and top dofs (extruded) or ``None``.
     """
@@ -200,13 +200,13 @@ def get_bt_masks(mesh, key, fiat_element):
     # Sorting the keys of the closure entity dofs, the whole cell
     # comes last [-1], before that the horizontal facet [-2], before
     # that vertical facets [-3]. We need the horizontal facets here.
-    closure_dofs = fiat_element.entity_closure_dofs()
+    closure_dofs = finat_element.entity_closure_dofs()
     horiz_facet_dim = sorted(closure_dofs.keys())[-2]
     b_mask = closure_dofs[horiz_facet_dim][0]
     t_mask = closure_dofs[horiz_facet_dim][1]
     bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
     # Geometric facet dofs
-    facet_dofs = entity_support_dofs(fiat_element, horiz_facet_dim)
+    facet_dofs = entity_support_dofs(finat_element, horiz_facet_dim)
     bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
     return bt_masks
 
@@ -264,7 +264,7 @@ def set_max_work_functions(V, val):
 def entity_dofs_key(entity_dofs):
     """Provide a canonical key for an entity_dofs dict.
 
-    :arg entity_dofs: The FIAT entity_dofs.
+    :arg entity_dofs: The FInAT entity_dofs.
     :returns: A tuple of canonicalised entity_dofs (suitable for
         caching).
     """
@@ -283,15 +283,15 @@ class FunctionSpaceData(object):
     stores that shared data.  It is cached on the mesh.
 
     :arg mesh: The mesh to share the data on.
-    :arg fiat_element: The FIAT describing how nodes are attached to
-       topological entities.
+    :arg finat_element: The FInAT element describing how nodes are
+       attached to topological entities.
     """
     __slots__ = ("map_caches", "entity_node_lists",
                  "node_set", "bt_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
-    def __init__(self, mesh, fiat_element):
-        entity_dofs = fiat_element.entity_dofs()
+    def __init__(self, mesh, finat_element):
+        entity_dofs = finat_element.entity_dofs()
         nodes_per_entity = tuple(mesh.make_dofs_per_plex_entity(entity_dofs))
 
         # Create the PetscSection mapping topological entities to functionspace nodes
@@ -310,8 +310,8 @@ class FunctionSpaceData(object):
         self.map_caches = get_map_caches(mesh, edofs_key)
         self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering)
         self.node_set = node_set
-        self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, fiat_element.space_dimension())
-        self.bt_masks = get_bt_masks(mesh, edofs_key, fiat_element)
+        self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, finat_element.space_dimension())
+        self.bt_masks = get_bt_masks(mesh, edofs_key, finat_element)
         self.extruded = bool(mesh.layers)
         self.mesh = mesh
         self.global_numbering = global_numbering
@@ -343,7 +343,7 @@ class FunctionSpaceData(object):
             return self.map_caches["boundary_node"][method]
         except KeyError:
             pass
-        el = V.fiat_element
+        el = V.finat_element
 
         dim = self.mesh.facet_dimension()
 
@@ -385,7 +385,7 @@ class FunctionSpaceData(object):
         rank_ast = ast.Symbol("l_nodes", rank=(ast.Symbol("facet", rank=(0,)), "n"))
 
         body = ast.Block([ast.Decl("int",
-                                   ast.Symbol("l_nodes", (len(el.get_reference_element().topology[dim]),
+                                   ast.Symbol("l_nodes", (len(el.cell.topology[dim]),
                                                           nodes_per_facet)),
                                    init=ast.ArrayInit(c_array(map(c_array, local_facet_nodes))),
                                    qualifiers=["const"]),
@@ -550,19 +550,19 @@ class FunctionSpaceData(object):
             return val
 
 
-def get_shared_data(mesh, fiat_element):
+def get_shared_data(mesh, finat_element):
     """Return the :class:`FunctionSpaceData` for the given
     element.
 
     :arg mesh: The mesh to build the function space data on.
-    :arg fiat_element: A FIAT element.
-    :raises ValueError: if mesh or fiat_element are invalid.
+    :arg finat_element: A FInAT element.
+    :raises ValueError: if mesh or finat_element are invalid.
     :returns: a :class:`FunctionSpaceData` object with the shared
         data.
     """
     if not isinstance(mesh, mesh_mod.MeshTopology):
         raise ValueError("%s is not a MeshTopology" % mesh)
-    if not isinstance(fiat_element, FIAT.finite_element.FiniteElement):
+    if not isinstance(finat_element, finat.finiteelementbase.FiniteElementBase):
         raise ValueError("Can't create function space data from a %s" %
-                         type(fiat_element))
-    return FunctionSpaceData(mesh, fiat_element)
+                         type(finat_element))
+    return FunctionSpaceData(mesh, finat_element)
