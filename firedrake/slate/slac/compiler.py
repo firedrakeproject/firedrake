@@ -23,9 +23,9 @@ from collections import OrderedDict
 
 from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
-from firedrake.slate.slate import (TensorBase, Tensor,
-                                   Transpose, Inverse, Negative,
-                                   Add, Sub, Mul, Action)
+from firedrake.slate.slate import (TensorBase, Transpose, Inverse,
+                                   Negative, Add, Sub, Mul,
+                                   Action)
 from firedrake.slate.slac.kernel_builder import KernelBuilder
 from firedrake import op2
 
@@ -106,7 +106,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     declared_temps = {}
     for cxt_kernel in builder.context_kernels:
         exp = cxt_kernel.tensor
-        t = builder.get_temporary(exp)
+        t = builder.temps[exp]
 
         if exp not in declared_temps:
             # Declare and initialize the temporary
@@ -304,7 +304,7 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
 
     Returns: A COFFEE code statement and updated include_dirs
     """
-    t = builder.get_temporary(exp)
+    t = builder.temps[exp]
     nlayers = exp.ufl_domain().topological.layers - 1
 
     incl = []
@@ -357,7 +357,7 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
     Returns: A COFFEE code statement and updated include_dirs
     """
     exp = cxt_kernel.tensor
-    t = builder.get_temporary(exp)
+    t = builder.temps[exp]
     nlayers = exp.ufl_domain().topological.layers - 1
 
     incl = []
@@ -402,7 +402,7 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
     Returns: A COFFEE code statement and updated include_dirs
     """
     exp = cxt_kernel.tensor
-    t = builder.get_temporary(exp)
+    t = builder.temps[exp]
     it_type = cxt_kernel.original_integral_type
     itsym = ast.Symbol("i0")
 

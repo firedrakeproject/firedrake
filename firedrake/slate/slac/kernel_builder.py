@@ -80,13 +80,6 @@ class KernelBuilder(object):
         """
         self.needs_mesh_layers = True
 
-    def get_temporary(self, expr):
-        """Extracts a temporary given a particular terminal expression."""
-        if expr not in self.temps:
-            raise ValueError("No temporary for the given expression")
-
-        return self.temps[expr]
-
     def coefficient(self, coefficient):
         """Extracts a coefficient from the coefficient_map. This handles both
         the case when the coefficient is defined on a mixed or non-mixed
@@ -112,15 +105,6 @@ class KernelBuilder(object):
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
                        for cxt_k in cxt_tuple]
         return cxt_kernels
-
-    @cached_property
-    def full_kernel_list(self):
-        """Unwraps all TSFC kernels into one iterable."""
-
-        cxt_kernels = self.context_kernels
-        splitkernels = [splitkernel for cxt_k in cxt_kernels
-                        for splitkernel in cxt_k.tsfc_kernels]
-        return splitkernels
 
     def construct_macro_kernel(self, name, args, statements):
         """Constructs a macro kernel function that calls any subkernels.
@@ -153,7 +137,11 @@ class KernelBuilder(object):
         transformer = Transformer()
         oriented = self.oriented
 
-        for splitkernel in self.full_kernel_list:
+        cxt_kernels = self.context_kernels
+        splitkernels = [splitkernel for cxt_k in cxt_kernels
+                        for splitkernel in cxt_k.tsfc_kernels]
+
+        for splitkernel in splitkernels:
             oriented = oriented or splitkernel.kinfo.oriented
             # TODO: Extend multiple domains support
             assert splitkernel.kinfo.subdomain_id == "otherwise"
@@ -227,6 +215,8 @@ def generate_expr_data(expr, temps=None, aux_temps=None):
     Returns: the arguments temps and aux_temps.
     """
     # Prepare temporaries map and auxiliary expressions list
+    # NOTE: Ordering here matters, especially when running
+    # Slate in parallel.
     if temps is None:
         temps = OrderedDict()
 
