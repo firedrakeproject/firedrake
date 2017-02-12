@@ -106,7 +106,19 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
+        from firedrake.formmanipulation import split_form
+
+        split_forms = split_form(self.new_form)
+        A = Tensor([sf.form for sf in split_forms
+                    if sf.indices == (0, 0)][0])
+        B = Tensor([sf.form for sf in split_forms
+                    if sf.indices == (0, 1)][0])
+        C = Tensor([sf.form for sf in split_forms
+                    if sf.indices == (1, 1)][0])
+
         # Transfer non-broken x into a firedrake function?
+        with x.array as data:
+            self.broken_solution.assign(data)
 
         # Transfer non-broken rhs data into the broken rhs
         with y.array as rhs:
@@ -116,10 +128,13 @@ class HybridizationPC(PCBase):
         assemble(self.schur_rhs, tensor=self.schur_rhs)
 
         # Solve the system for the Lagrange multipliers
-        self.ksp.solve(self.schur_comp, self.trace_solution, self.schur_rhs)
+        self.ksp.solve(self.schur_comp,
+                       self.trace_solution,
+                       self.schur_rhs)
 
         # Backwards reconstruction for flux and scalar unknowns
-        # and assemble into broken solution (?)
+        # and assemble into broken solution bits
+        sigma_h, u_h = self.broken_solution.split()
 
         # Project the broken solution into non-broken spaces
         # (U, W = self.V)
