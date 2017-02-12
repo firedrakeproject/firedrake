@@ -6,7 +6,11 @@ from __future__ import absolute_import, print_function, division
 
 import ufl
 
-from firedrake import assemble
+from firedrake import (FunctionSpace, TrialFunction, TestFunction,
+                       Function, TrialFunctions, TestFunctions,
+                       BrokenElement, MixedElement,
+                       FacetNormal, Constant, DirichletBC,
+                       assemble)
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
@@ -26,10 +30,6 @@ class HybridizationPC(PCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake import (FunctionSpace, TrialFunction, TestFunction,
-                               Function, TrialFunctions, TestFunctions,
-                               BrokenElement, MixedElement, dS,
-                               FacetNormal, Constant, DirichletBC)
         from firedrake.formmanipulation import ArgumentReplacer
         from ufl.algorithms.map_integrands import map_integrand_dags
 
@@ -61,25 +61,26 @@ class HybridizationPC(PCBase):
 
         # Create the space of approximate traces:
         # the space of Lagrange multipliers
-        TraceSpace = FunctionSpace(self.V.mesh(), "HDiv Trace",
-                                   V_d.ufl_element().degree() - 1)
-        self.trace_condition = DirichletBC(TraceSpace, Constant(0.0),
+        self.TraceSpace = FunctionSpace(self.V.mesh(), "HDiv Trace",
+                                        V_d.ufl_element().degree() - 1)
+        self.trace_condition = DirichletBC(self.TraceSpace, Constant(0.0),
                                            "on_boundary")
 
         # Broken flux and scalar terms (solution via reconstruction)
         self.broken_solution = Function(V_d)
         # Broken RHS of the fully discontinuous problem
         self.broken_rhs = Function(V_d)
+        self.broken_linear_form = self.broken_rhs * test[1] * ufl.dx
         # Solution of the system for the Lagrange multipliers
-        self.trace_solution = Function(TraceSpace)
+        self.trace_solution = Function(self.TraceSpace)
 
         # Create the symbolic Schur-reduction of the discontinuous
         # problem in Slate. Weakly enforce continuity via the Lagrange
         # multipliers
         A = Tensor(self.new_form)
-        gammar = TestFunction(TraceSpace)
-        n = FacetNormal(self.V.mesh())
-        K = Tensor(gammar('+') * ufl.dot(trial[0], n) * dS)
+        gammar = TestFunction(self.TraceSpace)
+        self.n = FacetNormal(self.V.mesh())
+        K = Tensor(gammar('+') * ufl.dot(trial[0], self.n) * ufl.dS)
         self.schur_comp = K * A.inv * K.T
         self.schur_rhs = K * A.inv * self.broken_rhs
 
@@ -116,6 +117,10 @@ class HybridizationPC(PCBase):
         C = Tensor([sf.form for sf in split_forms
                     if sf.indices == (1, 1)][0])
 
+        split_rhs = split_form(self.broken_linear_form)
+        F = Tensor([sf.form for sf in split_rhs
+                    if sf.indices == (1,)][0])
+
         # Transfer non-broken x into a firedrake function?
         with x.array as data:
             self.broken_solution.assign(data)
@@ -134,10 +139,26 @@ class HybridizationPC(PCBase):
 
         # Backwards reconstruction for flux and scalar unknowns
         # and assemble into broken solution bits
+        trial = A.arguments()[0]
+        gammar = TestFunction(self.TraceSpace)
+        K = Tensor(gammar('+') * ufl.dot(trial, self.n) * ufl.dS)
+
+        # Split the solution function and reconstruct
+        # each bit separately
         sigma_h, u_h = self.broken_solution.split()
 
+        M = B * A.inv * B.T + C
+        g = F + B * A.inv * K.T * self.trace_solution
+        u_sol = M.solve(g)
+
+        assemble(u_sol, tensor=u_h)
+
+        sigma_sol = A.solve(B.T * u_h - K.T * self.trace_solution)
+
+        assemble(sigma_sol, tensor=sigma_h)
+
         # Project the broken solution into non-broken spaces
-        # (U, W = self.V)
+        # (U, W = self.V)?
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
