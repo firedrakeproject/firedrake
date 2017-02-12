@@ -44,16 +44,14 @@ class KernelBuilder(object):
 
         # Generate coefficient map (both mixed and non-mixed cases handled)
         self.coefficient_map = prepare_coefficients(expression)
-        # Initialize temporaries and any auxiliary expressions for special
-        # handling
+        # Initialize temporaries and any auxiliary temporaries
         temps, aux_temps = generate_expr_data(expression)
         # Sort by temporary str: 'T0', 'T1', etc.
         self.temps = OrderedDict(sorted(iteritems(temps),
                                         key=lambda x: str(x[1])))
         # Since the most complicated expressions get caught first, we
-        # reorder by expression complexity to handle any nested expressions.
-        # For example, if we have inverses/transposes nested inside
-        # another inverse/transpose
+        # reorder by expression complexity to create temporaries for the
+        # inner-most instances first.
         self.aux_temps = OrderedDict(sorted(iteritems(aux_temps),
                                             key=lambda x: x[0]._complexity))
 
@@ -227,8 +225,8 @@ def generate_expr_data(expr, temps=None, aux_temps=None):
         temps.setdefault(expr, ast.Symbol("T%d" % len(temps)))
 
     elif isinstance(expr, TensorOp):
-        # If we have an Action instance, store expr in aux_exprs for
-        # special handling in the compiler
+        # We handle Action, Transpose and Inverse nodes by creating
+        # separate temporaries for these quantities
         if isinstance(expr, (Action, Transpose, Inverse)):
             aux_temps.setdefault(expr, ast.Symbol("auxT%d" % len(aux_temps)))
 

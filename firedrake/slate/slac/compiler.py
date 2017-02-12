@@ -103,6 +103,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     mesh_layer_sym = ast.Symbol("layer")
     inc = []
 
+    # We keep track of temporaries that have been declared
     declared_temps = {}
     for cxt_kernel in builder.context_kernels:
         exp = cxt_kernel.tensor
@@ -197,12 +198,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         inc_dir = list(set(incl) - set(inc))
         inc.extend(inc_dir)
 
-    # Now we handle any terms that require auxiliary data (if any)
-    # and update our temporaries and code statements.
-    # In particular, if we need to apply the action of a
-    # Slate tensor on an already assembled coefficient, or
-    # compute matrix inverses/transposes.
+    # Now we handle any terms that require auxiliary temporaries,
+    # such as inverses, transposes and actions of a tensor on a
+    # coefficient
     if bool(builder.aux_temps):
+        # The declared temps will be updated within this method
         aux_statements = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_statements)
 
@@ -282,6 +282,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     idx = tuple([0]*slate_expr.rank)
 
     kernels = (SplitKernel(idx, kinfo),)
+
+    # Store the resulting kernel for reuse
     slate_expr._kernels = kernels
 
     return kernels
@@ -458,13 +460,15 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
 
 
 def auxiliary_temporaries(builder, declared_temps):
-    """This function generates any auxiliary information regarding special
+    """This function generates auxiliary information regarding special
     handling of expressions that require creating additional temporaries.
 
     :arg builder: a :class:`KernelBuilder` object that contains all the
                   necessary temporary and expression information.
     :arg declared_temps: a `dict` of temporaries that have already been
-                         declared and assigned values.
+                         declared and assigned values. This will be
+                         updated in this method and referenced later
+                         in the compiler.
     Returns: a list of auxiliary statements are returned that contain temporary
              declarations and any code-blocks needed to evaluate the
              expression.
@@ -571,10 +575,11 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         representation of the `slate.TensorBase` expr.
     """
     # If the tensor is terminal, it has already been declared.
-    # For transposes/inverses/actions, these are recursively declared
-    # in order of expression complexity. If an expression contains an
-    # one of these objects, they will be declared as well.
-    # This minimizes the times an inverse/tranpose/action is computed.
+    # For transposes/inverses/actions, these are declared and handled
+    # in order of expression complexity. If an expression contains any
+    # one of these objects as operands, they will have been declared
+    # previously. This minimizes how often we compute an inverse/tranpose
+    # or an action instance.
     if expr in temps:
         return temps[expr].gencode()
 
