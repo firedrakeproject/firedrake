@@ -224,6 +224,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                        declared_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
 
+    # Finalize AST for macro kernel construction
+    builder._finalize_kernels_and_update()
+
     # Generate arguments for the macro kernel
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
     for c in expr_coeffs:

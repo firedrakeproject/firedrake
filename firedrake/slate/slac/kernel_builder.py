@@ -40,6 +40,7 @@ class KernelBuilder(object):
         self.needs_mesh_layers = False
         self.oriented = False
         self.finalized_ast = None
+        self._is_finalized = False
 
         # Generate coefficient map (both mixed and non-mixed cases handled)
         self.coefficient_map = prepare_coefficients(expression)
@@ -161,6 +162,7 @@ class KernelBuilder(object):
 
         self.oriented = oriented
         self.finalized_ast = kernel_list
+        self._is_finalized = True
 
     def construct_ast(self, macro_kernels):
         """Constructs the final kernel AST.
@@ -174,7 +176,10 @@ class KernelBuilder(object):
         assert isinstance(macro_kernels, list), (
             "Please wrap all macro kernel functions in a list"
         )
-        self._finalize_kernels_and_update()
+        assert self._is_finalized, (
+            "AST not finalized. Did you forget to call "
+            "builder._finalize_kernels_and_update()?"
+        )
         kernel_ast = self.finalized_ast
         kernel_ast.extend(macro_kernels)
 
