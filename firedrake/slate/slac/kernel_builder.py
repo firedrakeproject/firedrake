@@ -6,7 +6,7 @@ from collections import OrderedDict
 from coffee import base as ast
 
 from firedrake.slate.slate import (TensorBase, Tensor, TensorOp,
-                                   Action)
+                                   Action, Inverse, Transpose)
 from firedrake.slate.slac.utils import Transformer
 from firedrake.utils import cached_property
 
@@ -50,12 +50,11 @@ class KernelBuilder(object):
         self.temps = OrderedDict(sorted(iteritems(temps),
                                         key=lambda x: str(x[1])))
         # Since the most complicated expressions get caught first, we
-        # reverse the order to address any nested expressions.
+        # reorder by expression complexity to handle any nested expressions.
         # For example, if we have inverses/transposes nested inside
         # another inverse/transpose
         self.aux_temps = OrderedDict(sorted(iteritems(aux_temps),
-                                            key=lambda x: str(x[1]),
-                                            reverse=True))
+                                            key=lambda x: x[0]._complexity))
 
     @property
     def integral_type(self):
@@ -224,10 +223,10 @@ def generate_expr_data(expr, temps=None, aux_temps=None):
     """
     # Prepare temporaries map and auxiliary expressions list
     if temps is None:
-        temps = {}
+        temps = OrderedDict()
 
     if aux_temps is None:
-        aux_temps = {}
+        aux_temps = OrderedDict()
 
     if isinstance(expr, Tensor):
         temps.setdefault(expr, ast.Symbol("T%d" % len(temps)))
@@ -235,7 +234,7 @@ def generate_expr_data(expr, temps=None, aux_temps=None):
     elif isinstance(expr, TensorOp):
         # If we have an Action instance, store expr in aux_exprs for
         # special handling in the compiler
-        if isinstance(expr, (Action,)):
+        if isinstance(expr, (Action, Transpose, Inverse)):
             aux_temps.setdefault(expr, ast.Symbol("auxT%d" % len(aux_temps)))
 
         # Send operands through recursively

@@ -200,10 +200,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Now we handle any terms that require auxiliary data (if any)
     # and update our temporaries and code statements.
     # In particular, if we need to apply the action of a
-    # Slate tensor on an already assembled coefficient.
+    # Slate tensor on an already assembled coefficient, or
+    # compute matrix inverses/transposes.
     if bool(builder.aux_temps):
-        aux_statements = auxiliary_information(builder, declared_temps,
-                                               eigen_parameters)
+        aux_statements = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_statements)
 
     # Now we create the result statement by declaring its eigen type and
@@ -221,8 +221,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Generate the complete c++ string performing the linear algebra operations
     # on Eigen matrices/vectors
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
-                                                       declared_temps,
-                                                       eigen_parameters))
+                                                       declared_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
@@ -455,36 +454,47 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
     return loop_stmt, incl
 
 
-def auxiliary_information(builder, declared_temps, params):
+def auxiliary_temporaries(builder, declared_temps):
     """This function generates any auxiliary information regarding special
-    handling of expressions that do not have any integral forms or subkernels
-    associated with it.
+    handling of expressions that require creating additional temporaries.
 
     :arg builder: a :class:`KernelBuilder` object that contains all the
                   necessary temporary and expression information.
-
-    Returns: a mapping of the form ``{aux_node: aux_temp}``, where `aux_node`
-             is an already assembled data-object provided as a
-             `firedrake.Function` and `aux_temp` is the corresponding
-             temporary.
-
-             a list of auxiliary statements are returned that contain temporary
+    :arg declared_temps: a `dict` of temporaries that have already been
+                         declared and assigned values.
+    Returns: a list of auxiliary statements are returned that contain temporary
              declarations and any code-blocks needed to evaluate the
              expression.
     """
     aux_statements = []
     for exp in builder.aux_temps:
-        if isinstance(exp, Action):
+        if isinstance(exp, Transpose):
+            # Get the temporary for the particular transpose
+            # expression
+            tensor, = exp.operands
+            result = "(%s).transpose()" % (
+                metaphrase_slate_to_cpp(tensor, declared_temps)
+            )
+
+        elif isinstance(exp, Inverse):
+            # Get the temporary for the particular inverse
+            # expression
+            tensor, = exp.operands
+            result = "(%s).inverse()" % (
+                metaphrase_slate_to_cpp(tensor, declared_temps)
+            )
+
+        elif isinstance(exp, Action):
             actee, = exp.actee
             if actee not in declared_temps:
                 # Declare a temporary for the coefficient
-                temp = ast.Symbol("C%d" % len(declared_temps))
+                ctemp = ast.Symbol("C%d" % len(declared_temps))
                 V = actee.function_space()
                 node_extent = V.fiat_element.space_dimension()
                 dof_extent = np.prod(V.ufl_element().value_shape())
                 typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
-                aux_statements.append(ast.Decl(typ, temp))
-                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+                aux_statements.append(ast.Decl(typ, ctemp))
+                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % ctemp))
 
                 # Now we unpack the function and insert its entries into a
                 # 1D vector temporary
@@ -495,7 +505,7 @@ def auxiliary_information(builder, declared_temps, params):
                 # Inner-loop running over dof_extent
                 coeff_sym = ast.Symbol(builder.coefficient_map[actee],
                                        rank=(isym, jsym))
-                coeff_temp = ast.Symbol(temp, rank=(tensor_index,))
+                coeff_temp = ast.Symbol(ctemp, rank=(tensor_index,))
                 inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
                                      ast.Less(jsym, dof_extent),
                                      ast.Incr(jsym, 1),
@@ -507,24 +517,29 @@ def auxiliary_information(builder, declared_temps, params):
                                inner_loop)
 
                 aux_statements.append(loop)
-                declared_temps[actee] = temp
+                declared_temps[actee] = ctemp
 
             tensor, = exp.operands
             result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
                                                             declared_temps,
-                                                            params,
                                                             exp.prec),
                                     declared_temps[actee])
-            actn_tmp = builder.aux_temps[exp]
-            aux_statements.append(ast.Decl(eigen_matrixbase_type(exp.shape),
-                                           actn_tmp))
-            aux_statements.append(ast.FlatBlock("%s.setZero();\n" % actn_tmp))
-            aux_statements.append(ast.Incr(actn_tmp, result))
-            declared_temps[exp] = actn_tmp
+
         else:
             raise NotImplementedError(
                 "Auxiliary expr type %s not currently implemented." % type(exp)
             )
+
+        # Now we use the generated result and assign the value to the
+        # corresponding temporary.
+        temp = builder.aux_temps[exp]
+        aux_statements.append(ast.Decl(eigen_matrixbase_type(exp.shape),
+                                       temp))
+        aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+        aux_statements.append(ast.Assign(temp, result))
+
+        # Update declared temps
+        declared_temps[exp] = temp
 
     return aux_statements
 
@@ -552,16 +567,13 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         This function returns a `string` which represents the C/C++ code
         representation of the `slate.TensorBase` expr.
     """
-    if isinstance(expr, Tensor) or expr in temps:
+    # If the tensor is terminal, it has already been declared.
+    # For transposes/inverses/actions, these are recursively declared
+    # in order of expression complexity. If an expression contains an
+    # one of these objects, they will be declared as well.
+    # This minimizes the times an inverse/tranpose/action is computed.
+    if expr in temps:
         return temps[expr].gencode()
-
-    elif isinstance(expr, Transpose):
-        tensor, = expr.operands
-        return "(%s).transpose()" % metaphrase_slate_to_cpp(tensor, temps)
-
-    elif isinstance(expr, Inverse):
-        tensor, = expr.operands
-        return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
 
     elif isinstance(expr, Negative):
         tensor, = expr.operands
