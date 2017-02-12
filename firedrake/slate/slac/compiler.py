@@ -103,13 +103,16 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     mesh_layer_sym = ast.Symbol("layer")
     inc = []
 
+    declared_temps = {}
     for cxt_kernel in builder.context_kernels:
         exp = cxt_kernel.tensor
         t = builder.get_temporary(exp)
 
-        # Declare and initialize the temporary
-        statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
-        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+        if exp not in declared_temps:
+            # Declare and initialize the temporary
+            statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
+            statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+            declared_temps[exp] = t
 
         it_type = cxt_kernel.original_integral_type
 
@@ -198,10 +201,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # and update our temporaries and code statements.
     # In particular, if we need to apply the action of a
     # Slate tensor on an already assembled coefficient.
-    context_temps = builder.temps.copy()
-    if bool(builder.aux_exprs):
-        aux_temps, aux_statements = auxiliary_information(builder)
-        context_temps.update(aux_temps)
+    if bool(builder.aux_temps):
+        aux_statements = auxiliary_information(builder, declared_temps,
+                                               eigen_parameters)
         statements.extend(aux_statements)
 
     # Now we create the result statement by declaring its eigen type and
@@ -219,7 +221,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Generate the complete c++ string performing the linear algebra operations
     # on Eigen matrices/vectors
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
-                                                       context_temps))
+                                                       declared_temps,
+                                                       eigen_parameters))
     statements.append(ast.Incr(result_sym, cpp_string))
 
     # Generate arguments for the macro kernel
@@ -452,7 +455,7 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
     return loop_stmt, incl
 
 
-def auxiliary_information(builder):
+def auxiliary_information(builder, declared_temps, params):
     """This function generates any auxiliary information regarding special
     handling of expressions that do not have any integral forms or subkernels
     associated with it.
@@ -469,50 +472,61 @@ def auxiliary_information(builder):
              declarations and any code-blocks needed to evaluate the
              expression.
     """
-    aux_temps = {}
     aux_statements = []
-    for i, exp in enumerate(builder.aux_exprs):
+    for exp in builder.aux_temps:
         if isinstance(exp, Action):
             actee, = exp.actee
+            if actee not in declared_temps:
+                # Declare a temporary for the coefficient
+                temp = ast.Symbol("C%d" % len(declared_temps))
+                V = actee.function_space()
+                node_extent = V.fiat_element.space_dimension()
+                dof_extent = np.prod(V.ufl_element().value_shape())
+                typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
+                aux_statements.append(ast.Decl(typ, temp))
+                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
 
-            # Create a temporary for the assembled coefficient and
-            # compute its shape to declare as an Eigen::MatrixBase object
-            temp = ast.Symbol("C%d" % i)
-            V = actee.function_space()
-            node_extent = V.fiat_element.space_dimension()
-            dof_extent = np.prod(V.ufl_element().value_shape())
-            typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
-            aux_statements.append(ast.Decl(typ, temp))
-            aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+                # Now we unpack the function and insert its entries into a
+                # 1D vector temporary
+                isym = ast.Symbol("i1")
+                jsym = ast.Symbol("j1")
+                tensor_index = ast.Sum(ast.Prod(dof_extent, isym), jsym)
 
-            # Now we unpack the function and insert its entries into a
-            # 1D vector temporary
-            isym = ast.Symbol("i1")
-            jsym = ast.Symbol("j1")
-            tensor_index = ast.Sum(ast.Prod(dof_extent, isym), jsym)
+                # Inner-loop running over dof_extent
+                coeff_sym = ast.Symbol(builder.coefficient_map[actee],
+                                       rank=(isym, jsym))
+                coeff_temp = ast.Symbol(temp, rank=(tensor_index,))
+                inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
+                                     ast.Less(jsym, dof_extent),
+                                     ast.Incr(jsym, 1),
+                                     ast.Assign(coeff_temp, coeff_sym))
+                # Outer-loop running over node_extent
+                loop = ast.For(ast.Decl("unsigned int", isym, init=0),
+                               ast.Less(isym, node_extent),
+                               ast.Incr(isym, 1),
+                               inner_loop)
 
-            # Inner-loop running over dof_extent
-            coeff_sym = ast.Symbol(builder.coefficient_map[actee],
-                                   rank=(isym, jsym))
-            coeff_temp = ast.Symbol(temp, rank=(tensor_index,))
-            inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
-                                 ast.Less(jsym, dof_extent),
-                                 ast.Incr(jsym, 1),
-                                 ast.Assign(coeff_temp, coeff_sym))
-            # Outer-loop running over node_extent
-            loop = ast.For(ast.Decl("unsigned int", isym, init=0),
-                           ast.Less(isym, node_extent),
-                           ast.Incr(isym, 1),
-                           inner_loop)
+                aux_statements.append(loop)
+                declared_temps[actee] = temp
 
-            aux_statements.append(loop)
-            aux_temps[actee] = temp
+            tensor, = exp.operands
+            result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
+                                                            declared_temps,
+                                                            params,
+                                                            exp.prec),
+                                    declared_temps[actee])
+            actn_tmp = builder.aux_temps[exp]
+            aux_statements.append(ast.Decl(eigen_matrixbase_type(exp.shape),
+                                           actn_tmp))
+            aux_statements.append(ast.FlatBlock("%s.setZero();\n" % actn_tmp))
+            aux_statements.append(ast.Incr(actn_tmp, result))
+            declared_temps[exp] = actn_tmp
         else:
             raise NotImplementedError(
                 "Auxiliary expr type %s not currently implemented." % type(exp)
             )
 
-    return aux_temps, aux_statements
+    return aux_statements
 
 
 def parenthesize(arg, prec=None, parent=None):
@@ -538,7 +552,7 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         This function returns a `string` which represents the C/C++ code
         representation of the `slate.TensorBase` expr.
     """
-    if isinstance(expr, Tensor):
+    if isinstance(expr, Tensor) or expr in temps:
         return temps[expr].gencode()
 
     elif isinstance(expr, Transpose):
@@ -562,15 +576,6 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         result = "%s %s %s" % (metaphrase_slate_to_cpp(A, temps, expr.prec),
                                op,
                                metaphrase_slate_to_cpp(B, temps, expr.prec))
-
-        return parenthesize(result, expr.prec, prec)
-
-    elif isinstance(expr, Action):
-        tensor, = expr.operands
-        c, = expr.actee
-        result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
-                                                        temps,
-                                                        expr.prec), temps[c])
 
         return parenthesize(result, expr.prec, prec)
 

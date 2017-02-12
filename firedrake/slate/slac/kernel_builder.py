@@ -1,8 +1,12 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
+
+from collections import OrderedDict
 
 from coffee import base as ast
 
-from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
+from firedrake.slate.slate import (TensorBase, Tensor, TensorOp,
+                                   Action)
 from firedrake.slate.slac.utils import Transformer
 from firedrake.utils import cached_property
 
@@ -41,7 +45,17 @@ class KernelBuilder(object):
         self.coefficient_map = prepare_coefficients(expression)
         # Initialize temporaries and any auxiliary expressions for special
         # handling
-        self.temps, self.aux_exprs = generate_expr_data(expression)
+        temps, aux_temps = generate_expr_data(expression)
+        # Sort by temporary str: 'T0', 'T1', etc.
+        self.temps = OrderedDict(sorted(iteritems(temps),
+                                        key=lambda x: str(x[1])))
+        # Since the most complicated expressions get caught first, we
+        # reverse the order to address any nested expressions.
+        # For example, if we have inverses/transposes nested inside
+        # another inverse/transpose
+        self.aux_temps = OrderedDict(sorted(iteritems(aux_temps),
+                                            key=lambda x: str(x[1]),
+                                            reverse=True))
 
     @property
     def integral_type(self):
@@ -184,12 +198,12 @@ def prepare_coefficients(expression):
     return coefficient_map
 
 
-def generate_expr_data(expr, temps=None, aux_exprs=None):
+def generate_expr_data(expr, temps=None, aux_temps=None):
     """This function generates a mapping of the form:
 
-       ``temporaries = {terminal_node: symbol_name}``
+       ``temporaries = {node: symbol_name}``
 
-    where `terminal_node` objects are :class:`slate.Tensor` nodes, and
+    where `node` objects are :class:`slate.TensorBase` nodes, and
     `symbol_name` are :class:`coffee.base.Symbol` objects. In addition,
     this function will return a list `aux_exprs` of any expressions that
     require special handling in the compiler. This includes expressions
@@ -202,18 +216,18 @@ def generate_expr_data(expr, temps=None, aux_exprs=None):
     :arg temps: a dictionary that becomes populated recursively and is later
                 returned as the temporaries map. This argument is initialized
                 as an empty `dict` before recursion starts.
-    :arg aux_exprs: a list that becomes populated recursively and is later
-                    returned as the list of auxiliary expressions that require
-                    special handling in Slate's linear algebra compiler
+    :arg aux_temps: a `dict` that becomes populated recursively and is later
+                    returned as the map of auxiliary expressions that require
+                    special handling in Slate's linear algebra compiler.
 
-    Returns: the arguments temps and aux_exprs.
+    Returns: the arguments temps and aux_temps.
     """
     # Prepare temporaries map and auxiliary expressions list
     if temps is None:
         temps = {}
 
-    if aux_exprs is None:
-        aux_exprs = []
+    if aux_temps is None:
+        aux_temps = {}
 
     if isinstance(expr, Tensor):
         temps.setdefault(expr, ast.Symbol("T%d" % len(temps)))
@@ -221,13 +235,13 @@ def generate_expr_data(expr, temps=None, aux_exprs=None):
     elif isinstance(expr, TensorOp):
         # If we have an Action instance, store expr in aux_exprs for
         # special handling in the compiler
-        if isinstance(expr, Action):
-            aux_exprs.append(expr)
+        if isinstance(expr, (Action,)):
+            aux_temps.setdefault(expr, ast.Symbol("auxT%d" % len(aux_temps)))
 
         # Send operands through recursively
         map(lambda x: generate_expr_data(x, temps=temps,
-                                         aux_exprs=aux_exprs), expr.operands)
+                                         aux_temps=aux_temps), expr.operands)
     else:
         raise NotImplementedError("Type %s not supported." % type(expr))
 
-    return temps, aux_exprs
+    return temps, aux_temps
