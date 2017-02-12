@@ -79,6 +79,26 @@ def test_add_the_negative(mesh):
     assert (M.M.values <= 1e-13).all()
 
 
+def test_aggressive_unaryop_nesting():
+    """Test Slate's ability to handle extremely
+    nested expressions.
+    """
+    V = FunctionSpace(UnitSquareMesh(1, 1), "DG", 1)
+    f = Function(V)
+    g = Function(V)
+    f.assign(1.0)
+    g.assign(0.5)
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    A = Tensor(u*v*dx)
+    B = Tensor(2.0*u*v*dx)
+
+    # This is a very silly way to write the vector of ones
+    foo = (B.T*A.inv).T*g + (-A.inv.T*B.T).inv*f + B.inv*(A.T).T*f
+    assert np.allclose(assemble(foo).dat.data, np.ones(V.node_count))
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
