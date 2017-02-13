@@ -11,6 +11,7 @@ from firedrake import (FunctionSpace, TrialFunction, TestFunction,
                        BrokenElement, MixedElement,
                        FacetNormal, Constant, DirichletBC,
                        assemble)
+from firedrake.formmanipulation import split_form
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
@@ -59,6 +60,15 @@ class HybridizationPC(PCBase):
         replacer = ArgumentReplacer(arg_map)
         self.new_form = map_integrand_dags(replacer, context.a)
 
+        split_forms = split_form(self.new_form)
+        # Store these matrices for reconstruction
+        self.A, = Tensor([sf.form for sf in split_forms
+                         if sf.indices == (0, 0)])
+        self.B, = Tensor([sf.form for sf in split_forms
+                         if sf.indices == (0, 1)])
+        self.C, = Tensor([sf.form for sf in split_forms
+                         if sf.indices == (1, 1)])
+
         # Create the space of approximate traces:
         # the space of Lagrange multipliers
         self.TraceSpace = FunctionSpace(self.V.mesh(), "HDiv Trace",
@@ -70,9 +80,11 @@ class HybridizationPC(PCBase):
         self.broken_solution = Function(V_d)
         # Broken RHS of the fully discontinuous problem
         self.broken_rhs = Function(V_d)
-        self.broken_linear_form = self.broken_rhs * test[1] * ufl.dx
         # Solution of the system for the Lagrange multipliers
         self.trace_solution = Function(self.TraceSpace)
+
+        self.unbroken_solution = Function(self.V)
+        self.unbroken_rhs = Function(self.V)
 
         # Create the symbolic Schur-reduction of the discontinuous
         # problem in Slate. Weakly enforce continuity via the Lagrange
@@ -107,27 +119,17 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-        from firedrake.formmanipulation import split_form
+        from firedrake import project
+        # Transfer non-broken x into a firedrake function
+        with self.unbroken_rhs.dat.vec as v:
+            x.copy(v)
 
-        split_forms = split_form(self.new_form)
-        A = Tensor([sf.form for sf in split_forms
-                    if sf.indices == (0, 0)][0])
-        B = Tensor([sf.form for sf in split_forms
-                    if sf.indices == (0, 1)][0])
-        C = Tensor([sf.form for sf in split_forms
-                    if sf.indices == (1, 1)][0])
-
-        split_rhs = split_form(self.broken_linear_form)
-        F = Tensor([sf.form for sf in split_rhs
-                    if sf.indices == (1,)][0])
-
-        # Transfer non-broken x into a firedrake function?
-        with x.array as data:
-            self.broken_solution.assign(data)
-
-        # Transfer non-broken rhs data into the broken rhs
-        with y.array as rhs:
-            self.broken_rhs.interpolate(rhs)
+        # Transfer unbroken_rhs into broken_rhs
+        field0, field1 = self.unbroken_rhs.split()
+        bfield0, bfield1 = self.broken_rhs.split()
+        # This updates broken_rhs
+        project(field0, bfield0)
+        bfield1.assign(field1)
 
         # Compute the rhs for the multiplier system
         assemble(self.schur_rhs, tensor=self.schur_rhs)
@@ -139,26 +141,30 @@ class HybridizationPC(PCBase):
 
         # Backwards reconstruction for flux and scalar unknowns
         # and assemble into broken solution bits
-        trial = A.arguments()[0]
+        trial = self.A.arguments()[0]
         gammar = TestFunction(self.TraceSpace)
         K = Tensor(gammar('+') * ufl.dot(trial, self.n) * ufl.dS)
 
         # Split the solution function and reconstruct
         # each bit separately
         sigma_h, u_h = self.broken_solution.split()
+        _, f = self.broken_rhs.split()
 
-        M = B * A.inv * B.T + C
-        g = F + B * A.inv * K.T * self.trace_solution
-        u_sol = M.solve(g)
+        M = self.B * self.A.inv * self.B.T + self.C
+        u_sol = M.inv*f + M.inv*(self.B*self.A.inv*K.T*self.trace_solution)
 
         assemble(u_sol, tensor=u_h)
 
-        sigma_sol = A.solve(B.T * u_h - K.T * self.trace_solution)
+        sigma_sol = self.A.inv * (self.B.T * u_h - K.T * self.trace_solution)
 
         assemble(sigma_sol, tensor=sigma_h)
 
         # Project the broken solution into non-broken spaces
-        # (U, W = self.V)?
+        sigma_u, u_u = self.unbroken_solution.split()
+        u_u.assign(u_h)
+        project(sigma_h, sigma_u)
+        with self.unbroken_solution.dat.vec_ro as v:
+            v.copy(y)
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
