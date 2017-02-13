@@ -1,22 +1,12 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
 
 
-@pytest.fixture(scope='module', params=[interval, triangle, tetrahedron, quadrilateral])
+@pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
-    """Generate a mesh according to the cell provided."""
-    cell = request.param
-    if cell == interval:
-        return UnitIntervalMesh(1)
-    elif cell == triangle:
-        return UnitSquareMesh(1, 1)
-    elif cell == tetrahedron:
-        return UnitCubeMesh(1, 1, 1)
-    elif cell == quadrilateral:
-        return UnitSquareMesh(1, 1, quadrilateral=True)
-    else:
-        raise ValueError("%s cell not recognized" % cell)
+    return UnitSquareMesh(2, 2, quadrilateral=request.param)
 
 
 @pytest.fixture(scope='module', params=['cg1', 'cg2', 'dg0', 'dg1',
@@ -107,56 +97,6 @@ def test_assemble_matrix_into_tensor(mesh):
     # Assemble a different SLATE tensor into M
     M = assemble(Tensor(Constant(2) * u * v * dx), M)
     assert np.allclose(M.M.values, 2*assemble(Tensor(u * v * dx)).M.values, rtol=1e-14)
-
-
-@pytest.mark.parametrize("fe_family", ("RT",
-                                       "BDM",
-                                       "N1curl",
-                                       "N2curl"))
-def test_vector_family_mass(fe_family):
-    """Assemble a mass matrix of a vector-valued element
-    family defined on simplices. Compare Firedrake assembled
-    mass with SLATE assembled mass.
-    """
-    V = FunctionSpace(UnitSquareMesh(1, 1), fe_family, 1)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    mass = dot(u, v)*dx
-
-    A = assemble(Tensor(mass))
-    ref = assemble(mass)
-
-    assert np.allclose(A.M.values, ref.M.values)
-
-
-def test_poisson_operator(mesh):
-    """Assemble the Poisson operator in SLATE and
-    compare with Firedrake.
-    """
-    V = FunctionSpace(mesh, "CG", 1)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    form = inner(grad(u), grad(v))*dx
-
-    P = assemble(Tensor(form))
-    ref = assemble(form)
-
-    assert np.allclose(P.M.values, ref.M.values)
-
-
-def test_helmholtz_operator(mesh):
-    """Assemble the (nice) Helmholtz operator in SLATE and
-    compare with Firedrake.
-    """
-    V = FunctionSpace(mesh, "CG", 1)
-    u = TrialFunction(V)
-    v = TestFunction(V)
-    form = (inner(grad(u), grad(v)) + u*v)*dx
-
-    H = assemble(Tensor(form))
-    ref = assemble(form)
-
-    assert np.allclose(H.M.values, ref.M.values)
 
 
 def test_mixed_coefficient_tensor(mesh):

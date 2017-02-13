@@ -50,6 +50,14 @@ PDEs. Below are a few tutorial examples to get you started.
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
    A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
 
+Jupyter notebooks
+-----------------
+
+In addition to the documented tutorials, we also have some `Jupyter
+notebooks <https://jupyter.org/>`__ that are a more interactive way of
+getting to know Firedrake.  They are described in more detail :doc:`on
+their own page <notebooks>`.
+
 .. only:: html
 
   API documentation

@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+from __future__ import absolute_import, print_function, division
 import logging
 import platform
 import subprocess
@@ -239,7 +240,7 @@ where shortname is one of the names given below:
     for package, d in firedrake_apps.iteritems():
         help_string += componentformat.format(package, d[0])
     help_string += line
-    print help_string
+    print(help_string)
     sys.exit(0)
 
 # Set up logging
@@ -288,9 +289,6 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 # Record of obsolete packages which --clean should remove from old installs.
 old_git_packages = ["instant", "ffc"]
 
-python = ["python"]
-pyinstall = ["python", "setup.py", "install"]
-
 if mode == "install":
     firedrake_env = os.path.abspath(args.virtualenv_name)
 else:
@@ -318,9 +316,9 @@ if options["minimal_petsc"]:
     # If you change these minimal PETSc options, you will have to
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre --download-eigen"""
+    petsc_opts = """--download-chaco --download-hdf5 --download-hypre --download-eigen"""
 else:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
+    petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -525,7 +523,12 @@ def pip_requirements(package):
     if os.path.isfile("%s/requirements-ext.txt" % package):
         run_pip_install(["-r", "%s/requirements-ext.txt" % package])
     elif os.path.isfile("%s/requirements.txt" % package):
-        run_pip_install(["-r", "%s/requirements.txt" % package])
+        if package == "COFFEE":
+            # FIXME: Horrible hack to work around
+            # https://github.com/coin-or/pulp/issues/123
+            run_pip_install(["--no-deps", "-r", "%s/requirements.txt" % package])
+        else:
+            run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
         log.info("No dependencies found. Skipping.")
 
@@ -941,7 +944,7 @@ if travis:
         import time
         while True:
             time.sleep(60)
-            print "."
+            print(".")
 
     travis_writer = Process(target=stdout_writer)
     travis_writer.daemon = True
@@ -977,6 +980,7 @@ if osname == "Darwin":
         brew_install("automake")
         brew_install("cmake")
         brew_install("libtool")
+        brew_install("mercurial")
 
     else:
         log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -1123,6 +1127,9 @@ int main(int argc, char **argv) {
 
 
 if mode == "install":
+    if os.path.exists(firedrake_env):
+        log.warning("Specified virtualenv '%s' already exists", firedrake_env)
+        quit("Can't install into existing virtualenv '%s'" % firedrake_env)
     try:
         import virtualenv
     except:
@@ -1140,7 +1147,7 @@ if mode == "install":
     run_pip(["install", "-U", "pip"])
 
 virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
-execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
+exec(open("%s/bin/activate_this.py" % firedrake_env).read(), virtual_env_vars)
 # Activating the virtual_env from within Python does not automatically set the environment variable.
 os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
@@ -1332,7 +1339,7 @@ if mode == "update":
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
         from pyop2.compilation import clear_cache as pyop2_clear_cache
-        print 'Removing cached TSFC kernels from %s' % TSFCKernel._cachedir
+        print('Removing cached TSFC kernels from %s' % TSFCKernel._cachedir)
         clear_cache()
         pyop2_clear_cache()
     except:

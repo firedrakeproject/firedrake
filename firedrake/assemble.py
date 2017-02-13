@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy
 import operator
 import functools
@@ -27,7 +27,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
              inverse=False, mat_type=None, sub_mat_type=None, appctx={}, **kwargs):
     """Evaluate f.
 
-    :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
+    :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
+            a :class:`~slate.TensorBase` expression.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
@@ -67,6 +68,9 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
     :class:`.FunctionSpace`.
+
+    If f is a Slate tensor expression, then it will be compiled using Slate's
+    linear algebra compiler.
 
     If ``tensor`` is supplied, the assembled result will be placed
     there, otherwise a new object of the appropriate type will be
@@ -148,9 +152,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               appctx={},
               collect_loops=False,
               allocate_only=False):
-    """Assemble the form f and return a Firedrake object representing the
-    result. This will be a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
+    """Assemble the form or Slate expression f and return a Firedrake object
+    representing the result. This will be a :class:`float` for 0-forms/rank-0
+    Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
+    a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
     :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
@@ -374,7 +379,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             loops.append(zero_tensor)
         else:
             zero_tensor()
-        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets) in kernels:
+        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets, pass_layer_arg) in kernels:
             m = domains[domain_number]
             subdomain_data = f.subdomain_data()[m]
             # Find argument space indices
@@ -487,9 +492,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
                     args.append(c_.dat(op2.READ, get_map(c_)))
             if needs_cell_facets:
                 assert integral_type == "cell"
-                extra_args.append(m.cell_to_facet_map(op2.READ))
+                extra_args.append(m.cell_to_facets(op2.READ))
 
             args.extend(extra_args)
+            kwargs["pass_layer_arg"] = pass_layer_arg
+
             try:
                 with collecting_loops(collect_loops):
                     loops.append(op2.par_loop(*args, **kwargs))

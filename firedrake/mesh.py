@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 import numpy as np
 import ctypes
 import os
@@ -203,12 +204,13 @@ def _from_exodus(filename, comm):
     """
     plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
 
-    boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
-    plex.createLabel("boundary_ids")
-    for bid in boundary_ids:
-        faces = plex.getStratumIS("Face Sets", bid).getIndices()
-        for f in faces:
-            plex.setLabelValue("boundary_ids", f, bid)
+    if plex.hasLabel("Face Sets"):
+        boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
+        plex.createLabel("boundary_ids")
+        for bid in boundary_ids:
+            faces = plex.getStratumIS("Face Sets", bid).getIndices()
+            for f in faces:
+                plex.setLabelValue("boundary_ids", f, bid)
 
     return plex
 
@@ -253,17 +255,17 @@ def _from_triangle(filename, dim, comm):
             nodecount = header[0]
             nodedim = header[1]
             assert nodedim == dim
-            coordinates = np.loadtxt(nodefile, usecols=range(1, dim+1), skiprows=1)
+            coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1)
             assert nodecount == coordinates.shape[0]
 
         with open(basename+".ele") as elefile:
             header = np.fromfile(elefile, dtype=np.int32, count=2, sep=' ')
             elecount = header[0]
             eledim = header[1]
-            eles = np.loadtxt(elefile, usecols=range(1, eledim+1), dtype=np.int32, skiprows=1)
+            eles = np.loadtxt(elefile, usecols=list(range(1, eledim+1)), dtype=np.int32, skiprows=1)
             assert elecount == eles.shape[0]
 
-        cells = map(lambda c: c-1, eles)
+        cells = list(map(lambda c: c-1, eles))
     else:
         tdim = comm.bcast(None, root=0)
         cells = None
@@ -276,7 +278,7 @@ def _from_triangle(filename, dim, comm):
         try:
             header = np.fromfile(facetfile, dtype=np.int32, count=2, sep=' ')
             edgecount = header[0]
-            facets = np.loadtxt(facetfile, usecols=range(1, tdim+2), dtype=np.int32, skiprows=0)
+            facets = np.loadtxt(facetfile, usecols=list(range(1, tdim+2)), dtype=np.int32, skiprows=0)
             assert edgecount == facets.shape[0]
         finally:
             facetfile.close()
@@ -285,7 +287,7 @@ def _from_triangle(filename, dim, comm):
             vStart, vEnd = plex.getDepthStratum(0)   # vertices
             for facet in facets:
                 bid = facet[-1]
-                vertices = map(lambda v: v + vStart - 1, facet[:-1])
+                vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
                 join = plex.getJoin(vertices)
                 plex.setLabelValue("boundary_ids", join[0], bid)
 
@@ -465,7 +467,7 @@ class MeshTopology(object):
             a_closure = plex.getTransitiveClosure(cStart)[0]
 
             entity_per_cell = np.zeros(dim + 1, dtype=np.int32)
-            for dim in xrange(dim + 1):
+            for dim in range(dim + 1):
                 start, end = plex.getDepthStratum(dim)
                 entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end,
                                                a_closure))
@@ -476,7 +478,7 @@ class MeshTopology(object):
         elif cell.cellname() == "quadrilateral":
             from firedrake.citations import Citations
             Citations().register("Homolya2016")
-            Citations().register("McRae2014")
+            Citations().register("McRae2016")
             # Quadrilateral mesh
             cell_ranks = dmplex.get_cell_remote_ranks(plex)
 
@@ -563,18 +565,19 @@ class MeshTopology(object):
                        interior_facet_cell, interior_local_facet_number)
 
     @utils.cached_property
-    def cell_to_facet_map(self):
+    def cell_to_facets(self):
         """Return a :class:`op2.Dat` that maps from a cell index to the local
         facet types on each cell.
 
         The i-th local facet is exterior if the value of this array is :data:`0`
         and interior if the value is :data:`1`.
         """
-        cell_facets = dmplex.cell_to_facets(self._plex, self._cell_numbering,
-                                            self.cell_closure)
+        cell_facets = dmplex.cell_facet_labeling(self._plex,
+                                                 self._cell_numbering,
+                                                 self.cell_closure)
         nfacet = cell_facets.shape[1]
         return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
-                       name="cell-to-local-facet-map")
+                       name="cell-to-local-facet-dat")
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
@@ -739,7 +742,7 @@ class ExtrudedMeshTopology(MeshTopology):
                              direction.
         """
         from firedrake.citations import Citations
-        Citations().register("McRae2014")
+        Citations().register("McRae2016")
         Citations().register("Bercea2016")
         # A cache of shared function space data on this mesh
         self._shared_data_cache = defaultdict(dict)
@@ -874,7 +877,7 @@ class ExtrudedMeshTopology(MeshTopology):
     def _order_data_by_cell_index(self, column_list, cell_data):
         cell_list = []
         for col in column_list:
-            cell_list += range(col, col + (self.layers - 1))
+            cell_list += list(range(col, col + (self.layers - 1)))
         return cell_data[cell_list]
 
 
@@ -1134,8 +1137,6 @@ def make_mesh_from_coordinates(coordinates):
 
     :arg coordinates: A :class:`~.Function`.
     """
-    from firedrake.ufl_expr import reconstruct_element
-
     if hasattr(coordinates, '_as_mesh_geometry'):
         mesh = coordinates._as_mesh_geometry()
         if mesh is not None:
@@ -1149,7 +1150,7 @@ def make_mesh_from_coordinates(coordinates):
     # Build coordinate element
     element = coordinates.ufl_element()
     cell = element.cell().reconstruct(geometric_dimension=V.dim)
-    element = reconstruct_element(element, cell=cell)
+    element = element.reconstruct(cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
     mesh.__init__(coordinates)
@@ -1340,7 +1341,7 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     # Compute Coordinates of the extruded mesh
     if layer_height is None:
         # Default to unit
-        layer_height = 1.0 / layers
+        layer_height = 1 / layers
 
     if extrusion_type == 'radial_hedgehog':
         hfamily = "DG"

@@ -16,7 +16,9 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with DOLFIN. If not, see <http://www.gnu.org/licenses/>.
-from __future__ import absolute_import
+
+from __future__ import absolute_import, print_function, division
+from six import iterkeys
 
 __all__ = ["solve"]
 
@@ -231,7 +233,7 @@ def _extract_linear_solver_args(*args, **kwargs):
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
-    for kwarg in kwargs.iterkeys():
+    for kwarg in iterkeys(kwargs):
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords are %s" %
                                (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
@@ -257,7 +259,7 @@ def _extract_args(*args, **kwargs):
     if "nest" in kwargs:
         raise DeprecationWarning("The 'nest' argument is deprecated, please set 'mat_type' in the solver parameters")
 
-    for kwarg in kwargs.iterkeys():
+    for kwarg in iterkeys(kwargs):
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
                                are %s" % (kwarg, ", ".join("'%s'" % kwarg

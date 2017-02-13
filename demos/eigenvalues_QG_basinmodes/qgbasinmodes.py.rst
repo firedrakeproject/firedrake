@@ -114,7 +114,7 @@ Firedrake. We import the Firedrake, PETSc, and SLEPc libraries. ::
    except ImportError:
        import sys
        warning("Unable to import SLEPc, eigenvalue computation not possible (try firedrake-update --slepc)")
-       sys.exit(1)
+       sys.exit(0)
 
 
 We specify the geometry to be a square geometry with :math:`50` cells
@@ -203,7 +203,7 @@ converge any eigenvalues at all. ::
    if nconv == 0:
        import sys
        warning("Did not converge any eigenvalues")
-       sys.exit(1)
+       sys.exit(0)
 
 If we did, we go ahead and extract them from the SLEPc eigenvalue
 solver::
@@ -221,10 +221,14 @@ that were found. ::
 
    print "Leading eigenvalue is:", lam
 
-   p = plot(eigenmodes_real)
-   p.show()
-   p = plot(eigenmodes_imag)
-   p.show()
+   try:
+       from matplotlib import pyplot
+       plot(eigenmodes_real)
+       pyplot.gcf().show()
+       plot(eigenmodes_imag)
+       pyplot.gcf().show()
+   except ImportError:
+       warning("Matplotlib not available, not plotting eigemodes")
 
 Below is a plot of the spatial structure of the real part of one of the eigenmodes computed above.
 

@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import iteritems
 import numpy
 import itertools
 from contextlib import contextmanager
@@ -15,6 +16,8 @@ class ParametersMixin(object):
     # They will override options passed in as a dict if an
     # options_prefix was supplied.
     commandline_options = frozenset(PETSc.Options().getAll())
+
+    options_object = PETSc.Options()
 
     count = itertools.count()
 
@@ -62,14 +65,16 @@ class ParametersMixin(object):
             self.options_prefix = options_prefix
             # Remove those options from the dict that were passed on
             # the commandline.
-            self.parameters = dict((k, v) for k, v in parameters.iteritems()
-                                   if options_prefix + k not in self.commandline_options)
-            self.to_delete = set(parameters)
+            self.parameters = {k: v for k, v in iteritems(parameters)
+                               if options_prefix + k not in self.commandline_options}
+            self.to_delete = set(self.parameters)
             # Now update parameters from options, so that they're
-            # availabe to solver setup (for, e.g., matrix-free).
-            for k, v in PETSc.Options(self.options_prefix).getAll().iteritems():
-                self.parameters[k] = v
-        self.options_object = PETSc.Options(self.options_prefix)
+            # available to solver setup (for, e.g., matrix-free).
+            # Can't ask for the prefixed guy in the options object,
+            # since that does not DTRT for flag options.
+            for k, v in iteritems(self.options_object.getAll()):
+                if k.startswith(self.options_prefix):
+                    self.parameters[k[len(self.options_prefix):]] = v
         self._setfromoptions = False
         super(ParametersMixin, self).__init__()
 
@@ -82,7 +87,8 @@ class ParametersMixin(object):
         Ensures that the right thing happens cleaning up the options
         database.
         """
-        if key not in self.options_object and key not in self.parameters:
+        k = self.options_prefix + key
+        if k not in self.options_object and key not in self.parameters:
             self.parameters[key] = val
             self.to_delete.add(key)
 
@@ -107,16 +113,17 @@ class ParametersMixin(object):
         """Context manager inside which the petsc options database
     contains the parameters from this object."""
         try:
-            for k, v in self.parameters.iteritems():
+            for k, v in iteritems(self.parameters):
+                key = self.options_prefix + k
                 if type(v) is bool:
                     if v:
-                        self.options_object[k] = None
+                        self.options_object[key] = None
                 else:
-                    self.options_object[k] = v
+                    self.options_object[key] = v
             yield
         finally:
             for k in self.to_delete:
-                del self.options_object[k]
+                del self.options_object[self.options_prefix + k]
 
 
 def _make_reasons(reasons):

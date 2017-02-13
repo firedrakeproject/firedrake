@@ -1,5 +1,6 @@
 # Solve -laplace u + u = f on the surface of the sphere
 # with forcing function xyz, this has exact solution xyz/13
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *

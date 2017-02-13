@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import numpy as np
 from fractions import Fraction
@@ -25,6 +25,8 @@ class MeshHierarchy(object):
         :arg reorder: optional flag indicating whether to reorder the
              refined meshes.
         """
+        from firedrake.citations import Citations
+        Citations().register("Mitchell2016")
         if m.ufl_cell().cellname() not in ["triangle", "interval"]:
             raise NotImplementedError("Only supported on intervals and triangles")
         if refinements_per_level < 1:

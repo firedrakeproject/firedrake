@@ -1,6 +1,7 @@
 """This demo program sets opposite boundary sides to 10 and 42 and
 then checks that the exact result has bee achieved.
 """
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 
@@ -34,7 +35,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
     res1 = sqrt(assemble(dot(u1 - v1, u1 - v1) * dx))
 
     if not test_mode:
-        print "The error is ", res1
+        print("The error is ", res1)
         file = File("side-bcs.pvd")
         file.write(u1, v1)
 

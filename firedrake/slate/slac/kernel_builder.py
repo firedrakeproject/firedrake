@@ -2,52 +2,81 @@ from __future__ import absolute_import, print_function, division
 
 from coffee import base as ast
 
-from firedrake.slate.slate import TensorBase, Tensor, UnaryOp, BinaryOp, Action
-from firedrake.slate.slac.utils import RemoveRestrictions, Transformer
-from firedrake.tsfc_interface import compile_form
+from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
+from firedrake.slate.slac.utils import Transformer
+from firedrake.utils import cached_property
 
-from functools import partial
-
-from ufl.algorithms.map_integrands import map_integrand_dags
-from ufl import Form, MixedElement
+from ufl import MixedElement
 
 
 class KernelBuilder(object):
-    """A helper class for constructing SLATE kernels.
+    """A helper class for constructing Slate kernels.
 
-    This class provides access to all temporaries and subkernels associated with a SLATE
-    expression. If the SLATE expression contains nodes that require operations on already
-    assembled data (such as the action of a slate tensor on a `ufl.Coefficient`), this class
-    provides access to the expression which needs special handling.
+    This class provides access to all temporaries and subkernels associated
+    with a Slate expression. If the Slate expression contains nodes that
+    require operations on already assembled data (such as the action of a
+    slate tensor on a `ufl.Coefficient`), this class provides access to the
+    expression which needs special handling.
 
-    Instructions for assembling the full kernel AST of a SLATE expression is
+    Instructions for assembling the full kernel AST of a Slate expression is
     provided by the method `construct_ast`.
     """
     def __init__(self, expression, tsfc_parameters=None):
         """Constructor for the KernelBuilder class.
 
         :arg expression: a :class:`TensorBase` object.
-        :arg tsfc_parameters: an optional `dict` of parameters to provide to TSFC when
-                              constructing subkernels associated with the expression.
+        :arg tsfc_parameters: an optional `dict` of parameters to provide to
+                              TSFC when constructing subkernels associated
+                              with the expression.
         """
         assert isinstance(expression, TensorBase)
         self.expression = expression
+        self.tsfc_parameters = tsfc_parameters
         self.needs_cell_facets = False
+        self.needs_mesh_layers = False
+        self.oriented = False
+        self.finalized_ast = None
 
         # Generate coefficient map (both mixed and non-mixed cases handled)
         self.coefficient_map = prepare_coefficients(expression)
+        # Initialize temporaries and any auxiliary expressions for special
+        # handling
+        self.temps, self.aux_exprs = generate_expr_data(expression)
 
-        # Initialize temporaries, auxiliary expressions and tsfc kernels
-        self.temps, self.aux_exprs = prepare_temps_and_aux_exprs(expression)
-        self.kernel_exprs = prepare_tsfc_kernels(self.temps, tsfc_parameters=tsfc_parameters)
+    @property
+    def integral_type(self):
+        """Returns the integral type associated with a Slate kernel.
+
+        Note that Slate kernels are always of type 'cell' since these
+        are localized kernels for element-wise linear algebra. This
+        may change in the future if we want Slate to be used for
+        LDG/CDG finite element discretizations.
+        """
+        return "cell"
 
     def require_cell_facets(self):
-        """Assigns `self.needs_cell_facets` to be `True` if facet integrals are present."""
+        """Assigns `self.needs_cell_facets` to be `True` if facet integrals
+        are present.
+        """
         self.needs_cell_facets = True
 
-    def extract_coefficient(self, coefficient):
-        """Extracts a coefficient from the coefficient_map. This handles both the case when
-        the coefficient is defined on a mixed or non-mixed function space.
+    def require_mesh_layers(self):
+        """Assigns `self.needs_mesh_layers` to be `True` if mesh levels are
+        needed.
+        """
+        self.needs_mesh_layers = True
+
+    def get_temporary(self, expr):
+        """Extracts a temporary given a particular terminal expression."""
+        if expr not in self.temps:
+            raise ValueError("No temporary for the given expression")
+
+        return self.temps[expr]
+
+    def coefficient(self, coefficient):
+        """Extracts a coefficient from the coefficient_map. This handles both
+        the case when the coefficient is defined on a mixed or non-mixed
+        function space.
         """
         if type(coefficient.ufl_element()) == MixedElement:
             sub_coeffs = coefficient.split()
@@ -55,44 +84,94 @@ class KernelBuilder(object):
         else:
             return (self.coefficient_map[coefficient],)
 
-    def construct_ast(self, name, args, statements):
-        """Constructs the full kernel AST of a given SLATE expression. The :class:`Transformer`
-        is used to perform the conversion from standard C into the Eigen C++ template library
-        syntax.
+    @cached_property
+    def context_kernels(self):
+        """Gathers all `ContextKernel`s containing all TSFC kernels,
+        and integral type information.
+        """
+        from firedrake.slate.slac.tsfc_driver import compile_terminal_form
+
+        cxt_list = [compile_terminal_form(expr, prefix="subkernel%d_" % i,
+                                          tsfc_parameters=self.tsfc_parameters)
+                    for i, expr in enumerate(self.temps)]
+
+        cxt_kernels = [cxt_k for cxt_tuple in cxt_list
+                       for cxt_k in cxt_tuple]
+        return cxt_kernels
+
+    @cached_property
+    def full_kernel_list(self):
+        """Unwraps all TSFC kernels into one iterable."""
+
+        cxt_kernels = self.context_kernels
+        splitkernels = [splitkernel for cxt_k in cxt_kernels
+                        for splitkernel in cxt_k.tsfc_kernels]
+        return splitkernels
+
+    def construct_macro_kernel(self, name, args, statements):
+        """Constructs a macro kernel function that calls any subkernels.
+        The :class:`Transformer` is used to perform the conversion from
+        standard C into the Eigen C++ template library syntax.
 
         :arg name: a string denoting the name of the macro kernel.
         :arg args: a list of arguments for the macro_kernel.
-        :arg statements: a `coffee.base.Block` of instructions, which contains declarations
-                         of temporaries, function calls to all subkernels and any auxilliary
-                         information needed to evaulate the SLATE expression.
+        :arg statements: a `coffee.base.Block` of instructions, which contains
+                         declarations of temporaries, function calls to all
+                         subkernels and any auxilliary information needed to
+                         evaulate the Slate expression.
                          E.g. facet integral loops and action loops.
-
-        Returns: the full kernel AST to be converted into a PyOP2 kernel, as well as any
-                 orientation information.
         """
         # all kernel body statements must be wrapped up as a coffee.base.Block
-        assert isinstance(statements, ast.Block)
+        assert isinstance(statements, ast.Block), (
+            "Body statements must be wrapped in an ast.Block"
+        )
 
-        macro_kernel = ast.FunDecl("void", name, args, statements, pred=["static", "inline"])
+        macro_kernel = ast.FunDecl("void", name, args,
+                                   statements, pred=["static", "inline"])
+        return macro_kernel
 
+    def _finalize_kernels_and_update(self):
+        """Prepares the kernel AST by transforming all outpute/input
+        references to Slate tensors with eigen references and updates
+        any orientation information.
+        """
         kernel_list = []
         transformer = Transformer()
-        oriented = False
-        # Assume self.kernel_exprs is populated at this point
-        for kernel_items in self.kernel_exprs.values():
-            for ks in kernel_items:
-                oriented = oriented or ks.kinfo.oriented
-                # TODO: Extend multiple domains support
-                assert ks.kinfo.subdomain_id == "otherwise"
-                kast = transformer.visit(ks.kinfo.kernel._ast)
-                kernel_list.append(kast)
-        kernel_list.append(macro_kernel)
+        oriented = self.oriented
 
-        return ast.Node(kernel_list), oriented
+        for splitkernel in self.full_kernel_list:
+            oriented = oriented or splitkernel.kinfo.oriented
+            # TODO: Extend multiple domains support
+            assert splitkernel.kinfo.subdomain_id == "otherwise"
+            kast = transformer.visit(splitkernel.kinfo.kernel._ast)
+            kernel_list.append(kast)
+
+        self.oriented = oriented
+        self.finalized_ast = kernel_list
+
+    def construct_ast(self, macro_kernels):
+        """Constructs the final kernel AST.
+
+        :arg macro_kernels: A `list` of macro kernel functions, which
+                            call subkernels and perform elemental
+                            linear algebra.
+
+        Returns: The complete kernel AST as a COFFEE `ast.Node`
+        """
+        assert isinstance(macro_kernels, list), (
+            "Please wrap all macro kernel functions in a list"
+        )
+        self._finalize_kernels_and_update()
+        kernel_ast = self.finalized_ast
+        kernel_ast.extend(macro_kernels)
+
+        return ast.Node(kernel_ast)
 
 
 def prepare_coefficients(expression):
-    """Prepares the coefficient map that maps a `ufl.Coefficient` to `coffee.Symbol`"""
+    """Prepares the coefficient map that maps a `ufl.Coefficient`
+    to `coffee.Symbol`.
+    """
     coefficient_map = {}
 
     for i, coefficient in enumerate(expression.coefficients()):
@@ -105,101 +184,50 @@ def prepare_coefficients(expression):
     return coefficient_map
 
 
-def prepare_tsfc_kernels(temps, tsfc_parameters=None):
-    """This function generates a mapping of the form:
-
-       ``kernel_exprs = {terminal_node: kernels}``
-
-    where `terminal_node` objects are :class:`slate.Tensor` nodes and `kernels` is an iterable
-    of `namedtuple` objects, `SplitKernel`, provided by TSFC.
-
-    This mapping is used in :class:`SlateKernelBuilder` to provide direct access to all
-    `SplitKernel` objects associated with a `slate.Tensor` node.
-
-    :arg temps: a mapping of the form ``{terminal_node: symbol_name}``
-                (see :meth:`prepare_temporaries`).
-    :arg tsfc_parameters: an optional `dict` of parameters to pass onto TSFC.
-    """
-    kernel_exprs = {}
-
-    for expr in temps.keys():
-        integrals = expr.form.integrals()
-        mapper = RemoveRestrictions()
-        integrals = map(partial(map_integrand_dags, mapper), integrals)
-        prefix = "subkernel%d_" % len(kernel_exprs)
-
-        # Now we split integrals by type: interior_facet and all other cases
-        # First, the interior_facet case:
-        interior_facet_intergrals = filter(lambda x: x.integral_type() == "interior_facet", integrals)
-
-        # Now we reconstruct all interior_facet integrals to be of type: exterior_facet
-        # This is because locally over each cell, SLATE views them as being "exterior"
-        # with respect to the cell.
-        interior_facet_intergrals = [it.reconstruct(integral_type="exterior_facet")
-                                     for it in interior_facet_intergrals]
-        # Now for the rest:
-        other_integrals = filter(lambda x: x.integral_type() != "interior_facet", integrals)
-
-        forms = (Form(interior_facet_intergrals), Form(other_integrals))
-        compiled_forms = []
-        for form in forms:
-            compiled_forms.extend(compile_form(form, prefix, parameters=tsfc_parameters))
-
-        kernel_exprs[expr] = tuple(compiled_forms)
-
-    return kernel_exprs
-
-
-def prepare_temps_and_aux_exprs(expression, temps=None, aux_exprs=None):
+def generate_expr_data(expr, temps=None, aux_exprs=None):
     """This function generates a mapping of the form:
 
        ``temporaries = {terminal_node: symbol_name}``
 
-    where `terminal_node` objects are :class:`slate.Tensor` nodes, and `symbol_name` are
-    :class:`coffee.base.Symbol` objects.
+    where `terminal_node` objects are :class:`slate.Tensor` nodes, and
+    `symbol_name` are :class:`coffee.base.Symbol` objects. In addition,
+    this function will return a list `aux_exprs` of any expressions that
+    require special handling in the compiler. This includes expressions
+    that require performing operations on already assembled data.
 
-    In addition, this function will return a list `aux_exprs` of any expressions that require
-    special handling in the compiler. This includes expressions that require performing
-    operations on already assembled data.
-
-    This mapping is used in the :class:`SlateKernelBuilder` to provide direct access to all
-    temporaries associated with a particular slate expression.
+    This mapping is used in the :class:`KernelBuilder` to provide direct
+    access to all temporaries associated with a particular slate expression.
 
     :arg expression: a :class:`slate.TensorBase` object.
-    :arg temps: a dictionary that becomes populated recursively and is later returned as the
-                temporaries map. This argument is initialized as an empty `dict` before
-                recursion starts.
-    :arg aux_exprs: a list that becomes populated recursively and is later returned as the
-                    list of auxiliary expressions that require special handling in SLATE's
-                    linear algebra compiler
+    :arg temps: a dictionary that becomes populated recursively and is later
+                returned as the temporaries map. This argument is initialized
+                as an empty `dict` before recursion starts.
+    :arg aux_exprs: a list that becomes populated recursively and is later
+                    returned as the list of auxiliary expressions that require
+                    special handling in Slate's linear algebra compiler
 
     Returns: the arguments temps and aux_exprs.
     """
     # Prepare temporaries map and auxiliary expressions list
     if temps is None:
         temps = {}
-    else:
-        temps = temps
 
     if aux_exprs is None:
         aux_exprs = []
+
+    if isinstance(expr, Tensor):
+        temps.setdefault(expr, ast.Symbol("T%d" % len(temps)))
+
+    elif isinstance(expr, TensorOp):
+        # If we have an Action instance, store expr in aux_exprs for
+        # special handling in the compiler
+        if isinstance(expr, Action):
+            aux_exprs.append(expr)
+
+        # Send operands through recursively
+        map(lambda x: generate_expr_data(x, temps=temps,
+                                         aux_exprs=aux_exprs), expr.operands)
     else:
-        aux_exprs = aux_exprs
-
-    if isinstance(expression, Tensor):
-        if expression not in temps.keys():
-            temps[expression] = ast.Symbol("T%d" % len(temps))
-
-    elif isinstance(expression, Action):
-        # This is a special case where we need to handle this expression separately from the rest
-        aux_exprs.append(expression)
-        # Pass in the acting tensor to extract any necessary temporaries
-        prepare_temps_and_aux_exprs(expression.tensor, temps=temps, aux_exprs=aux_exprs)
-
-    elif isinstance(expression, (UnaryOp, BinaryOp)):
-        map(lambda x: prepare_temps_and_aux_exprs(x, temps=temps, aux_exprs=aux_exprs), expression.operands)
-
-    else:
-        raise NotImplementedError("Expression of type %s not currently supported." % type(expression))
+        raise NotImplementedError("Type %s not supported." % type(expr))
 
     return temps, aux_exprs

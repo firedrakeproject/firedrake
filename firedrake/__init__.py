@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc

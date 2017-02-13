@@ -1,22 +1,13 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
 
 
-@pytest.fixture(scope='module', params=[interval, triangle, tetrahedron, quadrilateral])
+@pytest.fixture(scope='module', params=[False, True])
 def mesh(request):
-    """Generate a mesh according to the cell provided."""
-    cell = request.param
-    if cell == interval:
-        return UnitIntervalMesh(1)
-    elif cell == triangle:
-        return UnitSquareMesh(1, 1)
-    elif cell == tetrahedron:
-        return UnitCubeMesh(1, 1, 1)
-    elif cell == quadrilateral:
-        return UnitSquareMesh(1, 1, quadrilateral=True)
-    else:
-        raise ValueError("%s cell not recognized" % cell)
+    m = UnitSquareMesh(2, 2, quadrilateral=request.param)
+    return m
 
 
 def test_left_inverse(mesh):

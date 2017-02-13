@@ -1,4 +1,7 @@
 #! /usr/bin/env python
+from __future__ import absolute_import, print_function, division
+from six import iteritems
+
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from pprint import pformat
 import logging
@@ -62,26 +65,26 @@ except subprocess.CalledProcessError:
     log.error("Failed to retrieve system information.")
 
 
-print "Firedrake Configuration:"
+print("Firedrake Configuration:")
 if not config:
-    print "No configuration information found."
+    print("No configuration information found.")
 else:
-    for key, val in config["options"].iteritems():
-        print "    {}: {}".format(key, val)
+    for key, val in iteritems(config["options"]):
+        print("    {}: {}".format(key, val))
 
-    print "Additions:"
+    print("Additions:")
     if config["additions"]:
         for a in config["additions"]:
-            print "   " + a
+            print("   " + a)
     else:
-        print "    None"
+        print("    None")
 
 for var in ["PYTHONPATH", "PETSC_ARCH", "PETSC_DIR"]:
     config["environment"][var] = os.environ.get(var, None)
 
-print "Environment:"
-for key, val in config["environment"].iteritems():
-    print "    {}: {}".format(key, val)
+print("Environment:")
+for key, val in iteritems(config["environment"]):
+    print("    {}: {}".format(key, val))
 
 status = OrderedDict()
 for dir in sorted(os.listdir(firedrake_env + "/src")):
@@ -115,11 +118,11 @@ componentformat = "|{:20}|{:30}|{:10}|{!s:10}|\n"
 header = componentformat.format("Package", "Branch", "Revision", "Modified")
 line = "-" * (len(header) - 1) + "\n"
 status_string += line + header + line
-for dir, d in status.iteritems():
+for dir, d in iteritems(status):
     status_string += componentformat.format(dir, d["branch"], d["revision"], d["modified"])
 status_string += line
 
-print status_string
+print(status_string)
 log.info("\n" + status_string)
 
 log.info("Firedrake configuration: ")

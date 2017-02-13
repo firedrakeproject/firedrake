@@ -6,6 +6,7 @@ The viscosity term is of the form: div(nu [(grad u)+(grad u)^T])
 with variable viscosity. Convergence is tested for RT2, DG1, BDM1 and BDM2
 vector fields.
 """
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 import numpy

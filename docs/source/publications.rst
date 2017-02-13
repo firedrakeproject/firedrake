@@ -23,7 +23,7 @@ obtain the correct `citations for PETSc
 If you cannot use this approach, there are a number of papers.  Those
 which are relevant depend a little on which functionality you used.
 
-For Firedrake itself, please cite :cite:`Rathgeber2015`.  If you use
+For Firedrake itself, please cite :cite:`Rathgeber2016`.  If you use
 the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 :cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
 please cite :cite:`Homolya2016` and :cite:`McRae2016`.

@@ -22,6 +22,7 @@ which reproduces the known analytical solution
 
     x[0]*(1-x[0])*x[1]*(1-x[1])
 """
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 
@@ -73,9 +74,9 @@ def poisson_mixed(size, parameters={}, quadrilateral=False):
 def test_poisson_mixed(parameters):
     """Test second-order convergence of the mixed poisson formulation."""
     diff = np.array([poisson_mixed(i, parameters)[0] for i in range(3, 6)])
-    print "l2 error norms:", diff
+    print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
-    print "convergence order:", conv
+    print("convergence order:", conv)
     assert (np.array(conv) > 1.9).all()
 
 
