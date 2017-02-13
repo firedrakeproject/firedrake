@@ -266,6 +266,7 @@ class Tensor(TensorBase):
 
         super(Tensor, self).__init__()
 
+        self.operands = self,
         self.form = form
 
     def arguments(self):

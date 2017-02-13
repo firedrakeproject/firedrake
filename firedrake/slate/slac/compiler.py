@@ -475,27 +475,32 @@ def auxiliary_temporaries(builder, declared_temps):
     """
     aux_statements = []
     for exp in builder.aux_temps:
-        if isinstance(exp, Transpose):
-            # Get the temporary for the particular transpose
-            # expression
-            tensor, = exp.operands
-            result = "(%s).transpose()" % (
-                metaphrase_slate_to_cpp(tensor, declared_temps)
-            )
+        if isinstance(exp, (Inverse, Transpose)):
+            if builder._ref_counts[exp] > 1:
+                # Get the temporary for the particular expression
+                result = metaphrase_slate_to_cpp(exp, declared_temps)
 
-        elif isinstance(exp, Inverse):
-            # Get the temporary for the particular inverse
-            # expression
-            tensor, = exp.operands
-            result = "(%s).inverse()" % (
-                metaphrase_slate_to_cpp(tensor, declared_temps)
-            )
+                # Now we use the generated result and assign the value to the
+                # corresponding temporary.
+                temp = ast.Symbol("auxT%d" % len(declared_temps))
+                shape = exp.shape
+                aux_statements.append(ast.Decl(eigen_matrixbase_type(shape),
+                                               temp))
+                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+                aux_statements.append(ast.Assign(temp, result))
+
+                # Update declared temps
+                declared_temps[exp] = temp
 
         elif isinstance(exp, Action):
+            # Action computations are relatively inexpensive, so
+            # we don't waste memory space on creating temps for
+            # these expressions. However, we must create a temporary
+            # for the actee coefficient (if we haven't already).
             actee, = exp.actee
             if actee not in declared_temps:
                 # Declare a temporary for the coefficient
-                ctemp = ast.Symbol("C%d" % len(declared_temps))
+                ctemp = ast.Symbol("auxT%d" % len(declared_temps))
                 V = actee.function_space()
                 node_extent = V.fiat_element.space_dimension()
                 dof_extent = np.prod(V.ufl_element().value_shape())
@@ -524,29 +529,14 @@ def auxiliary_temporaries(builder, declared_temps):
                                inner_loop)
 
                 aux_statements.append(loop)
-                declared_temps[actee] = ctemp
 
-            tensor, = exp.operands
-            result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
-                                                            declared_temps,
-                                                            exp.prec),
-                                    declared_temps[actee])
+                # Update declared temporaries with the coefficient
+                declared_temps[actee] = ctemp
 
         else:
             raise NotImplementedError(
                 "Auxiliary expr type %s not currently implemented." % type(exp)
             )
-
-        # Now we use the generated result and assign the value to the
-        # corresponding temporary.
-        temp = builder.aux_temps[exp]
-        aux_statements.append(ast.Decl(eigen_matrixbase_type(exp.shape),
-                                       temp))
-        aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
-        aux_statements.append(ast.Assign(temp, result))
-
-        # Update declared temps
-        declared_temps[exp] = temp
 
     return aux_statements
 
@@ -588,6 +578,14 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
         return parenthesize(result, expr.prec, prec)
 
+    elif isinstance(expr, Transpose):
+        tensor, = expr.operands
+        return "(%s).transpose()" % metaphrase_slate_to_cpp(tensor, temps)
+
+    elif isinstance(expr, Inverse):
+        tensor, = expr.operands
+        return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
+
     elif isinstance(expr, (Add, Sub, Mul)):
         op = {Add: '+',
               Sub: '-',
@@ -597,6 +595,14 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
                                op,
                                metaphrase_slate_to_cpp(B, temps, expr.prec))
 
+        return parenthesize(result, expr.prec, prec)
+
+    elif isinstance(expr, Action):
+        tensor, = expr.operands
+        c, = expr.actee
+        result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
+                                                        temps,
+                                                        expr.prec), temps[c])
         return parenthesize(result, expr.prec, prec)
 
     else:
