@@ -349,61 +349,46 @@ class LoopyImplicitMatrixContext(object):
         import loopy as lp
         import numpy as np
         import string
-        kernel, = compile_form(self.action)
 
-        # A bit complicated since we are allowing a general number of
-        # coefficients, each of which can be in a mixed space
+        # FIXME: Assumes we just get one kernel back.  No boundary
+        # terms yet...
+        kernel, = compile_form(self.action)
+        knl = tsfc_to_loopy(kernel._ir)
+        print(knl)
+        
         coeffs = self.action.coefficients()
         fcoeffs = [x for c in coeffs for x in c.split()]
         ws_labels = ["w_" + str(i) for i, _ in enumerate(fcoeffs)]
-        things_to_batch = tuple(["A0"] + ws_labels + ["coords"])
-        things_to_infer = string.join(things_to_batch, ",")
+        As_labels = [a.name for a in knl.args if a.name[0] == 'A']
 
-        #print kernel.ast
+        things_to_batch = tuple(As_labels + ws_labels + ["coords"])
+        type_dict = dict((x, np.float64) for x in things_to_batch)
         
-        lp_knl = compile_form_loopy(self.action)
+        knl = lp.add_and_infer_dtypes(knl, type_dict)
 
-        1/0
         
-        knl = tsfc_to_loopy(kernel._ir)
-
-        knl = lp.add_and_infer_dtypes(knl, {things_to_infer: np.float64})
         knl = lp.to_batched(knl, "nelements", things_to_batch,
                             batch_iname_prefix="iel")
         for rule in list(six.itervalues(knl.substitutions)):
             knl = lp.precompute(knl, rule.name, rule.arguments)
 
+        print(knl)
+            
         coords = test_space.mesh().coordinates
         coord_fs = coords.function_space() 
 
-        variable_to_dim_nbf = {
-            "coords": (coord_fs.dim,
-                       coord_fs.cell_node_map().values.shape[1]),
-        }
-
-        for i, coeff in enumerate(fcoeffs):
-            print coeff
-            nbf = coeff.function_space().cell_node_map().values.shape[1]
-            dim = coeff.function_space().dim
-            variable_to_dim_nbf["w_"+str(i)] = (dim, nbf)
-
-
-
-        unflatter = TsfcCoefficientIndexUnflattener(variable_to_dim_nbf)
-
-        knl = knl.copy(
-            instructions=[
-                insn.with_transformed_expressions(unflatter) for insn in knl.instructions])
-
-        knl = adjust_tsfc_shapes(knl, variable_to_dim_nbf)
-
-        # for coords and each coeff, fuse in a copy of scatter_knl,
-        # then bind kernel_args to the non-scattered vectors.
-
+        # I want to get all of the local-to-global mappings needed for
+        # scatter and gather in place.
+        # This means:
+        # 1.) a master list of all the function spaces
+        # 2.) a list for the things I'm scattering
+        # 3.) another list for the things I'm gathering.
+        
         fspace_to_number = {}
         fspaces_in_form = []
         fspace_to_number[coord_fs] = 0
         fspaces_in_form.append(coord_fs)
+
         for coeff in fcoeffs:
             fs = coeff.function_space()
             if fs not in fspace_to_number:
@@ -411,11 +396,12 @@ class LoopyImplicitMatrixContext(object):
                 fspaces_in_form.append(fs)
 
         # the bits of the test space are also function spaces that
-        # might or might not appear among the coefficients
+        # might or might not appear among the coefficients.
+        # They are definitely needed for the output arguments.
         for ts in test_space.split():
             if ts not in fspace_to_number:
-                fspace_to_number[fs] = len(fspace_to_number)
-                fspaces_in_form.append(fs)
+                fspace_to_number[ts] = len(fspace_to_number)
+                fspaces_in_form.append(ts)
 
         # we need to handle scatter kernels for the coordinates
         # and coefficients.
@@ -424,12 +410,14 @@ class LoopyImplicitMatrixContext(object):
             + [("w_%d" % i, coeff.function_space())
                for i, coeff in enumerate(fcoeffs)])
 
-        for thing, fspace in things_to_scatter:
+        for i, (thing, fspace) in enumerate(things_to_scatter):
             fspace_nr = fspace_to_number[fspace]
             ltg_cur = fspace.cell_node_map().values
-            ibf = "ibf%d" % fspace_nr
-            idim = "idim%d" % fspace_nr
+            ibf = "ibf_scat_%d" % i
+            idim = "idim_scat_%d" % i
+            ltgi = "ltg_%d" % fspace_nr
 
+            
             scatter_knl = lp.make_kernel(
                 "{{ [iel, {ibf}, {idim}]:"
                 "    0 <= iel<nelements "
@@ -444,9 +432,10 @@ class LoopyImplicitMatrixContext(object):
                 ),
                 """
                 {thing}[iel, {ibf}, {idim}] = \
-                    {thing}_global[{dim} * ltg{fnr}[iel, {ibf}] + {idim}]
+                    {thing}_global[{dim} * {ltgi}[iel, {ibf}] + {idim}]
                 """.format(
                     thing=thing,
+                    ltgi=ltgi,
                     fnr=fspace_nr,
                     idim=idim,
                     ibf=ibf,
@@ -456,7 +445,8 @@ class LoopyImplicitMatrixContext(object):
             scatter_knl = lp.add_dtypes(
                 scatter_knl, {
                     "nelements": np.int32,
-                    "ltg"+str(fspace_nr): np.int32,
+                    ltgi: np.int32,
+                    thing: np.float64,
                     thing+"_global": np.float64,
                 })
 
@@ -466,59 +456,66 @@ class LoopyImplicitMatrixContext(object):
 
             knl = lp.assignment_to_subst(knl, thing)
 
-        knl = lp.add_dtypes(knl,
-                            {"A0": np.float64})
-
-        for ka in knl.args:
-            if ka.name == "A0":
-                A0shp = ka.shape
-                break
-
-        offset = 0
-
+        knl = lp.make_reduction_inames_unique(knl)
+        cd = lp.generate_code(knl)
         # the test space may be a mixed space.  Need to loop over its bits
-        # fuse the ltg mapping with the appropriate IS for the field
-        for ts in test_space.split():
-            ltg_cur = fspace.cell_node_map().values
-            ibf = "ibf%d_g" % fspace_nr
-            idim = "idim%d_g" % fspace_nr
+        # First up, fuse with the ltg to gather.
 
-            gather_knl = lp.make_kernel(
-                "{{ [iel, ibf_A0, idim_A0]: 0 <= iel < nelements and 0 <= ibf_A0 < {nbf} and 0 <= idim_A0 < {dim} }}"
+        for i, ts in enumerate(test_space.split()):
+            fspace_nr = fspace_to_number[ts]
+            ltg_cur = ts.cell_node_map().values
+
+            ibf = "ibf_gather_%d" % i
+
+            ltgi = "ltg_%d" % fspace_nr
+            
+            if ts.dim == 1:
+                ai = "A%d" % i
+                ai_global = "A%d_global" % i
+
+                gather_knl = lp.make_kernel(
+                    "{{[iel, {ibf}]: 0 <= iel < nelements and 0 <= {ibf} < {nbf} }}"
                 .format(
-                    nbf=ts.cell_node_map().values.shape[1],
-                    dim=ts.dim
-                ),
-                """
-                A0_global[{dim} * ltg_A0[iel, ibf_A0] + idim_A0] = (
-                A0_global[{dim} * ltg_A0[iel, ibf_A0] + idim_A0]
-                + A0[iel, ibf_A0 + {nbf}*idim_A0])  {{atomic}}
-                """
-                .format(
-                    dim=ts.dim,
+                    ibf=ibf,
                     nbf=ts.cell_node_map().values.shape[1]
                 ),
-                [
-                    lp.GlobalArg("A0_global", np.float64, shape=(self._y.vector().size(),), for_atomic=True),
-                    lp.GlobalArg("ltg_A0", np.int32, shape=lp.auto),
-                    lp.GlobalArg("A0", np.float64, shape=A0shp),
-                    "..."])
+                """
+                {ai_global}[{ltgi}[iel, {ibf}]] = (
+                {ai_global}[{ltgi}[iel, {ibf}]]
+                + {ai}[iel, {ibf}])  {{atomic}}
+                """
+                .format(
+                    ai=ai,
+                    ai_global=ai_global,
+                    ibf=ibf,
+                    ltgi=ltgi,
+                    nbf=ts.cell_node_map().values.shape[1]
+                ),
+                    [
+                        lp.GlobalArg(ai_global, np.float64, for_atomic=True),
+                        lp.GlobalArg(ltgi, np.int32, shape=lp.auto),
+                        lp.GlobalArg(ai, np.float64, shape=lp.auto),
+                        "..."])
 
-            gather_knl = lp.add_dtypes(gather_knl, {
-                "nelements": np.int32,
-                "A0": np.float64,
-            })
-            knl = lp.fuse_kernels(
-                (knl, gather_knl),
-                data_flow=[("A0", 0, 1)])
+                gather_knl = lp.add_dtypes(gather_knl, {
+                    "nelements": np.int32,
+                    ai: np.float64,
+                    ltgi: np.int32
+                })
+                knl = lp.fuse_kernels(
+                    (knl, gather_knl),
+                    data_flow=[(ai, 0, 1)])              
+            else:
+                1/0
 
-            offset = offset + np.amax(ts.cell_node_map().values)
+        for i, ts in enumerate(test_space.split()):
+            knl = lp.assignment_to_subst(knl, "A%d" % i)
 
-        knl = lp.assignment_to_subst(knl, "A0")
         knl = lp.infer_unknown_types(knl)
-
         knl = lp.make_reduction_inames_unique(knl)
-
+                
+        print(lp.generate_code(knl)[0])
+        1/0
         self.knl = knl
 
         # Set up arguments for the kernel
@@ -691,7 +688,7 @@ def compile_form_loopy(form):
                     for krnl in compile_form(f)]
 
     for k in tsfc_kernels:
-        print k.ast
+        print(k.ast)
 
 
         
