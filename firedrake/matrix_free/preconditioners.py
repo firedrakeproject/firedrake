@@ -1,4 +1,6 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import with_metaclass
+
 import abc
 
 from firedrake.petsc import PETSc
@@ -6,9 +8,7 @@ from firedrake.petsc import PETSc
 __all__ = ("AssembledPC", "MassInvPC", "PCDPC", "PCBase")
 
 
-class PCBase(object):
-
-    __metaclass__ = abc.ABCMeta
+class PCBase(with_metaclass(abc.ABCMeta)):
 
     def __init__(self):
         """Create a PC context suitable for PETSc.
@@ -131,9 +131,10 @@ class AssembledPC(PCBase):
 
     def view(self, pc, viewer=None):
         super(AssembledPC, self).view(pc, viewer)
-        viewer.printfASCII("PC to apply inverse\n")
         viewer.pushASCIITab()
-        self.pc.view(viewer)
+        if hasattr(self, "pc"):
+            viewer.printfASCII("PC to apply inverse\n")
+            self.pc.view(viewer)
         viewer.popASCIITab()
 
 
@@ -339,7 +340,7 @@ class PCDPC(PCBase):
         super(PCDPC, self).view(pc, viewer)
         viewer.printfASCII("Pressure-Convection-Diffusion inverse K^-1 F_p M^-1:\n")
         viewer.pushASCIITab()
-        viewer.printfASCII("Reynolds number in F_p (applied matrix-free) is %g\n" %
+        viewer.printfASCII("Reynolds number in F_p (applied matrix-free) is %s\n" %
                            str(self.Re))
         viewer.printfASCII("KSP solver for K^-1:\n")
         viewer.pushASCIITab()

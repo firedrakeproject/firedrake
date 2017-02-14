@@ -16,7 +16,9 @@
 #
 # You should have received a copy of the GNU Lesser General Public License
 # along with DOLFIN. If not, see <http://www.gnu.org/licenses/>.
-from __future__ import absolute_import
+
+from __future__ import absolute_import, print_function, division
+from six import iterkeys
 
 __all__ = ["solve"]
 
@@ -231,7 +233,7 @@ def _extract_linear_solver_args(*args, **kwargs):
     if len(args) != 3:
         raise RuntimeError("Missing required arguments, expecting solve(A, x, b, **kwargs)")
 
-    for kwarg in kwargs.iterkeys():
+    for kwarg in iterkeys(kwargs):
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords are %s" %
                                (kwarg, ", ".join("'%s'" % kw for kw in valid_kwargs)))
@@ -254,14 +256,10 @@ def _extract_args(*args, **kwargs):
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
                     "options_prefix", "appctx"]
-    transfer_nest = False
     if "nest" in kwargs:
-        from firedrake.logging import warning, RED
-        warning(RED % "The 'nest' argument is deprecated, please set 'mat_type' in the solver parameters")
-        nest = kwargs.pop("nest")
-        transfer_nest = True
+        raise DeprecationWarning("The 'nest' argument is deprecated, please set 'mat_type' in the solver parameters")
 
-    for kwarg in kwargs.iterkeys():
+    for kwarg in iterkeys(kwargs):
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \
                                are %s" % (kwarg, ", ".join("'%s'" % kwarg
@@ -304,10 +302,6 @@ def _extract_args(*args, **kwargs):
     solver_parameters = kwargs.get("solver_parameters", {})
     options_prefix = kwargs.get("options_prefix", None)
 
-    if transfer_nest and nest is not None:
-        solver_parameters["mat_type"] = "nest" if nest else "aij"
-        if Jp is not None:
-            solver_parameters["pmat_type"] = solver_parameters["mat_type"]
     return eq, u, bcs, J, Jp, M, form_compiler_parameters, \
         solver_parameters, nullspace, nullspace_T, near_nullspace, options_prefix
 

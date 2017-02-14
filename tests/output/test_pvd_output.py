@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 from functools import partial
 from firedrake import *

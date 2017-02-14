@@ -1,5 +1,5 @@
 # Low-level numbering for multigrid support
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import FIAT
 
@@ -190,7 +190,7 @@ def coarse_to_fine_cells(mc, mf):
         # Find original coarse cell (fcell / nref) and then map
         # forward to renumbered coarse cell (again non-overlapped
         # cells should map into owned coarse cells)
-        ccell = co2n[fcell / nref]
+        ccell = co2n[fcell // nref]
         assert 0 <= ccell < ncoarse
         for i in range(nref):
             if coarse_to_fine[ccell, i] == -1:

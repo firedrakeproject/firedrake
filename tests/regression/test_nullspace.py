@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 import numpy as np
@@ -24,6 +25,21 @@ def test_nullspace(V):
     exact = Function(V)
     exact.interpolate(Expression('x[1] - 0.5'))
     assert sqrt(assemble((u - exact)*(u - exact)*dx)) < 5e-8
+
+
+def test_orthonormalize():
+    mesh = UnitSquareMesh(2, 2)
+    V = VectorFunctionSpace(mesh, "CG", 1)
+    a = Function(V).interpolate(Constant((2, 0)))
+    b = Function(V).interpolate(Constant((0, 2)))
+
+    basis = VectorSpaceBasis([a, b])
+    assert basis.is_orthogonal()
+    assert not basis.is_orthonormal()
+
+    basis.orthonormalize()
+    assert basis.is_orthogonal()
+    assert basis.is_orthonormal()
 
 
 def test_transpose_nullspace():
@@ -124,7 +140,6 @@ def test_near_nullspace(tmpdir):
     mesh = UnitSquareMesh(100, 100)
     x, y = SpatialCoordinate(mesh)
     dim = 2
-    parameters["pyop2_options"]["block_sparsity"] = False
     V = VectorFunctionSpace(mesh, "Lagrange", 1)
     u = TrialFunction(V)
     v = TestFunction(V)
@@ -147,8 +162,8 @@ def test_near_nullspace(tmpdir):
     n2 = as_vector([y - 0.5, -(x - 0.5)])
     ns = [n0, n1, n2]
     n_interp = [interpolate(n, V) for n in ns]
-    n_normalized = [interpolate(n*(1.0/sqrt(n.dat.inner(n.dat))), V) for n in n_interp]
-    nsp = VectorSpaceBasis(vecs=n_normalized)
+    nsp = VectorSpaceBasis(vecs=n_interp)
+    nsp.orthonormalize()
 
     wo_nns_log = str(tmpdir.join("wo_nns_log"))
     w_nns_log = str(tmpdir.join("w_nns_log"))
@@ -157,13 +172,15 @@ def test_near_nullspace(tmpdir):
     solve(lhs(F) == rhs(F), w1, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % w_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
-        'pc_type': 'gamg'}, near_nullspace=nsp)
+        'pc_type': 'gamg',
+        'mat_type': 'aij'}, near_nullspace=nsp)
 
     w2 = Function(V)
     solve(lhs(F) == rhs(F), w2, bcs=bcs, solver_parameters={
         'ksp_monitor_short': "ascii:%s:" % wo_nns_log,
         'ksp_rtol': 1e-8, 'ksp_atol': 1e-8, 'ksp_type': 'cg',
-        'pc_type': 'gamg'})
+        'pc_type': 'gamg',
+        'mat_type': 'aij'})
 
     # check that both solutions are equal to the exact solution
     assert sqrt(assemble(inner(w1-w2, w1-w2)*dx)) < 1e-7

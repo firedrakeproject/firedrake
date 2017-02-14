@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy
 import operator
 import functools
@@ -16,16 +16,19 @@ from firedrake import matrix
 from firedrake import parameters
 from firedrake import solving
 from firedrake import utils
+from firedrake.slate import slate
+from firedrake.slate import slac
 
 
 __all__ = ["assemble"]
 
 
 def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-             inverse=False, mat_type=None, appctx={}, **kwargs):
+             inverse=False, mat_type=None, sub_mat_type=None, appctx={}, **kwargs):
     """Evaluate f.
 
-    :arg f: a :class:`~ufl.classes.Form` or :class:`~ufl.classes.Expr`.
+    :arg f: a :class:`~ufl.classes.Form`, :class:`~ufl.classes.Expr` or
+            a :class:`~slate.TensorBase` expression.
     :arg tensor: an existing tensor object to place the result in
          (optional).
     :arg bcs: a list of boundary conditions to apply (optional).
@@ -39,10 +42,18 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
     :arg mat_type: (optional) string indicating how a 2-form (matrix) should be
-         assembled -- either as a monolithic matrix ('aij'), a block matrix
+         assembled -- either as a monolithic matrix ('aij' or 'baij'), a block matrix
          ('nest'), or left as a :class:`.ImplicitMatrix` giving matrix-free
          actions ('matfree').  If not supplied, the default value in
-         ``parameters["default_matrix_type"]`` is used.
+         ``parameters["default_matrix_type"]`` is used.  BAIJ differs
+         from AIJ in that only the block sparsity rather than the dof
+         sparsity is constructed.  This can result in some memory
+         savings, but does not work with all PETSc preconditioners.
+         BAIJ matrices only make sense for non-mixed matrices.
+    :arg sub_mat_type: (optional) string indicating the matrix type to
+         use *inside* a nested block matrix.  Only makes sense if
+         ``mat_type`` is ``nest``.  May be one of 'aij' or 'baij'.  If
+         not supplied, defaults to ``parameters["default_sub_matrix_type"]``.
     :arg appctx: Additional information to hang on the assembled
          matrix if an implicit matrix is requested (mat_type "matfree").
 
@@ -55,6 +66,9 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     pointwise on the :class:`.Function`\s in the expression. This will
     only succeed if all the Functions are on the same
     :class:`.FunctionSpace`.
+
+    If f is a Slate tensor expression, then it will be compiled using Slate's
+    linear algebra compiler.
 
     If ``tensor`` is supplied, the assembled result will be placed
     there, otherwise a new object of the appropriate type will be
@@ -79,10 +93,11 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
-    if isinstance(f, ufl.form.Form):
+    if isinstance(f, (ufl.form.Form, slate.TensorBase)):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
-                         inverse=inverse, mat_type=mat_type, appctx=appctx,
+                         inverse=inverse, mat_type=mat_type,
+                         sub_mat_type=sub_mat_type, appctx=appctx,
                          collect_loops=collect_loops,
                          allocate_only=allocate_only)
     elif isinstance(f, ufl.core.expr.Expr):
@@ -92,7 +107,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
 
 def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
-                    inverse=False, mat_type=None, appctx={}):
+                    inverse=False, mat_type=None, sub_mat_type=None, appctx={}):
     """Allocate a matrix given a form.  To be used with :func:`create_assembly_callable`.
 
     .. warning::
@@ -100,12 +115,13 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
        Do not use this function unless you know what you're doing.
     """
     return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
-                     inverse=inverse, mat_type=mat_type, appctx=appctx,
+                     inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
+                     appctx=appctx,
                      allocate_only=True)
 
 
 def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=None,
-                             inverse=False, mat_type=None):
+                             inverse=False, mat_type=None, sub_mat_type=None):
     """Create a callable object than be used to assemble f into a tensor.
 
     This is really only designed to be used inside residual and
@@ -123,18 +139,21 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
     loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type,
+                      sub_mat_type=sub_mat_type,
                       collect_loops=True)
     return functools.partial(map, operator.methodcaller("__call__"), loops)
 
 
 @utils.known_pyop2_safe
 def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
-              inverse=False, mat_type=None, appctx={},
+              inverse=False, mat_type=None, sub_mat_type=None,
+              appctx={},
               collect_loops=False,
               allocate_only=False):
-    """Assemble the form f and return a Firedrake object representing the
-    result. This will be a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms and a :class:`.Matrix` for 2-forms.
+    """Assemble the form or Slate expression f and return a Firedrake object
+    representing the result. This will be a :class:`float` for 0-forms/rank-0
+    Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
+    a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
     :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
     :arg tensor: An existing tensor object into which the form should be
@@ -145,14 +164,20 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     :arg inverse: (optional) if f is a 2-form, then assemble the inverse
          of the local matrices.
     :arg mat_type: (optional) type for assembled matrices, one of
-        "nest", "aij" or "matfree".
+        "nest", "aij", "baij", or "matfree".
+    :arg sub_mat_type: (optional) type for assembled sub matrices
+        inside a "nest" matrix.  One of "aij" or "baij".
     :arg appctx: Additional information to hang on the assembled
          matrix if an implicit matrix is requested (mat_type "matfree").
     """
     if mat_type is None:
         mat_type = parameters.parameters["default_matrix_type"]
-    if mat_type not in ["matfree", "aij", "nest"]:
+    if mat_type not in ["matfree", "aij", "baij", "nest"]:
         raise ValueError("Unrecognised matrix type, '%s'" % mat_type)
+    if sub_mat_type is None:
+        sub_mat_type = parameters.parameters["default_sub_matrix_type"]
+    if sub_mat_type not in ["aij", "baij"]:
+        raise ValueError("Invalid submatrix type, '%s' (not 'aij' or 'baij')", sub_mat_type)
 
     if form_compiler_parameters:
         form_compiler_parameters = form_compiler_parameters.copy()
@@ -160,8 +185,13 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         form_compiler_parameters = {}
     form_compiler_parameters["assemble_inverse"] = inverse
 
-    kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters,
-                                          inverse=inverse)
+    if isinstance(f, slate.TensorBase):
+        kernels = slac.compile_expression(f, tsfc_parameters=form_compiler_parameters)
+        integral_types = [kernel.kinfo.integral_type for kernel in kernels]
+    else:
+        kernels = tsfc_interface.compile_form(f, "form", parameters=form_compiler_parameters, inverse=inverse)
+        integral_types = [integral.integral_type() for integral in f.integrals()]
+
     rank = len(f.arguments())
 
     is_mat = rank == 2
@@ -174,16 +204,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if inverse and rank != 2:
         raise ValueError("Can only assemble the inverse of a 2-form")
 
-    integrals = f.integrals()
-
-    # Pass this through for assembly caching purposes
-    form_compiler_parameters["matrix_type"] = mat_type
-
     zero_tensor = lambda: None
 
-    matfree = mat_type == "matfree"
-    nest = mat_type == "nest"
     if is_mat:
+        matfree = mat_type == "matfree"
+        nest = mat_type == "nest"
+        if nest:
+            baij = sub_mat_type == "baij"
+        else:
+            baij = mat_type == "baij"
         if matfree:  # intercept matrix-free matrices here
             if inverse:
                 raise NotImplementedError("Inverse not implemented with matfree")
@@ -204,13 +233,12 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         exterior_facet_domains = []
         interior_facet_domains = []
         if tensor is None:
-            # For horizontal facets of extrded meshes, the corresponding domain
+            # For horizontal facets of extruded meshes, the corresponding domain
             # in the base mesh is the cell domain. Hence all the maps used for top
             # bottom and interior horizontal facets will use the cell to dofs map
             # coming from the base mesh as a starting point for the actual dynamic map
             # computation.
-            for integral in integrals:
-                integral_type = integral.integral_type()
+            for integral_type in integral_types:
                 if integral_type == "cell":
                     cell_domains.append(op2.ALL)
                 elif integral_type == "exterior_facet":
@@ -248,12 +276,14 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
             fs_names = (test.function_space().name, trial.function_space().name)
+
             try:
                 sparsity = op2.Sparsity((test.function_space().dof_dset,
                                          trial.function_space().dof_dset),
                                         map_pairs,
                                         "%s_%s_sparsity" % fs_names,
-                                        nest=nest)
+                                        nest=nest,
+                                        block_sparse=baij)
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
@@ -270,12 +300,15 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             tensor = tensor._M
             zero_tensor = tensor.zero
 
+        if result_matrix.block_shape != (1, 1) and mat_type == "baij":
+            raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
+
         def mat(testmap, trialmap, i, j):
             m = testmap(test.function_space()[i])
             n = trialmap(trial.function_space()[j])
             maps = (m[op2.i[0]] if m else None,
                     n[op2.i[1]] if n else None)
-            return tensor[i, j](op2.INC, maps, flatten=True)
+            return tensor[i, j](op2.INC, maps)
         result = lambda: result_matrix
         if allocate_only:
             result_matrix._assembly_callback = None
@@ -292,9 +325,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
         def vec(testmap, i):
             _testmap = testmap(test.function_space()[i])
-            return tensor[i](op2.INC,
-                             _testmap[op2.i[0]] if _testmap else None,
-                             flatten=True)
+            return tensor[i](op2.INC, _testmap[op2.i[0]] if _testmap else None)
         result = lambda: result_function
     else:
         # 0-forms are always scalar
@@ -345,7 +376,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             loops.append(zero_tensor)
         else:
             zero_tensor()
-        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map) in kernels:
+        for indices, (kernel, integral_type, needs_orientations, subdomain_id, domain_number, coeff_map, needs_cell_facets, pass_layer_arg) in kernels:
             m = domains[domain_number]
             subdomain_data = f.subdomain_data()[m]
             # Find argument space indices
@@ -448,16 +479,21 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
             coords = m.coordinates
             args = [kernel, itspace, tensor_arg,
-                    coords.dat(op2.READ, get_map(coords), flatten=True)]
+                    coords.dat(op2.READ, get_map(coords))]
             if needs_orientations:
                 o = m.cell_orientations()
-                args.append(o.dat(op2.READ, get_map(o), flatten=True))
+                args.append(o.dat(op2.READ, get_map(o)))
             for n in coeff_map:
                 c = coefficients[n]
                 for c_ in c.split():
-                    args.append(c_.dat(op2.READ, get_map(c_), flatten=True))
+                    args.append(c_.dat(op2.READ, get_map(c_)))
+            if needs_cell_facets:
+                assert integral_type == "cell"
+                extra_args.append(m.cell_to_facets(op2.READ))
 
             args.extend(extra_args)
+            kwargs["pass_layer_arg"] = pass_layer_arg
+
             try:
                 with collecting_loops(collect_loops):
                     loops.append(op2.par_loop(*args, **kwargs))

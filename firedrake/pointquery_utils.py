@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import range
 
 from os import path
 import numpy
@@ -163,18 +164,18 @@ def compile_coordinate_element(ufl_coordinate_element):
 
     def dX_norm_square(topological_dimension):
         return " + ".join("dX[{0}]*dX[{0}]".format(i)
-                          for i in xrange(topological_dimension))
+                          for i in range(topological_dimension))
 
     def X_isub_dX(topological_dimension):
         return "\n".join("\tX[{0}] -= dX[{0}];".format(i)
-                         for i in xrange(topological_dimension))
+                         for i in range(topological_dimension))
 
     def is_affine(ufl_element):
         return ufl_element.cell().is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
 
     def inside_check(ufl_cell, fiat_cell):
         dim = ufl_cell.topological_dimension()
-        point = tuple(sp.Symbol("X[%d]" % i) for i in xrange(dim))
+        point = tuple(sp.Symbol("X[%d]" % i) for i in range(dim))
 
         return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=1e-14).args)
 
@@ -199,11 +200,11 @@ def compile_coordinate_element(ufl_coordinate_element):
         code = []
 
         # Symbolic tabulation
-        tabs = fiat_element.tabulate(1, np.array([[sp.Symbol("X[%d]" % i) for i in xrange(tdim)]]))
+        tabs = fiat_element.tabulate(1, np.array([[sp.Symbol("X[%d]" % i) for i in range(tdim)]]))
         tabs = sorted((d, value.reshape(value.shape[:-1])) for d, value in tabs.iteritems())
 
         # Generate code for intermediate values
-        s_code, d_phis = ssa_arrays(map(lambda (k, v): v, tabs), prefix="t")
+        s_code, d_phis = ssa_arrays([v for k, v in tabs], prefix="t")
         phi = d_phis.pop(0)
 
         for name, value in s_code:
@@ -232,8 +233,8 @@ def compile_coordinate_element(ufl_coordinate_element):
         # if needs_orientation:
         #     code_ += [format["orientation"]["ufc"](tdim, gdim)]
 
-        x = np.array([sp.Symbol("x[%d]" % i) for i in xrange(gdim)])
-        x0 = np.array([sp.Symbol("x0[%d]" % i) for i in xrange(gdim)])
+        x = np.array([sp.Symbol("x[%d]" % i) for i in range(gdim)])
+        x0 = np.array([sp.Symbol("x0[%d]" % i) for i in range(gdim)])
         K = np.array([[sp.Symbol("K[%d]" % (i*gdim + j)) for j in range(gdim)]
                       for i in range(tdim)])
 

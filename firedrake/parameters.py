@@ -1,5 +1,6 @@
 """The parameters dictionary contains global parameter settings."""
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import iteritems
 
 from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
@@ -16,7 +17,7 @@ class Parameters(dict):
         self._name = name
         self._update_function = None
 
-        for key, value in kwargs.iteritems():
+        for key, value in iteritems(kwargs):
             self.add(key, value)
 
     def add(self, key, value=None):
@@ -79,8 +80,10 @@ parameters.add(Parameters("form_compiler", **default_parameters()))
 
 parameters["reorder_meshes"] = True
 
-# One of nest, aij or matfree
+# One of nest, aij, baij or matfree
 parameters["default_matrix_type"] = "nest"
+# One of aij or baij
+parameters["default_sub_matrix_type"] = "baij"
 
 parameters["type_check_safe_par_loops"] = False
 

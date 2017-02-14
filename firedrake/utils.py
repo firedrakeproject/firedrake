@@ -1,5 +1,5 @@
 # Some generic python utilities not really specific to our work.
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 from decorator import decorator
 from pyop2.utils import cached_property  # noqa: F401
 

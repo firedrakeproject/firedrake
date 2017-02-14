@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 from ufl import action
 
@@ -97,8 +97,10 @@ class ImplicitMatrixContext(object):
         # These are temporary storage for holding the BC
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
-        self._xbc = function.Function(trial_space)
-        self._ybc = function.Function(test_space)
+        if len(self.row_bcs) > 0:
+            self._xbc = function.Function(trial_space)
+        if len(self.col_bcs) > 0:
+            self._ybc = function.Function(test_space)
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
@@ -133,10 +135,6 @@ class ImplicitMatrixContext(object):
 
         # If we are not, then the matrix just has 0s in the rows and columns.
 
-        if self.on_diag:  # stash BC values for later
-            with self._xbc.dat.vec as v:
-                X.copy(v)
-
         for bc in self.col_bcs:
             bc.zero(self._x)
 
@@ -145,6 +143,10 @@ class ImplicitMatrixContext(object):
         # This sets the essential boundary condition values on the
         # result.
         if self.on_diag:
+            if len(self.row_bcs) > 0:
+                # TODO, can we avoid the copy?
+                with self._xbc.dat.vec as v:
+                    X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._y, self._xbc)
         else:
@@ -158,9 +160,6 @@ class ImplicitMatrixContext(object):
         # As for mult, just everything swapped round.
         with self._y.dat.vec as v:
             Y.copy(v)
-        if self.on_diag:  # stash BC values for later
-            with self._ybc.dat.vec as v:
-                Y.copy(v)
 
         for bc in self.row_bcs:
             bc.zero(self._y)
@@ -168,6 +167,10 @@ class ImplicitMatrixContext(object):
         self._assemble_actionT()
 
         if self.on_diag:
+            if len(self.col_bcs) > 0:
+                # TODO, can we avoid the copy?
+                with self._ybc.dat.vec as v:
+                    Y.copy(v)
             for bc in self.col_bcs:
                 bc.set(self._x, self._ybc)
         else:
@@ -185,6 +188,26 @@ class ImplicitMatrixContext(object):
             return
         viewer.printfASCII("Firedrake matrix-free operator %s\n" %
                            type(self).__name__)
+
+    def getInfo(self, mat, info=None):
+        from mpi4py import MPI
+        memory = self._x.dat.nbytes + self._y.dat.nbytes
+        if hasattr(self, "_xbc"):
+            memory += self._xbc.dat.nbytes
+        if hasattr(self, "_ybc"):
+            memory += self._ybc.dat.nbytes
+        if info is None:
+            info = PETSc.Mat.InfoType.GLOBAL_SUM
+        if info == PETSc.Mat.InfoType.LOCAL:
+            return {"memory": memory}
+        elif info == PETSc.Mat.InfoType.GLOBAL_SUM:
+            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.SUM)
+            return {"memory": gmem}
+        elif info == PETSc.Mat.InfoType.GLOBAL_MAX:
+            gmem = mat.comm.tompi4py().allreduce(memory, op=MPI.MAX)
+            return {"memory": gmem}
+        else:
+            raise ValueError("Unknown info type %s" % info)
 
     # Now, to enable fieldsplit preconditioners, we need to enable submatrix
     # extraction for our custom matrix type.  Note that we are splitting UFL

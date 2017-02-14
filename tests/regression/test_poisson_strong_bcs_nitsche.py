@@ -30,6 +30,7 @@ and on \Gamma_1
 
 and take \lim_{\epsilon \rightarrow 0}
 """
+from __future__ import absolute_import, print_function, division
 
 import pytest
 from firedrake import *

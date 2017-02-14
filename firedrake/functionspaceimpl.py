@@ -4,7 +4,7 @@ and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import numpy
 
@@ -33,13 +33,11 @@ class WithGeometry(ufl.FunctionSpace):
     :arg mesh: The mesh with geometric information to use.
     """
     def __init__(self, function_space, mesh):
-        from firedrake.ufl_expr import reconstruct_element
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
 
-        element = reconstruct_element(function_space.ufl_element(),
-                                      cell=mesh.ufl_cell())
+        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
         super(WithGeometry, self).__init__(mesh, element)
         self.topological = function_space
 
@@ -391,16 +389,16 @@ class FunctionSpace(object):
 
     @property
     def node_count(self):
-        """The number of global nodes in the function space.  If the
-        :class:`FunctionSpace` has :attr:`rank` 0, this is equal to
-        the :attr:`dof_count`, otherwise the :attr:`dof_count` is
+        """The number of nodes (includes halo nodes) of this function space on
+        this process.  If the :class:`FunctionSpace` has :attr:`rank` 0, this
+        is equal to the :attr:`dof_count`, otherwise the :attr:`dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
         return self.node_set.total_size
 
     @property
     def dof_count(self):
-        """The number of global degrees of freedom in the function
-        space. Cf. :attr:`node_count`."""
+        """The number of degrees of freedom (includes halo dofs) of this
+        function space on this process. Cf. :attr:`node_count`."""
         return self.node_count*self.dim
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):

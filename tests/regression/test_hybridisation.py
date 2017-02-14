@@ -24,6 +24,7 @@ which reproduces the known analytical solution
 
 sin(x[0]*pi*2)*sin(x[1]*pi*2)
 """
+from __future__ import absolute_import, print_function, division
 
 import pytest
 from firedrake import *

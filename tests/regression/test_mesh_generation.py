@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 
@@ -166,6 +167,11 @@ def test_interval_parallel():
     assert abs(integrate_one(IntervalMesh(30, 5.0)) - 5.0) < 1e-3
 
 
+@pytest.mark.parallel(nprocs=2)
+def test_periodic_unit_interval_parallel_np2():
+    assert abs(integrate_one(PeriodicUnitIntervalMesh(5)) - 1) < 1e-3
+
+
 @pytest.mark.parallel
 def test_periodic_unit_interval_parallel():
     assert abs(integrate_one(PeriodicUnitIntervalMesh(30)) - 1) < 1e-3
@@ -173,7 +179,7 @@ def test_periodic_unit_interval_parallel():
 
 @pytest.mark.parallel
 def test_periodic_interval_parallel():
-    assert abs(integrate_one(PeriodicIntervalMesh(30, 5.0)) - 5.0) < 1e-3
+    assert abs(integrate_one(PeriodicIntervalMesh(10, 5.0)) - 5.0) < 1e-3
 
 
 @pytest.mark.parallel

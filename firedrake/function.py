@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import range, zip
 import numpy as np
 import sys
 import ufl
@@ -424,6 +425,8 @@ class Function(ufl.Coefficient):
 
         return self
 
+    __itruediv__ = __idiv__
+
     @utils.cached_property
     def _constant_ctypes(self):
         # Retrieve data from Python object
@@ -556,7 +559,7 @@ class Function(ufl.Coefficient):
                     raise RuntimeError("Point evaluation gave different results across processes.")
 
         if not dont_raise:
-            for i in xrange(len(g_result)):
+            for i in range(len(g_result)):
                 if g_result[i] is None:
                     raise PointNotInDomainError(self.function_space().mesh(), points[i].reshape(-1))
 

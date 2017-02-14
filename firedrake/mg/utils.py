@@ -1,4 +1,6 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import iteritems
+from six.moves import range, map, zip
 
 from itertools import permutations
 import numpy as np
@@ -107,7 +109,7 @@ def get_restriction_weights(coarse, fine):
         kernel = get_count_kernel(c2f_map.arity)
         op2.par_loop(kernel, op2.LocalSet(mesh.cell_set),
                      weights.dat(op2.INC, c2f_map[op2.i[0]]))
-        weights.assign(1.0/weights)
+        weights.assign(1/weights)
         return cache.setdefault(key, weights)
 
 
@@ -193,7 +195,7 @@ def get_node_permutations(fiat_element):
         pt = node.get_point_dict()
         assert len(pt.keys()) == 1
         nodes.append(np.asarray(pt.keys()[0], dtype=float))
-    for perm, transform in transforms.iteritems():
+    for perm, transform in iteritems(transforms):
         p = -np.ones(len(functionals), dtype=PETSc.IntType)
         new_nodes = [apply_transform(transform, node) for node in nodes]
         for i, node in enumerate(new_nodes):
@@ -216,7 +218,7 @@ def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
     tdim = cell.get_spatial_dimension()
     nvtx = len(cell.get_vertices())
     ncell = 2**tdim
-    ndof = len(order)/ncell
+    ndof = len(order)//ncell
     if offset is not None:
         new_offset = -np.ones(ncell * offset.shape[0], dtype=offset.dtype)
     for i in range(ncell):

@@ -49,7 +49,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Firedrake'
-copyright = u'2013, Imperial College London and others'
+copyright = u'2013-2016, Imperial College London and others'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -255,7 +255,7 @@ texinfo_documents = [
 
 intersphinx_mapping = {
     'pyop2': ('http://op2.github.io/PyOP2', None),
-    'ufl': ('http://fenicsproject.org/documentation/ufl/dev/', None),
+    'ufl': ('https://fenics.readthedocs.io/projects/ufl/en/latest/', None),
     'h5py': ('http://docs.h5py.org/en/latest/', None),
     'python':('http://docs.python.org/2.7/', None),
 }

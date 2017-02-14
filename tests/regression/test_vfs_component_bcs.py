@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 import numpy as np
@@ -8,9 +9,9 @@ def m():
     return UnitSquareMesh(4, 4)
 
 
-@pytest.fixture
-def V(m):
-    return VectorFunctionSpace(m, 'CG', 1)
+@pytest.fixture(params=[1, 2])
+def V(m, request):
+    return VectorFunctionSpace(m, 'CG', request.param)
 
 
 @pytest.fixture(params=[0, 1])
@@ -155,6 +156,99 @@ def test_cant_subscript_3_cmpt(m):
     V = VectorFunctionSpace(m, 'CG', 1, dim=4)
     with pytest.raises(NotImplementedError):
         V.sub(3)
+
+
+def test_stokes_component_all():
+    mesh = UnitSquareMesh(10, 10)
+
+    # Define function spaces
+    V = VectorFunctionSpace(mesh, "CG", 2)
+    Q = FunctionSpace(mesh, "CG", 1)
+    W = V * Q
+
+    # applyBcsComponentWise = True
+    bc0 = DirichletBC(W.sub(0).sub(0), 0, [3, 4])
+    bc1 = DirichletBC(W.sub(0).sub(1), 0, [3, 4])
+    bc2 = DirichletBC(W.sub(0).sub(0), 1, 1)
+    bc3 = DirichletBC(W.sub(0).sub(1), 0, 1)
+    bcs_cmp = [bc0, bc1, bc2, bc3]
+    bc0 = DirichletBC(W.sub(0), Constant((0.0, 0.0)), [3, 4])
+    bc1 = DirichletBC(W.sub(0), Constant((1.0, 0.0)), 1)
+    bcs_all = [bc0, bc1]
+
+    # Define variational problem
+    (u, p) = TrialFunctions(W)
+    (v, q) = TestFunctions(W)
+    f = Constant((0.0, 0.0))
+    a = inner(grad(u), grad(v))*dx + div(v)*p*dx + q*div(u)*dx
+    L = inner(f, v)*dx
+
+    Uall = Function(W)
+    solve(a == L, Uall, bcs=bcs_all, solver_parameters={"mat_type": "aij",
+                                                        "pc_type": "lu",
+                                                        "pc_factor_shift_type": "nonzero"})
+    Ucmp = Function(W)
+    solve(a == L, Ucmp, bcs=bcs_cmp, solver_parameters={"mat_type": "aij",
+                                                        "pc_type": "lu",
+                                                        "pc_factor_shift_type": "nonzero"})
+
+    for a, b in zip(Uall.split(), Ucmp.split()):
+        assert np.allclose(a.dat.data_ro, b.dat.data_ro)
+
+
+def test_component_full_bcs(V):
+    bc0 = DirichletBC(V, Constant((0, 0)), [3, 4])
+    bc1 = DirichletBC(V, Constant((1, 0)), 1)
+    bcs_full = [bc0, bc1]
+
+    bc0 = DirichletBC(V.sub(0), 0, [3, 4])
+    bc1 = DirichletBC(V.sub(1), 0, [3, 4])
+    bc2 = DirichletBC(V.sub(0), 1, 1)
+    bc3 = DirichletBC(V.sub(1), 0, 1)
+    bcs_cmp = [bc0, bc1, bc2, bc3]
+
+    bc0 = DirichletBC(V, Constant((0, 0)), [3, 4])
+    bc1 = DirichletBC(V.sub(0), 1, 1)
+    bc2 = DirichletBC(V.sub(1), 0, 1)
+    bcs_mixed = [bc0, bc1, bc2]
+
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v))*dx
+
+    def asarray(A):
+        return A.M.handle[:, :]
+
+    A_full = asarray(assemble(a, bcs=bcs_full, mat_type="aij"))
+    A_cmp = asarray(assemble(a, bcs=bcs_cmp, mat_type="aij"))
+    A_mixed = asarray(assemble(a, bcs=bcs_mixed, mat_type="aij"))
+
+    assert np.allclose(A_full, A_cmp)
+    assert np.allclose(A_mixed, A_full)
+
+
+def test_component_full_bcs_overlap(V):
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    bcs_1 = [DirichletBC(V.sub(1), 0, 3),
+             DirichletBC(V, Constant((0, 0)), 4),
+             DirichletBC(V.sub(0), 1, 1),
+             DirichletBC(V.sub(1), 0, 1)]
+
+    bcs_2 = [DirichletBC(V.sub(1), 0, 3),
+             DirichletBC(V, Constant((0, 0)), 4),
+             DirichletBC(V, Constant((1, 0)), 1)]
+
+    a = inner(grad(u), grad(v)) * dx
+
+    def asarray(A):
+        return A.M.handle[:, :]
+
+    A_1 = asarray(assemble(a, bcs=bcs_1, mat_type="aij"))
+    A_2 = asarray(assemble(a, bcs=bcs_2, mat_type="aij"))
+
+    assert np.allclose(A_1, A_2)
 
 
 if __name__ == '__main__':

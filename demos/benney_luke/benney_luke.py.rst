@@ -217,6 +217,9 @@ The output can be visualised using `paraview <http://www.paraview.org/>`__.
 
 A python script version of this demo can be found `here <benney_luke.py>`__.
 
+The Benney-Luke system and weak formulations presented in this demo have also been used to model extreme waves that occur due to Mach reflection through the intersection of two obliquely incident solitary waves. More information can be found in :cite:`Gidel:2017`.
+
 .. rubric:: References
 
-.. bibliography:: benney_luke_refs.bib
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames

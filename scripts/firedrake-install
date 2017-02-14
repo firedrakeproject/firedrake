@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+from __future__ import absolute_import, print_function, division
 import logging
 import platform
 import subprocess
@@ -79,6 +80,7 @@ branches = {}
 # Disgusting hack, are we running on travis/drone?
 travis = "TRAVIS" in os.environ
 drone = "DRONE" in os.environ
+jenkins = "JENKINS_URL" in os.environ
 ci = travis or drone
 ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
@@ -239,7 +241,7 @@ where shortname is one of the names given below:
     for package, d in firedrake_apps.iteritems():
         help_string += componentformat.format(package, d[0])
     help_string += line
-    print help_string
+    print(help_string)
     sys.exit(0)
 
 # Set up logging
@@ -288,9 +290,6 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 # Record of obsolete packages which --clean should remove from old installs.
 old_git_packages = ["instant", "ffc"]
 
-python = ["python"]
-pyinstall = ["python", "setup.py", "install"]
-
 if mode == "install":
     firedrake_env = os.path.abspath(args.virtualenv_name)
 else:
@@ -318,9 +317,9 @@ if options["minimal_petsc"]:
     # If you change these minimal PETSc options, you will have to
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre"""
+    petsc_opts = """--download-chaco --download-hdf5 --download-hypre --download-eigen"""
 else:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+    petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -525,7 +524,12 @@ def pip_requirements(package):
     if os.path.isfile("%s/requirements-ext.txt" % package):
         run_pip_install(["-r", "%s/requirements-ext.txt" % package])
     elif os.path.isfile("%s/requirements.txt" % package):
-        run_pip_install(["-r", "%s/requirements.txt" % package])
+        if package == "COFFEE":
+            # FIXME: Horrible hack to work around
+            # https://github.com/coin-or/pulp/issues/123
+            run_pip_install(["--no-deps", "-r", "%s/requirements.txt" % package])
+        else:
+            run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
         log.info("No dependencies found. Skipping.")
 
@@ -647,14 +651,6 @@ def clean(package):
     os.chdir("..")
 
 
-def get_h5py():
-    log.info("Downloading h5py\n")
-    import urllib
-    urllib.urlretrieve("https://codeload.github.com/h5py/h5py/tar.gz/2.5.0",
-                       "h5py.tar.gz")
-    run_cmd(["tar", "-zxvf", "h5py.tar.gz"])
-
-
 def pip_uninstall(package):
     log.info("Removing existing %s installations\n" % package)
     # Uninstalling something with pip is an absolute disaster.  We
@@ -681,19 +677,39 @@ def pip_uninstall(package):
                 again = True
         i += 1
         if i > 10:
-            raise InstallError("pip claims it uninstalled h5py more than 10 times.  Something is probably broken.")
+            raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
 
 
 def build_and_install_h5py():
-    pip_uninstall("h5py")
-
+    import shutil
     log.info("Installing h5py\n")
+    # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
-        clean("h5py-2.5.0")
-    else:
-        get_h5py()
+        log.info("Removing old h5py-2.5.0 source")
+        shutil.rmtree("h5py-2.5.0")
+    if os.path.exists("h5py.tar.gz"):
+        log.info("Removing old h5py.tar.gz")
+        os.remove("h5py.tar.gz")
 
-    os.chdir("h5py-2.5.0")
+    url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
+    if os.path.exists("h5py"):
+        changed = False
+        with directory("h5py"):
+            # Rewrite old h5py/h5py remote to firedrakeproject/h5py remote.
+            plain_url = split_requirements_url(url)[1]
+            current_remote = check_output(["git", "remote", "-v"]).split()[1]
+            proto = "https" if current_remote.startswith("https") else "ssh"
+            new_remote = git_url(plain_url, proto)
+            if new_remote != current_remote and "h5py/h5py.git" in current_remote:
+                log.info("Updating git remote for h5py from %s to %s", current_remote, new_remote)
+                check_call(["git", "remote", "set-url", "origin", new_remote])
+                check_call(["git", "fetch", "-p", "origin"])
+                check_call(["git", "checkout", "firedrake"])
+                changed = True
+        changed |= git_update("h5py")
+    else:
+        git_clone(url)
+        changed = True
 
     if args.honour_petsc_dir:
         petsc_dir = os.environ["PETSC_DIR"]
@@ -711,14 +727,19 @@ def build_and_install_h5py():
     log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
     oldcc = os.environ.get("CC", None)
     os.environ["CC"] = options["mpicc"] or "mpicc"
-    run_cmd(python + ["setup.py", "configure", "--hdf5=%s" % hdf5_dir])
-    run_cmd(python + ["setup.py", "build"])
-    run_cmd(pyinstall)
+    os.environ["HDF5_DIR"] = hdf5_dir
+    os.environ["HDF5_MPI"] = "ON"
+    if changed or args.rebuild:
+        # Only uninstall if things changed.
+        pip_uninstall("h5py")
+        # Pip installing from dirty directory is potentially unsafe.
+        with directory("h5py/"):
+            check_call(["git", "clean", "-fdx"])
+        install("h5py/")
     if oldcc is None:
         del os.environ["CC"]
     else:
         os.environ["CC"] = oldcc
-    os.chdir("..")
 
 
 def build_and_install_glpsol():
@@ -924,7 +945,7 @@ if travis:
         import time
         while True:
             time.sleep(60)
-            print "."
+            print(".")
 
     travis_writer = Process(target=stdout_writer)
     travis_writer.daemon = True
@@ -960,6 +981,7 @@ if osname == "Darwin":
         brew_install("automake")
         brew_install("cmake")
         brew_install("libtool")
+        brew_install("mercurial")
 
     else:
         log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -1106,6 +1128,9 @@ int main(int argc, char **argv) {
 
 
 if mode == "install":
+    if os.path.exists(firedrake_env):
+        log.warning("Specified virtualenv '%s' already exists", firedrake_env)
+        quit("Can't install into existing virtualenv '%s'" % firedrake_env)
     try:
         import virtualenv
     except:
@@ -1123,7 +1148,7 @@ if mode == "install":
     run_pip(["install", "-U", "pip"])
 
 virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
-execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
+exec(open("%s/bin/activate_this.py" % firedrake_env).read(), virtual_env_vars)
 # Activating the virtual_env from within Python does not automatically set the environment variable.
 os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
@@ -1135,23 +1160,26 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    git_clone("git+https://github.com/firedrakeproject/firedrake.git")
-    if ci and ci_testing_firedrake:
-        if travis:
-            pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-            commit = os.environ["TRAVIS_COMMIT"]
-        elif drone:
-            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
-            commit = os.environ["DRONE_COMMIT_SHA"]
-        else:
-            raise NotImplementedError("Unhandled CI type")
-        os.chdir("firedrake")
-        if pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
-            check_call(["git", "checkout", "FETCH_HEAD"])
-        else:
-            check_call(["git", "checkout", commit])
-        os.chdir("..")
+    if jenkins and ci_testing_firedrake:
+        check_call(["ln", "-s", "../../../", "firedrake"])
+    else:
+        git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+        if ci and ci_testing_firedrake:
+            if travis:
+                pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+                commit = os.environ["TRAVIS_COMMIT"]
+            elif drone:
+                pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
+                commit = os.environ["DRONE_COMMIT_SHA"]
+            else:
+                raise NotImplementedError("Unhandled CI type")
+            os.chdir("firedrake")
+            if pull_request != "false":
+                check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
+                check_call(["git", "checkout", "FETCH_HEAD"])
+            else:
+                check_call(["git", "checkout", commit])
+            os.chdir("..")
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1315,7 +1343,7 @@ if mode == "update":
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
         from pyop2.compilation import clear_cache as pyop2_clear_cache
-        print 'Removing cached TSFC kernels from %s' % TSFCKernel._cachedir
+        print('Removing cached TSFC kernels from %s' % TSFCKernel._cachedir)
         clear_cache()
         pyop2_clear_cache()
     except:

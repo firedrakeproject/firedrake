@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy as np
 
 from pyop2 import op2
@@ -101,7 +101,24 @@ class Vector(object):
         try:
             self.dat += other.dat
         except AttributeError:
-            self += other
+            self.dat += other
+        return self
+
+    def __sub__(self, other):
+        """Add other to self"""
+        diff = self.copy()
+        try:
+            diff.dat -= other.dat
+        except AttributeError:
+            diff -= other
+        return diff
+
+    def __isub__(self, other):
+        """Add other to self"""
+        try:
+            self.dat -= other.dat
+        except AttributeError:
+            self.dat -= other
         return self
 
     def apply(self, action):

@@ -49,7 +49,7 @@ before_install:
   - pip install -U --user pip
   - pip install -U --user virtualenv
   # Fail fast on lint errors
-  - pip install -U --user flake8
+  - pip install -U --user flake8 flake8-future-import
   - if [[ $TRAVIS_OS_NAME == 'osx' ]]; then export PATH=$PATH:$HOME/Library/Python/2.7/bin; fi
   - make lint
 install:
@@ -70,6 +70,7 @@ install:
 script:
   - cd firedrake/src
   - (cd firedrake; make lint)
+  - pylint --py3k --disable=round-builtin firedrake
   - (cd firedrake; py.test --cov firedrake --short -v ${TEST_FILES})
   - if [ "x$TEST_ADJOINT" != "x" ]; then (cd dolfin-adjoint; py.test -v tests_firedrake); fi
 after_success:

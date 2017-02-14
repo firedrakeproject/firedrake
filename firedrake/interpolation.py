@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import numpy
 from functools import partial
@@ -167,15 +167,12 @@ def _interpolator(V, dat, expr, subset):
             raise ValueError("UFL expression has incorrect shape for interpolation.")
         ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords)
         kernel = op2.Kernel(ast, ast.name)
-        flatten = True
         indexed = True
     elif hasattr(expr, "eval"):
         kernel, oriented, coefficients = compile_python_kernel(expr, to_pts, to_element, V, coords)
-        flatten = False
         indexed = False
     elif expr.code is not None:
         kernel, oriented, coefficients = compile_c_kernel(expr, to_pts, to_element, V, coords)
-        flatten = False
         indexed = True
     else:
         raise RuntimeError("Attempting to evaluate an Expression which has no value.")
@@ -192,9 +189,9 @@ def _interpolator(V, dat, expr, subset):
         args.append(dat(op2.WRITE, V.cell_node_map()))
     if oriented:
         co = mesh.cell_orientations()
-        args.append(co.dat(op2.READ, co.cell_node_map(), flatten=flatten))
+        args.append(co.dat(op2.READ, co.cell_node_map()))
     for coefficient in coefficients:
-        args.append(coefficient.dat(op2.READ, coefficient.cell_node_map(), flatten=flatten))
+        args.append(coefficient.dat(op2.READ, coefficient.cell_node_map()))
 
     return partial(op2.par_loop, *args)
 
@@ -263,41 +260,31 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     ass_exp = [ast.Assign(ast.Symbol(A, (k,), ((len(expression.code), i),)),
                           ast.FlatBlock("%s" % code))
                for i, code in enumerate(expression.code)]
-    vals = {
-        "X": X,
-        "x": x,
-        "x_": x_,
-        "k": k,
-        "d": d,
-        "i": i_,
-        "x_array": X_str,
-        "dim": coords_space.dim,
-        "xndof": coords_element.space_dimension(),
-        # FS will always either be a functionspace or
-        # vectorfunctionspace, so just accessing dim here is safe
-        # (we don't need to go through ufl_element.value_shape())
-        "nfdof": to_element.space_dimension() * numpy.prod(fs.dim, dtype=int),
-        "ndof": to_element.space_dimension(),
-        "assign_dim": numpy.prod(expression.value_shape(), dtype=int)
-    }
-    init = ast.FlatBlock("""
-const double %(X)s[%(ndof)d][%(xndof)d] = %(x_array)s;
 
-double %(x)s[%(dim)d];
-const double pi = 3.141592653589793;
+    dim = coords_space.dim
+    ndof = to_element.space_dimension()
+    xndof = coords_element.space_dimension()
+    nfdof = to_element.space_dimension() * numpy.prod(fs.dim, dtype=int)
 
-""" % vals)
-    block = ast.FlatBlock("""
-for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
-  %(x)s[%(d)s] = 0;
-  for (unsigned int %(i)s=0; %(i)s < %(xndof)d; %(i)s++) {
-        %(x)s[%(d)s] += %(X)s[%(k)s][%(i)s] * %(x_)s[%(i)s][%(d)s];
-  };
-};
+    init_X = ast.Decl(typ="double", sym=ast.Symbol(X, rank=(ndof, xndof)),
+                      qualifiers=["const"], init=X_str)
+    init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.dim,)))
+    init_pi = ast.Decl(typ="double", sym="pi", qualifiers=["const"],
+                       init="3.141592653589793")
+    init = ast.Block([init_X, init_x, init_pi])
+    incr_x = ast.Incr(ast.Symbol(x, rank=(d,)),
+                      ast.Prod(ast.Symbol(X, rank=(k, i_)),
+                               ast.Symbol(x_, rank=(i_, d))))
+    assign_x = ast.Assign(ast.Symbol(x, rank=(d,)), 0)
+    loop_x = ast.For(init=ast.Decl("unsigned int", i_, 0),
+                     cond=ast.Less(i_, xndof),
+                     incr=ast.Incr(i_, 1), body=[incr_x])
 
-""" % vals)
-    loop = ast.c_for(k, "%(ndof)d" % vals, ast.Block([block] + ass_exp,
-                                                     open_scope=True))
+    block = ast.For(init=ast.Decl("unsigned int", d, 0),
+                    cond=ast.Less(d, dim),
+                    incr=ast.Incr(d, 1), body=[assign_x, loop_x])
+    loop = ast.c_for(k, ndof,
+                     ast.Block([block] + ass_exp, open_scope=True))
     user_args = []
     user_init = []
     for _, arg in expression._user_args:
@@ -308,7 +295,7 @@ for (unsigned int %(d)s=0; %(d)s < %(dim)d; %(d)s++) {
         else:
             user_args.append(ast.Decl("double *", arg.name))
     kernel_code = ast.FunDecl("void", "expression_kernel",
-                              [ast.Decl("double", ast.Symbol(A, (int("%(nfdof)d" % vals),))),
+                              [ast.Decl("double", ast.Symbol(A, (nfdof,))),
                                ast.Decl("double**", x_)] + user_args,
                               ast.Block(user_init + [init, loop],
                                         open_scope=False))

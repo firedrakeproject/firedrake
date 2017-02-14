@@ -1,6 +1,8 @@
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 import numpy as np
+from functools import reduce
 
 
 def test_overlap_subdomain_facets():

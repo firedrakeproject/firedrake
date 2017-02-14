@@ -1,5 +1,8 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import iteritems
+
 import numpy as np
+import collections
 import ufl
 
 from pyop2 import op2
@@ -153,7 +156,7 @@ class Expression(ufl.Coefficient):
         # want every Expression to have all the properties of all
         # Expressions.
         cls = type(self.__class__.__name__, (self.__class__, ), {})
-        for slot, val in kwargs.iteritems():
+        for slot, val in iteritems(kwargs):
             # Save the argument for later reconstruction
             self._kwargs[slot] = val
             # Scalar arguments have to be treated specially
@@ -220,10 +223,9 @@ def to_expression(val, **kwargs):
     :arg \*\*kwargs: keyword arguments passed to the
          :class:`Expression` constructor (which see).
     """
-    try:
+    if isinstance(val, collections.Iterable) and not isinstance(val, str):
         expr = ["%s" % v for v in val]
-    except TypeError:
-        # Not iterable
+    else:
         expr = "%s" % val
 
     return Expression(code=expr, **kwargs)

@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 
 import collections
 import numpy
@@ -30,7 +31,7 @@ class SSATransformer(object):
         elif e in self._regs:
             return self._regs[e]
         else:
-            s = reconstruct(map(lambda e_: self(e_), ops))
+            s = reconstruct(list(map(self, ops)))
             r = self._new_reg()
             self._regs[e] = r
             self._code[r] = s
@@ -146,7 +147,7 @@ def compile_element(ufl_element, cdim):
 
         # Symbolic tabulation
         tabs = fiat_element.tabulate(0, np.array([[sp.Symbol("reference_coords.X[%d]" % i)
-                                                   for i in xrange(tdim)]]))
+                                                   for i in range(tdim)]]))
         tabs = tabs[(0,) * tdim]
         tabs = tabs.reshape(tabs.shape[:-1])
 

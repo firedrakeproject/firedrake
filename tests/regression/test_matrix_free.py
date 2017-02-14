@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 import numpy as np
@@ -259,3 +260,36 @@ def test_matrix_free_split_communicators():
 
         expect = Function(V).interpolate(Constant((1, 0)))
         assert np.allclose(expect.dat.data, f.dat.data)
+
+
+@pytest.mark.parallel(nprocs=2)
+@pytest.mark.parametrize("infotype",
+                         ["local", "sum", "max"])
+def test_get_info(a, bcs, infotype):
+    A = assemble(a, mat_type="matfree")
+    ctx = A.petscmat.getPythonContext()
+
+    itype = {"local": A.petscmat.InfoType.LOCAL,
+             "sum": A.petscmat.InfoType.GLOBAL_SUM,
+             "max": A.petscmat.InfoType.GLOBAL_MAX}[infotype]
+    info = ctx.getInfo(A.petscmat, info=itype)
+    test, trial = a.arguments()
+    expect = ((test.function_space().dof_dset.total_size
+               * test.function_space().dim)
+              + (trial.function_space().dof_dset.total_size
+                 * trial.function_space().dim))
+
+    expect *= np.float64().itemsize
+
+    if infotype == "sum":
+        expect = A.comm.allreduce(expect, op=MPI.SUM)
+    elif infotype == "max":
+        expect = A.comm.allreduce(expect, op=MPI.MAX)
+
+    assert info["memory"] == expect
+
+    if bcs is not None:
+        A = assemble(a, mat_type="matfree", bcs=bcs)
+        ctx = A.petscmat.getPythonContext()
+        info = ctx.getInfo(A.petscmat, info=itype)
+        assert info["memory"] == 2*expect
