@@ -6,7 +6,7 @@ from collections import OrderedDict
 from coffee import base as ast
 
 from firedrake.slate.slate import (TensorBase, Tensor, TensorOp,
-                                   Action, Inverse, Transpose)
+                                   Action, Inverse)
 from firedrake.slate.slac.utils import Transformer, collect_reference_count
 from firedrake.utils import cached_property
 
@@ -240,9 +240,10 @@ def generate_expr_data(expr, temps=None, aux_exprs=None, expr_dags=None):
 
     elif isinstance(expr, TensorOp):
         expr_dags.append(expr)
-        # We handle Action, Transpose and Inverse nodes by creating
-        # separate temporaries for these quantities later
-        if isinstance(expr, (Action, Transpose, Inverse)):
+        # For Action, we need to declare a temporary later on for the
+        # acting coefficient. For inverses, we may declare additional
+        # temporaries (depending on reference count).
+        if isinstance(expr, (Action, Inverse)):
             aux_exprs.setdefault(expr)
 
         # Send operands through recursively

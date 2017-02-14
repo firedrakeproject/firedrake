@@ -61,6 +61,7 @@ class TensorBase(with_metaclass(ABCMeta)):
     def __init__(self):
         """Constructor for the TensorBase abstract class."""
         self._kernels = None
+        self.operands = ()
         self.id = TensorBase.id
         TensorBase.id += 1
 
@@ -266,7 +267,6 @@ class Tensor(TensorBase):
 
         super(Tensor, self).__init__()
 
-        self.operands = self,
         self.form = form
 
     def arguments(self):

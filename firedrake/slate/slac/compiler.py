@@ -475,7 +475,7 @@ def auxiliary_temporaries(builder, declared_temps):
     """
     aux_statements = []
     for exp in builder.aux_temps:
-        if isinstance(exp, (Inverse, Transpose)):
+        if isinstance(exp, Inverse):
             if builder._ref_counts[exp] > 1:
                 # Get the temporary for the particular expression
                 result = metaphrase_slate_to_cpp(exp, declared_temps)
@@ -565,18 +565,10 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         representation of the `slate.TensorBase` expr.
     """
     # If the tensor is terminal, it has already been declared.
-    # For transposes/inverses/actions, these are declared and handled
-    # in order of expression complexity. If an expression contains any
-    # one of these objects as operands, they will have been declared
-    # previously. This minimizes how often we compute an inverse/tranpose
-    # or an action instance.
+    # Coefficients in action expressions will have been declared by now,
+    # as well as any inverses with high reference count.
     if expr in temps:
         return temps[expr].gencode()
-
-    elif isinstance(expr, Negative):
-        tensor, = expr.operands
-        result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
-        return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, Transpose):
         tensor, = expr.operands
@@ -585,6 +577,11 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
     elif isinstance(expr, Inverse):
         tensor, = expr.operands
         return "(%s).inverse()" % metaphrase_slate_to_cpp(tensor, temps)
+
+    elif isinstance(expr, Negative):
+        tensor, = expr.operands
+        result = "-%s" % metaphrase_slate_to_cpp(tensor, temps, expr.prec)
+        return parenthesize(result, expr.prec, prec)
 
     elif isinstance(expr, (Add, Sub, Mul)):
         op = {Add: '+',
