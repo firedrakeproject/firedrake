@@ -504,15 +504,16 @@ class LoopyImplicitMatrixContext(object):
                 })
                 knl = lp.fuse_kernels(
                     (knl, gather_knl),
-                    data_flow=[(ai, 0, 1)])              
+                    data_flow=[(ai, 0, 1)])
+                knl = lp.assignment_to_subst(knl, ai)
             else:
                 1/0
 
         knl = lp.infer_unknown_types(knl)
         knl = lp.make_reduction_inames_unique(knl)
 
-        for i, ts in enumerate(test_space.split()):
-            knl = lp.assignment_to_subst(knl, "A%d" % i)
+        #for i, ts in enumerate(test_space.split()):
+        #    knl = lp.assignment_to_subst(knl, "A%d" % i)
 
         print(lp.generate_code(knl)[0])
         1/0
