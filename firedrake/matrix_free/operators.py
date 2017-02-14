@@ -458,8 +458,8 @@ class LoopyImplicitMatrixContext(object):
 
         knl = lp.make_reduction_inames_unique(knl)
         cd = lp.generate_code(knl)
+
         # the test space may be a mixed space.  Need to loop over its bits
-        # First up, fuse with the ltg to gather.
 
         for i, ts in enumerate(test_space.split()):
             fspace_nr = fspace_to_number[ts]
@@ -508,12 +508,12 @@ class LoopyImplicitMatrixContext(object):
             else:
                 1/0
 
+        knl = lp.infer_unknown_types(knl)
+        knl = lp.make_reduction_inames_unique(knl)
+
         for i, ts in enumerate(test_space.split()):
             knl = lp.assignment_to_subst(knl, "A%d" % i)
 
-        knl = lp.infer_unknown_types(knl)
-        knl = lp.make_reduction_inames_unique(knl)
-                
         print(lp.generate_code(knl)[0])
         1/0
         self.knl = knl
