@@ -534,35 +534,46 @@ def auxiliary_temporaries(builder, declared_temps):
             actee, = exp.actee
             if actee not in declared_temps:
                 # Declare a temporary for the coefficient
-                ctemp = ast.Symbol("auxT%d" % len(declared_temps))
                 V = actee.function_space()
-                node_extent = V.fiat_element.space_dimension()
-                dof_extent = np.prod(V.ufl_element().value_shape())
-                typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
+                shape_array = [(Vi.fiat_element.space_dimension(),
+                                np.prod(Vi.shape))
+                               for Vi in V.split()]
+                ctemp = ast.Symbol("auxT%d" % len(declared_temps))
+                shape = sum(n * d for (n, d) in shape_array)
+                typ = eigen_matrixbase_type(shape=(shape,))
                 aux_statements.append(ast.Decl(typ, ctemp))
                 aux_statements.append(ast.FlatBlock("%s.setZero();\n" % ctemp))
 
-                # Now we unpack the function and insert its entries into a
-                # 1D vector temporary
-                isym = ast.Symbol("i1")
-                jsym = ast.Symbol("j1")
-                tensor_index = ast.Sum(ast.Prod(dof_extent, isym), jsym)
+                # Now we populate the temporary with the coefficient
+                # information and insert in the right place.
+                offset = 0
+                for i, Vi in enumerate(V.split()):
+                    node_extent, dof_extent = shape_array[i]
+                    # Now we unpack the function and insert its entries into a
+                    # 1D vector temporary
+                    isym = ast.Symbol("i1")
+                    jsym = ast.Symbol("j1")
+                    tensor_index = ast.Sum(offset,
+                                           ast.Sum(ast.Prod(dof_extent,
+                                                            isym), jsym))
 
-                # Inner-loop running over dof_extent
-                coeff_sym = ast.Symbol(builder.coefficient_map[actee],
-                                       rank=(isym, jsym))
-                coeff_temp = ast.Symbol(ctemp, rank=(tensor_index,))
-                inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
-                                     ast.Less(jsym, dof_extent),
-                                     ast.Incr(jsym, 1),
-                                     ast.Assign(coeff_temp, coeff_sym))
-                # Outer-loop running over node_extent
-                loop = ast.For(ast.Decl("unsigned int", isym, init=0),
-                               ast.Less(isym, node_extent),
-                               ast.Incr(isym, 1),
-                               inner_loop)
+                    # Inner-loop running over dof_extent
+                    coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
+                                           rank=(isym, jsym))
+                    coeff_temp = ast.Symbol(ctemp, rank=(tensor_index,))
+                    inner_loop = ast.For(ast.Decl("unsigned int", jsym,
+                                                  init=0),
+                                         ast.Less(jsym, dof_extent),
+                                         ast.Incr(jsym, 1),
+                                         ast.Assign(coeff_temp, coeff_sym))
+                    # Outer-loop running over node_extent
+                    loop = ast.For(ast.Decl("unsigned int", isym, init=0),
+                                   ast.Less(isym, node_extent),
+                                   ast.Incr(isym, 1),
+                                   inner_loop)
 
-                aux_statements.append(loop)
+                    aux_statements.append(loop)
+                    offset += node_extent * dof_extent
 
                 # Update declared temporaries with the coefficient
                 declared_temps[actee] = ctemp
