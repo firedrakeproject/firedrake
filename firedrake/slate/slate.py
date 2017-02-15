@@ -60,8 +60,9 @@ class TensorBase(with_metaclass(ABCMeta)):
 
     def __init__(self):
         """Constructor for the TensorBase abstract class."""
+        # NOTE: This attribute is for caching kernels after
+        # an expression has been compiled.
         self._kernels = None
-        self.operands = ()
         self.id = TensorBase.id
         TensorBase.id += 1
 
@@ -239,7 +240,7 @@ class Tensor(TensorBase):
     is used to determine what kind of tensor object is being handled.
     """
 
-    prec = None
+    operands = ()
 
     def __init__(self, form):
         """Constructor for the Tensor class."""
@@ -369,8 +370,6 @@ class Inverse(UnaryOp):
        This class will raise an error if the tensor is not square.
     """
 
-    prec = 1
-
     def __init__(self, A):
         """Constructor for the Inverse class."""
         assert A.rank == 2, "The tensor must be rank 2."
@@ -395,8 +394,6 @@ class Inverse(UnaryOp):
 class Transpose(UnaryOp):
     """An abstract Slate class representing the transpose of a tensor."""
 
-    prec = 1
-
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
         performing a specific unary operation on a tensor.
@@ -412,8 +409,6 @@ class Transpose(UnaryOp):
 
 class Negative(UnaryOp):
     """Abstract Slate class representing the negation of a tensor object."""
-
-    prec = 1
 
     def arguments(self):
         """Returns the expected arguments of the resulting tensor of
@@ -477,8 +472,6 @@ class Add(BinaryOp):
     :arg B: another :class:`TensorBase` object.
     """
 
-    prec = 2
-
     def __init__(self, A, B):
         """Constructor for the Add class."""
         if A.shape != B.shape:
@@ -504,8 +497,6 @@ class Sub(BinaryOp):
     :arg A: a :class:`TensorBase` object.
     :arg B: another :class:`TensorBase` object.
     """
-
-    prec = 2
 
     def __init__(self, A, B):
         """Constructor for the Sub class."""
@@ -534,8 +525,6 @@ class Mul(BinaryOp):
     :arg A: a :class:`TensorBase` object.
     :arg B: another :class:`TensorBase` object.
     """
-
-    prec = 3
 
     def __init__(self, A, B):
         """Constructor for the Mul class."""
@@ -567,8 +556,6 @@ class Action(TensorOp):
     :arg tensor: a :class:`TensorBase` object.
     :arg function: a :class:`firedrake.Function` object.
     """
-
-    prec = 3
 
     def __init__(self, tensor, function):
         """Constructor for the Action class."""
@@ -620,3 +607,21 @@ class Action(TensorOp):
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.operands, self.actee)
+
+
+# Establishes levels of precedence for Slate tensors
+precedences = [
+    [Tensor],
+    [UnaryOp],
+    [Add, Sub],
+    [Mul, Action]
+]
+
+# Here we establish the precedence class attribute for a given
+# Slate tensor. Unary and binary operations will have higher
+# precedence over terminal Tensor objects. Similarly, tensor
+# action and multiplication will have higher precedence over
+# addition/subtraction
+for level, group in enumerate(precedences):
+    for tensor in group:
+        tensor.prec = level
