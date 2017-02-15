@@ -196,7 +196,8 @@ def generate_expr_data(expr):
     `symbol_name` are :class:`coffee.base.Symbol` objects. In addition,
     this function will return a list `aux_exprs` of any expressions that
     require special handling in the compiler. This includes expressions
-    that require performing operations on already assembled data.
+    that require performing operations on already assembled data or
+    generating extra temporaries.
 
     This mapping is used in the :class:`KernelBuilder` to provide direct
     access to all temporaries associated with a particular slate expression.
@@ -209,7 +210,7 @@ def generate_expr_data(expr):
     # NOTE: Ordering here matters, especially when running
     # Slate in parallel.
     temps = OrderedDict()
-    aux_exprs = OrderedDict()
+    aux_exprs = []
     for tensor in traverse_dags([expr]):
         if isinstance(tensor, Tensor):
             temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
@@ -219,6 +220,6 @@ def generate_expr_data(expr):
             # acting coefficient. For inverses, we may declare additional
             # temporaries (depending on reference count).
             if isinstance(tensor, (Action, Inverse)):
-                aux_exprs.setdefault(tensor)
+                aux_exprs.append(tensor)
 
     return temps, aux_exprs
