@@ -96,11 +96,11 @@ class HybridizationPC(PCBase):
         self.schur_comp = assemble(K * A.inv * K.T, bcs=self.trace_condition)
         self.schur_comp.force_evaluation()
         self.schur_rhs = assemble(K * A.inv * self.broken_rhs)
-        self.schur_rhs.dat
+        self.schur_rhs.dat.data
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
-        ksp.setOperators(self.schur_comp, self.schur_rhs)
+        ksp.setOperators(self.schur_comp.petscmat)
         ksp.setOptionsPrefix(prefix + "trace_")
         ksp.setUp()
         ksp.setFromOptions()
