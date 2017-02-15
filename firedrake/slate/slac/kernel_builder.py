@@ -1,5 +1,4 @@
 from __future__ import absolute_import, print_function, division
-from six import iteritems
 
 from collections import OrderedDict
 
@@ -7,7 +6,8 @@ from coffee import base as ast
 
 from firedrake.slate.slate import (TensorBase, Tensor, TensorOp,
                                    Action, Inverse)
-from firedrake.slate.slac.utils import Transformer, collect_reference_count
+from firedrake.slate.slac.utils import (Transformer, traverse_dags,
+                                        collect_reference_count)
 from firedrake.utils import cached_property
 
 from ufl import MixedElement
@@ -45,20 +45,14 @@ class KernelBuilder(object):
         # Generate coefficient map (both mixed and non-mixed cases handled)
         self.coefficient_map = prepare_coefficients(expression)
         # Initialize temporaries and any auxiliary temporaries
-        temps, aux_exprs, expr_dags = generate_expr_data(expression)
-        # Sort by temporary str: 'T0', 'T1', etc.
-        self.temps = OrderedDict(sorted(iteritems(temps),
-                                        key=lambda x: str(x[1])))
+        temps, aux_exprs = generate_expr_data(expression)
+        self.temps = temps
 
         # Collect the reference count of operands in auxiliary expressions
-        self._ref_counts = collect_reference_count(expr_dags)
-        # Since the most complicated expressions get caught first, we
-        # reorder by expression complexity to create temporaries for the
-        # inner-most instances first (using reference count later to decide
-        # if it's worth the extra memory)
-        self.aux_temps = OrderedDict.fromkeys(sorted(aux_exprs,
-                                                     key=lambda x:
-                                                     x._complexity))
+        self._ref_counts = collect_reference_count([expression])
+        # Aux expressions are visited pre-order.  We want to declare
+        # as if we'd visited post-order (child temporaries first), so reverse.
+        self.aux_temps = OrderedDict.fromkeys(reversed(aux_exprs))
 
     @property
     def integral_type(self):
@@ -193,7 +187,7 @@ def prepare_coefficients(expression):
     return coefficient_map
 
 
-def generate_expr_data(expr, temps=None, aux_exprs=None, expr_dags=None):
+def generate_expr_data(expr):
     """This function generates a mapping of the form:
 
        ``temporaries = {node: symbol_name}``
@@ -208,48 +202,23 @@ def generate_expr_data(expr, temps=None, aux_exprs=None, expr_dags=None):
     access to all temporaries associated with a particular slate expression.
 
     :arg expression: a :class:`slate.TensorBase` object.
-    :arg temps: a dictionary that becomes populated recursively and is later
-                returned as the temporaries map. This argument is initialized
-                as an empty `dict` before recursion starts.
-    :arg aux_exprs: a set-like object that becomes populated recursively and
-                    is later returned as a unique list of auxiliary expressions
-                    that require special handling in Slate's linear algebra
-                    compiler.
-    :arg expr_dags: a list of collected operands (including the top-level
-                    expression) that make up the expression DAG. This is
-                    used to compute how many times a particular operand is
-                    referenced in a given Slate expression.
 
-    Returns: the arguments temps, aux_temps and expr_dags.
+    Returns: the terminal temporaries map and auxiliary temporaries.
     """
     # Prepare temporaries map and auxiliary expressions list
     # NOTE: Ordering here matters, especially when running
     # Slate in parallel.
-    if temps is None:
-        temps = OrderedDict()
+    temps = OrderedDict()
+    aux_exprs = OrderedDict()
+    for tensor in traverse_dags([expr]):
+        if isinstance(tensor, Tensor):
+            temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
-    if aux_exprs is None:
-        aux_exprs = OrderedDict()
+        elif isinstance(tensor, TensorOp):
+            # For Action, we need to declare a temporary later on for the
+            # acting coefficient. For inverses, we may declare additional
+            # temporaries (depending on reference count).
+            if isinstance(tensor, (Action, Inverse)):
+                aux_exprs.setdefault(tensor)
 
-    if expr_dags is None:
-        expr_dags = []
-
-    if isinstance(expr, Tensor):
-        expr_dags.append(expr)
-        temps.setdefault(expr, ast.Symbol("T%d" % len(temps)))
-
-    elif isinstance(expr, TensorOp):
-        expr_dags.append(expr)
-        # For Action, we need to declare a temporary later on for the
-        # acting coefficient. For inverses, we may declare additional
-        # temporaries (depending on reference count).
-        if isinstance(expr, (Action, Inverse)):
-            aux_exprs.setdefault(expr)
-
-        # Send operands through recursively
-        map(lambda x: generate_expr_data(x, temps=temps,
-                                         aux_exprs=aux_exprs), expr.operands)
-    else:
-        raise NotImplementedError("Type %s not supported." % type(expr))
-
-    return temps, aux_exprs, expr_dags
+    return temps, aux_exprs
