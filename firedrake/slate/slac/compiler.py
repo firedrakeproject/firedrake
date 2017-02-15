@@ -96,9 +96,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     builder = KernelBuilder(expression=slate_expr,
                             tsfc_parameters=tsfc_parameters)
 
-    # Initialize coordinate and facet/layer symbols
+    # Initialize coordinate, cell orientations and facet/layer
+    # symbols
     coordsym = ast.Symbol("coords")
     coords = None
+    cell_orientations = ast.Symbol("cell_orientations")
     cellfacetsym = ast.Symbol("cell_facets")
     mesh_layer_sym = ast.Symbol("layer")
     inc = []
@@ -144,7 +146,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                          for c in builder.coefficient(exp.coefficients()[ci])]
 
                 if kinfo.oriented:
-                    clist.append(ast.FlatBlock("cell_orientations"))
+                    clist.append(cell_orientations)
 
                 incl.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
@@ -158,7 +160,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # information and looping over facet indices.
             builder.require_cell_facets()
             loop_stmt, incl = facet_integral_loop(cxt_kernel, builder,
-                                                  coordsym, cellfacetsym)
+                                                  coordsym, cellfacetsym,
+                                                  cell_orientations)
             statements.append(loop_stmt)
 
         elif it_type == "interior_facet_horiz":
@@ -183,7 +186,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                   top_sks,
                                                   bottom_sks,
                                                   coordsym,
-                                                  mesh_layer_sym)
+                                                  mesh_layer_sym,
+                                                  cell_orientations)
             statements.append(stmt)
 
         elif it_type in ["exterior_facet_bottom", "exterior_facet_top"]:
@@ -191,7 +195,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # the top or bottom layers of the extruded mesh.
             builder.require_mesh_layers()
             stmt, incl = extruded_top_bottom_facet(cxt_kernel, builder,
-                                                   coordsym, mesh_layer_sym)
+                                                   coordsym, mesh_layer_sym,
+                                                   cell_orientations)
             statements.append(stmt)
 
         else:
@@ -235,7 +240,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Orientation information
     if builder.oriented:
-        args.append(ast.Decl("int **", ast.Symbol("cell_orientations")))
+        args.append(ast.Decl("int **", cell_orientations))
 
     # Coefficient information
     for c in expr_coeffs:
@@ -300,7 +305,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
 
 def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
-                             coordsym, mesh_layer_sym):
+                             coordsym, mesh_layer_sym,
+                             cell_orientations):
     """Generates a code statement for evaluating interior horizontal
     facet integrals.
 
@@ -313,6 +319,8 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
     :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
+    :arg cell_orientations: An `ast.Symbol` representing cell orientation
+                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
@@ -337,7 +345,7 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
 
         # TODO: Is this safe?
         if top.kinfo.oriented and btm.kinfo.oriented:
-            clist.append(ast.FlatBlock("cell_orientations"))
+            clist.append(cell_orientations)
 
         dirs = top.kinfo.kernel._include_dirs + btm.kinfo.kernel._include_dirs
         incl.extend(tuple(OrderedDict.fromkeys(dirs)))
@@ -358,7 +366,8 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     return stmt, incl
 
 
-def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
+def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
+                              cell_orientations):
     """Generates a code statement for evaluating exterior top/bottom
     facet integrals.
 
@@ -369,6 +378,8 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
     :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
+    :arg cell_orientations: An `ast.Symbol` representing cell orientation
+                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
@@ -388,7 +399,7 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
                  for c in builder.coefficient(exp.coefficients()[ci])]
 
         if kinfo.oriented:
-            clist.append(ast.FlatBlock("cell_orientations"))
+            clist.append(cell_orientations)
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
@@ -406,7 +417,8 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
     return stmt, incl
 
 
-def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
+def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym,
+                        cell_orientations):
     """Generates a code statement for evaluating exterior/interior facet
     integrals.
 
@@ -417,6 +429,8 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
     :arg cellfacetsym: An `ast.Symbol` representing the cell facets.
+    :arg cell_orientations: An `ast.Symbol` representing cell orientation
+                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
@@ -461,7 +475,7 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
         tensor = eigen_tensor(exp, t, index)
 
         if kinfo.oriented:
-            clist.append(ast.FlatBlock("cell_orientations"))
+            clist.append(cell_orientations)
 
         clist.append(ast.FlatBlock("&%s" % itsym))
         funcalls.append(ast.FunCall(kinfo.kernel.name,
