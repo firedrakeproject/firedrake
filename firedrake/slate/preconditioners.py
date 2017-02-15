@@ -6,15 +6,14 @@ from __future__ import absolute_import, print_function, division
 
 import ufl
 
-from firedrake import (FunctionSpace, TrialFunction, TestFunction,
-                       Function, TrialFunctions, TestFunctions,
-                       BrokenElement, MixedElement,
-                       FacetNormal, Constant, DirichletBC,
-                       assemble)
-from firedrake.formmanipulation import split_form
+from firedrake import *
+from firedrake.formmanipulation import ArgumentReplacer, split_form
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
+
+
+__all__ = ['HybridizationPC']
 
 
 class HybridizationPC(PCBase):
@@ -31,8 +30,12 @@ class HybridizationPC(PCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from firedrake.formmanipulation import ArgumentReplacer
         from ufl.algorithms.map_integrands import map_integrand_dags
+        from firedrake import (FunctionSpace, TrialFunction,
+                               TrialFunctions, TestFunction, Function,
+                               BrokenElement, MixedElement,
+                               FacetNormal, Constant, DirichletBC,
+                               assemble)
 
         # Extract the problem context
         prefix = pc.getOptionsPrefix()
@@ -46,14 +49,10 @@ class HybridizationPC(PCBase):
             raise NotImplementedError("Not implemented on extruded meshes.")
 
         broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in self.V]
-        if len(broken_elements) == 1:
-            V_d = FunctionSpace(self.V.mesh(), broken_elements[0])
-            arg_map = {test: TestFunction(V_d),
-                       trial: TrialFunction(V_d)}
-        else:
-            V_d = FunctionSpace(self.V.mesh(), MixedElement(broken_elements))
-            arg_map = {test: TestFunctions(V_d),
-                       trial: TrialFunctions(V_d)}
+        elem = MixedElement(broken_elements)
+        V_d = FunctionSpace(self.V.mesh(), elem)
+        arg_map = {test: TestFunction(V_d),
+                   trial: TrialFunction(V_d)}
 
         # Replace the problems arguments with arguments defined
         # on the new discontinuous spaces
@@ -62,12 +61,12 @@ class HybridizationPC(PCBase):
 
         split_forms = split_form(self.new_form)
         # Store these matrices for reconstruction
-        self.A, = Tensor([sf.form for sf in split_forms
-                         if sf.indices == (0, 0)])
-        self.B, = Tensor([sf.form for sf in split_forms
-                         if sf.indices == (0, 1)])
-        self.C, = Tensor([sf.form for sf in split_forms
-                         if sf.indices == (1, 1)])
+        self.A = Tensor([sf.form for sf in split_forms
+                         if sf.indices == (0, 0)][0])
+        self.B = Tensor([sf.form for sf in split_forms
+                         if sf.indices == (0, 1)][0])
+        self.C = Tensor([sf.form for sf in split_forms
+                         if sf.indices == (1, 1)][0])
 
         # Create the space of approximate traces:
         # the space of Lagrange multipliers
@@ -92,9 +91,12 @@ class HybridizationPC(PCBase):
         A = Tensor(self.new_form)
         gammar = TestFunction(self.TraceSpace)
         self.n = FacetNormal(self.V.mesh())
-        K = Tensor(gammar('+') * ufl.dot(trial[0], self.n) * ufl.dS)
-        self.schur_comp = K * A.inv * K.T
-        self.schur_rhs = K * A.inv * self.broken_rhs
+        sigma, u = TrialFunctions(V_d)
+        K = Tensor(gammar('+') * ufl.dot(sigma, self.n) * ufl.dS)
+        self.schur_comp = assemble(K * A.inv * K.T, bcs=self.trace_condition)
+        self.schur_comp.force_evaluation()
+        self.schur_rhs = assemble(K * A.inv * self.broken_rhs)
+        self.schur_rhs.dat
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
