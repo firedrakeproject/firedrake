@@ -64,7 +64,7 @@ class HybridizationPC(PCBase):
         self.A = Tensor([sf.form for sf in split_forms
                          if sf.indices == (0, 0)][0])
         self.B = Tensor([sf.form for sf in split_forms
-                         if sf.indices == (0, 1)][0])
+                         if sf.indices == (1, 0)][0])
         self.C = Tensor([sf.form for sf in split_forms
                          if sf.indices == (1, 1)][0])
 
@@ -81,6 +81,7 @@ class HybridizationPC(PCBase):
         self.broken_rhs = Function(V_d)
         # Solution of the system for the Lagrange multipliers
         self.trace_solution = Function(self.TraceSpace)
+        self.schur_rhs = Function(self.TraceSpace)
 
         self.unbroken_solution = Function(self.V)
         self.unbroken_rhs = Function(self.V)
@@ -88,15 +89,16 @@ class HybridizationPC(PCBase):
         # Create the symbolic Schur-reduction of the discontinuous
         # problem in Slate. Weakly enforce continuity via the Lagrange
         # multipliers
-        A = Tensor(self.new_form)
+        self.Atilde = Tensor(self.new_form)
         gammar = TestFunction(self.TraceSpace)
         self.n = FacetNormal(self.V.mesh())
-        sigma, u = TrialFunctions(V_d)
-        K = Tensor(gammar('+') * ufl.dot(sigma, self.n) * ufl.dS)
-        self.schur_comp = assemble(K * A.inv * K.T, bcs=self.trace_condition)
+        sigma, _ = TrialFunctions(V_d)
+        self.K = Tensor(gammar('+') * ufl.dot(sigma, self.n) * ufl.dS)
+        trial = TrialFunction(V_d[0])
+        self.K_local = Tensor(gammar('+') * ufl.dot(trial, self.n) * ufl.dS)
+        self.schur_comp = assemble(self.K * self.Atilde.inv * self.K.T,
+                                   bcs=self.trace_condition)
         self.schur_comp.force_evaluation()
-        self.schur_rhs = assemble(K * A.inv * self.broken_rhs)
-        self.schur_rhs.dat.data
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
@@ -113,6 +115,8 @@ class HybridizationPC(PCBase):
         assemble(self.schur_comp, tensor=self.schur_comp,
                  bcs=self.trace_condition)
 
+        assemble(self.schur_rhs, tensor=self.schur_rhs)
+
     def apply(self, pc, x, y):
         """We solve the forward eliminated problem for the
         approximate traces of the scalar solution (the multipliers)
@@ -121,7 +125,7 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-        from firedrake import project
+        from firedrake import project, assemble
         # Transfer non-broken x into a firedrake function
         with self.unbroken_rhs.dat.vec as v:
             x.copy(v)
@@ -131,21 +135,25 @@ class HybridizationPC(PCBase):
         bfield0, bfield1 = self.broken_rhs.split()
         # This updates broken_rhs
         project(field0, bfield0)
-        bfield1.assign(field1)
+        bfield1.interpolate(field1)
 
         # Compute the rhs for the multiplier system
-        assemble(self.schur_rhs, tensor=self.schur_rhs)
+        assemble(self.K * self.Atilde.inv * self.broken_rhs,
+                 tensor=self.schur_rhs)
 
         # Solve the system for the Lagrange multipliers
-        self.ksp.solve(self.schur_comp,
-                       self.trace_solution,
-                       self.schur_rhs)
+        ss = self.schur_rhs.vector()
+        M = ss.size()
+        sv = PETSc.Vec().createSeq(M, comm=PETSc.COMM_SELF)
+        with self.schur_rhs.dat.vec as v:
+            sv.copy(v)
+        t = self.trace_solution.vector()
+        N = t.size()
+        tsol = PETSc.Vec().createSeq(N, comm=PETSc.COMM_SELF)
+        self.ksp.solve(sv, tsol)
 
         # Backwards reconstruction for flux and scalar unknowns
-        # and assemble into broken solution bits
-        trial = self.A.arguments()[0]
-        gammar = TestFunction(self.TraceSpace)
-        K = Tensor(gammar('+') * ufl.dot(trial, self.n) * ufl.dS)
+        # and assemble into broken solution bits:
 
         # Split the solution function and reconstruct
         # each bit separately
@@ -153,17 +161,17 @@ class HybridizationPC(PCBase):
         _, f = self.broken_rhs.split()
 
         M = self.B * self.A.inv * self.B.T + self.C
-        u_sol = M.inv*f + M.inv*(self.B*self.A.inv*K.T*self.trace_solution)
+        u_sol = M.inv*f + M.inv*(self.B*self.A.inv*self.K_local.T*self.trace_solution)
 
         assemble(u_sol, tensor=u_h)
 
-        sigma_sol = self.A.inv * (self.B.T * u_h - K.T * self.trace_solution)
+        sigma_sol = self.A.inv*(self.B.T*u_h - self.K_local.T*self.trace_solution)
 
         assemble(sigma_sol, tensor=sigma_h)
 
         # Project the broken solution into non-broken spaces
         sigma_u, u_u = self.unbroken_solution.split()
-        u_u.assign(u_h)
+        u_u.interpolate(u_h)
         project(sigma_h, sigma_u)
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
