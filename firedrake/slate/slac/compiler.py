@@ -547,8 +547,8 @@ def auxiliary_temporaries(builder, declared_temps):
                 # Now we populate the temporary with the coefficient
                 # information and insert in the right place.
                 offset = 0
-                for i, Vi in enumerate(V.split()):
-                    node_extent, dof_extent = shape_array[i]
+                for i, shp in enumerate(shape_array):
+                    node_extent, dof_extent = shp
                     # Now we unpack the function and insert its entries into a
                     # 1D vector temporary
                     isym = ast.Symbol("i1")
