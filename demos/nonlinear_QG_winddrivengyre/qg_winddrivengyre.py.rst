@@ -36,10 +36,10 @@ Governing PDE: Stommel Problem
 ==============================
 
 The nonlinear, one-layer, QG model equation that is driven by the winds
-above (say :math:`Q_{winds})`, which is the vorticity of the winds that
+above (say :math:`Q_{\textrm{winds}})`, which is the vorticity of the winds that
 drive the ocean from above) is,
 
-.. math:: \partial_{t}q + \vec{u} \cdot \vec{\nabla} q + \beta v = -rq + Q_{winds}
+.. math:: \partial_{t}q + \vec{u} \cdot \vec{\nabla} q + \beta v = -rq + Q_{\textrm{winds}}
 
 with the Potential Vorticity (PV) and geostrophic velocities defined as
 
@@ -57,10 +57,10 @@ rotational Froude number.
 
 The non-conservative aspects of this model
 occur because of :math:`r`, the strength of the bottom drag, and
-:math:`Q_{winds}`, the vorticity of the winds. We pick the wind forcing
+:math:`Q_{\textrm{winds}}`, the vorticity of the winds. We pick the wind forcing
 as to generate a single gyre,
 
-.. math:: Q_{winds} = \tau \cos\left( \pi \left[\frac{y}{L_y} - \frac{1}{2} \right] \right)
+.. math:: Q_{\textrm{winds}} = \tau \cos\left( \pi \left[\frac{y}{L_y} - \frac{1}{2} \right] \right)
 
 where :math:`L_y` is the length of our domain and :math:`\tau` is the strength of our wind forcing. By putting a :math:`2` in front of the :math:`\pi` we
 get a double gyre :cite:`Vallis:2005`.
@@ -72,7 +72,7 @@ in time, we can ignore the time derivative term, and we get
 
    \begin{gathered}
    (\vec{u} \cdot \vec\nabla)\left( \nabla^2 \psi - F \psi\right)
-   + \beta \frac{\partial \psi}{\partial x} = - rq + Q_{winds} 
+   + \beta \frac{\partial \psi}{\partial x} = - rq + Q_{\textrm{winds}} 
    \end{gathered}
 
 We can write this out in one equation and is the nonlinear Stommel
@@ -81,7 +81,7 @@ problem.
 .. math::
 
    \begin{gathered}
-   \vec u \cdot \vec\nabla \left( \nabla^2 \psi \right) + r(\nabla^{2} \psi - F\psi) + \beta \frac{\partial \psi}{\partial x} =  Q_{winds} 
+   \vec u \cdot \vec\nabla \left( \nabla^2 \psi \right) + r(\nabla^{2} \psi - F\psi) + \beta \frac{\partial \psi}{\partial x} =  Q_{\textrm{winds}} 
    \end{gathered}
 
 Note that we dropped the :math:`-F \psi` term in the nonlinear advection
@@ -96,7 +96,7 @@ form of this equation. We begin by multiplying this equation by a Test
 Function, :math:`\phi`, which is in the same space as the
 streamfunction, and then integrate over the domain :math:`A`,
 
-.. math:: \iint_{A} \phi (\vec u \cdot \vec\nabla) \nabla^2 \psi \,dA  +  r\phi (\nabla^{2} \psi - F\psi)\,dA + \beta\phi\frac{\partial \psi}{\partial x} \,dA =  \iint_{A} \phi \cdot F_{winds} \,dA
+.. math:: \iint_{A} \phi (\vec u \cdot \vec\nabla) \nabla^2 \psi \,\mathrm{d}x  +  r\phi (\nabla^{2} \psi - F\psi)\,\mathrm{d}x + \beta\phi\frac{\partial \psi}{\partial x} \,\mathrm{d}x =  \iint_{A} \phi \cdot F_{\textrm{winds}} \,\mathrm{d}x
 
 The nonlinear term can be rewritten using the fact that the velocity is
 divergent free and then integrating by parts,
@@ -106,7 +106,7 @@ divergent free and then integrating by parts,
    \begin{aligned}
    \iint_{A} \phi (\vec u \cdot \vec\nabla) \nabla^2 \psi
    =  \int_{A} \phi \vec\nabla \cdot \left(\vec u (\nabla^2 \psi)\right) 
-   = - \iint_{A}( \vec\nabla \phi \cdot \vec u){\nabla}^{2}\psi \, dA.\end{aligned}
+   = - \iint_{A}( \vec\nabla \phi \cdot \vec u){\nabla}^{2}\psi \, \mathrm{d}x.\end{aligned}
 
 Note that because we have no normal flow boundary conditions the
 boundary contribution is zero. For the term with bottom drag we
@@ -116,17 +116,17 @@ the walls
 .. math::
 
    \begin{aligned}
-   \iint_{A} r \phi \left( \vec{\nabla}^2 \psi - F \psi \right) \, dA & 
+   \iint_{A} r \phi \left( \vec{\nabla}^2 \psi - F \psi \right) \, \mathrm{d}x & 
    = -r \iint_{A}  \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi
-   + F \phi \psi \Big)\, dA
-   + r \oint_{\partial A} \phi \cdot \frac{\partial \psi}{\partial n} \,dS
+   + F \phi \psi \Big)\, \mathrm{d}x
+   + r \oint_{\partial A} \phi \cdot \frac{\partial \psi}{\partial n} \,\matrhm{d}s
   \end{aligned}
 
 The boundary integral above banishes because are are setting the streamfunction to be zero on the boundary.
 
 Finally we can put the equation back together again to produce the weak form of our problem.
 
-.. math:: \iint_{A} \Bigg( - (\vec\nabla \phi \cdot \vec u) \vec{\nabla}^{2}\psi  -r \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi + F \phi \psi \Big) + \beta\phi\frac{\partial \psi}{\partial x} \Bigg) \,dA =  \iint_{A} \phi \cdot F_{winds} \,dA
+.. math:: \iint_{A} \Bigg( - (\vec\nabla \phi \cdot \vec u) \vec{\nabla}^{2}\psi  -r \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi + F \phi \psi \Big) + \beta\phi\frac{\partial \psi}{\partial x} \Bigg) \,\mathrm{d}x =  \iint_{A} \phi \cdot F_{\textrm{winds}} \,\mathrm{d}x
 
 The above problem is the weak form of the nonlinear Stommel problem.  The linear term arises from neglecting the nonlinear advection, and can easily be obtained by neglecting the first term on the left hand side.
 	  
