@@ -955,10 +955,6 @@ if travis:
 osname = platform.uname()[0]
 if osname == "Darwin":
     if options["package_manager"]:
-        try:
-            check_call(["xcodebuild", "-version"])
-        except:
-            quit("Xcode not found. Please install xcode from the App Store and try again.")
 
         log.info("Installing command line tools...")
         try:

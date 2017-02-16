@@ -583,7 +583,7 @@ class MeshTopology(object):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
-        :arg fiat_element: The FIAT element for the cell
+        :arg entity_dofs: FInAT element entity DoFs
         """
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
@@ -593,7 +593,7 @@ class MeshTopology(object):
         """Returns the number of DoFs per plex entity for each stratum,
         i.e. [#dofs / plex vertices, #dofs / plex edges, ...].
 
-        :arg entity_dofs: FIAT element entity DoFs
+        :arg entity_dofs: FInAT element entity DoFs
         """
         return [len(entity_dofs[d][0]) for d in sorted(entity_dofs)]
 
@@ -799,7 +799,7 @@ class ExtrudedMeshTopology(MeshTopology):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
-        :arg fiat_element: The FIAT element for the cell
+        :arg entity_dofs: FInAT element entity DoFs
         """
         flat_entity_dofs = {}
         for b, v in entity_dofs:
@@ -824,7 +824,7 @@ class ExtrudedMeshTopology(MeshTopology):
         """Returns the number of DoFs per plex entity for each stratum,
         i.e. [#dofs / plex vertices, #dofs / plex edges, ...].
 
-        :arg entity_dofs: FIAT element entity DoFs
+        :arg entity_dofs: FInAT element entity DoFs
         """
         dofs_per_entity = [0] * (1 + self._base_mesh.cell_dimension())
         for (b, v), entities in entity_dofs.iteritems():
@@ -835,8 +835,8 @@ class ExtrudedMeshTopology(MeshTopology):
         """Returns the offset between the neighbouring cells of a
         column for each DoF.
 
-        :arg entity_dofs: FIAT element entity DoFs
-        :arg ndofs: number of DoFs in the FIAT element
+        :arg entity_dofs: FInAT element entity DoFs
+        :arg ndofs: number of DoFs in the FInAT element
         """
         entity_offset = [0] * (1 + self._base_mesh.cell_dimension())
         for (b, v), entities in entity_dofs.iteritems():

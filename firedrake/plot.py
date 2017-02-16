@@ -2,6 +2,7 @@ from __future__ import absolute_import, print_function, division
 from six.moves import range, zip
 import numpy as np
 from ufl import Cell
+from tsfc.fiatinterface import create_element
 from firedrake import Function, SpatialCoordinate, FunctionSpace
 from firedrake.mesh import MeshGeometry
 
@@ -368,7 +369,8 @@ def _calculate_values(function, points, dimension, cell_mask=None):
     function_space = function.function_space()
     keys = {1: (0,),
             2: (0, 0)}
-    elem = function_space.fiat_element.tabulate(0, points)[keys[dimension]]
+    fiat_element = create_element(function_space.ufl_element(), vector_is_mixed=False)
+    elem = fiat_element.tabulate(0, points)[keys[dimension]]
     cell_node_list = function_space.cell_node_list
     if cell_mask is not None:
         cell_mask = np.tile(cell_mask.reshape(-1, 1), cell_node_list.shape[1])
@@ -533,7 +535,8 @@ def _bezier_calculate_points(function):
     """
     deg = function.function_space().ufl_element().degree()
     M = np.empty([deg + 1, deg + 1], dtype=float)
-    basis = function.function_space().fiat_element.dual_basis()
+    fiat_element = create_element(function.function_space().ufl_element(), vector_is_mixed=False)
+    basis = fiat_element.dual_basis()
     for i in range(deg + 1):
         for j in range(deg + 1):
             M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0],

@@ -535,7 +535,7 @@ def auxiliary_temporaries(builder, declared_temps):
             if actee not in declared_temps:
                 # Declare a temporary for the coefficient
                 V = actee.function_space()
-                shape_array = [(Vi.fiat_element.space_dimension(),
+                shape_array = [(Vi.finat_element.space_dimension(),
                                 np.prod(Vi.shape))
                                for Vi in V.split()]
                 ctemp = ast.Symbol("auxT%d" % len(declared_temps))
@@ -577,7 +577,6 @@ def auxiliary_temporaries(builder, declared_temps):
 
                 # Update declared temporaries with the coefficient
                 declared_temps[actee] = ctemp
-
         else:
             raise NotImplementedError(
                 "Auxiliary expr type %s not currently implemented." % type(exp)
