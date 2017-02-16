@@ -6,7 +6,6 @@ from __future__ import absolute_import, print_function, division
 
 import ufl
 
-from firedrake import *
 from firedrake.formmanipulation import ArgumentReplacer, split_form
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.petsc import PETSc
@@ -35,7 +34,7 @@ class HybridizationPC(PCBase):
                                TrialFunctions, TestFunction, Function,
                                BrokenElement, MixedElement,
                                FacetNormal, Constant, DirichletBC,
-                               assemble)
+                               assemble, Projector)
 
         # Extract the problem context
         prefix = pc.getOptionsPrefix()
@@ -77,12 +76,15 @@ class HybridizationPC(PCBase):
 
         # Broken flux and scalar terms (solution via reconstruction)
         self.broken_solution = Function(V_d)
+
         # Broken RHS of the fully discontinuous problem
         self.broken_rhs = Function(V_d)
+
         # Solution of the system for the Lagrange multipliers
         self.trace_solution = Function(self.TraceSpace)
         self.schur_rhs = Function(self.TraceSpace)
 
+        # unbroken solutions and rhs
         self.unbroken_solution = Function(self.V)
         self.unbroken_rhs = Function(self.V)
 
@@ -104,17 +106,25 @@ class HybridizationPC(PCBase):
         ksp = PETSc.KSP().create(comm=pc.comm)
         ksp.setOperators(self.schur_comp.petscmat)
         ksp.setOptionsPrefix(prefix + "trace_")
+        ksp.setTolerances(rtol=1e-8)
         ksp.setUp()
         ksp.setFromOptions()
         self.ksp = ksp
+        sigma_b, _ = self.broken_solution.split()
+        sigma_u, _ = self.unbroken_solution.split()
+        self.projector = Projector(sigma_b,
+                                   sigma_u,
+                                   solver_parameters={"ksp_type": "cg",
+                                                      "ksp_rtol": 1e-13})
 
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
         """
+        from firedrake import assemble
+
         assemble(self.schur_comp, tensor=self.schur_comp,
                  bcs=self.trace_condition)
-
         assemble(self.schur_rhs, tensor=self.schur_rhs)
 
     def apply(self, pc, x, y):
@@ -126,6 +136,7 @@ class HybridizationPC(PCBase):
         non-broken finite element space.
         """
         from firedrake import project, assemble
+
         # Transfer non-broken x into a firedrake function
         with self.unbroken_rhs.dat.vec as v:
             x.copy(v)
@@ -133,46 +144,40 @@ class HybridizationPC(PCBase):
         # Transfer unbroken_rhs into broken_rhs
         field0, field1 = self.unbroken_rhs.split()
         bfield0, bfield1 = self.broken_rhs.split()
+
         # This updates broken_rhs
         project(field0, bfield0)
-        bfield1.interpolate(field1)
+        field1.dat.copy(bfield1.dat)
 
         # Compute the rhs for the multiplier system
         assemble(self.K * self.Atilde.inv * self.broken_rhs,
                  tensor=self.schur_rhs)
 
         # Solve the system for the Lagrange multipliers
-        ss = self.schur_rhs.vector()
-        M = ss.size()
-        sv = PETSc.Vec().createSeq(M, comm=PETSc.COMM_SELF)
-        with self.schur_rhs.dat.vec as v:
-            sv.copy(v)
-        t = self.trace_solution.vector()
-        N = t.size()
-        tsol = PETSc.Vec().createSeq(N, comm=PETSc.COMM_SELF)
-        self.ksp.solve(sv, tsol)
-
-        # Backwards reconstruction for flux and scalar unknowns
-        # and assemble into broken solution bits:
+        with self.schur_rhs.dat.vec_ro as b:
+            with self.trace_solution.dat.vec as x:
+                self.ksp.solve(b, x)
 
         # Split the solution function and reconstruct
         # each bit separately
         sigma_h, u_h = self.broken_solution.split()
         _, f = self.broken_rhs.split()
 
+        # Pressure reconstruction
         M = self.B * self.A.inv * self.B.T + self.C
-        u_sol = M.inv*f + M.inv*(self.B*self.A.inv*self.K_local.T*self.trace_solution)
-
+        u_sol = M.inv * f + M.inv * (self.B * self.A.inv *
+                                     self.K_local.T * self.trace_solution)
         assemble(u_sol, tensor=u_h)
 
-        sigma_sol = self.A.inv*(self.B.T*u_h - self.K_local.T*self.trace_solution)
-
+        # Velocity reconstructions
+        sigma_sol = self.A.inv * (self.B.T * u_h -
+                                  self.K_local.T * self.trace_solution)
         assemble(sigma_sol, tensor=sigma_h)
 
         # Project the broken solution into non-broken spaces
         sigma_u, u_u = self.unbroken_solution.split()
-        u_u.interpolate(u_h)
-        project(sigma_h, sigma_u)
+        u_h.dat.copy(u_u.dat)
+        self.projector.project()
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
 
