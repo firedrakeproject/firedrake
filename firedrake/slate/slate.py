@@ -211,7 +211,11 @@ class TensorBase(with_metaclass(ABCMeta)):
 
     def __str__(self):
         """Returns a string representation."""
-        return self._output_string(self.prec)
+        try:
+            return self._output_string(self.prec)
+        except AttributeError:
+            # Tensor doesn't have prec
+            return self._output_string()
 
     def __hash__(self):
         """Generates a hash for the TensorBase object."""
