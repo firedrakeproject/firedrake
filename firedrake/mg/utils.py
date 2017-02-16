@@ -10,6 +10,7 @@ import ufl
 import coffee.base as ast
 
 from pyop2 import op2
+from tsfc.fiatinterface import create_element
 
 import firedrake
 from firedrake.functionspacedata import entity_dofs_key
@@ -34,7 +35,7 @@ def coarse_to_fine_node_map(coarse, fine):
         raise ValueError("Can't map between level %s and level %s" % (level, fine_level))
     c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
 
-    key = entity_dofs_key(coarse.fiat_element.entity_dofs()) + (level, )
+    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (level, )
     cache = mesh._shared_data_cache["hierarchy_cell_node_map"]
     try:
         return cache[key]
@@ -51,7 +52,7 @@ def get_transfer_kernel(coarse, fine, typ=None):
     ch, level = get_level(coarse.mesh())
     mesh = ch[0]
     assert hasattr(mesh, "_shared_data_cache")
-    key = entity_dofs_key(coarse.fiat_element.entity_dofs()) + (typ, )
+    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (typ, )
     cache = mesh._shared_data_cache["hierarchy_transfer_kernel"]
     try:
         return cache[key]
@@ -64,7 +65,7 @@ def get_transfer_kernel(coarse, fine, typ=None):
         assert ch is fh
         assert refinements_per_level*level + 1 == refinements_per_level*fine_level
         dim = coarse.dim
-        element = coarse.fiat_element
+        element = create_element(coarse.ufl_element(), vector_is_mixed=False)
         omap = fine.cell_node_map().values
         c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
         indices, _ = get_unique_indices(element,
@@ -87,7 +88,7 @@ def get_restriction_weights(coarse, fine):
     mesh = coarse.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     cache = mesh._shared_data_cache["hierarchy_restriction_weights"]
-    key = entity_dofs_key(coarse.fiat_element.entity_dofs())
+    key = entity_dofs_key(coarse.finat_element.entity_dofs())
     try:
         return cache[key]
     except KeyError:
@@ -97,7 +98,7 @@ def get_restriction_weights(coarse, fine):
         # appropriately.
         if not (coarse.ufl_element() == fine.ufl_element()):
             raise ValueError("Can't transfer between different spaces")
-        if coarse.fiat_element.entity_dofs() == coarse.fiat_element.entity_closure_dofs():
+        if coarse.finat_element.entity_dofs() == coarse.finat_element.entity_closure_dofs():
             return cache.setdefault(key, None)
         ele = coarse.ufl_element()
         if isinstance(ele, ufl.VectorElement):

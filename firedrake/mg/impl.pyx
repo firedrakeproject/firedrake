@@ -2,6 +2,7 @@
 from __future__ import absolute_import, print_function, division
 
 import FIAT
+from tsfc.fiatinterface import create_element
 
 from firedrake.petsc import PETSc
 import firedrake.mg.utils as utils
@@ -455,7 +456,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
         np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
         PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
 
-    cell = coarse.fiat_element.get_reference_element()
+    cell = coarse.finat_element.cell
     if isinstance(cell, FIAT.reference_element.TensorProductCell):
         basecell, _ = cell.cells
         tdim = basecell.get_spatial_dimension()
@@ -465,7 +466,8 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     ncoarse = coarse.mesh().cell_set.size
     ndof = coarse.cell_node_map().arity
 
-    perms = utils.get_node_permutations(coarse.fiat_element)
+    fiat_element = create_element(coarse.ufl_element(), vector_is_mixed=False)
+    perms = utils.get_node_permutations(fiat_element)
     permutations = np.empty((len(perms), len(perms.values()[0])), dtype=np.int32)
     for k, v in perms.iteritems():
         if tdim == 1:
@@ -479,7 +481,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     # We're going to uniquify the maps we get out, so the first step
     # is to apply the permutation to one entry to find out which
     # indices we need to keep.
-    indices, offset = utils.get_unique_indices(coarse.fiat_element,
+    indices, offset = utils.get_unique_indices(fiat_element,
                                                old_cell_map[0, :],
                                                vertex_perm[0, :],
                                                offset=fine.cell_node_map().offset)

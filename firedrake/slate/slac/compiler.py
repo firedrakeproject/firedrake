@@ -479,7 +479,7 @@ def auxiliary_information(builder):
             # compute its shape to declare as an Eigen::MatrixBase object
             temp = ast.Symbol("C%d" % i)
             V = actee.function_space()
-            node_extent = V.fiat_element.space_dimension()
+            node_extent = V.finat_element.space_dimension()
             dof_extent = np.prod(V.ufl_element().value_shape())
             typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
             aux_statements.append(ast.Decl(typ, temp))

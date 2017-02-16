@@ -421,13 +421,13 @@ def get_cell_nodes(PETSc.Section global_numbering,
 
     :arg global_numbering: Section describing the global DoF numbering
     :arg cell_closures: 2D array of ordered cell closures
-    :arg entity_dofs: FIAT element entity dofs for the cell
+    :arg entity_dofs: FInAT element entity dofs for the cell
 
     Preconditions: This function assumes that cell_closures contains mesh
     entities ordered by dimension, i.e. vertices first, then edges, faces, and
     finally the cell. For quadrilateral meshes, edges corresponding to
-    dimension (0, 1) in the FIAT element must precede edges corresponding to
-    dimension (1, 0) in the FIAT element.
+    dimension (0, 1) in the FInAT element must precede edges corresponding to
+    dimension (1, 0) in the FInAT element.
     """
     cdef:
         int *ceil_ndofs = NULL
@@ -440,7 +440,7 @@ def get_cell_nodes(PETSc.Section global_numbering,
     ncells = cell_closures.shape[0]
     nclosure = cell_closures.shape[1]
 
-    # Extract ordering from FIAT element entity DoFs
+    # Extract ordering from FInAT element entity DoFs
     ndofs_list = []
     flat_index_list = []
 
