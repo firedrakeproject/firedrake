@@ -209,7 +209,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Now we handle any terms that require auxiliary temporaries,
     # such as inverses, transposes and actions of a tensor on a
     # coefficient
-    if bool(builder.aux_temps):
+    if bool(builder.aux_exprs):
         # The declared temps will be updated within this method
         aux_statements = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_statements)
@@ -508,7 +508,7 @@ def auxiliary_temporaries(builder, declared_temps):
              expression.
     """
     aux_statements = []
-    for exp in builder.aux_temps:
+    for exp in builder.aux_exprs:
         if isinstance(exp, Inverse):
             if builder._ref_counts[exp] > 1:
                 # Get the temporary for the particular expression

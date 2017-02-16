@@ -44,15 +44,14 @@ class KernelBuilder(object):
 
         # Generate coefficient map (both mixed and non-mixed cases handled)
         self.coefficient_map = prepare_coefficients(expression)
+
         # Initialize temporaries and any auxiliary temporaries
         temps, aux_exprs = generate_expr_data(expression)
         self.temps = temps
+        self.aux_exprs = aux_exprs
 
         # Collect the reference count of operands in auxiliary expressions
         self._ref_counts = collect_reference_count([expression])
-        # Aux expressions are visited pre-order.  We want to declare
-        # as if we'd visited post-order (child temporaries first), so reverse.
-        self.aux_temps = OrderedDict.fromkeys(reversed(aux_exprs))
 
     @property
     def integral_type(self):
@@ -221,5 +220,9 @@ def generate_expr_data(expr):
             # temporaries (depending on reference count).
             if isinstance(tensor, (Action, Inverse)):
                 aux_exprs.append(tensor)
+
+    # Aux expressions are visited pre-order. We want to declare as if we'd
+    # visited post-order (child temporaries first), so reverse.
+    aux_exprs = list(OrderedDict.fromkeys(reversed(aux_exprs)))
 
     return temps, aux_exprs
