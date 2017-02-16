@@ -14,7 +14,7 @@ Problem.
 This is a classical problem going back to :cite:`Stommel:1948`. Even
 though it is far too simple to describe the dynamics of the real
 oceans quantitatively, it did explain qualitatively why we have
-western intensification in the world’s gyres. The curl of the wind
+western intensification in the world's gyres. The curl of the wind
 stress adds vorticity into the gyres and the latitudinal variation in
 the Coriolis parameter causes a weak equatorward flow away from the
 boundaries (Sverdrup flow). It is because of the dissipation that
@@ -96,7 +96,7 @@ form of this equation. We begin by multiplying this equation by a Test
 Function, :math:`\phi`, which is in the same space as the
 streamfunction, and then integrate over the domain :math:`\Omega`,
 
-.. math:: \int_{\Omega} \phi (\vec u \cdot \vec\nabla) \nabla^2 \psi \,\mathrm{d}x  +  r\phi (\nabla^{2} \psi - F\psi)\,\mathrm{d}x + \beta\phi\frac{\partial \psi}{\partial x} \,\mathrm{d}x =  \int_{\Omega} \phi \cdot F_{\textrm{winds}} \,\mathrm{d}x
+.. math:: \int_{\Omega} \phi (\vec u \cdot \vec\nabla) \nabla^2 \psi \,\mathrm{d}x  +  r\phi (\nabla^{2} \psi - F\psi)\,\mathrm{d}x + \beta\phi\frac{\partial \psi}{\partial x} \,\mathrm{d}x =  \int_{\Omega} \phi \cdot Q_{\textrm{winds}} \,\mathrm{d}x
 
 The nonlinear term can be rewritten using the fact that the velocity is
 divergent free and then integrating by parts,
@@ -126,7 +126,7 @@ The boundary integral above banishes because are are setting the streamfunction 
 
 Finally we can put the equation back together again to produce the weak form of our problem.
 
-.. math:: \int_{\Omega} \Bigg( - (\vec\nabla \phi \cdot \vec u) \vec{\nabla}^{2}\psi  -r \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi + F \phi \psi \Big) + \beta\phi\frac{\partial \psi}{\partial x} \Bigg) \,\mathrm{d}x =  \int_{\Omega} \phi \cdot F_{\textrm{winds}} \,\mathrm{d}x
+.. math:: \int_{\Omega} \Bigg( - (\vec\nabla \phi \cdot \vec u) \vec{\nabla}^{2}\psi  -r \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi + F \phi \psi \Big) + \beta\phi\frac{\partial \psi}{\partial x} \Bigg) \,\mathrm{d}x =  \int_{\Omega} \phi \cdot Q_{\textrm{winds}} \,\mathrm{d}x
 
 The above problem is the weak form of the nonlinear Stommel problem.  The linear term arises from neglecting the nonlinear advection, and can easily be obtained by neglecting the first term on the left hand side.
 	  
@@ -153,21 +153,21 @@ will be using a square of length one with 50 cells. ::
 We can then define the Function Space within which the
 solution of the streamfunction will reside. ::
 
-  Vcg = FunctionSpace(mesh, “CG”, 3) # CG elements for Streamfunction
+  Vcg = FunctionSpace(mesh, 'CG', 3) # CG elements for Streamfunction
 
 We will also impose no-normal flow strongly to ensure that the
 boundary condition :math:`\psi = 0` will be met, ::
   
-  bc = DirichletBC(Vcg, 0.0, “on_boundary”)
+  bc = DirichletBC(Vcg, 0.0, 'on_boundary')
 
 Now we will define all the parameters we are using in this tutorial. ::
 
-  beta = Constant(“1.0”)      # Beta parameter
-  F = Constant(“1.0”)         # Burger number
-  r = Constant(“0.2”)         # Bottom drag
-  tau = Constant(“0.001”)     # Wind Forcing
+  beta = Constant('1.0')      # Beta parameter
+  F = Constant('1.0')         # Burger number
+  r = Constant('0.2')         # Bottom drag
+  tau = Constant('0.001')     # Wind Forcing
   x = SpatialCoordinate(mesh)
-  Qwinds = Function(Vcg).interpolate(-tau * cos(pi * (x[1]/Ly - 0.5))”, tau=tau, Ly=Ly))
+  Qwinds = Function(Vcg).interpolate(-tau * cos(pi * (x[1]/Ly - 0.5)))
 
 We can now define the Test Function and the Trial Function of this problem, both must be in the same function space::
 
@@ -177,8 +177,8 @@ We must define functions that will store our linear and nonlinear solutions.
 In order to solve the nonlinear problem, we use the linear
 solution as a guess for the nonlinear problem. ::
 
-  psi_lin = Function(Vcg, name=“Linear Streamfunction”)
-  psi_non = Function(Vcg, name=“Nonlinear Streamfunction”)
+  psi_lin = Function(Vcg, name='Linear Streamfunction')
+  psi_non = Function(Vcg, name='Nonlinear Streamfunction')
 
 We can also define an operator for our formulation.
 The gradperp() operator is defined as a lambda function which enables us
@@ -188,7 +188,7 @@ the geostrophic velocities. ::
 
   gradperp = lambda i: as_vector((-i.dx(1),i.dx(0)))
 
-We can finally write down the linear Stommel equation in it’s weak
+We can finally write down the linear Stommel equation in its weak
 form. We will use the solution to this as the input for the nonlinear
 Stommel equation. ::
 
@@ -200,11 +200,11 @@ linear streamfunction, ::
 
   linear_problem = LinearVariationalProblem(a, L, psi_lin, bcs=bc)
   linear_solver = LinearVariationalSolver(linear_problem,
-                                          solver_parameters= {’ksp_type’: ’preonly’,
-                                                              ’pc_type’: ’lu’})
+                                          solver_parameters= {'ksp_type': 'preonly',
+                                                              'pc_type': 'lu'})
   linear_solver.solve()
 
-We will redefine the nonlinear stream-function as it’s guess, the
+We will redefine the nonlinear stream-function as its guess, the
 linear stream-function ::
 
   psi_non.assign(psi_lin)
@@ -215,25 +215,37 @@ that the problem is stated in residual form so there is no trial function. ::
   G = - inner(grad(phi), gradperp(psi_non)) * div(grad(psi_non)) * dx \
       -r * inner(grad(psi_non), grad(phi)) * dx - F * psi_non * phi * dx \
       + beta * psi_non.dx(0) * phi * dx \
-      - Fwinds * phi * dx
+      - Qwinds * phi * dx
 
 We solve for the nonlinear streamfunction now by setting up another
 elliptic solver, ::
 
   nonlinear_problem = NonlinearVariationalProblem(G, psi_non, bcs=bc)
   nonlinear_solver = NonlinearVariationalSolver(nonlinear_problem,
-                                                solver_parameters= {’snes_type’: ’newtonls’,
-                                                                    ’ksp_type’: ’preonly’,
-                                                                    ’pc_type’: ’lu’})
+                                                solver_parameters= {'snes_type': 'newtonls',
+                                                                    'ksp_type': 'preonly',
+                                                                    'pc_type': 'lu'})
   nonlinear_solver.solve()
 
 Now that we have the full solution to the nonlinear Stommel problem,
 we can plot it, ::
 
-  p = plot(psi_non)
-  p.show()
+  try:
+      import matplotlib.pyplot as plt
+  except:
+      warning("Matplotlib not imported")
 
-  file = File(’Nonlinear Streamfunction.pvd’)
+  try:
+      plot(psi_non)
+  except Exception as e:
+      warning("Cannot plot figure. Error msg '%s'" % e.message)
+
+  try:
+      plt.show()
+  except Exception as e:
+      warning("Cannot show figure. Error msg '%s'" % e.message)
+
+  file = File('Nonlinear Streamfunction.pvd')
   file.write(psi_non)
 
 We can also see the difference between the linear solution and the
@@ -241,14 +253,28 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
 
   tf, difference = TestFunction(Vcg), TrialFunction(Vcg)
 
-  a = difference * tf * dx L = (psi_lin - psi_non) * tf * dx
-  difference = Function(Vcg, name=“Difference”)
+  a = difference * tf * dx
+  L = (psi_lin - psi_non) * tf * dx
+  difference = Function(Vcg, name='Difference')
   solve(a == L, difference, None)
 
-  p = plot(difference)
-  p.show()
 
-  file = File(“Difference between Linear and Nonlinear Streamfunction.pvd”)
+  try:
+      import matplotlib.pyplot as plt
+  except:
+      warning("Matplotlib not imported")
+
+  try:
+      plot(difference)
+  except Exception as e:
+      warning("Cannot plot figure. Error msg '%s'" % e.message)
+
+  try:
+      plt.show()
+  except Exception as e:
+      warning("Cannot show figure. Error msg '%s'" % e.message)
+
+  file = File('Difference between Linear and Nonlinear Streamfunction.pvd')
   file.write(difference) 
 
 Below is a contour plot of the linear solution to the QG wind-driven Stommel gyre.
