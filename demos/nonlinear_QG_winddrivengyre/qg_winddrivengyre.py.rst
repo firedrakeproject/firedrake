@@ -11,7 +11,7 @@ wind-driven gyre solution that includes bottom bottom drag and
 nonlinear advection. This is referred to as the Nonlinear Stommel
 Problem.
 
-This is a classical problem going back to :cite:`Stommel:1949`. Even
+This is a classical problem going back to :cite:`Stommel:1948`. Even
 though it is far too simple to describe the dynamics of the real
 oceans quantitatively, it did explain qualitatively why we have
 western intensification in the world’s gyres. The curl of the wind
@@ -19,8 +19,8 @@ stress adds vorticity into the gyres and the latitudinal variation in
 the Coriolis parameter causes a weak equatorward flow away from the
 boundaries (Sverdrup flow). It is because of the dissipation that
 arises near the boundaries that we must have western intensification.
-This was first shown by :cite:`Stommel:1949` using simple bottom drag but it
-was only years later after :cite:`Munk:1953` did a similar calculation using
+This was first shown by :cite:`Stommel:1948` using simple bottom drag but it
+was only years later after :cite:`Munk:1950` did a similar calculation using
 lateral viscosity that people took the idea seriously.
 
 After three quarters of a century we are still unable to parametrize
@@ -32,8 +32,8 @@ interested reader can read more about this in
 :cite:`Pedlosky:1992` and :cite:`Vallis:2006`.
 In this tutorial we will consider the nonlinear Stommel problem.
 
-Governing PDE:Stommel Problem
-=============================
+Governing PDE: Stommel Problem
+==============================
 
 The nonlinear, one-layer, QG model equation that is driven by the winds
 above (say :math:`Q_{winds})`, which is the vorticity of the winds that
@@ -257,4 +257,5 @@ Below is a contour plot of the difference between the linear and nonlinear solut
 
 .. rubric:: References
 
-.. bibliography:: qg_refs.bib
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
