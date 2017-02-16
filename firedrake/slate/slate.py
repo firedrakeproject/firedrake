@@ -193,6 +193,10 @@ class TensorBase(with_metaclass(ABCMeta)):
         """Returns a hash id for use in dictionary objects."""
         return hash(self._key)
 
+    @abstractmethod
+    def reconstruct(self, *ops):
+        """Reconstructs a node with new operands."""
+
     @abstractproperty
     def _key(self):
         """Returns a key for hash and equality.
@@ -286,6 +290,10 @@ class Tensor(TensorBase):
         """
         return self.form.subdomain_data()
 
+    def reconstruct(self, form):
+        """Reconstructs a Tensor with a new form."""
+        return Tensor(form)
+
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
         return ["S", "V", "M"][self.rank] + "_%d" % self.id
@@ -343,6 +351,10 @@ class TensorOp(TensorBase):
                     )
 
         return {self.ufl_domain(): sd}
+
+    def reconstruct(self, *ops):
+        """reconstructs a TensorOp class with new operands."""
+        return type(self)(*ops)
 
     @cached_property
     def _key(self):
