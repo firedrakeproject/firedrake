@@ -180,14 +180,6 @@ solution as a guess for the nonlinear problem. ::
   psi_lin = Function(Vcg, name='Linear Streamfunction')
   psi_non = Function(Vcg, name='Nonlinear Streamfunction')
 
-We can also define an operator for our formulation.
-The gradperp() operator is defined as a lambda function which enables us
-to compute the gradient cross product in
-the z-direction (:math:`\hat{z}\times\nabla`), necessary to find 
-the geostrophic velocities. ::
-
-  gradperp = lambda i: as_vector((-i.dx(1),i.dx(0)))
-
 We can finally write down the linear Stommel equation in its weak
 form. We will use the solution to this as the input for the nonlinear
 Stommel equation. ::
@@ -212,7 +204,7 @@ linear stream-function ::
 And now we can define the weak form of the nonlinear problem. Note
 that the problem is stated in residual form so there is no trial function. ::
 
-  G = - inner(grad(phi), gradperp(psi_non)) * div(grad(psi_non)) * dx \
+  G = - inner(grad(phi), perp(grad(psi_non))) * div(grad(psi_non)) * dx \
       -r * inner(grad(psi_non), grad(phi)) * dx - F * psi_non * phi * dx \
       + beta * psi_non.dx(0) * phi * dx \
       - Qwinds * phi * dx
