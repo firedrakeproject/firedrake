@@ -23,7 +23,7 @@ This was first shown by :cite:`Stommel:1948` using simple bottom drag but it
 was only years later after :cite:`Munk:1950` did a similar calculation using
 lateral viscosity that people took the idea seriously.
 
-After three quarters of a century we are still unable to parametrize
+After three quarters of a century we are still unable to parametrise
 the dissipative effects of the small scales so it is very difficult to
 get a good quantiative predictions as to the mean structure of the
 gyre that is generated. However, this demo aims to compute the
@@ -41,7 +41,7 @@ drive the ocean from above) is,
 
 .. math:: \partial_{t}q + \vec{u} \cdot \vec{\nabla} q + \beta v = -rq + Q_{winds}
 
-with the Potential Voritcity (PV) and geostrophic velocities defined as
+with the Potential Vorticity (PV) and geostrophic velocities defined as
 
 .. math::
 
@@ -128,14 +128,14 @@ Finally we can put the equation back together again to produce the weak form of 
 
 .. math:: \iint_{A} \Bigg( - (\vec\nabla \phi \cdot \vec u) \vec{\nabla}^{2}\psi  -r \Big(\vec{\nabla}\phi \cdot \vec{\nabla}\psi + F \phi \psi \Big) + \beta\phi\frac{\partial \psi}{\partial x} \Bigg) \,dA =  \iint_{A} \phi \cdot F_{winds} \,dA
 
-The above problem is the weak form of the nonlinear Stommel problem.  The linear term arises from negelcting the nonlinear advection, and can easily be obtained by neglecting the first term on the left hand side.
+The above problem is the weak form of the nonlinear Stommel problem.  The linear term arises from neglecting the nonlinear advection, and can easily be obtained by neglecting the first term on the left hand side.
 	  
 Defining the Problem
 ====================
 
 Now that we know the weak form we are now ready to solve this using Firedrake!
 
-First, we import the Firedrake, PETSc, NumPy and UFL libraries, ::
+First, we import the Firedrake, PETSc, NumPy and UFL packages, ::
 
   from firedrake import *
   from firedrake.petsc import PETSc
@@ -194,7 +194,7 @@ Stommel equation. ::
   a = - r*inner(grad(psi), grad(phi))*dx - F*psi*phi*dx + beta*psi.dx(0)*phi*dx
   L = Qwinds*phi*dx
 
-We set-up an elliptic inverter for this problem, and solve for the
+We set-up an elliptic solver for this problem, and solve for the
 linear streamfunction, ::
 
   linear_problem = LinearVariationalProblem(a, L, psi_lin, bcs=bc)
