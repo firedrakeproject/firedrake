@@ -62,7 +62,8 @@ class TensorBase(with_metaclass(ABCMeta)):
         """Constructor for the TensorBase abstract class."""
         # NOTE: This attribute is for caching kernels after
         # an expression has been compiled.
-        self._kernels = None
+        self._metakernel_cache = None
+
         self.id = TensorBase.id
         TensorBase.id += 1
 
@@ -611,17 +612,13 @@ class Action(TensorOp):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
-    [Tensor],
     [UnaryOp],
     [Add, Sub],
     [Mul, Action]
 ]
 
 # Here we establish the precedence class attribute for a given
-# Slate tensor. Unary and binary operations will have higher
-# precedence over terminal Tensor objects. Similarly, tensor
-# action and multiplication will have higher precedence over
-# addition/subtraction
+# Slate TensorOp class.
 for level, group in enumerate(precedences):
     for tensor in group:
         tensor.prec = level

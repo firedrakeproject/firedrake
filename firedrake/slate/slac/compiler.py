@@ -75,8 +75,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
-    if slate_expr._kernels is not None:
-        return slate_expr._kernels
+    if slate_expr._metakernel_cache is not None:
+        return slate_expr._metakernel_cache
 
     # Initialize coefficients, shape and statements list
     expr_coeffs = slate_expr.coefficients()
@@ -299,7 +299,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     kernels = (SplitKernel(idx, kinfo),)
 
     # Store the resulting kernel for reuse
-    slate_expr._kernels = kernels
+    slate_expr._metakernel_cache = kernels
 
     return kernels
 
