@@ -277,12 +277,12 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
   file = File('Difference between Linear and Nonlinear Streamfunction.pvd')
   file.write(difference) 
 
-Below is a contour plot of the linear solution to the QG wind-driven Stommel gyre.
+Below is a plot of the linear solution to the QG wind-driven Stommel gyre.
    
 .. figure:: fig_gyre.png
    :align: center
 
-Below is a contour plot of the difference between the linear and nonlinear solutions to the QG wind-driven Stommel gyre.
+Below is a plot of the difference between the linear and nonlinear solutions to the QG wind-driven Stommel gyre.
 
 .. figure:: fig_diff.png
    :align: center
