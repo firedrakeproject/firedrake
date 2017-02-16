@@ -250,12 +250,6 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
   difference = Function(Vcg, name='Difference')
   solve(a == L, difference, None)
 
-
-  try:
-      import matplotlib.pyplot as plt
-  except:
-      warning("Matplotlib not imported")
-
   try:
       plot(difference)
   except Exception as e:
