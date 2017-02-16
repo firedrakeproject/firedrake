@@ -103,13 +103,16 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     mesh_layer_sym = ast.Symbol("layer")
     inc = []
 
+    declared_temps = set()
     for cxt_kernel in builder.context_kernels:
         exp = cxt_kernel.tensor
         t = builder.get_temporary(exp)
 
-        # Declare and initialize the temporary
-        statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
-        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+        if t not in declared_temps:
+            # Declare and initialize the temporary
+            statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
+            statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+            declared_temps.add(t)
 
         it_type = cxt_kernel.original_integral_type
 
@@ -138,6 +141,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 # if any are required
                 clist = [c for ci in kinfo.coefficient_map
                          for c in builder.coefficient(exp.coefficients()[ci])]
+
+                if kinfo.oriented:
+                    clist.append(ast.FlatBlock("cell_orientations"))
 
                 incl.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
@@ -222,8 +228,17 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                        context_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
 
+    # Finalize AST for macro kernel construction
+    builder._finalize_kernels_and_update()
+
     # Generate arguments for the macro kernel
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
+
+    # Orientation information
+    if builder.oriented:
+        args.append(ast.Decl("int **", ast.Symbol("cell_orientations")))
+
+    # Coefficient information
     for c in expr_coeffs:
         if isinstance(c, Constant):
             ctype = "%s *" % SCALAR_TYPE
@@ -231,6 +246,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             ctype = "%s **" % SCALAR_TYPE
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
+    # Facet information
     if builder.needs_cell_facets:
         args.append(ast.Decl("char *", cellfacetsym))
 
@@ -318,6 +334,9 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
         clist = [c for ci in coefficient_map
                  for c in builder.coefficient(exp.coefficients()[ci])]
 
+        if top.kinfo.oriented and btm.kinfo.oriented:
+            clist.append(ast.FlatBlock("cell_orientations"))
+
         dirs = top.kinfo.kernel._include_dirs + btm.kinfo.kernel._include_dirs
         incl.extend(tuple(OrderedDict.fromkeys(dirs)))
 
@@ -365,6 +384,9 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
         # if any are required
         clist = [c for ci in kinfo.coefficient_map
                  for c in builder.coefficient(exp.coefficients()[ci])]
+
+        if kinfo.oriented:
+            clist.append(ast.FlatBlock("cell_orientations"))
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
@@ -435,6 +457,9 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
+
+        if kinfo.oriented:
+            clist.append(ast.FlatBlock("cell_orientations"))
 
         clist.append(ast.FlatBlock("&%s" % itsym))
         funcalls.append(ast.FunCall(kinfo.kernel.name,

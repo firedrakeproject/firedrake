@@ -1,4 +1,7 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
+
+from collections import OrderedDict
 
 from coffee import base as ast
 
@@ -41,7 +44,11 @@ class KernelBuilder(object):
         self.coefficient_map = prepare_coefficients(expression)
         # Initialize temporaries and any auxiliary expressions for special
         # handling
-        self.temps, self.aux_exprs = generate_expr_data(expression)
+        temps, aux_exprs = generate_expr_data(expression)
+        # Sort by temporary str: 'T0', 'T1', etc.
+        self.temps = OrderedDict(sorted(iteritems(temps),
+                                        key=lambda x: str(x[1])))
+        self.aux_exprs = aux_exprs
 
     @property
     def integral_type(self):
@@ -161,7 +168,10 @@ class KernelBuilder(object):
         assert isinstance(macro_kernels, list), (
             "Please wrap all macro kernel functions in a list"
         )
-        self._finalize_kernels_and_update()
+        assert self.finalized_ast, (
+            "AST not finalized. Did you forget to call "
+            "builder._finalize_kernels_and_update()?"
+        )
         kernel_ast = self.finalized_ast
         kernel_ast.extend(macro_kernels)
 
