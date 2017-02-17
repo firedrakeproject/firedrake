@@ -7,13 +7,13 @@ Building on the previous two demos that used the Quasi-Geostrophic
 (QG) model for the :doc:`time-stepping </demos/qg_1layer_wave.py>` and
 :doc:`eigenvalue problem </demos/qgbasinmodes.py>`,
 we now consider how to determine a
-wind-driven gyre solution that includes bottom bottom drag and
+wind-driven gyre solution that includes bottom drag and
 nonlinear advection. This is referred to as the Nonlinear Stommel
 Problem.
 
 This is a classical problem going back to :cite:`Stommel:1948`. Even
 though it is far too simple to describe the dynamics of the real
-oceans quantitatively, it did explain qualitatively why we have
+oceans quantitatively, it does explain qualitatively why we have
 western intensification in the world's gyres. The curl of the wind
 stress adds vorticity into the gyres and the latitudinal variation in
 the Coriolis parameter causes a weak equatorward flow away from the
@@ -25,7 +25,7 @@ lateral viscosity that people took the idea seriously.
 
 After three quarters of a century we are still unable to parametrise
 the dissipative effects of the small scales so it is very difficult to
-get a good quantiative predictions as to the mean structure of the
+get a good quantitative predictions as to the mean structure of the
 gyre that is generated. However, this demo aims to compute the
 structure of the oceanic gyre given particular parameters. The
 interested reader can read more about this in
@@ -33,7 +33,7 @@ interested reader can read more about this in
 In this tutorial we will consider the nonlinear Stommel problem.
 
 Governing PDE: Stommel Problem
-==============================
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The nonlinear, one-layer, QG model equation that is driven by the winds
 above (say :math:`Q_{\textrm{winds}})`, which is the vorticity of the winds that
@@ -75,8 +75,8 @@ in time, we can ignore the time derivative term, and we get
    + \beta \frac{\partial \psi}{\partial x} = - rq + Q_{\textrm{winds}} 
    \end{gathered}
 
-We can write this out in one equation and is the nonlinear Stommel
-problem.
+We can write this out in one equation, which is the nonlinear Stommel
+problem:
 
 .. math::
 
@@ -89,11 +89,11 @@ because the streamfunction does not change following the flow, and
 therefore, we can neglect that term entirely.
 
 Weak Formulation
-================
+~~~~~~~~~~~~~~~~
 
 To build the weak form of the problem in Firedrake we must find the weak
-form of this equation. We begin by multiplying this equation by a Test
-Function, :math:`\phi`, which is in the same space as the
+form of this equation. We begin by multiplying this equation by a test
+function, :math:`\phi`, which is in the same space as the
 streamfunction, and then integrate over the domain :math:`\Omega`,
 
 .. math:: \int_{\Omega} \phi (\vec u \cdot \vec\nabla) \nabla^2 \psi \,\mathrm{d}x  +  r\phi (\nabla^{2} \psi - F\psi)\,\mathrm{d}x + \beta\phi\frac{\partial \psi}{\partial x} \,\mathrm{d}x =  \int_{\Omega} \phi \cdot Q_{\textrm{winds}} \,\mathrm{d}x
@@ -122,7 +122,7 @@ the walls
    + r \int_{\partial\Omega} \phi \cdot \frac{\partial \psi}{\partial n} \,\mathrm{d}s
   \end{aligned}
 
-The boundary integral above banishes because are are setting the streamfunction to be zero on the boundary.
+The boundary integral above vanishes because we are setting the streamfunction to be zero on the boundary.
 
 Finally we can put the equation back together again to produce the weak form of our problem.
 
@@ -131,7 +131,7 @@ Finally we can put the equation back together again to produce the weak form of 
 The above problem is the weak form of the nonlinear Stommel problem.  The linear term arises from neglecting the nonlinear advection, and can easily be obtained by neglecting the first term on the left hand side.
 	  
 Defining the Problem
-====================
+~~~~~~~~~~~~~~~~~~~~
 
 Now that we know the weak form we are now ready to solve this using Firedrake!
 
@@ -196,8 +196,7 @@ linear streamfunction, ::
                                                               'pc_type': 'lu'})
   linear_solver.solve()
 
-We will redefine the nonlinear stream-function as its guess, the
-linear stream-function ::
+We will employ the solution to the linear problem as the initial guess for the nonlinear one::
 
   psi_non.assign(psi_lin)
 
@@ -245,10 +244,7 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
 
   tf, difference = TestFunction(Vcg), TrialFunction(Vcg)
 
-  a = difference * tf * dx
-  L = (psi_lin - psi_non) * tf * dx
-  difference = Function(Vcg, name='Difference')
-  solve(a == L, difference, None)
+  difference = assemble(psi_lin - psi_non)
 
   try:
       plot(difference)
@@ -273,6 +269,8 @@ Below is a plot of the difference between the linear and nonlinear solutions to 
 .. figure:: fig_diff.png
    :align: center
 
+This demo can be found as a Python script in `qg_winddrivengyre.py <qg_winddrivengyre.py>`__.
+           
 .. rubric:: References
 
 .. bibliography:: demo_references.bib
