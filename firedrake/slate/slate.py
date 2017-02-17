@@ -14,20 +14,27 @@ All Slate expressions are handled by a specialized linear algebra
 compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
+
 from __future__ import absolute_import, print_function, division
 from six import with_metaclass, iteritems
 
 from abc import ABCMeta, abstractproperty, abstractmethod
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 
 from firedrake.function import Function
+from firedrake.formmanipulation import split_form
+from firedrake.slate.algorithms import (upper_schur_complement,
+                                        upper_woodbury_identity,
+                                        lower_schur_complement,
+                                        lower_woodbur_identity)
 from firedrake.utils import cached_property
 
 from itertools import chain
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
+from ufl.classes import Zero
 from ufl.domain import join_domains
 from ufl.form import Form
 
@@ -121,6 +128,20 @@ class TensorBase(with_metaclass(ABCMeta)):
         ``{domain:{integral_type: subdomain_data}}``.
         """
 
+    @abstractproperty
+    def blocks(self):
+        """Returns a mapping from block indices to block-tensors."""
+
+    @cached_property
+    def is_mixed(self):
+        """Returns `True` if the tensor has mixed arguments (and therefore
+        has a block-structure) and `False` otherwise.
+        """
+        if any(len(arg.function_space()) > 1 for arg in self.arguments()):
+            return True
+
+        return False
+
     @property
     def inv(self):
         return Inverse(self)
@@ -188,14 +209,22 @@ class TensorBase(with_metaclass(ABCMeta)):
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __getitem__(self, key):
+        """Extracts a block from a mixed tensor."""
+        if not self.is_mixed:
+            assert key == (0,) * self.rank, (
+                "Tensor is not mixed, no blocks."
+            )
+        else:
+            if key not in self.blocks:
+                raise ValueError("No block with index %s" % key)
+
+            return self.blocks[key]
+
     @cached_property
     def _hash_id(self):
         """Returns a hash id for use in dictionary objects."""
         return hash(self._key)
-
-    @abstractmethod
-    def reconstruct(self, *ops):
-        """Reconstructs a node with new operands."""
 
     @abstractproperty
     def _key(self):
@@ -290,9 +319,20 @@ class Tensor(TensorBase):
         """
         return self.form.subdomain_data()
 
-    def reconstruct(self, form):
-        """Reconstructs a Tensor with a new form."""
-        return Tensor(form)
+    @cached_property
+    def blocks(self):
+        """Returns a mapping from index to split Tensor."""
+        blocks = OrderedDict()
+        if not self.is_mixed:
+            blocks[(0,) * self.rank] = self
+
+        else:
+            for split_tensor in split_terminal(self):
+                idx = split_tensor.indices
+                block_tensor = split_tensor.tensor
+                blocks[idx] = block_tensor
+
+        return blocks
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -352,10 +392,6 @@ class TensorOp(TensorBase):
 
         return {self.ufl_domain(): sd}
 
-    def reconstruct(self, *ops):
-        """reconstructs a TensorOp class with new operands."""
-        return type(self)(*ops)
-
     @cached_property
     def _key(self):
         """Returns a key for hash and equality."""
@@ -402,6 +438,26 @@ class Inverse(UnaryOp):
         tensor, = self.operands
         return tensor.arguments()[::-1]
 
+    @cached_property
+    def blocks(self):
+        """Blocks of the inverse of a tensor."""
+        blocks = OrderedDict()
+        operand, = self.operands
+        if not self.is_mixed:
+            blocks[(0,) * self.rank] = self
+
+        else:
+            assert len(operand.blocks) == 4, (
+                "Can only compute block inverses of a "
+                "2 by 2 block square tensor."
+            )
+            blocks[(0, 0)] = upper_schur_complement(operand)
+            blocks[(0, 1)] = upper_woodbury_identity(operand)
+            blocks[(1, 0)] = lower_woodbur_identity(operand)
+            blocks[(1, 1)] = lower_schur_complement(operand)
+
+        return blocks
+
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
         tensor, = self.operands
@@ -418,6 +474,16 @@ class Transpose(UnaryOp):
         tensor, = self.operands
         return tensor.arguments()[::-1]
 
+    @cached_property
+    def blocks(self):
+        """Blocks of the transpose of a tensor."""
+        blocks = OrderedDict()
+        operand, = self.operands
+        for idx in operand.blocks:
+            blocks[idx] = type(self)(operand.blocks[idx[::-1]])
+
+        return blocks
+
     def _output_string(self, prec=None):
         """Creates a string representation of the transpose of a tensor."""
         tensor, = self.operands
@@ -433,6 +499,16 @@ class Negative(UnaryOp):
         """
         tensor, = self.operands
         return tensor.arguments()
+
+    @cached_property
+    def blocks(self):
+        """Blocks of the negative of a tensor."""
+        blocks = OrderedDict()
+        operand, = self.operands
+        for idx in operand.blocks:
+            blocks[idx] = type(self)(operand.blocks[idx])
+
+        return blocks
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
@@ -506,6 +582,19 @@ class Add(BinaryOp):
         )
         return A.arguments()
 
+    @cached_property
+    def blocks(self):
+        """Blocks of a sum of two tensors."""
+        blocks = OrderedDict()
+        A, B = self.operands
+        for idA, idB in zip(A.blocks, B.blocks):
+            assert idA == idB, (
+                "Blocks must have the same indices"
+            )
+            blocks[idA] = type(self)(A.blocks[idA], B.blocks[idB])
+
+        return blocks
+
 
 class Sub(BinaryOp):
     """Abstract Slate class representing matrix-matrix, vector-vector
@@ -531,6 +620,21 @@ class Sub(BinaryOp):
                     "Arguments must share the same function space."
         )
         return A.arguments()
+
+    @cached_property
+    def blocks(self):
+        """Blocks of a tensor resulting from the subtraction of
+        two tensors.
+        """
+        blocks = OrderedDict()
+        A, B = self.operands
+        for idA, idB in zip(A.blocks, B.blocks):
+            assert idA == idB, (
+                "Blocks must have the same indices"
+            )
+            blocks[idA] = type(self)(A.blocks[idA], B.blocks[idB])
+
+        return blocks
 
 
 class Mul(BinaryOp):
@@ -562,6 +666,46 @@ class Mul(BinaryOp):
             "They need to be in the same function space."
         )
         return argsA[:-1] + argsB[1:]
+
+    @cached_property
+    def blocks(self):
+        """Blocks of a product tensor."""
+        blocks = OrderedDict()
+        A, B = self.operands
+        col_b_ext = len(A.shapes[0])
+        row_b_ext = len(B.shapes[0])
+        assert col_b_ext == row_b_ext, (
+            "Blocks are not conforming for multiplication"
+        )
+        if B.rank == 2:
+            # Matrix-Matrix product
+            for i in range(row_b_ext):
+                for j in range(col_b_ext):
+                    for k in range(row_b_ext):
+                        try:
+                            blocks[(i, j)] += type(self)(A.blocks[(i, k)],
+                                                         B.blocks[(k, j)])
+                        except KeyError:
+                            # No tensor assigned yet, so initialize slot
+                            blocks[(i, j)] = type(self)(A.blocks[(i, k)],
+                                                        B.blocks[(k, j)])
+        else:
+
+            assert B.rank == 1, (
+                "Must be either a Matrix-Matrix or Matrix-Vector product"
+            )
+            # Matrix-Vector product
+            for i in range(row_b_ext):
+                for j in range(col_b_ext):
+                    try:
+                        blocks[(i,)] += type(self)(A.blocks[(i, j)],
+                                                   B.blocks[(j,)])
+                    except KeyError:
+                        # No tensor assigned yet, so initialize slot
+                        blocks[(i,)] = type(self)(A.blocks[(i, j)],
+                                                  B.blocks[(j,)])
+
+        return blocks
 
 
 class Action(TensorOp):
@@ -608,6 +752,37 @@ class Action(TensorOp):
                              + self.actee]
         return join_domains(chain(*collected_domains))
 
+    @cached_property
+    def blocks(self):
+        """Blocks of an Action tensor."""
+        blocks = OrderedDict()
+        tensor, = self.operands
+        actee, = self.actee
+        V = actee.function_space()
+        if len(V) == 1 and not tensor.is_mixed:
+            blocks[(0,)] = self
+
+        else:
+            split_coeff = actee.split()
+            col_b_ext = len(tensor.shapes[0])
+            # Matrix-Vector product
+            for i, Vi in V:
+                for j in range(col_b_ext):
+                    if split_coeff[j].function_space() == Vi:
+                        function = split_coeff[j]
+                    else:
+                        function = Zero()
+
+                    try:
+                        blocks[(i,)] += type(self)(tensor.blocks[(i, j)],
+                                                   function)
+                    except KeyError:
+                        # No tensor assigned yet, so initialize slot
+                        blocks[(i,)] = type(self)(tensor.blocks[(i, j)],
+                                                  function)
+
+        return blocks
+
     def _output_string(self, prec=None):
         """Creates a string representation."""
         tensor, = self.operands
@@ -624,6 +799,29 @@ class Action(TensorOp):
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.operands, self.actee)
+
+
+SplitTensor = namedtuple("SplitTensor", ["indices", "tensor"])
+
+
+def split_terminal(tensor):
+    """Splits a terminal tensor and returns its block-tensors
+    with local indices.
+
+    :arg tensor: A terminal `Slate.Tensor` object
+    """
+    assert isinstance(tensor, Tensor), (
+        "Can only split the forms of terminal tensors."
+    )
+    tensors = []
+    for splitform in split_form(tensor.form):
+        idx = splitform.indices
+        f = splitform.form
+        if len(f.integrals()) > 0:
+            tensors.append(SplitTensor(indices=idx,
+                                       tensor=Tensor(f)))
+
+    return tuple(tensors)
 
 
 # Establishes levels of precedence for Slate tensors
