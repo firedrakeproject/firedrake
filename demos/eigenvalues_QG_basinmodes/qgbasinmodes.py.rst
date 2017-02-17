@@ -240,6 +240,8 @@ Below is a plot of the spatial structure of the imaginary part of one of the eig
 .. figure:: eigenmode_imag.png
    :align: center
 
+This demo can be found as a Python script in `qgbasinmodes.py <qgbasinmodes.py>`__.
+
 .. rubric:: References
 
 .. bibliography:: demo_references.bib
