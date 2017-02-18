@@ -27,14 +27,16 @@ from firedrake.formmanipulation import split_form
 from firedrake.slate.algorithms import (upper_schur_complement,
                                         upper_woodbury_identity,
                                         lower_schur_complement,
-                                        lower_woodbur_identity)
+                                        lower_woodbur_identity,
+                                        block_matrix_matrix_product,
+                                        block_matrix_vector_product,
+                                        block_action)
 from firedrake.utils import cached_property
 
 from itertools import chain
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.algorithms.multifunction import MultiFunction
-from ufl.classes import Zero
 from ufl.domain import join_domains
 from ufl.form import Form
 
@@ -483,6 +485,11 @@ class Inverse(UnaryOp):
             blocks[(0,) * self.rank] = self
 
         else:
+            # TODO: To extend this to arbitrary block matrix size,
+            # We will need to wrap up a 2x2 block in the upper-left
+            # corner of the matrix and recursively perform the symbolic
+            # block inversion. This can be done in the block-algebra
+            # module
             assert len(operand.blocks) == 4, (
                 "Can only compute block inverses of a "
                 "2 by 2 block square tensor."
@@ -627,7 +634,7 @@ class Add(BinaryOp):
             assert idA == idB, (
                 "Blocks must have the same indices"
             )
-            blocks[idA] = type(self)(A.blocks[idA], B.blocks[idB])
+            blocks[idA] = type(self)(A[idA], B[idB])
 
         return blocks
 
@@ -668,7 +675,7 @@ class Sub(BinaryOp):
             assert idA == idB, (
                 "Blocks must have the same indices"
             )
-            blocks[idA] = type(self)(A.blocks[idA], B.blocks[idB])
+            blocks[idA] = type(self)(A[idA], B[idB])
 
         return blocks
 
@@ -706,40 +713,20 @@ class Mul(BinaryOp):
     @cached_property
     def blocks(self):
         """Blocks of a product tensor."""
-        blocks = OrderedDict()
-        A, B = self.operands
-        col_b_ext = len(A.shapes[0])
-        row_b_ext = len(B.shapes[0])
-        assert col_b_ext == row_b_ext, (
-            "Blocks are not conforming for multiplication"
-        )
-        if B.rank == 2:
-            # Matrix-Matrix product
-            for i in range(row_b_ext):
-                for j in range(col_b_ext):
-                    for k in range(row_b_ext):
-                        try:
-                            blocks[(i, j)] += type(self)(A.blocks[(i, k)],
-                                                         B.blocks[(k, j)])
-                        except KeyError:
-                            # No tensor assigned yet, so initialize slot
-                            blocks[(i, j)] = type(self)(A.blocks[(i, k)],
-                                                        B.blocks[(k, j)])
-        else:
+        if not self.is_mixed:
+            return {(0,) * self.rank: self}
 
-            assert B.rank == 1, (
-                "Must be either a Matrix-Matrix or Matrix-Vector product"
-            )
+        A, B = self.operands
+        if self.rank == 2:
+            # Matrix-Matrix product
+            blocks = block_matrix_matrix_product(A, B)
+
+        elif self.rank == 1:
             # Matrix-Vector product
-            for i in range(row_b_ext):
-                for j in range(col_b_ext):
-                    try:
-                        blocks[(i,)] += type(self)(A.blocks[(i, j)],
-                                                   B.blocks[(j,)])
-                    except KeyError:
-                        # No tensor assigned yet, so initialize slot
-                        blocks[(i,)] = type(self)(A.blocks[(i, j)],
-                                                  B.blocks[(j,)])
+            blocks = block_matrix_vector_product(A, B)
+
+        else:
+            raise ValueError("Unsupported operands for product.")
 
         return blocks
 
@@ -799,23 +786,7 @@ class Action(TensorOp):
             blocks[(0,)] = self
 
         else:
-            split_coeff = actee.split()
-            col_b_ext = len(tensor.shapes[0])
-            # Matrix-Vector product
-            for i, Vi in V:
-                for j in range(col_b_ext):
-                    if split_coeff[j].function_space() == Vi:
-                        function = split_coeff[j]
-                    else:
-                        function = Zero()
-
-                    try:
-                        blocks[(i,)] += type(self)(tensor.blocks[(i, j)],
-                                                   function)
-                    except KeyError:
-                        # No tensor assigned yet, so initialize slot
-                        blocks[(i,)] = type(self)(tensor.blocks[(i, j)],
-                                                  function)
+            blocks = block_action(tensor, actee)
 
         return blocks
 
