@@ -797,7 +797,7 @@ class Action(TensorOp):
             return {(0,) * self.rank: self}
 
         else:
-            tensor, = self.operand
+            tensor, = self.operands
             actee, = self.actee
             blocks = block_action(tensor, actee)
 

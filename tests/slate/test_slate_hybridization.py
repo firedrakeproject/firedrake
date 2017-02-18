@@ -73,10 +73,10 @@ def test_slate_hybridization(degree):
     # Perform the Schur-complement with SLATE expressions
     A = Tensor(Mass_v + Mass_p + Div - Div_adj)
     K = Tensor(local_trace)
-    Schur = -K * A.inv * K.T
+    Schur = K * A.inv * K.T
 
     F = Tensor(L)
-    RHS = -K * A.inv * F
+    RHS = K * A.inv * F
 
     S = assemble(Schur, bcs=bcs)
     E = assemble(RHS)
@@ -86,30 +86,10 @@ def test_slate_hybridization(degree):
     solve(S, lambda_sol, E, solver_parameters={'pc_type': 'lu',
                                                'ksp_type': 'cg'})
 
-    # Currently, SLATE can only assemble one expression at a time.
-    # However, we may still write out the pressure and velocity reconstructions
-    # in SLATE and obtain our solutions by assembling the SLATE tensor expressions.
-    # NOTE: SLATE cannot assemble expressions that result in a tensor with arguments
-    # in a mixed function space (yet). Therefore we have to separate the arguments
-    # from the mixed space:
-    sigma = TrialFunction(BRT)
-    tau = TestFunction(BRT)
-    u = TrialFunction(DG)
-    v = TestFunction(DG)
-
-    A_v = Tensor(dot(sigma, tau) * dx)
-    A_p = Tensor(u * v * dx)
-    B = Tensor(div(sigma) * v * dx)
-    K = Tensor(dot(sigma, n) * gammar('+') * dS)
-    F = Tensor(f * v * dx)
-
-    # SLATE expression for pressure recovery:
-    u_sol = (B * A_v.inv * B.T + A_p).inv * (F + B * A_v.inv * K.T * lambda_sol)
-    u_h = assemble(u_sol)
-
-    # SLATE expression for velocity recovery
-    sigma_sol = A_v.inv * (B.T * u_h - K.T * lambda_sol)
-    sigma_h = assemble(sigma_sol)
+    # SLATE expression for pressure and velocity reconstructions
+    w_sol = A.inv * (F - K.T * lambda_sol)
+    w_h = assemble(w_sol)
+    sigma_h, u_h = w_h.split()
 
     # Now we compare the hybridized solution to the non-hybridized computation
     V = FunctionSpace(mesh, "RT", degree)
