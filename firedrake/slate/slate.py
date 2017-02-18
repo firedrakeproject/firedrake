@@ -96,6 +96,24 @@ class TensorBase(with_metaclass(ABCMeta)):
         return tuple(sum(shapelist) for shapelist in self.shapes.values())
 
     @cached_property
+    def block_shape(self):
+        """Computes the shape of the block-tensor. For example, a mixed
+        2 x 2 block matrix will have a block shape of (2, 2).
+
+        :: note:
+
+           This is NOT the shape of the blocks that define the tensor.
+           This information can be deduced from the total shape of the
+           local tensor (self.shape) and the shape values within the
+           tensor (self.shapes).
+        """
+        block_shape = []
+        for shape in self.shapes.values():
+            block_shape.append(len(shape))
+
+        return tuple(block_shape)
+
+    @cached_property
     def rank(self):
         """Returns the rank information of the tensor object."""
         return len(self.arguments())
@@ -211,15 +229,13 @@ class TensorBase(with_metaclass(ABCMeta)):
 
     def __getitem__(self, key):
         """Extracts a block from a mixed tensor."""
-        if not self.is_mixed:
-            assert key == (0,) * self.rank, (
-                "Tensor is not mixed, no blocks."
-            )
-        else:
-            if key not in self.blocks:
-                raise ValueError("No block with index %s" % key)
+        if isinstance(key, int):
+            key = (key,)
 
-            return self.blocks[key]
+        if key not in self.blocks:
+            raise ValueError("No block with index %s" % (key,))
+
+        return self.blocks[key]
 
     @cached_property
     def _hash_id(self):
@@ -480,7 +496,7 @@ class Transpose(UnaryOp):
         blocks = OrderedDict()
         operand, = self.operands
         for idx in operand.blocks:
-            blocks[idx] = type(self)(operand.blocks[idx[::-1]])
+            blocks[idx[::-1]] = type(self)(operand[idx])
 
         return blocks
 
@@ -506,7 +522,7 @@ class Negative(UnaryOp):
         blocks = OrderedDict()
         operand, = self.operands
         for idx in operand.blocks:
-            blocks[idx] = type(self)(operand.blocks[idx])
+            blocks[idx] = type(self)(operand[idx])
 
         return blocks
 
