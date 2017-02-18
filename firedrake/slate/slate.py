@@ -229,8 +229,28 @@ class TensorBase(with_metaclass(ABCMeta)):
 
     def __getitem__(self, key):
         """Extracts a block from a mixed tensor."""
-        if isinstance(key, int):
+        if isinstance(key, (int, slice)):
             key = (key,)
+
+        # TODO: There is probably a better was to do this.
+        # This implementation is temporary
+        if any(isinstance(i, slice) for i in key):
+            if len(key) == 1:
+                n, = self.block_shape
+                return [self[ii]
+                        for ii
+                        in xrange(*key[0].indices(n))]
+            else:
+                assert len(key) == 2, (
+                    "Indexing for rank %d tensors not supported"
+                    % len(key)
+                )
+                n, m = self.block_shape
+                return [self[ii, jj]
+                        for ii
+                        in xrange(*key[0].indices(n))
+                        for jj
+                        in xrange(*key[1].indices(m))]
 
         if key not in self.blocks:
             raise ValueError("No block with index %s" % (key,))
