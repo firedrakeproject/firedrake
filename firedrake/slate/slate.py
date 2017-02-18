@@ -20,17 +20,17 @@ from six import with_metaclass, iteritems
 
 from abc import ABCMeta, abstractproperty, abstractmethod
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 
 from firedrake.function import Function
 from firedrake.formmanipulation import split_form
-from firedrake.slate.algorithms import (upper_schur_complement,
-                                        upper_woodbury_identity,
-                                        lower_schur_complement,
-                                        lower_woodbur_identity,
-                                        block_matrix_matrix_product,
-                                        block_matrix_vector_product,
-                                        block_action)
+from firedrake.slate.block_algebra import (upper_schur_complement,
+                                           upper_woodbury_identity,
+                                           lower_schur_complement,
+                                           lower_woodbury_identity,
+                                           block_action,
+                                           block_matrix_matrix_product,
+                                           block_matrix_vector_product)
 from firedrake.utils import cached_property
 
 from itertools import chain
@@ -109,11 +109,7 @@ class TensorBase(with_metaclass(ABCMeta)):
            local tensor (self.shape) and the shape values within the
            tensor (self.shapes).
         """
-        block_shape = []
-        for shape in self.shapes.values():
-            block_shape.append(len(shape))
-
-        return tuple(block_shape)
+        return tuple([len(shape) for shape in self.shapes.values()])
 
     @cached_property
     def rank(self):
@@ -360,16 +356,11 @@ class Tensor(TensorBase):
     @cached_property
     def blocks(self):
         """Returns a mapping from index to split Tensor."""
-        blocks = OrderedDict()
         if not self.is_mixed:
-            blocks[(0,) * self.rank] = self
+            return {(0,) * self.rank: self}
 
-        else:
-            for split_tensor in split_terminal(self):
-                idx = split_tensor.indices
-                block_tensor = split_tensor.tensor
-                blocks[idx] = block_tensor
-
+        blocks = OrderedDict((sf.indices, type(self)(sf.form))
+                             for sf in split_form(self.form))
         return blocks
 
     def _output_string(self, prec=None):
@@ -484,23 +475,19 @@ class Inverse(UnaryOp):
 
         blocks = OrderedDict()
         operand, = self.operands
-        if not self.is_mixed:
-            blocks[(0,) * self.rank] = self
-
-        else:
-            # TODO: To extend this to arbitrary block matrix size,
-            # We will need to wrap up a 2x2 block in the upper-left
-            # corner of the matrix and recursively perform the symbolic
-            # block inversion. This can be done in the block-algebra
-            # module
-            assert len(operand.blocks) == 4, (
-                "Can only compute block inverses of a "
-                "2 by 2 block square tensor."
-            )
-            blocks[(0, 0)] = upper_schur_complement(operand)
-            blocks[(0, 1)] = upper_woodbury_identity(operand)
-            blocks[(1, 0)] = lower_woodbur_identity(operand)
-            blocks[(1, 1)] = lower_schur_complement(operand)
+        # TODO: To extend this to arbitrary block matrix size,
+        # We will need to wrap up a 2x2 block in the upper-left
+        # corner of the matrix and recursively perform the symbolic
+        # block inversion. This can be done in the block-algebra
+        # module
+        assert len(operand.blocks) == 4, (
+            "Can only compute block inverses of a "
+            "2 by 2 block square tensor."
+        )
+        blocks[(0, 0)] = upper_schur_complement(operand)
+        blocks[(0, 1)] = upper_woodbury_identity(operand)
+        blocks[(1, 0)] = lower_woodbury_identity(operand)
+        blocks[(1, 1)] = lower_schur_complement(operand)
 
         return blocks
 
@@ -526,11 +513,11 @@ class Transpose(UnaryOp):
         if not self.is_mixed:
             return {(0,) * self.rank: self}
 
-        blocks = OrderedDict()
         operand, = self.operands
-        for idx in operand.blocks:
-            blocks[idx[::-1]] = type(self)(operand[idx])
-
+        # Transposes messes with idx, so we sort for consistency
+        blocks = OrderedDict(sorted([(idx[::-1], type(self)(operand[idx]))
+                                     for idx in operand.blocks],
+                                    key=lambda x: x[0]))
         return blocks
 
     def _output_string(self, prec=None):
@@ -554,12 +541,9 @@ class Negative(UnaryOp):
         """Blocks of the negative of a tensor."""
         if not self.is_mixed:
             return {(0,) * self.rank: self}
-
-        blocks = OrderedDict()
         operand, = self.operands
-        for idx in operand.blocks:
-            blocks[idx] = type(self)(operand[idx])
-
+        blocks = OrderedDict((idx, type(self)(operand[idx]))
+                             for idx in operand.blocks)
         return blocks
 
     def _output_string(self, prec=None):
@@ -640,14 +624,10 @@ class Add(BinaryOp):
         if not self.is_mixed:
             return {(0,) * self.rank: self}
 
-        blocks = OrderedDict()
         A, B = self.operands
-        for idA, idB in zip(A.blocks, B.blocks):
-            assert idA == idB, (
-                "Blocks must have the same indices"
-            )
-            blocks[idA] = type(self)(A[idA], B[idB])
-
+        # ida == idb
+        blocks = OrderedDict((ida, type(self)(A[ida], B[idb]))
+                             for ida, idb in zip(A.blocks, B.blocks))
         return blocks
 
 
@@ -684,14 +664,10 @@ class Sub(BinaryOp):
         if not self.is_mixed:
             return {(0,) * self.rank: self}
 
-        blocks = OrderedDict()
         A, B = self.operands
-        for idA, idB in zip(A.blocks, B.blocks):
-            assert idA == idB, (
-                "Blocks must have the same indices"
-            )
-            blocks[idA] = type(self)(A[idA], B[idB])
-
+        # ida == idb
+        blocks = OrderedDict((ida, type(self)(A[ida], B[idb]))
+                             for ida, idb in zip(A.blocks, B.blocks))
         return blocks
 
 
@@ -796,10 +772,9 @@ class Action(TensorOp):
         if not self.is_mixed:
             return {(0,) * self.rank: self}
 
-        else:
-            tensor, = self.operands
-            actee, = self.actee
-            blocks = block_action(tensor, actee)
+        tensor, = self.operands
+        actee, = self.actee
+        blocks = block_action(tensor, actee)
 
         return blocks
 
@@ -819,29 +794,6 @@ class Action(TensorOp):
     def _key(self):
         """Returns a key for hash and equality."""
         return (type(self), self.operands, self.actee)
-
-
-SplitTensor = namedtuple("SplitTensor", ["indices", "tensor"])
-
-
-def split_terminal(tensor):
-    """Splits a terminal tensor and returns its block-tensors
-    with local indices.
-
-    :arg tensor: A terminal `Slate.Tensor` object
-    """
-    assert isinstance(tensor, Tensor), (
-        "Can only split the forms of terminal tensors."
-    )
-    tensors = []
-    for splitform in split_form(tensor.form):
-        idx = splitform.indices
-        f = splitform.form
-        if len(f.integrals()) > 0:
-            tensors.append(SplitTensor(indices=idx,
-                                       tensor=Tensor(f)))
-
-    return tuple(tensors)
 
 
 # Establishes levels of precedence for Slate tensors

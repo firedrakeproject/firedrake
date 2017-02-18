@@ -10,7 +10,7 @@ from firedrake.function import Function
 
 
 __all__ = ["upper_schur_complement", "upper_woodbury_identity",
-           "lower_schur_complement", "lower_woodbur_identity",
+           "lower_schur_complement", "lower_woodbury_identity",
            "block_matrix_matrix_product", "block_matrix_vector_product",
            "block_action"]
 
@@ -118,7 +118,7 @@ def upper_woodbury_identity(tensor):
     return -A.inv * B * (D - C * A.inv * B).inv
 
 
-def lower_woodbur_identity(tensor):
+def lower_woodbury_identity(tensor):
     """
     """
     A, B, C, D = tensor.blocks.values()
