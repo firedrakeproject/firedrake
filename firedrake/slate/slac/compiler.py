@@ -22,7 +22,7 @@ from coffee import base as ast
 from collections import OrderedDict
 
 from firedrake.constant import Constant
-from firedrake.tsfc_interface import SplitKernel, KernelInfo
+from firedrake.tsfc_interface import KernelInfo
 from firedrake.slate.slate import (TensorBase, Transpose, Inverse,
                                    Negative, Add, Sub, Mul,
                                    Action)
@@ -75,8 +75,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
-    if slate_expr._metakernel_cache is not None:
-        return slate_expr._metakernel_cache
+    if slate_expr._metakinfo_cache is not None:
+        return slate_expr._metakinfo_cache
 
     # Initialize coefficients, shape and statements list
     expr_coeffs = slate_expr.coefficients()
@@ -294,14 +294,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                        needs_cell_facets=builder.needs_cell_facets,
                        pass_layer_arg=builder.needs_mesh_layers)
 
-    idx = tuple([0]*slate_expr.rank)
-
-    kernels = (SplitKernel(idx, kinfo),)
-
     # Store the resulting kernel for reuse
-    slate_expr._metakernel_cache = kernels
+    slate_expr._metakinfo_cache = kinfo
 
-    return kernels
+    return kinfo
 
 
 def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,

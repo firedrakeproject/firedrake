@@ -113,7 +113,6 @@ def test_mixed_coefficient_tensor(mesh):
     assert np.allclose(assemble(T).M.values, ref.M.values)
 
 
-@pytest.mark.xfail(raises=NotImplementedError)
 def test_mixed_argument_tensor(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)
@@ -121,7 +120,10 @@ def test_mixed_argument_tensor(mesh):
     sigma, _ = TrialFunctions(W)
     tau, _ = TestFunctions(W)
     T = Tensor(sigma * tau * dx)
-    assemble(T)
+    ref = assemble(sigma * tau * dx, mat_type="aij")
+    A = assemble(T, mat_type="aij")
+
+    assert np.allclose(A.M.values, ref.M.values)
 
 
 if __name__ == '__main__':

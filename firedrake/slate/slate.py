@@ -71,7 +71,7 @@ class TensorBase(with_metaclass(ABCMeta)):
         """Constructor for the TensorBase abstract class."""
         # NOTE: This attribute is for caching kernels after
         # an expression has been compiled.
-        self._metakernel_cache = None
+        self._metakinfo_cache = None
 
         self.id = TensorBase.id
         TensorBase.id += 1
@@ -479,6 +479,9 @@ class Inverse(UnaryOp):
     @cached_property
     def blocks(self):
         """Blocks of the inverse of a tensor."""
+        if not self.is_mixed:
+            return {(0,) * self.rank: self}
+
         blocks = OrderedDict()
         operand, = self.operands
         if not self.is_mixed:
@@ -520,6 +523,9 @@ class Transpose(UnaryOp):
     @cached_property
     def blocks(self):
         """Blocks of the transpose of a tensor."""
+        if not self.is_mixed:
+            return {(0,) * self.rank: self}
+
         blocks = OrderedDict()
         operand, = self.operands
         for idx in operand.blocks:
@@ -546,6 +552,9 @@ class Negative(UnaryOp):
     @cached_property
     def blocks(self):
         """Blocks of the negative of a tensor."""
+        if not self.is_mixed:
+            return {(0,) * self.rank: self}
+
         blocks = OrderedDict()
         operand, = self.operands
         for idx in operand.blocks:
@@ -628,6 +637,9 @@ class Add(BinaryOp):
     @cached_property
     def blocks(self):
         """Blocks of a sum of two tensors."""
+        if not self.is_mixed:
+            return {(0,) * self.rank: self}
+
         blocks = OrderedDict()
         A, B = self.operands
         for idA, idB in zip(A.blocks, B.blocks):
@@ -669,6 +681,9 @@ class Sub(BinaryOp):
         """Blocks of a tensor resulting from the subtraction of
         two tensors.
         """
+        if not self.is_mixed:
+            return {(0,) * self.rank: self}
+
         blocks = OrderedDict()
         A, B = self.operands
         for idA, idB in zip(A.blocks, B.blocks):
@@ -778,14 +793,12 @@ class Action(TensorOp):
     @cached_property
     def blocks(self):
         """Blocks of an Action tensor."""
-        blocks = OrderedDict()
-        tensor, = self.operands
-        actee, = self.actee
-        V = actee.function_space()
-        if len(V) == 1 and not tensor.is_mixed:
-            blocks[(0,)] = self
+        if not self.is_mixed:
+            return {(0,) * self.rank: self}
 
         else:
+            tensor, = self.operand
+            actee, = self.actee
             blocks = block_action(tensor, actee)
 
         return blocks
