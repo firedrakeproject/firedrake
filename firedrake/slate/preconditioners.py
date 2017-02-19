@@ -6,7 +6,6 @@ from __future__ import absolute_import, print_function, division
 
 import ufl
 
-from firedrake.formmanipulation import ArgumentReplacer, split_form
 from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
@@ -35,6 +34,7 @@ class HybridizationPC(PCBase):
                                BrokenElement, MixedElement,
                                FacetNormal, Constant, DirichletBC,
                                assemble, Projector)
+        from firedrake.formmanipulation import ArgumentReplacer, split_form
 
         # Extract the problem context
         prefix = pc.getOptionsPrefix()
@@ -43,22 +43,22 @@ class HybridizationPC(PCBase):
         test, trial = context.a.arguments()
 
         # Break the function spaces and define fully discontinuous spaces
-        self.V = test.function_space()
-        if self.V.mesh().cell_set._extruded:
+        V = test.function_space()
+        if V.mesh().cell_set._extruded:
             raise NotImplementedError("Not implemented on extruded meshes.")
 
-        broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in self.V]
+        broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in V]
         elem = MixedElement(broken_elements)
-        V_d = FunctionSpace(self.V.mesh(), elem)
+        V_d = FunctionSpace(V.mesh(), elem)
         arg_map = {test: TestFunction(V_d),
                    trial: TrialFunction(V_d)}
 
         # Replace the problems arguments with arguments defined
         # on the new discontinuous spaces
         replacer = ArgumentReplacer(arg_map)
-        self.new_form = map_integrand_dags(replacer, context.a)
+        new_form = map_integrand_dags(replacer, context.a)
 
-        split_forms = split_form(self.new_form)
+        split_forms = split_form(new_form)
         # Store these matrices for reconstruction
         self.A = Tensor([sf.form for sf in split_forms
                          if sf.indices == (0, 0)][0])
@@ -69,10 +69,10 @@ class HybridizationPC(PCBase):
 
         # Create the space of approximate traces:
         # the space of Lagrange multipliers
-        self.TraceSpace = FunctionSpace(self.V.mesh(), "HDiv Trace",
-                                        V_d.ufl_element().degree() - 1)
-        self.trace_condition = DirichletBC(self.TraceSpace, Constant(0.0),
-                                           "on_boundary")
+        TraceSpace = FunctionSpace(V.mesh(), "HDiv Trace",
+                                   V_d.ufl_element().degree() - 1)
+        trace_condition = DirichletBC(TraceSpace, Constant(0.0),
+                                      "on_boundary")
 
         # Broken flux and scalar terms (solution via reconstruction)
         self.broken_solution = Function(V_d)
@@ -81,25 +81,25 @@ class HybridizationPC(PCBase):
         self.broken_rhs = Function(V_d)
 
         # Solution of the system for the Lagrange multipliers
-        self.trace_solution = Function(self.TraceSpace)
-        self.schur_rhs = Function(self.TraceSpace)
+        self.trace_solution = Function(TraceSpace)
+        self.schur_rhs = Function(TraceSpace)
 
         # unbroken solutions and rhs
-        self.unbroken_solution = Function(self.V)
-        self.unbroken_rhs = Function(self.V)
+        self.unbroken_solution = Function(V)
+        self.unbroken_rhs = Function(V)
 
         # Create the symbolic Schur-reduction of the discontinuous
         # problem in Slate. Weakly enforce continuity via the Lagrange
         # multipliers
-        self.Atilde = Tensor(self.new_form)
-        gammar = TestFunction(self.TraceSpace)
-        self.n = FacetNormal(self.V.mesh())
+        self.Atilde = Tensor(new_form)
+        gammar = TestFunction(TraceSpace)
+        n = FacetNormal(V.mesh())
         sigma, _ = TrialFunctions(V_d)
-        self.K = Tensor(gammar('+') * ufl.dot(sigma, self.n) * ufl.dS)
+        self.K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
         trial = TrialFunction(V_d[0])
-        self.K_local = Tensor(gammar('+') * ufl.dot(trial, self.n) * ufl.dS)
+        self.K_local = Tensor(gammar('+') * ufl.dot(trial, n) * ufl.dS)
         self.schur_comp = assemble(self.K * self.Atilde.inv * self.K.T,
-                                   bcs=self.trace_condition)
+                                   bcs=trace_condition)
         self.schur_comp.force_evaluation()
 
         # Set up the KSP for the system of Lagrange multipliers
@@ -161,6 +161,9 @@ class HybridizationPC(PCBase):
         # Split the solution function and reconstruct
         # each bit separately
         sigma_h, u_h = self.broken_solution.split()
+
+        # TODO: Write out full expression for general RHS of the form
+        # RHS = [g; f]
         _, f = self.broken_rhs.split()
 
         # Pressure reconstruction
