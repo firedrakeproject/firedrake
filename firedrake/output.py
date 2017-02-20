@@ -42,7 +42,7 @@ def is_cg(V):
     :arg V: A FunctionSpace.
     """
     nvertex = V.ufl_domain().ufl_cell().num_vertices()
-    entity_dofs = V.fiat_element.entity_dofs()
+    entity_dofs = V.finat_element.entity_dofs()
     # If there are as many dofs on vertices as there are vertices,
     # assume a continuous space.
     try:
@@ -56,7 +56,7 @@ def is_dg(V):
 
     :arg V: A FunctionSpace.
     """
-    return V.fiat_element.entity_dofs() == V.fiat_element.entity_closure_dofs()
+    return V.finat_element.entity_dofs() == V.finat_element.entity_closure_dofs()
 
 
 def is_linear(V):
@@ -65,7 +65,7 @@ def is_linear(V):
     :arg V: A FunctionSpace.
     """
     nvertex = V.ufl_domain().ufl_cell().num_vertices()
-    return V.fiat_element.space_dimension() == nvertex
+    return V.finat_element.space_dimension() == nvertex
 
 
 def get_topology(coordinates):

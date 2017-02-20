@@ -82,11 +82,11 @@ def _form_kernel(kernel, measure, args, **kwargs):
             if isinstance(func, Indexed):
                 c, i = func.ufl_operands
                 idx = i._indices[0]._value
-                ndof = c.function_space()[idx].fiat_element.space_dimension()
+                ndof = c.function_space()[idx].finat_element.space_dimension()
             else:
                 if len(func.function_space()) > 1:
                     raise NotImplementedError("Must index mixed function in par_loop.")
-                ndof = func.function_space().fiat_element.space_dimension()
+                ndof = func.function_space().finat_element.space_dimension()
             if measure.integral_type() == 'interior_facet':
                 ndof *= 2
             if measure is direct:
@@ -171,10 +171,10 @@ def par_loop(kernel, measure, args, **kwargs):
     adjacent to the facet, and on the facets, edges and vertices
     adjacent to those facets.
 
-    For volume measures the DoFs are guaranteed to be in the FIAT
+    For volume measures the DoFs are guaranteed to be in the FInAT
     local DoFs order. For facet measures, the DoFs will be in sorted
     first by the cell to which they are adjacent. Within each cell,
-    they will be in FIAT order. Note that if a continuous
+    they will be in FInAT order. Note that if a continuous
     :class:`.Function` is accessed via an internal facet measure, the
     DoFs on the interface between the two facets will be accessible
     twice: once via each cell. The orientation of the cell(s) relative

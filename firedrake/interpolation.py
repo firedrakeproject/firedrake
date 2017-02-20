@@ -9,6 +9,7 @@ import ufl
 from coffee import base as ast
 from pyop2 import op2
 
+from tsfc.fiatinterface import create_element
 from tsfc import compile_expression_at_points as compile_ufl_kernel
 
 import firedrake
@@ -136,7 +137,7 @@ def make_interpolator(expr, V, subset):
 
 
 def _interpolator(V, dat, expr, subset):
-    to_element = V.fiat_element
+    to_element = create_element(V.ufl_element(), vector_is_mixed=False)
     to_pts = []
 
     if V.ufl_element().mapping() != "identity":
@@ -208,7 +209,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     function provided."""
 
     coords_space = coords.function_space()
-    coords_element = coords_space.fiat_element
+    coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
 
     X_remap = coords_element.tabulate(0, to_pts).values()[0]
 
@@ -238,7 +239,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
 
     coords_space = coords.function_space()
-    coords_element = coords_space.fiat_element
+    coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
 
     names = {v[0] for v in expression._user_args}
 
