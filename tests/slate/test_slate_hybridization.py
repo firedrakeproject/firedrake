@@ -113,8 +113,8 @@ def test_slate_hybridization(degree):
     sigma_err = sqrt(assemble(dot(sigma_h - nh_sigma, sigma_h - nh_sigma) * dx))
     u_err = sqrt(assemble((u_h - nh_u) * (u_h - nh_u) * dx))
 
-    assert sigma_err < 1e-11
-    assert u_err < 1e-11
+    assert sigma_err < 1e-10
+    assert u_err < 1e-10
 
 
 if __name__ == '__main__':
