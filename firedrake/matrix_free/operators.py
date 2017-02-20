@@ -354,7 +354,6 @@ class LoopyImplicitMatrixContext(object):
         # terms yet...
         kernel, = compile_form(self.action)
         knl = tsfc_to_loopy(kernel._ir)
-        # print(knl)
         
         coeffs = self.action.coefficients()
         fcoeffs = [x for c in coeffs for x in c.split()]
@@ -457,6 +456,7 @@ class LoopyImplicitMatrixContext(object):
         knl = lp.make_reduction_inames_unique(knl)
         cd = lp.generate_code(knl)
 
+        print(knl)
         # print(cd[0])
         
         for i, ts in enumerate(test_space.split()):
@@ -541,7 +541,7 @@ class LoopyImplicitMatrixContext(object):
                 {ai_global}[{iinit}] = 0.0 {{id={init_label}}}
                 {ai_global}[{dim}*{ltgi}[iel, {ibf}]+{idim}] = (
                 {ai_global}[{dim}*{ltgi}[iel, {ibf}]+{idim}]
-                + {ai}[iel, {ibf}, {idim}])  {{dep={init_label}}}
+                + {ai}[iel, {idim}, {ibf}])  {{dep={init_label}}}
                 """
                 .format(
                     ai=ai,
