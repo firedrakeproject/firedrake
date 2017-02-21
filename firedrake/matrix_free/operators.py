@@ -353,8 +353,8 @@ class LoopyImplicitMatrixContext(object):
         # FIXME: Assumes we just get one kernel back.  No boundary
         # terms yet...
         kernel, = compile_form(self.action)
-        knl = tsfc_to_loopy(kernel._ir)
-        
+        knl = tsfc_to_loopy(kernel._ir, kernel._argument_ordering)
+
         coeffs = self.action.coefficients()
         fcoeffs = [x for c in coeffs for x in c.split()]
         ws_labels = ["w_" + str(i) for i, _ in enumerate(fcoeffs)]
