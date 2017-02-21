@@ -80,16 +80,17 @@ class Transformer(Visitor):
     def visit_FunDecl(self, o, *args, **kwargs):
         """Visits a COFFEE FunDecl object and reconstructs
         the FunDecl body and header to generate
-        Eigen::MatrixBase C++ template functions.
+        ``Eigen::MatrixBase`` C++ template functions.
 
-        Creates a template function for each subkernel form
-        template <typename Derived>:
+        Creates a template function for each subkernel form.
 
-        template <typename Derived>
-        static inline void foo(Eigen::MatrixBase<Derived> const & A, ...)
-        {
-          [Body...]
-        }
+        .. code-block:: c++
+
+            template <typename Derived>
+            static inline void foo(Eigen::MatrixBase<Derived> const & A, ...)
+            {
+              [Body...]
+            }
         """
         name = kwargs.get("name", "A")
         new = self.visit_Node(o, *args, **kwargs)
