@@ -456,7 +456,7 @@ class LoopyImplicitMatrixContext(object):
         knl = lp.make_reduction_inames_unique(knl)
         cd = lp.generate_code(knl)
 
-        print(knl)
+        # print(knl)
         # print(cd[0])
         
         for i, ts in enumerate(test_space.split()):
@@ -470,11 +470,12 @@ class LoopyImplicitMatrixContext(object):
             ibf = "ibf_gather_%d" % i
             ltgi = "ltg_%d" % fspace_nr
 
+            ai = "A%d" % i
+            ai_global = "A%d_global" % i
+            iinit = "i%d_initializer" % i
+            init_label = "init%d" % i
+            
             if ts.dim == 1:
-                ai = "A%d" % i
-                ai_global = "A%d_global" % i
-                iinit = "i%d_initializer" % i
-                init_label = "init%d" % i
                 gather_knl = lp.make_kernel(
                     "{{ [iel, {iinit}, {ibf}]:"
                     "   0 <= iel < nelements "
@@ -507,21 +508,7 @@ class LoopyImplicitMatrixContext(object):
                         lp.GlobalArg(ltgi, np.int32, shape=lp.auto),
                         lp.GlobalArg(ai, np.float64, shape=lp.auto),
                         "..."])
-
-                gather_knl = lp.add_dtypes(gather_knl, {
-                    "nelements": np.int32,
-                    ai: np.float64,
-                    ltgi: np.int32
-                })
-                knl = lp.fuse_kernels(
-                    (knl, gather_knl),
-                    data_flow=[(ai, 0, 1)])
-                knl = lp.assignment_to_subst(knl, ai)
             else:
-                ai = "A%d" % i
-                ai_global = "A%d_global" % i
-                iinit = "i%d_initializer" % i
-                init_label = "init%d" % i
                 idim = "idim%d" % i
                 gather_knl = lp.make_kernel(
                     "{{ [iel, {iinit}, {idim}, {ibf}]:"
@@ -541,7 +528,7 @@ class LoopyImplicitMatrixContext(object):
                 {ai_global}[{iinit}] = 0.0 {{id={init_label}}}
                 {ai_global}[{dim}*{ltgi}[iel, {ibf}]+{idim}] = (
                 {ai_global}[{dim}*{ltgi}[iel, {ibf}]+{idim}]
-                + {ai}[iel, {idim}, {ibf}])  {{dep={init_label}}}
+                + {ai}[iel, {ibf}, {idim}])  {{dep={init_label}}}
                 """
                 .format(
                     ai=ai,
@@ -561,20 +548,19 @@ class LoopyImplicitMatrixContext(object):
                         lp.GlobalArg(ai, np.float64, shape=lp.auto),
                         "..."])
 
-                gather_knl = lp.add_dtypes(gather_knl, {
-                    "nelements": np.int32,
-                    ai: np.float64,
-                    ltgi: np.int32
-                })
-                knl = lp.fuse_kernels(
-                    (knl, gather_knl),
-                    data_flow=[(ai, 0, 1)])
-                knl = lp.assignment_to_subst(knl, ai)
+            gather_knl = lp.add_dtypes(gather_knl, {
+                "nelements": np.int32,
+                ai: np.float64,
+                ltgi: np.int32
+            })
+            knl = lp.fuse_kernels(
+                (knl, gather_knl),
+                data_flow=[(ai, 0, 1)])
+            knl = lp.assignment_to_subst(knl, ai)
 
 
         knl = lp.infer_unknown_types(knl)
         knl = lp.make_reduction_inames_unique(knl)
-        #print(lp.generate_code(knl)[0])
         self.knl = knl
 
         # Set up arguments for the kernel
@@ -623,7 +609,6 @@ class LoopyImplicitMatrixContext(object):
 
         test_space = self._y.function_space()
         with self._y.dat.vec as v:
-            v *= 0.0
             va=v.array
             for (i, (A, ts)) in enumerate(zip(As, test_space.split())):
                 fis = test_space.dof_dset.field_ises[i].array
