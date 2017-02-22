@@ -2,6 +2,7 @@ from __future__ import absolute_import, print_function, division
 from operator import iadd, isub, imul, idiv
 from functools import partial
 from itertools import permutations
+from math import *
 
 import pytest
 
@@ -523,7 +524,6 @@ def test_math_functions(expr, value):
     actual = Function(V)
 
     actual.assign(eval(expr))
-    from math import *          # noqa: F401
     f = value
     expect = eval(expr)
     assert np.allclose(actual.dat.data_ro, expect)

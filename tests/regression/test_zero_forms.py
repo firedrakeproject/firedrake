@@ -2,6 +2,7 @@ from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 import itertools
+from math import *
 from firedrake import *
 
 
@@ -113,7 +114,6 @@ def test_math_functions(mesh, expr, value, typ, fs_type):
 
     actual = assemble(eval(expr)*dx)
 
-    from math import *          # noqa: F401
     if fs_type == "vector":
         f = 2*value**2
     elif fs_type == "tensor":
