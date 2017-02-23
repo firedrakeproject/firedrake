@@ -2,7 +2,6 @@ from __future__ import absolute_import, print_function, division
 import pytest
 import itertools
 import numpy as np
-from math import *
 from firedrake import *
 
 
