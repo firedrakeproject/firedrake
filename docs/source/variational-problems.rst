@@ -609,13 +609,13 @@ introduction to these concepts we refer the user to the `UFL manual
 problems.
 
 
-.. _icosahedral mesh: http://en.wikipedia.org/wiki/Geodesic_grid
-.. _icosahedron: http://en.wikipedia.org/wiki/Icosahedron
+.. _icosahedral mesh: https://en.wikipedia.org/wiki/Geodesic_grid
+.. _icosahedron: https://en.wikipedia.org/wiki/Icosahedron
 .. _triangle: http://www.cs.cmu.edu/~quake/triangle.html
-.. _Gmsh: http://geuz.org/gmsh/
-.. _CGNS: http://www.cgns.org/
-.. _Exodus: http://sourceforge.net/projects/exodusii/
+.. _Gmsh: http://gmsh.info/
+.. _CGNS: http://cgns.github.io/
+.. _Exodus: https://gsjaardema.github.io/seacas/exodusII-new.pdf
 .. _UFL: http://arxiv.org/abs/1211.4047
-.. _UFL_package: http://fenicsproject.org/documentation/ufl/dev/ufl.html
+.. _UFL_package: http://fenics-ufl.readthedocs.io/en/latest/
 .. _FIAT: https://github.com/firedrakeproject/fiat
-.. _submanifold: http://en.wikipedia.org/wiki/Submanifold
+.. _submanifold: https://en.wikipedia.org/wiki/Submanifold

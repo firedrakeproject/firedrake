@@ -252,12 +252,12 @@ the python package ``sphinxcontrib-bibtex``.
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _UFL: https://github.com/firedrakeproject/ufl
 .. _Paraview: http://www.paraview.org
-.. _Sphinx: http://www.sphinx-doc.org
+.. _Sphinx: http://www.sphinx-doc.org/
 .. _wget: http://www.gnu.org/software/wget/
 .. _virtualenv: https://virtualenv.pypa.io/
 .. _pytest: http://pytest.org/latest/
 .. _libspatialindex: https://libspatialindex.github.io/
 .. _h5py: http://www.h5py.org/
-.. _custom installation: http://docs.h5py.org/en/latest/build.html#via-setup-py
-.. _homebrew: http://brew.sh
+.. _custom installation: http://docs.h5py.org/en/latest/build.html#custom-installation
+.. _homebrew: https://brew.sh/
 .. _anaconda: https://www.continuum.io/downloads

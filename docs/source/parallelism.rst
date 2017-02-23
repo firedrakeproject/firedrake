@@ -64,5 +64,5 @@ different simulations on the two halves we would write.
 To access the communicator a mesh was created on, we can use the
 ``mesh.comm`` property, or the function ``mesh.mpi_comm()``.
 
-.. _MPI: http://www.mpi-forum.org/
+.. _MPI: http://mpi-forum.org/
 .. _STREAMS: http://www.cs.virginia.edu/stream/
