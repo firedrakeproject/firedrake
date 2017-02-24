@@ -447,12 +447,14 @@ class FunctionSpace(object):
 
         sdata = self._shared_data
         offset = self.cell_node_map().offset
+        if offset is not None:
+            offset = numpy.append(offset, offset)
         map = sdata.get_map(self,
                             self.mesh().interior_facets.set,
                             2*self.finat_element.space_dimension(),
                             bcs,
                             "interior_facet_node",
-                            numpy.append(offset, offset),
+                            offset,
                             parent)
         map.factors = (self.mesh().interior_facets.facet_cell_map,
                        self.cell_node_map())

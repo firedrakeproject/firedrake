@@ -8,6 +8,7 @@ import ufl
 import weakref
 from collections import defaultdict
 
+from pyop2.datatypes import IntType
 from pyop2 import op2
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.profiling import timed_function, timed_region
@@ -255,7 +256,7 @@ def _from_triangle(filename, dim, comm):
             nodecount = header[0]
             nodedim = header[1]
             assert nodedim == dim
-            coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1)
+            coordinates = np.loadtxt(nodefile, usecols=list(range(1, dim+1)), skiprows=1, dtype=np.double)
             assert nodecount == coordinates.shape[0]
 
         with open(basename+".ele") as elefile:
@@ -305,9 +306,11 @@ def _from_cell_list(dim, cells, coords, comm):
     :arg comm: communicator to build the mesh on.
     """
     comm = dup_comm(comm)
+    # These types are /correct/, DMPlexCreateFromCellList wants int
+    # and double (not PetscInt, PetscReal).
     if comm.rank == 0:
-        cells = np.asarray(cells, dtype=PETSc.IntType)
-        coords = np.asarray(coords, dtype=float)
+        cells = np.asarray(cells, dtype=np.int32)
+        coords = np.asarray(coords, dtype=np.double)
         comm.bcast(cells.shape, root=0)
         comm.bcast(coords.shape, root=0)
         # Provide the actual data on rank 0.
@@ -320,8 +323,8 @@ def _from_cell_list(dim, cells, coords, comm):
         # Provide empty plex on other ranks
         # A subsequent call to plex.distribute() takes care of parallel partitioning
         plex = PETSc.DMPlex().createFromCellList(dim,
-                                                 np.zeros(cell_shape, dtype=PETSc.IntType),
-                                                 np.zeros(coord_shape, dtype=float),
+                                                 np.zeros(cell_shape, dtype=np.int32),
+                                                 np.zeros(coord_shape, dtype=np.double),
                                                  comm=comm)
     free_comm(comm)
     return plex
@@ -364,11 +367,18 @@ class MeshTopology(object):
             # We distribute with overlap zero, in case we're going to
             # refine this mesh in parallel.  Later, when we actually use
             # it, we grow the halo.
+            partitioner = plex.getPartitioner()
+            if IntType.itemsize == 8:
+                # Default to Parmetis on 64bit ints (Chaco is 32 bit int only)
+                partitioner.setType(partitioner.Type.PARMETIS)
+            partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
         dim = plex.getDimension()
 
         cStart, cEnd = plex.getHeightStratum(0)  # cells
+        if cStart == cEnd:
+            raise RuntimeError("Mesh must have at least one cell on every process")
         cell_nfacets = plex.getConeSize(cStart)
 
         self._grown_halos = False
@@ -394,13 +404,13 @@ class MeshTopology(object):
             # Mark OP2 entities and derive the resulting Plex renumbering
             with timed_region("Mesh: numbering"):
                 dmplex.mark_entity_classes(self._plex)
-                self._entity_classes = dmplex.get_entity_classes(self._plex)
+                self._entity_classes = dmplex.get_entity_classes(self._plex).astype(int)
                 self._plex_renumbering = dmplex.plex_renumbering(self._plex,
                                                                  self._entity_classes,
                                                                  reordering)
 
                 # Derive a cell numbering from the Plex renumbering
-                entity_dofs = np.zeros(dim+1, dtype=np.int32)
+                entity_dofs = np.zeros(dim+1, dtype=IntType)
                 entity_dofs[-1] = 1
 
                 self._cell_numbering = self._plex.createSection([1], entity_dofs,
@@ -466,7 +476,7 @@ class MeshTopology(object):
             cStart, cEnd = plex.getHeightStratum(0)
             a_closure = plex.getTransitiveClosure(cStart)[0]
 
-            entity_per_cell = np.zeros(dim + 1, dtype=np.int32)
+            entity_per_cell = np.zeros(dim + 1, dtype=IntType)
             for dim in range(dim + 1):
                 start, end = plex.getDepthStratum(dim)
                 entity_per_cell[dim] = sum(map(lambda idx: start <= idx < end,
@@ -512,7 +522,7 @@ class MeshTopology(object):
 
         # Derive attached boundary IDs
         if self._plex.hasLabel("boundary_ids"):
-            boundary_ids = np.zeros(exterior_facets.size, dtype=np.int32)
+            boundary_ids = np.zeros(exterior_facets.size, dtype=IntType)
             for i, facet in enumerate(exterior_facets):
                 boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
 
@@ -528,7 +538,7 @@ class MeshTopology(object):
 
             local_ids = set(self._plex.getLabelIdIS("boundary_ids").indices)
             unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
-                                    dtype=np.int32)
+                                    dtype=IntType)
             op.Free()
         else:
             boundary_ids = None
@@ -687,7 +697,7 @@ class MeshTopology(object):
                                                     sid)
                             for sid in all_integer_subdomain_ids)
                 to_remove = np.unique(np.concatenate(ids))
-                indices = np.arange(self.cell_set.total_size, dtype=np.int32)
+                indices = np.arange(self.cell_set.total_size, dtype=IntType)
                 indices = np.delete(indices, to_remove)
             else:
                 indices = dmplex.get_cell_markers(self._plex,
@@ -842,7 +852,7 @@ class ExtrudedMeshTopology(MeshTopology):
         for (b, v), entities in entity_dofs.iteritems():
             entity_offset[b] += len(entities[0])
 
-        dof_offset = np.zeros(ndofs, dtype=np.int32)
+        dof_offset = np.zeros(ndofs, dtype=IntType)
         for (b, v), entities in entity_dofs.iteritems():
             for dof_indices in entities.itervalues():
                 for i in dof_indices:
@@ -1028,6 +1038,7 @@ values from f.)"""
     @utils.cached_property
     def _c_locator(self):
         from pyop2 import compilation
+        from pyop2.utils import get_petsc_dir
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
 
@@ -1042,7 +1053,8 @@ int locator(struct Function *f, double *x)
 
         locator = compilation.load(src, "c", "locator",
                                    cppargs=["-I%s" % os.path.dirname(__file__),
-                                            "-I%s/include" % sys.prefix],
+                                            "-I%s/include" % sys.prefix] +
+                                   ["-I%s/include" % d for d in get_petsc_dir()],
                                    ldargs=["-L%s/lib" % sys.prefix,
                                            "-lspatialindex_c",
                                            "-Wl,-rpath,%s/lib" % sys.prefix])

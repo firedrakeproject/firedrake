@@ -4,6 +4,7 @@ import ufl
 
 from pyop2 import op2
 from pyop2.exceptions import DataTypeError, DataValueError
+from pyop2.datatypes import ScalarType
 
 import firedrake.utils as utils
 
@@ -12,7 +13,7 @@ __all__ = ['Constant']
 
 
 def _globalify(value):
-    data = np.array(value, dtype=np.float64)
+    data = np.array(value, dtype=ScalarType)
     shape = data.shape
     rank = len(shape)
     if rank == 0:

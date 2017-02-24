@@ -6,6 +6,7 @@ import collections
 import ufl
 
 from pyop2 import op2
+from pyop2.datatypes import ScalarType
 
 import firedrake.utils as utils
 
@@ -165,7 +166,7 @@ class Expression(ufl.Coefficient):
             rank = len(shape)
             if rank == 0:
                 shape = 1
-            val = op2.Global(shape, val, dtype=np.float64, name=slot)
+            val = op2.Global(shape, val, dtype=ScalarType, name=slot)
             # Record the Globals in a known order (for later passing
             # to a par_loop).  Remember their "name" too, so we can
             # construct a kwarg dict when applying python expressions.

@@ -107,7 +107,9 @@ class AssembledPC(PCBase):
         # Transfer nullspace over
         Pmat = self.P.petscmat
         Pmat.setNullSpace(P.getNullSpace())
-        Pmat.setTransposeNullSpace(P.getTransposeNullSpace())
+        tnullsp = P.getTransposeNullSpace()
+        if tnullsp.handle != 0:
+            Pmat.setTransposeNullSpace(tnullsp)
 
         # Internally, we just set up a PC object that the user can configure
         # however from the PETSc command line.  Since PC allows the user to specify
@@ -184,7 +186,9 @@ class MassInvPC(PCBase):
 
         Pmat = A.petscmat
         Pmat.setNullSpace(P.getNullSpace())
-        Pmat.setTransposeNullSpace(P.getTransposeNullSpace())
+        tnullsp = P.getTransposeNullSpace()
+        if tnullsp.handle != 0:
+            Pmat.setTransposeNullSpace(tnullsp)
 
         ksp = PETSc.KSP().create()
         ksp.setOperators(Pmat)
