@@ -1487,8 +1487,9 @@ class TestMapAPI:
 
     def test_map_convert_float_int(self, iterset, toset):
         "Float data should be implicitely converted to int."
+        from pyop2.datatypes import IntType
         m = op2.Map(iterset, toset, 1, [1.5] * iterset.size)
-        assert m.values.dtype == np.int32 and m.values.sum() == iterset.size
+        assert m.values.dtype == IntType and m.values.sum() == iterset.size
 
     def test_map_reshape(self, iterset, toset):
         "Data should be reshaped according to arity."

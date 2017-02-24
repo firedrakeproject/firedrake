@@ -40,6 +40,7 @@ cimport numpy as np
 import cython
 cimport petsc4py.PETSc as PETSc
 from petsc4py import PETSc
+from pyop2.datatypes import IntType
 
 np.import_array()
 
@@ -229,8 +230,13 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
 
     if nrows == 0:
         # We don't own any rows, return something appropriate.
-        dummy = np.empty(0, dtype=np.int32).reshape(-1)
-        return 0, 0, dummy, dummy, dummy, dummy
+        dummy = np.empty(0, dtype=IntType).reshape(-1)
+        sparsity._d_nz = 0
+        sparsity._o_nz = 0
+        sparsity._d_nnz = dummy
+        sparsity._o_nnz = dummy
+        sparsity._rowptr = dummy
+        sparsity._colidx = dummy
 
     # Exposition:
     # When building a monolithic sparsity for a mixed space, we build
@@ -294,18 +300,18 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
             row_offset += rset[r].size * rdim
             restore_writeable(rmap, rflag)
 
-    cdef np.ndarray[PetscInt, ndim=1] nnz = np.zeros(nrows, dtype=PETSc.IntType)
-    cdef np.ndarray[PetscInt, ndim=1] onnz = np.zeros(nrows, dtype=PETSc.IntType)
+    cdef np.ndarray[PetscInt, ndim=1] nnz = np.zeros(nrows, dtype=IntType)
+    cdef np.ndarray[PetscInt, ndim=1] onnz = np.zeros(nrows, dtype=IntType)
     cdef np.ndarray[PetscInt, ndim=1] rowptr
     cdef np.ndarray[PetscInt, ndim=1] colidx
     cdef int nz, onz
     if make_rowptr:
-        rowptr = np.empty(nrows + 1, dtype=PETSc.IntType)
+        rowptr = np.empty(nrows + 1, dtype=IntType)
         rowptr[0] = 0
     else:
         # Can't build these, so create dummy arrays
-        rowptr = np.empty(0, dtype=PETSc.IntType).reshape(-1)
-        colidx = np.empty(0, dtype=PETSc.IntType).reshape(-1)
+        rowptr = np.empty(0, dtype=IntType).reshape(-1)
+        colidx = np.empty(0, dtype=IntType).reshape(-1)
 
     nz = 0
     onz = 0
@@ -322,7 +328,7 @@ def build_sparsity(object sparsity, bint parallel, bool block=True):
                 onz += val
 
     if make_rowptr:
-        colidx = np.empty(nz, dtype=PETSc.IntType)
+        colidx = np.empty(nz, dtype=IntType)
         assert diag.size() == 1, "Can't make rowptr for mixed monolithic mat"
         for row in range(nrows):
             diag[0][row].sort()

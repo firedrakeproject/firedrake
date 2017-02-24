@@ -47,6 +47,7 @@ import operator
 import types
 from hashlib import md5
 
+from pyop2.datatypes import IntType, as_cstr
 from pyop2.configuration import configuration
 from pyop2.caching import Cached, ObjectCached
 from pyop2.exceptions import *
@@ -916,7 +917,7 @@ class Subset(ExtrudedSet):
             'Subset construction failed, should not happen'
 
         self._superset = superset
-        self._indices = verify_reshape(indices, np.int32, (len(indices),))
+        self._indices = verify_reshape(indices, IntType, (len(indices),))
 
         if len(self._indices) > 0 and (self._indices[0] < 0 or
                                        self._indices[-1] >= self._superset.total_size):
@@ -1650,21 +1651,7 @@ class DataCarrier(object):
     @cached_property
     def ctype(self):
         """The c type of the data."""
-        # FIXME: Complex and float16 not supported
-        typemap = {"bool": "unsigned char",
-                   "int": "int",
-                   "int8": "char",
-                   "int16": "short",
-                   "int32": "int",
-                   "int64": "long long",
-                   "uint8": "unsigned char",
-                   "uint16": "unsigned short",
-                   "uint32": "unsigned int",
-                   "uint64": "unsigned long",
-                   "float": "double",
-                   "float32": "float",
-                   "float64": "double"}
-        return typemap[self.dtype.name]
+        return as_cstr(self.dtype)
 
     @cached_property
     def name(self):
@@ -2838,10 +2825,14 @@ class Map(object):
         self._toset = toset
         self.comm = toset.comm
         self._arity = arity
-        self._values = verify_reshape(values, np.int32, (iterset.total_size, arity),
+        self._values = verify_reshape(values, IntType,
+                                      (iterset.total_size, arity),
                                       allow_none=True)
         self._name = name or "map_%d" % Map._globalcount
-        self._offset = offset
+        if offset is None or len(offset) == 0:
+            self._offset = None
+        else:
+            self._offset = verify_reshape(offset, IntType, (arity, ))
         # This is intended to be used for modified maps, for example
         # where a boundary condition is imposed by setting some map
         # entries negative.
@@ -2855,9 +2846,9 @@ class Map(object):
 
         if offset is not None and bt_masks is not None:
             for name, mask in six.iteritems(bt_masks):
-                self._bottom_mask[name] = np.zeros(len(offset))
+                self._bottom_mask[name] = np.zeros(len(offset), dtype=IntType)
                 self._bottom_mask[name][mask[0]] = -1
-                self._top_mask[name] = np.zeros(len(offset))
+                self._top_mask[name] = np.zeros(len(offset), dtype=IntType)
                 self._top_mask[name][mask[1]] = -1
         Map._globalcount += 1
 

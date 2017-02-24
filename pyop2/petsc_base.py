@@ -37,6 +37,7 @@ from petsc4py import PETSc
 from functools import partial
 import numpy as np
 
+from pyop2.datatypes import IntType
 from pyop2 import base
 from pyop2 import mpi
 from pyop2 import sparsity
@@ -55,7 +56,7 @@ class DataSet(base.DataSet):
         """
         lgmap = PETSc.LGMap()
         if self.comm.size == 1:
-            lgmap.create(indices=np.arange(self.size, dtype=PETSc.IntType),
+            lgmap.create(indices=np.arange(self.size, dtype=IntType),
                          bsize=self.cdim, comm=self.comm)
         else:
             lgmap.create(indices=self.halo.global_to_petsc_numbering,
@@ -134,7 +135,7 @@ class GlobalDataSet(base.GlobalDataSet):
         indices for this :class:`DataSet`.
         """
         lgmap = PETSc.LGMap()
-        lgmap.create(indices=np.arange(1, dtype=PETSc.IntType),
+        lgmap.create(indices=np.arange(1, dtype=IntType),
                      bsize=self.cdim, comm=self.comm)
         return lgmap
 
@@ -237,7 +238,7 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         lgmap = PETSc.LGMap()
         if self.comm.size == 1:
             size = sum(s.size * s.cdim for s in self)
-            lgmap.create(indices=np.arange(size, dtype=PETSc.IntType),
+            lgmap.create(indices=np.arange(size, dtype=IntType),
                          bsize=1, comm=self.comm)
             return lgmap
         # Compute local to global maps for a monolithic mixed system
@@ -264,18 +265,19 @@ class MixedDataSet(DataSet, base.MixedDataSet):
         # Finally, we need to shift the field-local entry by the
         # current field offset.
         idx_size = sum(s.total_size*s.cdim for s in self)
-        indices = np.full(idx_size, -1, dtype=PETSc.IntType)
-        owned_sz = np.array([sum(s.size * s.cdim for s in self)], dtype=PETSc.IntType)
+        indices = np.full(idx_size, -1, dtype=IntType)
+        owned_sz = np.array([sum(s.size * s.cdim for s in self)],
+                            dtype=IntType)
         field_offset = np.empty_like(owned_sz)
         self.comm.Scan(owned_sz, field_offset)
         field_offset -= owned_sz
 
-        all_field_offsets = np.empty(self.comm.size, dtype=PETSc.IntType)
+        all_field_offsets = np.empty(self.comm.size, dtype=IntType)
         self.comm.Allgather(field_offset, all_field_offsets)
 
         start = 0
-        all_local_offsets = np.zeros(self.comm.size, dtype=PETSc.IntType)
-        current_offsets = np.zeros(self.comm.size + 1, dtype=PETSc.IntType)
+        all_local_offsets = np.zeros(self.comm.size, dtype=IntType)
+        current_offsets = np.zeros(self.comm.size + 1, dtype=IntType)
         for s in self:
             idx = indices[start:start + s.total_size * s.cdim]
             owned_sz[0] = s.size * s.cdim
@@ -557,7 +559,7 @@ class MatBlock(base.Mat):
         self._parent._flush_assembly()
 
     def set_local_diagonal_entries(self, rows, diag_val=1.0, idx=None):
-        rows = np.asarray(rows, dtype=PETSc.IntType)
+        rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
         if len(rows) == 0:
             # No need to set anything if we didn't get any rows, but
@@ -844,7 +846,7 @@ class Mat(base.Mat):
         The indices in ``rows`` should index the process-local rows of
         the matrix (no mapping to global indexes is applied).
         """
-        rows = np.asarray(rows, dtype=PETSc.IntType)
+        rows = np.asarray(rows, dtype=IntType)
         rbs, _ = self.dims[0][0]
         if len(rows) == 0:
             # No need to set anything if we didn't get any rows, but
@@ -877,6 +879,9 @@ class Mat(base.Mat):
         if self.assembly_state is not Mat.ASSEMBLED:
             self.handle.assemble()
             self.assembly_state = Mat.ASSEMBLED
+            # Mark blocks as assembled as well.
+            for m in self:
+                m.handle.assemble()
 
     def addto_values(self, rows, cols, values):
         """Add a block of values to the :class:`Mat`."""
