@@ -3,6 +3,7 @@
 from __future__ import absolute_import, print_function, division
 from six import iteritems
 
+from firedrake.tensor_splitter import split_tensor
 from firedrake.slate.slate import TensorBase
 from firedrake.slate.slac import compile_expression
 from firedrake.tsfc_interface import SplitKernel
@@ -18,7 +19,7 @@ def compile_tensor_expr(expr, tsfc_parameters=None):
         )
 
     split_kernels = []
-    for idx, tensor_expr in split_tensor(expr):
+    for idx, tensor_expr in split(expr):
         if tensor_expr._metakinfo_cache is not None:
             kinfo = tensor_expr._metakinfo_cache
 
@@ -31,11 +32,14 @@ def compile_tensor_expr(expr, tsfc_parameters=None):
     return tuple(split_kernels)
 
 
-def split_tensor(expr):
+def split(expr):
     """
     """
+    if not expr.is_mixed:
+        return [((0,) * expr.rank, expr)]
+
     split_tensors = []
-    for idx, tensor in iteritems(expr.blocks):
+    for idx, tensor in iteritems(split_tensor(expr)):
         split_tensors.append((idx, tensor))
 
     return split_tensors

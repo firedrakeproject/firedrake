@@ -23,14 +23,6 @@ from abc import ABCMeta, abstractproperty, abstractmethod
 from collections import OrderedDict
 
 from firedrake.function import Function
-from firedrake.formmanipulation import split_form
-from firedrake.slate.block_algebra import (upper_schur_complement,
-                                           upper_woodbury_identity,
-                                           lower_schur_complement,
-                                           lower_woodbury_identity,
-                                           block_action,
-                                           block_matrix_matrix_product,
-                                           block_matrix_vector_product)
 from firedrake.utils import cached_property
 
 from itertools import chain
@@ -144,10 +136,6 @@ class TensorBase(with_metaclass(ABCMeta)):
         ``{domain:{integral_type: subdomain_data}}``.
         """
 
-    @abstractproperty
-    def blocks(self):
-        """Returns a mapping from block indices to block-tensors."""
-
     @cached_property
     def is_mixed(self):
         """Returns `True` if the tensor has mixed arguments (and therefore
@@ -224,36 +212,6 @@ class TensorBase(with_metaclass(ABCMeta)):
 
     def __ne__(self, other):
         return not self.__eq__(other)
-
-    def __getitem__(self, key):
-        """Extracts a block from a mixed tensor."""
-        if isinstance(key, (int, slice)):
-            key = (key,)
-
-        # TODO: There is probably a better was to do this.
-        # This implementation is temporary
-        if any(isinstance(i, slice) for i in key):
-            if len(key) == 1:
-                n, = self.block_shape
-                return [self[ii]
-                        for ii
-                        in xrange(*key[0].indices(n))]
-            else:
-                assert len(key) == 2, (
-                    "Indexing for rank %d tensors not supported"
-                    % len(key)
-                )
-                n, m = self.block_shape
-                return [self[ii, jj]
-                        for ii
-                        in xrange(*key[0].indices(n))
-                        for jj
-                        in xrange(*key[1].indices(m))]
-
-        if key not in self.blocks:
-            raise ValueError("No block with index %s" % (key,))
-
-        return self.blocks[key]
 
     @cached_property
     def _hash_id(self):
@@ -352,16 +310,6 @@ class Tensor(TensorBase):
         ``{domain:{integral_type: subdomain_data}}``.
         """
         return self.form.subdomain_data()
-
-    @cached_property
-    def blocks(self):
-        """Returns a mapping from index to split Tensor."""
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-
-        blocks = OrderedDict((sf.indices, type(self)(sf.form))
-                             for sf in split_form(self.form))
-        return blocks
 
     def _output_string(self, prec=None):
         """Creates a string representation of the tensor."""
@@ -467,30 +415,6 @@ class Inverse(UnaryOp):
         tensor, = self.operands
         return tensor.arguments()[::-1]
 
-    @cached_property
-    def blocks(self):
-        """Blocks of the inverse of a tensor."""
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-
-        blocks = OrderedDict()
-        operand, = self.operands
-        # TODO: To extend this to arbitrary block matrix size,
-        # We will need to wrap up a 2x2 block in the upper-left
-        # corner of the matrix and recursively perform the symbolic
-        # block inversion. This can be done in the block-algebra
-        # module
-        assert len(operand.blocks) == 4, (
-            "Can only compute block inverses of a "
-            "2 by 2 block square tensor."
-        )
-        blocks[(0, 0)] = upper_schur_complement(operand)
-        blocks[(0, 1)] = upper_woodbury_identity(operand)
-        blocks[(1, 0)] = lower_woodbury_identity(operand)
-        blocks[(1, 1)] = lower_schur_complement(operand)
-
-        return blocks
-
     def _output_string(self, prec=None):
         """Creates a string representation of the inverse of a tensor."""
         tensor, = self.operands
@@ -507,19 +431,6 @@ class Transpose(UnaryOp):
         tensor, = self.operands
         return tensor.arguments()[::-1]
 
-    @cached_property
-    def blocks(self):
-        """Blocks of the transpose of a tensor."""
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-
-        operand, = self.operands
-        # Transposes messes with idx, so we sort for consistency
-        blocks = OrderedDict(sorted([(idx[::-1], type(self)(operand[idx]))
-                                     for idx in operand.blocks],
-                                    key=lambda x: x[0]))
-        return blocks
-
     def _output_string(self, prec=None):
         """Creates a string representation of the transpose of a tensor."""
         tensor, = self.operands
@@ -535,16 +446,6 @@ class Negative(UnaryOp):
         """
         tensor, = self.operands
         return tensor.arguments()
-
-    @cached_property
-    def blocks(self):
-        """Blocks of the negative of a tensor."""
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-        operand, = self.operands
-        blocks = OrderedDict((idx, type(self)(operand[idx]))
-                             for idx in operand.blocks)
-        return blocks
 
     def _output_string(self, prec=None):
         """String representation of a resulting tensor after a unary
@@ -618,18 +519,6 @@ class Add(BinaryOp):
         )
         return A.arguments()
 
-    @cached_property
-    def blocks(self):
-        """Blocks of a sum of two tensors."""
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-
-        A, B = self.operands
-        # ida == idb
-        blocks = OrderedDict((ida, type(self)(A[ida], B[idb]))
-                             for ida, idb in zip(A.blocks, B.blocks))
-        return blocks
-
 
 class Sub(BinaryOp):
     """Abstract Slate class representing matrix-matrix, vector-vector
@@ -655,20 +544,6 @@ class Sub(BinaryOp):
                     "Arguments must share the same function space."
         )
         return A.arguments()
-
-    @cached_property
-    def blocks(self):
-        """Blocks of a tensor resulting from the subtraction of
-        two tensors.
-        """
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-
-        A, B = self.operands
-        # ida == idb
-        blocks = OrderedDict((ida, type(self)(A[ida], B[idb]))
-                             for ida, idb in zip(A.blocks, B.blocks))
-        return blocks
 
 
 class Mul(BinaryOp):
@@ -700,26 +575,6 @@ class Mul(BinaryOp):
             "They need to be in the same function space."
         )
         return argsA[:-1] + argsB[1:]
-
-    @cached_property
-    def blocks(self):
-        """Blocks of a product tensor."""
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-
-        A, B = self.operands
-        if self.rank == 2:
-            # Matrix-Matrix product
-            blocks = block_matrix_matrix_product(A, B)
-
-        elif self.rank == 1:
-            # Matrix-Vector product
-            blocks = block_matrix_vector_product(A, B)
-
-        else:
-            raise ValueError("Unsupported operands for product.")
-
-        return blocks
 
 
 class Action(TensorOp):
@@ -765,18 +620,6 @@ class Action(TensorOp):
         collected_domains = [obj.ufl_domains() for obj in self.operands
                              + self.actee]
         return join_domains(chain(*collected_domains))
-
-    @cached_property
-    def blocks(self):
-        """Blocks of an Action tensor."""
-        if not self.is_mixed:
-            return {(0,) * self.rank: self}
-
-        tensor, = self.operands
-        actee, = self.actee
-        blocks = block_action(tensor, actee)
-
-        return blocks
 
     def _output_string(self, prec=None):
         """Creates a string representation."""
