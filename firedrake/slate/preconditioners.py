@@ -24,7 +24,7 @@ class HybridizationPC(PCBase):
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
-        hybridized DG one.
+        hybridized one.
 
         A KSP is created for the Lagrange multiplier system.
         """
@@ -60,15 +60,17 @@ class HybridizationPC(PCBase):
         replacer = ArgumentReplacer(arg_map)
         new_form = map_integrand_dags(replacer, context.a)
 
-        # Create the space of approximate traces:
-        # the space of Lagrange multipliers
+        # Create the space of approximate traces
+        # NOTE: The vector function space will have a non-empty value_shape
+        W = next(v for v in V if bool(v.ufl_element().value_shape()))
+        if W.ufl_element().family() in ["Raviart-Thomas",
+                                        "RTCF"]:
+            tdegree = W.ufl_element().degree() - 1
+        else:
+            tdegree = W.ufl_element().degree()
+
         # NOTE: Once extruded is ready, we will need to be aware of this
         # and construct the appropriate trace space for the HDiv element
-        if V[0].ufl_element().family() == "Brezzi-Douglas-Marini":
-            tdegree = V_d.ufl_element().degree()
-        else:
-            tdegree = V_d.ufl_element().degree() - 1
-
         TraceSpace = FunctionSpace(V.mesh(), "HDiv Trace", tdegree)
 
         # For extruded, we will need to add the flags "on_top" and "on_bottom"
@@ -94,7 +96,9 @@ class HybridizationPC(PCBase):
         Atilde = Tensor(new_form)
         gammar = TestFunction(TraceSpace)
         n = FacetNormal(V.mesh())
-        sigma, _ = TrialFunctions(V_d)
+
+        # Vector trial function will have a non-empty ufl_shape
+        sigma = next(f for f in TrialFunctions(V_d) if bool(f.ufl_shape))
 
         # NOTE: Once extruded is ready, this will change slightly
         # to include both horizontal and vertical interior facets
@@ -122,9 +126,7 @@ class HybridizationPC(PCBase):
         self.S.force_evaluation()
         Smat = self.S.petscmat
 
-        # Transfer nullspace (if any)
-        # TODO: Have a think about this...Is this right?
-        Smat.setNullSpace(P.getNullSpace())
+        # TODO: Nullspace?
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
@@ -145,7 +147,8 @@ class HybridizationPC(PCBase):
                         if sf.indices == (1, 0)))
         C = Tensor(next(sf.form for sf in split_forms
                         if sf.indices == (1, 1)))
-        trial = TrialFunction(V_d[0])
+        trial = TrialFunction(FunctionSpace(V.mesh(),
+                                            BrokenElement(W.ufl_element())))
         K_local = Tensor(gammar('+') * ufl.dot(trial, n) * ufl.dS)
 
         # Split the solution function and reconstruct
