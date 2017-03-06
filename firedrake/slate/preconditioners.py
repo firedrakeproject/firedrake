@@ -16,7 +16,7 @@ __all__ = ['HybridizationPC']
 
 class HybridizationPC(PCBase):
     """A Slate-based python preconditioner that solves a
-    mixed saddle-point problem using a hybridizable DG scheme.
+    mixed saddle-point problem using a hybridizable scheme.
 
     The forward eliminations and backwards reconstructions
     are performed element-local using the Slate language.
@@ -152,22 +152,22 @@ class HybridizationPC(PCBase):
         # each bit separately
         sigma_h, u_h = self.broken_solution.split()
 
-        # TODO: Write out full expression for general RHS of the form
         # RHS = [g; f]
-        _, f = self.broken_rhs.split()
+        g, f = self.broken_rhs.split()
 
         # Pressure reconstruction
         M = B * A.inv * B.T + C
         u_sol = M.inv * f + M.inv * (B * A.inv *
-                                     K_local.T * self.trace_solution)
+                                     K_local.T * self.trace_solution
+                                     - B * A.inv * g)
         self._assemble_pressure = create_assembly_callable(
             u_sol,
             tensor=u_h,
             form_compiler_parameters=context.fc_params)
 
         # Velocity reconstructions
-        sigma_sol = A.inv * (B.T * u_h -
-                             K_local.T * self.trace_solution)
+        sigma_sol = A.inv * g + A.inv * (B.T * u_h -
+                                         K_local.T * self.trace_solution)
         self._assemble_velocity = create_assembly_callable(
             sigma_sol,
             tensor=sigma_h,
@@ -238,13 +238,3 @@ class HybridizationPC(PCBase):
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
         raise NotImplementedError("Not implemented yet, sorry!")
-
-    def view(self, pc, viewer=None):
-        """View the KSP solver to monitor the Lagrange multiplier
-        system.
-        """
-        super(HybridizationPC, self).view(pc, viewer)
-        viewer.printfASCII("KSP solver for the Lagrange multipliers\n")
-        viewer.pushASCIITab()
-        self.ksp.view(viewer)
-        viewer.popASCIITab()
