@@ -19,7 +19,7 @@ class ArgumentReplacer(MultiFunction):
     def __init__(self, arg_map):
         """Replaces an argument.
 
-        :arg arg_map: a `dict` that maps a given argument to
+        :arg arg_map: a ``dict`` that maps a given argument to
                       a new argument defined on a new function
                       space.
         """
@@ -29,10 +29,7 @@ class ArgumentReplacer(MultiFunction):
     expr = MultiFunction.reuse_if_untouched
 
     def argument(self, o):
-        """Given an argument, return a replacement argument.
-
-        :arg o: a `ufl.Argument` to be replaced.
-        """
+        """Given an argument, return a replacement argument."""
         return self.arg_map[o]
 
 
