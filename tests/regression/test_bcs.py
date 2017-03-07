@@ -366,7 +366,7 @@ def test_bcs_rhs_assemble(a, V):
 
 @pytest.mark.parallel(nprocs=3)
 def test_empty_exterior_facet_node_list():
-    mesh = UnitIntervalMesh(6)
+    mesh = UnitIntervalMesh(15)
     V = FunctionSpace(mesh, 'CG', 1)
     bc = DirichletBC(V, 1, 1)
     assert V.exterior_facet_node_map([bc])

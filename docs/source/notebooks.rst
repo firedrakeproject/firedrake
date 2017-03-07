@@ -24,7 +24,7 @@ A first example
 In this notebook, we solve the symmetric positive definite "Helmholtz"
 equation, and learn about meshes and function spaces.  A rendered
 version of this notebook is available `here
-<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/notebook-updates/docs/notebooks/example-spd-helmholtz.ipynb>`__.
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-spd-helmholtz.ipynb>`__.
 
 Incorporating strong boundary conditions
 ========================================

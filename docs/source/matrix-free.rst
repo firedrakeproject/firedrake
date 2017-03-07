@@ -94,15 +94,18 @@ Example usage
 =============
 
 To demonstrate some use cases for matrix-free operators and
-preconditioners, we will now move on to some examples.  These range
-start with a simple primal Poisson equation and build up the
-complexity, ending with a scalable preconditioner for the simulation
-of Rayleigh-Benard convection.
+preconditioners, we will now move on to some examples.  These are
+implemented in their own demo files and cover a range of complexities.
+The first is a simple Poisson problem, introducing some of the
+additional solver options.  The others explore various wasy of nesting
+custom preconditioners inside fieldsplit solvers, ending with a
+scalable preconditioner for the simulation of Rayleigh-Benard
+convection.
 
-.. include:: demos/poisson.py.rst
+.. toctree::
+   :maxdepth: 1
 
-.. include:: demos/stokes.py.rst
-
-.. include:: demos/navier_stokes.py.rst
-
-.. include:: demos/rayleigh-benard.py.rst
+   The Poisson equation.<demos/poisson.py>
+   The Stokes equation.<demos/stokes.py>
+   The Navier-Stokes equations.<demos/navier_stokes.py>
+   Rayleigh-Benard convection.<demos/rayleigh-benard.py>

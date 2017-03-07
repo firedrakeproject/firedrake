@@ -7,6 +7,7 @@ import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
+from pyop2.datatypes import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
 from firedrake.logging import warning
@@ -22,24 +23,22 @@ except ImportError:
 __all__ = ['Function', 'PointNotInDomainError']
 
 
-valuetype = np.float64
-
-
 class _CFunction(ctypes.Structure):
     """C struct collecting data from a :class:`Function`"""
     _fields_ = [("n_cols", c_int),
                 ("n_layers", c_int),
                 ("coords", POINTER(c_double)),
-                ("coords_map", POINTER(c_int)),
+                ("coords_map", POINTER(as_ctypes(IntType))),
+                # FIXME: what if f does not have type double?
                 ("f", POINTER(c_double)),
-                ("f_map", POINTER(c_int)),
+                ("f_map", POINTER(as_ctypes(IntType))),
                 ("sidx", c_void_p)]
 
 
 class CoordinatelessFunction(ufl.Coefficient):
     """A function on a mesh topology."""
 
-    def __init__(self, function_space, val=None, name=None, dtype=valuetype):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         """
         :param function_space: the :class:`.FunctionSpace`, or
             :class:`.MixedFunctionSpace` on which to build this
@@ -53,7 +52,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             value.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
-               (defaults to ``valuetype``).
+               (defaults to ``ScalarType``).
         """
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
                                            functionspaceimpl.MixedFunctionSpace)), \
@@ -214,7 +213,7 @@ class Function(ufl.Coefficient):
     the :class:`.FunctionSpace`.
     """
 
-    def __init__(self, function_space, val=None, name=None, dtype=valuetype):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         """
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
@@ -223,7 +222,7 @@ class Function(ufl.Coefficient):
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
-               (defaults to ``valuetype``).
+               (defaults to ``ScalarType``).
         """
 
         V = function_space
@@ -443,9 +442,10 @@ class Function(ufl.Coefficient):
         else:
             c_function.n_layers = 1
         c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
-        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        # FIXME: What about complex?
         c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
-        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
     @property
@@ -589,6 +589,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
+    from pyop2.utils import get_petsc_dir
     import firedrake.pointquery_utils as pq_utils
 
     function_space = function.function_space()
@@ -605,6 +606,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
     return compilation.load(src, "c", c_name,
                             cppargs=["-I%s" % path.dirname(__file__),
-                                     "-I%s/include" % sys.prefix],
+                                     "-I%s/include" % sys.prefix] +
+                            ["-I%s/include" % d for d in get_petsc_dir()],
                             ldargs=ldargs,
                             comm=function.comm)

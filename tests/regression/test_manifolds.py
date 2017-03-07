@@ -2,10 +2,6 @@ from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 import numpy as np
-from os.path import abspath, dirname, join
-
-
-cwd = abspath(dirname(__file__))
 
 
 # This test solves a mixed formulation of the Poisson equation with
@@ -13,7 +9,7 @@ cwd = abspath(dirname(__file__))
 # solution is p(x, y) = x - 0.5.  First on a 2D mesh, and then again
 # on a 2D mesh embedded in 3D.
 def run_no_manifold():
-    mesh = UnitSquareMesh(1, 1)
+    mesh = UnitSquareMesh(3, 3)
 
     V0 = FunctionSpace(mesh, "RT", 2)
     V1 = FunctionSpace(mesh, "DG", 1)
@@ -33,10 +29,8 @@ def run_no_manifold():
 
     up = Function(V)
 
-    null_vec = Function(V)
-    null_vec.dat[1].data[:] = 1/sqrt(V1.dof_count)
-    nullspace = VectorSpaceBasis(vecs=[null_vec])
-    solve(a == L, up, bcs=bc, nullspace=nullspace)
+    nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
     exact = Function(V1).interpolate(Expression('x[0] - 0.5'))
 
     u, p = up.split()
@@ -44,8 +38,13 @@ def run_no_manifold():
 
 
 def run_manifold():
-    mesh = Mesh(join(cwd, "..", "meshes", "unitsquare_in_3d.node"), dim=3)
-
+    # Make a mesh embedded in 3D with zero z coordinate.
+    mesh = UnitSquareMesh(3, 3)
+    V = VectorFunctionSpace(mesh, "CG", 1, dim=3)
+    X = Function(V)
+    x, y = SpatialCoordinate(mesh)
+    X.interpolate(as_vector([x, y, 0]))
+    mesh = Mesh(X)
     mesh.init_cell_orientations(Expression(('0', '0', '1')))
     V0 = FunctionSpace(mesh, "RT", 2)
     V1 = FunctionSpace(mesh, "DG", 1)
@@ -65,10 +64,8 @@ def run_manifold():
 
     up = Function(V)
 
-    null_vec = Function(V)
-    null_vec.dat[1].data[:] = 1/sqrt(V1.dof_count)
-    nullspace = VectorSpaceBasis(vecs=[null_vec])
-    solve(a == L, up, bcs=bc, nullspace=nullspace)
+    nullspace = MixedVectorSpaceBasis(V, [V.sub(0), VectorSpaceBasis(constant=True)])
+    solve(a == L, up, bcs=bc, nullspace=nullspace, solver_parameters={'ksp_rtol': 1e-10})
     exact = Function(V1).interpolate(Expression('x[0] - 0.5'))
 
     u, p = up.split()

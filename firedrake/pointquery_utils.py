@@ -5,6 +5,7 @@ from os import path
 import numpy
 
 from pyop2 import op2
+from pyop2.datatypes import IntType, as_cstr
 from pyop2.base import build_itspace
 from pyop2.sequential import generate_cell_wrapper
 
@@ -261,8 +262,9 @@ def compile_coordinate_element(ufl_coordinate_element):
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(cell.topological_dimension()),
         "X_isub_dX": X_isub_dX(cell.topological_dimension()),
-        "extruded_arg": ", int nlayers" if extruded else "",
+        "extruded_arg": ", %s nlayers" % as_cstr(IntType) if extruded else "",
         "nlayers": ", f->n_layers" if extruded else "",
+        "IntType": as_cstr(IntType),
     }
 
     evaluate_template_c = """#include <math.h>
@@ -312,7 +314,7 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
 }
 
 static inline void wrap_to_reference_coords(void *result_, double *x, int *return_value,
-                                            double *coords, int *coords_map%(extruded_arg)s, int cell);
+                                            double *coords, %(IntType)s *coords_map%(extruded_arg)s, %(IntType)s cell);
 
 int to_reference_coords(void *result_, struct Function *f, int cell, double *x)
 {
