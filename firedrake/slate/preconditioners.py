@@ -126,7 +126,18 @@ class HybridizationPC(PCBase):
         self.S.force_evaluation()
         Smat = self.S.petscmat
 
-        # TODO: Nullspace?
+        # Nullspace for the multiplier problem
+        nullsp = P.getNullSpace()
+        if nullsp.handle != 0:
+            new_vecs = get_trace_nullspace_vecs(K * Atilde.inv, nullsp,
+                                                V, V_d, TraceSpace)
+            tr_nullsp = PETSc.NullSpace().create(vectors=new_vecs,
+                                                 comm=pc.comm)
+            Smat.setNullSpace(tr_nullsp)
+
+        # TODO: Transpose nullspace will be nearly the same as above.
+        # Once ApplyTranspose is implemented, we will add the appropriate
+        # NullSpace
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
@@ -138,7 +149,7 @@ class HybridizationPC(PCBase):
         self.ksp = ksp
 
         # Now we construct the local tensors for the reconstruction stage
-        # TODO: Get Slate to support mixed tensors and these variables
+        # TODO: Add support for mixed tensors and these variables
         # become unnecessary
         split_forms = split_form(new_form)
         A = Tensor(next(sf.form for sf in split_forms
@@ -168,7 +179,7 @@ class HybridizationPC(PCBase):
             tensor=u_h,
             form_compiler_parameters=context.fc_params)
 
-        # Velocity reconstructions
+        # Velocity reconstruction
         sigma_sol = A.inv * g + A.inv * (B.T * u_h -
                                          K_local.T * self.trace_solution)
         self._assemble_velocity = create_assembly_callable(
@@ -190,7 +201,6 @@ class HybridizationPC(PCBase):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
         """
-        # TODO: Is this correct? Does this PC even have an "update"?
         self._assemble_S()
         self.S.force_evaluation()
         self._assemble_Srhs()
@@ -241,3 +251,37 @@ class HybridizationPC(PCBase):
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
         raise NotImplementedError("Not implemented yet, sorry!")
+
+
+def get_trace_nullspace_vecs(forward, nullspace, V, V_d, TraceSpace):
+    """Gets the nullspace vectors corresponding to the Schur complement
+    system for the multipliers.
+
+    :arg forward: A Slate expression denoting the forward elimination
+                  operator.
+    :arg nullspace: A nullspace for the original mixed problem
+    :arg V: The original "unbroken" space.
+    :arg V_d: The broken space.
+    :arg TraceSpace: The space of approximate traces.
+
+    Returns: A list of vectors describing the nullspace of the multiplier
+             system
+    """
+    from firedrake import project, assemble, Function
+
+    vecs = nullspace.getVecs()
+    tmp = Function(V)
+    tmp_b = Function(V_d)
+    tnsp_tmp = Function(TraceSpace)
+    forward_action = forward * tmp_b
+    new_vecs = []
+    for v in vecs:
+        with tmp.dat.vec as t:
+            v.copy(t)
+
+        project(tmp, tmp_b)
+        assemble(forward_action, tensor=tnsp_tmp)
+        with tnsp_tmp.dat.vec_ro as v:
+            new_vecs.append(v.copy())
+
+    return new_vecs
