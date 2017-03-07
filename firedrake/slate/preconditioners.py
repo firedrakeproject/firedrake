@@ -314,6 +314,15 @@ class HybridizationPC(PCBase):
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
 
+    def view(self, pc, viewer=None):
+        super(HybridizationPC, self).view(pc, viewer)
+        viewer.printfASCII("Hybridizing mixed system:\n")
+        viewer.pushASCIITab()
+        viewer.printfASCII("KSP solver for the multipliers:\n")
+        viewer.pushASCIITab()
+        self.ksp.view(viewer)
+        viewer.popASCIITab()
+
 
 def get_trace_nullspace_vecs(forward, nullspace, V, V_d, TraceSpace):
     """Gets the nullspace vectors corresponding to the Schur complement
