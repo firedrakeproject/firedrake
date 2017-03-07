@@ -943,10 +943,10 @@ def get_facets_by_class(PETSc.DM plex, label,
     facet_classes = [0, 0, 0, 0]
     fi = 0
 
-    for i, op2class in enumerate(["op2_core",
-                                  "op2_non_core",
-                                  "op2_exec_halo",
-                                  "op2_non_exec_halo"]):
+    for i, op2class in enumerate([b"op2_core",
+                                  b"op2_non_core",
+                                  b"op2_exec_halo",
+                                  b"op2_non_exec_halo"]):
         CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
         CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
         nclass = plex.getStratumSize(op2class, 1)
