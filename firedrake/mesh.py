@@ -1,5 +1,7 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems, itervalues
 from six.moves import map, range
+
 import numpy as np
 import ctypes
 import os
@@ -517,7 +519,7 @@ class MeshTopology(object):
         # Compute the facet_numbering
         # Order exterior facets by OP2 entity class
         exterior_facets, exterior_facet_classes = \
-            dmplex.get_facets_by_class(self._plex, "exterior_facets",
+            dmplex.get_facets_by_class(self._plex, b"exterior_facets",
                                        self._facet_ordering)
 
         # Derive attached boundary IDs
@@ -562,7 +564,7 @@ class MeshTopology(object):
         # Compute the facet_numbering
         # Order interior facets by OP2 entity class
         interior_facets, interior_facet_classes = \
-            dmplex.get_facets_by_class(self._plex, "interior_facets",
+            dmplex.get_facets_by_class(self._plex, b"interior_facets",
                                        self._facet_ordering)
 
         interior_local_facet_number, interior_facet_cell = \
@@ -837,7 +839,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg entity_dofs: FInAT element entity DoFs
         """
         dofs_per_entity = [0] * (1 + self._base_mesh.cell_dimension())
-        for (b, v), entities in entity_dofs.iteritems():
+        for (b, v), entities in iteritems(entity_dofs):
             dofs_per_entity[b] += (self.layers - v) * len(entities[0])
         return dofs_per_entity
 
@@ -849,12 +851,12 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg ndofs: number of DoFs in the FInAT element
         """
         entity_offset = [0] * (1 + self._base_mesh.cell_dimension())
-        for (b, v), entities in entity_dofs.iteritems():
+        for (b, v), entities in iteritems(entity_dofs):
             entity_offset[b] += len(entities[0])
 
         dof_offset = np.zeros(ndofs, dtype=IntType)
-        for (b, v), entities in entity_dofs.iteritems():
-            for dof_indices in entities.itervalues():
+        for (b, v), entities in iteritems(entity_dofs):
+            for dof_indices in itervalues(entities):
                 for i in dof_indices:
                     dof_offset[i] = entity_offset[b]
         return dof_offset

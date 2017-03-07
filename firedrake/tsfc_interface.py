@@ -84,7 +84,7 @@ class TSFCKernel(Cached):
             # No need for a barrier after this, since non root
             # processes will never race on this file.
             with gzip.open(tempfile, 'wb') as f:
-                cPickle.dump(val, f)
+                cPickle.dump(val, f, 0)
             os.rename(tempfile, filepath)
         comm.barrier()
 
