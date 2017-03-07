@@ -63,8 +63,7 @@ class HybridizationPC(PCBase):
         # Create the space of approximate traces
         # NOTE: The vector function space will have a non-empty value_shape
         W = next(v for v in V if bool(v.ufl_element().value_shape()))
-        if W.ufl_element().family() in ["Raviart-Thomas",
-                                        "RTCF"]:
+        if W.ufl_element().family() in ["Raviart-Thomas", "RTCF"]:
             tdegree = W.ufl_element().degree() - 1
         else:
             tdegree = W.ufl_element().degree()
@@ -105,10 +104,16 @@ class HybridizationPC(PCBase):
         K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
 
         # Assemble the Schur complement operator and right-hand side
-        # in a cell-local way
         self.schur_rhs = Function(TraceSpace)
+
         self._assemble_Srhs = create_assembly_callable(
             K * Atilde.inv * self.broken_rhs,
+            tensor=self.schur_rhs,
+            form_compiler_parameters=context.fc_params)
+
+        # Transpose application
+        self._assemble_Srhs_t = create_assembly_callable(
+            K * (Atilde.inv).T * self.broken_rhs,
             tensor=self.schur_rhs,
             form_compiler_parameters=context.fc_params)
 
@@ -135,9 +140,14 @@ class HybridizationPC(PCBase):
                                                  comm=pc.comm)
             Smat.setNullSpace(tr_nullsp)
 
-        # TODO: Transpose nullspace will be nearly the same as above.
-        # Once ApplyTranspose is implemented, we will add the appropriate
-        # NullSpace
+        # Transpose nullspace
+        tnullsp = P.getTransposeNullSpace()
+        if tnullsp.handle != 0:
+            new_vecs = get_trace_nullspace_vecs(K * (Atilde.inv).T, tnullsp,
+                                                V, V_d, TraceSpace)
+            tr_tnullsp = PETSc.NullSpace().create(vectors=new_vecs,
+                                                  comm=pc.comm)
+            Smat.setTransposeNullSpace(tr_tnullsp)
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
@@ -179,11 +189,30 @@ class HybridizationPC(PCBase):
             tensor=u_h,
             form_compiler_parameters=context.fc_params)
 
+        # Transpose pressure construction
+        Mt = C.T - B * (A.inv).T * B.T
+        u_sol_t = Mt.inv * f + Mt.inv * (B * (A.inv).T *
+                                         K_local.T * self.trace_solution
+                                         + B * (A.inv).T * g)
+        self._assemble_pressure_t = create_assembly_callable(
+            u_sol_t,
+            tensor=u_h,
+            form_compiler_parameters=context.fc_params)
+
         # Velocity reconstruction
         sigma_sol = A.inv * g + A.inv * (B.T * u_h -
                                          K_local.T * self.trace_solution)
         self._assemble_velocity = create_assembly_callable(
             sigma_sol,
+            tensor=sigma_h,
+            form_compiler_parameters=context.fc_params)
+
+        # Transpose velocity construction
+        sigma_sol_t = (A.inv).T * g + (A.inv).T * (K_local.T *
+                                                   self.trace_solution
+                                                   - B.T * u_h)
+        self._assemble_velocity_t = create_assembly_callable(
+            sigma_sol_t,
             tensor=sigma_h,
             form_compiler_parameters=context.fc_params)
 
@@ -250,7 +279,40 @@ class HybridizationPC(PCBase):
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
-        raise NotImplementedError("Not implemented yet, sorry!")
+        from firedrake import project
+
+        # Transfer non-broken x into a firedrake function
+        with self.unbroken_rhs.dat.vec as v:
+            x.copy(v)
+
+        # Transfer unbroken_rhs into broken_rhs
+        field0, field1 = self.unbroken_rhs.split()
+        bfield0, bfield1 = self.broken_rhs.split()
+
+        # This updates broken_rhs
+        project(field0, bfield0)
+        field1.dat.copy(bfield1.dat)
+
+        # Compute the rhs for the multiplier system
+        self._assemble_Srhs_t()
+
+        # Solve the system for the Lagrange multipliers
+        with self.schur_rhs.dat.vec_ro as b:
+            with self.trace_solution.dat.vec as x:
+                self.ksp.solveTranspose(b, x)
+
+        # Assemble the pressure and velocity for
+        # the transpose system
+        self._assemble_pressure_t()
+        self._assemble_velocity_t()
+
+        # Project the broken solution into non-broken spaces
+        sigma_h, u_h = self.broken_solution.split()
+        sigma_u, u_u = self.unbroken_solution.split()
+        u_h.dat.copy(u_u.dat)
+        self.projector.project()
+        with self.unbroken_solution.dat.vec_ro as v:
+            v.copy(y)
 
 
 def get_trace_nullspace_vecs(forward, nullspace, V, V_d, TraceSpace):
