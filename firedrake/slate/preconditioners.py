@@ -16,7 +16,7 @@ __all__ = ['HybridizationPC']
 
 class HybridizationPC(PCBase):
     """A Slate-based python preconditioner that solves a
-    mixed saddle-point problem using a hybridizable scheme.
+    mixed saddle-point problem using hybridization.
 
     The forward eliminations and backwards reconstructions
     are performed element-local using the Slate language.
@@ -24,7 +24,7 @@ class HybridizationPC(PCBase):
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
-        hybridized one.
+        hybridized mixed system.
 
         A KSP is created for the Lagrange multiplier system.
         """
@@ -44,11 +44,12 @@ class HybridizationPC(PCBase):
         context = P.getPythonContext()
         test, trial = context.a.arguments()
 
-        # Break the function spaces and define fully discontinuous spaces
         V = test.function_space()
         if V.mesh().cell_set._extruded:
+            # TODO: Merge FIAT branch to support TPC trace elements
             raise NotImplementedError("Not implemented on extruded meshes.")
 
+        # Break the function spaces and define fully discontinuous spaces
         broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in V]
         elem = MixedElement(broken_elements)
         V_d = FunctionSpace(V.mesh(), elem)
@@ -60,11 +61,12 @@ class HybridizationPC(PCBase):
         replacer = ArgumentReplacer(arg_map)
         new_form = map_integrand_dags(replacer, context.a)
 
-        # Create the space of approximate traces
-        # NOTE: The vector function space will have a non-empty value_shape
+        # Create the space of approximate traces.
+        # The vector function space will have a non-empty value_shape
         W = next(v for v in V if bool(v.ufl_element().value_shape()))
         if W.ufl_element().family() in ["Raviart-Thomas", "RTCF"]:
             tdegree = W.ufl_element().degree() - 1
+
         else:
             tdegree = W.ufl_element().degree()
 
@@ -72,26 +74,19 @@ class HybridizationPC(PCBase):
         # and construct the appropriate trace space for the HDiv element
         TraceSpace = FunctionSpace(V.mesh(), "HDiv Trace", tdegree)
 
-        # For extruded, we will need to add the flags "on_top" and "on_bottom"
+        # NOTE: For extruded, we will need to add "on_top" and "on_bottom"
         trace_conditions = [DirichletBC(TraceSpace, Constant(0.0),
                                         "on_boundary")]
 
-        # Broken flux and scalar terms (solution via reconstruction)
+        # Set up the functions for the original, hybridized
+        # and schur complement systems
         self.broken_solution = Function(V_d)
-
-        # Broken RHS of the fully discontinuous problem
         self.broken_rhs = Function(V_d)
-
-        # Solution of the system for the Lagrange multipliers
         self.trace_solution = Function(TraceSpace)
-
-        # unbroken solutions and rhs
         self.unbroken_solution = Function(V)
         self.unbroken_rhs = Function(V)
 
-        # Create the symbolic Schur-reduction of the discontinuous
-        # problem in Slate. Weakly enforce continuity via the Lagrange
-        # multipliers
+        # Create the symbolic Schur-reduction
         Atilde = Tensor(new_form)
         gammar = TestFunction(TraceSpace)
         n = FacetNormal(V.mesh())
@@ -105,15 +100,8 @@ class HybridizationPC(PCBase):
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
-
         self._assemble_Srhs = create_assembly_callable(
             K * Atilde.inv * self.broken_rhs,
-            tensor=self.schur_rhs,
-            form_compiler_parameters=context.fc_params)
-
-        # Transpose application
-        self._assemble_Srhs_t = create_assembly_callable(
-            K * (Atilde.inv).T * self.broken_rhs,
             tensor=self.schur_rhs,
             form_compiler_parameters=context.fc_params)
 
@@ -140,15 +128,6 @@ class HybridizationPC(PCBase):
                                                  comm=pc.comm)
             Smat.setNullSpace(tr_nullsp)
 
-        # Transpose nullspace
-        tnullsp = P.getTransposeNullSpace()
-        if tnullsp.handle != 0:
-            new_vecs = get_trace_nullspace_vecs(K * (Atilde.inv).T, tnullsp,
-                                                V, V_d, TraceSpace)
-            tr_tnullsp = PETSc.NullSpace().create(vectors=new_vecs,
-                                                  comm=pc.comm)
-            Smat.setTransposeNullSpace(tr_tnullsp)
-
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
         ksp.setOptionsPrefix(prefix + "trace_")
@@ -172,11 +151,8 @@ class HybridizationPC(PCBase):
                                             BrokenElement(W.ufl_element())))
         K_local = Tensor(gammar('+') * ufl.dot(trial, n) * ufl.dS)
 
-        # Split the solution function and reconstruct
-        # each bit separately
+        # Split functions and reconstruct each bit separately
         sigma_h, u_h = self.broken_solution.split()
-
-        # RHS = [g; f]
         g, f = self.broken_rhs.split()
 
         # Pressure reconstruction
@@ -189,30 +165,11 @@ class HybridizationPC(PCBase):
             tensor=u_h,
             form_compiler_parameters=context.fc_params)
 
-        # Transpose pressure construction
-        Mt = C.T - B * (A.inv).T * B.T
-        u_sol_t = Mt.inv * f + Mt.inv * (B * (A.inv).T *
-                                         K_local.T * self.trace_solution
-                                         + B * (A.inv).T * g)
-        self._assemble_pressure_t = create_assembly_callable(
-            u_sol_t,
-            tensor=u_h,
-            form_compiler_parameters=context.fc_params)
-
         # Velocity reconstruction
         sigma_sol = A.inv * g + A.inv * (B.T * u_h -
                                          K_local.T * self.trace_solution)
         self._assemble_velocity = create_assembly_callable(
             sigma_sol,
-            tensor=sigma_h,
-            form_compiler_parameters=context.fc_params)
-
-        # Transpose velocity construction
-        sigma_sol_t = (A.inv).T * g + (A.inv).T * (K_local.T *
-                                                   self.trace_solution
-                                                   - B.T * u_h)
-        self._assemble_velocity_t = create_assembly_callable(
-            sigma_sol_t,
             tensor=sigma_h,
             form_compiler_parameters=context.fc_params)
 
@@ -279,40 +236,10 @@ class HybridizationPC(PCBase):
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
-        from firedrake import project
-
-        # Transfer non-broken x into a firedrake function
-        with self.unbroken_rhs.dat.vec as v:
-            x.copy(v)
-
-        # Transfer unbroken_rhs into broken_rhs
-        field0, field1 = self.unbroken_rhs.split()
-        bfield0, bfield1 = self.broken_rhs.split()
-
-        # This updates broken_rhs
-        project(field0, bfield0)
-        field1.dat.copy(bfield1.dat)
-
-        # Compute the rhs for the multiplier system
-        self._assemble_Srhs_t()
-
-        # Solve the system for the Lagrange multipliers
-        with self.schur_rhs.dat.vec_ro as b:
-            with self.trace_solution.dat.vec as x:
-                self.ksp.solveTranspose(b, x)
-
-        # Assemble the pressure and velocity for
-        # the transpose system
-        self._assemble_pressure_t()
-        self._assemble_velocity_t()
-
-        # Project the broken solution into non-broken spaces
-        sigma_h, u_h = self.broken_solution.split()
-        sigma_u, u_u = self.unbroken_solution.split()
-        u_h.dat.copy(u_u.dat)
-        self.projector.project()
-        with self.unbroken_solution.dat.vec_ro as v:
-            v.copy(y)
+        raise NotImplementedError(
+            "The transpose application of this PC"
+            "is not implemented."
+        )
 
     def view(self, pc, viewer=None):
         super(HybridizationPC, self).view(pc, viewer)
