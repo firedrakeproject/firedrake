@@ -38,25 +38,27 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     return error
 
 
-@pytest.mark.longtest
-@pytest.mark.parametrize(('MeshClass', 'hdiv_space'),
-                         [(UnitIcosahedralSphereMesh, 'RT'),
-                          (UnitIcosahedralSphereMesh, 'BDM')])
-def test_hybrid_conv(MeshClass, hdiv_space):
-    errors = [run_hybrid_poisson_sphere(MeshClass, r, hdiv_space)
-              for r in range(2, 5)]
-    errors = np.asarray(errors)
-    l2conv = np.log2(errors[:-1] / errors[1:])
-    assert (l2conv > 1.8).all()
-
-
-@pytest.mark.parallel(nprocs=4)
-def test_hybrid_conv_parallel():
+def test_hybrid_conv():
+    """Should expect approximately quadratic convergence for lowest order
+    mixed method.
+    """
     errors = [run_hybrid_poisson_sphere(UnitIcosahedralSphereMesh, r, 'BDM')
-              for r in range(2, 5)]
+              for r in range(1, 4)]
     errors = np.asarray(errors)
-    l2conv = np.log2(errors[:-1] / errors[1:])
-    assert (l2conv > 1.8).all()
+    l2conv = np.log2(errors[:-1] / errors[1:])[-1]
+    assert l2conv > 1.8
+
+
+@pytest.mark.parallel
+def test_hybrid_conv_parallel():
+    """Should expect approximately quadratic convergence for lowest order
+    mixed method.
+    """
+    errors = [run_hybrid_poisson_sphere(UnitIcosahedralSphereMesh, r, 'RT')
+              for r in range(1, 4)]
+    errors = np.asarray(errors)
+    l2conv = np.log2(errors[:-1] / errors[1:])[-1]
+    assert l2conv > 1.8
 
 
 if __name__ == '__main__':
