@@ -1023,48 +1023,52 @@ values from f.)"""
         # Build spatial index
         return spatialindex.from_regions(coords_min, coords_max)
 
-    def locate_cell(self, x):
+    def locate_cell(self, x, tolerance=None):
         """Locate cell containg given point.
 
         :arg x: point coordinates
+        :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
         x = np.asarray(x, dtype=np.float)
-        cell = self._c_locator(self.coordinates._ctypes,
-                               x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
+        cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
+                                                    x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:
             return None
         else:
             return cell
 
-    @utils.cached_property
-    def _c_locator(self):
+    def _c_locator(self, tolerance=None):
         from pyop2 import compilation
         from pyop2.utils import get_petsc_dir
         import firedrake.function as function
         import firedrake.pointquery_utils as pq_utils
 
-        src = pq_utils.src_locate_cell(self)
-        src += """
-int locator(struct Function *f, double *x)
-{
-    struct ReferenceCoords reference_coords;
-    return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
-}
-""" % dict(geometric_dimension=self.geometric_dimension())
+        cache = self.__dict__.setdefault("_c_locator_cache", {})
+        try:
+            return cache[tolerance]
+        except KeyError:
+            src = pq_utils.src_locate_cell(self, tolerance=tolerance)
+            src += """
+    int locator(struct Function *f, double *x)
+    {
+        struct ReferenceCoords reference_coords;
+        return locate_cell(f, x, %(geometric_dimension)d, &to_reference_coords, &reference_coords);
+    }
+    """ % dict(geometric_dimension=self.geometric_dimension())
 
-        locator = compilation.load(src, "c", "locator",
-                                   cppargs=["-I%s" % os.path.dirname(__file__),
-                                            "-I%s/include" % sys.prefix] +
-                                   ["-I%s/include" % d for d in get_petsc_dir()],
-                                   ldargs=["-L%s/lib" % sys.prefix,
-                                           "-lspatialindex_c",
-                                           "-Wl,-rpath,%s/lib" % sys.prefix])
+            locator = compilation.load(src, "c", "locator",
+                                       cppargs=["-I%s" % os.path.dirname(__file__),
+                                                "-I%s/include" % sys.prefix] +
+                                       ["-I%s/include" % d for d in get_petsc_dir()],
+                                       ldargs=["-L%s/lib" % sys.prefix,
+                                               "-lspatialindex_c",
+                                               "-Wl,-rpath,%s/lib" % sys.prefix])
 
-        locator.argtypes = [ctypes.POINTER(function._CFunction),
-                            ctypes.POINTER(ctypes.c_double)]
-        locator.restype = ctypes.c_int
-        return locator
+            locator.argtypes = [ctypes.POINTER(function._CFunction),
+                                ctypes.POINTER(ctypes.c_double)]
+            locator.restype = ctypes.c_int
+            return cache.setdefault(tolerance, locator)
 
     def init_cell_orientations(self, expr):
         """Compute and initialise :attr:`cell_orientations` relative to a specified orientation.

@@ -457,12 +457,15 @@ class Function(ufl.Coefficient):
         # Return pointer
         return ctypes.pointer(c_function)
 
-    @utils.cached_property
-    def _c_evaluate(self):
-        result = make_c_evaluate(self)
-        result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
-        result.restype = c_int
-        return result
+    def _c_evaluate(self, tolerance=None):
+        cache = self.__dict__.setdefault("_c_evaluate_cache", {})
+        try:
+            return cache[tolerance]
+        except KeyError:
+            result = make_c_evaluate(self, tolerance=tolerance)
+            result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
+            result.restype = c_int
+            return cache.setdefault(tolerance, result)
 
     def evaluate(self, coord, mapping, component, index_values):
         # Called by UFL when evaluating expressions at coordinates
@@ -471,7 +474,13 @@ class Function(ufl.Coefficient):
         return self.at(coord)
 
     def at(self, arg, *args, **kwargs):
-        """Evaluate function at points."""
+        """Evaluate function at points.
+
+        :arg arg: The point to locate.
+        :arg *args: Additional points.
+        :kwarg dont_raise: Do not raise an error if a point is not found.
+        :kwarg tolerance: Tolerance to use when checking for points in cell.
+        """
         # Need to ensure data is up-to-date for reading
         self.dat._force_evaluation(read=True, write=False)
         from mpi4py import MPI
@@ -482,6 +491,7 @@ class Function(ufl.Coefficient):
 
         dont_raise = kwargs.get('dont_raise', False)
 
+        tolerance = kwargs.get('tolerance', None)
         # Handle f.at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
@@ -509,9 +519,9 @@ class Function(ufl.Coefficient):
 
         def single_eval(x, buf):
             """Helper function to evaluate at a single point."""
-            err = self._c_evaluate(self._ctypes,
-                                   x.ctypes.data_as(POINTER(c_double)),
-                                   buf.ctypes.data_as(POINTER(c_double)))
+            err = self._c_evaluate(tolerance=tolerance)(self._ctypes,
+                                                        x.ctypes.data_as(POINTER(c_double)),
+                                                        buf.ctypes.data_as(POINTER(c_double)))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
@@ -582,7 +592,7 @@ class PointNotInDomainError(Exception):
         return "domain %s does not contain point %s" % (self.domain, self.point)
 
 
-def make_c_evaluate(function, c_name="evaluate", ldargs=None):
+def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     """Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
 
@@ -594,7 +604,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
 
     function_space = function.function_space()
 
-    src = pq_utils.src_locate_cell(function_space.mesh())
+    src = pq_utils.src_locate_cell(function_space.mesh(), tolerance=tolerance)
     src += compile_element(function_space.ufl_element(), function_space.dim)
     src += pq_utils.make_wrapper(function,
                                  forward_args=["double*", "double*"],

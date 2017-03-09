@@ -23,9 +23,11 @@ def make_wrapper(function, **kwargs):
     return generate_cell_wrapper(build_itspace(args, function.cell_set), args, **kwargs)
 
 
-def src_locate_cell(mesh):
+def src_locate_cell(mesh, tolerance=None):
+    if tolerance is None:
+        tolerance = 1e-14
     src = '#include <evaluate.h>\n'
-    src += compile_coordinate_element(mesh.ufl_coordinate_element())
+    src += compile_coordinate_element(mesh.ufl_coordinate_element(), tolerance)
     src += make_wrapper(mesh.coordinates,
                         forward_args=["void*", "double*", "int*"],
                         kernel_name="to_reference_coords_kernel",
@@ -147,7 +149,7 @@ def set_float_formatting(precision):
     format["epsilon"] = 10.0*eval("1e-%s" % precision)
 
 
-def compile_coordinate_element(ufl_coordinate_element):
+def compile_coordinate_element(ufl_coordinate_element, contains_eps):
     """Generates C code for changing to reference coordinates.
 
     :arg ufl_coordinate_element: UFL element of the coordinates
@@ -178,7 +180,7 @@ def compile_coordinate_element(ufl_coordinate_element):
         dim = ufl_cell.topological_dimension()
         point = tuple(sp.Symbol("X[%d]" % i) for i in range(dim))
 
-        return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=1e-14).args)
+        return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=contains_eps).args)
 
     def init_X(fiat_element):
         f_float = format["floating point"]
