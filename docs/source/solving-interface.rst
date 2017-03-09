@@ -1026,7 +1026,7 @@ Notice how now the differences are small (within expected error
 tolerances) so we are happy that the Jacobian is correct.
 
 
-.. _Hypre: http://acts.nersc.gov/hypre/
+.. _Hypre: http://computation.llnl.gov/projects/hypre-scalable-linear-solvers-multigrid-methods/software
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _PETSc manual: http://www.mcs.anl.gov/petsc/petsc-current/docs/manual.pdf
 .. _KSP: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/KSP/
@@ -1036,5 +1036,5 @@ tolerances) so we are happy that the Jacobian is correct.
 .. _SNES nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#newton
 .. _KSP nonconvergence: http://www.mcs.anl.gov/petsc/documentation/faq.html#kspdiverged
 .. _LSC: http://www.mcs.anl.gov/petsc/petsc-current/docs/manualpages/PC/PCLSC.html
-.. _UFL: http://fenicsproject.org/documentation/ufl/1.2.0/ufl.html
+.. _UFL: http://fenics-ufl.readthedocs.io/en/latest/
 .. _firedrake_bugs: mailto:firedrake@imperial.ac.uk
