@@ -4,7 +4,7 @@ import numpy
 import collections
 
 from ufl import as_vector
-from ufl.classes import Zero
+from ufl.classes import Zero, Indexed, MultiIndex, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction
 
@@ -44,6 +44,30 @@ class ExtractSubBlock(MultiFunction):
 
     def multi_index(self, o):
         return o
+
+    def indexed(self, o, expr, multiindex):
+        indices = list(multiindex)
+        while indices and isinstance(expr, ListTensor) and isinstance(indices[0], FixedIndex):
+            index = indices.pop(0)
+            expr = expr.ufl_operands[int(index)]
+
+        if indices == list(multiindex):
+            return self.expr(o, expr, multiindex)
+        elif indices:
+            return Indexed(expr, MultiIndex(tuple(indices)))
+        else:
+            return expr
+
+    def list_tensor(self, o, *ops):
+        all_indexed = all(isinstance(op, Indexed) for op in ops)
+        same_indexed = all_indexed and len(set(op.ufl_operands[0] for op in ops)) == 1
+        seq_indices = same_indexed and all([FixedIndex(i)] == list(op.ufl_operands[1]) for i, op in enumerate(ops))
+        if seq_indices:
+            expr, = set(op.ufl_operands[0] for op in ops)
+            if expr.ufl_shape == (len(ops),):
+                return expr
+
+        return self.expr(o, *ops)
 
     def argument(self, o):
         from ufl import split
