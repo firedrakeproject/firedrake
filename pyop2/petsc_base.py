@@ -607,8 +607,8 @@ class MatBlock(base.Mat):
         colis = cset.field_ises[self._j]
         base._trace.evaluate(set([self._parent]), set())
         self._parent.assemble()
-        mat = self._parent.handle.getSubMatrix(isrow=rowis,
-                                               iscol=colis)
+        mat = self._parent.handle.createSubMatrix(isrow=rowis,
+                                                  iscol=colis)
         return mat[:, :]
 
     @property
