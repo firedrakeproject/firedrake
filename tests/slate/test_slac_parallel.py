@@ -15,17 +15,18 @@ def test_parallel_kernel_on_sphere():
     """
     mesh = UnitIcosahedralSphereMesh(refinement_level=1)
     mesh.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+    x, y, z = SpatialCoordinate(mesh)
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)
 
-    expr = Function(U).interpolate(Expression("x[0]*x[1]*x[2]"))
+    expr = Function(U).interpolate(x*y*z)
 
     # Obtain coordinate field and construct Jacobian
-    X = Function(V).interpolate(Expression("x[0]"))
-    Y = Function(V).interpolate(Expression("x[1]"))
-    Z = Function(V).interpolate(Expression("x[2]"))
+    X = Function(V).interpolate(x)
+    Y = Function(V).interpolate(y)
+    Z = Function(V).interpolate(z)
     nflat = Function(VectorFunctionSpace(mesh, "DG", 0))
-    nflat.interpolate(Expression(("x[0]", "x[1]", "x[2]")))
+    nflat.project(as_vector([x, y, z]))
     J = as_tensor([[X.dx(0), X.dx(1), X.dx(2)],
                    [Y.dx(0), Y.dx(1), Y.dx(2)],
                    [Z.dx(0), Z.dx(1), Z.dx(2)]])

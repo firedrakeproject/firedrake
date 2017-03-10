@@ -7,16 +7,16 @@ import numpy as np
 def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     mesh = MeshClass(refinement_level=refinement)
     mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
+    x, y, z = SpatialCoordinate(mesh)
 
     V = FunctionSpace(mesh, hdiv_space, 1)
     U = FunctionSpace(mesh, "DG", 0)
     W = V * U
 
     f = Function(U)
-    expr = Expression("x[0]*x[1]*x[2]")
-    f.interpolate(expr)
+    f.interpolate(x*y*z)
 
-    u_exact = Function(U).interpolate(Expression("x[0]*x[1]*x[2]/12.0"))
+    u_exact = Function(U).interpolate(x*y*z/12.0)
 
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
