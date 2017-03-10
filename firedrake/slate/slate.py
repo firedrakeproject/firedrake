@@ -211,8 +211,6 @@ class TensorBase(with_metaclass(ABCMeta)):
 
     def __str__(self):
         """Returns a string representation."""
-        if isinstance(self, Tensor):
-            return self._output_string()
         return self._output_string(self.prec)
 
     def __hash__(self):
@@ -244,6 +242,7 @@ class Tensor(TensorBase):
     """
 
     operands = ()
+    prec = None
 
     def __init__(self, form):
         """Constructor for the Tensor class."""
