@@ -72,14 +72,13 @@ def test_slate_hybridization(degree):
                              'ksp_type': 'cg',
                              'ksp_rtol': 1e-14,
                              'pc_fieldsplit_schur_fact_type': 'FULL',
-                             'fieldsplit_V_ksp_type': 'cg',
-                             'fieldsplit_P_ksp_type': 'cg'})
+                             'fieldsplit_0_ksp_type': 'cg',
+                             'fieldsplit_1_ksp_type': 'cg'})
     nh_sigma, nh_u = w2.split()
 
-    # Return the L2 error (should be comparable with numerical tolerance
-    sigma_err = sqrt(assemble(dot(sigma_h - nh_sigma,
-                                  sigma_h - nh_sigma) * dx))
-    u_err = sqrt(assemble((u_h - nh_u) * (u_h - nh_u) * dx))
+    # Return the L2 error
+    sigma_err = errornorm(sigma_h, nh_sigma)
+    u_err = errornorm(u_h, nh_u)
 
     assert sigma_err < 1e-11
     assert u_err < 1e-11

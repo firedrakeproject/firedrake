@@ -130,7 +130,6 @@ class HybridizationPC(PCBase):
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
         ksp.setOptionsPrefix(prefix + "trace_")
-        ksp.setTolerances(rtol=1e-13)
         ksp.setOperators(Smat)
         ksp.setUp()
         ksp.setFromOptions()
@@ -139,13 +138,11 @@ class HybridizationPC(PCBase):
         # Now we construct the local tensors for the reconstruction stage
         # TODO: Add support for mixed tensors and these variables
         # become unnecessary
-        split_forms = split_form(new_form)
-        A = Tensor(next(sf.form for sf in split_forms
-                        if sf.indices == (0, 0)))
-        B = Tensor(next(sf.form for sf in split_forms
-                        if sf.indices == (1, 0)))
-        C = Tensor(next(sf.form for sf in split_forms
-                        if sf.indices == (1, 1)))
+        split_forms = dict(split_form(new_form))
+        A = Tensor(split_forms[(0, 0)])
+        B = Tensor(split_forms[(0, 1)])
+        C = Tensor(split_forms[(1, 0)])
+        D = Tensor(split_forms[(1, 1)])
         trial = TrialFunction(FunctionSpace(V.mesh(),
                                             BrokenElement(W.ufl_element())))
         K_local = Tensor(gammar('+') * ufl.dot(trial, n) * ufl.dS)
@@ -155,17 +152,17 @@ class HybridizationPC(PCBase):
         g, f = self.broken_rhs.split()
 
         # Pressure reconstruction
-        M = B * A.inv * B.T + C
-        u_sol = M.inv * f + M.inv * (B * A.inv *
+        M = D - C * A.inv * B
+        u_sol = M.inv * f + M.inv * (C * A.inv *
                                      K_local.T * self.trace_solution
-                                     - B * A.inv * g)
+                                     - C * A.inv * g)
         self._assemble_pressure = create_assembly_callable(
             u_sol,
             tensor=u_h,
             form_compiler_parameters=context.fc_params)
 
         # Velocity reconstruction
-        sigma_sol = A.inv * g + A.inv * (B.T * u_h -
+        sigma_sol = A.inv * g - A.inv * (B * u_h +
                                          K_local.T * self.trace_solution)
         self._assemble_velocity = create_assembly_callable(
             sigma_sol,
