@@ -28,7 +28,7 @@ class HybridizationPC(PCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from ufl.algorithms.map_integrands import map_integrand_dags
+        from ufl.algorithms.replace import replace
         from firedrake import (FunctionSpace, TrialFunction,
                                TrialFunctions, TestFunction, Function,
                                BrokenElement, MixedElement,
@@ -36,7 +36,7 @@ class HybridizationPC(PCBase):
                                Projector)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
-        from firedrake.formmanipulation import ArgumentReplacer, split_form
+        from firedrake.formmanipulation import split_form
 
         # Extract the problem context
         prefix = pc.getOptionsPrefix()
@@ -58,8 +58,7 @@ class HybridizationPC(PCBase):
 
         # Replace the problems arguments with arguments defined
         # on the new discontinuous spaces
-        replacer = ArgumentReplacer(arg_map)
-        new_form = map_integrand_dags(replacer, context.a)
+        new_form = replace(context.a, arg_map)
 
         # Create the space of approximate traces.
         # The vector function space will have a non-empty value_shape
