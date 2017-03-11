@@ -31,8 +31,9 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
           solver_parameters={'mat_type': 'matfree',
                              'pc_type': 'python',
                              'pc_python_type': 'firedrake.HybridizationPC',
-                             'trace_pc_type': 'hypre',
-                             'trace_ksp_type': 'preonly'})
+                             'hybridization_pc_type': 'hypre',
+                             'hybridization_ksp_type': 'preonly',
+                             'hybridization_projector_tolerance': 1e-14})
     _, u_h = w.split()
     error = errornorm(u_exact, u_h)
     return error

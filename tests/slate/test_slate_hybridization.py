@@ -58,9 +58,10 @@ def test_slate_hybridization(degree):
           solver_parameters={'mat_type': 'matfree',
                              'pc_type': 'python',
                              'pc_python_type': 'firedrake.HybridizationPC',
-                             'trace_ksp_rtol': 1e-8,
-                             'trace_pc_type': 'lu',
-                             'trace_ksp_type': 'preonly'})
+                             'hybridization_ksp_rtol': 1e-8,
+                             'hybridization_pc_type': 'lu',
+                             'hybridization_ksp_type': 'preonly',
+                             'hybridization_projector_tolerance': 1e-14})
     sigma_h, u_h = w.split()
 
     # (Non-hybrid) Need to slam it with preconditioning due to the

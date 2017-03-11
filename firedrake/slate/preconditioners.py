@@ -45,37 +45,47 @@ class HybridizationPC(PCBase):
         test, trial = context.a.arguments()
 
         V = test.function_space()
-        if V.mesh().cell_set._extruded:
+        mesh = V.mesh()
+        if mesh.cell_set._extruded:
             # TODO: Merge FIAT branch to support TPC trace elements
             raise NotImplementedError("Not implemented on extruded meshes.")
 
-        # Break the function spaces and define fully discontinuous spaces
-        broken_elements = [BrokenElement(Vi.ufl_element()) for Vi in V]
-        elem = MixedElement(broken_elements)
-        V_d = FunctionSpace(V.mesh(), elem)
-        arg_map = {test: TestFunction(V_d),
-                   trial: TrialFunction(V_d)}
+        assert len(V) == 2, (
+            "Can only hybridize a mixed system with two spaces."
+        )
 
-        # Replace the problems arguments with arguments defined
-        # on the new discontinuous spaces
-        new_form = replace(context.a, arg_map)
+        # TODO: Future update to include more general spaces?
+        if all(Vi.ufl_element().value_shape() for Vi in V):
+            raise ValueError(
+                "Expecting an H(div) x L2 pair of spaces. "
+                "Both spaces cannot be vector-valued."
+            )
 
         # Create the space of approximate traces.
-        # The vector function space will have a non-empty value_shape
-        W = next(v for v in V if bool(v.ufl_element().value_shape()))
-        if W.ufl_element().family() in ["Raviart-Thomas", "RTCF"]:
+        # TODO: Once extruded and tensor product trace elements
+        # are ready, this logic will be updated.
+        W, = (v for v in V if v.ufl_element().value_shape())
+        if W.ufl_element().family() == "Raviart-Thomas":
             tdegree = W.ufl_element().degree() - 1
 
-        else:
+        elif W.ufl_element().family() == "BDM":
             tdegree = W.ufl_element().degree()
 
-        # NOTE: Once extruded is ready, we will need to be aware of this
-        # and construct the appropriate trace space for the HDiv element
-        TraceSpace = FunctionSpace(V.mesh(), "HDiv Trace", tdegree)
+        else:
+            raise ValueError(
+                "%s not supported at the moment." % W.ufl_element().family()
+            )
+
+        TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # NOTE: For extruded, we will need to add "on_top" and "on_bottom"
         trace_conditions = [DirichletBC(TraceSpace, Constant(0.0),
                                         "on_boundary")]
+
+        # Break the function spaces and define fully discontinuous spaces
+        broken_elements = MixedElement([BrokenElement(Vi.ufl_element())
+                                        for Vi in V])
+        V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
@@ -85,13 +95,18 @@ class HybridizationPC(PCBase):
         self.unbroken_solution = Function(V)
         self.unbroken_rhs = Function(V)
 
-        # Create the symbolic Schur-reduction
-        Atilde = Tensor(new_form)
+        arg_map = {test: TestFunction(V_d),
+                   trial: TrialFunction(V_d)}
+
+        # Create the symbolic Schur-reduction:
+        # Original mixed operator replaced with "broken"
+        # arguments
+        Atilde = Tensor(replace(context.a, arg_map))
         gammar = TestFunction(TraceSpace)
-        n = FacetNormal(V.mesh())
+        n = FacetNormal(mesh)
 
         # Vector trial function will have a non-empty ufl_shape
-        sigma = next(f for f in TrialFunctions(V_d) if bool(f.ufl_shape))
+        sigma, = (f for f in TrialFunctions(V_d) if f.ufl_shape)
 
         # NOTE: Once extruded is ready, this will change slightly
         # to include both horizontal and vertical interior facets
@@ -127,7 +142,7 @@ class HybridizationPC(PCBase):
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
-        ksp.setOptionsPrefix(prefix + "trace_")
+        ksp.setOptionsPrefix(prefix + "hybridization_")
         ksp.setOperators(Smat)
         ksp.setUp()
         ksp.setFromOptions()
@@ -136,12 +151,12 @@ class HybridizationPC(PCBase):
         # Now we construct the local tensors for the reconstruction stage
         # TODO: Add support for mixed tensors and these variables
         # become unnecessary
-        split_forms = dict(split_form(new_form))
+        split_forms = dict(split_form(Atilde.form))
         A = Tensor(split_forms[(0, 0)])
         B = Tensor(split_forms[(0, 1)])
         C = Tensor(split_forms[(1, 0)])
         D = Tensor(split_forms[(1, 1)])
-        trial = TrialFunction(FunctionSpace(V.mesh(),
+        trial = TrialFunction(FunctionSpace(mesh,
                                             BrokenElement(W.ufl_element())))
         K_local = Tensor(gammar('+') * ufl.dot(trial, n) * ufl.dS)
 
@@ -167,15 +182,23 @@ class HybridizationPC(PCBase):
             tensor=sigma_h,
             form_compiler_parameters=context.fc_params)
 
-        # Set up the projector for projecting the broken solution
-        # into the unbroken finite element spaces
-        # NOTE: Tolerance here matters!
-        sigma_b, _ = self.broken_solution.split()
-        sigma_u, _ = self.unbroken_solution.split()
-        self.projector = Projector(sigma_b,
-                                   sigma_u,
+        # Set up the projectors
+        vector_index = list(V).index(W)
+        broken_vec_data = self.broken_rhs.split()[vector_index]
+        unbroken_vec_data = self.broken_rhs.split()[vector_index]
+        self.data_projector = Projector(unbroken_vec_data,
+                                        broken_vec_data)
+
+        # NOTE: Tolerance is very important here and so we provide
+        # the user a way to specify projector tolerance
+        opts = PETSc.Options()
+        tol = opts.getReal(prefix+'hybridization_projector_tolerance', 1e-8)
+        broken_vel = self.broken_solution.split()[vector_index]
+        unbroken_vel = self.unbroken_solution.split()[vector_index]
+        self.projector = Projector(broken_vel,
+                                   unbroken_vel,
                                    solver_parameters={"ksp_type": "cg",
-                                                      "ksp_rtol": 1e-13})
+                                                      "ksp_rtol": tol})
 
     def update(self, pc):
         """Update by assembling into the operator. No need to
@@ -193,19 +216,20 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-        from firedrake import project
 
         # Transfer non-broken x into a firedrake function
         with self.unbroken_rhs.dat.vec as v:
             x.copy(v)
 
         # Transfer unbroken_rhs into broken_rhs
-        field0, field1 = self.unbroken_rhs.split()
-        bfield0, bfield1 = self.broken_rhs.split()
+        unbroken_scalar_field, = (f for f in self.unbroken_rhs.split()
+                                  if not f.ufl_shape)
+        broken_scalar_field, = (f for f in self.broken_rhs.split()
+                                if not f.ufl_shape)
 
         # This updates broken_rhs
-        project(field0, bfield0)
-        field1.dat.copy(bfield1.dat)
+        self.data_projector.project()
+        unbroken_scalar_field.dat.copy(broken_scalar_field.dat)
 
         # Compute the rhs for the multiplier system
         self._assemble_Srhs()
@@ -221,9 +245,11 @@ class HybridizationPC(PCBase):
         self._assemble_velocity()
 
         # Project the broken solution into non-broken spaces
-        sigma_h, u_h = self.broken_solution.split()
-        sigma_u, u_u = self.unbroken_solution.split()
-        u_h.dat.copy(u_u.dat)
+        broken_pressure, = (p for p in self.broken_solution.split()
+                            if not p.ufl_shape)
+        unbroken_pressure, = (p for p in self.unbroken_solution.split()
+                              if not p.ufl_shape)
+        broken_pressure.dat.copy(unbroken_pressure.dat)
         self.projector.project()
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
@@ -237,7 +263,7 @@ class HybridizationPC(PCBase):
 
     def view(self, pc, viewer=None):
         super(HybridizationPC, self).view(pc, viewer)
-        viewer.printfASCII("Hybridizing mixed system:\n")
+        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
         viewer.pushASCIITab()
         viewer.printfASCII("KSP solver for the multipliers:\n")
         viewer.pushASCIITab()
