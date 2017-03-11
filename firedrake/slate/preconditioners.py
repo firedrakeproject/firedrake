@@ -42,13 +42,13 @@ class HybridizationPC(PCBase):
         # Extract the problem context
         prefix = pc.getOptionsPrefix()
         _, P = pc.getOperators()
-        self.cxt = P.getPythonContext()
+        context = P.getPythonContext()
 
-        assert isinstance(self.cxt, ImplicitMatrixContext), (
+        assert isinstance(context, ImplicitMatrixContext), (
             "The python context must be an ImplicitMatrixContext!"
         )
 
-        test, trial = self.cxt.a.arguments()
+        test, trial = context.a.arguments()
 
         V = test.function_space()
         mesh = V.mesh()
@@ -99,26 +99,26 @@ class HybridizationPC(PCBase):
         # Break the function spaces and define fully discontinuous spaces
         broken_elements = MixedElement([BrokenElement(Vi.ufl_element())
                                         for Vi in V])
-        self.V_d = FunctionSpace(mesh, broken_elements)
+        V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
         # and schur complement systems
-        self.broken_solution = Function(self.V_d)
-        self.broken_rhs = Function(self.V_d)
+        self.broken_solution = Function(V_d)
+        self.broken_rhs = Function(V_d)
         self.trace_solution = Function(TraceSpace)
         self.unbroken_solution = Function(V)
         self.unbroken_rhs = Function(V)
 
-        arg_map = {test: TestFunction(self.V_d),
-                   trial: TrialFunction(self.V_d)}
+        arg_map = {test: TestFunction(V_d),
+                   trial: TrialFunction(V_d)}
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
         # arguments
-        Atilde = Tensor(replace(self.cxt.a, arg_map))
+        Atilde = Tensor(replace(context.a, arg_map))
         gammar = TestFunction(TraceSpace)
         n = FacetNormal(mesh)
-        sigma = TrialFunctions(self.V_d)[self.vidx]
+        sigma = TrialFunctions(V_d)[self.vidx]
 
         # NOTE: Once extruded is ready, this will change slightly
         # to include both horizontal and vertical interior facets
@@ -129,18 +129,18 @@ class HybridizationPC(PCBase):
         self._assemble_Srhs = create_assembly_callable(
             K * Atilde.inv * self.broken_rhs,
             tensor=self.schur_rhs,
-            form_compiler_parameters=self.cxt.fc_params)
+            form_compiler_parameters=context.fc_params)
 
         schur_comp = K * Atilde.inv * K.T
 
         self.S = allocate_matrix(schur_comp,
                                  bcs=trace_conditions,
-                                 form_compiler_parameters=self.cxt.fc_params)
+                                 form_compiler_parameters=context.fc_params)
         self._assemble_S = create_assembly_callable(
             schur_comp,
             tensor=self.S,
             bcs=trace_conditions,
-            form_compiler_parameters=self.cxt.fc_params)
+            form_compiler_parameters=context.fc_params)
 
         self._assemble_S()
         self.S.force_evaluation()
@@ -148,7 +148,7 @@ class HybridizationPC(PCBase):
 
         # Nullspace for the multiplier problem
         nullspace = create_schur_nullspace(P, K * Atilde.inv,
-                                           V, self.V_d, TraceSpace,
+                                           V, V_d, TraceSpace,
                                            pc.comm)
         if nullspace:
             Smat.setNullSpace(nullspace)
@@ -167,7 +167,38 @@ class HybridizationPC(PCBase):
                                             BrokenElement(W.ufl_element())))
         # NOTE: Trace operator will change if mesh is extruded
         K_local = Tensor(gammar('+') * ufl.dot(trial, n) * ufl.dS)
-        self._generate_reconstruction_calls(split_forms, K_local)
+
+        # TODO: When PyOP2 is able to write into mixed dats,
+        # the reconstruction expressions will simplify into
+        # clean expression
+        A = Tensor(split_forms[(self.vidx, self.vidx)])
+        B = Tensor(split_forms[(self.vidx, self.pidx)])
+        C = Tensor(split_forms[(self.pidx, self.vidx)])
+        D = Tensor(split_forms[(self.pidx, self.pidx)])
+
+        # Split functions and reconstruct each bit separately
+        split_rhs = self.broken_rhs.split()
+        split_sols = self.broken_solution.split()
+        f = split_rhs[self.pidx]
+        g = split_rhs[self.vidx]
+        broken_pressure = split_sols[self.pidx]
+        broken_velocity = split_sols[self.vidx]
+
+        M = D - C * A.inv * B
+        pressure_rec = M.inv * f + M.inv * (C * A.inv *
+                                            K_local.T * self.trace_solution
+                                            - C * A.inv * g)
+        self._assemble_pressure = create_assembly_callable(
+            pressure_rec,
+            tensor=broken_pressure,
+            form_compiler_parameters=context.fc_params)
+
+        velocity_rec = A.inv * g - A.inv * (B * broken_pressure +
+                                            K_local.T * self.trace_solution)
+        self._assemble_velocity = create_assembly_callable(
+            velocity_rec,
+            tensor=broken_velocity,
+            form_compiler_parameters=context.fc_params)
 
         # Set up the projectors
         broken_vec_data = self.broken_rhs.split()[self.vidx]
@@ -179,74 +210,11 @@ class HybridizationPC(PCBase):
         # the user a way to specify projector tolerance
         opts = PETSc.Options()
         tol = opts.getReal(prefix + "hybridization_projector_tolerance", 1e-8)
-        broken_vel = self.broken_solution.split()[self.vidx]
-        unbroken_vel = self.unbroken_solution.split()[self.vidx]
-        self.projector = Projector(broken_vel,
-                                   unbroken_vel,
+        unbroken_velocity = self.unbroken_solution.split()[self.vidx]
+        self.projector = Projector(broken_velocity,
+                                   unbroken_velocity,
                                    solver_parameters={"ksp_type": "cg",
                                                       "ksp_rtol": tol})
-
-    def _generate_reconstruction_calls(self, split_operator, trace_op):
-        """Generate the reconstruction expression in Slate to recover
-        velocity and pressure. Velocity is eliminated first and pressure
-        is recovered first. Velocity is then recovered.
-
-        :arg split_operator: A ``dict`` of split forms that make up the
-                             broken operator.
-        :arg trace_op: A Slate tensor that captures the multiplier
-                       contributions.
-        """
-        from firedrake.assemble import create_assembly_callable
-
-        # TODO: When PyOP2 is able to write into mixed dats,
-        # the reconstruction expressions will simplify into
-        # clean expression
-        A = Tensor(split_operator[(0, 0)])
-        B = Tensor(split_operator[(0, 1)])
-        C = Tensor(split_operator[(1, 0)])
-        D = Tensor(split_operator[(1, 1)])
-
-        # Split functions and reconstruct each bit separately
-        g, f = self.broken_rhs.split()
-        split_sols = self.broken_solution.split()
-        scalar_sol = split_sols[self.pidx]
-        vector_sol = split_sols[self.vidx]
-
-        # If the space is of the form (P, V):
-        if self.vidx > self.pidx:
-            M = A - B * D.inv * C
-            scalar_rec = M.inv * g + M.inv * (B * D.inv *
-                                              trace_op.T * self.trace_solution
-                                              - B * D.inv * f)
-            self._assemble_pressure = create_assembly_callable(
-                scalar_rec,
-                tensor=scalar_sol,
-                form_compiler_parameters=self.cxt.fc_params)
-
-            vector_rec = D.inv * f - D.inv * (C * scalar_sol +
-                                              trace_op.T * self.trace_solution)
-            self._assemble_velocity = create_assembly_callable(
-                vector_rec,
-                tensor=vector_sol,
-                form_compiler_parameters=self.cxt.fc_params)
-
-        # Otherwise, we have (V, P):
-        else:
-            M = D - C * A.inv * B
-            scalar_rec = M.inv * f + M.inv * (C * A.inv *
-                                              trace_op.T * self.trace_solution
-                                              - C * A.inv * g)
-            self._assemble_pressure = create_assembly_callable(
-                scalar_rec,
-                tensor=scalar_sol,
-                form_compiler_parameters=self.cxt.fc_params)
-
-            vector_rec = A.inv * g - A.inv * (B * scalar_sol +
-                                              trace_op.T * self.trace_solution)
-            self._assemble_velocity = create_assembly_callable(
-                vector_rec,
-                tensor=vector_sol,
-                form_compiler_parameters=self.cxt.fc_params)
 
     def update(self, pc):
         """Update by assembling into the operator. No need to
