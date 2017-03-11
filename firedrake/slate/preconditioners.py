@@ -68,7 +68,7 @@ class HybridizationPC(PCBase):
         if W.ufl_element().family() == "Raviart-Thomas":
             tdegree = W.ufl_element().degree() - 1
 
-        elif W.ufl_element().family() == "BDM":
+        elif W.ufl_element().family() == "Brezzi-Douglas-Marini":
             tdegree = W.ufl_element().degree()
 
         else:
