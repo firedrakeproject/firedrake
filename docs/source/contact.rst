@@ -18,8 +18,7 @@ Issues and feature requests
 
 The best place to submit bug reports or feature requests is on the
 `github project page <github_>`_.  We're happy to accept third-party
-contributions to Firedrake, but please read our `contributing
-guidelines <contributing_>`_.
+contributions to Firedrake.
 
 Slack |slack-badge|
 -------------------
@@ -42,6 +41,5 @@ is enabled for this channel, so you can connect via IRC if you wish
 after signing up.
 
 
-.. _github: http://github.com/firedrakeproject/firedrake
-.. _contributing: https://github.com/firedrakeproject/firedrake/blob/master/CONTRIBUTING.md
+.. _github: https://github.com/firedrakeproject/firedrake
 .. _mailing_list: https://mailman.ic.ac.uk/mailman/listinfo/firedrake

@@ -36,29 +36,20 @@ Key Dates
 * Workshop: 27-28 March 2017
 
 
-Call for submissions
---------------------
+Programme
+---------
 
-We invite contributions in oral or poster form from Firedrake users
-and developers on any aspect of Firedrake and its
-application. Contributions might cover new classes of problems tackled
-with Firedrake, new discretisations made available, new features of
-the compilation pipeline or new technology at the linear and nonlinear
-solver stage.
- 
-Please consider how your contribution could help other users achieve
+The programme is `now online <http://easychair.org/smart-program/Firedrake'17/>`_.
+
+Presenters are invited to consider how their contribution could help other users achieve
 more with Firedrake, and also how Firedrake could be developed to
-further facilitate your science goals.
-
-Abstracts can be submitted online `here <https://easychair.org/conferences/?conf=firedrake17>`_.
+further facilitate their science goals.
 
 
 Workshop dinner
 ~~~~~~~~~~~~~~~
 
-A workshop dinner will be held on the evening of 27 March. Further
-details will follow soon.
-
+The workshop dinner will be held at `the Pepys <http://www.thepepys.co.uk/>`_ on Monday 27 March.
 
 Location
 ~~~~~~~~

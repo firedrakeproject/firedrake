@@ -9,8 +9,8 @@
 
 The :doc:`Firedrake project <index>` is proud to host the 2015 FEniCS
 Workshop. The workshop is an opportunity for all those interested the
-`FEniCS Project <http://fenicsproject.org>`_, and related projects such
-as `dolfin-adjoint <http://dolfin-adjoint.org>`_ and :doc:`Firedrake
+`FEniCS Project <https://fenicsproject.org>`_, and related projects such
+as `dolfin-adjoint <http://www.dolfin-adjoint.org>`_ and :doc:`Firedrake
 <index>`, to exchange ideas, communicate their results and network with
 the automated finite element community.
 
@@ -26,7 +26,7 @@ Programme
 * **Keynote lecture:** `Dr Jennifer Ryan <https://www.uea.ac.uk/mathematics/people/profile/jennifer-ryan>`_, University of East Anglia.
 * **Public lecture:** `Prof. Anders Logg <http://www.math.chalmers.se/~logg/>`_, Chalmers University.
 * **Featured talks:**
-   * `Dr Jack Hale <http://wwwen.uni.lu/recherche/fstc/research_unit_in_engineering_science_rues/members/jack_hale>`_ University of Luxembourg.
+   * `Dr Jack Hale <http://wwwfr.uni.lu/recherche/fstc/research_unit_in_engineering_sciences_rues/members/jack_hale>`_ University of Luxembourg.
    * `Dr Marie Rognes <http://www.simula.no/people/meg>`_ Simula Research Laboratory.
    * `Dr Lawrence Mitchell <http://www.imperial.ac.uk/people/lawrence.mitchell>`_ Imperial College London.
 
@@ -76,9 +76,9 @@ Accommodation
 -------------
 
 For those looking for affordable accommodation right on campus, `Imperial College's
-halls of residence <http://www3.imperial.ac.uk/summeraccommodation>`_
+halls of residence <http://www.imperial.ac.uk/visit/summer-accommodation/>`_
 are available to summer visitors starting on 29 June. Alternatively,
-you can make use of `Imperial's rates at nearby hotels <http://www3.imperial.ac.uk/conferenceandevents/accommodation/hotelaccommodation>`_.
+you can make use of `Imperial's rates at nearby hotels <http://www.imperial.ac.uk/visitors-accommodation/local-hotels/>`_.
 
 
 Scientific committee
