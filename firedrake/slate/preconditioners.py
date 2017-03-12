@@ -62,7 +62,7 @@ class HybridizationPC(PCBase):
             "Can only hybridize a mixed system with two spaces."
         )
 
-        # TODO: Future update to include more general spaces?
+        # TODO: Future update to include more general spaces
         if all(Vi.ufl_element().value_shape() for Vi in V):
             raise ValueError(
                 "Expecting an H(div) x L2 pair of spaces. "
@@ -94,9 +94,11 @@ class HybridizationPC(PCBase):
 
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
+        # We zero out the contribution of the trace variables on the exterior
+        # boundary.
         # NOTE: For extruded, we will need to add "on_top" and "on_bottom"
-        trace_conditions = [DirichletBC(TraceSpace, Constant(0.0),
-                                        "on_boundary")]
+        zero_trace_condition = [DirichletBC(TraceSpace, Constant(0.0),
+                                            "on_boundary")]
 
         # Break the function spaces and define fully discontinuous spaces
         broken_elements = MixedElement([BrokenElement(Vi.ufl_element())
@@ -111,12 +113,11 @@ class HybridizationPC(PCBase):
         self.unbroken_solution = Function(V)
         self.unbroken_rhs = Function(V)
 
-        arg_map = {test: TestFunction(V_d),
-                   trial: TrialFunction(V_d)}
-
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
         # arguments
+        arg_map = {test: TestFunction(V_d),
+                   trial: TrialFunction(V_d)}
         Atilde = Tensor(replace(context.a, arg_map))
         gammar = TestFunction(TraceSpace)
         n = FacetNormal(mesh)
@@ -136,12 +137,12 @@ class HybridizationPC(PCBase):
         schur_comp = K * Atilde.inv * K.T
 
         self.S = allocate_matrix(schur_comp,
-                                 bcs=trace_conditions,
+                                 bcs=zero_trace_condition,
                                  form_compiler_parameters=context.fc_params)
         self._assemble_S = create_assembly_callable(
             schur_comp,
             tensor=self.S,
-            bcs=trace_conditions,
+            bcs=zero_trace_condition,
             form_compiler_parameters=context.fc_params)
 
         self._assemble_S()
@@ -164,27 +165,25 @@ class HybridizationPC(PCBase):
         self.ksp = ksp
 
         # Now we construct the reconstruction calls
-        split_forms = dict(split_form(Atilde.form))
-        trial = TrialFunction(FunctionSpace(mesh,
-                                            BrokenElement(W.ufl_element())))
-        # NOTE: Trace operator will change if mesh is extruded
-        K_local = Tensor(gammar('+') * ufl.dot(trial, n) * ufl.dS)
+        split_mixed_op = dict(split_form(Atilde.form))
+        split_trace_op = dict(split_form(K.form))
 
         # TODO: When PyOP2 is able to write into mixed dats,
         # the reconstruction expressions will simplify into
-        # clean expression
-        A = Tensor(split_forms[(self.vidx, self.vidx)])
-        B = Tensor(split_forms[(self.vidx, self.pidx)])
-        C = Tensor(split_forms[(self.pidx, self.vidx)])
-        D = Tensor(split_forms[(self.pidx, self.pidx)])
+        # one clean expression
+        A = Tensor(split_mixed_op[(self.vidx, self.vidx)])
+        B = Tensor(split_mixed_op[(self.vidx, self.pidx)])
+        C = Tensor(split_mixed_op[(self.pidx, self.vidx)])
+        D = Tensor(split_mixed_op[(self.pidx, self.pidx)])
+        K_local = Tensor(split_trace_op[(0, self.vidx)])
 
         # Split functions and reconstruct each bit separately
         split_rhs = self.broken_rhs.split()
-        split_sols = self.broken_solution.split()
+        split_sol = self.broken_solution.split()
         f = split_rhs[self.pidx]
         g = split_rhs[self.vidx]
-        broken_pressure = split_sols[self.pidx]
-        broken_velocity = split_sols[self.vidx]
+        broken_pressure = split_sol[self.pidx]
+        broken_velocity = split_sol[self.vidx]
 
         M = D - C * A.inv * B
         pressure_rec = M.inv * f + M.inv * (C * A.inv *
@@ -203,18 +202,15 @@ class HybridizationPC(PCBase):
             form_compiler_parameters=context.fc_params)
 
         # Set up the projectors
-        broken_vec_data = self.broken_rhs.split()[self.vidx]
-        unbroken_vec_data = self.broken_rhs.split()[self.vidx]
-        self.data_projector = Projector(unbroken_vec_data,
-                                        broken_vec_data)
+        self.data_projector = Projector(self.unbroken_rhs.split()[self.vidx],
+                                        self.broken_rhs.split()[self.vidx])
 
         # NOTE: Tolerance is very important here and so we provide
         # the user a way to specify projector tolerance
         opts = PETSc.Options()
         tol = opts.getReal(prefix + "hybridization_projector_tolerance", 1e-8)
-        unbroken_velocity = self.unbroken_solution.split()[self.vidx]
         self.projector = Projector(broken_velocity,
-                                   unbroken_velocity,
+                                   self.unbroken_solution.split()[self.vidx],
                                    solver_parameters={"ksp_type": "cg",
                                                       "ksp_rtol": tol})
 
@@ -234,16 +230,14 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-
-        # Transfer non-broken x into a firedrake function
         with self.unbroken_rhs.dat.vec as v:
             x.copy(v)
 
         # Transfer unbroken_rhs into broken_rhs
-        unbroken_scalar_field = self.unbroken_rhs.split()[self.pidx]
-        broken_scalar_field = self.broken_rhs.split()[self.pidx]
+        unbroken_scalar_data = self.unbroken_rhs.split()[self.pidx]
+        broken_scalar_data = self.broken_rhs.split()[self.pidx]
         self.data_projector.project()
-        unbroken_scalar_field.dat.copy(broken_scalar_field.dat)
+        unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
         # Compute the rhs for the multiplier system
         self._assemble_Srhs()
