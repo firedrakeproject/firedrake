@@ -17,7 +17,9 @@ __all__ = ['HybridizationPC']
 
 class HybridizationPC(PCBase):
     """A Slate-based python preconditioner that solves a
-    mixed saddle-point problem using hybridization.
+    mixed H(div)-conforming problem using hybridization.
+    Currently, this preconditioner supports the hybridization
+    of the RT and BDM mixed methods of arbitrary degree.
 
     The forward eliminations and backwards reconstructions
     are performed element-local using the Slate language.
