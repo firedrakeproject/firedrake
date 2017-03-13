@@ -1,9 +1,12 @@
 from __future__ import absolute_import, print_function, division
+from six.moves import range, zip
 
 import numpy
 import collections
+import operator
+from functools import reduce
 
-from ufl import as_vector
+from ufl import as_vector, dx
 from ufl.classes import Zero, Indexed, MultiIndex, FixedIndex, ListTensor
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl.corealg.map_dag import MultiFunction
@@ -39,6 +42,16 @@ class ExtractSubBlock(MultiFunction):
             return form
         f = map_integrand_dags(self, form)
         return f
+
+    def safe_split(self, form, argument_indices):
+        """Split a form with no loss of rank."""
+        subform = self.split(form, argument_indices)
+        zero_form = create_zero_form(form.arguments(), argument_indices)
+        if subform.arguments() != zero_form.arguments():
+            assert len(subform.integrals()) == 0
+            return zero_form
+        else:
+            return subform
 
     expr = MultiFunction.reuse_if_untouched
 
@@ -154,3 +167,31 @@ def split_form(form):
         if len(f.integrals()) > 0:
             forms.append(SplitForm(indices=idx, form=f))
     return tuple(forms)
+
+
+def create_zero_form(arguments, argument_indices):
+    from firedrake import MixedFunctionSpace, FunctionSpace
+    zeros = []
+    for o, indices in zip(arguments, argument_indices):
+        V = o.function_space()
+        V_is = V.split()
+
+        try:
+            indices = tuple(indices)
+            nidx = len(indices)
+        except TypeError:
+            # Only one index provided.
+            indices = (indices,)
+            nidx = 1
+
+        if nidx == 1:
+            W = V_is[indices[0]]
+            W = FunctionSpace(W.mesh(), W.ufl_element())
+        else:
+            W = MixedFunctionSpace([V_is[i] for i in indices])
+        a = Argument(W, o.number(), part=o.part())
+
+        scalar = a[next(numpy.ndindex(a.ufl_shape))]
+        zero = Indexed(as_vector([0, scalar]), MultiIndex((FixedIndex(0),)))
+        zeros.append(zero)
+    return reduce(operator.mul, zeros)*dx

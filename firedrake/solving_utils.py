@@ -299,8 +299,8 @@ class _SNESContext(object):
             except TypeError:
                 # Just a single field, we can handle that
                 pass
-            F = splitter.split(problem.F, argument_indices=(field, ))
-            J = splitter.split(problem.J, argument_indices=(field, field))
+            F = splitter.safe_split(problem.F, argument_indices=(field, ))
+            J = splitter.safe_split(problem.J, argument_indices=(field, field))
             us = problem.u.split()
             subu = us[field]
             vec = []
@@ -311,7 +311,7 @@ class _SNESContext(object):
             F = replace(F, {problem.u: u})
             J = replace(J, {problem.u: u})
             if problem.Jp is not None:
-                Jp = splitter.split(problem.Jp, argument_indices=(field, field))
+                Jp = splitter.safe_split(problem.Jp, argument_indices=(field, field))
                 Jp = replace(Jp, {problem.u: u})
             else:
                 Jp = None

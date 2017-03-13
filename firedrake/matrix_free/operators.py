@@ -232,8 +232,8 @@ class ImplicitMatrixContext(object):
         else:
             col_inds = find_sub_block(col_is, col_ises)
 
-        asub = ExtractSubBlock().split(self.a,
-                                       argument_indices=(row_inds, col_inds))
+        asub = ExtractSubBlock().safe_split(self.a,
+                                            argument_indices=(row_inds, col_inds))
         Wrow = asub.arguments()[0].function_space()
         Wcol = asub.arguments()[1].function_space()
 
