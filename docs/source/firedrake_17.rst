@@ -61,9 +61,13 @@ Kensington Campus. Further details will follow soon.
 Registration
 ------------
 
+Registration for the main Firedrake '17 workshop is now closed as we
+are full. There are still a few places available for the tutorial on
+the Monday morning. For this, please register below.
+
 .. raw:: html
    
-   <div style="width:100%; text-align:left;"><iframe src="https://eventbrite.co.uk/tickets-external?eid=30454608554&ref=etckt" frameborder="0" height="800" width="100%" vspace="0" hspace="0" marginheight="5" marginwidth="5" scrolling="auto" allowtransparency="true"></iframe><div style="padding:10px 0 5px; margin:2px; width:100%; text-align:left;" ><a class="powered-by-eb" style="color: #ADB0B6; text-decoration: none;" target="_blank" href="http://www.eventbrite.co.uk/">Powered by Eventbrite</a></div></div>
+   <div style="width:100%; text-align:left;"><iframe src="https://eventbrite.co.uk/tickets-external?eid=30454608554&ref=etckt" frameborder="0" height="320" width="100%" vspace="0" hspace="0" marginheight="5" marginwidth="5" scrolling="auto" allowtransparency="true"></iframe><div style="padding:10px 0 5px; margin:2px; width:100%; text-align:left;" ><a class="powered-by-eb" style="color: #ADB0B6; text-decoration: none;" target="_blank" href="http://www.eventbrite.co.uk/">Powered by Eventbrite</a></div></div>
 
 
 Further details
