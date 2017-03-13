@@ -58,6 +58,7 @@ def test_slate_hybridization(degree):
           solver_parameters={'mat_type': 'matfree',
                              'pc_type': 'python',
                              'pc_python_type': 'firedrake.HybridizationPC',
+                             'hybridization_fieldsplit_schur_fact_type': 'lower',
                              'hybridization_ksp_rtol': 1e-8,
                              'hybridization_pc_type': 'lu',
                              'hybridization_ksp_type': 'preonly',

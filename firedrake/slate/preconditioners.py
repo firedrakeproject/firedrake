@@ -31,26 +31,24 @@ class HybridizationPC(PCBase):
 
         A KSP is created for the Lagrange multiplier system.
         """
-        from ufl.algorithms.replace import replace
-        from firedrake import (FunctionSpace, TrialFunction,
-                               TrialFunctions, TestFunction, Function,
-                               BrokenElement, MixedElement,
-                               FacetNormal, Constant, DirichletBC,
-                               Projector)
+        from firedrake import (FunctionSpace, Function, Constant,
+                               TrialFunction, TrialFunctions, TestFunction,
+                               DirichletBC, Projector)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from firedrake.formmanipulation import split_form
+        from ufl.algorithms.replace import replace
 
         # Extract the problem context
-        prefix = pc.getOptionsPrefix()
+        prefix = pc.getOptionsPrefix() + "hybridization_"
         _, P = pc.getOperators()
-        context = P.getPythonContext()
+        self.cxt = P.getPythonContext()
 
-        assert isinstance(context, ImplicitMatrixContext), (
+        assert isinstance(self.cxt, ImplicitMatrixContext), (
             "The python context must be an ImplicitMatrixContext!"
         )
 
-        test, trial = context.a.arguments()
+        test, trial = self.cxt.a.arguments()
 
         V = test.function_space()
         mesh = V.mesh()
@@ -101,8 +99,8 @@ class HybridizationPC(PCBase):
                                             "on_boundary")]
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = MixedElement([BrokenElement(Vi.ufl_element())
-                                        for Vi in V])
+        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element())
+                                            for Vi in V])
         V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
@@ -118,9 +116,9 @@ class HybridizationPC(PCBase):
         # arguments
         arg_map = {test: TestFunction(V_d),
                    trial: TrialFunction(V_d)}
-        Atilde = Tensor(replace(context.a, arg_map))
+        Atilde = Tensor(replace(self.cxt.a, arg_map))
         gammar = TestFunction(TraceSpace)
-        n = FacetNormal(mesh)
+        n = ufl.FacetNormal(mesh)
         sigma = TrialFunctions(V_d)[self.vidx]
 
         # NOTE: Once extruded is ready, this will change slightly
@@ -132,18 +130,18 @@ class HybridizationPC(PCBase):
         self._assemble_Srhs = create_assembly_callable(
             K * Atilde.inv * self.broken_rhs,
             tensor=self.schur_rhs,
-            form_compiler_parameters=context.fc_params)
+            form_compiler_parameters=self.cxt.fc_params)
 
         schur_comp = K * Atilde.inv * K.T
 
         self.S = allocate_matrix(schur_comp,
                                  bcs=zero_trace_condition,
-                                 form_compiler_parameters=context.fc_params)
+                                 form_compiler_parameters=self.cxt.fc_params)
         self._assemble_S = create_assembly_callable(
             schur_comp,
             tensor=self.S,
             bcs=zero_trace_condition,
-            form_compiler_parameters=context.fc_params)
+            form_compiler_parameters=self.cxt.fc_params)
 
         self._assemble_S()
         self.S.force_evaluation()
@@ -158,48 +156,20 @@ class HybridizationPC(PCBase):
 
         # Set up the KSP for the system of Lagrange multipliers
         ksp = PETSc.KSP().create(comm=pc.comm)
-        ksp.setOptionsPrefix(prefix + "hybridization_")
+        ksp.setOptionsPrefix(prefix)
         ksp.setOperators(Smat)
         ksp.setUp()
         ksp.setFromOptions()
         self.ksp = ksp
 
-        # Now we construct the reconstruction calls
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
+        opts = PETSc.Options()
+        fact_type = opts.getString(prefix + "fieldsplit_schur_fact_type",
+                                   "default")
 
-        # TODO: When PyOP2 is able to write into mixed dats,
-        # the reconstruction expressions will simplify into
-        # one clean expression
-        A = Tensor(split_mixed_op[(self.vidx, self.vidx)])
-        B = Tensor(split_mixed_op[(self.vidx, self.pidx)])
-        C = Tensor(split_mixed_op[(self.pidx, self.vidx)])
-        D = Tensor(split_mixed_op[(self.pidx, self.pidx)])
-        K_local = Tensor(split_trace_op[(0, self.vidx)])
-
-        # Split functions and reconstruct each bit separately
-        split_rhs = self.broken_rhs.split()
-        split_sol = self.broken_solution.split()
-        f = split_rhs[self.pidx]
-        g = split_rhs[self.vidx]
-        broken_pressure = split_sol[self.pidx]
-        broken_velocity = split_sol[self.vidx]
-
-        M = D - C * A.inv * B
-        pressure_rec = M.inv * f + M.inv * (C * A.inv *
-                                            K_local.T * self.trace_solution
-                                            - C * A.inv * g)
-        self._assemble_pressure = create_assembly_callable(
-            pressure_rec,
-            tensor=broken_pressure,
-            form_compiler_parameters=context.fc_params)
-
-        velocity_rec = A.inv * g - A.inv * (B * broken_pressure +
-                                            K_local.T * self.trace_solution)
-        self._assemble_velocity = create_assembly_callable(
-            velocity_rec,
-            tensor=broken_velocity,
-            form_compiler_parameters=context.fc_params)
+        # Generate reconstruction calls
+        self._reconstruction_calls(split_mixed_op, split_trace_op, fact_type)
 
         # Set up the projectors
         self.data_projector = Projector(self.unbroken_rhs.split()[self.vidx],
@@ -207,12 +177,96 @@ class HybridizationPC(PCBase):
 
         # NOTE: Tolerance is very important here and so we provide
         # the user a way to specify projector tolerance
-        opts = PETSc.Options()
-        tol = opts.getReal(prefix + "hybridization_projector_tolerance", 1e-8)
-        self.projector = Projector(broken_velocity,
+        tol = opts.getReal(prefix + "projector_tolerance", 1e-8)
+        self.projector = Projector(self.broken_solution.split()[self.vidx],
                                    self.unbroken_solution.split()[self.vidx],
                                    solver_parameters={"ksp_type": "cg",
                                                       "ksp_rtol": tol})
+
+    def _reconstruction_calls(self, split_mixed_op, split_trace_op, fact_type):
+        """This generates the reconstruction calls for the unknowns using the
+        Lagrange multipliers.
+
+        :arg split_mixed_op: a ``dict`` of split forms that make up the broken
+                             mixed operator from the original problem.
+        :arg split_trace_op: a ``dict`` of split forms that make up the trace
+                             contribution in the hybridized mixed system.
+        :arg fact_type: a string denoting the order in which we eliminate
+                        unknowns to generate the reconstruction expressions.
+
+                        For example, "lower" will perform a lower Schur
+                        complement on the broken mixed operator, which
+                        eliminates the first unknown to generate an
+                        expression for the second one.
+
+                        If "upper", we perform an upper Schur complement which
+                        eliminates the second unknown to arrive at solvable
+                        expression for the first.
+
+                        If the user does not specify an elimination order,
+                        the defaulted behavior ("default") will eliminate
+                        velocity first.
+        """
+        from firedrake.assemble import create_assembly_callable
+
+        # NOTE: By construction of the matrix system, changing
+        # from lower to upper eliminations requires only a simple
+        # change in indices
+        if fact_type == "default":
+            id0, id1 = (self.vidx, self.pidx)
+        elif fact_type == "lower":
+            id0, id1 = (0, 1)
+        elif fact_type == "upper":
+            id0, id1 = (1, 0)
+        else:
+            raise ValueError(
+                "%s not a recognized schur-fact type for this PC"
+                % fact_type
+            )
+
+        # TODO: When PyOP2 is able to write into mixed dats,
+        # the reconstruction expressions can simplify into
+        # one clean expression.
+        A = Tensor(split_mixed_op[(id0, id0)])
+        B = Tensor(split_mixed_op[(id0, id1)])
+        C = Tensor(split_mixed_op[(id1, id0)])
+        D = Tensor(split_mixed_op[(id1, id1)])
+        K_0 = Tensor(split_trace_op[(0, id0)])
+        K_1 = Tensor(split_trace_op[(0, id1)])
+
+        # Split functions and reconstruct each bit separately
+        split_rhs = self.broken_rhs.split()
+        split_sol = self.broken_solution.split()
+        g = split_rhs[id0]
+        f = split_rhs[id1]
+        sigma = split_sol[id0]
+        u = split_sol[id1]
+        lambdar = self.trace_solution
+
+        M = D - C * A.inv * B
+        R = K_1.T - C * A.inv * K_0.T
+        u_rec = M.inv * f - M.inv * (R * lambdar + C * A.inv * g)
+        self._assemble_sub_unknown = create_assembly_callable(
+            u_rec,
+            tensor=u,
+            form_compiler_parameters=self.cxt.fc_params)
+
+        sigma_rec = A.inv * g - A.inv * (B * u + K_0.T * lambdar)
+        self._assemble_elim_unknown = create_assembly_callable(
+            sigma_rec,
+            tensor=sigma,
+            form_compiler_parameters=self.cxt.fc_params)
+
+    def _reconstruct(self):
+        """Reconstructs the system unknowns using the multipliers.
+        Note that the reconstruction calls are assumed to be
+        initialized at this point.
+        """
+        # We assemble the unknown which is an expression
+        # of the first eliminated variable.
+        self._assemble_sub_unknown()
+        # Recover the eliminated unknown
+        self._assemble_elim_unknown()
 
     def update(self, pc):
         """Update by assembling into the operator. No need to
@@ -247,9 +301,8 @@ class HybridizationPC(PCBase):
             with self.trace_solution.dat.vec as x:
                 self.ksp.solve(b, x)
 
-        # Reconstruct the pressure and velocity (in that order)
-        self._assemble_pressure()
-        self._assemble_velocity()
+        # Reconstruct the unknowns
+        self._reconstruct()
 
         # Project the broken solution into non-broken spaces
         broken_pressure = self.broken_solution.split()[self.pidx]
@@ -290,7 +343,7 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
 
     Returns: A nullspace (if there is one) for the Schur-complement system.
     """
-    from firedrake import project, assemble, Function
+    from firedrake import assemble, Function, project
 
     nullspace = P.getNullSpace()
     if nullspace.handle == 0:
