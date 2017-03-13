@@ -242,7 +242,6 @@ class Tensor(TensorBase):
     """
 
     operands = ()
-    prec = None
 
     def __init__(self, form):
         """Constructor for the Tensor class."""
@@ -613,6 +612,7 @@ class Action(TensorOp):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
+    [Tensor],
     [UnaryOp],
     [Add, Sub],
     [Mul, Action]
