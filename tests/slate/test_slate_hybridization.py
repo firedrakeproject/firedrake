@@ -2,28 +2,23 @@
 
 sigma + grad(u) = 0,
 u + div(sigma) = f,
+u = 42 on the exterior boundary,
 
 using hybridisation with SLATE performing the forward elimination and
-backwards reconstructions. The corresponding finite element variational
-problem is:
+backwards reconstructions. The finite element variational problem is:
 
-dot(sigma, tau)*dx - u*div(tau)*dx + lambdar*dot(tau, n)*dS = 0
-div(sigma)*v*dx + u*v*dx = f*v*dx
-gammar*dot(sigma, n)*dS = 0
+(sigma, tau) - (u, div(tau)) = -<42*tau, n>
+(div(sigma), v) + (u, v) = (f, v)
 
-for all tau, v, and gammar.
+for all tau and v. The forcing function is chosen as:
 
-This is solved using broken Raviart-Thomas elements of degree k for
-(sigma, tau), discontinuous Galerkin elements of degree k - 1
-for (u, v), and HDiv-Trace elements of degree k - 1 for (lambdar, gammar).
+(1+8*pi*pi)*sin(x*pi*2)*sin(y*pi*2),
 
-The forcing function is chosen as:
+and the strong boundary condition along the boundary is:
 
-(1+8*pi*pi)*sin(x[0]*pi*2)*sin(x[1]*pi*2),
+u = 42
 
-which reproduces the known analytical solution:
-
-sin(x[0]*pi*2)*sin(x[1]*pi*2)
+which appears in the variational form as the term: -<42*tau, n>
 """
 
 from __future__ import absolute_import, print_function, division
@@ -41,6 +36,7 @@ def test_slate_hybridization(degree):
     W = RT * DG
     sigma, u = TrialFunctions(W)
     tau, v = TestFunctions(W)
+    n = FacetNormal(mesh)
 
     # Define the source function
     f = Function(DG)
@@ -49,7 +45,7 @@ def test_slate_hybridization(degree):
 
     # Define the variational forms
     a = (dot(sigma, tau) - div(tau) * u + u * v + v * div(sigma)) * dx
-    L = f * v * dx
+    L = f * v * dx - 42 * dot(tau, n)*ds
 
     # Compare hybridized solution with non-hybridized
     # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
