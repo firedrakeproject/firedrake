@@ -612,6 +612,7 @@ class Action(TensorOp):
 
 # Establishes levels of precedence for Slate tensors
 precedences = [
+    [Tensor],
     [UnaryOp],
     [Add, Sub],
     [Mul, Action]

@@ -15,7 +15,8 @@ def test_facet_interior(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
 
-    f = project(Expression(("x[0]", "x[1]")), DG)
+    x, y = SpatialCoordinate(mesh)
+    f = project(as_vector([x, y]), DG)
 
     form = dot(f[0]*f[1]*u, n)*dS
 
@@ -30,7 +31,8 @@ def test_facet_exterior(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
 
-    f = project(Expression(("x[0]", "x[1]")), DG)
+    x, y = SpatialCoordinate(mesh)
+    f = project(as_vector([x, y]), DG)
 
     form = dot(f[0]*f[1]*u, n)*ds
 
