@@ -172,8 +172,12 @@ class HybridizationPC(PCBase):
         self._reconstruction_calls(split_mixed_op, split_trace_op, fact_type)
 
         # Set up the projectors
+        data_params = {"ksp_type": "preonly",
+                       "pc_type": "bjacobi",
+                       "sub_pc_type": "ilu"}
         self.data_projector = Projector(self.unbroken_rhs.split()[self.vidx],
-                                        self.broken_rhs.split()[self.vidx])
+                                        self.broken_rhs.split()[self.vidx],
+                                        solver_parameters=data_params)
 
         # NOTE: Tolerance is very important here and so we provide
         # the user a way to specify projector tolerance
