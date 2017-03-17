@@ -292,7 +292,7 @@ def plot(function_or_mesh,
             # mesh coordinates
             coords = function.ufl_domain().coordinates.dat.data_ro
             X, Y = coords.T
-            vals = np.asarray(function.at(coords))
+            vals = np.asarray(function.at(coords, tolerance=1e-10))
             C = np.linalg.norm(vals, axis=1)
             U, V = vals.T
             if axes is None:
