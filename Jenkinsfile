@@ -29,12 +29,12 @@ pipeline {
       steps {
         dir('tmp') {
           timestamps {
-            sh """
+            sh '''
 . ./firedrake/bin/activate
 python ${VIRTUAL_ENV}/bin/firedrake-clean
 python ${VIRTUAL_ENV}/bin/pip install pytest-cov pytest-xdist
 cd firedrake/src/firedrake; python ${VIRTUAL_ENV}/bin/py.test --cov firedrake --short -v ${TEST_FILES}
-"""
+'''
           }
         }
       }
@@ -43,10 +43,10 @@ cd firedrake/src/firedrake; python ${VIRTUAL_ENV}/bin/py.test --cov firedrake --
       steps {
         dir('tmp') {
           timestamps {
-            sh """
+            sh '''
 . ./firedrake/bin/activate
 cd firedrake/src/dolfin-adjoint; python ${VIRTUAL_ENV}/bin/py.test -v tests_firedrake
-"""
+'''
           }
         }
       }
