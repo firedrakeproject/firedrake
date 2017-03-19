@@ -31,9 +31,9 @@ pipeline {
           timestamps {
             sh """
 . ./firedrake/bin/activate
-firedrake-clean
-pip install pytest-cov pytest-xdist
-cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
+python firedrake-clean
+python pip install pytest-cov pytest-xdist
+cd firedrake/src/firedrake; python py.test --cov firedrake --short -v ${TEST_FILES}
 """
           }
         }
@@ -45,7 +45,7 @@ cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
           timestamps {
             sh """
 . ./firedrake/bin/activate
-cd firedrake/src/dolfin-adjoint; py.test -v tests_firedrake
+cd firedrake/src/dolfin-adjoint; python py.test -v tests_firedrake
 """
           }
         }
