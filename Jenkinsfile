@@ -32,6 +32,8 @@ pipeline {
           timestamps {
             sh '''
 . ./firedrake/bin/activate
+export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
+export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
 firedrake-clean
 pip install pytest-cov pytest-xdist
 cd firedrake/src/firedrake; py.test -n 4 --cov firedrake --short -v tests
@@ -46,6 +48,8 @@ cd firedrake/src/firedrake; py.test -n 4 --cov firedrake --short -v tests
           timestamps {
             sh '''
 . ./firedrake/bin/activate
+export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
+export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
 cd firedrake/src/dolfin-adjoint; py.test -n 4 -v tests_firedrake
 '''
           }
