@@ -34,7 +34,7 @@ pipeline {
 . ./firedrake/bin/activate
 firedrake-clean
 pip install pytest-cov pytest-xdist
-cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
+cd firedrake/src/firedrake; py.test -n 4 --cov firedrake --short -v tests
 '''
           }
         }
@@ -46,7 +46,7 @@ cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-cd firedrake/src/dolfin-adjoint; py.test -v tests_firedrake
+cd firedrake/src/dolfin-adjoint; py.test -n 4 -v tests_firedrake
 '''
           }
         }
