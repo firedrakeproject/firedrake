@@ -21,6 +21,7 @@ pipeline {
           timestamps {
             sh 'pip install virtualenv'
             sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
+            sh '$HOME/.local/bin/virtualenv --relocatable firedrake'
           }
         }
       }
@@ -31,9 +32,9 @@ pipeline {
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-python ${VIRTUAL_ENV}/bin/firedrake-clean
-python ${VIRTUAL_ENV}/bin/pip install pytest-cov pytest-xdist
-cd firedrake/src/firedrake; python ${VIRTUAL_ENV}/bin/py.test --cov firedrake --short -v ${TEST_FILES}
+firedrake-clean
+pip install pytest-cov pytest-xdist
+cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
 '''
           }
         }
@@ -45,7 +46,7 @@ cd firedrake/src/firedrake; python ${VIRTUAL_ENV}/bin/py.test --cov firedrake --
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-cd firedrake/src/dolfin-adjoint; python ${VIRTUAL_ENV}/bin/py.test -v tests_firedrake
+cd firedrake/src/dolfin-adjoint; py.test -v tests_firedrake
 '''
           }
         }
