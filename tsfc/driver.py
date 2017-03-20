@@ -90,17 +90,16 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     fiat_cell = as_fiat_cell(cell)
     integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
 
-    argument_indices = tuple(tuple(gem.Index(extent=e)
-                                   for e in create_element(arg.ufl_element()).index_shape)
-                             for arg in arguments)
-    flat_argument_indices = tuple(chain(*argument_indices))
+    argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+                                  for arg in arguments)
+    argument_indices = tuple(chain(*argument_multiindices))
     quadrature_indices = []
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
                                       domain_numbering[integral_data.domain])
-    return_variables = builder.set_arguments(arguments, argument_indices)
+    return_variables = builder.set_arguments(arguments, argument_multiindices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
     builder.set_coordinates(coordinates)
@@ -119,7 +118,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                       precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
-                      argument_indices=argument_indices,
+                      argument_multiindices=argument_multiindices,
                       index_cache=index_cache)
 
     kernel_cfg["facetarea"] = facetarea_generator(mesh, coordinates, kernel_cfg, integral_type)
@@ -153,7 +152,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                              type(quad_rule))
 
         quadrature_multiindex = quad_rule.point_set.indices
-        quadrature_indices += quadrature_multiindex
+        quadrature_indices.extend(quadrature_multiindex)
 
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule)
@@ -176,12 +175,12 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         builder.require_cell_orientations()
 
     impero_c = impero_utils.compile_gem(return_variables, ir,
-                                        tuple(quadrature_indices) + flat_argument_indices,
+                                        tuple(quadrature_indices) + argument_indices,
                                         remove_zeros=True)
 
     # Generate COFFEE
     index_names = [(si, name + str(n))
-                   for index, name in zip(argument_indices, ['j', 'k'])
+                   for index, name in zip(argument_multiindices, ['j', 'k'])
                    for n, si in enumerate(index)]
     if len(quadrature_indices) == 1:
         index_names.append((quadrature_indices[0], 'ip'))
@@ -189,7 +188,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, flat_argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, argument_indices)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)

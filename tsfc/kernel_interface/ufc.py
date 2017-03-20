@@ -45,15 +45,15 @@ class KernelBuilder(KernelBuilderBase):
                 '-': gem.VariableIndex(gem.Variable("facet_1", ()))
             }
 
-    def set_arguments(self, arguments, indices):
+    def set_arguments(self, arguments, multiindices):
         """Process arguments.
 
         :arg arguments: :class:`ufl.Argument`s
-        :arg indices: GEM argument indices
+        :arg multiindices: GEM argument multiindices
         :returns: GEM expression representing the return variable
         """
         self.local_tensor, prepare, expressions = prepare_arguments(
-            arguments, indices, interior_facet=self.interior_facet)
+            arguments, multiindices, interior_facet=self.interior_facet)
         self.apply_glue(prepare)
         return expressions
 

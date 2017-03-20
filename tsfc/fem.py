@@ -47,7 +47,7 @@ class Context(ProxyKernelInterface):
                 'point_set',
                 'weight_expr',
                 'precision',
-                'argument_indices',
+                'argument_multiindices',
                 'cellvolume',
                 'facetarea',
                 'index_cache')
@@ -107,7 +107,7 @@ class Context(ProxyKernelInterface):
             f = self.facet_number(restriction)
             return gem.select_expression(list(map(callback, self.entity_ids)), f)
 
-    argument_indices = ()
+    argument_multiindices = ()
 
     @cached_property
     def index_cache(self):
@@ -279,7 +279,7 @@ def fiat_to_ufl(fiat_dict, order):
 
 @translate.register(Argument)
 def translate_argument(terminal, mt, ctx):
-    argument_index = ctx.argument_indices[terminal.number()]
+    argument_multiindex = ctx.argument_multiindices[terminal.number()]
     sigma = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
     element = create_element(terminal.ufl_element())
 
@@ -299,7 +299,7 @@ def translate_argument(terminal, mt, ctx):
         # lives on after ditching FFC and switching to FInAT.
         return ffc_rounding(square, ctx.epsilon)
     table = ctx.entity_selector(callback, mt.restriction)
-    return gem.ComponentTensor(gem.Indexed(table, argument_index + sigma), sigma)
+    return gem.ComponentTensor(gem.Indexed(table, argument_multiindex + sigma), sigma)
 
 
 @translate.register(Coefficient)
@@ -370,7 +370,7 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
     expression = simplify_abs(expression)
     if interior_facet:
         expressions = []
-        for rs in itertools.product(("+", "-"), repeat=len(context.argument_indices)):
+        for rs in itertools.product(("+", "-"), repeat=len(context.argument_multiindices)):
             expressions.append(map_expr_dag(PickRestriction(*rs), expression))
     else:
         expressions = [expression]
