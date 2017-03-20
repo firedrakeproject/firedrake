@@ -111,7 +111,7 @@ class Context(ProxyKernelInterface):
 
     @cached_property
     def index_cache(self):
-        return collections.defaultdict(gem.Index)
+        return {}
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
@@ -340,7 +340,8 @@ def translate_coefficient(terminal, mt, ctx):
                           for alpha, tables in iteritems(per_derivative)}
 
     # Coefficient evaluation
-    beta = element.get_indices()
+    ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
+    beta = ctx.index_cache[terminal.ufl_element()]
     zeta = element.get_value_indices()
     value_dict = {}
     for alpha, table in iteritems(per_derivative):

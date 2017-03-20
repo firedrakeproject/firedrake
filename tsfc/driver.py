@@ -1,7 +1,6 @@
 from __future__ import absolute_import, print_function, division
 from six.moves import range
 
-import collections
 import time
 from functools import reduce
 from itertools import chain
@@ -106,12 +105,10 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     builder.set_coefficients(integral_data, form_data)
 
-    # Map from UFL FiniteElement objects to Index instances.  This is
+    # Map from UFL FiniteElement objects to multiindices.  This is
     # so we reuse Index instances when evaluating the same coefficient
-    # multiple times with the same table.  Occurs, for example, if we
-    # have multiple integrals here (and the affine coordinate
-    # evaluation can be hoisted).
-    index_cache = collections.defaultdict(gem.Index)
+    # multiple times with the same table.
+    index_cache = {}
 
     kernel_cfg = dict(interface=builder,
                       ufl_cell=cell,
