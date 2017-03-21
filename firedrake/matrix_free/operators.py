@@ -5,7 +5,7 @@ from ufl import action
 from firedrake.ufl_expr import adjoint
 from firedrake.formmanipulation import ExtractSubBlock
 
-from firedrake import Function
+from firedrake.function import Function
 
 from firedrake.petsc import PETSc
 
@@ -476,7 +476,7 @@ class LoopyImplicitMatrixContext(object):
 
             # how big is current space?
             tssize = Function(ts).vector().size()
-           
+
             ltg_cur = ts.cell_node_map().values
             #is_cur = test_space.field_ises[i]
 
@@ -485,7 +485,8 @@ class LoopyImplicitMatrixContext(object):
             fisi = "fieldis_%d" % i
 
             ai = "A%d" % i
-            
+            updatei = "update%d" % i
+
             if ts.dim == 1:
                 gather_knl = lp.make_kernel(
                     "{{ [iel, {ibf}]:"
@@ -498,13 +499,14 @@ class LoopyImplicitMatrixContext(object):
                 """
                 Aglobal[{fisi}[{ltgi}[iel, {ibf}]]] = (
                 Aglobal[{fisi}[{ltgi}[iel, {ibf}]]]
-                + {ai}[iel, {ibf}]) {{dep=init, atomic}}
+                + {ai}[iel, {ibf}]) {{id={updatei}, atomic}}
                 """
                 .format(
                     ai=ai,
                     ibf=ibf,
                     ltgi=ltgi,
                     fisi=fisi,
+                    updatei=updatei,
                     nbf=ts.cell_node_map().values.shape[1]
                 ),
                 [
@@ -530,7 +532,7 @@ class LoopyImplicitMatrixContext(object):
                 """
                 Aglobal[{fisi}[{dim}*{ltgi}[iel, {ibf}]+{idim}]] = (
                 Aglobal[{fisi}[{dim}*{ltgi}[iel, {ibf}]+{idim}]]
-                + {ai}[iel, {ibf}, {idim}])  {{dep=init, atomic}}
+                + {ai}[iel, {ibf}, {idim}])  {{id={updatei}, atomic}}
                 """
                 .format(
                     ai=ai,
@@ -539,6 +541,7 @@ class LoopyImplicitMatrixContext(object):
                     ibf=ibf,
                     ltgi=ltgi,
                     fisi=fisi,
+                    updatei=updatei,
                     nbf=ts.cell_node_map().values.shape[1]
                 ),
                     [
@@ -556,7 +559,10 @@ class LoopyImplicitMatrixContext(object):
             knl = lp.fuse_kernels(
                 (knl, gather_knl),
                 data_flow=[(ai, 0, 1)])
+            print(knl)
+            knl = lp.add_dependency(knl, updatei, "init")
             knl = lp.assignment_to_subst(knl, ai)
+
 
 
         knl = lp.infer_unknown_types(knl)
