@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six import iterkeys
 
 import numpy
 from functools import partial
@@ -148,7 +149,7 @@ def _interpolator(V, dat, expr, subset):
         if not isinstance(dual, FIAT.functional.PointEvaluation):
             raise NotImplementedError("Can only interpolate onto point "
                                       "evaluation operators. Try projecting instead")
-        to_pts.append(dual.pt_dict.keys()[0])
+        to_pts.append(list(iterkeys(dual.pt_dict))[0])
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
@@ -226,8 +227,8 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
             # Pass a slice for the scalar case but just the
             # current vector in the VFS case. This ensures the
             # eval method has a Dolfin compatible API.
-            expression.eval(output[i:i+1, ...] if numpy.rank(output) == 1 else output[i, ...],
-                            X[i:i+1, ...] if numpy.rank(X) == 1 else X[i, ...], **kwargs)
+            expression.eval(output[i:i+1, ...] if numpy.ndim(output) == 1 else output[i, ...],
+                            X[i:i+1, ...] if numpy.ndim(X) == 1 else X[i, ...], **kwargs)
 
     coefficients = [coords]
     for _, arg in expression._user_args:

@@ -15,7 +15,8 @@ def test_horiz_facet_interior(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
 
-    f = project(Expression(("x[2]", "x[1]", "x[0]")), DG)
+    x, y, z = SpatialCoordinate(mesh)
+    f = project(as_vector([z, y, x]), DG)
 
     A = assemble(Tensor(dot(f[2]*f[1]*u, n)*dS_h)).dat.data
     ref = assemble(jump(f[2]*f[1]*u, n=n)*dS_h).dat.data
@@ -28,7 +29,8 @@ def test_vert_facet_interior(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
 
-    f = project(Expression(("x[2]", "x[1]", "x[0]")), DG)
+    x, y, z = SpatialCoordinate(mesh)
+    f = project(as_vector([z, y, x]), DG)
 
     A = assemble(Tensor(dot(f[0]*u, n)*dS_v)).dat.data
     ref = assemble(jump(f[0]*u, n=n)*dS_v).dat.data
@@ -41,7 +43,8 @@ def test_top_facet_exterior(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
 
-    f = project(Expression(("x[2]", "x[1]", "x[0]")), DG)
+    x, y, z = SpatialCoordinate(mesh)
+    f = project(as_vector([z, y, x]), DG)
 
     form = dot(f[2]*f[1]*u, n)*ds_t
     A = assemble(Tensor(form)).dat.data
@@ -55,7 +58,8 @@ def test_bottom_facet_exterior(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
 
-    f = project(Expression(("x[2]", "x[1]", "x[0]")), DG)
+    x, y, z = SpatialCoordinate(mesh)
+    f = project(as_vector([z, y, x]), DG)
 
     form = dot(f[2]*f[1]*u, n)*ds_b
     A = assemble(Tensor(form)).dat.data
@@ -69,7 +73,8 @@ def test_vert_facet_exterior(mesh):
     n = FacetNormal(mesh)
     u = TestFunction(DG)
 
-    f = project(Expression(("x[2]", "x[1]", "x[0]")), DG)
+    x, y, z = SpatialCoordinate(mesh)
+    f = project(as_vector([z, y, x]), DG)
 
     form = dot(f[0]*u, n)*ds_v
     A = assemble(Tensor(form)).dat.data

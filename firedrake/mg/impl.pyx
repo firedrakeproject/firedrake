@@ -169,7 +169,7 @@ def coarse_to_fine_cells(mc, mf):
         # Compute global numbers of original cell numbers
         mf._overlapped_lgmap.apply(fn2o, result=fn2o)
         # Compute local numbers of original cells on non-overlapped mesh
-        fn2o = mf._non_overlapped_lgmap.applyInverse(fn2o, PETSc.LGMap.MapType.MASK)
+        fn2o = mf._non_overlapped_lgmap.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
@@ -178,7 +178,7 @@ def coarse_to_fine_cells(mc, mf):
         mc._overlapped_lgmap.apply(idx, result=idx)
         # GlobalToLocal
         # Drop values that did not exist on non-overlapped mesh
-        idx = mc._non_overlapped_lgmap.applyInverse(idx, PETSc.LGMap.MapType.DROP)
+        idx = mc._non_overlapped_lgmap.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
         co2n = co2n[idx]
 
     for c in range(fStart, fEnd):
@@ -256,7 +256,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
         fine._non_overlapped_lgmap.apply(indices, result=indices)
         # Send back to local numbers on the overlapped mesh
         indices = fine._overlapped_lgmap.applyInverse(indices,
-                                                      PETSc.LGMap.MapType.MASK)
+                                                      PETSc.LGMap.MapMode.MASK)
         indices -= vfStart_new
 
         # Need to map the new-to-old map back onto the original
@@ -267,7 +267,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
         coarse._overlapped_lgmap.apply(cn2o, result=cn2o)
         # Back to local numbers on the original (non-overlapped) mesh
         cn2o = coarse._non_overlapped_lgmap.applyInverse(cn2o,
-                                                         PETSc.LGMap.MapType.MASK)
+                                                         PETSc.LGMap.MapMode.MASK)
         # Go from point numbers back to vertex numbers
         cn2o -= vcStart_orig
         # Note that unlike in coarse_to_fine_cells, we don't need to
@@ -452,7 +452,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     """
     cdef:
         np.ndarray[PetscInt, ndim=1, mode="c"] indices, cell_map
-        np.ndarray[PetscInt, ndim=2, mode="c"] permutations
+        np.ndarray[np.int32_t, ndim=2, mode="c"] permutations
         np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
         PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
 

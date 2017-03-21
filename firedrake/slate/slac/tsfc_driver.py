@@ -20,7 +20,7 @@ ContextKernel = collections.namedtuple("ContextKernel",
 
 def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
     """Compiles the TSFC form associated with a Slate :class:`Tensor`
-    object. This function will return a :namedtuple:`ContextKernel`
+    object. This function will return a :class:`ContextKernel`
     which stores information about the original tensor, integral types
     and the corresponding TSFC kernels.
 

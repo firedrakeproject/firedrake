@@ -44,7 +44,6 @@ def test_functions(mesh, expr, value, typ, fs_type):
 
     actual = assemble(Tensor(eval(expr)*dx))
 
-    from math import *          # noqa: F401
     if fs_type == "vector":
         f = 2*value**2
     elif fs_type == "tensor":

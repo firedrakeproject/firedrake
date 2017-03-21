@@ -30,6 +30,7 @@ from firedrake.slate.slac.kernel_builder import KernelBuilder
 from firedrake import op2
 
 from pyop2.utils import get_petsc_dir
+from pyop2.datatypes import as_cstr
 
 from tsfc.parameters import SCALAR_TYPE
 
@@ -40,6 +41,8 @@ __all__ = ['compile_expression']
 
 
 PETSC_DIR = get_petsc_dir()
+
+cell_to_facets_dtype = np.dtype(np.int8)
 
 supported_integral_types = [
     "cell",
@@ -146,7 +149,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                          for c in builder.coefficient(exp.coefficients()[ci])]
 
                 if kinfo.oriented:
-                    clist.append(cell_orientations)
+                    clist.insert(0, cell_orientations)
 
                 incl.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
@@ -209,7 +212,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Now we handle any terms that require auxiliary temporaries,
     # such as inverses, transposes and actions of a tensor on a
     # coefficient
-    if bool(builder.aux_exprs):
+    if builder.aux_exprs:
         # The declared temps will be updated within this method
         aux_statements = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_statements)
@@ -252,7 +255,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Facet information
     if builder.needs_cell_facets:
-        args.append(ast.Decl("char *", cellfacetsym))
+        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
+                             cellfacetsym))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
@@ -343,9 +347,8 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
         clist = [c for ci in coefficient_map
                  for c in builder.coefficient(exp.coefficients()[ci])]
 
-        # TODO: Is this safe?
         if top.kinfo.oriented and btm.kinfo.oriented:
-            clist.append(cell_orientations)
+            clist.insert(0, cell_orientations)
 
         dirs = top.kinfo.kernel._include_dirs + btm.kinfo.kernel._include_dirs
         incl.extend(tuple(OrderedDict.fromkeys(dirs)))
@@ -399,7 +402,7 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
                  for c in builder.coefficient(exp.coefficients()[ci])]
 
         if kinfo.oriented:
-            clist.append(cell_orientations)
+            clist.insert(0, cell_orientations)
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
@@ -475,7 +478,7 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym,
         tensor = eigen_tensor(exp, t, index)
 
         if kinfo.oriented:
-            clist.append(cell_orientations)
+            clist.insert(0, cell_orientations)
 
         clist.append(ast.FlatBlock("&%s" % itsym))
         funcalls.append(ast.FunCall(kinfo.kernel.name,

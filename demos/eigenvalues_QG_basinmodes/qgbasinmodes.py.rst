@@ -18,7 +18,7 @@ forces.
 Unlike the other demo that integrated the equations forward in time, in this
 problem it is necessary to compute the eigenvalues and eigenfunctions
 for a particular differential operator. This requires using
-`PETSc <https://www.mcs.anl.gov/petsc/>`__ matrices
+`PETSc <http://www.mcs.anl.gov/petsc/>`__ matrices
 and eigenvalue solvers in `SLEPc <http://slepc.upv.es>`__.
 
 This demo requires SLEPc and slepc4py to be installed.  This is most easily

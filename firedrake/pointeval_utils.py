@@ -4,6 +4,7 @@ from six.moves import map, range
 import collections
 import numpy
 import sympy
+from pyop2.datatypes import IntType, as_cstr
 
 
 def operands_and_reconstruct(expr):
@@ -204,8 +205,9 @@ def compile_element(ufl_element, cdim):
         "geometric_dimension": cell.geometric_dimension(),
         "ndofs": element.space_dimension(),
         "calculate_basisvalues": calculate_basisvalues,
-        "extruded_arg": ", int nlayers" if extruded else "",
+        "extruded_arg": ", %s nlayers" % as_cstr(IntType) if extruded else "",
         "nlayers": ", f->n_layers" if extruded else "",
+        "IntType": as_cstr(IntType),
     }
 
     evaluate_template_c = """static inline void evaluate_kernel(double *result, double *phi_, double **F)
@@ -234,7 +236,7 @@ def compile_element(ufl_element, cdim):
     }
 }
 
-static inline void wrap_evaluate(double *result, double *phi, double *data, int *map%(extruded_arg)s, int cell);
+static inline void wrap_evaluate(double *result, double *phi, double *data, %(IntType)s *map%(extruded_arg)s, %(IntType)s cell);
 
 int evaluate(struct Function *f, double *x, double *result)
 {

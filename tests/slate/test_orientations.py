@@ -15,15 +15,18 @@ def test_tensors_on_sphere(Mesh, hdiv_space, degree):
     n = FacetNormal(mesh)
     V = FunctionSpace(mesh, hdiv_space, degree)
 
+    x, y, z = SpatialCoordinate(mesh)
     sigma = TrialFunction(V)
     tau = TestFunction(V)
+    f = Function(FunctionSpace(mesh, "DG", 0))
+    f.interpolate(2*x + 2*y + 2*z)
 
-    mass = dot(sigma, tau) * dx
-    flux_dS = jump(tau, n=n) * dS
-    flux_ds = dot(tau, n) * ds
+    mass = f*dot(sigma, tau)*dx
+    flux_dS = jump(f*tau, n=n)*dS
+    flux_ds = f*dot(tau, n)*ds
 
     A = assemble(Tensor(mass))
-    B = assemble(Tensor(dot(tau, n) * dS))
+    B = assemble(Tensor(dot(f*tau, n)*dS))
     C = assemble(Tensor(flux_ds))
 
     refA = assemble(mass)

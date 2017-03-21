@@ -4,7 +4,7 @@ A plausibly efficient implementation of `R`
 ===========================================
 
 The function space `R` (for "Real" or, possibly, `Rognes
-<http://home.simula.no/~meg/>`_) is employed to model concepts such as
+<https://www.simula.no/people/meg>`_) is employed to model concepts such as
 global constraints. When employed as an unknown in an equation, it
 presents implementation difficulties because it couples with all of
 the other degrees of freedom. This results in a dense row in the

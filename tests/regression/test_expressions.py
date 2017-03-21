@@ -523,7 +523,6 @@ def test_math_functions(expr, value):
     actual = Function(V)
 
     actual.assign(eval(expr))
-    from math import *          # noqa: F401
     f = value
     expect = eval(expr)
     assert np.allclose(actual.dat.data_ro, expect)
