@@ -41,3 +41,7 @@ sure we get the same answer as the assembled sparse matrix.
 
 A runnable python script implementing this demo file is available
 `here <mass.py>`__.
+
+If you want to loop at or monkey with the loopy kernel, you should get/set
+knl = Alp.petscmat.getPythonContext().knl
+

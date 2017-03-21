@@ -559,8 +559,11 @@ class LoopyImplicitMatrixContext(object):
             knl = lp.fuse_kernels(
                 (knl, gather_knl),
                 data_flow=[(ai, 0, 1)])
-            print(knl)
-            knl = lp.add_dependency(knl, updatei, "init")
+
+            # FIXME: this doesn't work, but we don't want to
+            # do the gather state until we've initialized the results!
+
+            #knl = lp.add_dependency(knl, updatei, "init")
             knl = lp.assignment_to_subst(knl, ai)
 
 
