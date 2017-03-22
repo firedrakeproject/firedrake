@@ -1,17 +1,25 @@
 Mass matrix in loopy
 ================
-We are going to compute the action of the mass matrix via loopy and make
+We are going to compute the action of the stokes matrix via loopy and make
 sure we get the same answer as the assembled sparse matrix.
 
   from firedrake import *
 
   M = UnitSquareMesh(10, 10)
-  V = VectorFunctionSpace(M, "CG", 3)
 
-  u = TrialFunction(V)
-  v = TestFunction(V)
+  k = 1
+  W = FunctionSpace(M, "CG", k)
+  V = VectorFunctionSpace(M, "CG", k+1)
+  Z = V*W
+  
+  u, p = TrialFunctions(Z)
+  v, q = TestFunctions(Z)
 
-  a = inner(grad(u),grad(v))*dx
+  a = (
+      inner(grad(u),grad(v))*dx
+      - inner(p, div(v))*dx
+      + inner(div(u), q)*dx
+      )
 
   A = assemble(a)
   Alp = assemble(a, mat_type="loopy")
@@ -37,10 +45,13 @@ sure we get the same answer as the assembled sparse matrix.
           Alp.petscmat.mult(vin, vout)
 
 
-  print sqrt(assemble((y0-y1)**2*dx))
+  with y0.dat.vec as v0:
+      with y1.dat.vec as v1:
+          v2 = v1 - v0
+          print v2.norm()
 
 A runnable python script implementing this demo file is available
-`here <mass.py>`__.
+`here <stokes.py>`__.
 
 If you want to look at or monkey with the loopy kernel, you should get/set
 knl = Alp.petscmat.getPythonContext().knl
