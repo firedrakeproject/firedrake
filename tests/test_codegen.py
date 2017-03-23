@@ -20,7 +20,7 @@ def test_loop_fusion():
     e2 = make_expression(i, i)
 
     def gencode(expr):
-        impero_c = impero_utils.compile_gem([Ri], [expr], (i, j))
+        impero_c = impero_utils.compile_gem([(Ri, expr)], (i, j))
         return impero_c.tree
 
     assert len(gencode(e1).children) == len(gencode(e2).children)
