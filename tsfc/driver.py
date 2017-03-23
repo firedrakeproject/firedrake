@@ -1,8 +1,9 @@
 from __future__ import absolute_import, print_function, division
+from six import iteritems
 from six.moves import range, zip
 
+import collections
 import time
-from functools import reduce
 from itertools import chain
 
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -11,7 +12,6 @@ from ufl.classes import Form, CellVolume
 from ufl.log import GREEN
 
 import gem
-import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
 from finat.point_set import PointSet
@@ -121,7 +121,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     kernel_cfg["facetarea"] = facetarea_generator(mesh, coordinates, kernel_cfg, integral_type)
     kernel_cfg["cellvolume"] = cellvolume_generator(mesh, coordinates, kernel_cfg)
 
-    irs = []
+    mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
         params = {}
         # Record per-integral parameters
@@ -130,6 +130,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             del params["quadrature_rule"]
         # parameters override per-integral metadata
         params.update(parameters)
+
+        mode = pick_mode(params["mode"])
+        mode_irs.setdefault(mode, collections.OrderedDict())
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
@@ -153,25 +156,30 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule)
-        ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
-        if parameters["unroll_indexsum"]:
-            def predicate(index):
-                return index.extent <= parameters["unroll_indexsum"]
-            ir = opt.unroll_indexsum(ir, predicate=predicate)
-        ir = [gem.index_sum(expr, quadrature_multiindex) for expr in ir]
-        irs.append(ir)
+        exps = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
+        reps = mode.integrate(exps, quadrature_multiindex, parameters)
+        for var, rep in zip(return_variables, reps):
+            mode_irs[mode].setdefault(var, []).append(rep)
 
-    # Sum the expressions that are part of the same restriction
-    ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))
+    # Finalise mode representations into a set of assignments
+    assignments = []
+    for mode, rep_dict in iteritems(mode_irs):
+        assignments.extend(mode.aggregate(rep_dict))
+
+    if assignments:
+        return_variables, expressions = zip(*assignments)
+    else:
+        return_variables = []
+        expressions = []
 
     # Need optimised roots for COFFEE
-    ir = impero_utils.preprocess_gem(ir)
+    expressions = impero_utils.preprocess_gem(expressions)
 
     # Look for cell orientations in the IR
-    if builder.needs_cell_orientations(ir):
+    if builder.needs_cell_orientations(expressions):
         builder.require_cell_orientations()
 
-    assignments = list(zip(return_variables, ir))
+    assignments = list(zip(return_variables, expressions))
     impero_c = impero_utils.compile_gem(assignments,
                                         tuple(quadrature_indices) + argument_indices,
                                         remove_zeros=True)
@@ -186,7 +194,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, argument_indices)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)
@@ -346,3 +354,12 @@ def lower_integral_type(fiat_cell, integral_type):
         entity_ids = list(range(len(fiat_cell.get_topology()[integration_dim])))
 
     return integration_dim, entity_ids
+
+
+def pick_mode(mode):
+    "Return one of the specialized optimisation modules from a mode string."
+    if mode == "vanilla":
+        import tsfc.vanilla as m
+    else:
+        raise ValueError("Unknown mode: {}".format(mode))
+    return m
