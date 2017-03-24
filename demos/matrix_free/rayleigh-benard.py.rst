@@ -57,7 +57,7 @@ tends to take more Newton iterations since the coupling terms in the
 Jacobian are a bit stronger.  Switching to the first case would be a
 simple change of bits of the boundary associated with the second and
 third boundary conditions below::
-  
+
   bcs = [
       DirichletBC(Z.sub(0), Constant((0, 0)), (1, 2, 3, 4)),
       DirichletBC(Z.sub(2), Constant(1.0), (1,)),
@@ -163,45 +163,54 @@ Again we split off Navier-Stokes from the temperature block ::
 
 which we solve inexactly using preconditioned GMRES. ::
 
-               "fieldsplit_0_ksp_type": "gmres",
-               "fieldsplit_0_ksp_gmres_modifiedgramschmidt": True,
-               "fieldsplit_0_ksp_rtol": 1e-2,
-               "fieldsplit_0_pc_type": "fieldsplit",
-               "fieldsplit_0_pc_fieldsplit_type": "schur",
-               "fieldsplit_0_pc_fieldsplit_schur_fact_type": "lower",
+               "fieldsplit_0_": {
+                   "ksp_type": "gmres",
+                   "ksp_gmres_modifiedgramschmidt": True,
+                   "ksp_rtol": 1e-2,
+                   "pc_type": "fieldsplit",
+                   "pc_fieldsplit_type": "schur",
+                   "pc_fieldsplit_schur_fact_type": "lower",
 
 Invert the velocity block with a single V-cycle of algebraic
 multigrid::
 
-               "fieldsplit_0_fieldsplit_0_ksp_type": "preonly",
-               "fieldsplit_0_fieldsplit_0_pc_type": "python",
-               "fieldsplit_0_fieldsplit_0_pc_python_type": "firedrake.AssembledPC",
-               "fieldsplit_0_fieldsplit_0_assembled_pc_type": "hypre",
+                   "fieldsplit_0_": {
+                       "ksp_type": "preonly",
+                       "pc_type": "python",
+                       "pc_python_type": "firedrake.AssembledPC",
+                       "assembled_pc_type": "hypre"
+                   },
 
 and approximate the Schur complement inverse with PCD. ::
 
-               "fieldsplit_0_fieldsplit_1_ksp_type": "preonly",
-               "fieldsplit_0_fieldsplit_1_pc_type": "python",
-               "fieldsplit_0_fieldsplit_1_pc_python_type": "firedrake.PCDPC",
+                   "fieldsplit_1_": {
+                        "ksp_type": "preonly",
+                        "pc_type": "python",
+                        "pc_python_type": "firedrake.PCDPC",
 
 We need to configure the pressure mass and Poisson solves, along with
 how to apply the convection-diffusion operator.  For the latter, we
 will use an assembled operator this time round. ::
 
-              "fieldsplit_0_fieldsplit_1_pcd_Mp_ksp_type": "preonly",
-              "fieldsplit_0_fieldsplit_1_pcd_Mp_pc_type": "ilu",
-              "fieldsplit_0_fieldsplit_1_pcd_Kp_ksp_type": "preonly",
-              "fieldsplit_0_fieldsplit_1_pcd_Kp_pc_type": "hypre",
-              "fieldsplit_0_fieldsplit_1_pcd_Fp_mat_type": "aij",
+                        "pcd_Mp_ksp_type": "preonly",
+                        "pcd_Mp_pc_type": "ilu",
+                        "pcd_Kp_ksp_type": "preonly",
+                        "pcd_Kp_pc_type": "hypre",
+                        "pcd_Fp_mat_type": "aij"
+                   }
+               },
 
 Now for the temperature block, we use a moderately coarse tolerance
 for algebraic multigrid preconditioned GMRES. ::
 
-              "fieldsplit_1_ksp_type": "gmres",
-              "fieldsplit_1_ksp_rtol": "1e-4",
-              "fieldsplit_1_pc_type": "python",
-              "fieldsplit_1_pc_python_type": "firedrake.AssembledPC",
-              "fieldsplit_1_assembled_pc_type": "hypre"}
+              "fieldsplit_1_": {
+                   "ksp_type": "gmres",
+                   "ksp_rtol": "1e-4",
+                   "pc_type": "python",
+                   "pc_python_type": "firedrake.AssembledPC",
+                   "assembled_pc_type": "hypre"
+              }
+         }
 
 And we're done with all the options.  All that's left is to solve the
 problem.  Recall that the PCD preconditioner needs to know where the
