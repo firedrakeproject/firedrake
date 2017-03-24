@@ -8,6 +8,48 @@ from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.logging import warning
+
+
+def flatten_parameters(parameters, sep=""):
+    """Flatten a nested parameters dict, joining keys with sep.
+
+    :arg parameters: a dict to flatten.
+    :arg sep: separator of keys.
+
+    Used to flatten parameter dictionaries with nested structure to a
+    flat dict suitable to pass to PETSc.  For example:
+
+    .. code-block:: python
+
+       flatten_parameters({"a": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
+       => {"a_b_c": 4, "a_d": 2, "e": 1}
+
+    """
+    new = type(parameters)()
+
+    def flatten(parameters, *prefixes):
+        sentinel = object()
+        try:
+            option = sentinel
+            for option, value in iteritems(parameters):
+                # Recurse into values to flatten any dicts.
+                for pair in flatten(value, option, *prefixes):
+                    yield pair
+            # Make sure zero-length dicts come back.
+            if option is sentinel:
+                yield (prefixes, parameters)
+        except AttributeError:
+            # Non dict values are just returned.
+            yield (prefixes, parameters)
+
+    for keys, value in flatten(parameters):
+        option = sep.join(map(str, reversed(keys)))
+        if option in new:
+            warning("Ignoring duplicate option: %s (existing value %s, new value %s)",
+                    option, new[option], value)
+        new[option] = value
+    return new
 
 
 class ParametersMixin(object):
@@ -56,7 +98,8 @@ class ParametersMixin(object):
         if parameters is None:
             parameters = {}
         else:
-            parameters = parameters.copy()
+            # Convert nested dicts
+            parameters = flatten_parameters(parameters)
         if options_prefix is None:
             self.options_prefix = "firedrake_%d_" % next(self.count)
             self.parameters = parameters
