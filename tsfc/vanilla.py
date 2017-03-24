@@ -1,11 +1,10 @@
 from __future__ import absolute_import, print_function, division
-from six import iteritems
 
 from gem import index_sum
 from gem.optimise import unroll_indexsum
 
 
-def integrate(expressions, quadrature_multiindex, parameters):
+def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
     max_extent = parameters["unroll_indexsum"]
     if max_extent:
         def predicate(index):
@@ -14,8 +13,8 @@ def integrate(expressions, quadrature_multiindex, parameters):
     return [index_sum(e, quadrature_multiindex) for e in expressions]
 
 
-def aggregate(rep_dict):
-    for variable, reps in iteritems(rep_dict):
+def flatten(var_reps):
+    for variable, reps in var_reps:
         expressions = reps
         for expression in expressions:
             yield (variable, expression)
