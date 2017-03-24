@@ -123,13 +123,10 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
-        params = {}
-        # Record per-integral parameters
-        params.update(integral.metadata())
+        params = parameters.copy()
+        params.update(integral.metadata())  # integral metadata overrides
         if params.get("quadrature_rule") == "default":
             del params["quadrature_rule"]
-        # parameters override per-integral metadata
-        params.update(parameters)
 
         mode = pick_mode(params["mode"])
         mode_irs.setdefault(mode, collections.OrderedDict())
@@ -160,7 +157,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                                       interior_facet=interior_facet,
                                       **config)
         reps = mode.Integrals(expressions, quadrature_multiindex,
-                              argument_multiindices, parameters)
+                              argument_multiindices, params)
         for var, rep in zip(return_variables, reps):
             mode_irs[mode].setdefault(var, []).append(rep)
 
