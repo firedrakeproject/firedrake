@@ -42,7 +42,7 @@ Along with gravity, which points down. ::
       inner(grad(u), grad(v))*dx
       + inner(dot(grad(u), u), v)*dx
       - inner(p, div(v))*dx
-      - Ra*Pr*inner(T*g, v)*dx
+      - (Ra/Pr)*inner(T*g, v)*dx
       + inner(div(u), q)*dx
       + inner(dot(grad(T), u), S)*dx
       + 1/Pr * inner(grad(T), grad(S))*dx
