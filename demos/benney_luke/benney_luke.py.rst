@@ -89,6 +89,7 @@ Now we move on to defining parameters::
   Lx = 10
   Nx = 50
   Ny = 1
+  c = 1.0
   mu = 0.01
   epsilon = 0.01
 
@@ -114,10 +115,10 @@ The function space chosen consists of degree 2 continuous Lagrange polynomials, 
   q = TrialFunction(V)
   v = TestFunction(V)
 
-  eta0.interpolate(Expression("1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0)),-2)",
-                              c=1.0, epsilon=epsilon, mu=mu, x0=0.5*Lx))
-  phi0.interpolate(Expression("2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0))+1)",
-                              c=1.0, epsilon=epsilon, mu=mu, x0=0.5*Lx))
+  x = SpatialCoordinate(mesh)
+  x0 = 0.5 * Lx
+  eta0.interpolate(1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0)),-2))
+  phi0.interpolate(2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0))+1))
 
 Firstly, :math:`\phi` is updated to a half-step value using a nonlinear variational solver to solve the implicit equation::
 
@@ -165,10 +166,9 @@ What is left before iterating over all time steps, is to find the initial energy
 
 and define the exact solutions, which need to be updated at every time-step::
 
-  expr_eta = Expression("1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t-epsilon*c*t/6.0)),-2)",
-                        t=t, c=1.0, epsilon=epsilon, mu=mu, x0=0.5*Lx)
-  expr_phi = Expression("2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t-epsilon*c*t/6.0))+1)",
-                        t=t, c=1.0, epsilon=epsilon, mu=mu, x0=0.5*Lx)
+  t_ = Constant(t)
+  expr_eta = 1/3.0*c*pow(cosh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0)),-2)
+  expr_phi = 2/3.0*sqrt(c*mu/epsilon)*(tanh(0.5*sqrt(c*epsilon/mu)*(x[0]-x0-t_-epsilon*c*t_/6.0))+1)
 
 Since we will interpolate these values again and again, we use an
 :class:`~.Interpolator` whose :meth:`~.Interpolator.interpolate`
@@ -188,12 +188,11 @@ from piecewise quadratic functions to piecewise linears::
 
 We are now ready to enter the main time iteration loop::
 
-  while(t < T):
+  while t < T:
         print t, abs((E-E0)/E0)
         t += dt
 
-        expr_eta.t = t
-        expr_phi.t = t
+        t_.assign(t)
 
         eta_interpolator.interpolate()
         phi_interpolator.interpolate()

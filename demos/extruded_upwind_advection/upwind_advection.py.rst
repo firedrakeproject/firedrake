@@ -124,7 +124,7 @@ Or even: ::
 
 Next, we set the prescribed velocity field: ::
 
-  velocity = Expression(("0.0", "0.0", "1.0"))
+  velocity = as_vector([0.0, 0.0, 1.0])
   u0 = project(velocity, W)
   
   # if we had used W = VectorFunctionSpace(mesh, "CG", 1), we could have done
@@ -134,7 +134,8 @@ Next, we set the prescribed velocity field: ::
 Next, we will set the boundary value on our scalar to be a simple indicator
 function over part of the bottom of the domain: ::
 
-  inflow = Expression("(x[2] < 0.02) && (x[0] > 0.5) ? 1.0 : -1.0")
+  x = SpatialCoordinate(mesh)
+  inflow = conditional(And(x[2] < 0.02, x[0] > 0.5), 1.0, -1.0)
   D0 = Function(V)
   D0.interpolate(inflow)
 
@@ -179,7 +180,7 @@ Finally, we will compute the solution: ::
 By construction, the exact solution is quite simple: ::
   
   exact = Function(V)
-  exact.interpolate(Expression("(x[0] > 0.5) ? 1.0 : -1.0"))
+  exact.interpolate(conditional(x[0] > 0.5, 1.0, -1.0))
 
 We finally compare our solution to the expected solution: ::
 

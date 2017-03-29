@@ -54,7 +54,8 @@ define trial functions::
 
 For this problem we need an initial condition::
 
-  ic = project(Expression(["sin(pi*x[0])", 0]), V)
+  x = SpatialCoordinate(mesh)
+  ic = project(as_vector([sin(pi*x[0]), 0]), V)
 
 We start with current value of u set to the initial condition, but we
 also use the initial condition as our starting guess for the next
