@@ -13,6 +13,9 @@ PARAMETERS = {
     "quadrature_rule": "auto",
     "quadrature_degree": "auto",
 
+    # Default mode
+    "mode": "vanilla",
+
     # Maximum extent to unroll index sums. Default is 3, so that loops
     # over geometric dimensions are unrolled; this improves assembly
     # performance.  Can be disabled by setting it to None, False or 0;

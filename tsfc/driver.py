@@ -1,7 +1,9 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import range
+from six import iterkeys, iteritems, viewitems
+from six.moves import range, zip
 
 import collections
+import operator
 import time
 from functools import reduce
 from itertools import chain
@@ -12,7 +14,6 @@ from ufl.classes import Form, CellVolume
 from ufl.log import GREEN
 
 import gem
-import gem.optimise as opt
 import gem.impero_utils as impero_utils
 
 from finat.point_set import PointSet
@@ -90,50 +91,47 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     fiat_cell = as_fiat_cell(cell)
     integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
 
-    argument_indices = tuple(tuple(gem.Index(extent=e)
-                                   for e in create_element(arg.ufl_element()).index_shape)
-                             for arg in arguments)
-    flat_argument_indices = tuple(chain(*argument_indices))
+    argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
+                                  for arg in arguments)
+    argument_indices = tuple(chain(*argument_multiindices))
     quadrature_indices = []
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
                                       domain_numbering[integral_data.domain])
-    return_variables = builder.set_arguments(arguments, argument_indices)
+    return_variables = builder.set_arguments(arguments, argument_multiindices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
     builder.set_coordinates(coordinates)
 
     builder.set_coefficients(integral_data, form_data)
 
-    # Map from UFL FiniteElement objects to Index instances.  This is
+    # Map from UFL FiniteElement objects to multiindices.  This is
     # so we reuse Index instances when evaluating the same coefficient
-    # multiple times with the same table.  Occurs, for example, if we
-    # have multiple integrals here (and the affine coordinate
-    # evaluation can be hoisted).
-    index_cache = collections.defaultdict(gem.Index)
+    # multiple times with the same table.
+    index_cache = {}
 
     kernel_cfg = dict(interface=builder,
                       ufl_cell=cell,
                       precision=parameters["precision"],
                       integration_dim=integration_dim,
                       entity_ids=entity_ids,
-                      argument_indices=argument_indices,
+                      argument_multiindices=argument_multiindices,
                       index_cache=index_cache)
 
     kernel_cfg["facetarea"] = facetarea_generator(mesh, coordinates, kernel_cfg, integral_type)
     kernel_cfg["cellvolume"] = cellvolume_generator(mesh, coordinates, kernel_cfg)
 
-    irs = []
+    mode_irs = collections.OrderedDict()
     for integral in integral_data.integrals:
-        params = {}
-        # Record per-integral parameters
-        params.update(integral.metadata())
+        params = parameters.copy()
+        params.update(integral.metadata())  # integral metadata overrides
         if params.get("quadrature_rule") == "default":
             del params["quadrature_rule"]
-        # parameters override per-integral metadata
-        params.update(parameters)
+
+        mode = pick_mode(params["mode"])
+        mode_irs.setdefault(mode, collections.OrderedDict())
 
         integrand = ufl_utils.replace_coordinates(integral.integrand(), coordinates)
         integrand = ufl_utils.split_coefficients(integrand, builder.coefficient_split)
@@ -153,35 +151,47 @@ def compile_integral(integral_data, form_data, prefix, parameters,
                              type(quad_rule))
 
         quadrature_multiindex = quad_rule.point_set.indices
-        quadrature_indices += quadrature_multiindex
+        quadrature_indices.extend(quadrature_multiindex)
 
         config = kernel_cfg.copy()
         config.update(quadrature_rule=quad_rule)
-        ir = fem.compile_ufl(integrand, interior_facet=interior_facet, **config)
-        if parameters["unroll_indexsum"]:
-            def predicate(index):
-                return index.extent <= parameters["unroll_indexsum"]
-            ir = opt.unroll_indexsum(ir, predicate=predicate)
-        ir = [gem.index_sum(expr, quadrature_multiindex) for expr in ir]
-        irs.append(ir)
+        expressions = fem.compile_ufl(integrand,
+                                      interior_facet=interior_facet,
+                                      **config)
+        reps = mode.Integrals(expressions, quadrature_multiindex,
+                              argument_multiindices, params)
+        for var, rep in zip(return_variables, reps):
+            mode_irs[mode].setdefault(var, []).append(rep)
 
-    # Sum the expressions that are part of the same restriction
-    ir = list(reduce(gem.Sum, e, gem.Zero()) for e in zip(*irs))
+    # Finalise mode representations into a set of assignments
+    assignments = []
+    for mode, var_reps in iteritems(mode_irs):
+        assignments.extend(mode.flatten(viewitems(var_reps)))
+
+    if assignments:
+        return_variables, expressions = zip(*assignments)
+    else:
+        return_variables = []
+        expressions = []
 
     # Need optimised roots for COFFEE
-    ir = impero_utils.preprocess_gem(ir)
+    options = dict(reduce(operator.and_,
+                          [viewitems(mode.finalise_options)
+                           for mode in iterkeys(mode_irs)]))
+    expressions = impero_utils.preprocess_gem(expressions, **options)
 
     # Look for cell orientations in the IR
-    if builder.needs_cell_orientations(ir):
+    if builder.needs_cell_orientations(expressions):
         builder.require_cell_orientations()
 
-    impero_c = impero_utils.compile_gem(return_variables, ir,
-                                        tuple(quadrature_indices) + flat_argument_indices,
+    assignments = list(zip(return_variables, expressions))
+    impero_c = impero_utils.compile_gem(assignments,
+                                        tuple(quadrature_indices) + argument_indices,
                                         remove_zeros=True)
 
     # Generate COFFEE
     index_names = [(si, name + str(n))
-                   for index, name in zip(argument_indices, ['j', 'k'])
+                   for index, name in zip(argument_multiindices, ['j', 'k'])
                    for n, si in enumerate(index)]
     if len(quadrature_indices) == 1:
         index_names.append((quadrature_indices[0], 'ip'))
@@ -189,7 +199,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         for i, quadrature_index in enumerate(quadrature_indices):
             index_names.append((quadrature_index, 'ip_%d' % i))
 
-    body = generate_coffee(impero_c, index_names, parameters["precision"], ir, flat_argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, argument_indices)
 
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
     return builder.construct_kernel(kernel_name, body)
@@ -305,7 +315,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     return_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
     ir, = impero_utils.preprocess_gem([ir])
-    impero_c = impero_utils.compile_gem([return_expr], [ir], return_indices)
+    impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
     point_index, = point_set.indices
     body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"])
 
@@ -349,3 +359,12 @@ def lower_integral_type(fiat_cell, integral_type):
         entity_ids = list(range(len(fiat_cell.get_topology()[integration_dim])))
 
     return integration_dim, entity_ids
+
+
+def pick_mode(mode):
+    "Return one of the specialized optimisation modules from a mode string."
+    if mode == "vanilla":
+        import tsfc.vanilla as m
+    else:
+        raise ValueError("Unknown mode: {}".format(mode))
+    return m
