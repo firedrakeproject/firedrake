@@ -1,9 +1,11 @@
 from __future__ import absolute_import, print_function, division
-from six import iteritems, viewitems
+from six import iterkeys, iteritems, viewitems
 from six.moves import range, zip
 
 import collections
+import operator
 import time
+from functools import reduce
 from itertools import chain
 
 from ufl.algorithms import extract_arguments, extract_coefficients
@@ -173,7 +175,10 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         expressions = []
 
     # Need optimised roots for COFFEE
-    expressions = impero_utils.preprocess_gem(expressions)
+    options = dict(reduce(operator.and_,
+                          [viewitems(mode.finalise_options)
+                           for mode in iterkeys(mode_irs)]))
+    expressions = impero_utils.preprocess_gem(expressions, **options)
 
     # Look for cell orientations in the IR
     if builder.needs_cell_orientations(expressions):

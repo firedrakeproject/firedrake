@@ -39,3 +39,8 @@ def flatten(var_reps):
         expressions = reps  # representations are expressions
         for expression in expressions:
             yield (variable, expression)
+
+
+finalise_options = {}
+"""To avoid duplicate work, these options that are safe to pass to
+:py:func:`gem.impero_utils.preprocess_gem`."""
