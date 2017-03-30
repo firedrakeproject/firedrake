@@ -497,10 +497,11 @@ More block preconditioners
 As well as physics-based Schur complement preconditioners for block
 systems, PETSc also allows us to use preconditioners formed from block
 Jacobi (``'pc_fieldsplit_type': 'additive'``) and block Gauss-Seidel
-(``'multiplicative'`` or ``'symmetric_multiplicative'``)
-inverses of the block system.  These work for any number of blocks,
-whereas the Schur complement approach mentioned above only works for
-two by two blocks.
+(``'multiplicative'`` or ``'symmetric_multiplicative'``) inverses of
+the block system.  These work for any number of blocks, whereas the
+Schur complement approach mentioned above only works for two by two
+blocks.  There is also a :doc:`separate manual section <matrix-free>`
+on specifying preconditioners that require auxiliary operators.
 
 Recursive fieldsplits
 +++++++++++++++++++++
@@ -555,13 +556,42 @@ FunctionSpace definitions:
 Then we would have referred to the single (field 1) split using
 ``fieldsplit_T_pc_type``, rather than ``fieldsplit_1_pc_type``.
 
-.. note::
+.. _nested_options_blocks:
 
-   Future versions of Firedrake may offer a symbolic language for
-   describing the composition of such physics-like preconditioners,
-   rather than having to specify everything using PETSc solver
-   options.
+Specifying nested options blocks
+++++++++++++++++++++++++++++++++
 
+For complex nested preconditioners, it can be tedious to write out the
+same prefix over and over.  Moreover, we may have a block system where
+multiple blocks use the same preconditioning options.  It is then
+error-prone to type these options out twice.  To alleviate these
+problems, one can describe the nesting in the solver parameters
+dictionary by using a nested :class:`.dict` as the value.  In this
+case, the key is used as an options prefix to all of the key-value
+pairs in the nested dictionary.  As an example, the following two
+parameter sets are equivalent:
+
+.. code-block:: python
+
+   {"ksp_type": "cg",
+    "pc_type": "fieldsplit",
+    "fieldsplit_0_": {"ksp_type": "gmres",
+                      "pc_type": "hypre",
+                      "ksp_rtol": 1e-5},
+    "fieldsplit_1_": {"ksp_type": "richardson",
+                      "pc_type": "ilu"}}
+
+and
+
+.. code-block:: python
+
+   {"ksp_type": "cg",
+    "pc_type": "fieldsplit",
+    "fieldsplit_0_ksp_type": "gmres",
+    "fieldsplit_0_pc_type": "hypre",
+    "fieldsplit_0_ksp_rtol": 1e-5,
+    "fieldsplit_1_ksp_type": "richardson",
+    "fieldsplit_1_pc_type": "ilu"}
 
 Nonlinear solver options
 ~~~~~~~~~~~~~~~~~~~~~~~~

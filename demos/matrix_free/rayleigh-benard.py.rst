@@ -142,7 +142,14 @@ velocity-pressure and temperature blocks, but we'll precondition the
 Navier-Stokes part with :class:`~.PCDPC` using a lower Schur
 complement factorisation, and approximately invert the temperature
 block using algebraic multigrid.  There are lots of parameters here,
-so let's run through them. ::
+so let's run through them.  Since there are many options here, in
+particular for the nested subsolves, we :ref:`specify options using
+nested <nested_options_blocks>`, rather than flat, dictionaries.  The
+solver parameters dictionary can either be a flat dictionary of
+key-value pairs, where both the keys and the values are strings, or it
+can be nested.  In the latter case, the value should be a dictionary,
+of options and the key is `prepended` to all keys in the dictionary
+before passing to the solver. ::
 
   parameters = {"mat_type": "matfree",
                 "snes_monitor": True,
