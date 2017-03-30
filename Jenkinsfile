@@ -77,7 +77,6 @@ cd firedrake/src/dolfin-adjoint; py.test -n 4 -v tests_firedrake
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-pip install flake8
 cd firedrake/src/firedrake
 curl -s https://codecov.io/bash | bash
 '''
