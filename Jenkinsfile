@@ -21,6 +21,21 @@ pipeline {
           timestamps {
             sh 'pip install virtualenv'
             sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
+            sh '$HOME/.local/bin/virtualenv --relocatable firedrake'
+          }
+        }
+      }
+    }
+    stage('Lint'){
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+pip install flake8
+cd firedrake/src/firedrake
+make lint
+'''
           }
         }
       }
@@ -29,12 +44,15 @@ pipeline {
       steps {
         dir('tmp') {
           timestamps {
-            sh """
+            sh '''
 . ./firedrake/bin/activate
+export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
+export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
 firedrake-clean
 pip install pytest-cov pytest-xdist
-cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
-"""
+cd firedrake/src/firedrake
+py.test -n 4 --cov firedrake -v tests
+'''
           }
         }
       }
@@ -43,10 +61,25 @@ cd firedrake/src/firedrake; py.test --cov firedrake --short -v ${TEST_FILES}
       steps {
         dir('tmp') {
           timestamps {
-            sh """
+            sh '''
 . ./firedrake/bin/activate
-cd firedrake/src/dolfin-adjoint; py.test -v tests_firedrake
-"""
+export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
+export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
+cd firedrake/src/dolfin-adjoint; py.test -n 4 -v tests_firedrake
+'''
+          }
+        }
+      }
+    }
+    stage('Codecov'){
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+cd firedrake/src/firedrake
+curl -s https://codecov.io/bash | bash
+'''
           }
         }
       }
