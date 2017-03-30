@@ -26,6 +26,20 @@ pipeline {
         }
       }
     }
+    stage('Lint'){
+      steps {
+        dir('tmp') {
+          timestamps {
+            sh '''
+. ./firedrake/bin/activate
+pip install flake8
+cd firedrake/src/firedrake
+make lint
+'''
+          }
+        }
+      }
+    }
     stage('Test'){
       steps {
         dir('tmp') {
@@ -35,9 +49,8 @@ pipeline {
 export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
 export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
 firedrake-clean
-pip install pytest-cov pytest-xdist flake8
+pip install pytest-cov pytest-xdist
 cd firedrake/src/firedrake
-make lint
 py.test -n 4 --cov firedrake -v tests
 '''
           }
