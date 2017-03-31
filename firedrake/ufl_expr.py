@@ -3,7 +3,7 @@ import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
-from ufl.algorithms.analysis import extract_arguments
+from ufl.algorithms import extract_arguments, extract_coefficients
 
 from firedrake import function
 from firedrake import utils
@@ -131,8 +131,16 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     :arg coefficient_derivatives: an optional :class:`dict` to
          provide the derivative of a coefficient function.
 
+    :raises ValueError: If any of the coefficients in ``form`` were
+        obtained from ``u.split()``.  UFL doesn't notice that these
+        are related to ``u`` and so therefore the derivative is
+        wrong (instead one should have written ``split(u)``).
+
     See also :func:`ufl.derivative`.
     """
+    if set(extract_coefficients(form)) & set(u.split()):
+        raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
+                         "\nYou probably meant to write split(u) when defining your form.")
     if du is None:
         if isinstance(u, function.Function):
             V = u.function_space()
