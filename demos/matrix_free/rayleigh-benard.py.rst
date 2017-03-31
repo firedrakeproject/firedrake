@@ -170,7 +170,7 @@ Again we split off Navier-Stokes from the temperature block ::
 
 which we solve inexactly using preconditioned GMRES. ::
 
-               "fieldsplit_0_": {
+               "fieldsplit_0": {
                    "ksp_type": "gmres",
                    "ksp_gmres_modifiedgramschmidt": True,
                    "ksp_rtol": 1e-2,
@@ -181,7 +181,7 @@ which we solve inexactly using preconditioned GMRES. ::
 Invert the velocity block with a single V-cycle of algebraic
 multigrid::
 
-                   "fieldsplit_0_": {
+                   "fieldsplit_0": {
                        "ksp_type": "preonly",
                        "pc_type": "python",
                        "pc_python_type": "firedrake.AssembledPC",
@@ -190,7 +190,7 @@ multigrid::
 
 and approximate the Schur complement inverse with PCD. ::
 
-                   "fieldsplit_1_": {
+                   "fieldsplit_1": {
                         "ksp_type": "preonly",
                         "pc_type": "python",
                         "pc_python_type": "firedrake.PCDPC",
@@ -210,7 +210,7 @@ will use an assembled operator this time round. ::
 Now for the temperature block, we use a moderately coarse tolerance
 for algebraic multigrid preconditioned GMRES. ::
 
-              "fieldsplit_1_": {
+              "fieldsplit_1": {
                    "ksp_type": "gmres",
                    "ksp_rtol": "1e-4",
                    "pc_type": "python",

@@ -11,7 +11,7 @@ from firedrake.formmanipulation import ExtractSubBlock
 from firedrake.logging import warning
 
 
-def flatten_parameters(parameters, sep=""):
+def flatten_parameters(parameters, sep="_"):
     """Flatten a nested parameters dict, joining keys with sep.
 
     :arg parameters: a dict to flatten.
@@ -25,10 +25,23 @@ def flatten_parameters(parameters, sep=""):
        flatten_parameters({"a": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
        => {"a_b_c": 4, "a_d": 2, "e": 1}
 
+    If a "prefix" key already ends with the provided separator, then
+    it is not used to concatenate the keys.  Hence:
+
+    .. code-block:: python
+
+       flatten_parameters({"a_": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
+       => {"a_b_c": 4, "a_d": 2, "e": 1}
+       # rather than
+       => {"a__b_c": 4, "a__d": 2, "e": 1}
     """
     new = type(parameters)()
 
+    if not len(parameters):
+        return new
+
     def flatten(parameters, *prefixes):
+        """Iterate over nested dicts, yielding (*keys, value) pairs."""
         sentinel = object()
         try:
             option = sentinel
@@ -43,8 +56,20 @@ def flatten_parameters(parameters, sep=""):
             # Non dict values are just returned.
             yield (prefixes, parameters)
 
+    def munge(keys):
+        """Ensure that each intermediate key in keys ends in sep.
+
+        Also, reverse the list."""
+        for key in reversed(keys[1:]):
+            if len(key) and not key.endswith(sep):
+                yield key + sep
+            else:
+                yield key
+        else:
+            yield keys[0]
+
     for keys, value in flatten(parameters):
-        option = sep.join(map(str, reversed(keys)))
+        option = "".join(map(str, munge(keys)))
         if option in new:
             warning("Ignoring duplicate option: %s (existing value %s, new value %s)",
                     option, new[option], value)
@@ -68,7 +93,10 @@ class ParametersMixin(object):
     :arg parameters: The dictionary of parameters to use.
     :arg options_prefix: The prefix to look up items in the global
         options database (may be ``None``, in which case only entries
-        from ``parameters`` will be considered.
+        from ``parameters`` will be considered.  If no trailing
+        underscore is provided, one is appended.  Hence ``foo_`` and
+        ``foo`` are treated equivalently.  As an exception, if the
+        prefix is the empty string, no underscore is appended.
 
     To use this, you must call its constructor to with the parameters
     you want in the options database.
@@ -105,6 +133,8 @@ class ParametersMixin(object):
             self.parameters = parameters
             self.to_delete = set(parameters)
         else:
+            if len(options_prefix) and not options_prefix.endswith("_"):
+                options_prefix += "_"
             self.options_prefix = options_prefix
             # Remove those options from the dict that were passed on
             # the commandline.

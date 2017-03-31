@@ -217,6 +217,47 @@ leading ``-``).  For more complete details on PETSc option naming we
 recommend looking in the `PETSc manual`_.  We describe some of the
 more common options here.
 
+Configuring solvers from the commandline
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+As well as specifying solver options in a parameters dict at the call
+site for each solve, one can configure solvers by passing options in
+the normal PETSc style via the commandline.  To do this, we need to
+specify the ``options_prefix`` for each solver that we wish to
+configure via the commandline.  This is done by providing a
+non-``None`` argument as the ``options_prefix`` keyword argument to
+the solver.  The separator between the prefix and the subsequent
+options is an underscore, which is automatically appended if the
+provided options prefix does end in one.
+
+When using an options prefix, we do not need to specify the prefix in
+the solver parameters dictionary (it is automatically added in the
+appropriate way).  Also to note is that command line options
+*override* parameters set in the dictionary.  This way we can provide
+good defaults for solvers, and override them on a case-by-case basis.
+
+For example, suppose we have a file ``pde.py`` that contains
+
+.. code-block:: python
+
+   ...
+   solve(F == 0, u, options_prefix="pde",
+         solver_parameters={"ksp_type": "gmres"})
+
+If we run this code as:
+
+.. code-block:: sh
+
+   python pde.py
+
+Then the KSP solver will be GMRES.  Conversely, when running
+
+.. code-block:: sh
+
+   python pde.py -pde_ksp_type cg
+
+we will use conjugate gradients as the KSP solver.
+
 Linear solver options
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -575,11 +616,11 @@ parameter sets are equivalent:
 
    {"ksp_type": "cg",
     "pc_type": "fieldsplit",
-    "fieldsplit_0_": {"ksp_type": "gmres",
-                      "pc_type": "hypre",
+    "fieldsplit_0": {"ksp_type": "gmres",
+                     "pc_type": "hypre",
                       "ksp_rtol": 1e-5},
-    "fieldsplit_1_": {"ksp_type": "richardson",
-                      "pc_type": "ilu"}}
+    "fieldsplit_1": {"ksp_type": "richardson",
+                     "pc_type": "ilu"}}
 
 and
 
@@ -592,6 +633,27 @@ and
     "fieldsplit_0_ksp_rtol": 1e-5,
     "fieldsplit_1_ksp_type": "richardson",
     "fieldsplit_1_pc_type": "ilu"}
+
+PETSc uses an underscore as a separator between option names, and we
+do the same.  For convenience, the prefix key to a nested dict can
+omit the trailing underscore, it will be added automatically if
+missing.  Hence
+
+.. code-block:: python
+
+   {"a": {"b": "foo"}}
+
+and
+
+.. code-block:: python
+
+   {"a_": {"b": "foo"}}
+
+both expand to
+
+.. code-block:: python
+
+   {"a_b": "foo"}
 
 Nonlinear solver options
 ~~~~~~~~~~~~~~~~~~~~~~~~
