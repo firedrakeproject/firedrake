@@ -1,7 +1,7 @@
 Mass matrix in loopy
 ================
 We are going to compute the action of the mass matrix via loopy and make
-sure we get the same answer as the assembled sparse matrix.
+sure we get the same answer as the assembled sparse matrix.::
 
   from firedrake import *
 

@@ -1,7 +1,7 @@
 Mass matrix in loopy
 ================
 We are going to compute the action of the stokes matrix via loopy and make
-sure we get the same answer as the assembled sparse matrix.
+sure we get the same answer as the assembled sparse matrix.::
 
   from firedrake import *
 
@@ -24,9 +24,9 @@ sure we get the same answer as the assembled sparse matrix.
   A = assemble(a)
   Alp = assemble(a, mat_type="loopy")
 
-  x = Function(V)
-  y0 = Function(V)
-  y1 = Function(V)
+  x = Function(Z)
+  y0 = Function(Z)
+  y1 = Function(Z)
 
   A.force_evaluation()
 
