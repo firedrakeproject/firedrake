@@ -477,7 +477,7 @@ class Function(ufl.Coefficient):
         """Evaluate function at points.
 
         :arg arg: The point to locate.
-        :arg *args: Additional points.
+        :arg args: Additional points.
         :kwarg dont_raise: Do not raise an error if a point is not found.
         :kwarg tolerance: Tolerance to use when checking for points in cell.
         """

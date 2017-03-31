@@ -315,10 +315,13 @@ else:
         quit("Unable to retrieve virtualenv name from the environment.\n Please ensure the virtualenv is active before running firedrake-update.")
 
 # virtualenv install
+python = ["%s/bin/python" % firedrake_env]
 # Use the pip from the virtualenv
 pip = ["%s/bin/pip" % firedrake_env]
+if jenkins:
+    # Explicitly run python on pip because Jenkins can make illegaly long shebang lines.
+    pip = python + pip
 pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
-python = ["%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
 
