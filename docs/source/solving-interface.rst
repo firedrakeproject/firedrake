@@ -217,6 +217,47 @@ leading ``-``).  For more complete details on PETSc option naming we
 recommend looking in the `PETSc manual`_.  We describe some of the
 more common options here.
 
+Configuring solvers from the commandline
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+As well as specifying solver options in a parameters dict at the call
+site for each solve, one can configure solvers by passing options in
+the normal PETSc style via the commandline.  To do this, we need to
+specify the ``options_prefix`` for each solver that we wish to
+configure via the commandline.  This is done by providing a
+non-``None`` argument as the ``options_prefix`` keyword argument to
+the solver.  The separator between the prefix and the subsequent
+options is an underscore, which is automatically appended if the
+provided options prefix does end in one.
+
+When using an options prefix, we do not need to specify the prefix in
+the solver parameters dictionary (it is automatically added in the
+appropriate way).  Also to note is that command line options
+*override* parameters set in the dictionary.  This way we can provide
+good defaults for solvers, and override them on a case-by-case basis.
+
+For example, suppose we have a file ``pde.py`` that contains
+
+.. code-block:: python
+
+   ...
+   solve(F == 0, u, options_prefix="pde",
+         solver_parameters={"ksp_type": "gmres"})
+
+If we run this code as:
+
+.. code-block:: sh
+
+   python pde.py
+
+Then the KSP solver will be GMRES.  Conversely, when running
+
+.. code-block:: sh
+
+   python pde.py -pde_ksp_type cg
+
+we will use conjugate gradients as the KSP solver.
+
 Linear solver options
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -497,10 +538,11 @@ More block preconditioners
 As well as physics-based Schur complement preconditioners for block
 systems, PETSc also allows us to use preconditioners formed from block
 Jacobi (``'pc_fieldsplit_type': 'additive'``) and block Gauss-Seidel
-(``'multiplicative'`` or ``'symmetric_multiplicative'``)
-inverses of the block system.  These work for any number of blocks,
-whereas the Schur complement approach mentioned above only works for
-two by two blocks.
+(``'multiplicative'`` or ``'symmetric_multiplicative'``) inverses of
+the block system.  These work for any number of blocks, whereas the
+Schur complement approach mentioned above only works for two by two
+blocks.  There is also a :doc:`separate manual section <matrix-free>`
+on specifying preconditioners that require auxiliary operators.
 
 Recursive fieldsplits
 +++++++++++++++++++++
@@ -555,13 +597,63 @@ FunctionSpace definitions:
 Then we would have referred to the single (field 1) split using
 ``fieldsplit_T_pc_type``, rather than ``fieldsplit_1_pc_type``.
 
-.. note::
+.. _nested_options_blocks:
 
-   Future versions of Firedrake may offer a symbolic language for
-   describing the composition of such physics-like preconditioners,
-   rather than having to specify everything using PETSc solver
-   options.
+Specifying nested options blocks
+++++++++++++++++++++++++++++++++
 
+For complex nested preconditioners, it can be tedious to write out the
+same prefix over and over.  Moreover, we may have a block system where
+multiple blocks use the same preconditioning options.  It is then
+error-prone to type these options out twice.  To alleviate these
+problems, one can describe the nesting in the solver parameters
+dictionary by using a nested :class:`.dict` as the value.  In this
+case, the key is used as an options prefix to all of the key-value
+pairs in the nested dictionary.  As an example, the following two
+parameter sets are equivalent:
+
+.. code-block:: python
+
+   {"ksp_type": "cg",
+    "pc_type": "fieldsplit",
+    "fieldsplit_0": {"ksp_type": "gmres",
+                     "pc_type": "hypre",
+                      "ksp_rtol": 1e-5},
+    "fieldsplit_1": {"ksp_type": "richardson",
+                     "pc_type": "ilu"}}
+
+and
+
+.. code-block:: python
+
+   {"ksp_type": "cg",
+    "pc_type": "fieldsplit",
+    "fieldsplit_0_ksp_type": "gmres",
+    "fieldsplit_0_pc_type": "hypre",
+    "fieldsplit_0_ksp_rtol": 1e-5,
+    "fieldsplit_1_ksp_type": "richardson",
+    "fieldsplit_1_pc_type": "ilu"}
+
+PETSc uses an underscore as a separator between option names, and we
+do the same.  For convenience, the prefix key to a nested dict can
+omit the trailing underscore, it will be added automatically if
+missing.  Hence
+
+.. code-block:: python
+
+   {"a": {"b": "foo"}}
+
+and
+
+.. code-block:: python
+
+   {"a_": {"b": "foo"}}
+
+both expand to
+
+.. code-block:: python
+
+   {"a_b": "foo"}
 
 Nonlinear solver options
 ~~~~~~~~~~~~~~~~~~~~~~~~
