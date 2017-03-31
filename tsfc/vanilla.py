@@ -1,6 +1,8 @@
 from __future__ import absolute_import, print_function, division
 
-from gem import index_sum
+from functools import reduce
+
+from gem import index_sum, Sum
 from gem.optimise import unroll_indexsum
 
 
@@ -37,8 +39,7 @@ def flatten(var_reps):
     """
     for variable, reps in var_reps:
         expressions = reps  # representations are expressions
-        for expression in expressions:
-            yield (variable, expression)
+        yield (variable, reduce(Sum, expressions))
 
 
 finalise_options = {}
