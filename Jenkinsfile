@@ -6,6 +6,9 @@ node {
              'FIREDRAKE_CI_TESTS=1'
            ])
   {
+    stage('Clone') {
+      checkout scm
+    }
     stage('Clean') {
       dir('tmp') {
         deleteDir()
