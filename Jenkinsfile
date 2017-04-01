@@ -100,7 +100,6 @@ curl -s https://codecov.io/bash | bash
           sh 'mkdir tmp'
           dir('tmp') {
             timestamps {
-              sh 'pip install virtualenv'
               sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
               sh '$HOME/.local/bin/virtualenv --relocatable firedrake'
             }
