@@ -100,7 +100,7 @@ curl -s https://codecov.io/bash | bash
           sh 'mkdir tmp'
           dir('tmp') {
             timestamps {
-              sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
+              sh '/usr/local/bin/python ../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
               sh '$HOME/.local/bin/virtualenv --relocatable firedrake'
             }
           }
