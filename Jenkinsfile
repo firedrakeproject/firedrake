@@ -101,7 +101,6 @@ curl -s https://codecov.io/bash | bash
           dir('tmp') {
             timestamps {
               sh '/usr/local/bin/python ../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
-              sh '$HOME/.local/bin/virtualenv --relocatable firedrake'
             }
           }
         }
