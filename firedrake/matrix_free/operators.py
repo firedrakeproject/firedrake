@@ -623,12 +623,8 @@ class LoopyImplicitMatrixContext(object):
 
         for Ai, y in zip(As, self._y.split()):
             y.dat._data[:] = np.reshape(Ai, y.dat._data.shape)
-            y.dat.halo_exchange_begin(reverse=True)
-            y.dat.halo_exchange_end(reverse=True)
 
-        # for d in self._y.dat.sp
-        # self._y.dat.halo_exchange_begin(reverse=True)
-        # self._y.dat.halo_exchange_end(reverse=True)
+        self._y.dat.halo_exchange_begin(reverse=True)
 
         # This sets the essential boundary condition values on the
         # result.
