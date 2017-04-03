@@ -783,7 +783,11 @@ class ExtrudedSet(Set):
     :param parent: The parent :class:`Set` to build this :class:`ExtrudedSet` on top of
     :type parent: a :class:`Set`.
     :param layers: The number of layers in this :class:`ExtrudedSet`.
-    :type layers: an integer.
+    :type layers: an integer, indicating the number of layers for every entity,
+        or an array of shape (parent.total_size, 2) giving the start
+        and one past the stop layer for every entity.  An entry
+        ``a, b = layers[e, ...]`` means that the layers for entity
+        ``e`` run over :math:`[a, b)`.
 
     The number of layers indicates the number of time the base set is
     extruded in the direction of the :class:`ExtrudedSet`.  As a
@@ -793,8 +797,24 @@ class ExtrudedSet(Set):
     @validate_type(('parent', Set, TypeError))
     def __init__(self, parent, layers):
         self._parent = parent
-        if layers < 2:
-            raise SizeTypeError("Number of layers must be > 1 (not %s)" % layers)
+        try:
+            layers = verify_reshape(layers, IntType, (parent.total_size, 2))
+            self.constant_layers = False
+            if layers.min() < 0:
+                raise SizeTypeError("Bottom of layers must be >= 0")
+            if any(layers[:, 1] - layers[:, 0] < 1):
+                raise SizeTypeError("Number of layers must be >= 0")
+        except DataValueError:
+            # Legacy, integer
+            layers = np.asarray(layers, dtype=IntType)
+            if layers.shape:
+                raise SizeTypeError("Specifying layers per entity, but provided %s, needed (%d, 2)",
+                                    layers.shape, parent.total_size)
+            if layers < 2:
+                raise SizeTypeError("Need at least two layers, not %d", layers)
+            layers = np.asarray([[0, layers]], dtype=IntType)
+            self.constant_layers = True
+
         self._layers = layers
         self._extruded = True
 
@@ -818,7 +838,15 @@ class ExtrudedSet(Set):
 
     @cached_property
     def layers(self):
-        """The number of layers in this extruded set."""
+        """The layers of this extruded set."""
+        if self.constant_layers:
+            # Backwards compat
+            return self.layers_array[0, 1]
+        else:
+            raise ValueError("No single layer, use layers_array attribute")
+
+    @cached_property
+    def layers_array(self):
         return self._layers
 
 
@@ -917,7 +945,7 @@ class MixedSet(Set, ObjectCached):
         if self._initialized:
             return
         self._sets = sets
-        assert all(s is None or isinstance(s, GlobalSet) or s.layers == self._sets[0].layers for s in sets), \
+        assert all(s is None or isinstance(s, GlobalSet) or ((s.layers == self._sets[0].layers).all() if s.layers is not None else True) for s in sets), \
             "All components of a MixedSet must have the same number of layers."
         # TODO: do all sets need the same communicator?
         self.comm = reduce(lambda a, b: a or b, map(lambda s: s if s is None else s.comm, sets))
@@ -1452,6 +1480,7 @@ class IterationSpace(object):
     def cache_key(self):
         """Cache key used to uniquely identify the object in the cache."""
         return self._extents, self._block_shape, self.iterset._extruded, \
+            (self.iterset._extruded and self.iterset.constant_layers), \
             isinstance(self._iterset, Subset)
 
 
@@ -3997,10 +4026,11 @@ class ParLoop(LazyComputation):
         size = iterset.size
         if self.is_indirect and iterset._extruded:
             region = self.iteration_region
+            layers = np.mean(iterset.layers_array[:, 1] - iterset.layers_array[:, 0])
             if region is ON_INTERIOR_FACETS:
-                size *= iterset.layers - 2
+                size *= layers - 2
             elif region not in [ON_TOP, ON_BOTTOM]:
-                size *= iterset.layers - 1
+                size *= layers - 1
         return size * self._kernel.num_flops
 
     def log_flops(self):
@@ -4122,13 +4152,6 @@ class ParLoop(LazyComputation):
     @cached_property
     def global_reduction_args(self):
         return [arg for arg in self.args if arg._is_global_reduction]
-
-    @cached_property
-    def layer_arg(self):
-        """The layer arg that needs to be added to the argument list."""
-        if self._is_layered:
-            return [self._it_space.layers]
-        return []
 
     @cached_property
     def it_space(self):
