@@ -38,6 +38,8 @@ from textwrap import dedent
 from copy import deepcopy as dcopy
 from collections import OrderedDict
 
+import ctypes
+
 from pyop2.datatypes import IntType, as_cstr, as_ctypes
 from pyop2 import base
 from pyop2 import compilation
@@ -164,7 +166,7 @@ class Arg(base.Arg):
     def c_global_reduction_name(self, count=None):
         return self.c_arg_name()
 
-    def c_kernel_arg(self, count, i=0, j=0, shape=(0,), layers=1):
+    def c_kernel_arg(self, count, i=0, j=0, shape=(0,)):
         if self._is_dat_view and not self._is_direct:
             raise NotImplementedError("Indirect DatView not implemented")
         if self._uses_itspace:
@@ -469,7 +471,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                         'ind': idx,
                                         'sign': sign})
         if need_bottom:
-            val.insert(0, "if (j_0 == 0) {")
+            val.insert(0, "if (j_0 == bottom_layer) {")
             val.append("}")
 
         need_top = False
@@ -575,6 +577,7 @@ void %(wrapper_name)s(int start,
   %(vec_decs)s;
   for ( int n = start; n < end; n++ ) {
     %(IntType)s i = %(index_expr)s;
+    %(layer_decls)s;
     %(vec_inits)s;
     %(map_init)s;
     %(extr_loop)s
@@ -752,8 +755,7 @@ void %(wrapper_name)s(int start,
                             argtypes.append(m._argtype)
 
         if iterset._extruded:
-            argtypes.append(index_type)
-            argtypes.append(index_type)
+            argtypes.append(ctypes.c_voidp)
 
         self._argtypes = argtypes
 
@@ -780,24 +782,7 @@ class ParLoop(petsc_base.ParLoop):
                             arglist.append(m._values.ctypes.data)
 
         if iterset._extruded:
-            region = self.iteration_region
-            # Set up appropriate layer iteration bounds
-            if region is ON_BOTTOM:
-                arglist.append(0)
-                arglist.append(1)
-                arglist.append(iterset.layers - 1)
-            elif region is ON_TOP:
-                arglist.append(iterset.layers - 2)
-                arglist.append(iterset.layers - 1)
-                arglist.append(iterset.layers - 1)
-            elif region is ON_INTERIOR_FACETS:
-                arglist.append(0)
-                arglist.append(iterset.layers - 2)
-                arglist.append(iterset.layers - 2)
-            else:
-                arglist.append(0)
-                arglist.append(iterset.layers - 1)
-                arglist.append(iterset.layers - 1)
+            arglist.append(iterset.layers_array.ctypes.data)
         return arglist
 
     @cached_property
@@ -890,8 +875,35 @@ def wrapper_snippets(itspace, args,
     _map_bcs_m = ""
     _map_bcs_p = ""
     _layer_arg = ""
+    _layer_decls = ""
     if itspace._extruded:
-        _layer_arg = ", int start_layer, int end_layer, int top_layer"
+        _layer_arg = ", %s *layers" % as_cstr(IntType)
+        if itspace.iterset.constant_layers:
+            idx0 = "0"
+            idx1 = "1"
+        else:
+            idx0 = "2*i"
+            idx1 = "2*i+1"
+        _layer_decls = "%(IntType)s bottom_layer = layers[%(idx0)s];\n"
+        if iteration_region == ON_BOTTOM:
+            _layer_decls += "%(IntType)s start_layer = layers[%(idx0)s];\n"
+            _layer_decls += "%(IntType)s end_layer = layers[%(idx0)s] + 1;\n"
+            _layer_decls += "%(IntType)s top_layer = layers[%(idx1)s] - 1;\n"
+        elif iteration_region == ON_TOP:
+            _layer_decls += "%(IntType)s start_layer = layers[%(idx1)s] - 2;\n"
+            _layer_decls += "%(IntType)s end_layer = layers[%(idx1)s] - 1;\n"
+            _layer_decls += "%(IntType)s top_layer = layers[%(idx1)s] - 1;\n"
+        elif iteration_region == ON_INTERIOR_FACETS:
+            _layer_decls += "%(IntType)s start_layer = layers[%(idx0)s];\n"
+            _layer_decls += "%(IntType)s end_layer = layers[%(idx1)s] - 2;\n"
+            _layer_decls += "%(IntType)s top_layer = layers[%(idx1)s] - 2;\n"
+        else:
+            _layer_decls += "%(IntType)s start_layer = layers[%(idx0)s];\n"
+            _layer_decls += "%(IntType)s end_layer = layers[%(idx1)s] - 1;\n"
+            _layer_decls += "%(IntType)s top_layer = layers[%(idx1)s] - 1;\n"
+
+        _layer_decls = _layer_decls % {'idx0': idx0, 'idx1': idx1,
+                                       'IntType': as_cstr(IntType)}
         _map_decl += ';\n'.join([arg.c_map_decl(is_facet=is_facet)
                                  for arg in args if arg._uses_itspace])
         _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, is_facet=is_facet)
@@ -1026,6 +1038,7 @@ def wrapper_snippets(itspace, args,
             'vec_decs': indent(_vec_decs, 2),
             'map_init': indent(_map_init, 5),
             'apply_offset': indent(_apply_offset, 3),
+            'layer_decls': indent(_layer_decls, 5),
             'extr_loop': indent(_extr_loop, 5),
             'map_bcs_m': indent(_map_bcs_m, 5),
             'map_bcs_p': indent(_map_bcs_p, 5),
