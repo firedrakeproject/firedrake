@@ -2410,14 +2410,14 @@ class MixedDat(Dat):
             d.needs_halo_update = val
 
     @collective
-    def halo_exchange_begin(self):
+    def halo_exchange_begin(self, reverse=False):
         for s in self._dats:
-            s.halo_exchange_begin()
+            s.halo_exchange_begin(reverse)
 
     @collective
-    def halo_exchange_end(self):
+    def halo_exchange_end(self, reverse=False):
         for s in self._dats:
-            s.halo_exchange_end()
+            s.halo_exchange_end(reverse)
 
     @collective
     def zero(self, subset=None):
