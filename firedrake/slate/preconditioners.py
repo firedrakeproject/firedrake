@@ -52,9 +52,6 @@ class HybridizationPC(PCBase):
 
         V = test.function_space()
         mesh = V.mesh()
-        if mesh.cell_set._extruded:
-            # TODO: Merge FIAT branch to support TPC trace elements
-            raise NotImplementedError("Not implemented on extruded meshes.")
 
         assert len(V) == 2, (
             "Can only hybridize a mixed system with two spaces."
@@ -69,34 +66,27 @@ class HybridizationPC(PCBase):
 
         # Automagically determine which spaces are vector and scalar
         for i, Vi in enumerate(V):
-            if Vi.ufl_element().value_shape():
+            if Vi.ufl_element().sobolev_space().name == "HDiv":
                 self.vidx = i
             else:
+                assert Vi.ufl_element().sobolev_space().name == "L2"
                 self.pidx = i
 
         # Create the space of approximate traces.
-        # TODO: Once extruded and tensor product trace elements
-        # are ready, this logic will be updated.
         W = V[self.vidx]
-        hdiv_family = W.ufl_element().family()
-        if hdiv_family == "Raviart-Thomas":
-            tdegree = W.ufl_element().degree() - 1
-
-        elif hdiv_family == "Brezzi-Douglas-Marini":
+        if W.ufl_element().family() == "Brezzi-Douglas-Marini":
             tdegree = W.ufl_element().degree()
 
         else:
-            raise ValueError(
-                "%s not supported at the moment." % W.ufl_element().family()
-            )
+            try:
+                # If we have a tensor product element
+                h_deg, v_deg = W.ufl_element().degree()
+                tdegree = (h_deg - 1, v_deg - 1)
+
+            except TypeError:
+                tdegree = W.ufl_element().degree() - 1
 
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
-
-        # We zero out the contribution of the trace variables on the exterior
-        # boundary.
-        # NOTE: For extruded, we will need to add "on_top" and "on_bottom"
-        zero_trace_condition = [DirichletBC(TraceSpace, Constant(0.0),
-                                            "on_boundary")]
 
         # Break the function spaces and define fully discontinuous spaces
         broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element())
@@ -121,9 +111,22 @@ class HybridizationPC(PCBase):
         n = ufl.FacetNormal(mesh)
         sigma = TrialFunctions(V_d)[self.vidx]
 
-        # NOTE: Once extruded is ready, this will change slightly
-        # to include both horizontal and vertical interior facets
-        K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
+        # We zero out the contribution of the trace variables on the exterior
+        # boundary. Extruded cells will have both horizontal and vertical
+        # facets
+        if mesh.cell_set._extruded:
+            zero_trace_condition = [DirichletBC(TraceSpace, Constant(0.0),
+                                                "on_boundary"),
+                                    DirichletBC(TraceSpace, Constant(0.0),
+                                                "bottom"),
+                                    DirichletBC(TraceSpace, Constant(0.0),
+                                                "top")]
+            K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS_h +
+                       gammar('+') * ufl.dot(sigma, n) * ufl.dS_v)
+        else:
+            zero_trace_condition = [DirichletBC(TraceSpace, Constant(0.0),
+                                                "on_boundary")]
+            K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
