@@ -167,12 +167,9 @@ class HybridizationPC(PCBase):
 
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
-        opts = PETSc.Options()
-        fact_type = opts.getString(prefix + "fieldsplit_schur_fact_type",
-                                   "default")
 
         # Generate reconstruction calls
-        self._reconstruction_calls(split_mixed_op, split_trace_op, fact_type)
+        self._reconstruction_calls(split_mixed_op, split_trace_op)
 
         # Set up the projectors
         data_params = {"ksp_type": "preonly",
@@ -184,13 +181,14 @@ class HybridizationPC(PCBase):
 
         # NOTE: Tolerance is very important here and so we provide
         # the user a way to specify projector tolerance
+        opts = PETSc.Options()
         tol = opts.getReal(prefix + "projector_tolerance", 1e-8)
         self.projector = Projector(self.broken_solution.split()[self.vidx],
                                    self.unbroken_solution.split()[self.vidx],
                                    solver_parameters={"ksp_type": "cg",
                                                       "ksp_rtol": tol})
 
-    def _reconstruction_calls(self, split_mixed_op, split_trace_op, fact_type):
+    def _reconstruction_calls(self, split_mixed_op, split_trace_op):
         """This generates the reconstruction calls for the unknowns using the
         Lagrange multipliers.
 
@@ -198,38 +196,11 @@ class HybridizationPC(PCBase):
                              mixed operator from the original problem.
         :arg split_trace_op: a ``dict`` of split forms that make up the trace
                              contribution in the hybridized mixed system.
-        :arg fact_type: a string denoting the order in which we eliminate
-                        unknowns to generate the reconstruction expressions.
-
-                        For example, "lower" will perform a lower Schur
-                        complement on the broken mixed operator, which
-                        eliminates the first unknown to generate an
-                        expression for the second one.
-
-                        If "upper", we perform an upper Schur complement which
-                        eliminates the second unknown to arrive at solvable
-                        expression for the first.
-
-                        If the user does not specify an elimination order,
-                        the defaulted behavior ("default") will eliminate
-                        velocity first.
         """
         from firedrake.assemble import create_assembly_callable
 
-        # NOTE: By construction of the matrix system, changing
-        # from lower to upper eliminations requires only a simple
-        # change in indices
-        if fact_type == "default":
-            id0, id1 = (self.vidx, self.pidx)
-        elif fact_type == "lower":
-            id0, id1 = (0, 1)
-        elif fact_type == "upper":
-            id0, id1 = (1, 0)
-        else:
-            raise ValueError(
-                "%s not a recognized schur-fact type for this PC"
-                % fact_type
-            )
+        # We always eliminate the velocity block first
+        id0, id1 = (self.vidx, self.pidx)
 
         # TODO: When PyOP2 is able to write into mixed dats,
         # the reconstruction expressions can simplify into
