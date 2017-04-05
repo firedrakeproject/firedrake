@@ -1,5 +1,3 @@
-import numpy as np
-
 from pyop2 import op2
 
 
@@ -28,12 +26,12 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     The kernel signature (if provided) is::
 
         void kernel(double **base_coords, double **ext_coords,
-                    int **layer, double *layer_height)
+                    double *layer_height, int layer)
 
     The kernel iterates over the cells of the mesh and receives as
     arguments the coordinates of the base cell (to read), the
-    coordinates on the extruded cell (to write to), the layer number
-    of each cell and the fixed layer height.
+    coordinates on the extruded cell (to write to), the fixed layer
+    height, and the current cell layer.
     """
     _, vert_space = ext_coords.function_space().ufl_element().sub_elements()[0].sub_elements()
     if kernel is None and not (vert_space.degree() == 1 and
@@ -46,15 +44,15 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         kernel = op2.Kernel("""
         void uniform_extrusion_kernel(double **base_coords,
                     double **ext_coords,
-                    int **layer,
-                    double *layer_height) {
+                    double *layer_height,
+                    int layer) {
             for ( int d = 0; d < %(base_map_arity)d; d++ ) {
                 for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
                     ext_coords[2*d][c] = base_coords[d][c];
                     ext_coords[2*d+1][c] = base_coords[d][c];
                 }
-                ext_coords[2*d][%(base_coord_dim)d] = *layer_height * (layer[0][0]);
-                ext_coords[2*d+1][%(base_coord_dim)d] = *layer_height * (layer[0][0] + 1);
+                ext_coords[2*d][%(base_coord_dim)d] = *layer_height * (layer);
+                ext_coords[2*d+1][%(base_coord_dim)d] = *layer_height * (layer + 1);
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
                 'base_coord_dim': base_coords.function_space().value_size},
@@ -63,8 +61,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         kernel = op2.Kernel("""
         void radial_extrusion_kernel(double **base_coords,
                    double **ext_coords,
-                   int **layer,
-                   double *layer_height) {
+                   double *layer_height,
+                   int layer) {
             for ( int d = 0; d < %(base_map_arity)d; d++ ) {
                 double norm = 0.0;
                 for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
@@ -72,8 +70,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                 }
                 norm = sqrt(norm);
                 for ( int c = 0; c < %(base_coord_dim)d; c++ ) {
-                    ext_coords[2*d][c] = base_coords[d][c] * (1 + (*layer_height * layer[0][0])/norm);
-                    ext_coords[2*d+1][c] = base_coords[d][c] * (1 + (*layer_height * (layer[0][0]+1))/norm);
+                    ext_coords[2*d][c] = base_coords[d][c] * (1 + (*layer_height * layer)/norm);
+                    ext_coords[2*d+1][c] = base_coords[d][c] * (1 + (*layer_height * (layer+1))/norm);
                 }
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
@@ -87,8 +85,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
         kernel = op2.Kernel("""
         void radial_hedgehog_extrusion_kernel(double **base_coords,
                                               double **ext_coords,
-                                              int **layer,
-                                              double *layer_height) {
+                                              double *layer_height,
+                                              int layer) {
             double v0[%(base_coord_dim)d];
             double v1[%(base_coord_dim)d];
             double n[%(base_coord_dim)d];
@@ -139,8 +137,8 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
             norm *= (dot < 0 ? -1 : 1);
             for (d = 0; d < %(base_map_arity)d; ++d) {
                 for (c = 0; c < %(base_coord_dim)d; ++c ) {
-                    ext_coords[2*d][c] = base_coords[d][c] + n[c] * layer_height[0] * layer[0][0] / norm;
-                    ext_coords[2*d+1][c] = base_coords[d][c] + n[c] * layer_height[0] * (layer[0][0] + 1)/ norm;
+                    ext_coords[2*d][c] = base_coords[d][c] + n[c] * layer_height[0] * layer / norm;
+                    ext_coords[2*d+1][c] = base_coords[d][c] + n[c] * layer_height[0] * (layer + 1)/ norm;
                 }
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
@@ -149,17 +147,10 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)
 
-    # Dat to hold layer number
-    import firedrake.functionspace as fs
-    layer_fs = fs.FunctionSpace(extruded_topology, 'DG', 0)
-    layers = extruded_topology.layers
-    layer = op2.Dat(layer_fs.dof_dset,
-                    np.repeat(np.arange(layers-1, dtype=np.int32),
-                              extruded_topology.cell_set.total_size).reshape(layers-1, extruded_topology.cell_set.total_size).T.ravel(), dtype=np.int32)
     height = op2.Global(1, layer_height, dtype=float)
     op2.par_loop(kernel,
                  ext_coords.cell_set,
                  base_coords.dat(op2.READ, base_coords.cell_node_map()),
                  ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
-                 layer(op2.READ, layer_fs.cell_node_map()),
-                 height(op2.READ))
+                 height(op2.READ),
+                 pass_layer_arg=True)
