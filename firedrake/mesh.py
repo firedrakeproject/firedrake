@@ -572,12 +572,14 @@ class MeshTopology(object):
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
-    def make_cell_node_list(self, global_numbering, entity_dofs):
+    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg offsets: ignored (must be ``None``).
         """
+        assert offsets is None, "Didn't expect non-None offsets"
         return dmplex.get_cell_nodes(global_numbering,
                                      self.cell_closure,
                                      entity_dofs)
@@ -781,11 +783,12 @@ class ExtrudedMeshTopology(MeshTopology):
                        markers=base.markers,
                        unique_markers=base.unique_markers)
 
-    def make_cell_node_list(self, global_numbering, entity_dofs):
+    def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
         """Builds the DoF mapping.
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
+        :arg offsets: layer offsets for each entity dof.
         """
         flat_entity_dofs = {}
         for b, v in entity_dofs:

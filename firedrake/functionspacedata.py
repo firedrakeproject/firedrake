@@ -94,20 +94,21 @@ def get_node_set(mesh, nodes_per_entity):
     return node_set
 
 
-def get_cell_node_list(mesh, entity_dofs, global_numbering):
+def get_cell_node_list(mesh, entity_dofs, global_numbering, offsets):
     """Get the cell->node list for specified dof layout.
 
     :arg mesh: The mesh to use.
     :arg entity_dofs: The FInAT entity_dofs dict.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
+    :arg offsets: layer offsets for each entity (maybe ignored).
     :returns: A numpy array mapping mesh cells to function space
         nodes.
     """
-    return mesh.make_cell_node_list(global_numbering, entity_dofs)
+    return mesh.make_cell_node_list(global_numbering, entity_dofs, offsets)
 
 
-def get_facet_node_list(mesh, kind, cell_node_list):
+def get_facet_node_list(mesh, kind, cell_node_list, offsets):
     """Get the facet->node list for specified dof layout.
 
     :arg mesh: The mesh to use.
@@ -115,19 +116,20 @@ def get_facet_node_list(mesh, kind, cell_node_list):
         ``"exterior_facets"``).
     :arg cell_node_list: The map from mesh cells to function space
         nodes, see :func:`get_cell_node_list`.
+    :arg offsets: layer offsets for each entity (maybe ignored).
     :returns: A numpy array mapping mesh facets to function space
         nodes.
     """
     assert kind in ["interior_facets", "exterior_facets"]
     if mesh._plex.getStratumSize(kind, 1) > 0:
         facet = getattr(mesh, kind)
-        return dm_mod.get_facet_nodes(facet.facet_cell, cell_node_list)
+        return dm_mod.get_facet_nodes(facet.facet_cell, cell_node_list, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
 
 @cached
-def get_entity_node_lists(mesh, key, entity_dofs, global_numbering):
+def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
     """Get the map from mesh entity sets to function space nodes.
 
     :arg mesh: The mesh to use.
@@ -135,13 +137,14 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering):
     :arg entity_dofs: FInAT entity dofs.
     :arg global_numbering: The PETSc Section describing node layout
         (see :func:`get_global_numbering`).
+    :arg offsets: layer offsets for each entity (maybe ignored).
     :returns: A dict mapping mesh entity sets to numpy arrays of
         function space nodes.
     """
     # set->node lists are specific to the sorted entity_dofs.
-    cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering)
-    interior_facet_node_list = get_facet_node_list(mesh, "interior_facets", cell_node_list)
-    exterior_facet_node_list = get_facet_node_list(mesh, "exterior_facets", cell_node_list)
+    cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering, offsets)
+    interior_facet_node_list = get_facet_node_list(mesh, "interior_facets", cell_node_list, offsets)
+    exterior_facet_node_list = get_facet_node_list(mesh, "exterior_facets", cell_node_list, offsets)
     return {mesh.cell_set: cell_node_list,
             mesh.interior_facets.set: interior_facet_node_list,
             mesh.exterior_facets.set: exterior_facet_node_list}
@@ -300,9 +303,9 @@ class FunctionSpaceData(object):
         # conditions.
         # Map caches are specific to a cell_node_list, which is keyed by entity_dof
         self.map_caches = get_map_caches(mesh, edofs_key)
-        self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering)
-        self.node_set = node_set
         self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, finat_element.space_dimension())
+        self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering, self.offset)
+        self.node_set = node_set
         self.bt_masks = get_bt_masks(mesh, edofs_key, finat_element)
         self.extruded = bool(mesh.layers)
         self.mesh = mesh

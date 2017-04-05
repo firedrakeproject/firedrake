@@ -488,12 +488,14 @@ def get_cell_nodes(PETSc.Section global_numbering,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_facet_nodes(np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells,
-                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes):
+                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes,
+                    np.ndarray[PetscInt, ndim=1, mode="c"] offset):
     """
     Derives the DoF mapping for a given facet list.
 
     :arg facet_cells: 2D array of parent cells for each facet
     :arg cell_nodes: 2D array of cell DoFs
+    :arg offset: layer offsets for each entity (maybe ignored).
     """
     cdef:
         int f, i, cell, nfacets, ncells, ndofs
