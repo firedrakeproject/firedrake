@@ -406,17 +406,14 @@ class MeshTopology(object):
                 entity_dofs = np.zeros(dim+1, dtype=IntType)
                 entity_dofs[-1] = 1
 
-                self._cell_numbering = self._plex.createSection([1], entity_dofs,
-                                                                perm=self._plex_renumbering)
+                self._cell_numbering = self.create_section(entity_dofs)
                 entity_dofs[:] = 0
                 entity_dofs[0] = 1
-                self._vertex_numbering = self._plex.createSection([1], entity_dofs,
-                                                                  perm=self._plex_renumbering)
+                self._vertex_numbering = self.create_section(entity_dofs)
 
                 entity_dofs[:] = 0
                 entity_dofs[-2] = 1
-                facet_numbering = self._plex.createSection([1], entity_dofs,
-                                                           perm=self._plex_renumbering)
+                facet_numbering = self.create_section(entity_dofs)
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
 
@@ -558,6 +555,14 @@ class MeshTopology(object):
         nfacet = cell_facets.shape[1]
         return op2.Dat(self.cell_set**nfacet, cell_facets, dtype=cell_facets.dtype,
                        name="cell-to-local-facet-dat")
+
+    def create_section(self, nodes_per_entity):
+        """Create a PETSc Section describing a function space.
+
+        :arg nodes_per_entity: number of function space nodes per topological entity.
+        :returns: a new PETSc Section.
+        """
+        return self._plex.createSection([1], nodes_per_entity, perm=self._plex_renumbering)
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.

@@ -68,7 +68,7 @@ def get_global_numbering(mesh, nodes_per_entity):
         topological entity.
     :returns: A new PETSc Section.
     """
-    return mesh._plex.createSection([1], nodes_per_entity, perm=mesh._plex_renumbering)
+    return mesh.create_section(nodes_per_entity)
 
 
 @cached
