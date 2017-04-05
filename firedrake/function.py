@@ -443,7 +443,7 @@ class Function(ufl.Coefficient):
         # Store data into ``C struct''
         c_function = _CFunction()
         c_function.n_cols = mesh.num_cells()
-        if hasattr(mesh, '_layers'):
+        if mesh.layers is not None:
             c_function.n_layers = mesh.layers - 1
         else:
             c_function.n_layers = 1

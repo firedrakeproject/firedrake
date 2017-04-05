@@ -744,11 +744,8 @@ class ExtrudedMeshTopology(MeshTopology):
 
         mesh.init()
         self._base_mesh = mesh
-        if layers < 1:
-            raise RuntimeError("Must have at least one layer of extruded cells (not %d)" % layers)
         self.comm = mesh.comm
-        # All internal logic works with layers of base mesh (not layers of cells)
-        self._layers = layers + 1
+        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
         self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
 
         # TODO: These attributes are copied so that FunctionSpaceBase can
@@ -866,7 +863,10 @@ class ExtrudedMeshTopology(MeshTopology):
     def layers(self):
         """Return the number of layers of the extruded mesh
         represented by the number of occurences of the base mesh."""
-        return self._layers
+        if self.cell_set.constant_layers:
+            return self.cell_set.layers
+        else:
+            raise ValueError("Can't ask for mesh layers with variable layers")
 
     def cell_dimension(self):
         """Returns the cell dimension."""
@@ -882,10 +882,6 @@ class ExtrudedMeshTopology(MeshTopology):
 
         """
         return (self._base_mesh.facet_dimension(), 1)
-
-    @utils.cached_property
-    def cell_set(self):
-        return op2.ExtrudedSet(self._base_mesh.cell_set, layers=self.layers)
 
     def _order_data_by_cell_index(self, column_list, cell_data):
         cell_list = []
@@ -1270,11 +1266,17 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
 
     :arg mesh:           the unstructured base mesh
     :arg layers:         number of extruded cell layers in the "vertical"
-                         direction.
+                         direction.  One may also pass an array of
+                         shape (cells, 2) to specify a variable number
+                         of layers.  In this case, each entry is a pair
+                         ``[a, b]`` where ``a`` indicates the starting
+                         cell layer of the column and ``b`` the number
+                         of cell layers in that column.
     :arg layer_height:   the layer height, assuming all layers are evenly
                          spaced. If this is omitted, the value defaults to
                          1/layers (i.e. the extruded mesh has total height 1.0)
-                         unless a custom kernel is used.
+                         unless a custom kernel is used.  Must be
+                         provided if using a variable number of layers.
     :arg extrusion_type: the algorithm to employ to calculate the extruded
                          coordinates. One of "uniform", "radial",
                          "radial_hedgehog" or "custom". See below.
@@ -1314,6 +1316,23 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     import firedrake.function as function
 
     mesh.init()
+    try:
+        layers = np.asarray(layers, dtype=IntType).reshape(mesh.cell_set.total_size, 2)
+        layers[:, 1] += 1 + layers[:, 0]
+        if layer_height is None:
+            raise ValueError("Must provide layer height for variable layers")
+    except ValueError:
+        layers = np.asarray(layers, dtype=IntType)
+        if layers.shape:
+            raise ValueError("Must provide scalar layer value, not %s", layers)
+        if layers < 1:
+            raise ValueError("Must have at least one layer of extruded cells (not %d)", layers)
+        if layer_height is None:
+            # Default to unit
+            layer_height = 1 / layers
+        # All internal logic works with layers of base mesh (not layers of cells)
+        layers = layers + 1
+
     topology = ExtrudedMeshTopology(mesh.topology, layers)
 
     if extrusion_type == "uniform":
@@ -1329,11 +1348,6 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
         # otherwise, use the gdim that was passed in
         if gdim is None:
             raise RuntimeError("The geometric dimension of the mesh must be specified if a custom extrusion kernel is used")
-
-    # Compute Coordinates of the extruded mesh
-    if layer_height is None:
-        # Default to unit
-        layer_height = 1 / layers
 
     if extrusion_type == 'radial_hedgehog':
         hfamily = "DG"
