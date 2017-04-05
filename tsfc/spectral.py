@@ -5,14 +5,25 @@ from functools import partial
 from itertools import chain
 
 from gem import index_sum
-from gem.optimise import delta_elimination, sum_factorise as _sum_factorise, unroll_indexsum
-from gem.refactorise import ATOMIC, COMPOUND, OTHER, collect_monomials
+from gem.optimise import delta_elimination as _delta_elimination
+from gem.optimise import sum_factorise as _sum_factorise
+from gem.optimise import unroll_indexsum
+from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
 
 
-def sum_factorise(sum_indices, factors):
+def delta_elimination(sum_indices, args, rest):
+    factors = [rest] + list(args)
+    sum_indices, factors = _delta_elimination(sum_indices, factors)
+    rest = factors.pop(0)
+    args = factors
+    return sum_indices, args, rest
+
+
+def sum_factorise(sum_indices, args, rest):
     sum_indices = list(sum_indices)
     sum_indices.reverse()
-    return _sum_factorise(*delta_elimination(sum_indices, factors))
+    factors = args + (rest,)
+    return _sum_factorise(sum_indices, factors)
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
@@ -42,8 +53,12 @@ def flatten(var_reps):
         argument_indices, = set(map(frozenset, argument_indicez))
         classifier = partial(classify, argument_indices)
         for monomial_sum in collect_monomials(expressions, classifier):
-            for sum_indices, args, rest in monomial_sum:
-                yield (variable, sum_factorise(sum_indices, args + (rest,)))
+            delta_simplified = MonomialSum()
+            for monomial in monomial_sum:
+                delta_simplified.add(*delta_elimination(*monomial))
+
+            for monomial in delta_simplified:
+                yield (variable, sum_factorise(*monomial))
 
 
 finalise_options = {}
