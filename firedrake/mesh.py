@@ -804,9 +804,10 @@ class ExtrudedMeshTopology(MeshTopology):
                 flat_entity_dofs[b][i] = \
                     entity_dofs[(b, 0)][2*i] + entity_dofs[(b, 1)][i] + entity_dofs[(b, 0)][2*i+1]
 
-        return dmplex.get_cell_nodes(global_numbering,
-                                     self.cell_closure,
-                                     flat_entity_dofs)
+        return extnum.get_cell_nodes(self, global_numbering, flat_entity_dofs, offsets)
+        # return dmplex.get_cell_nodes(global_numbering,
+        #                              self.cell_closure,
+        #                              flat_entity_dofs)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,

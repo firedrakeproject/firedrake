@@ -43,20 +43,15 @@ def layer_extents(mesh):
 
     dm = mesh._plex
     section = mesh._cell_numbering
-    cell_extents = numpy.empty_like(mesh.cell_set.layers_array)
-    layer_extents = mesh.cell_set.layers_array
-    # Convert from firedrake to petsc numbering for cell extents
-    for c in range(layer_extents.shape[0]):
-        CHKERR(PetscSectionGetOffset(section.sec, c, &cell))
-        cell_extents[c, 0] = layer_extents[cell, 0]
-        cell_extents[c, 1] = layer_extents[cell, 1]
+    cell_extents = mesh.cell_set.layers_array
+    pStart, pEnd = dm.getChart()
 
     iinfo = numpy.iinfo(IntType)
-    pStart, pEnd = dm.getChart()
 
     layer_extents = numpy.full((pEnd - pStart, 4),
                                (iinfo.max, iinfo.min, iinfo.min, iinfo.max),
                                dtype=IntType)
+
     cStart, cEnd = dm.getHeightStratum(0)
     for c in range(cStart, cEnd):
         CHKERR(DMPlexGetTransitiveClosure(dm.dm, c, PETSC_TRUE, &closureSize, &closure))
@@ -92,40 +87,27 @@ def create_section(mesh, nodes_per_entity):
         PETSc.DM dm
         PETSc.Section section
         PETSc.IS renumbering
-        PetscInt cStart, cEnd, c, ci, p, layers
-        PetscInt closureSize, i, pStart, pEnd
+        PetscInt i, p, layers, pStart, pEnd
         PetscInt dimension, ndof
-        PetscInt *closure = NULL
         numpy.ndarray[PetscInt, ndim=2, mode="c"] nodes
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents = mesh.layer_extents
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] stratum_bounds
 
     dm = mesh._plex
     renumbering = mesh._plex_renumbering
     section = PETSc.Section().create(comm=mesh.comm)
     pStart, pEnd = dm.getChart()
     section.setChart(pStart, pEnd)
-
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
 
     nodes = numpy.asarray(nodes_per_entity, dtype=IntType)
     dimension = dm.getDimension()
-    stratum_bounds = numpy.zeros((dimension + 1, 2), dtype=IntType)
-    for i in range(dimension + 1):
-        stratum_bounds[i, :] = dm.getDepthStratum(i)
 
-    cStart, cEnd = dm.getHeightStratum(0)
-    for c in range(cStart, cEnd):
-        CHKERR(DMPlexGetTransitiveClosure(dm.dm, c, PETSC_TRUE, &closureSize, &closure))
-        for ci in range(closureSize):
-            p = closure[2*ci]
+    for i in range(dimension + 1):
+        pStart, pEnd = dm.getDepthStratum(i)
+        for p in range(pStart, pEnd):
             layers = layer_extents[p, 1] - layer_extents[p, 0]
-            for i in range(dimension + 1):
-                if stratum_bounds[i, 0] <= p < stratum_bounds[i, 1]:
-                    ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
-                    CHKERR(PetscSectionSetDof(section.sec, p, ndof))
-                    break
-    DMPlexRestoreTransitiveClosure(dm.dm, 0, PETSC_TRUE, NULL, &closure)
+            ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+            CHKERR(PetscSectionSetDof(section.sec, p, ndof))
     section.setUp()
     return section
 
@@ -237,3 +219,199 @@ def entity_layers(mesh, height, label=None):
         return layers
     else:
         raise ValueError("Unsupported height '%s' (not 0 or 1)", height)
+
+
+# More generic version (works on all entities)
+def entity_layers2(mesh, height, label=None):
+    cdef:
+        PETSc.DM dm
+        DMLabel clabel = NULL
+        numpy.ndarray[PetscInt, ndim=1, mode="c"] facet_points
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layers
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        PetscInt f, p, i, pStart, pEnd
+        PetscBool flg
+
+    dm = mesh._base_mesh._plex
+
+    pStart, pEnd = dm.getHeightStratum(height)
+    if label is None:
+        size = pEnd - pStart
+    else:
+        size = dm.getStratumSize(label, 1)
+
+    layers = numpy.zeros((size, 2), dtype=IntType)
+
+    layer_extents = mesh.layer_extents
+    offset = 0
+    if label is not None:
+        CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
+        CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
+    for p in range(*dm.getChart()):
+        plex_point = mesh._base_mesh._plex_renumbering.indices[p]
+        if pStart <= plex_point < pEnd:
+            if clabel:
+                CHKERR(DMLabelHasPoint(clabel, plex_point, &flg))
+            else:
+                flg = PETSC_TRUE
+            if flg:
+                layers[offset, 0] = layer_extents[plex_point, 2]
+                layers[offset, 1] = layer_extents[plex_point, 3]
+                offset += 1
+
+    if label is not None:
+        CHKERR(DMLabelDestroyIndex(clabel))
+    return layers
+    
+
+@cython.wraparound(False)
+def get_cell_nodes(mesh,
+                   PETSc.Section global_numbering,
+                   entity_dofs,
+                   numpy.ndarray[PetscInt, ndim=1, mode="c"] offset):
+    """
+    Builds the DoF mapping.
+
+    :arg mesh: The mesh
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg entity_dofs: FInAT element entity dofs for the cell
+    :arg offset: offsets for each entity dof walking up a column.
+
+    Preconditions: This function assumes that cell_closures contains mesh
+    entities ordered by dimension, i.e. vertices first, then edges, faces, and
+    finally the cell. For quadrilateral meshes, edges corresponding to
+    dimension (0, 1) in the FInAT element must precede edges corresponding to
+    dimension (1, 0) in the FInAT element.
+    """
+    cdef:
+        int *ceil_ndofs = NULL
+        int *flat_index = NULL
+        PetscInt nclosure, dofs_per_cell
+        PetscInt c, i, j, k, cStart, cEnd, cell
+        PetscInt entity, ndofs, off
+        PETSc.Section cell_numbering
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
+        bint variable
+
+    variable = not mesh.cell_set.constant_layers
+    cell_closures = mesh.cell_closure
+    if variable:
+        layer_extents = mesh.layer_extents
+        if offset is None:
+            raise ValueError("Offset cannot be None with variable layer extents")
+    
+    nclosure = cell_closures.shape[1]
+
+    # Extract ordering from FInAT element entity DoFs
+    ndofs_list = []
+    flat_index_list = []
+
+    for dim in sorted(entity_dofs.keys()):
+        for entity_num in xrange(len(entity_dofs[dim])):
+            dofs = entity_dofs[dim][entity_num]
+
+            ndofs_list.append(len(dofs))
+            flat_index_list.extend(dofs)
+
+    # Coerce lists into C arrays
+    assert nclosure == len(ndofs_list)
+    dofs_per_cell = len(flat_index_list)
+
+    CHKERR(PetscMalloc1(nclosure, &ceil_ndofs))
+    CHKERR(PetscMalloc1(dofs_per_cell, &flat_index))
+
+    for i in range(nclosure):
+        ceil_ndofs[i] = ndofs_list[i]
+    for i in range(dofs_per_cell):
+        flat_index[i] = flat_index_list[i]
+
+    # Fill cell nodes
+    cStart, cEnd = mesh._plex.getHeightStratum(0)
+    cell_nodes = numpy.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
+    cell_numbering = mesh._cell_numbering
+    for c in range(cStart, cEnd):
+        k = 0
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        for i in range(nclosure):
+            entity = cell_closures[cell, i]
+            CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
+            if ndofs > 0:
+                CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+                # The cell we're looking at the entity through is
+                # higher than the lowest cell the column touches, so
+                # we need to offset by the difference from the bottom.
+                if variable and layer_extents[entity, 0] != layer_extents[c, 0]:
+                    off += offset[flat_index[k]]*(layer_extents[c, 0] - layer_extents[entity, 0])
+                for j in range(ceil_ndofs[i]):
+                    cell_nodes[cell, flat_index[k]] = off + j
+                    k += 1
+
+    CHKERR(PetscFree(ceil_ndofs))
+    CHKERR(PetscFree(flat_index))
+    return cell_nodes
+
+
+def get_cell_nodes2(mesh,
+                   global_numbering,
+                   entity_dofs,
+                   offset):
+    """
+    Builds the DoF mapping.
+
+    :arg global_numbering: Section describing the global DoF numbering
+    :arg cell_closures: 2D array of ordered cell closures
+    :arg entity_dofs: FInAT element entity dofs for the cell
+
+    Preconditions: This function assumes that cell_closures contains mesh
+    entities ordered by dimension, i.e. vertices first, then edges, faces, and
+    finally the cell. For quadrilateral meshes, edges corresponding to
+    dimension (0, 1) in the FInAT element must precede edges corresponding to
+    dimension (1, 0) in the FInAT element.
+    """
+    cell_closures = mesh.cell_closure
+    dm = mesh._plex
+    cell_numbering = mesh._cell_numbering
+    layer_bounds = mesh.layer_extents
+    ncells = cell_closures.shape[0]
+    nclosure = cell_closures.shape[1]
+
+    # Extract ordering from FInAT element entity DoFs
+    ndofs_list = []
+    flat_index_list = []
+
+    for dim in sorted(entity_dofs.keys()):
+        for entity_num in xrange(len(entity_dofs[dim])):
+            dofs = entity_dofs[dim][entity_num]
+
+            ndofs_list.append(len(dofs))
+            flat_index_list.extend(dofs)
+
+    # Coerce lists into C arrays
+    assert nclosure == len(ndofs_list)
+    dofs_per_cell = len(flat_index_list)
+
+    ceil_ndofs = ndofs_list
+    flat_index = flat_index_list
+    
+    # Fill cell nodes
+    cell_nodes = numpy.empty((ncells, dofs_per_cell), dtype=IntType)
+    cStart, cEnd = dm.getHeightStratum(0)
+    for cell in range(cStart, cEnd):
+        k = 0
+        c = cell_numbering.getOffset(cell)
+        for i in range(nclosure):
+            entity = cell_closures[c, i]
+            ndofs = global_numbering.getDof(entity)
+            if ndofs > 0:
+                off = global_numbering.getOffset(entity)
+                for j in range(ceil_ndofs[i]):
+                    if layer_bounds[entity, 0] != layer_bounds[cell, 0]:
+                        offs = off + offset[flat_index[k]]*(layer_bounds[entity, 2] - layer_bounds[entity, 0])
+                    else:
+                        offs = off
+                    cell_nodes[c, flat_index[k]] = offs + j
+                    k += 1
+
+    return cell_nodes
