@@ -564,6 +564,14 @@ class MeshTopology(object):
         """
         return self._plex.createSection([1], nodes_per_entity, perm=self._plex_renumbering)
 
+    def node_classes(self, nodes_per_entity):
+        """Compute node classes given nodes per entity.
+
+        :arg nodes_per_entity: number of function space nodes per topological entity.
+        :returns: the number of nodes in aech of core, owned, exec, and non exec classes.
+        """
+        return tuple(np.dot(nodes_per_entity, self._entity_classes))
+
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
 

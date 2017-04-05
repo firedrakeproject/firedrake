@@ -81,7 +81,7 @@ def get_node_set(mesh, nodes_per_entity):
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
     global_numbering = get_global_numbering(mesh, nodes_per_entity)
-    node_classes = tuple(numpy.dot(nodes_per_entity, mesh._entity_classes))
+    node_classes = mesh.node_classes(nodes_per_entity)
     halo = halo_mod.Halo(mesh._plex, global_numbering)
     node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = bool(mesh.layers)
