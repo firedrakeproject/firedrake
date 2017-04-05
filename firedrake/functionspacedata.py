@@ -189,7 +189,7 @@ def get_bt_masks(mesh, key, finat_element):
     :returns: A dict mapping ``"topological"`` and ``"geometric"``
         keys to bottom and top dofs (extruded) or ``None``.
     """
-    if not bool(mesh.layers):
+    if not mesh.cell_set._extruded:
         return None
     bt_masks = {}
     # Compute the top and bottom masks to identify boundary dofs
@@ -309,7 +309,7 @@ class FunctionSpaceData(object):
         self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering, self.offset)
         self.node_set = node_set
         self.bt_masks = get_bt_masks(mesh, edofs_key, finat_element)
-        self.extruded = bool(mesh.layers)
+        self.extruded = mesh.cell_set._extruded
         self.mesh = mesh
         self.global_numbering = global_numbering
 

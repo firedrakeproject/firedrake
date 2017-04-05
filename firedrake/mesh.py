@@ -15,6 +15,7 @@ from pyop2.utils import as_tuple, tuplify
 
 import firedrake.dmplex as dmplex
 import firedrake.expression as expression
+import firedrake.extrusion_numbering as extnum
 import firedrake.extrusion_utils as eutils
 import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
@@ -80,7 +81,8 @@ class _Facets(object):
                 base = self.mesh._base_mesh.interior_facets.set
             else:
                 base = self.mesh._base_mesh.exterior_facets.set
-            return op2.ExtrudedSet(base, layers=self.mesh.layers)
+            label = "%s_facets" % self.kind
+            return op2.ExtrudedSet(base, layers=self.mesh.entity_layers(1, label))
         return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],
                        comm=self.mesh.comm)
 
@@ -827,9 +829,12 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        nodes = np.asarray(nodes_per_entity)
-        nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
-        return super(ExtrudedMeshTopology, self).create_section(nodes_per_entity)
+        if self.cell_set.constant_layers:
+            nodes = np.asarray(nodes_per_entity, dtype=IntType)
+            nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
+            return super(ExtrudedMeshTopology, self).create_section(nodes_per_entity)
+        else:
+            return extnum.create_section(self, nodes_per_entity)
 
     def node_classes(self, nodes_per_entity):
         """Compute node classes given nodes per entity.
@@ -837,9 +842,12 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: the number of nodes in aech of core, owned, exec, and non exec classes.
         """
-        nodes = np.asarray(nodes_per_entity)
-        nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
-        return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
+        if self.cell_set.constant_layers:
+            nodes = np.asarray(nodes_per_entity)
+            nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
+            return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
+        else:
+            return extnum.node_classes(self, nodes_per_entity)
 
     def make_offset(self, entity_dofs, ndofs):
         """Returns the offset between the neighbouring cells of a
@@ -867,6 +875,36 @@ class ExtrudedMeshTopology(MeshTopology):
             return self.cell_set.layers
         else:
             raise ValueError("Can't ask for mesh layers with variable layers")
+
+    def entity_layers(self, height, label=None):
+        """Return the number of layers on each entity of a given plex
+        height.
+
+        :arg height: The height of the entity to compute the number of
+           layers (0 -> cells, 1 -> facets, etc...)
+        :arg label: An optional label name used to select points of
+           the given height (if None, then all points are used).
+        :returns: a numpy array of the number of layers on the asked
+           for entities (or a single layer number for the constant
+           layer case).
+        """
+        if self.cell_set.constant_layers:
+            return self.cell_set.layers
+        else:
+            return extnum.entity_layers(self, height, label)
+
+    @utils.cached_property
+    def layer_extents(self):
+        """The layer extents for all mesh points.
+
+        For variable layers, the layer extent does not match those for cells.
+
+        :returns: numpy array of layer extents (in PyOP2 format
+            :math:`[start, stop)`), of shape ``(num_cells, 4)`` where
+            the first two extents are used for allocation and the last
+            two for iteration.
+        """
+        return extnum.layer_extents(self)
 
     def cell_dimension(self):
         """Returns the cell dimension."""
