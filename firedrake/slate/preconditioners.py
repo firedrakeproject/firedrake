@@ -115,17 +115,13 @@ class HybridizationPC(PCBase):
         # boundary. Extruded cells will have both horizontal and vertical
         # facets
         if mesh.cell_set._extruded:
-            zero_trace_condition = [DirichletBC(TraceSpace, Constant(0.0),
-                                                "on_boundary"),
-                                    DirichletBC(TraceSpace, Constant(0.0),
-                                                "bottom"),
-                                    DirichletBC(TraceSpace, Constant(0.0),
-                                                "top")]
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary"),
+                         DirichletBC(TraceSpace, Constant(0.0), "bottom"),
+                         DirichletBC(TraceSpace, Constant(0.0), "top")]
             K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS_h +
                        gammar('+') * ufl.dot(sigma, n) * ufl.dS_v)
         else:
-            zero_trace_condition = [DirichletBC(TraceSpace, Constant(0.0),
-                                                "on_boundary")]
+            trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary")]
             K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
 
         # Assemble the Schur complement operator and right-hand side
@@ -138,12 +134,12 @@ class HybridizationPC(PCBase):
         schur_comp = K * Atilde.inv * K.T
 
         self.S = allocate_matrix(schur_comp,
-                                 bcs=zero_trace_condition,
+                                 bcs=trace_bcs,
                                  form_compiler_parameters=self.cxt.fc_params)
         self._assemble_S = create_assembly_callable(
             schur_comp,
             tensor=self.S,
-            bcs=zero_trace_condition,
+            bcs=trace_bcs,
             form_compiler_parameters=self.cxt.fc_params)
 
         self._assemble_S()
