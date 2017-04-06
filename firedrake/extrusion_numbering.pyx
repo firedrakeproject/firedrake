@@ -353,65 +353,78 @@ def get_cell_nodes(mesh,
     return cell_nodes
 
 
-def get_cell_nodes2(mesh,
-                   global_numbering,
-                   entity_dofs,
-                   offset):
-    """
-    Builds the DoF mapping.
+@cython.wraparound(False)
+def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, label,
+                    numpy.ndarray[PetscInt, ndim=1, mode="c"] offset):
+    cdef:
+        PETSc.DM dm
+        PETSc.Section cell_numbering
+        DMLabel clabel = NULL
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] facet_nodes
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        PetscInt f, p, i, j, pStart, pEnd, fStart, fEnd, point
+        PetscInt supportSize, facet, cell, ndof, dof
+        const PetscInt *renumbering
+        const PetscInt *support
+        PetscBool flg
+        bint variable, add_offset
 
-    :arg global_numbering: Section describing the global DoF numbering
-    :arg cell_closures: 2D array of ordered cell closures
-    :arg entity_dofs: FInAT element entity dofs for the cell
-
-    Preconditions: This function assumes that cell_closures contains mesh
-    entities ordered by dimension, i.e. vertices first, then edges, faces, and
-    finally the cell. For quadrilateral meshes, edges corresponding to
-    dimension (0, 1) in the FInAT element must precede edges corresponding to
-    dimension (1, 0) in the FInAT element.
-    """
-    cell_closures = mesh.cell_closure
     dm = mesh._plex
+    try:
+        variable = not mesh.cell_set.constant_layers
+    except AttributeError:
+        variable = False
+
+    fStart, fEnd = dm.getHeightStratum(1)
+
+    ndof = cell_nodes.shape[1]
+    if label is None:
+        nfacet = fEnd - fStart
+    else:
+        nfacet = dm.getStratumSize(label, 1)
+    if label == "interior_facets":
+        shape = (nfacet, ndof*2)
+    elif label == "exterior_facets":
+        shape = (nfacet, ndof)
+    else:
+        raise ValueError("Unsupported facet label '%s'", label)
+    facet_nodes = numpy.full(shape, -1, dtype=IntType)
+
+    if label is not None:
+        CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
+        CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+    pStart, pEnd = dm.getChart()
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     cell_numbering = mesh._cell_numbering
-    layer_bounds = mesh.layer_extents
-    ncells = cell_closures.shape[0]
-    nclosure = cell_closures.shape[1]
 
-    # Extract ordering from FInAT element entity DoFs
-    ndofs_list = []
-    flat_index_list = []
+    facet = 0
 
-    for dim in sorted(entity_dofs.keys()):
-        for entity_num in xrange(len(entity_dofs[dim])):
-            dofs = entity_dofs[dim][entity_num]
+    if variable:
+        layer_extents = mesh.layer_extents
+    for p in range(pStart, pEnd):
+        point = renumbering[p]
+        if fStart <= point < fEnd:
+            if clabel:
+                DMLabelHasPoint(clabel, point, &flg)
+            else:
+                flg = PETSC_TRUE
 
-            ndofs_list.append(len(dofs))
-            flat_index_list.extend(dofs)
+            if flg:
+                DMPlexGetSupportSize(dm.dm, point, &supportSize)
+                DMPlexGetSupport(dm.dm, point, &support)
+                for i in range(supportSize):
+                    PetscSectionGetOffset(cell_numbering.sec, support[i], &cell)
+                    # This facet iterates from higher than the cell
+                    # numbering of the cell, so we need to add on the difference.
+                    add_offset = variable and layer_extents[point, 2] != layer_extents[support[i], 0]
+                    for j in range(ndof):
+                        dof = cell_nodes[cell, j]
+                        if add_offset:
+                            dof += offset[j]*(layer_extents[point, 2] - layer_extents[support[i], 0])
+                        facet_nodes[facet, ndof*i + j] = dof
+                facet += 1
+    if label is not None:
+        CHKERR(DMLabelDestroyIndex(clabel))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    return facet_nodes
 
-    # Coerce lists into C arrays
-    assert nclosure == len(ndofs_list)
-    dofs_per_cell = len(flat_index_list)
-
-    ceil_ndofs = ndofs_list
-    flat_index = flat_index_list
-    
-    # Fill cell nodes
-    cell_nodes = numpy.empty((ncells, dofs_per_cell), dtype=IntType)
-    cStart, cEnd = dm.getHeightStratum(0)
-    for cell in range(cStart, cEnd):
-        k = 0
-        c = cell_numbering.getOffset(cell)
-        for i in range(nclosure):
-            entity = cell_closures[c, i]
-            ndofs = global_numbering.getDof(entity)
-            if ndofs > 0:
-                off = global_numbering.getOffset(entity)
-                for j in range(ceil_ndofs[i]):
-                    if layer_bounds[entity, 0] != layer_bounds[cell, 0]:
-                        offs = off + offset[flat_index[k]]*(layer_bounds[entity, 2] - layer_bounds[entity, 0])
-                    else:
-                        offs = off
-                    cell_nodes[c, flat_index[k]] = offs + j
-                    k += 1
-
-    return cell_nodes
