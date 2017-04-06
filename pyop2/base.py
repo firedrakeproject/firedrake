@@ -584,7 +584,7 @@ class Set(object):
 
     @validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
-    def __init__(self, size=None, name=None, halo=None, comm=None):
+    def __init__(self, size, name=None, halo=None, comm=None):
         self.comm = dup_comm(comm)
         if isinstance(size, numbers.Integral):
             size = [size] * 3
