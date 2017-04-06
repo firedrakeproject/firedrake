@@ -1,3 +1,136 @@
+"""
+Computation dof numberings for extruded meshes
+==============================================
+
+On meshes with a constant number of cell layers (i.e. each column
+contains the same number of cells), it is possible to compute all the
+correct numberings by just lying to DMPlex about how many degrees of
+freedom there are on the base topological entities.
+
+This ceases to be true as soon as we permit variable numbers of cells
+in each column, since now, although the number of degrees of freedom
+on a cell does not change from column to column, the number that are
+stacked up on each topological entity does change.
+
+This module implements the necessary chicanery to deal with it.
+
+Computation of topological layer extents
+----------------------------------------
+
+First, a picture.
+
+Consider a one-dimensional mesh::
+
+    x---0---x---1---x---2---x
+
+Extruded to form the following two-dimensional mesh::
+
+
+                         x--------x
+                         |        |
+                         |        |
+   2                     |        |
+                         |        |
+       x--------x--------x--------x
+       |        |        |
+       |        |        |
+   1   |        |        |
+       |        |        |
+       x--------x--------x
+       |        |
+       |        |
+   0   |        |
+       |        |
+       x--------x
+
+This is constructed by providing the number of cells in each column as
+well as the starting cell layer::
+
+     [[0, 2],
+      [1, 1],
+      [2, 1]]
+
+We need to promote this cell layering to layering for all topological
+entities.  Our solution to "interior" facets that only have one side
+is to require that they are geometrically zero sized, and then
+guarantee that we never iterate over them.  We therefore need to keep
+track of two bits of information, the layer extent for allocation
+purposes and also the layer extent for iteration purposes.
+
+We compute both by iterating over the cells and transferring cell
+layers to points in the closure of each cell.  Allocation bounds use
+min-max on the cell bounds, iteration bounds use max-min.
+
+Computation of function space allocation size
+---------------------------------------------
+
+With the layer extents computed, we need to compute the dof
+allocation.  For this, we need the number of degrees of freedom *on*
+the base topological entity, and *above* it in each cell::
+
+       x-------x
+       |   o   |
+       o   o   o
+       o   o   o
+       |   o   |
+       o---o---o
+
+This element has one degree of freedom on each base vertex and cell,
+two degrees of freedom "above" each vertex, and four above each cell.
+To compute the number of degrees of freedom on the column of
+topological entities we sum the number on the entity, multiplied by
+the number of layers with the number above, multiplied by the number
+of layers minus one (due to the fencepost error difference).
+This number of layers naturally changes from entity to entity, and so
+we can't compute this up front, but must do it point by point,
+constructing the PETSc Section as we go.
+
+Computation of function space maps
+----------------------------------
+
+Now we need the maps from topological entities (cells and facets) to
+the function space nodes they can see.  The allocation offsets that
+the numbering section gives us are wrong, because when we have a step
+in the column height, the offset will be wrong if we're looking from
+the higher cell.  Consider a vertex discretisation on the previous
+mesh, with a numbering::
+
+                      8--------10
+                      |        |
+                      |        |
+                      |        |
+                      |        |
+    2--------5--------7--------9
+    |        |        |
+    |        |        |
+    |        |        |
+    |        |        |
+    1--------4--------6
+    |        |
+    |        |
+    |        |
+    |        |
+    0--------3
+
+The cell node map we get by just looking at allocation offsets is::
+
+   [[0, 1, 3, 4],
+    [3, 4, 6, 7],
+    [6, 7, 9, 10]]
+
+note how the second and third cells have the wrong value for their
+"left" vertices.  Instead, we need to shift the numbering we obtain
+from the allocation offset by the number of entities we're skipping
+over, to result in::
+
+   [[0, 1, 3, 4],
+    [4, 5, 6, 7],
+    [7, 8, 9, 10]]
+
+Now, when we iterate over cells, we ensure that we access the correct
+dofs.  The same trick needs to be applied to facet maps too.
+"""
+
 from __future__ import absolute_import, print_function, division
 
 from firedrake.petsc import PETSc
