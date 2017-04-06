@@ -3,6 +3,7 @@ from six.moves import range
 
 import numpy
 import pytest
+import sys
 
 from coffee.visitors import EstimateFlops
 
@@ -26,6 +27,8 @@ def count_flops(form):
     return EstimateFlops().visit(kernel.ast)
 
 
+@pytest.mark.skipif(sys.version_info >= (3,),
+                    reason="Tuple degrees break UFL in Python3")
 @pytest.mark.parametrize(('cell', 'order'),
                          [(quadrilateral, 5),
                           (TensorProductCell(interval, interval), 5),
@@ -41,6 +44,8 @@ def test_lhs(cell, order):
     assert (rates < order).all()
 
 
+@pytest.mark.skipif(sys.version_info >= (3,),
+                    reason="Tuple degrees break UFL in Python3")
 @pytest.mark.parametrize(('cell', 'order'),
                          [(quadrilateral, 3),
                           (TensorProductCell(interval, interval), 3),
