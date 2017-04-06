@@ -27,11 +27,13 @@ import pytest
 from firedrake import *
 
 
-@pytest.mark.parametrize("degree", range(1, 3))
-def test_slate_hybridization(degree):
+@pytest.mark.parametrize(("degree", "hdiv_family", "quadrilateral"),
+                         [(1, "RT", False), (1, "RTCF", True),
+                          (2, "RT", False), (2, "RTCF", True)])
+def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     # Create a mesh
-    mesh = UnitSquareMesh(8, 8)
-    RT = FunctionSpace(mesh, "RT", degree)
+    mesh = UnitSquareMesh(6, 6, quadrilateral=quadrilateral)
+    RT = FunctionSpace(mesh, hdiv_family, degree)
     DG = FunctionSpace(mesh, "DG", degree - 1)
     W = RT * DG
     sigma, u = TrialFunctions(W)

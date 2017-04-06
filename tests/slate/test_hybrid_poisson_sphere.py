@@ -5,6 +5,7 @@ import numpy as np
 
 
 def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
+    """Test hybridizing lowest order mixed methods on a sphere."""
     mesh = MeshClass(refinement_level=refinement)
     mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
     x, y, z = SpatialCoordinate(mesh)
@@ -39,27 +40,34 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     return error
 
 
-def test_hybrid_conv():
+@pytest.mark.parametrize(('MeshClass', 'hdiv_family'),
+                         [(UnitIcosahedralSphereMesh, 'RT'),
+                          (UnitIcosahedralSphereMesh, 'BDM'),
+                          (UnitCubedSphereMesh, 'RTCF')])
+def test_hybrid_conv(MeshClass, hdiv_family):
     """Should expect approximately quadratic convergence for lowest order
     mixed method.
     """
-    errors = [run_hybrid_poisson_sphere(UnitIcosahedralSphereMesh, r, 'BDM')
+    errors = [run_hybrid_poisson_sphere(MeshClass, r, hdiv_family)
               for r in range(1, 4)]
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])[-1]
-    assert l2conv > 1.8
+    assert l2conv > 1.7
 
 
 @pytest.mark.parallel
-def test_hybrid_conv_parallel():
+@pytest.mark.parametrize(('MeshClass', 'hdiv_family'),
+                         [(UnitIcosahedralSphereMesh, 'RT'),
+                          (UnitCubedSphereMesh, 'RTCF')])
+def test_hybrid_conv_parallel(MeshClass, hdiv_family):
     """Should expect approximately quadratic convergence for lowest order
     mixed method.
     """
-    errors = [run_hybrid_poisson_sphere(UnitIcosahedralSphereMesh, r, 'RT')
+    errors = [run_hybrid_poisson_sphere(MeshClass, r, hdiv_family)
               for r in range(1, 4)]
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])[-1]
-    assert l2conv > 1.8
+    assert l2conv > 1.7
 
 
 if __name__ == '__main__':
