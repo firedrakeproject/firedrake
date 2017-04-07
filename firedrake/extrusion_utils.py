@@ -154,3 +154,22 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                  ext_coords.dat(op2.WRITE, ext_coords.cell_node_map()),
                  height(op2.READ),
                  pass_layer_arg=True)
+
+
+def flat_entity_dofs(entity_dofs):
+    flat_entity_dofs = {}
+    for b, v in entity_dofs:
+        # v in [0, 1].  Only look at the ones, then grab the data from zeros.
+        if v == 0:
+            continue
+        flat_entity_dofs[b] = {}
+        for i in entity_dofs[(b, v)]:
+            # This line is fairly magic.
+            # It works because an interval has two points.
+            # We pick up the DoFs from the bottom point,
+            # then the DoFs from the interior of the interval,
+            # then finally the DoFs from the top point.
+            flat_entity_dofs[b][i] = (entity_dofs[(b, 0)][2*i] +
+                                      entity_dofs[(b, 1)][i] +
+                                      entity_dofs[(b, 0)][2*i+1])
+    return flat_entity_dofs

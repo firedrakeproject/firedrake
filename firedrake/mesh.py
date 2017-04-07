@@ -804,22 +804,8 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg entity_dofs: FInAT element entity DoFs
         :arg offsets: layer offsets for each entity dof.
         """
-        flat_entity_dofs = {}
-        for b, v in entity_dofs:
-            # v in [0, 1].  Only look at the ones, then grab the data from zeros.
-            if v == 0:
-                continue
-            flat_entity_dofs[b] = {}
-            for i in entity_dofs[(b, v)]:
-                # This line is fairly magic.
-                # It works because an interval has two points.
-                # We pick up the DoFs from the bottom point,
-                # then the DoFs from the interior of the interval,
-                # then finally the DoFs from the top point.
-                flat_entity_dofs[b][i] = \
-                    entity_dofs[(b, 0)][2*i] + entity_dofs[(b, 1)][i] + entity_dofs[(b, 0)][2*i+1]
-
-        return extnum.get_cell_nodes(self, global_numbering, flat_entity_dofs, offsets)
+        entity_dofs = eutils.flat_entity_dofs(entity_dofs)
+        return extnum.get_cell_nodes(self, global_numbering, entity_dofs, offsets)
 
     def make_facet_node_list(self, cell_node_list, kind, offsets):
         """Build the facet->dof mapping.
