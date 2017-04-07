@@ -25,6 +25,7 @@ from __future__ import absolute_import, print_function, division
 
 from singledispatch import singledispatch
 from functools import partial
+import types
 import weakref
 
 import FIAT
@@ -175,7 +176,12 @@ def _(element, vector_is_mixed):
     if element.family() == "Quadrature":
         # Sneaky import from FFC
         from ffc.quadratureelement import QuadratureElement
-        return QuadratureElement(element)
+        ffc_element = QuadratureElement(element)
+
+        def tabulate(self, order, points, entity):
+            return QuadratureElement.tabulate(self, order, points)
+        ffc_element.tabulate = types.MethodType(tabulate, ffc_element)
+        return ffc_element
     cell = as_fiat_cell(element.cell())
     lmbda = supported_elements[element.family()]
     if lmbda is None:
