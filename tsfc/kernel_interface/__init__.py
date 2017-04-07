@@ -20,8 +20,8 @@ class KernelInterface(with_metaclass(ABCMeta)):
         """Cell orientation as a GEM expression."""
 
     @abstractmethod
-    def facet_number(self, restriction):
-        """Facet number as a GEM index."""
+    def entity_number(self, restriction):
+        """Facet or vertex number as a GEM index."""
 
 
 ProxyKernelInterface = make_proxy_class('ProxyKernelInterface', KernelInterface)

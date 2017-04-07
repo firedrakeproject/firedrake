@@ -48,10 +48,10 @@ class KernelBuilderBase(KernelInterface):
                                                gem.Literal(1),
                                                gem.Literal(numpy.nan)))
 
-    def facet_number(self, restriction):
-        """Facet number as a GEM index."""
-        # Assume self._facet_number dict is set up at this point.
-        return self._facet_number[restriction]
+    def entity_number(self, restriction):
+        """Facet or vertex number as a GEM index."""
+        # Assume self._entity_number dict is set up at this point.
+        return self._entity_number[restriction]
 
     def apply_glue(self, prepare=None, finalise=None):
         """Append glue code for operations that are not handled in the

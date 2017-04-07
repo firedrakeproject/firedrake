@@ -104,7 +104,7 @@ class Context(ProxyKernelInterface):
         if len(self.entity_ids) == 1:
             return callback(self.entity_ids[0])
         else:
-            f = self.facet_number(restriction)
+            f = self.entity_number(restriction)
             return gem.select_expression(list(map(callback, self.entity_ids)), f)
 
     argument_multiindices = ()
@@ -335,7 +335,7 @@ def translate_coefficient(terminal, mt, ctx):
         per_derivative = {alpha: take_singleton(tables)
                           for alpha, tables in iteritems(per_derivative)}
     else:
-        f = ctx.facet_number(mt.restriction)
+        f = ctx.entity_number(mt.restriction)
         per_derivative = {alpha: gem.select_expression(tables, f)
                           for alpha, tables in iteritems(per_derivative)}
 
