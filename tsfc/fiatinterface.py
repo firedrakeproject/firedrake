@@ -172,6 +172,10 @@ def _(element, vector_is_mixed):
         # Real element is just DG0
         cell = element.cell()
         return create_element(ufl.FiniteElement("DG", cell, 0), vector_is_mixed)
+    if element.family() == "Quadrature":
+        # Sneaky import from FFC
+        from ffc.quadratureelement import QuadratureElement
+        return QuadratureElement(element)
     cell = as_fiat_cell(element.cell())
     lmbda = supported_elements[element.family()]
     if lmbda is None:
