@@ -475,7 +475,7 @@ def get_cell_nodes(mesh,
                 # The cell we're looking at the entity through is
                 # higher than the lowest cell the column touches, so
                 # we need to offset by the difference from the bottom.
-                if variable and layer_extents[entity, 0] != layer_extents[c, 0]:
+                if variable:
                     off += offset[flat_index[k]]*(layer_extents[c, 0] - layer_extents[entity, 0])
                 for j in range(ceil_ndofs[i]):
                     cell_nodes[cell, flat_index[k]] = off + j
@@ -507,6 +507,9 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
         variable = not mesh.cell_set.constant_layers
     except AttributeError:
         variable = False
+
+    if variable and offset is None:
+        raise ValueError("Offset cannot be None with variable layer extents")
 
     fStart, fEnd = dm.getHeightStratum(1)
 
@@ -547,12 +550,12 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
                 DMPlexGetSupport(dm.dm, point, &support)
                 for i in range(supportSize):
                     PetscSectionGetOffset(cell_numbering.sec, support[i], &cell)
-                    # This facet iterates from higher than the cell
-                    # numbering of the cell, so we need to add on the difference.
-                    add_offset = variable and layer_extents[point, 2] != layer_extents[support[i], 0]
                     for j in range(ndof):
                         dof = cell_nodes[cell, j]
-                        if add_offset:
+                        if variable:
+                            # This facet iterates from higher than the
+                            # cell numbering of the cell, so we need
+                            # to add on the difference.
                             dof += offset[j]*(layer_extents[point, 2] - layer_extents[support[i], 0])
                         facet_nodes[facet, ndof*i + j] = dof
                 facet += 1
