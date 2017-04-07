@@ -44,29 +44,23 @@ supported_elements = {
     # These all map directly to FIAT elements
     "Brezzi-Douglas-Marini": FIAT.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": FIAT.BrezziDouglasFortinMarini,
-    "BrokenElement": FIAT.DiscontinuousElement,
     "Bubble": FIAT.Bubble,
     "Crouzeix-Raviart": FIAT.CrouzeixRaviart,
     "Discontinuous Lagrange": FIAT.DiscontinuousLagrange,
     "Discontinuous Taylor": FIAT.DiscontinuousTaylor,
     "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
-    "EnrichedElement": FIAT.EnrichedElement,
     "Gauss-Lobatto-Legendre": FIAT.GaussLobattoLegendre,
     "Gauss-Legendre": FIAT.GaussLegendre,
     "Lagrange": FIAT.Lagrange,
     "Nedelec 1st kind H(curl)": FIAT.Nedelec,
     "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
-    "TensorProductElement": FIAT.TensorProductElement,
     "Raviart-Thomas": FIAT.RaviartThomas,
     "HDiv Trace": FIAT.HDivTrace,
     "Regge": FIAT.Regge,
     "Hellan-Herrmann-Johnson": FIAT.HellanHerrmannJohnson,
     # These require special treatment below
     "DQ": None,
-    "FacetElement": None,
-    "InteriorElement": None,
     "Q": None,
-    "Real": None,
     "RTCE": None,
     "RTCF": None,
 }
@@ -233,8 +227,7 @@ def _(element, vector_is_mixed):
 
 @convert.register(ufl.BrokenElement) # noqa
 def _(element, vector_is_mixed):
-    return supported_elements[element.family()](create_element(element._element,
-                                                               vector_is_mixed))
+    return FIAT.DiscontinuousElement(create_element(element._element, vector_is_mixed))
 
 
 # Now for the TPE-specific stuff
