@@ -216,6 +216,12 @@ def _(element, vector_is_mixed):
                                   restriction_domain="interior")
 
 
+@convert.register(ufl.RestrictedElement)  # noqa
+def _(element, vector_is_mixed):
+    return FIAT.RestrictedElement(create_element(element.sub_element(), vector_is_mixed),
+                                  restriction_domain=element.restriction_domain())
+
+
 @convert.register(ufl.EnrichedElement)  # noqa
 def _(element, vector_is_mixed):
     if len(element._elements) != 2:
