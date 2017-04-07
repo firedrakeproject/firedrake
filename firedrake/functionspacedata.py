@@ -27,7 +27,6 @@ from coffee import base as ast
 from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
 
-from firedrake import dmplex as dm_mod
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 
@@ -124,8 +123,7 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
     """
     assert kind in ["interior_facets", "exterior_facets"]
     if mesh._plex.getStratumSize(kind, 1) > 0:
-        facet = getattr(mesh, kind)
-        return dm_mod.get_facet_nodes(facet.facet_cell, cell_node_list, offsets)
+        return mesh.make_facet_node_list(cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
