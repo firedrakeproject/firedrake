@@ -395,7 +395,7 @@ def entity_layers2(mesh, height, label=None):
     if label is not None:
         CHKERR(DMLabelDestroyIndex(clabel))
     return layers
-    
+
 
 @cython.wraparound(False)
 def get_cell_nodes(mesh,
@@ -434,7 +434,7 @@ def get_cell_nodes(mesh,
         layer_extents = mesh.layer_extents
         if offset is None:
             raise ValueError("Offset cannot be None with variable layer extents")
-    
+
     nclosure = cell_closures.shape[1]
 
     # Extract ordering from FInAT element entity DoFs
@@ -564,3 +564,81 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
     CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     return facet_nodes
 
+
+@cython.wraparound(False)
+def top_bottom_boundary_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_node_list,
+                              entity_dofs, offsets, mask, kind):
+    """Extract top or bottom boundary nodes from an extruded function space.
+
+    :arg mesh: The extruded mesh.
+    :arg cell_node_list: The map from cells to nodes.
+    :arg entity_dofs: The flattened entity dofs for the function space.
+    :arg offsets: Offsets to apply walking up the column.
+    :arg mask: A mask to select the nodes on the reference cell.
+    :arg kind: Whether we should select the bottom, or the top, nodes.
+    :returns: a numpy array of unique indices on the requested side.
+    """
+    cdef:
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] entity_mask
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
+        PetscInt ncell, nclosure
+        PetscInt cell, entity, ndof, layers
+        PetscInt c, i, nmask, dof, idx, offset
+        bint bottom
+
+    if kind not in {"bottom", "top"}:
+        raise ValueError("Don't know how to extract nodes with kind '%s'", kind)
+    bottom = kind == "bottom"
+
+    ent = 0
+    nmask = len(mask)
+    idx = 0
+    # Build the masking data we will index to select on a per-cell
+    # basis.
+    entity_mask = numpy.empty((nmask, 3), dtype=IntType)
+    for dim in sorted(entity_dofs.keys()):
+        for entity_num in range(len(entity_dofs[dim])):
+            for d in entity_dofs[dim][entity_num]:
+                if d in mask:
+                    entity_mask[idx, :] = (d, ent, offsets[d])
+                    idx += 1
+            ent += 1
+
+    layer_extents = mesh.layer_extents
+    cell_closure = mesh.cell_closure
+    ncell, nclosure = mesh.cell_closure.shape
+
+    indices = numpy.empty(len(mask)*ncell, dtype=IntType)
+
+    idx = 0
+    for cell in range(ncell):
+        # Walk over all the cells, extract the plex cell this cell
+        # corresponds to.
+        c = cell_closure[cell, nclosure-1]
+        for i in range(nmask):
+            # Now over each of the masked dofs.
+            dof = cell_node_list[cell, entity_mask[i, 0]]
+            entity = cell_closure[cell, entity_mask[i, 1]]
+            offset = entity_mask[i, 2]
+            # Now we need to check if this dof is actually on the boundary.
+            if bottom:
+                # On the bottom, we need the cell column we're looking
+                # through to start at the same height as the entity
+                # column.
+                if layer_extents[c, 0] == layer_extents[entity, 0]:
+                    indices[idx] = dof
+                    idx += 1
+            else:
+                # On the top, we need the cell column we're looking
+                # through to finish at the same height as the entity
+                # column.
+                if layer_extents[c, 1] == layer_extents[entity, 1]:
+                    # Offset by the number of layers from the bottom
+                    # of the current *cell* column (the entity column
+                    # may go lower) to the top.
+                    layers = layer_extents[c, 1] - layer_extents[c, 0]
+                    indices[idx] = dof + offset * (layers - 2)
+                    idx += 1
+    return numpy.unique(indices[:idx])
