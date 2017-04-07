@@ -1260,7 +1260,12 @@ os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir(firedrake_env)
 
-framework = fix_osx_virtualenv_python()
+try:
+    framework = fix_osx_virtualenv_python()
+except BaseException as e:
+    log.exception(e)
+    framework = False
+
 
 if mode == "install":
     os.mkdir("src")
