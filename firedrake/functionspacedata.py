@@ -27,8 +27,10 @@ from coffee import base as ast
 from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
 
+import firedrake.extrusion_numbering as extnum
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
+from firedrake import extrusion_utils as eutils
 
 
 __all__ = ("get_shared_data", )
@@ -218,6 +220,33 @@ def get_work_function_cache(mesh, ufl_element):
     therefore comparing equal) share a work function cache.
     """
     return {}
+
+
+@cached
+def get_top_bottom_boundary_nodes(mesh, key, V, entity_dofs):
+    """Get top or bottom boundary nodes of an extruded function space.
+
+    :arg mesh: The mesh to cache on.
+    :arg key: The key a 3-tuple of ``(entity_dofs_key, mask, kind).
+        Where mask is a tuple of dofs on the reference cell to select,
+        and kind indicates whether to select from the top or the
+        bottom of the column.``
+    :arg V: The FunctionSpace to select from.
+    :arg entity_dofs: The flattened entity dofs.
+    :returnsL: A numpy array of the (unique) boundary nodes.
+    """
+    _, mask, kind = key
+    cell_node_list = V.cell_node_list
+    offset = V.offset
+    if mesh.cell_set.constant_layers:
+        nodes = cell_node_list[:, mask]
+        if kind == "top":
+            nodes = nodes + offset.take(mask)*(mesh.cell_set.layers - 2)
+        return numpy.unique(nodes)
+    else:
+        return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
+                                                entity_dofs, offset,
+                                                mask, kind)
 
 
 def get_max_work_functions(V):
@@ -419,6 +448,13 @@ class FunctionSpaceData(object):
                       offset=offset)
         self.map_caches["boundary_node"][method] = val
         return val
+
+    def top_bottom_boundary_nodes(self, V, mask, kind):
+        if kind not in {"bottom", "top"}:
+            raise ValueError("Don't know how to extract nodes with kind '%s'", kind)
+        entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
+        key = (entity_dofs_key(entity_dofs), tuple(mask), kind)
+        return get_top_bottom_boundary_nodes(V.mesh(), key, V, entity_dofs)
 
     def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent,
                 kind=None):
