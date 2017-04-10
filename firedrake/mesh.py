@@ -1095,6 +1095,11 @@ values from f.)"""
                 raise NotImplementedError('Only implemented for 3-vectors')
 
             expr = interpolate(expr, functionspace.VectorFunctionSpace(self, 'DG', 0))
+        elif isinstance(expr, ufl.classes.Expr):
+            if expr.ufl_shape != (3,):
+                raise NotImplementedError('Only implemented for 3-vectors')
+        else:
+            raise TypeError("UFL expression or Expression object expected!")
 
         fs = functionspace.FunctionSpace(self, 'DG', 0)
         x = ufl.SpatialCoordinate(self)
