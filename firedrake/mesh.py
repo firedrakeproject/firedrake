@@ -9,6 +9,7 @@ import sys
 import ufl
 import weakref
 from collections import defaultdict
+from ufl.classes import ReferenceGrad
 
 from pyop2.datatypes import IntType
 from pyop2 import op2
@@ -16,12 +17,12 @@ from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
 
-import coffee.base as ast
-
 import firedrake.dmplex as dmplex
+import firedrake.expression as expression
 import firedrake.extrusion_utils as eutils
 import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
+from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
@@ -1080,8 +1081,6 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if expr.value_shape()[0] != 3:
-            raise NotImplementedError('Only implemented for 3-vectors')
         if self.ufl_cell() not in (ufl.Cell('triangle', 3),
                                    ufl.Cell("quadrilateral", 3),
                                    ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
@@ -1091,59 +1090,19 @@ values from f.)"""
         if hasattr(self.topology, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
-        v0 = lambda x: ast.Symbol("v0", (x,))
-        v1 = lambda x: ast.Symbol("v1", (x,))
-        n = lambda x: ast.Symbol("n", (x,))
-        x = lambda x: ast.Symbol("x", (x,))
-        coords = lambda x, y: ast.Symbol("coords", (x, y))
+        if isinstance(expr, expression.Expression):
+            if expr.value_shape()[0] != 3:
+                raise NotImplementedError('Only implemented for 3-vectors')
 
-        body = []
-        body += [ast.Decl("double", v(3)) for v in [v0, v1, n, x]]
-        body.append(ast.Decl("double", "dot"))
-        body.append(ast.Assign("dot", 0.0))
-        body.append(ast.Decl("int", "i"))
+            expr = interpolate(expr, functionspace.VectorFunctionSpace(self, 'DG', 0))
 
-        # if triangle, use v0 = x1 - x0, v1 = x2 - x0
-        # otherwise, for the various quads, use v0 = x2 - x0, v1 = x1 - x0
-        # recall reference element ordering:
-        # triangle: 2        quad: 1 3
-        #           0 1            0 2
-        if self.ufl_cell() == ufl.Cell('triangle', 3):
-            body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
-                                [ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
-                                 ast.Assign(v1("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
-                                 ast.Assign(x("i"), 0.0)]))
-        else:
-            body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
-                                [ast.Assign(v0("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
-                                 ast.Assign(v1("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
-                                 ast.Assign(x("i"), 0.0)]))
-
-        # n = v0 x v1
-        body.append(ast.Assign(n(0), ast.Sub(ast.Prod(v0(1), v1(2)), ast.Prod(v0(2), v1(1)))))
-        body.append(ast.Assign(n(1), ast.Sub(ast.Prod(v0(2), v1(0)), ast.Prod(v0(0), v1(2)))))
-        body.append(ast.Assign(n(2), ast.Sub(ast.Prod(v0(0), v1(1)), ast.Prod(v0(1), v1(0)))))
-
-        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
-                            [ast.Incr(x(j), coords("i", j)) for j in range(3)]))
-
-        body.extend([ast.FlatBlock("dot += (%(x)s) * n[%(i)d];\n" % {"x": x_, "i": i})
-                     for i, x_ in enumerate(expr.code)])
-        body.append(ast.Assign("orientation[0][0]", ast.Ternary(ast.Less("dot", 0), 1, 0)))
-
-        kernel = op2.Kernel(ast.FunDecl("void", "cell_orientations",
-                                        [ast.Decl("int**", "orientation"),
-                                         ast.Decl("double**", "coords")],
-                                        ast.Block(body)),
-                            "cell_orientations")
-
-        # Build the cell orientations as a DG0 field (so that we can
-        # pass it in for facet integrals and the like)
         fs = functionspace.FunctionSpace(self, 'DG', 0)
+        x = ufl.SpatialCoordinate(self)
+        f = function.Function(fs)
+        f.interpolate(ufl.dot(expr, ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])))
+
         cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
-        op2.par_loop(kernel, self.cell_set,
-                     cell_orientations.dat(op2.WRITE, cell_orientations.cell_node_map()),
-                     self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
+        cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
         self.topology._cell_orientations = cell_orientations
 
     def __getattr__(self, name):
