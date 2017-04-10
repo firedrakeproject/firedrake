@@ -459,15 +459,17 @@ class FunctionSpaceData(object):
         local_facet_dat = op2.Dat(facet_set ** self.mesh.exterior_facets._rank,
                                   self.mesh.exterior_facets.local_facet_dat.data_ro_with_halos,
                                   dtype=numpy.uintc)
+        if self.extruded:
+            offset = self.offset[boundary_dofs[0]]
+            if not self.mesh.cell_set.constant_layers:
+                raise NotImplementedError("Variable layer case not handled, should never reach here")
+        else:
+            offset = None
         op2.par_loop(kernel, facet_set,
                      fs_dat(op2.READ),
                      facet_dat(op2.WRITE),
                      local_facet_dat(op2.READ))
 
-        if self.extruded:
-            offset = self.offset[boundary_dofs[0]]
-        else:
-            offset = None
         val = op2.Map(facet_set, self.node_set,
                       nodes_per_facet,
                       facet_dat.data_ro_with_halos,

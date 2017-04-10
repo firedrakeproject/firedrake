@@ -1376,8 +1376,6 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     try:
         layers = np.asarray(layers, dtype=IntType).reshape(mesh.cell_set.total_size, 2)
         layers[:, 1] += 1 + layers[:, 0]
-        if layer_height is None:
-            raise ValueError("Must provide layer height for variable layers")
     except ValueError:
         layers = np.asarray(layers, dtype=IntType)
         if layers.shape:
@@ -1389,6 +1387,9 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
             layer_height = 1 / layers
         # All internal logic works with layers of base mesh (not layers of cells)
         layers = layers + 1
+
+    if layer_height is None and layers.shape:
+        raise ValueError("Must provide layer height for variable layers")
 
     topology = ExtrudedMeshTopology(mesh.topology, layers)
 
