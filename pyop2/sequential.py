@@ -882,8 +882,13 @@ def wrapper_snippets(itspace, args,
             idx0 = "0"
             idx1 = "1"
         else:
-            idx0 = "2*i"
-            idx1 = "2*i+1"
+            if isinstance(itspace.iterset, Subset):
+                # Subset doesn't hold full layer array
+                idx0 = "2*n"
+                idx1 = "2*n+1"
+            else:
+                idx0 = "2*i"
+                idx1 = "2*i+1"
         _layer_decls = "%(IntType)s bottom_layer = layers[%(idx0)s];\n"
         if iteration_region == ON_BOTTOM:
             _layer_decls += "%(IntType)s start_layer = layers[%(idx0)s];\n"

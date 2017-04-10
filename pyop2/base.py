@@ -925,6 +925,13 @@ class Subset(ExtrudedSet):
         return self._indices
 
     @cached_property
+    def layers_array(self):
+        if self._superset.constant_layers:
+            return self._superset.layers_array
+        else:
+            return self._superset.layers_array[self.indices, ...]
+
+    @cached_property
     def _argtype(self):
         """Ctypes argtype for this :class:`Subset`"""
         return ctypes.c_voidp
