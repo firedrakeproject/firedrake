@@ -26,6 +26,7 @@ from coffee import base as ast
 
 from pyop2 import op2
 from pyop2.datatypes import IntType, as_cstr
+from pyop2.utils import as_tuple
 
 import firedrake.extrusion_numbering as extnum
 from firedrake import halo as halo_mod
@@ -249,6 +250,32 @@ def get_top_bottom_boundary_nodes(mesh, key, V, entity_dofs):
                                                 mask, kind)
 
 
+@cached
+def get_boundary_nodes(mesh, key, V):
+    _, sub_domain, method = key
+    nodes = V.exterior_facet_boundary_node_map(method).values_with_halo
+    if sub_domain != "on_boundary":
+        indices = mesh.exterior_facets.subset(sub_domain).indices
+        nodes = nodes.take(indices, axis=0)
+    if not V.extruded:
+        indices = numpy.unique(nodes)
+    if mesh.cell_set.constant_layers:
+        offset = V.exterior_facet_boundary_node_map(method).offset
+        indices = numpy.unique(numpy.concatenate([nodes + i * offset
+                                                  for i in range(mesh.cell_set.layers - 1)]))
+    else:
+        indices = extnum.boundary_nodes(V, sub_domain, method)
+    # We need a halo exchange to determine all bc nodes.
+    # Should be improved by doing this on the DM topology once.
+    d = op2.Dat(V.dof_dset.set, dtype=IntType)
+    d.data_with_halos[indices] = 1
+    d.global_to_local_begin(op2.READ)
+    d.global_to_local_end(op2.READ)
+    indices, = numpy.where(d.data_ro_with_halos == 1)
+    # cast, because numpy where returns an int64
+    return indices.astype(IntType)
+
+
 def get_max_work_functions(V):
     """Get the maximum number of work functions.
 
@@ -455,6 +482,21 @@ class FunctionSpaceData(object):
         entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
         key = (entity_dofs_key(entity_dofs), tuple(mask), kind)
         return get_top_bottom_boundary_nodes(V.mesh(), key, V, entity_dofs)
+
+    def boundary_nodes(self, V, sub_domain, method):
+        if method not in {"topological", "geometric"}:
+            raise ValueError("Don't know how to extract nodes with method '%s'", method)
+        if sub_domain == "bottom":
+            return V.bottom_nodes(method)
+        elif sub_domain == "top":
+            return V.top_nodes(method)
+        else:
+            if sub_domain == "on_boundary":
+                sdkey = sub_domain
+            else:
+                sdkey = as_tuple(sub_domain)
+            key = (entity_dofs_key(V.finat_element.entity_dofs()), sdkey, method)
+            return get_boundary_nodes(V.mesh(), key, V)
 
     def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent,
                 kind=None):

@@ -511,6 +511,18 @@ class FunctionSpace(object):
         """
         return self._shared_data.exterior_facet_boundary_node_map(self, method)
 
+    def boundary_nodes(self, sub_domain, method):
+        """Return the boundary nodes for this :class:`~.FunctionSpace`.
+
+        :arg sub_domain: the mesh marker selecting which subset of facets to consider.
+        :arg method: the method for determining boundary nodes.
+        :returns: A numpy array of the unique function space nodes on
+           the selected portion of the boundary.
+
+        See also :class:`~.DirichletBC` for details of the arguments.
+        """
+        return self._shared_data.boundary_nodes(self, sub_domain, method)
+
     def bottom_nodes(self, method='topological'):
         """Return a list of the bottom boundary nodes of the extruded mesh.
         The bottom mask is applied to every bottom layer cell to get the
