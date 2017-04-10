@@ -118,7 +118,8 @@ the ``x`` coordinate everywhere:
 
 .. code-block:: python
 
-   u.interpolate(Expression('x[0]'))
+   x = SpatialCoordinate(m)
+   u.interpolate(x[0])
 
    solve(F == 0, u)
 
@@ -839,8 +840,8 @@ the solution to be :math:`u(x, y) = y - 0.5`.
    nullspace = VectorSpaceBasis(constant=True)
    u = Function(V)
    solve(a == L, u, nullspace=nullspace)
-   exact = Function(V)
-   exact.interpolate(Expression('x[1] - 0.5'))
+   x = SpatialCoordinate(m)
+   exact = Function(V).interpolate(x[1] - 0.5)
    print sqrt(assemble((u - exact)*(u - exact)*dx))
 
 For this to work, the provided right hand side must be orthogonal to
