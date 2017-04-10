@@ -1187,6 +1187,8 @@ os.chdir(firedrake_env)
 framework = fix_osx_virtualenv_python()
 
 if mode == "install":
+    os.mkdir("lib")
+
     os.mkdir("src")
     os.chdir("src")
 
