@@ -1212,25 +1212,36 @@ int main(int argc, char **argv) {
         log.warning("Unable to find Python.app, can't build framework python")
         return False
     appdest = os.path.abspath(os.path.join(".", "Python.app"))
-    shutil.copytree(appsrc, appdest)
-    log.info("MacOS framework copied from '%s' to '%s'" % (appsrc, appdest))
-    execname = os.path.join(appdest,
-                            "Contents",
-                            "MacOS",
-                            "Python")
-    check_call(["install_name_tool", "-change", dotsrc,
-                dotpython, execname])
-    pyname = "python%s.%s" % platform.python_version_tuple()[:2]
-    for name in [pyname, "pythonw"]:
-        dest = os.path.abspath(os.path.join(".", "bin", name))
-        fd, tmpfile = tempfile.mkstemp(suffix=".c")
-        with os.fdopen(fd, "w") as f:
-            f.write(new_binary % {'Python': execname})
-        log.info("Building trampoline framework python as '%s'" % dest)
-        check_call(["cc", "-Wall", "-Werror", "-arch", platform.machine(),
-                    "-o", dest, tmpfile])
-        os.remove(tmpfile)
-    return True
+    try:
+        shutil.copytree(appsrc, appdest)
+        log.info("MacOS framework copied from '%s' to '%s'" % (appsrc, appdest))
+        execname = os.path.join(appdest,
+                                "Contents",
+                                "MacOS",
+                                "Python")
+        check_call(["install_name_tool", "-change", dotsrc,
+                    dotpython, execname])
+        pyname = "python%s.%s" % platform.python_version_tuple()[:2]
+        for name in [pyname, "pythonw"]:
+            dest = os.path.abspath(os.path.join(".", "bin", name))
+            fd, tmpfile = tempfile.mkstemp(suffix=".c")
+            with os.fdopen(fd, "w") as f:
+                f.write(new_binary % {'Python': execname})
+            log.info("Building trampoline framework python as '%s'" % dest)
+            check_call(["cc", "-Wall", "-Werror", "-arch", platform.machine(),
+                        "-o", dest, tmpfile])
+            os.remove(tmpfile)
+        return True
+    except BaseException as e:
+        log.exception(e)
+
+        # Attempt to clean up anything which may have been installed.
+        shutil.rmtree(pythonapp, ignore_errors=True)
+        try:
+            os.unlink(dotpython)
+        except os.OSError:
+            pass
+        return False
 
 
 if mode == "install":
@@ -1260,12 +1271,7 @@ os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
 os.chdir(firedrake_env)
 
-try:
-    framework = fix_osx_virtualenv_python()
-except BaseException as e:
-    log.exception(e)
-    framework = False
-
+framework = fix_osx_virtualenv_python()
 
 if mode == "install":
     os.mkdir("src")
