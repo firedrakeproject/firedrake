@@ -25,6 +25,7 @@ from __future__ import absolute_import, print_function, division
 
 from singledispatch import singledispatch
 from functools import partial
+import types
 import weakref
 
 import FIAT
@@ -44,29 +45,23 @@ supported_elements = {
     # These all map directly to FIAT elements
     "Brezzi-Douglas-Marini": FIAT.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": FIAT.BrezziDouglasFortinMarini,
-    "BrokenElement": FIAT.DiscontinuousElement,
     "Bubble": FIAT.Bubble,
     "Crouzeix-Raviart": FIAT.CrouzeixRaviart,
     "Discontinuous Lagrange": FIAT.DiscontinuousLagrange,
     "Discontinuous Taylor": FIAT.DiscontinuousTaylor,
     "Discontinuous Raviart-Thomas": FIAT.DiscontinuousRaviartThomas,
-    "EnrichedElement": FIAT.EnrichedElement,
     "Gauss-Lobatto-Legendre": FIAT.GaussLobattoLegendre,
     "Gauss-Legendre": FIAT.GaussLegendre,
     "Lagrange": FIAT.Lagrange,
     "Nedelec 1st kind H(curl)": FIAT.Nedelec,
     "Nedelec 2nd kind H(curl)": FIAT.NedelecSecondKind,
-    "TensorProductElement": FIAT.TensorProductElement,
     "Raviart-Thomas": FIAT.RaviartThomas,
     "HDiv Trace": FIAT.HDivTrace,
     "Regge": FIAT.Regge,
     "Hellan-Herrmann-Johnson": FIAT.HellanHerrmannJohnson,
     # These require special treatment below
     "DQ": None,
-    "FacetElement": None,
-    "InteriorElement": None,
     "Q": None,
-    "Real": None,
     "RTCE": None,
     "RTCF": None,
 }
@@ -178,6 +173,15 @@ def _(element, vector_is_mixed):
         # Real element is just DG0
         cell = element.cell()
         return create_element(ufl.FiniteElement("DG", cell, 0), vector_is_mixed)
+    if element.family() == "Quadrature":
+        # Sneaky import from FFC
+        from ffc.quadratureelement import QuadratureElement
+        ffc_element = QuadratureElement(element)
+
+        def tabulate(self, order, points, entity):
+            return QuadratureElement.tabulate(self, order, points)
+        ffc_element.tabulate = types.MethodType(tabulate, ffc_element)
+        return ffc_element
     cell = as_fiat_cell(element.cell())
     lmbda = supported_elements[element.family()]
     if lmbda is None:
@@ -222,6 +226,12 @@ def _(element, vector_is_mixed):
                                   restriction_domain="interior")
 
 
+@convert.register(ufl.RestrictedElement)  # noqa
+def _(element, vector_is_mixed):
+    return FIAT.RestrictedElement(create_element(element.sub_element(), vector_is_mixed),
+                                  restriction_domain=element.restriction_domain())
+
+
 @convert.register(ufl.EnrichedElement)  # noqa
 def _(element, vector_is_mixed):
     if len(element._elements) != 2:
@@ -233,8 +243,7 @@ def _(element, vector_is_mixed):
 
 @convert.register(ufl.BrokenElement) # noqa
 def _(element, vector_is_mixed):
-    return supported_elements[element.family()](create_element(element._element,
-                                                               vector_is_mixed))
+    return FIAT.DiscontinuousElement(create_element(element._element, vector_is_mixed))
 
 
 # Now for the TPE-specific stuff

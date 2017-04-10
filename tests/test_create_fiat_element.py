@@ -54,7 +54,7 @@ def test_tensor_prod_simple(ufl_A, ufl_B):
     A = create_element(ufl_A)
     B = create_element(ufl_B)
 
-    assert isinstance(tensor, supported_elements[tensor_ufl.family()])
+    assert isinstance(tensor, FIAT.TensorProductElement)
 
     assert tensor.A is A
     assert tensor.B is B

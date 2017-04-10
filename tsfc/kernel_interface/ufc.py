@@ -38,12 +38,14 @@ class KernelBuilder(KernelBuilderBase):
             self._cell_orientations = (gem.Variable("cell_orientation", ()),)
 
         if integral_type == "exterior_facet":
-            self._facet_number = {None: gem.VariableIndex(gem.Variable("facet", ()))}
+            self._entity_number = {None: gem.VariableIndex(gem.Variable("facet", ()))}
         elif integral_type == "interior_facet":
-            self._facet_number = {
+            self._entity_number = {
                 '+': gem.VariableIndex(gem.Variable("facet_0", ())),
                 '-': gem.VariableIndex(gem.Variable("facet_1", ()))
             }
+        elif integral_type == "vertex":
+            self._entity_number = {None: gem.VariableIndex(gem.Variable("vertex", ()))}
 
     def set_arguments(self, arguments, multiindices):
         """Process arguments.
@@ -110,12 +112,14 @@ class KernelBuilder(KernelBuilderBase):
         args.extend(self.coefficient_args)
         args.extend(self.coordinates_args)
 
-        # Facet number(s)
+        # Facet and vertex number(s)
         if self.integral_type == "exterior_facet":
             args.append(coffee.Decl("std::size_t", coffee.Symbol("facet")))
         elif self.integral_type == "interior_facet":
             args.append(coffee.Decl("std::size_t", coffee.Symbol("facet_0")))
             args.append(coffee.Decl("std::size_t", coffee.Symbol("facet_1")))
+        elif self.integral_type == "vertex":
+            args.append(coffee.Decl("std::size_t", coffee.Symbol("vertex")))
 
         # Cell orientation(s)
         if self.interior_facet:
