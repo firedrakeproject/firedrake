@@ -365,6 +365,8 @@ def pick_mode(mode):
     "Return one of the specialized optimisation modules from a mode string."
     if mode == "vanilla":
         import tsfc.vanilla as m
+    elif mode == "spectral":
+        import tsfc.spectral as m
     else:
         raise ValueError("Unknown mode: {}".format(mode))
     return m
