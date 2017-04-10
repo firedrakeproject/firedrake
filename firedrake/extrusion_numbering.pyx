@@ -1,5 +1,4 @@
-"""
-Computation dof numberings for extruded meshes
+"""Computation dof numberings for extruded meshes
 ==============================================
 
 On meshes with a constant number of cell layers (i.e. each column
@@ -60,6 +59,10 @@ purposes and also the layer extent for iteration purposes.
 We compute both by iterating over the cells and transferring cell
 layers to points in the closure of each cell.  Allocation bounds use
 min-max on the cell bounds, iteration bounds use max-min.
+
+To simplify some things, we require that the resulting mesh is not
+topologically disconnected anywhere.  Offset cells must, at least,
+share a vertex with some other cell.
 
 Computation of function space allocation size
 ---------------------------------------------
@@ -129,6 +132,52 @@ over, to result in::
 
 Now, when we iterate over cells, we ensure that we access the correct
 dofs.  The same trick needs to be applied to facet maps too.
+
+Computation of boundary nodes
+-----------------------------
+
+For the top and bottom boundary nodes, we walk over the cells at,
+respectively, the top and bottom of the column and pull out those
+nodes whose entity height matches the appropriate cell height.  As an
+example::
+
+                      8--------10
+                      |        |
+                      |        |
+                      |        |
+                      |        |
+    2--------5--------7--------9
+    |        |        |
+    |        |        |
+    |        |        |
+    |        |        |
+    1--------4--------6
+    |        |
+    |        |
+    |        |
+    |        |
+    0--------3
+
+The bottom boundary nodes are::
+
+   [0, 3, 6, 9]
+
+whereas the top are::
+
+   [2, 5, 8, 10]
+
+We just need to ensure that when we visit the second cell column for
+the bottom nodes we do not consider the node 4 to be at the bottom of
+the mesh, even though it looks to be at the bottom of the column for
+that cell.
+
+For the side boundary nodes, we can make a simplification: we know
+that the facet heights are always the same as the cell column heights
+(because there is only one cell in the support of the facet).  Hence
+we just walk over the boundary facets of the base mesh, extract out
+the nodes on that facet on the bottom cell and walk up the column.
+This is guaranteed to pick up all the nodes in the closure of the
+facet column.
 """
 
 from __future__ import absolute_import, print_function, division
