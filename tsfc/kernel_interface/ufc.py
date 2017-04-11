@@ -99,14 +99,14 @@ class KernelBuilder(KernelBuilderBase):
             self.coefficient_map.update(zip(coeffs, expressions))
 
     def construct_kernel(self, name, body):
-        """Construct a fully built :class:`Kernel`.
+        """Construct a fully built kernel function.
 
         This function contains the logic for building the argument
         list for assembly kernels.
 
         :arg name: function name
         :arg body: function body (:class:`coffee.Block` node)
-        :returns: :class:`Kernel` object
+        :returns: a COFFEE function definition object
         """
         args = [self.local_tensor]
         args.extend(self.coefficient_args)
@@ -129,6 +129,17 @@ class KernelBuilder(KernelBuilderBase):
             args.append(coffee.Decl("int", coffee.Symbol("cell_orientation")))
 
         return KernelBuilderBase.construct_kernel(self, name, args, body)
+
+    def construct_empty_kernel(self, name):
+        """Construct an empty kernel function.
+
+        Kernel will just zero the return buffer and do nothing else.
+
+        :arg name: function name
+        :returns: a COFFEE function definition object
+        """
+        body = coffee.Block([])  # empty block
+        return self.construct_kernel(name, body)
 
     @staticmethod
     def require_cell_orientations():

@@ -243,6 +243,14 @@ class KernelBuilder(KernelBuilderBase):
         self.kernel.ast = KernelBuilderBase.construct_kernel(self, name, args, body)
         return self.kernel
 
+    def construct_empty_kernel(self, name):
+        """Return None, since Firedrake needs no empty kernels.
+
+        :arg name: function name
+        :returns: None
+        """
+        return None
+
 
 def prepare_coefficient(coefficient, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
