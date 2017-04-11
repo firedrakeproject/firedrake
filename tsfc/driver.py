@@ -86,6 +86,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     mesh = integral_data.domain
     cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
+    kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
 
     fiat_cell = as_fiat_cell(cell)
     integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
@@ -184,28 +185,28 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     if builder.needs_cell_orientations(expressions):
         builder.require_cell_orientations()
 
-    kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
+    # Construct ImperoC
+    index_ordering = tuple(quadrature_indices) + argument_indices
     try:
-        # Construct ImperoC
-        index_ordering = tuple(quadrature_indices) + argument_indices
         impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
-
-        # Generate COFFEE
-        index_names = [(si, name + str(n))
-                       for index, name in zip(argument_multiindices, ['j', 'k'])
-                       for n, si in enumerate(index)]
-        if len(quadrature_indices) == 1:
-            index_names.append((quadrature_indices[0], 'ip'))
-        else:
-            for i, quadrature_index in enumerate(quadrature_indices):
-                index_names.append((quadrature_index, 'ip_%d' % i))
-
-        # Construct kernel
-        body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, argument_indices)
-        return builder.construct_kernel(kernel_name, body)
     except impero_utils.NoopError:
         # No operations, construct empty kernel
         return builder.construct_empty_kernel(kernel_name)
+
+    # Generate COFFEE
+    index_names = [(si, name + str(n))
+                   for index, name in zip(argument_multiindices, ['j', 'k'])
+                   for n, si in enumerate(index)]
+    if len(quadrature_indices) == 1:
+        index_names.append((quadrature_indices[0], 'ip'))
+    else:
+        for i, quadrature_index in enumerate(quadrature_indices):
+            index_names.append((quadrature_index, 'ip_%d' % i))
+
+    # Construct kernel
+    body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, argument_indices)
+
+    return builder.construct_kernel(kernel_name, body)
 
 
 class CellVolumeKernelInterface(ProxyKernelInterface):
