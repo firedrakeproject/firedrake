@@ -185,6 +185,8 @@ from __future__ import absolute_import, print_function, division
 from six import iteritems
 from finat.finiteelementbase import entity_support_dofs
 
+cimport mpi4py.MPI as MPI
+from mpi4py import MPI
 from firedrake.petsc import PETSc
 import numpy
 cimport numpy
@@ -219,12 +221,15 @@ def layer_extents(mesh):
     """
     cdef:
         PETSc.DM dm
+        PETSc.SF sf
         PETSc.Section section
         numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_extents
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] out_extents
         PetscInt cStart, cEnd, c, cell, ci, p
         PetscInt *closure = NULL
         PetscInt closureSize
+        MPI.Datatype contig
 
     dm = mesh._plex
     section = mesh._cell_numbering
@@ -252,7 +257,32 @@ def layer_extents(mesh):
             layer_extents[p, 2] = max(layer_extents[p, 2], cell_extents[cell, 0])
             layer_extents[p, 3] = min(layer_extents[p, 3], cell_extents[cell, 1])
     CHKERR(DMPlexRestoreTransitiveClosure(dm.dm, 0, PETSC_TRUE, NULL, &closure))
-    return layer_extents
+    if mesh.comm.size == 1:
+        return layer_extents
+
+    # OK, now we have the correct extents for owned points, but
+    # potentially incorrect extents for ghost points, so do a SF Bcast
+    # over the point SF to get it right.
+    # TODO: this only works because we have a cell halo that contains
+    # all the cells that touch the vertices we own.  If this changes,
+    # e.g we don't grow the halo overlap, then we need to fix it.
+    out_extents = numpy.copy(layer_extents)
+    try:
+        tdict = MPI.__TypeDict__
+    except AttributeError:
+        tdict = MPI._typedict
+    typ = tdict[out_extents.dtype.char]
+    contig = typ.Create_contiguous(4)
+    contig.Commit()
+    sf = dm.getPointSF()
+    CHKERR(PetscSFBcastBegin(sf.sf, contig.ob_mpi,
+                             <const void*>layer_extents.data,
+                             <void *>out_extents.data))
+    CHKERR(PetscSFBcastEnd(sf.sf, contig.ob_mpi,
+                             <const void*>layer_extents.data,
+                             <void *>out_extents.data))
+    contig.Free()
+    return out_extents
 
 
 @cython.wraparound(False)
