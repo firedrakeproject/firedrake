@@ -55,7 +55,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath",
-                           "petsc_int_type"]
+                           "petsc_int_type", "framework"]
 
 
 def deep_update(this, that):
@@ -151,6 +151,7 @@ honoured.""",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install_help.")
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
+    parser.add_argument("--no-framework", action="store_false", dest="framework", help="Disable framework creation on MacOS. This is occasionally required as a workaround for local installation issues. This option has no effecto on platforms other than MacOS")
 
     if travis:
         parser.add_argument("--write-cache", action="store_true",
@@ -1196,6 +1197,8 @@ int main(int argc, char **argv) {
      /* NOTREACHED */
 }
 """
+    if not options["framework"]:
+        return False
     pythonapp = os.path.abspath(os.path.join(".", "Python.app"))
     dotpython = os.path.abspath(os.path.join(".", ".Python"))
     dotsrc = os.readlink(dotpython)
