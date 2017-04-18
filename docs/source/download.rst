@@ -223,7 +223,7 @@ and in the standard paths.
 Further dependencies
 ~~~~~~~~~~~~~~~~~~~~
 
-Firedrake depends on the Python packages PyOP2_, TSFC_, FIAT_ and UFL_.
+Firedrake depends on the Python packages PyOP2_, FInAT_, TSFC_, FIAT_ and UFL_.
 
 Optional dependencies
 ~~~~~~~~~~~~~~~~~~~~~
@@ -248,6 +248,7 @@ the python package ``sphinxcontrib-bibtex``.
 .. _petsc4py: https://github.com/firedrakeproject/petsc4py
 .. _PETSc: http://www.mcs.anl.gov/petsc/
 .. _PyOP2: http://op2.github.io/PyOP2
+.. _FInAT: https://github.com/FInAT/FInAT
 .. _TSFC: https://github.com/firedrakeproject/tsfc
 .. _FIAT: https://github.com/firedrakeproject/fiat
 .. _UFL: https://github.com/firedrakeproject/ufl
