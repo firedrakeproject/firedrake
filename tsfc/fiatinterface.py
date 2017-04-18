@@ -214,18 +214,6 @@ def _(element, vector_is_mixed):
 
 
 # Element modifiers
-@convert.register(ufl.FacetElement)  # noqa
-def _(element, vector_is_mixed):
-    return FIAT.RestrictedElement(create_element(element._element, vector_is_mixed),
-                                  restriction_domain="facet")
-
-
-@convert.register(ufl.InteriorElement)  # noqa
-def _(element, vector_is_mixed):
-    return FIAT.RestrictedElement(create_element(element._element, vector_is_mixed),
-                                  restriction_domain="interior")
-
-
 @convert.register(ufl.RestrictedElement)  # noqa
 def _(element, vector_is_mixed):
     return FIAT.RestrictedElement(create_element(element.sub_element(), vector_is_mixed),
