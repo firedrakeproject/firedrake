@@ -228,12 +228,10 @@ Firedrake depends on the Python packages PyOP2_, FInAT_, TSFC_, FIAT_ and UFL_.
 Optional dependencies
 ~~~~~~~~~~~~~~~~~~~~~
 
-For performance reasons, there are various levels of caching with
-eviction policies.  To support these, you will need to install the
-python packages:
+For performance reasons, certain operations are cached within Firedrake.
+To support this, you will need to install the python package:
 
 - cachetools
-- psutil
 
 Documentation dependencies
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
