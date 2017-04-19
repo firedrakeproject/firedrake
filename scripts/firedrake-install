@@ -461,46 +461,46 @@ def update_and_apply_petsc_fix():
         if HEAD == magic_sha:
             # No, and we need to, so apply the fix.
             log.info("Apply temporary --download-eigen fix")
-            patch = """
-    From a2a264416ccac135640344f54852f6b74bf9de1e Mon Sep 17 00:00:00 2001
-    From: Lawrence Mitchell <lawrence.mitchell@imperial.ac.uk>
-    Date: Tue, 11 Apr 2017 10:35:04 +0100
-    Subject: [PATCH] Temporary workaround for --download-eigen --prefix issues
+            patch = """\
+From a2a264416ccac135640344f54852f6b74bf9de1e Mon Sep 17 00:00:00 2001
+From: Lawrence Mitchell <lawrence.mitchell@imperial.ac.uk>
+Date: Tue, 11 Apr 2017 10:35:04 +0100
+Subject: [PATCH] Temporary workaround for --download-eigen --prefix issues
 
-    ---
-     config/BuildSystem/config/package.py        | 2 ++
-     config/BuildSystem/config/packages/eigen.py | 2 +-
-     2 files changed, 3 insertions(+), 1 deletion(-)
+---
+ config/BuildSystem/config/package.py        | 2 ++
+ config/BuildSystem/config/packages/eigen.py | 2 +-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
 
-    diff --git a/config/BuildSystem/config/package.py b/config/BuildSystem/config/package.py
-    index ba78667..6aa03bb 100644
-    --- a/config/BuildSystem/config/package.py
-    +++ b/config/BuildSystem/config/package.py
-    @@ -351,6 +351,8 @@ class Package(config.base.Configure):
-       def generateGuesses(self):
-         d = self.checkDownload()
-         if d:
-    +      if not self.liblist:
-    +        yield('Download '+self.PACKAGE, d, [], self.getIncludeDirs(d, self.includedir))
-           for libdir in [self.libdir, self.altlibdir]:
-             libdirpath = os.path.join(d, libdir)
-             if not os.path.isdir(libdirpath):
-    diff --git a/config/BuildSystem/config/packages/eigen.py b/config/BuildSystem/config/packages/eigen.py
-    index 1353c04..e136e6f 100644
-    --- a/config/BuildSystem/config/packages/eigen.py
-    +++ b/config/BuildSystem/config/packages/eigen.py
-    @@ -7,7 +7,7 @@ class Configure(config.package.CMakePackage):
-         self.download          = ['hg://https://bitbucket.org/eigen/eigen/']
-         self.functions         = []
-         self.includes          = ['Eigen/Core']
-    -    self.liblist           = [[]]
-    +    self.liblist           = []
-         self.cxx               = 1
-         self.includedir        = os.path.join('include', 'eigen3')
-         self.useddirectly      = 0
-    --
-    2.7.0.297.g563e384
-    """
+diff --git a/config/BuildSystem/config/package.py b/config/BuildSystem/config/package.py
+index ba78667..6aa03bb 100644
+--- a/config/BuildSystem/config/package.py
++++ b/config/BuildSystem/config/package.py
+@@ -351,6 +351,8 @@ class Package(config.base.Configure):
+   def generateGuesses(self):
+     d = self.checkDownload()
+     if d:
++      if not self.liblist:
++        yield('Download '+self.PACKAGE, d, [], self.getIncludeDirs(d, self.includedir))
+       for libdir in [self.libdir, self.altlibdir]:
+         libdirpath = os.path.join(d, libdir)
+         if not os.path.isdir(libdirpath):
+diff --git a/config/BuildSystem/config/packages/eigen.py b/config/BuildSystem/config/packages/eigen.py
+index 1353c04..e136e6f 100644
+--- a/config/BuildSystem/config/packages/eigen.py
++++ b/config/BuildSystem/config/packages/eigen.py
+@@ -7,7 +7,7 @@ class Configure(config.package.CMakePackage):
+     self.download          = ['hg://https://bitbucket.org/eigen/eigen/']
+     self.functions         = []
+     self.includes          = ['Eigen/Core']
+-    self.liblist           = [[]]
++    self.liblist           = []
+     self.cxx               = 1
+     self.includedir        = os.path.join('include', 'eigen3')
+     self.useddirectly      = 0
+--
+2.7.0.297.g563e384
+"""
             try:
                 p = subprocess.Popen(["git", "am"], stdout=subprocess.PIPE,
                                      stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
