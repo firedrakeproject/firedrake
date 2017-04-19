@@ -439,6 +439,77 @@ def git_url(plain_url, protocol):
         raise ValueError("Unknown git protocol: %s" % protocol)
 
 
+def update_and_apply_petsc_fix():
+    HEAD1 = check_output(["git", "rev-parse", "HEAD~"]).strip()
+    # Fetch from upstream
+    check_call(["git", "fetch", "origin"])
+    # Check if we've applied horrific monkey-patching
+    magic_sha = "156a1856fd44f55220132393778f0fda1e6096e3"
+    if HEAD1 == magic_sha:
+        # Yes, check if the upstream branch pointer has
+        # changed, in which case we can reset to upstream.
+        log.info("Already applied eigen fix, checking if upstream is newer")
+        remote_sha = check_output(["git", "rev-parse", "origin/firedrake"]).strip()
+        if remote_sha != magic_sha:
+            log.info("Upstream is newer, resetting to upstream")
+            check_call(["git", "reset", "--hard", magic_sha])
+            check_call(["git", "pull"])
+    else:
+        # Update, then check if we need to apply a patch.
+        check_call(["git", "pull"])
+        HEAD = check_output(["git", "rev-parse", "HEAD"]).strip()
+        if HEAD == magic_sha:
+            # No, and we need to, so apply the fix.
+            log.info("Apply temporary --download-eigen fix")
+            patch = """
+    From a2a264416ccac135640344f54852f6b74bf9de1e Mon Sep 17 00:00:00 2001
+    From: Lawrence Mitchell <lawrence.mitchell@imperial.ac.uk>
+    Date: Tue, 11 Apr 2017 10:35:04 +0100
+    Subject: [PATCH] Temporary workaround for --download-eigen --prefix issues
+
+    ---
+     config/BuildSystem/config/package.py        | 2 ++
+     config/BuildSystem/config/packages/eigen.py | 2 +-
+     2 files changed, 3 insertions(+), 1 deletion(-)
+
+    diff --git a/config/BuildSystem/config/package.py b/config/BuildSystem/config/package.py
+    index ba78667..6aa03bb 100644
+    --- a/config/BuildSystem/config/package.py
+    +++ b/config/BuildSystem/config/package.py
+    @@ -351,6 +351,8 @@ class Package(config.base.Configure):
+       def generateGuesses(self):
+         d = self.checkDownload()
+         if d:
+    +      if not self.liblist:
+    +        yield('Download '+self.PACKAGE, d, [], self.getIncludeDirs(d, self.includedir))
+           for libdir in [self.libdir, self.altlibdir]:
+             libdirpath = os.path.join(d, libdir)
+             if not os.path.isdir(libdirpath):
+    diff --git a/config/BuildSystem/config/packages/eigen.py b/config/BuildSystem/config/packages/eigen.py
+    index 1353c04..e136e6f 100644
+    --- a/config/BuildSystem/config/packages/eigen.py
+    +++ b/config/BuildSystem/config/packages/eigen.py
+    @@ -7,7 +7,7 @@ class Configure(config.package.CMakePackage):
+         self.download          = ['hg://https://bitbucket.org/eigen/eigen/']
+         self.functions         = []
+         self.includes          = ['Eigen/Core']
+    -    self.liblist           = [[]]
+    +    self.liblist           = []
+         self.cxx               = 1
+         self.includedir        = os.path.join('include', 'eigen3')
+         self.useddirectly      = 0
+    -- 
+    2.7.0.297.g563e384
+    """
+            try:
+                p = subprocess.Popen(["git", "am"], stdout=subprocess.PIPE,
+                                     stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
+                p.communicate(input=patch)
+            except subprocess.CalledProcessError as e:
+                log.debug(e.output)
+                raise
+
+
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
@@ -469,6 +540,8 @@ def git_clone(url):
         except subprocess.CalledProcessError:
             log.error("Failed to check out branch %s" % branch)
             raise
+        if name == "petsc":
+            update_and_apply_petsc_fix()
     return name
 
 
@@ -527,7 +600,10 @@ def git_update(name, url=None):
                and "github.com/firedrakeproject" in plain_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
-        check_call(["git", "pull"])
+        if name == "petsc":
+            update_and_apply_petsc_fix()
+        else:
+            check_call(["git", "pull"])
     git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     os.chdir("..")
     return git_sha != git_sha_new
