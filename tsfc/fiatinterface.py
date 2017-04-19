@@ -31,11 +31,10 @@ import weakref
 import FIAT
 from FIAT.reference_element import FiredrakeQuadrilateral
 from FIAT.dual_set import DualSet
+from FIAT.mixed import MixedElement
 from FIAT.quadrature import QuadratureRule  # noqa
 
 import ufl
-
-from .mixedelement import MixedElement
 
 
 __all__ = ("create_element", "supported_elements", "as_fiat_cell")
