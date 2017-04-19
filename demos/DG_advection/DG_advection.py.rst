@@ -186,20 +186,22 @@ negative.  This will be useful in the upwind terms.  We now define our
 right-hand-side form ``L1`` as :math:`\Delta t` times the sum of four integrals.
 
 The first integral is a straightforward cell integral of
-:math:`q\nabla(\phi\vec{u})`.  The second integral represents the inflow
+:math:`q\nabla\cdot(\phi\vec{u})`.  The second integral represents the inflow
 boundary condition.  We only want this to contribute on the inflow part of the
 boundary, where :math:`\vec{u}\cdot\vec{n} < 0` (recall that :math:`\vec{n}` is
 an outward-pointing normal).  Where this is true, the condition gives the
 desired expression :math:`\phi q_\mathrm{in}\vec{u}\cdot\vec{n}`, otherwise the
 condition gives zero.  The third integral operates in a similar way to give
-the outflow boundary condition.  The last integral represents the integral over
-interior facets.  The quantity ``un``, which is either :math:`\vec{u}\cdot\vec{n}`
-or zero, is used to select the correct upwind quantity for :math:`\widetilde{q}`.
-Although it is not obvious at first sight, the expression given is equivalent
-to the desired expression
-:math:`\widetilde{q}(\phi_+ \vec{u} \cdot \vec{n}_+ + \phi_- \vec{u} \cdot \vec{n}_-)`,
-at least if :math:`\vec{n}_- = -\vec{n}_+`, and is written in a way that avoids
-using conditionals to define :math:`\widetilde{q}`. ::
+the outflow boundary condition.  The last integral represents the integral
+:math:`\widetilde{q}(\phi_+ \vec{u} \cdot \vec{n}_+ + \phi_- \vec{u} \cdot \vec{n}_-)`
+over interior facets.  We could again use a conditional in order to represent
+the upwind value :math:`\widetilde{q}` by the correct choice of :math:`q_+` or
+:math:`q_-`, depending on the sign of :math:`\vec{u}\cdot\vec{n_+}`, say.
+Instead, we make use of the quantity ``un``, which is either
+:math:`\vec{u}\cdot\vec{n}` or zero, in order to avoid writing explicit
+conditionals. Although it is not obvious at first sight, the expression given in
+code is equivalent to the desired expression, assuming
+:math:`\vec{n}_- = -\vec{n}_+`. ::
 
   n = FacetNormal(mesh)
   un = 0.5*(dot(u, n) + abs(dot(u, n)))
