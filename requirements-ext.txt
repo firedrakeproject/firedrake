@@ -1,6 +1,5 @@
 six
 sympy
-psutil
 cachetools
 singledispatch
 pytest ~=2.9
