@@ -94,7 +94,8 @@ Next, we set up the source function, which must integrate to the area
 of the domain.  Note how in the integration of the :class:`~.Constant`
 one, we must explicitly specify the domain we wish to integrate over. ::
 
-  fexpr = Expression("exp(-(cos(x[0])*cos(x[0])+cos(x[1])*cos(x[1])))")
+  x, y = SpatialCoordinate(mesh)
+  fexpr = exp(-(cos(x)**2 + cos(y)**2))
   f = Function(V).interpolate(fexpr)
   scaling = assemble(Constant(1, domain=mesh)*dx)/assemble(f*dx)
   f *= scaling

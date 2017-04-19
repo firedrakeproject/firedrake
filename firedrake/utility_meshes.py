@@ -1,13 +1,14 @@
 from __future__ import absolute_import, print_function, division
 import numpy as np
 
+import ufl
+
 from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ
 from firedrake import mesh
-from firedrake import expression
 from firedrake import function
 from firedrake import functionspace
 
@@ -837,7 +838,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
-        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m = mesh.Mesh(new_coords)
@@ -1013,7 +1014,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
 
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
-        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m = mesh.Mesh(new_coords)
