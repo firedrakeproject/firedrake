@@ -498,7 +498,7 @@ def update_and_apply_petsc_fix():
          self.cxx               = 1
          self.includedir        = os.path.join('include', 'eigen3')
          self.useddirectly      = 0
-    -- 
+    --
     2.7.0.297.g563e384
     """
             try:
