@@ -1,5 +1,5 @@
-Steady-state advection equation with upwinding
-==============================================
+Steady-state continuity equation on an extruded mesh
+====================================================
 
 We next consider the equation
 
@@ -187,4 +187,4 @@ We finally compare our solution to the expected solution: ::
   assert max(abs(out.dat.data - exact.dat.data)) < 1e-10
 
 This demo can be found as a script in
-`upwind_advection.py <upwind_advection.py>`__.
+`extruded_continuity.py <extruded_continuity.py>`__.
