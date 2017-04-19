@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import numpy as np
 import pytest
 
@@ -5,7 +6,7 @@ from firedrake import *
 
 
 def identity(family, degree):
-    mesh = UnitCubeMesh(1, 1, 1)
+    mesh = UnitCubeMesh(3, 3, 3)
     fs = FunctionSpace(mesh, family, degree)
 
     f = Function(fs)
@@ -26,7 +27,7 @@ def identity(family, degree):
 
 
 def vector_identity(family, degree):
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(4, 4)
     fs = VectorFunctionSpace(mesh, family, degree)
     f = Function(fs)
     out = Function(fs)
@@ -40,7 +41,7 @@ def vector_identity(family, degree):
 
 
 def tensor_identity(family, degree):
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(4, 4)
     fs = TensorFunctionSpace(mesh, family, degree)
     f = Function(fs)
     out = Function(fs)
@@ -54,7 +55,7 @@ def tensor_identity(family, degree):
 
 
 def tensor_identity_nonstandard_shape(family, degree):
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(4, 4)
     fs = TensorFunctionSpace(mesh, family, degree, shape=(2, 3))
     f = Function(fs)
     out = Function(fs)

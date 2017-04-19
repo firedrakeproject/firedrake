@@ -22,6 +22,7 @@ then
 \int_e phi div(F) ds = \int_{\partial e} phi u.n \tilde{D} ds
 as required.
 """
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 

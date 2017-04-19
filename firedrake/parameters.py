@@ -1,5 +1,6 @@
 """The parameters dictionary contains global parameter settings."""
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import iteritems
 
 from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
@@ -16,7 +17,7 @@ class Parameters(dict):
         self._name = name
         self._update_function = None
 
-        for key, value in kwargs.iteritems():
+        for key, value in iteritems(kwargs):
             self.add(key, value)
 
     def add(self, key, value=None):

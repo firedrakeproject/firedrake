@@ -1,4 +1,6 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import iteritems
+from six.moves import range, map, zip
 
 from itertools import permutations
 import numpy as np
@@ -8,6 +10,7 @@ import ufl
 import coffee.base as ast
 
 from pyop2 import op2
+from tsfc.fiatinterface import create_element
 
 import firedrake
 from firedrake.functionspacedata import entity_dofs_key
@@ -32,7 +35,7 @@ def coarse_to_fine_node_map(coarse, fine):
         raise ValueError("Can't map between level %s and level %s" % (level, fine_level))
     c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
 
-    key = entity_dofs_key(coarse.fiat_element.entity_dofs()) + (level, )
+    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (level, )
     cache = mesh._shared_data_cache["hierarchy_cell_node_map"]
     try:
         return cache[key]
@@ -49,7 +52,7 @@ def get_transfer_kernel(coarse, fine, typ=None):
     ch, level = get_level(coarse.mesh())
     mesh = ch[0]
     assert hasattr(mesh, "_shared_data_cache")
-    key = entity_dofs_key(coarse.fiat_element.entity_dofs()) + (typ, )
+    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (typ, )
     cache = mesh._shared_data_cache["hierarchy_transfer_kernel"]
     try:
         return cache[key]
@@ -62,7 +65,7 @@ def get_transfer_kernel(coarse, fine, typ=None):
         assert ch is fh
         assert refinements_per_level*level + 1 == refinements_per_level*fine_level
         dim = coarse.dim
-        element = coarse.fiat_element
+        element = create_element(coarse.ufl_element(), vector_is_mixed=False)
         omap = fine.cell_node_map().values
         c2f, vperm = ch._cells_vperm[int(level*refinements_per_level)]
         indices, _ = get_unique_indices(element,
@@ -85,7 +88,7 @@ def get_restriction_weights(coarse, fine):
     mesh = coarse.mesh()
     assert hasattr(mesh, "_shared_data_cache")
     cache = mesh._shared_data_cache["hierarchy_restriction_weights"]
-    key = entity_dofs_key(coarse.fiat_element.entity_dofs())
+    key = entity_dofs_key(coarse.finat_element.entity_dofs())
     try:
         return cache[key]
     except KeyError:
@@ -95,7 +98,7 @@ def get_restriction_weights(coarse, fine):
         # appropriately.
         if not (coarse.ufl_element() == fine.ufl_element()):
             raise ValueError("Can't transfer between different spaces")
-        if coarse.fiat_element.entity_dofs() == coarse.fiat_element.entity_closure_dofs():
+        if coarse.finat_element.entity_dofs() == coarse.finat_element.entity_closure_dofs():
             return cache.setdefault(key, None)
         ele = coarse.ufl_element()
         if isinstance(ele, ufl.VectorElement):
@@ -107,7 +110,7 @@ def get_restriction_weights(coarse, fine):
         kernel = get_count_kernel(c2f_map.arity)
         op2.par_loop(kernel, op2.LocalSet(mesh.cell_set),
                      weights.dat(op2.INC, c2f_map[op2.i[0]]))
-        weights.assign(1.0/weights)
+        weights.assign(1/weights)
         return cache.setdefault(key, weights)
 
 
@@ -193,7 +196,7 @@ def get_node_permutations(fiat_element):
         pt = node.get_point_dict()
         assert len(pt.keys()) == 1
         nodes.append(np.asarray(pt.keys()[0], dtype=float))
-    for perm, transform in transforms.iteritems():
+    for perm, transform in iteritems(transforms):
         p = -np.ones(len(functionals), dtype=PETSc.IntType)
         new_nodes = [apply_transform(transform, node) for node in nodes]
         for i, node in enumerate(new_nodes):
@@ -216,7 +219,7 @@ def get_unique_indices(fiat_element, nonunique_map, vperm, offset=None):
     tdim = cell.get_spatial_dimension()
     nvtx = len(cell.get_vertices())
     ncell = 2**tdim
-    ndof = len(order)/ncell
+    ndof = len(order)//ncell
     if offset is not None:
         new_offset = -np.ones(ncell * offset.shape[0], dtype=offset.dtype)
     for i in range(ncell):

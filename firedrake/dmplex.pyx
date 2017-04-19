@@ -1,5 +1,7 @@
 # Utility functions to derive global and local numbering from DMPlex
-from petsc import PETSc
+from __future__ import absolute_import, print_function, division
+
+from firedrake.petsc import PETSc
 import numpy as np
 cimport numpy as np
 import cython
@@ -7,6 +9,8 @@ cimport petsc4py.PETSc as PETSc
 
 cimport mpi4py.MPI as MPI
 from mpi4py import MPI
+
+from pyop2.datatypes import IntType
 
 from libc.string cimport memset
 from libc.stdlib cimport qsort
@@ -18,12 +22,13 @@ cdef extern from "mpi-compat.h":
 
 include "dmplexinc.pxi"
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
-                    np.ndarray[np.int32_t, ndim=1, mode="c"] facets,
+                    np.ndarray[PetscInt, ndim=1, mode="c"] facets,
                     PETSc.Section cell_numbering,
-                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures):
+                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures):
     """Compute the parent cell(s) and the local facet number within
     each parent cell for each given facet.
 
@@ -37,8 +42,8 @@ def facet_numbering(PETSc.DM plex, kind,
         PetscInt f, fStart, fEnd, fi, cell
         PetscInt nfacets, nclosure, ncells, cells_per_facet
         PetscInt *cells = NULL
-        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells
-        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_local_num
+        np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells
+        np.ndarray[PetscInt, ndim=2, mode="c"] facet_local_num
 
     fStart, fEnd = plex.getHeightStratum(1)
     nfacets = facets.shape[0]
@@ -49,8 +54,8 @@ def facet_numbering(PETSc.DM plex, kind,
         cells_per_facet = 2
     else:
         cells_per_facet = 1
-    facet_local_num = np.empty((nfacets, cells_per_facet), dtype=np.int32)
-    facet_cells = np.empty((nfacets, cells_per_facet), dtype=np.int32)
+    facet_local_num = np.empty((nfacets, cells_per_facet), dtype=IntType)
+    facet_cells = np.empty((nfacets, cells_per_facet), dtype=IntType)
 
     # First determine the parent cell(s) for each facet
     for f in range(nfacets):
@@ -97,7 +102,7 @@ def facet_numbering(PETSc.DM plex, kind,
 def closure_ordering(PETSc.DM plex,
                      PETSc.Section vertex_numbering,
                      PETSc.Section cell_numbering,
-                     np.ndarray[np.int32_t, ndim=1, mode="c"] entity_per_cell):
+                     np.ndarray[PetscInt, ndim=1, mode="c"] entity_per_cell):
     """Apply Fenics local numbering to a cell closure.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -124,7 +129,7 @@ def closure_ordering(PETSc.DM plex,
         PetscInt *face_indices = NULL
         PetscInt *face_vertices = NULL
         PetscInt *facet_vertices = NULL
-        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closure
+        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
 
     dim = plex.getDimension()
     cStart, cEnd = plex.getHeightStratum(0)
@@ -140,7 +145,7 @@ def closure_ordering(PETSc.DM plex,
     CHKERR(PetscMalloc1(v_per_cell-1, &facet_vertices))
     CHKERR(PetscMalloc1(entity_per_cell[1], &faces))
     CHKERR(PetscMalloc1(entity_per_cell[1], &face_indices))
-    cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=np.int32)
+    cell_closure = np.empty((cEnd - cStart, sum(entity_per_cell)), dtype=IntType)
 
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
@@ -269,7 +274,7 @@ def closure_ordering(PETSc.DM plex,
 def quadrilateral_closure_ordering(PETSc.DM plex,
                                    PETSc.Section vertex_numbering,
                                    PETSc.Section cell_numbering,
-                                   np.ndarray[np.int32_t, ndim=1, mode="c"] cell_orientations):
+                                   np.ndarray[PetscInt, ndim=1, mode="c"] cell_orientations):
     """Cellwise orders mesh entities according to the given cell orientations.
 
     :arg plex: The DMPlex object encapsulating the mesh topology
@@ -291,7 +296,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
         PetscInt vertices[4]
         PetscInt facets[4]
         int reverse
-        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closure
+        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
 
     cStart, cEnd = plex.getHeightStratum(0)
     fStart, fEnd = plex.getHeightStratum(1)
@@ -300,7 +305,7 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
     ncells = cEnd - cStart
     entity_per_cell = 4 + 4 + 1
 
-    cell_closure = np.empty((ncells, entity_per_cell), dtype=np.int32)
+    cell_closure = np.empty((ncells, entity_per_cell), dtype=IntType)
     for c in range(cStart, cEnd):
         CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         CHKERR(DMPlexGetTransitiveClosure(plex.dm, c, PETSC_TRUE, &nclosure, &closure))
@@ -412,20 +417,20 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,
-                   np.ndarray[np.int32_t, ndim=2, mode="c"] cell_closures,
+                   np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures,
                    entity_dofs):
     """
     Builds the DoF mapping.
 
     :arg global_numbering: Section describing the global DoF numbering
     :arg cell_closures: 2D array of ordered cell closures
-    :arg entity_dofs: FIAT element entity dofs for the cell
+    :arg entity_dofs: FInAT element entity dofs for the cell
 
     Preconditions: This function assumes that cell_closures contains mesh
     entities ordered by dimension, i.e. vertices first, then edges, faces, and
     finally the cell. For quadrilateral meshes, edges corresponding to
-    dimension (0, 1) in the FIAT element must precede edges corresponding to
-    dimension (1, 0) in the FIAT element.
+    dimension (0, 1) in the FInAT element must precede edges corresponding to
+    dimension (1, 0) in the FInAT element.
     """
     cdef:
         int *ceil_ndofs = NULL
@@ -433,12 +438,12 @@ def get_cell_nodes(PETSc.Section global_numbering,
         PetscInt ncells, nclosure, dofs_per_cell
         PetscInt c, i, j, k
         PetscInt entity, ndofs, off
-        np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes
 
     ncells = cell_closures.shape[0]
     nclosure = cell_closures.shape[1]
 
-    # Extract ordering from FIAT element entity DoFs
+    # Extract ordering from FInAT element entity DoFs
     ndofs_list = []
     flat_index_list = []
 
@@ -462,7 +467,7 @@ def get_cell_nodes(PETSc.Section global_numbering,
         flat_index[i] = flat_index_list[i]
 
     # Fill cell nodes
-    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=np.int32)
+    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=IntType)
     for c in range(ncells):
         k = 0
         for i in range(nclosure):
@@ -480,8 +485,8 @@ def get_cell_nodes(PETSc.Section global_numbering,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_nodes(np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells,
-                    np.ndarray[np.int32_t, ndim=2, mode="c"] cell_nodes):
+def get_facet_nodes(np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells,
+                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes):
     """
     Derives the DoF mapping for a given facet list.
 
@@ -490,12 +495,12 @@ def get_facet_nodes(np.ndarray[np.int32_t, ndim=2, mode="c"] facet_cells,
     """
     cdef:
         int f, i, cell, nfacets, ncells, ndofs
-        np.ndarray[np.int32_t, ndim=2, mode="c"] facet_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] facet_nodes
 
     nfacets = facet_cells.shape[0]
     ncells = facet_cells.shape[1]
     ndofs = cell_nodes.shape[1]
-    facet_nodes = np.empty((nfacets, ncells*ndofs), dtype=np.int32)
+    facet_nodes = np.empty((nfacets, ncells*ndofs), dtype=IntType)
 
     for f in range(nfacets):
         # First parent cell
@@ -552,6 +557,56 @@ def label_facets(PETSc.DM plex, label_boundary=True):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def cell_facet_labeling(PETSc.DM plex,
+                        PETSc.Section cell_numbering,
+                        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures):
+    """Computes a labeling for the facet numbers on a particular cell
+    (interior and exterior facet labels). The i-th local facet is
+    represented as:
+
+    cell_facets[c, i]
+
+    If this result is :data:`0`, then the local facet :data:`ci` is an
+    exterior facet, otherwise if the result is :data:`1` it is interior.
+
+    :arg plex: The DMPlex object representing the mesh topology.
+    :arg cell_numbering: PETSc.Section describing the global cell numbering
+    :arg cell_closures: 2D array of ordered cell closures.
+    """
+    cdef:
+        PetscInt c, cstart, cend, fi, cell, nfacet, p, nclosure
+        PetscInt f, fstart, fend, point
+        char *int_label = <char *>"interior_facets"
+        PetscBool is_interior
+        const PetscInt *facets
+        DMLabel label
+        np.ndarray[np.int8_t, ndim=2, mode="c"] cell_facets
+
+    from firedrake.slate.slac.compiler import cell_to_facets_dtype
+    nclosure = cell_closures.shape[1]
+    cstart, cend = plex.getHeightStratum(0)
+    nfacet = plex.getConeSize(cstart)
+    fstart, fend = plex.getHeightStratum(1)
+    cell_facets = np.full((cend - cstart, nfacet), -1, dtype=cell_to_facets_dtype)
+    CHKERR(DMGetLabel(plex.dm, int_label, &label))
+    CHKERR(DMLabelCreateIndex(label, fstart, fend))
+
+    for c in range(cstart, cend):
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+        fi = 0
+        for p in range(nclosure):
+            point = cell_closures[cell, p]
+            if fstart <= point < fend:
+                # This is a facet point
+                DMLabelHasPoint(label, point, &is_interior)
+                cell_facets[cell, fi] = <np.int8_t>is_interior
+                fi += 1
+
+    CHKERR(DMLabelDestroyIndex(label))
+    return cell_facets
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     """Return coordinates for the plex, reordered according to the
     global numbering permutation for the coordinate function space.
@@ -560,7 +615,7 @@ def reordered_coords(PETSc.DM plex, PETSc.Section global_numbering, shape):
     cdef:
         PetscInt v, vStart, vEnd, offset
         PetscInt i, dim = shape[1]
-        np.ndarray[np.float64_t, ndim=2, mode="c"] plex_coords, coords
+        np.ndarray[PetscReal, ndim=2, mode="c"] plex_coords, coords
 
     plex_coords = plex.getCoordinatesLocal().array.reshape(shape)
     coords = np.empty_like(plex_coords)
@@ -764,16 +819,16 @@ def get_entity_classes(PETSc.DM plex):
     :arg plex: The DMPlex object encapsulating the mesh topology
     """
     cdef:
-        np.ndarray[np.int_t, ndim=2, mode="c"] entity_class_sizes
-        np.ndarray[np.int32_t, mode="c"] eStart, eEnd
+        np.ndarray[PetscInt, ndim=2, mode="c"] entity_class_sizes
+        np.ndarray[PetscInt, mode="c"] eStart, eEnd
         PetscInt depth, d, i, ci, class_size, start, end
         PetscInt *indices = NULL
         PETSc.IS class_is
 
     depth = plex.getDimension() + 1
-    entity_class_sizes = np.zeros((depth, 4), dtype=np.int)
-    eStart = np.zeros(depth, dtype=np.int32)
-    eEnd = np.zeros(depth, dtype=np.int32)
+    entity_class_sizes = np.zeros((depth, 4), dtype=IntType)
+    eStart = np.zeros(depth, dtype=IntType)
+    eEnd = np.zeros(depth, dtype=IntType)
     for d in range(depth):
         CHKERR(DMPlexGetDepthStratum(plex.dm, d, &start, &end))
         eStart[d] = start
@@ -816,17 +871,17 @@ def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
     """
     cdef:
         PetscInt i, cEnd, offset, c
-        np.ndarray[np.int32_t, ndim=1, mode="c"] cells
+        np.ndarray[PetscInt, ndim=1, mode="c"] cells
         np.ndarray[PetscInt, ndim=1, mode="c"] indices
 
     if not plex.hasLabel("Cell Sets"):
-        return np.empty(0, dtype=np.int32)
+        return np.empty(0, dtype=IntType)
     vals = plex.getLabelIdIS("Cell Sets").indices
     if subdomain_id not in vals:
         raise ValueError("Invalid subdomain_id %d not in %s" % (subdomain_id, vals))
 
     indices = plex.getStratumIS("Cell Sets", subdomain_id).indices
-    cells = np.empty(indices.shape[0], dtype=np.int32)
+    cells = np.empty(indices.shape[0], dtype=IntType)
     cEnd = indices.shape[0]
     for i in range(cEnd):
         c = indices[i]
@@ -845,10 +900,10 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
     """
     cdef:
         PetscInt fi, fStart, fEnd, offset
-        np.ndarray[np.int32_t, ndim=1, mode="c"] facets
+        np.ndarray[PetscInt, ndim=1, mode="c"] facets
 
     size = facet_numbering.getStorageSize()
-    facets = np.empty(size, dtype=np.int32)
+    facets = np.empty(size, dtype=IntType)
     fStart, fEnd = plex.getHeightStratum(1)
     for fi in range(fStart, fEnd):
         CHKERR(PetscSectionGetOffset(facet_numbering.sec, fi, &offset))
@@ -859,7 +914,7 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
-                        np.ndarray[np.int32_t, ndim=1, mode="c"] ordering):
+                        np.ndarray[PetscInt, ndim=1, mode="c"] ordering):
     """Builds a list of all facets ordered according to OP2 entity
     classes and computes the respective class offsets.
 
@@ -875,7 +930,7 @@ def get_facets_by_class(PETSc.DM plex, label,
         char *class_chr = NULL
         PetscBool has_point, is_class
         DMLabel lbl_facets, lbl_class
-        np.ndarray[np.int32_t, ndim=1, mode="c"] facets
+        np.ndarray[PetscInt, ndim=1, mode="c"] facets
 
     label_chr = <char*>label
     dim = plex.getDimension()
@@ -884,14 +939,14 @@ def get_facets_by_class(PETSc.DM plex, label,
     CHKERR(DMGetLabel(plex.dm, label, &lbl_facets))
     CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
-    facets = np.empty(nfacets, dtype=np.int32)
+    facets = np.empty(nfacets, dtype=IntType)
     facet_classes = [0, 0, 0, 0]
     fi = 0
 
-    for i, op2class in enumerate(["op2_core",
-                                  "op2_non_core",
-                                  "op2_exec_halo",
-                                  "op2_non_exec_halo"]):
+    for i, op2class in enumerate([b"op2_core",
+                                  b"op2_non_core",
+                                  b"op2_exec_halo",
+                                  b"op2_non_exec_halo"]):
         CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
         CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
         nclass = plex.getStratumSize(op2class, 1)
@@ -957,7 +1012,7 @@ def validate_mesh(PETSc.DM plex):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def plex_renumbering(PETSc.DM plex,
-                     np.ndarray[np.int_t, ndim=2, mode="c"] entity_classes,
+                     np.ndarray entity_classes,
                      np.ndarray[PetscInt, ndim=1, mode="c"] reordering=None):
     """
     Build a global node renumbering as a permutation of Plex points.
@@ -979,7 +1034,7 @@ def plex_renumbering(PETSc.DM plex,
     cdef:
         PetscInt dim, cStart, cEnd, nfacets, nclosure, c, ci, l, p, f
         PetscInt pStart, pEnd, cell
-        np.ndarray[np.int32_t, ndim=1, mode="c"] lidx, ncells
+        np.ndarray[PetscInt, ndim=1, mode="c"] lidx, ncells
         PetscInt *facets = NULL
         PetscInt *closure = NULL
         PetscInt *perm = NULL
@@ -995,7 +1050,7 @@ def plex_renumbering(PETSc.DM plex,
     cStart, cEnd = plex.getHeightStratum(0)
     CHKERR(PetscMalloc1(pEnd - pStart, &perm))
     CHKERR(PetscBTCreate(pEnd - pStart, &seen))
-    ncells = np.zeros(4, dtype=np.int32)
+    ncells = np.zeros(4, dtype=IntType)
 
     # Get label pointers and label-specific array indices
     CHKERR(DMGetLabel(plex.dm, "op2_core", &labels[0]))
@@ -1004,7 +1059,8 @@ def plex_renumbering(PETSc.DM plex,
     CHKERR(DMGetLabel(plex.dm, "op2_non_exec_halo", &labels[3]))
     for l in range(4):
         CHKERR(DMLabelCreateIndex(labels[l], pStart, pEnd))
-    lidx = np.zeros(4, dtype=np.int32)
+    entity_classes = entity_classes.astype(IntType)
+    lidx = np.zeros(4, dtype=IntType)
     lidx[1] = sum(entity_classes[:, 0])
     lidx[2] = sum(entity_classes[:, 1])
     lidx[3] = sum(entity_classes[:, 2])
@@ -1090,12 +1146,12 @@ def get_cell_remote_ranks(PETSc.DM plex):
         PetscInt nroots, nleaves
         PetscInt *ilocal
         PetscSFNode *iremote
-        np.ndarray[np.int32_t, ndim=1, mode="c"] result
+        np.ndarray[PetscInt, ndim=1, mode="c"] result
 
     cStart, cEnd = plex.getHeightStratum(0)
     ncells = cEnd - cStart
 
-    result = np.full(ncells, -1, dtype=np.int32)
+    result = np.full(ncells, -1, dtype=IntType)
     if plex.comm.size > 1:
         sf = plex.getPointSF()
         CHKERR(PetscSFGetGraph(sf.sf, &nroots, &nleaves, &ilocal, &iremote))
@@ -1194,10 +1250,10 @@ cdef int CommFacet_cmp(void *x_, void *y_) nogil:
 @cython.wraparound(False)
 cdef inline void get_communication_lists(
     PETSc.DM plex, PETSc.Section vertex_numbering,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] cell_ranks,
+    np.ndarray[PetscInt, ndim=1, mode="c"] cell_ranks,
     # Output parameters:
-    np.int32_t *nranks, np.int32_t **ranks, np.int32_t **offsets,
-    np.int32_t **facets, np.int32_t **facet2index):
+    PetscInt *nranks, PetscInt **ranks, PetscInt **offsets,
+    PetscInt **facets, PetscInt **facet2index):
 
     """Creates communication lists for shared facet information exchange.
 
@@ -1222,8 +1278,8 @@ cdef inline void get_communication_lists(
         PetscInt *support = NULL
         PetscInt local_count, remote
         PetscInt v[2]
-        np.int32_t *facet_ranks = NULL
-        np.int32_t *nfacets_per_rank = NULL
+        PetscInt *facet_ranks = NULL
+        PetscInt *nfacets_per_rank = NULL
 
         CommFacet *cfacets = NULL
 
@@ -1232,7 +1288,7 @@ cdef inline void get_communication_lists(
     nfacets = fEnd - fStart
 
     CHKERR(PetscMalloc1(nfacets, &facet_ranks))
-    memset(facet_ranks, -1, nfacets * sizeof(np.int32_t))
+    memset(facet_ranks, -1, nfacets * sizeof(PetscInt))
 
     # Determines which facets are shared, and which MPI process
     # they are shared with.
@@ -1253,7 +1309,7 @@ cdef inline void get_communication_lists(
 
     # Counts how many facets are shared with each MPI node
     CHKERR(PetscMalloc1(comm_size, &nfacets_per_rank))
-    memset(nfacets_per_rank, 0, comm_size * sizeof(np.int32_t))
+    memset(nfacets_per_rank, 0, comm_size * sizeof(PetscInt))
 
     for i in range(nfacets):
         if facet_ranks[i] != -1:
@@ -1317,7 +1373,7 @@ cdef inline void get_communication_lists(
 
     CHKERR(PetscMalloc1(offsets[0][nranks[0]], facets))
     CHKERR(PetscMalloc1(nfacets, facet2index))
-    memset(facet2index[0], -1, nfacets * sizeof(np.int32_t))
+    memset(facet2index[0], -1, nfacets * sizeof(PetscInt))
 
     for i in range(offsets[0][nranks[0]]):
         facets[0][i] = cfacets[i].local_facet
@@ -1335,7 +1391,7 @@ cdef inline void get_communication_lists(
 
 @cython.profile(False)
 cdef inline void plex_get_restricted_support(PETSc.DM plex,
-                                             np.int32_t *cell_ranks,
+                                             PetscInt *cell_ranks,
                                              PetscInt f,
                                              # Output parameters:
                                              PetscInt *size,
@@ -1371,7 +1427,7 @@ cdef inline void plex_get_restricted_support(PETSc.DM plex,
 cdef inline PetscInt traverse_cell_string(PETSc.DM plex,
                                           PetscInt first_facet,
                                           PetscInt cell,
-                                          np.int32_t *cell_ranks,
+                                          PetscInt *cell_ranks,
                                           np.int8_t *orientations):
     """Takes a start facet, and a direction (which of the, possibly two, cells
     it is adjacent to) and propagates that facet's orientation as far as
@@ -1469,9 +1525,9 @@ cdef inline PetscInt traverse_cell_string(PETSc.DM plex,
 @cython.wraparound(False)
 cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
                                        PETSc.Section vertex_numbering,
-                                       np.int32_t *cell_ranks,
-                                       np.int32_t *facet2index,
-                                       np.int32_t nfacets_shared,
+                                       PetscInt *cell_ranks,
+                                       PetscInt *facet2index,
+                                       PetscInt nfacets_shared,
                                        np.int8_t *orientations):
     """Locally orient the facets (edges) of a quadrilateral plex, and
     derive the dependency information of shared facets.
@@ -1505,12 +1561,12 @@ cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
         PetscInt start_facet, end_facet
         np.int8_t twist
         PetscInt i, j
-        np.ndarray[np.int32_t, ndim=1, mode="c"] result
+        np.ndarray[PetscInt, ndim=1, mode="c"] result
 
     fStart, fEnd = plex.getHeightStratum(1)
     nfacets = fEnd - fStart
 
-    result = np.empty(nfacets_shared, dtype=np.int32)
+    result = np.empty(nfacets_shared, dtype=IntType)
 
     # Here we walk over all the known facets, if it is not oriented already.
     for f in range(fStart, fEnd):
@@ -1585,9 +1641,9 @@ cdef locally_orient_quadrilateral_plex(PETSc.DM plex,
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline void exchange_edge_orientation_data(
-    np.int32_t nranks, np.int32_t *ranks, np.int32_t *offsets,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] ours,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] theirs,
+    PetscInt nranks, PetscInt *ranks, PetscInt *offsets,
+    np.ndarray[PetscInt, ndim=1, mode="c"] ours,
+    np.ndarray[PetscInt, ndim=1, mode="c"] theirs,
     MPI.Comm comm):
 
     """Exchange edge orientation data between neighbouring MPI nodes.
@@ -1599,7 +1655,7 @@ cdef inline void exchange_edge_orientation_data(
     :arg theirs: Remote data, to be received from neighbours (return value)
     :arg comm: MPI Communicator.
     """
-    cdef np.int32_t ri
+    cdef PetscInt ri
 
     # Initiate receiving
     recv_reqs = []
@@ -1621,7 +1677,7 @@ cdef inline void exchange_edge_orientation_data(
 @cython.wraparound(False)
 def quadrilateral_facet_orientations(
     PETSc.DM plex, PETSc.Section vertex_numbering,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] cell_ranks):
+    np.ndarray[PetscInt, ndim=1, mode="c"] cell_ranks):
 
     """Returns globally synchronised facet orientations (edge directions)
     incident to locally owned quadrilateral cells.
@@ -1632,18 +1688,18 @@ def quadrilateral_facet_orientations(
                      or -1 for (locally) owned cell.
     """
     cdef:
-        np.int32_t nranks
-        np.int32_t *ranks = NULL
-        np.int32_t *offsets = NULL
-        np.int32_t *facets = NULL
-        np.int32_t *facet2index = NULL
+        PetscInt nranks
+        PetscInt *ranks = NULL
+        PetscInt *offsets = NULL
+        PetscInt *facets = NULL
+        PetscInt *facet2index = NULL
 
         MPI.Comm comm = plex.comm.tompi4py()
         PetscInt nfacets, nfacets_shared, fStart, fEnd
 
-        np.ndarray[np.int32_t, ndim=1, mode="c"] affects
-        np.ndarray[np.int32_t, ndim=1, mode="c"] ours, theirs
-        np.int32_t conflict, value, f, i, j
+        np.ndarray[PetscInt, ndim=1, mode="c"] affects
+        np.ndarray[PetscInt, ndim=1, mode="c"] ours, theirs
+        PetscInt conflict, value, f, i, j
 
         PetscInt ci, size
         PetscInt cells[2]
@@ -1662,7 +1718,7 @@ def quadrilateral_facet_orientations(
     result = np.full(nfacets, -1, dtype=np.int8)
     affects = locally_orient_quadrilateral_plex(plex,
                                                 vertex_numbering,
-                                                <np.int32_t *>cell_ranks.data,
+                                                <PetscInt *>cell_ranks.data,
                                                 facet2index,
                                                 nfacets_shared,
                                                 <np.int8_t *>result.data)
@@ -1674,7 +1730,7 @@ def quadrilateral_facet_orientations(
     # the sign tells the edge direction. Positive sign implies that the edge
     # points from the vertex with the smaller global number to the vertex with
     # the greater global number, negative implies otherwise.
-    ours = comm.size * np.arange(nfacets_shared, dtype=np.int32) + comm.rank
+    ours = comm.size * np.arange(nfacets_shared, dtype=IntType) + comm.rank
 
     # We update these values based on the local connections
     # before we do any communication.
@@ -1750,13 +1806,13 @@ def quadrilateral_facet_orientations(
             else:
                 orientation = 1
 
-            plex_get_restricted_support(plex, <np.int32_t *>cell_ranks.data, f,
+            plex_get_restricted_support(plex, <PetscInt *>cell_ranks.data, f,
                                         &size, cells)
 
             result[f - fStart] = orientation
             for ci in range(size):
                 traverse_cell_string(plex, f, cells[ci],
-                                     <np.int32_t *>cell_ranks.data,
+                                     <PetscInt *>cell_ranks.data,
                                      <np.int8_t *>result.data)
 
     CHKERR(PetscFree(facets))
@@ -1766,7 +1822,7 @@ def quadrilateral_facet_orientations(
 @cython.wraparound(False)
 def orientations_facet2cell(
     PETSc.DM plex, PETSc.Section vertex_numbering,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] cell_ranks,
+    np.ndarray[PetscInt, ndim=1, mode="c"] cell_ranks,
     np.ndarray[np.int8_t, ndim=1, mode="c"] facet_orientations,
     PETSc.Section cell_numbering):
 
@@ -1787,13 +1843,13 @@ def orientations_facet2cell(
         np.int8_t dst_orient[4]
         int i, off
         PetscInt facet, v, V
-        np.ndarray[np.int32_t, ndim=1, mode="c"] cell_orientations
+        np.ndarray[PetscInt, ndim=1, mode="c"] cell_orientations
 
     cStart, cEnd = plex.getHeightStratum(0)
     fStart, fEnd = plex.getHeightStratum(1)
     ncells = cEnd - cStart
 
-    cell_orientations = np.zeros(ncells, dtype=np.int32)
+    cell_orientations = np.zeros(ncells, dtype=IntType)
 
     for c in range(cStart, cEnd):
         if cell_ranks[c - cStart] < 0:
@@ -1867,11 +1923,12 @@ def orientations_facet2cell(
 
     return cell_orientations
 
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def exchange_cell_orientations(
     PETSc.DM plex, PETSc.Section section,
-    np.ndarray[np.int32_t, ndim=1, mode="c"] orientations):
+    np.ndarray[PetscInt, ndim=1, mode="c"] orientations):
 
     """Halo exchange of cell orientations.
 
@@ -1885,11 +1942,18 @@ def exchange_cell_orientations(
         PetscInt nroots, nleaves
         PetscInt *ilocal
         PetscSFNode *iremote
-        MPI.Datatype dtype = MPI.INT
+        MPI.Datatype dtype
         PETSc.Section new_section
-        np.int32_t *new_values = NULL
+        PetscInt *new_values = NULL
         PetscInt i, c, cStart, cEnd, l, r
 
+    try:
+        try:
+            dtype = MPI.__TypeDict__[np.dtype(IntType).char]
+        except AttributeError:
+            dtype = MPI._typedict[np.dtype(IntType).char]
+    except KeyError:
+        raise ValueError("Don't know how to create datatype for %r", PETSc.IntType)
     # Halo exchange of cell orientations, i.e. receive orientations
     # from the owners in the halo region.
     if plex.comm.size > 1:
@@ -1926,7 +1990,7 @@ def make_global_numbering(PETSc.Section lsec, PETSc.Section gsec):
         PetscInt c, p, pStart, pEnd, dof, loff, goff
         np.ndarray[PetscInt, ndim=1, mode="c"] val
 
-    val = np.empty(lsec.getStorageSize(), dtype=PETSc.IntType)
+    val = np.empty(lsec.getStorageSize(), dtype=IntType)
     pStart, pEnd = lsec.getChart()
 
     for p in range(pStart, pEnd):

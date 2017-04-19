@@ -2,6 +2,11 @@ workspace:
   base: /drone
   path: src
 
+matrix:
+  PETSC_INT_TYPE:
+    - int32
+    - int64
+
 pipeline:
   build:
     image: ubuntu:xenial
@@ -25,7 +30,7 @@ pipeline:
       - apt-get -y install sudo python-minimal python-pip
 
       # Fail fast on lint errors
-      - pip install -U flake8
+      - pip install -U flake8 flake8-future-import
       - cd $GIT_SOURCE_DIR
       - make lint
       - pip install virtualenv
@@ -41,10 +46,12 @@ pipeline:
 
       # Install firedrake
       - cd $FIREDRAKE_HOME
-      - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $GIT_SOURCE_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --install thetis --install gusto
+      - PETSC_CONFIGURE_OPTIONS="--with-make-np=1" $GIT_SOURCE_DIR/scripts/firedrake-install --disable-ssh --minimal-petsc --slepc --adjoint --slope --install thetis --install gusto --petsc-int-type ${PETSC_INT_TYPE}
 
       # Activate the virtualenv
       - . firedrake/bin/activate
+      # pylint --py3k
+      - pylint --py3k --disable=round-builtin firedrake
       # scipy for the adjoint tests
       - pip install scipy
       - pip install pytest-cov
@@ -59,9 +66,14 @@ pipeline:
       # Run the dolfin-adjoint tests
       - cd ../dolfin-adjoint
       - sudo -EHu firedrake env PATH="$PATH" py.test -v tests_firedrake/
+      # Now run the notebook tests
+      - pip install jupyter
+      - pip install nbval>=0.5
+      - cd ../firedrake/docs/notebooks
+      - sudo -EHu firedrake env PATH="$PATH" py.test -v --nbval --current-env .
   # Codecov
   codecov:
-    image: alpine:3.3
+    image: alpine:3.5
     pull: true
     environment:
       - CI_BUILD_URL=${DRONE_BUILD_LINK}

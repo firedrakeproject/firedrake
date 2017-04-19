@@ -50,6 +50,14 @@ PDEs. Below are a few tutorial examples to get you started.
    A steady-state advection equation using upwinding, on an extruded mesh.<demos/upwind_advection.py>
    A linear wave equation using explicit timestepping.<demos/linear_wave_equation.py>
 
+Jupyter notebooks
+-----------------
+
+In addition to the documented tutorials, we also have some `Jupyter
+notebooks <https://jupyter.org/>`__ that are a more interactive way of
+getting to know Firedrake.  They are described in more detail :doc:`on
+their own page <notebooks>`.
+
 .. only:: html
 
   API documentation
@@ -95,6 +103,8 @@ element systems.
 
    Benney-Luke nonlinear wave equation.<demos/benney_luke.py>
    Solving the one-layer Quasi-Geostrophic equations.<demos/qg_1layer_wave.py>
+   Computing eigenmodes of the Quasi-Geostrophic equations using SLEPc.<demos/qgbasinmodes.py>
+   A Quasi-Geostrophic wind driven gyre.<demos/qg_winddrivengyre.py>
    Preconditioning saddle-point systems, using the mixed Poisson problem as an example.<demos/saddle_point_systems.py>
    The Camassa-Holm equation, a nonlinear integrable PDE.<demos/camassaholm.py>
    The Monge-Ampère equation, a nonlinear PDE, demonstrating fieldsplit preconditioning.<demos/ma-demo.py>

@@ -4,14 +4,15 @@ and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
 
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import numpy
 
+import finat
 import ufl
 
 from pyop2 import op2
-from tsfc.fiatinterface import create_element
+from tsfc.finatinterface import create_element
 
 from firedrake.functionspacedata import get_shared_data
 from firedrake import utils
@@ -33,13 +34,11 @@ class WithGeometry(ufl.FunctionSpace):
     :arg mesh: The mesh with geometric information to use.
     """
     def __init__(self, function_space, mesh):
-        from firedrake.ufl_expr import reconstruct_element
         function_space = function_space.topological
         assert mesh.topology is function_space.mesh()
         assert mesh.topology is not mesh
 
-        element = reconstruct_element(function_space.ufl_element(),
-                                      cell=mesh.ufl_cell())
+        element = function_space.ufl_element().reconstruct(cell=mesh.ufl_cell())
         super(WithGeometry, self).__init__(mesh, element)
         self.topological = function_space
 
@@ -245,8 +244,11 @@ class FunctionSpace(object):
         super(FunctionSpace, self).__init__()
         if type(element) is ufl.MixedElement:
             raise ValueError("Can't create FunctionSpace for MixedElement")
-        fiat_element = create_element(element, vector_is_mixed=False)
-        sdata = get_shared_data(mesh, fiat_element)
+        finat_element = create_element(element)
+        if isinstance(finat_element, finat.TensorFiniteElement):
+            # Retrieve scalar element
+            finat_element = finat_element.base_element
+        sdata = get_shared_data(mesh, finat_element)
         # The function space shape is the number of dofs per node,
         # hence it is not always the value_shape.  Vector and Tensor
         # element modifiers *must* live on the outside!
@@ -284,7 +286,7 @@ class FunctionSpace(object):
         degrees of freedom."""
 
         self.comm = self.node_set.comm
-        self.fiat_element = fiat_element
+        self.finat_element = finat_element
         self.extruded = sdata.extruded
         self.offset = sdata.offset
         self.bt_masks = sdata.bt_masks
@@ -391,16 +393,16 @@ class FunctionSpace(object):
 
     @property
     def node_count(self):
-        """The number of global nodes in the function space.  If the
-        :class:`FunctionSpace` has :attr:`rank` 0, this is equal to
-        the :attr:`dof_count`, otherwise the :attr:`dof_count` is
+        """The number of nodes (includes halo nodes) of this function space on
+        this process.  If the :class:`FunctionSpace` has :attr:`rank` 0, this
+        is equal to the :attr:`dof_count`, otherwise the :attr:`dof_count` is
         :attr:`dim` times the :attr:`node_count`."""
         return self.node_set.total_size
 
     @property
     def dof_count(self):
-        """The number of global degrees of freedom in the function
-        space. Cf. :attr:`node_count`."""
+        """The number of degrees of freedom (includes halo dofs) of this
+        function space on this process. Cf. :attr:`node_count`."""
         return self.node_count*self.dim
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
@@ -424,7 +426,7 @@ class FunctionSpace(object):
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().cell_set,
-                             self.fiat_element.space_dimension(),
+                             self.finat_element.space_dimension(),
                              bcs,
                              "cell_node",
                              self.offset,
@@ -445,12 +447,14 @@ class FunctionSpace(object):
 
         sdata = self._shared_data
         offset = self.cell_node_map().offset
+        if offset is not None:
+            offset = numpy.append(offset, offset)
         map = sdata.get_map(self,
                             self.mesh().interior_facets.set,
-                            2*self.fiat_element.space_dimension(),
+                            2*self.finat_element.space_dimension(),
                             bcs,
                             "interior_facet_node",
-                            numpy.append(offset, offset),
+                            offset,
                             parent)
         map.factors = (self.mesh().interior_facets.facet_cell_map,
                        self.cell_node_map())
@@ -472,7 +476,7 @@ class FunctionSpace(object):
         sdata = self._shared_data
         return sdata.get_map(self,
                              self.mesh().exterior_facets.set,
-                             self.fiat_element.space_dimension(),
+                             self.finat_element.space_dimension(),
                              bcs,
                              "exterior_facet_node",
                              self.offset,

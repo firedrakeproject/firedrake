@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 import numpy as np
@@ -39,7 +40,7 @@ def test_functional(mesh1, mesh2):
 
     val = assemble(c*dx(domain=mesh1))
 
-    cell_volume = mesh1.coordinates.function_space().fiat_element.get_reference_element().volume()
+    cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
     assert np.allclose(val, cell_volume)
 
     val = assemble(c*dx(domain=mesh2))
@@ -61,7 +62,7 @@ def test_one_form(mesh1, mesh2, form, expect):
 
     v = TestFunction(V)
 
-    cell_volume = mesh1.coordinates.function_space().fiat_element.get_reference_element().volume()
+    cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
     dim = mesh1.topological_dimension()
 
     form = form(v, mesh1, mesh2)
@@ -82,7 +83,7 @@ def test_two_form(mesh1, mesh2, form, expect):
     v = TestFunction(V)
     u = TrialFunction(V)
 
-    cell_volume = mesh1.coordinates.function_space().fiat_element.get_reference_element().volume()
+    cell_volume = mesh1.coordinates.function_space().finat_element.cell.volume()
     dim = mesh1.topological_dimension()
 
     form = form(u, v, mesh1, mesh2)

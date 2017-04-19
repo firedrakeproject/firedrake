@@ -3,6 +3,7 @@
 This demo solves the advection-diffusion equation and is advanced in time using
 a theta scheme with theta = 0.5.
 """
+from __future__ import absolute_import, print_function, division
 
 import pytest
 

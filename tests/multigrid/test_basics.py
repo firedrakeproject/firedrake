@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 
@@ -43,7 +44,7 @@ def test_refine_square_ncell():
 
 @pytest.mark.parallel(nprocs=2)
 def test_refine_square_ncell_parallel():
-    m = UnitSquareMesh(1, 1)
+    m = UnitSquareMesh(4, 4)
 
     mh = MeshHierarchy(m, 1)
 

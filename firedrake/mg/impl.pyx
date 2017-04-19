@@ -1,7 +1,8 @@
 # Low-level numbering for multigrid support
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 
 import FIAT
+from tsfc.fiatinterface import create_element
 
 from firedrake.petsc import PETSc
 import firedrake.mg.utils as utils
@@ -168,7 +169,7 @@ def coarse_to_fine_cells(mc, mf):
         # Compute global numbers of original cell numbers
         mf._overlapped_lgmap.apply(fn2o, result=fn2o)
         # Compute local numbers of original cells on non-overlapped mesh
-        fn2o = mf._non_overlapped_lgmap.applyInverse(fn2o, PETSc.LGMap.MapType.MASK)
+        fn2o = mf._non_overlapped_lgmap.applyInverse(fn2o, PETSc.LGMap.MapMode.MASK)
         # Need to permute order of co2n so it maps from non-overlapped
         # cells to new cells (these may have changed order).  Need to
         # map all known cells through.
@@ -177,7 +178,7 @@ def coarse_to_fine_cells(mc, mf):
         mc._overlapped_lgmap.apply(idx, result=idx)
         # GlobalToLocal
         # Drop values that did not exist on non-overlapped mesh
-        idx = mc._non_overlapped_lgmap.applyInverse(idx, PETSc.LGMap.MapType.DROP)
+        idx = mc._non_overlapped_lgmap.applyInverse(idx, PETSc.LGMap.MapMode.DROP)
         co2n = co2n[idx]
 
     for c in range(fStart, fEnd):
@@ -190,7 +191,7 @@ def coarse_to_fine_cells(mc, mf):
         # Find original coarse cell (fcell / nref) and then map
         # forward to renumbered coarse cell (again non-overlapped
         # cells should map into owned coarse cells)
-        ccell = co2n[fcell / nref]
+        ccell = co2n[fcell // nref]
         assert 0 <= ccell < ncoarse
         for i in range(nref):
             if coarse_to_fine[ccell, i] == -1:
@@ -255,7 +256,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
         fine._non_overlapped_lgmap.apply(indices, result=indices)
         # Send back to local numbers on the overlapped mesh
         indices = fine._overlapped_lgmap.applyInverse(indices,
-                                                      PETSc.LGMap.MapType.MASK)
+                                                      PETSc.LGMap.MapMode.MASK)
         indices -= vfStart_new
 
         # Need to map the new-to-old map back onto the original
@@ -266,7 +267,7 @@ def compute_orientations(P1c, P1f, np.ndarray[PetscInt, ndim=2, mode="c"] c2f):
         coarse._overlapped_lgmap.apply(cn2o, result=cn2o)
         # Back to local numbers on the original (non-overlapped) mesh
         cn2o = coarse._non_overlapped_lgmap.applyInverse(cn2o,
-                                                         PETSc.LGMap.MapType.MASK)
+                                                         PETSc.LGMap.MapMode.MASK)
         # Go from point numbers back to vertex numbers
         cn2o -= vcStart_orig
         # Note that unlike in coarse_to_fine_cells, we don't need to
@@ -451,11 +452,11 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     """
     cdef:
         np.ndarray[PetscInt, ndim=1, mode="c"] indices, cell_map
-        np.ndarray[PetscInt, ndim=2, mode="c"] permutations
+        np.ndarray[np.int32_t, ndim=2, mode="c"] permutations
         np.ndarray[PetscInt, ndim=2, mode="c"] new_cell_map, old_cell_map
         PetscInt ccell, fcell, ncoarse, ndof, i, j, perm, nfdof, nfcell, tdim
 
-    cell = coarse.fiat_element.get_reference_element()
+    cell = coarse.finat_element.cell
     if isinstance(cell, FIAT.reference_element.TensorProductCell):
         basecell, _ = cell.cells
         tdim = basecell.get_spatial_dimension()
@@ -465,7 +466,8 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     ncoarse = coarse.mesh().cell_set.size
     ndof = coarse.cell_node_map().arity
 
-    perms = utils.get_node_permutations(coarse.fiat_element)
+    fiat_element = create_element(coarse.ufl_element(), vector_is_mixed=False)
+    perms = utils.get_node_permutations(fiat_element)
     permutations = np.empty((len(perms), len(perms.values()[0])), dtype=np.int32)
     for k, v in perms.iteritems():
         if tdim == 1:
@@ -479,7 +481,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
     # We're going to uniquify the maps we get out, so the first step
     # is to apply the permutation to one entry to find out which
     # indices we need to keep.
-    indices, offset = utils.get_unique_indices(coarse.fiat_element,
+    indices, offset = utils.get_unique_indices(fiat_element,
                                                old_cell_map[0, :],
                                                vertex_perm[0, :],
                                                offset=fine.cell_node_map().offset)

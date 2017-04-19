@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 
@@ -51,9 +52,9 @@ def helmholtz_mixed(x, V1, V2, action=False):
 def test_firedrake_helmholtz(V1, V2, threshold, action):
     import numpy as np
     diff = np.array([helmholtz_mixed(i, V1, V2) for i in range(3, 6)])
-    print "l2 error norms:", diff
+    print("l2 error norms:", diff)
     conv = np.log2(diff[:-1] / diff[1:])
-    print "convergence order:", conv
+    print("convergence order:", conv)
     assert (np.array(conv) > threshold).all()
 
 

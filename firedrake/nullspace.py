@@ -1,5 +1,5 @@
-from __future__ import absolute_import
-from numpy import prod
+from __future__ import absolute_import, print_function, division
+import numpy
 
 from pyop2.mpi import COMM_WORLD
 
@@ -17,10 +17,17 @@ class VectorSpaceBasis(object):
     You can use this basis to express the null space of a singular operator.
 
     :arg vecs: a list of :class:`.Vector`\s or :class:`.Functions`
-         spanning the space.  Note that these must be orthonormal
+         spanning the space.
     :arg constant: does the null space include the constant vector?
          If you pass ``constant=True`` you should not also include the
          constant vector in the list of ``vecs`` you supply.
+
+    .. note::
+
+       Before using this object in a solver, you must ensure that the
+       basis is orthonormal.  You can do this by calling
+       :meth:`orthonormalize`, this modifies the provided vectors *in
+       place*.
 
     .. warning::
 
@@ -32,13 +39,15 @@ class VectorSpaceBasis(object):
         if vecs is None and not constant:
             raise RuntimeError("Must either provide a list of null space vectors, or constant keyword (or both)")
 
-        self._vecs = vecs or []
-        self._petsc_vecs = []
+        if vecs is None:
+            self._vecs = ()
+        else:
+            self._vecs = tuple(vecs)
+        petsc_vecs = []
         for v in self._vecs:
             with v.dat.vec_ro as v_:
-                self._petsc_vecs.append(v_)
-        if not self.is_orthonormal():
-            raise RuntimeError("Provided vectors must be orthonormal")
+                petsc_vecs.append(v_)
+        self._petsc_vecs = tuple(petsc_vecs)
         self._constant = constant
 
     def nullspace(self, comm=None):
@@ -53,6 +62,29 @@ class VectorSpaceBasis(object):
                                                    comm=comm)
         return self._nullspace
 
+    def orthonormalize(self):
+        """Orthonormalize the basis.
+
+        .. warning::
+
+           This modifies the basis *in place*.
+
+        """
+        constant = self._constant
+        basis = self._petsc_vecs
+        for i, vec in enumerate(basis):
+            alphas = []
+            for vec_ in basis[:i]:
+                alphas.append(vec.dot(vec_))
+            for alpha, vec_ in zip(alphas, basis[:i]):
+                vec.axpy(-alpha, vec_)
+            if constant:
+                # Subtract constant mode
+                alpha = vec.sum()
+                vec.array -= alpha
+            vec.normalize()
+        self.check_orthogonality()
+
     def orthogonalize(self, b):
         """Orthogonalize ``b`` with respect to this :class:`.VectorSpaceBasis`.
 
@@ -61,33 +93,52 @@ class VectorSpaceBasis(object):
         .. note::
 
             Modifies ``b`` in place."""
-        for v in self._vecs:
-            dot = b.dat.inner(v.dat)
-            b.dat -= dot * v.dat
+        nullsp = self.nullspace(comm=b.comm)
+        with b.dat.vec as v:
+            nullsp.remove(v)
+
+    def check_orthogonality(self, orthonormal=True):
+        """Check if the basis is orthogonal.
+
+        :arg orthonormal: If True check that the basis is also orthonormal.
+
+        :raises ValueError: If the basis is not orthogonal/orthonormal.
+        """
+        eps = numpy.sqrt(numpy.finfo(PETSc.ScalarType).eps)
+        basis = self._petsc_vecs
+        if orthonormal:
+            for i, v in enumerate(basis):
+                norm = v.norm()
+                if abs(norm - 1.0) > eps:
+                    raise ValueError("Basis vector %d has norm %g", i, norm)
         if self._constant:
-            s = -b.dat.sum() / b.function_space().dof_count
-            b.dat += s
+            for i, v in enumerate(basis):
+                dot = v.sum()
+                if abs(dot) > eps:
+                    raise ValueError("Basis vector %d is not orthogonal to constant"
+                                     " inner product is %g", i, abs(dot))
+        for i, v in enumerate(basis[:-1]):
+            for j, v_ in enumerate(basis[i+1:]):
+                dot = v.dot(v_)
+                if abs(dot) > eps:
+                    raise ValueError("Basis vector %d not orthogonal to %d"
+                                     " inner product is %g", i, i+j+1, abs(dot))
 
     def is_orthonormal(self):
         """Is this vector space basis orthonormal?"""
-        for i, iv in enumerate(self._vecs):
-            for j, jv in enumerate(self._vecs):
-                dij = 1 if i == j else 0
-                # scaled by size of function space
-                if abs(iv.dat.inner(jv.dat) - dij) / prod(iv.function_space().dof_count) > 1e-10:
-                    return False
-        return True
+        try:
+            self.check_orthogonality(orthonormal=True)
+            return True
+        except ValueError:
+            return False
 
     def is_orthogonal(self):
         """Is this vector space basis orthogonal?"""
-        for i, iv in enumerate(self._vecs):
-            for j, jv in enumerate(self._vecs):
-                if i == j:
-                    continue
-                # scaled by size of function space
-                if abs(iv.dat.inner(jv.dat)) / prod(iv.function_space().dof_count) > 1e-10:
-                    return False
-        return True
+        try:
+            self.check_orthogonality(orthonormal=False)
+            return True
+        except ValueError:
+            return False
 
     def _apply(self, matrix, transpose=False, near=False):
         """Set this VectorSpaceBasis as a nullspace for a matrix
@@ -185,10 +236,10 @@ class MixedVectorSpaceBasis(object):
         # the mixed basis.
         for idx, basis in enumerate(self):
             if isinstance(basis, VectorSpaceBasis):
-                v = []
+                vecs = basis._vecs
                 if basis._constant:
-                    v = [function.Function(self._function_space[idx]).assign(1)]
-                bvecs[idx] = basis._vecs + v
+                    vecs = vecs + (function.Function(self._function_space[idx]).assign(1), )
+                bvecs[idx] = vecs
 
         # Basis for mixed space is cartesian product of all the basis
         # vectors we just made.

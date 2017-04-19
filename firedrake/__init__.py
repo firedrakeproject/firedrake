@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc
@@ -49,6 +49,7 @@ from firedrake.parameters import *
 from firedrake.parloops import *
 from firedrake.plot import *
 from firedrake.projection import *
+from firedrake.slate import *
 from firedrake.slope_limiter import *
 from firedrake.solving import *
 from firedrake.ufl_expr import *

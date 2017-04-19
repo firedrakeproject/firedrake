@@ -1,9 +1,9 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert
 from ufl.split_functions import split
-from ufl.algorithms.analysis import extract_arguments
+from ufl.algorithms import extract_arguments, extract_coefficients
 
 from firedrake import function
 from firedrake import utils
@@ -12,8 +12,7 @@ from firedrake import utils
 __all__ = ['Argument', 'TestFunction', 'TrialFunction',
            'TestFunctions', 'TrialFunctions',
            'derivative', 'adjoint',
-           'CellSize', 'FacetNormal',
-           'reconstruct_element']
+           'CellSize', 'FacetNormal']
 
 
 class Argument(ufl.argument.Argument):
@@ -132,8 +131,16 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
     :arg coefficient_derivatives: an optional :class:`dict` to
          provide the derivative of a coefficient function.
 
+    :raises ValueError: If any of the coefficients in ``form`` were
+        obtained from ``u.split()``.  UFL doesn't notice that these
+        are related to ``u`` and so therefore the derivative is
+        wrong (instead one should have written ``split(u)``).
+
     See also :func:`ufl.derivative`.
     """
+    if set(extract_coefficients(form)) & set(u.split()):
+        raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
+                         "\nYou probably meant to write split(u) when defining your form.")
     if du is None:
         if isinstance(u, function.Function):
             V = u.function_space()
@@ -186,40 +193,3 @@ def FacetNormal(mesh):
     """
     mesh.init()
     return ufl.FacetNormal(mesh)
-
-
-def reconstruct_element(element, cell=None):
-    """Rebuild element with a new cell."""
-    if cell is None:
-        return element
-    if isinstance(element, ufl.FiniteElement):
-        family = element.family()
-        degree = element.degree()
-        return ufl.FiniteElement(family, cell, degree)
-    if isinstance(element, ufl.VectorElement):
-        sub = reconstruct_element(element.sub_elements()[0], cell=cell)
-        dim = len(element.sub_elements())
-        return ufl.VectorElement(sub, dim=dim)
-    if isinstance(element, ufl.TensorElement):
-        sub = reconstruct_element(element.sub_elements()[0], cell=cell)
-        shape = element.value_shape()
-        symmetry = element.symmetry()
-        return ufl.TensorElement(sub, shape=shape, symmetry=symmetry)
-    if isinstance(element, ufl.EnrichedElement):
-        eles = [reconstruct_element(e, cell=cell) for e in element._elements]
-        return ufl.EnrichedElement(*eles)
-    if isinstance(element, ufl.RestrictedElement):
-        return ufl.RestrictedElement(reconstruct_element(element.sub_element(), cell=cell),
-                                     element.restriction_domain())
-    if isinstance(element, (ufl.InteriorElement,
-                            ufl.HDivElement,
-                            ufl.HCurlElement,
-                            ufl.BrokenElement,
-                            ufl.FacetElement)):
-        return type(element)(reconstruct_element(element._element, cell=cell))
-    if isinstance(element, ufl.TensorProductElement):
-        return ufl.TensorProductElement(*element.sub_elements(), cell=cell)
-    if isinstance(element, ufl.MixedElement):
-        eles = [reconstruct_element(e, cell=cell) for e in element.sub_elements()]
-        return ufl.MixedElement(*eles)
-    raise NotImplementedError("Don't know how to reconstruct element of type %s" % type(element))

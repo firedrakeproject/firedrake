@@ -2,6 +2,7 @@
 of an extruded unit square. We then check against the actual solution
 of the equation.
 """
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 
@@ -41,7 +42,7 @@ def run_test_3D(size, quadrilateral, parameters={}, test_mode=False):
     res = sqrt(assemble(dot(out - exact, out - exact) * dx))
 
     if not test_mode:
-        print "The error is ", res
+        print("The error is ", res)
         file = File("side-bcs.pvd")
         file.write(out, exact)
     return res
@@ -80,7 +81,7 @@ def run_test_2D(intervals, parameters={}, test_mode=False):
     res = sqrt(assemble(dot(out - exact, out - exact) * dx))
 
     if not test_mode:
-        print "The error is ", res
+        print("The error is ", res)
         file = File("side-bcs.pvd")
         file.write(out, exact)
     return res

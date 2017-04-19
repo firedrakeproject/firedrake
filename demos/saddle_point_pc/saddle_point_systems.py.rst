@@ -632,10 +632,11 @@ A runnable python script version of this demo is available `here
 
 .. rubric:: References
 
-.. bibliography:: saddle_point.bib
+.. bibliography:: demo_references.bib
+   :filter: docname in docnames
 
-.. _PETSc: http://mcs.anl.gov/petsc/
-.. _hypre: http://acts.nersc.gov/hypre/
+.. _PETSc: http://www.mcs.anl.gov/petsc/
+.. _hypre: http://computation.llnl.gov/projects/hypre-scalable-linear-solvers-multigrid-methods/software
 .. _PyOP2: http://github.com/OP2/PyOP2/
 .. _numpy: http://www.numpy.org
 .. _MUMPS: http://mumps.enseeiht.fr

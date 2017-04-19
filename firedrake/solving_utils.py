@@ -1,4 +1,5 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six import iteritems
 import numpy
 import itertools
 from contextlib import contextmanager
@@ -7,6 +8,73 @@ from firedrake import function, dmhooks
 from firedrake.exceptions import ConvergenceError
 from firedrake.petsc import PETSc
 from firedrake.formmanipulation import ExtractSubBlock
+from firedrake.logging import warning
+
+
+def flatten_parameters(parameters, sep="_"):
+    """Flatten a nested parameters dict, joining keys with sep.
+
+    :arg parameters: a dict to flatten.
+    :arg sep: separator of keys.
+
+    Used to flatten parameter dictionaries with nested structure to a
+    flat dict suitable to pass to PETSc.  For example:
+
+    .. code-block:: python
+
+       flatten_parameters({"a": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
+       => {"a_b_c": 4, "a_d": 2, "e": 1}
+
+    If a "prefix" key already ends with the provided separator, then
+    it is not used to concatenate the keys.  Hence:
+
+    .. code-block:: python
+
+       flatten_parameters({"a_": {"b": {"c": 4}, "d": 2}, "e": 1}, sep="_")
+       => {"a_b_c": 4, "a_d": 2, "e": 1}
+       # rather than
+       => {"a__b_c": 4, "a__d": 2, "e": 1}
+    """
+    new = type(parameters)()
+
+    if not len(parameters):
+        return new
+
+    def flatten(parameters, *prefixes):
+        """Iterate over nested dicts, yielding (*keys, value) pairs."""
+        sentinel = object()
+        try:
+            option = sentinel
+            for option, value in iteritems(parameters):
+                # Recurse into values to flatten any dicts.
+                for pair in flatten(value, option, *prefixes):
+                    yield pair
+            # Make sure zero-length dicts come back.
+            if option is sentinel:
+                yield (prefixes, parameters)
+        except AttributeError:
+            # Non dict values are just returned.
+            yield (prefixes, parameters)
+
+    def munge(keys):
+        """Ensure that each intermediate key in keys ends in sep.
+
+        Also, reverse the list."""
+        for key in reversed(keys[1:]):
+            if len(key) and not key.endswith(sep):
+                yield key + sep
+            else:
+                yield key
+        else:
+            yield keys[0]
+
+    for keys, value in flatten(parameters):
+        option = "".join(map(str, munge(keys)))
+        if option in new:
+            warning("Ignoring duplicate option: %s (existing value %s, new value %s)",
+                    option, new[option], value)
+        new[option] = value
+    return new
 
 
 class ParametersMixin(object):
@@ -16,6 +84,8 @@ class ParametersMixin(object):
     # options_prefix was supplied.
     commandline_options = frozenset(PETSc.Options().getAll())
 
+    options_object = PETSc.Options()
+
     count = itertools.count()
 
     """Mixin class that helps with managing setting petsc options on solvers.
@@ -23,7 +93,10 @@ class ParametersMixin(object):
     :arg parameters: The dictionary of parameters to use.
     :arg options_prefix: The prefix to look up items in the global
         options database (may be ``None``, in which case only entries
-        from ``parameters`` will be considered.
+        from ``parameters`` will be considered.  If no trailing
+        underscore is provided, one is appended.  Hence ``foo_`` and
+        ``foo`` are treated equivalently.  As an exception, if the
+        prefix is the empty string, no underscore is appended.
 
     To use this, you must call its constructor to with the parameters
     you want in the options database.
@@ -53,23 +126,28 @@ class ParametersMixin(object):
         if parameters is None:
             parameters = {}
         else:
-            parameters = parameters.copy()
+            # Convert nested dicts
+            parameters = flatten_parameters(parameters)
         if options_prefix is None:
             self.options_prefix = "firedrake_%d_" % next(self.count)
             self.parameters = parameters
             self.to_delete = set(parameters)
         else:
+            if len(options_prefix) and not options_prefix.endswith("_"):
+                options_prefix += "_"
             self.options_prefix = options_prefix
             # Remove those options from the dict that were passed on
             # the commandline.
-            self.parameters = dict((k, v) for k, v in parameters.iteritems()
-                                   if options_prefix + k not in self.commandline_options)
-            self.to_delete = set(parameters)
+            self.parameters = {k: v for k, v in iteritems(parameters)
+                               if options_prefix + k not in self.commandline_options}
+            self.to_delete = set(self.parameters)
             # Now update parameters from options, so that they're
-            # availabe to solver setup (for, e.g., matrix-free).
-            for k, v in PETSc.Options(self.options_prefix).getAll().iteritems():
-                self.parameters[k] = v
-        self.options_object = PETSc.Options(self.options_prefix)
+            # available to solver setup (for, e.g., matrix-free).
+            # Can't ask for the prefixed guy in the options object,
+            # since that does not DTRT for flag options.
+            for k, v in iteritems(self.options_object.getAll()):
+                if k.startswith(self.options_prefix):
+                    self.parameters[k[len(self.options_prefix):]] = v
         self._setfromoptions = False
         super(ParametersMixin, self).__init__()
 
@@ -82,7 +160,8 @@ class ParametersMixin(object):
         Ensures that the right thing happens cleaning up the options
         database.
         """
-        if key not in self.options_object and key not in self.parameters:
+        k = self.options_prefix + key
+        if k not in self.options_object and key not in self.parameters:
             self.parameters[key] = val
             self.to_delete.add(key)
 
@@ -107,16 +186,17 @@ class ParametersMixin(object):
         """Context manager inside which the petsc options database
     contains the parameters from this object."""
         try:
-            for k, v in self.parameters.iteritems():
+            for k, v in iteritems(self.parameters):
+                key = self.options_prefix + k
                 if type(v) is bool:
                     if v:
-                        self.options_object[k] = None
+                        self.options_object[key] = None
                 else:
-                    self.options_object[k] = v
+                    self.options_object[key] = v
             yield
         finally:
             for k in self.to_delete:
-                del self.options_object[k]
+                del self.options_object[self.options_prefix + k]
 
 
 def _make_reasons(reasons):
@@ -167,6 +247,10 @@ class _SNESContext(object):
     :arg appctx: Any extra information used in the assembler.  For the
         matrix-free case this will contain the Newton state in
         ``"state"``.
+    :arg pre_jacobian_callback: User-defined function called immediately
+        before Jacobian assembly
+    :arg pre_function_callback: User-defined function called immediately
+        before residual assembly
 
     The idea here is that the SNES holds a shell DM which contains
     this object as "user context".  When the SNES calls back to the
@@ -174,7 +258,7 @@ class _SNESContext(object):
     get the context (which is one of these objects) to find the
     Firedrake level information.
     """
-    def __init__(self, problem, mat_type, pmat_type, appctx=None):
+    def __init__(self, problem, mat_type, pmat_type, appctx=None, pre_jacobian_callback=None, pre_function_callback=None):
         from firedrake.assemble import allocate_matrix, create_assembly_callable
         if pmat_type is None:
             pmat_type = mat_type
@@ -185,6 +269,8 @@ class _SNESContext(object):
         pmatfree = pmat_type == 'matfree'
 
         self._problem = problem
+        self._pre_jacobian_callback = pre_jacobian_callback
+        self._pre_function_callback = pre_function_callback
 
         fcp = problem.form_compiler_parameters
         # Function to hold current guess
@@ -333,6 +419,9 @@ class _SNESContext(object):
         with ctx._x.dat.vec as v:
             X.copy(v)
 
+        if ctx._pre_function_callback is not None:
+            ctx._pre_function_callback(X)
+
         ctx._assemble_residual()
 
         # no mat_type -- it's a vector!
@@ -368,6 +457,9 @@ class _SNESContext(object):
         # copy guess in from X.
         with ctx._x.dat.vec as v:
             X.copy(v)
+
+        if ctx._pre_jacobian_callback is not None:
+            ctx._pre_jacobian_callback(X)
 
         ctx._assemble_jac()
         ctx._jac.force_evaluation()

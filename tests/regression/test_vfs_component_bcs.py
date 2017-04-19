@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 import numpy as np
@@ -8,9 +9,9 @@ def m():
     return UnitSquareMesh(4, 4)
 
 
-@pytest.fixture
-def V(m):
-    return VectorFunctionSpace(m, 'CG', 1)
+@pytest.fixture(params=[1, 2])
+def V(m, request):
+    return VectorFunctionSpace(m, 'CG', request.param)
 
 
 @pytest.fixture(params=[0, 1])
@@ -195,10 +196,7 @@ def test_stokes_component_all():
         assert np.allclose(a.dat.data_ro, b.dat.data_ro)
 
 
-def test_component_full_bcs():
-    mesh = UnitSquareMesh(2, 2)
-    V = VectorFunctionSpace(mesh, "CG", 1)
-
+def test_component_full_bcs(V):
     bc0 = DirichletBC(V, Constant((0, 0)), [3, 4])
     bc1 = DirichletBC(V, Constant((1, 0)), 1)
     bcs_full = [bc0, bc1]
@@ -227,6 +225,30 @@ def test_component_full_bcs():
 
     assert np.allclose(A_full, A_cmp)
     assert np.allclose(A_mixed, A_full)
+
+
+def test_component_full_bcs_overlap(V):
+    u = TrialFunction(V)
+    v = TestFunction(V)
+
+    bcs_1 = [DirichletBC(V.sub(1), 0, 3),
+             DirichletBC(V, Constant((0, 0)), 4),
+             DirichletBC(V.sub(0), 1, 1),
+             DirichletBC(V.sub(1), 0, 1)]
+
+    bcs_2 = [DirichletBC(V.sub(1), 0, 3),
+             DirichletBC(V, Constant((0, 0)), 4),
+             DirichletBC(V, Constant((1, 0)), 1)]
+
+    a = inner(grad(u), grad(v)) * dx
+
+    def asarray(A):
+        return A.M.handle[:, :]
+
+    A_1 = asarray(assemble(a, bcs=bcs_1, mat_type="aij"))
+    A_2 = asarray(assemble(a, bcs=bcs_2, mat_type="aij"))
+
+    assert np.allclose(A_1, A_2)
 
 
 if __name__ == '__main__':

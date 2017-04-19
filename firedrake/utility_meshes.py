@@ -1,15 +1,16 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
 import numpy as np
 
+import ufl
+
 from pyop2.mpi import COMM_WORLD
+from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ
 from firedrake import mesh
-from firedrake import expression
 from firedrake import function
 from firedrake import functionspace
-from firedrake.petsc import PETSc
 
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
@@ -53,9 +54,9 @@ def IntervalMesh(ncells, length_or_left, right=None, comm=COMM_WORLD):
     length = right - left
     if length < 0:
         raise ValueError("Requested mesh has negative length")
-    dx = float(length) / ncells
+    dx = length / ncells
     # This ensures the rightmost point is actually present.
-    coords = np.arange(left, right + 0.01 * dx, dx).reshape(-1, 1)
+    coords = np.arange(left, right + 0.01 * dx, dx, dtype=np.double).reshape(-1, 1)
     cells = np.dstack((np.arange(0, len(coords) - 1, dtype=np.int32),
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
     plex = mesh._from_cell_list(1, cells, coords, comm)
@@ -107,15 +108,35 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
-    periodic_kernel = """double Y,pi;
-            Y = 0.5*(old_coords[0][1]-old_coords[1][1]);
-            pi=3.141592653589793;
-            for(int i=0;i<2;i++){
-            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
-            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
-            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
-            new_coords[i][0] *= L[0];
-            }"""
+    periodic_kernel = """
+    const double pi = 3.141592653589793;
+    const double eps = 1e-12;
+    double a = atan2(old_coords[0][1], old_coords[0][0]) / (2*pi);
+    double b = atan2(old_coords[1][1], old_coords[1][0]) / (2*pi);
+    int swap = 0;
+    if ( a >= b ) {
+        const double tmp = b;
+        b = a;
+        a = tmp;
+        swap = 1;
+    }
+    if ( fabs(b) < eps && a < -eps ) {
+        b = 1.0;
+    }
+    if ( a < -eps ) {
+        a += 1;
+    }
+    if ( b < -eps ) {
+        b += 1;
+    }
+    if ( swap ) {
+        const double tmp = b;
+        b = a;
+        a = tmp;
+    }
+    new_coords[0][0] = a * L[0];
+    new_coords[1][0] = b * L[0];
+    """
 
     cL = Constant(length)
 
@@ -149,11 +170,11 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         COMM_WORLD).
     """
 
-    left = np.arange(ncells, dtype='int32')
+    left = np.arange(ncells, dtype=np.int32)
     right = np.roll(left, -1)
     cells = np.array([left, left, right, right]).T
     dx = Lx/ncells
-    X = np.arange(1.0*ncells)*dx
+    X = np.arange(1.0*ncells, dtype=np.double)*dx
     Y = 0.*X
     coords = np.array([X, Y]).T
 
@@ -163,7 +184,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
     mesh1.topology.init()
     cell_numbering = mesh1._cell_numbering
     cell_range = plex.getHeightStratum(0)
-    cell_closure = np.zeros((cell_range[1], 9), dtype=int)
+    cell_closure = np.zeros((cell_range[1], 9), dtype=IntType)
 
     # Get the coordinates for this process
     coords = plex.getCoordinatesLocal().array_r
@@ -218,10 +239,10 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
                 # get X coordinate for this edge
                 edge_X = coords[coords_sec.getOffset(edge_vertex)]
                 # get X coordinates for this cell
-                if(cell_X.min() < dx/2.0):
-                    if cell_X.max() < 3*dx/2.0:
+                if(cell_X.min() < dx/2):
+                    if cell_X.max() < 3*dx/2:
                         # We are in the first cell
-                        if(edge_X.min() < dx/2.0):
+                        if(edge_X.min() < dx/2):
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                         else:
@@ -229,14 +250,14 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
                             cell_closure[row][5] = edge_set[i]
                     else:
                         # We are in the last cell
-                        if(edge_X.min() < dx/2.0):
+                        if(edge_X.min() < dx/2):
                             # we are on right hand edge
                             cell_closure[row][5] = edge_set[i]
                         else:
                             # we are on left hand edge
                             cell_closure[row][4] = edge_set[i]
                 else:
-                    if(abs(cell_X.min()-edge_X.min()) < dx/2.0):
+                    if(abs(cell_X.min()-edge_X.min()) < dx/2):
                         # we are on left hand edge
                         cell_closure[row][4] = edge_set[i]
                     else:
@@ -260,7 +281,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
 
         cell_closure[row][0:4] = [v1, v1, v2, v2]
 
-    mesh1.topology.cell_closure = np.array(cell_closure, dtype=np.int32)
+    mesh1.topology.cell_closure = np.array(cell_closure, dtype=IntType)
 
     mesh1.init()
 
@@ -278,7 +299,7 @@ def OneElementThickMesh(ncells, Lx, Ly, comm=COMM_WORLD):
         cell = cell_numbering.getOffset(e)
         cell_nodes = Vc.cell_node_list[cell, :]
         Xvals = mcoords_ro[cell_nodes, 0]
-        if(Xvals.max() - Xvals.min() > Lx/2.0):
+        if(Xvals.max() - Xvals.min() > Lx/2):
             mcoords[cell_nodes[2:], 0] = Lx
         else:
             mcoords
@@ -307,7 +328,8 @@ def UnitTriangleMesh(comm=COMM_WORLD):
     return mesh.Mesh(plex, reorder=False)
 
 
-def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_WORLD):
+def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
+                  diagonal="left", comm=COMM_WORLD):
     """Generate a rectangular mesh
 
     :arg nx: The number of cells in the x direction
@@ -318,6 +340,9 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_W
     :kwarg reorder: (optional), should the mesh be reordered
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
+    :kwarg diagonal: For triangular meshes, should the diagonal got
+        from bottom left to top right (``"right"``), or top left to
+        bottom right (``"left"``).
 
     The boundary edges in this mesh are numbered as follows:
 
@@ -331,26 +356,25 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_W
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
 
-    if quadrilateral:
-        dx = float(Lx) / nx
-        dy = float(Ly) / ny
-        xcoords = np.arange(0.0, Lx + 0.01 * dx, dx)
-        ycoords = np.arange(0.0, Ly + 0.01 * dy, dy)
-        coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
+    xcoords = np.linspace(0.0, Lx, nx + 1, dtype=np.double)
+    ycoords = np.linspace(0.0, Ly, ny + 1, dtype=np.double)
+    coords = np.asarray(np.meshgrid(xcoords, ycoords)).swapaxes(0, 2).reshape(-1, 2)
 
-        # cell vertices
-        i, j = np.meshgrid(np.arange(nx), np.arange(ny))
-        cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
-        cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
+    # cell vertices
+    i, j = np.meshgrid(np.arange(nx, dtype=np.int32), np.arange(ny, dtype=np.int32))
+    cells = [i*(ny+1) + j, i*(ny+1) + j+1, (i+1)*(ny+1) + j+1, (i+1)*(ny+1) + j]
+    cells = np.asarray(cells).swapaxes(0, 2).reshape(-1, 4)
+    if not quadrilateral:
+        if diagonal == "left":
+            idx = [0, 1, 3, 1, 2, 3]
+        elif diagonal == "right":
+            idx = [0, 1, 2, 0, 2, 3]
+        else:
+            raise ValueError("Unrecognised value for diagonal '%r'", diagonal)
+        # two cells per cell above...
+        cells = cells[:, idx].reshape(-1, 3)
 
-        plex = mesh._from_cell_list(2, cells, coords, comm)
-    else:
-        boundary = PETSc.DMPlex().create(comm)
-        boundary.setDimension(1)
-        boundary.createSquareBoundary([0., 0.], [float(Lx), float(Ly)], [nx, ny])
-        boundary.setTriangleOptions("pqezQYSl")
-
-        plex = PETSc.DMPlex().generate(boundary)
+    plex = mesh._from_cell_list(2, cells, coords, comm)
 
     # mark boundary facets
     plex.createLabel("boundary_ids")
@@ -359,8 +383,8 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None, comm=COMM_W
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = float(Lx)/(2*nx)
-        ytol = float(Ly)/(2*ny)
+        xtol = Lx/(2*nx)
+        ytol = Ly/(2*ny)
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
@@ -589,8 +613,8 @@ def CircleManifoldMesh(ncells, radius=1, comm=COMM_WORLD):
     if ncells < 3:
         raise ValueError("CircleManifoldMesh must have at least three cells")
 
-    vertices = radius*np.column_stack((np.cos(np.arange(ncells)*(2*np.pi/ncells)),
-                                       np.sin(np.arange(ncells)*(2*np.pi/ncells))))
+    vertices = radius*np.column_stack((np.cos(np.arange(ncells, dtype=np.double)*(2*np.pi/ncells)),
+                                       np.sin(np.arange(ncells, dtype=np.double)*(2*np.pi/ncells))))
 
     cells = np.column_stack((np.arange(0, ncells, dtype=np.int32),
                              np.roll(np.arange(0, ncells, dtype=np.int32), -1)))
@@ -639,11 +663,32 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=COMM_WORLD):
         if n <= 0 or n % 1:
             raise ValueError("Number of cells must be a postive integer")
 
-    # Create mesh from DMPlex
-    boundary = PETSc.DMPlex().create(comm)
-    boundary.setDimension(2)
-    boundary.createCubeBoundary([0., 0., 0.], [Lx, Ly, Lz], [nx, ny, nz])
-    plex = PETSc.DMPlex().generate(boundary)
+    xcoords = np.linspace(0, Lx, nx + 1, dtype=np.double)
+    ycoords = np.linspace(0, Ly, ny + 1, dtype=np.double)
+    zcoords = np.linspace(0, Lz, nz + 1, dtype=np.double)
+    # X moves fastest, then Y, then Z
+    coords = np.asarray(np.meshgrid(xcoords, ycoords, zcoords)).swapaxes(0, 3).reshape(-1, 3)
+    i, j, k = np.meshgrid(np.arange(nx, dtype=np.int32),
+                          np.arange(ny, dtype=np.int32),
+                          np.arange(nz, dtype=np.int32))
+    v0 = k*(nx + 1)*(ny + 1) + j*(nx + 1) + i
+    v1 = v0 + 1
+    v2 = v0 + (nx + 1)
+    v3 = v1 + (nx + 1)
+    v4 = v0 + (nx + 1)*(ny + 1)
+    v5 = v1 + (nx + 1)*(ny + 1)
+    v6 = v2 + (nx + 1)*(ny + 1)
+    v7 = v3 + (nx + 1)*(ny + 1)
+
+    cells = [v0, v1, v3, v7,
+             v0, v1, v7, v5,
+             v0, v5, v7, v4,
+             v0, v3, v2, v7,
+             v0, v6, v4, v7,
+             v0, v2, v6, v7]
+    cells = np.asarray(cells).swapaxes(0, 3).reshape(-1, 4)
+
+    plex = mesh._from_cell_list(3, cells, coords, comm)
 
     # Apply boundary IDs
     plex.createLabel("boundary_ids")
@@ -652,9 +697,9 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=COMM_WORLD):
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        xtol = float(Lx)/(2*nx)
-        ytol = float(Ly)/(2*ny)
-        ztol = float(Lz)/(2*nz)
+        xtol = Lx/(2*nx)
+        ytol = Ly/(2*ny)
+        ztol = Lz/(2*nz)
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[3]) < xtol and abs(face_coords[6]) < xtol:
@@ -758,7 +803,8 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
                          [phi, 0, -1],
                          [phi, 0, 1],
                          [-phi, 0, -1],
-                         [-phi, 0, 1]])
+                         [-phi, 0, 1]],
+                        dtype=np.double)
     # faces of the base icosahedron
     faces = np.array([[0, 11, 5],
                       [0, 5, 1],
@@ -792,7 +838,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
-        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m = mesh.Mesh(new_coords)
@@ -828,7 +874,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
     # transformation
     dtheta = 2**(-refinement_level+1)*np.arctan(1.0)
     a = 3.0**(-0.5)*radius
-    theta = np.arange(np.arctan(-1.0), np.arctan(1.0)+dtheta, dtheta)
+    theta = np.arange(np.arctan(-1.0), np.arctan(1.0)+dtheta, dtheta, dtype=np.double)
     x = a*np.tan(theta)
     Nx = x.size
 
@@ -908,7 +954,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
     # Set up an array for all of the mesh coordinates
     Npoints = panel_numbering.max()+1
-    coords = np.zeros((Npoints, 3), dtype=float)
+    coords = np.zeros((Npoints, 3), dtype=np.double)
     lX, lY = np.meshgrid(x, x)
     lX.shape = (Nx**2,)
     lY.shape = (Nx**2,)
@@ -933,7 +979,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
     # Now we need to build the face numbering
     # in local coordinates
-    vertex_numbers = np.arange(Nx**2).reshape(Nx, Nx)
+    vertex_numbers = np.arange(Nx**2, dtype=np.int32).reshape(Nx, Nx)
     local_faces = np.zeros(((Nx-1)**2, 4), dtype=np.int32)
     local_faces[:, 0] = vertex_numbers[:-1, :-1].reshape(-1)
     local_faces[:, 1] = vertex_numbers[1:, :-1].reshape(-1)
@@ -945,8 +991,7 @@ def _cubedsphere_cells_and_coords(radius, refinement_level):
 
 
 def CubedSphereMesh(radius, refinement_level=0, degree=1,
-                    reorder=None, use_dmplex_refinement=False,
-                    comm=COMM_WORLD):
+                    reorder=None, comm=COMM_WORLD):
     """Generate an cubed approximation to the surface of the
     sphere.
 
@@ -955,8 +1000,6 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: bilinear quads)
     :kwarg reorder: (optional), should the mesh be reordered?
-    :kwarg use_dmplex_refinement: (optional), use dmplex to apply
-        the refinement.
     """
     if refinement_level < 0 or refinement_level % 1:
             raise RuntimeError("Number of refinements must be a non-negative integer")
@@ -964,49 +1007,14 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
 
-    if use_dmplex_refinement:
-        # vertices of a cube with an edge length of 2
-        vertices = np.array([[-1., -1., -1.],
-                             [1., -1., -1.],
-                             [-1., 1., -1.],
-                             [1., 1., -1.],
-                             [-1., -1., 1.],
-                             [1., -1., 1.],
-                             [-1., 1., 1.],
-                             [1., 1., 1.]])
-        # faces of the base cube
-        # bottom face viewed from above
-        # 2 3
-        # 0 1
-        # top face viewed from above
-        # 6 7
-        # 4 5
-        faces = np.array([[0, 1, 3, 2],  # bottom
-                          [4, 5, 7, 6],  # top
-                          [0, 1, 5, 4],
-                          [2, 3, 7, 6],
-                          [0, 2, 6, 4],
-                          [1, 3, 7, 5]], dtype=np.int32)
-
-        plex = mesh._from_cell_list(2, faces, vertices, comm)
-        plex.setRefinementUniform(True)
-        for i in range(refinement_level):
-            plex = plex.refine()
-
-        # rescale points to the sphere
-        # this is not the same as the gnonomic transformation
-        coords = plex.getCoordinatesLocal().array.reshape(-1, 3)
-        scale = (radius / np.linalg.norm(coords, axis=1)).reshape(-1, 1)
-        coords *= scale
-    else:
-        cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
-        plex = mesh._from_cell_list(2, cells, coords, comm)
+    cells, coords = _cubedsphere_cells_and_coords(radius, refinement_level)
+    plex = mesh._from_cell_list(2, cells, coords, comm)
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
 
     if degree > 1:
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "Q", degree))
-        new_coords.interpolate(expression.Expression(("x[0]", "x[1]", "x[2]")))
+        new_coords.interpolate(ufl.SpatialCoordinate(m))
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m = mesh.Mesh(new_coords)
@@ -1052,13 +1060,13 @@ def TorusMesh(nR, nr, R, r, quadrilateral=False, reorder=None, comm=COMM_WORLD):
     idx_temp = np.asarray(np.meshgrid(np.arange(nR), np.arange(nr))).swapaxes(0, 2).reshape(-1, 2)
 
     # vertices - standard formula for (x, y, z), see Wikipedia
-    vertices = np.column_stack((
+    vertices = np.asarray(np.column_stack((
         (R + r*np.cos(idx_temp[:, 1]*(2*np.pi/nr)))*np.cos(idx_temp[:, 0]*(2*np.pi/nR)),
         (R + r*np.cos(idx_temp[:, 1]*(2*np.pi/nr)))*np.sin(idx_temp[:, 0]*(2*np.pi/nR)),
-        r*np.sin(idx_temp[:, 1]*(2*np.pi/nr))))
+        r*np.sin(idx_temp[:, 1]*(2*np.pi/nr)))), dtype=np.double)
 
     # cell vertices
-    i, j = np.meshgrid(np.arange(nR), np.arange(nr))
+    i, j = np.meshgrid(np.arange(nR, dtype=np.int32), np.arange(nr, dtype=np.int32))
     i = i.reshape(-1)  # Miklos's suggestion to make the code
     j = j.reshape(-1)  # less impenetrable
     cells = [i*nr + j, i*nr + (j+1) % nr, ((i+1) % nR)*nr + (j+1) % nr, ((i+1) % nR)*nr + j]
@@ -1100,15 +1108,16 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     coord_xy = radius*np.column_stack((np.cos(np.arange(nr)*(2*np.pi/nr)),
                                        np.sin(np.arange(nr)*(2*np.pi/nr))))
     coord_z = depth*np.linspace(0.0, 1.0, nl + 1).reshape(-1, 1)
-    vertices = np.column_stack((np.tile(coord_xy, (nl + 1, 1)),
-                                np.tile(coord_z, (1, nr)).reshape(-1, 1)))
+    vertices = np.asarray(np.column_stack((np.tile(coord_xy, (nl + 1, 1)),
+                                           np.tile(coord_z, (1, nr)).reshape(-1, 1))),
+                          dtype=np.double)
 
     # intervals on circumference
     ring_cells = np.column_stack((np.arange(0, nr, dtype=np.int32),
                                   np.roll(np.arange(0, nr, dtype=np.int32), -1)))
     # quads in the first layer
     ring_cells = np.column_stack((ring_cells, np.roll(ring_cells, 1, axis=1) + nr))
-    offset = np.arange(nl)*nr
+    offset = np.arange(nl, dtype=np.int32)*nr
     cells = np.row_stack((ring_cells + i for i in offset))
     if not quadrilateral:
         # two cells per cell above...
@@ -1117,12 +1126,12 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     if longitudinal_direction == "x":
         rotation = np.asarray([[0, 0, 1],
                                [0, 1, 0],
-                               [-1, 0, 0]])
+                               [-1, 0, 0]], dtype=np.double)
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction == "y":
         rotation = np.asarray([[1, 0, 0],
                                [0, 0, 1],
-                               [0, -1, 0]])
+                               [0, -1, 0]], dtype=np.double)
         vertices = np.dot(vertices, rotation.T)
     elif longitudinal_direction != "z":
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
@@ -1134,7 +1143,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
     coord_sec = plex.getCoordinateSection()
     if plex.getStratumSize("boundary_faces", 1) > 0:
         boundary_faces = plex.getStratumIS("boundary_faces", 1).getIndices()
-        eps = float(depth)/(2*nl)
+        eps = depth/(2*nl)
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             # index of x/y/z coordinates of the face element

@@ -1,10 +1,10 @@
 """Provides the interface to TSFC for compiling a form, and transforms the TSFC-
 generated code in order to make it suitable for passing to the backends."""
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import cPickle
 
 from hashlib import md5
 from os import path, environ, getuid, makedirs
-import cPickle
 import gzip
 import os
 import zlib
@@ -32,7 +32,9 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "oriented",
                                      "subdomain_id",
                                      "domain_number",
-                                     "coefficient_map"])
+                                     "coefficient_map",
+                                     "needs_cell_facets",
+                                     "pass_layer_arg"])
 
 
 class TSFCKernel(Cached):
@@ -82,7 +84,7 @@ class TSFCKernel(Cached):
             # No need for a barrier after this, since non root
             # processes will never race on this file.
             with gzip.open(tempfile, 'wb') as f:
-                cPickle.dump(val, f)
+                cPickle.dump(val, f, 0)
             os.rename(tempfile, filepath)
         comm.barrier()
 
@@ -121,7 +123,9 @@ class TSFCKernel(Cached):
                                       oriented=kernel.oriented,
                                       subdomain_id=kernel.subdomain_id,
                                       domain_number=kernel.domain_number,
-                                      coefficient_map=numbers))
+                                      coefficient_map=numbers,
+                                      needs_cell_facets=False,
+                                      pass_layer_arg=False))
         self.kernels = tuple(kernels)
         self._initialized = True
 

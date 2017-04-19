@@ -1,6 +1,7 @@
 """This demo program sets the top and bottom boundaries
 of an extruded unit square to 42.
 """
+from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 
@@ -28,7 +29,7 @@ def run_test(x, degree, quadrilateral, parameters={}, test_mode=False):
               - (boundary * 1.0 / layers))
 
     if not test_mode:
-        print "The error is ", res
+        print("The error is ", res)
         file = File("bt-bcs.pvd")
         file.write(u)
 

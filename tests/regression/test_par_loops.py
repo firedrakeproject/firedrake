@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -95,9 +96,9 @@ def test_indirect_par_loop_read_const_mixed(f_mixed, const):
 
 
 @pytest.mark.parallel(nprocs=2)
-def test_dict_order_parallel(f):
-    _, d = f
-    mesh = d.ufl_domain()
+def test_dict_order_parallel():
+    mesh = UnitIntervalMesh(10)
+    d = Function(FunctionSpace(mesh, "DG", 0))
     consts = []
     for i in range(20):
         consts.append(Constant(i, domain=mesh))

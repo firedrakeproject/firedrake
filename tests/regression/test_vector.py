@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 import numpy as np
@@ -83,6 +84,44 @@ def test_axpy(f):
     v.axpy(3, y)
 
     assert (v.array() == 14.0).all()
+
+
+def test_addition(f):
+    f.interpolate(Expression("2"))
+    v = f.vector()
+    y = Vector(v)
+    w = v + y
+    assert (w.array() == 4.).all()
+
+    w = v + 3.
+    assert (w.array() == 5.).all()
+
+
+def test_iadd(f):
+    f.interpolate(Expression("2"))
+    v = f.vector()
+    y = Vector(v)
+    v += y
+    assert (v.array() == 4.).all()
+
+
+def test_subtraction(f):
+    f.interpolate(Expression("2"))
+    v = f.vector()
+    y = Vector(v)
+    w = v - y
+    assert (w.array() == 0.).all()
+
+    w = v - 3.0
+    assert (w.array() == -1.).all()
+
+
+def test_isub(f):
+    f.interpolate(Expression("2"))
+    v = f.vector()
+    y = Vector(v)
+    v -= y
+    assert (v.array() == 0.).all()
 
 
 def test_scale(f):

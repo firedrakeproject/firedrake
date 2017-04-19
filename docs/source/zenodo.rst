@@ -5,18 +5,18 @@ Firedrake Zenodo integration: tools for reproducible science
    :width: 25%
    :alt: Zenodo
    :align: right
-   :target: https://zenodo.org
+   :target: https://zenodo.org/
    :class: round-corners
             
 .. image:: _static/GitHub_Logo.png
    :width: 25%
    :alt: Zenodo
    :align: right
-   :target: http://github.com
+   :target: https://github.com/
    :class: round-corners
 
 
-`Zenodo <http://zenodo.org>`_ provides a facility for archiving
+`Zenodo <https://zenodo.org/>`_ provides a facility for archiving
 scientific data, such as software. Zenodo provides secure archiving
 and referability, including digital object identifiers
 (DOIs). Firedrake integrates with Zenodo and GitHub to provide Firedrake users

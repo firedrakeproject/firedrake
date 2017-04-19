@@ -1,0 +1,85 @@
+================================
+ Introductory Jupyter notebooks
+================================
+
+These notebooks provide an introduction to usage of Firedrake, and are
+designed to familiarise you with manipulating Firedrake objects to
+solve finite element problems.
+
+To run the notebooks, you will need to `install jupyter
+<https://jupyter.org/install.html>`__ *inside* your activated
+Firedrake virtualenv.
+
+These notebooks are maintained in the Firedrake repository, so all the
+material is available in your Firedrake installation source
+directory.  If you installed in ``Documents/firedrake``, then the
+notebooks are in the directory
+``Documents/firedrake/src/firedrake/docs/notebooks``.  The links to
+the notebooks below are non-interactive renderings using `Jupyter
+nbviewer <https://nbviewer.jupyter.org>`__.
+
+
+A first example
+===============
+In this notebook, we solve the symmetric positive definite "Helmholtz"
+equation, and learn about meshes and function spaces.  A rendered
+version of this notebook is available `here
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-spd-helmholtz.ipynb>`__.
+
+Incorporating strong boundary conditions
+========================================
+
+Next, we modify the problem slightly and solve the Poisson equation.
+We introduce strong (Dirichlet) boundary conditions and `how to use
+them
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-poisson.ipynb>`__.
+
+A vector-valued problem
+=======================
+
+Moving on from scalar problems, we look at our first vector-valued
+problem, namely the equations of linear elasticity.  In this notebook,
+we learn about some of UFL's support for tensor algebra, and start
+looking at `configuring linear solvers
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-elasticity.ipynb>`__.
+
+A time-dependent, nonlinear, problem
+====================================
+
+This notebook looks at a simple nonlinear problem, the viscous
+Burgers' equation, and also treats simple timestepping schemes.  We
+learn about formulating nonlinear, as opposed to linear problems, and
+also a little bit about how to write `efficient Firedrake code
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-burgers.ipynb>`__.
+
+A mixed formulation of the Poisson equation
+===========================================
+
+`In this notebook
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-mixed-poisson.ipynb>`__.,
+we look at our first mixed finite element problem.  A dual formulation
+of the Poisson equation.  This equation also appears in the context of
+flow in porous media, as Darcy flow.  We introduce mixed function
+spaces and how to work with them.  Equations with multiple variables
+are typically more challenging to precondition, and so we discuss some
+of the preconditioning strategies for such block systems, and how to
+control them using PETSc solver options.
+
+PDE-constrained optimisation with `dolfin-adjoint <http://www.dolfin-adjoint.org/>`__
+=====================================================================================
+
+Now that we've learnt how to solve some PDEs, we might want to
+consider optimisation subject to PDE constraints.  `This notebook
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-stokes-bc-control.ipynb>`__
+introduces the use of `dolfin-adjoint
+<http://www.dolfin-adjoint.org/>`__ to solve PDE constrained
+optimisation problems.  We solve the Stokes equations and minimise
+energy loss due to heat, controlling inflow/outflow in a pipe.
+
+Geometric multigrid
+===================
+
+Our final notebook looks a little bit at the support Firedrake has for
+geometric multigrid, and how you can configure complex multilevel
+solvers purely using `PETSc options
+<https://nbviewer.jupyter.org/github/firedrakeproject/firedrake/tree/master/docs/notebooks/example-multigrid.ipynb>`__.

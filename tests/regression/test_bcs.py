@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -41,7 +42,7 @@ def test_init_bcs(V, v):
     assert DirichletBC(V, v, 0).function_arg == v
 
 
-@pytest.mark.parametrize('v', [(0, 0), 'foo'])
+@pytest.mark.parametrize('v', [(0, 0)])
 def test_init_bcs_illegal(mesh, v):
     "Initialise a DirichletBC with illegal values."
     with pytest.raises(RuntimeError):
@@ -365,7 +366,7 @@ def test_bcs_rhs_assemble(a, V):
 
 @pytest.mark.parallel(nprocs=3)
 def test_empty_exterior_facet_node_list():
-    mesh = UnitIntervalMesh(6)
+    mesh = UnitIntervalMesh(15)
     V = FunctionSpace(mesh, 'CG', 1)
     bc = DirichletBC(V, 1, 1)
     assert V.exterior_facet_node_map([bc])

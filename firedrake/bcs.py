@@ -1,7 +1,9 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 import numpy as np
-from ufl import as_ufl, UFLException
+from ufl import as_ufl, SpatialCoordinate, UFLException
+from ufl.algorithms.analysis import has_type
 
 import pyop2 as op2
 from pyop2.profiling import timed_function
@@ -57,7 +59,7 @@ class DirichletBC(object):
         self._original_arg = self.function_arg
         if sub_domain == "on_boundary":
             self.sub_domain = \
-                map(int, V.mesh().topology.exterior_facets.unique_markers)
+                tuple(map(int, V.mesh().topology.exterior_facets.unique_markers))
         else:
             self.sub_domain = sub_domain
         self._currently_zeroed = False
@@ -113,8 +115,9 @@ class DirichletBC(object):
                     g = expression.to_expression(g)
                 except:
                     raise ValueError("%r is not a valid DirichletBC expression" % (g,))
-        if isinstance(g, expression.Expression):
-            self._expression_state = g._state
+        if isinstance(g, expression.Expression) or has_type(as_ufl(g), SpatialCoordinate):
+            if isinstance(g, expression.Expression):
+                self._expression_state = g._state
             try:
                 g = function.Function(self._function_space).interpolate(g)
             # Not a point evaluation space, need to project onto V

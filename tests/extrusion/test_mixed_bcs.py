@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 
@@ -134,11 +135,11 @@ def test_stokes_taylor_hood(mat_type):
     u, p = w.split()
     solve(a == L, w, bcs=bcs,
           solver_parameters={'pc_type': 'fieldsplit',
-                             'ksp_rtol': 1e-15,
                              'pc_fieldsplit_type': 'schur',
                              'fieldsplit_schur_fact_type': 'diag',
-                             'fieldsplit_0_pc_type': 'redundant',
-                             'fieldsplit_0_redundant_pc_type': 'lu',
+                             'fieldsplit_0_ksp_rtol': 1e-8,
+                             'fieldsplit_0_pc_type': 'bjacobi',
+                             'fieldsplit_0_sub_pc_type': 'lu',
                              'fieldsplit_1_pc_type': 'none',
                              'mat_type': mat_type})
 

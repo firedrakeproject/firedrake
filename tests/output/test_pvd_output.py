@@ -1,3 +1,4 @@
+from __future__ import absolute_import, print_function, division
 import pytest
 from functools import partial
 from firedrake import *
@@ -7,11 +8,11 @@ from firedrake import *
                         "tet", "sphere[tri]", "sphere[quad]"])
 def mesh(request):
     return {"interval": partial(UnitIntervalMesh, 10),
-            "square[tri]": partial(UnitSquareMesh, 3, 3),
-            "square[quad]": partial(UnitSquareMesh, 3, 3, quadrilateral=True),
+            "square[tri]": partial(UnitSquareMesh, 10, 10),
+            "square[quad]": partial(UnitSquareMesh, 10, 1, quadrilateral=True),
             "tet": partial(UnitCubeMesh, 3, 3, 3),
             "sphere[tri]": UnitIcosahedralSphereMesh,
-            "sphere[quad]": UnitCubedSphereMesh}[request.param]()
+            "sphere[quad]": partial(UnitCubedSphereMesh, 1)}[request.param]()
 
 
 @pytest.fixture

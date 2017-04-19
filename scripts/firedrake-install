@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+from __future__ import absolute_import, print_function, division
 import logging
 import platform
 import subprocess
@@ -53,12 +54,13 @@ class FiredrakeConfiguration(dict):
     _persistent_options = ["developer", "package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
-                           "slepc", "slope", "packages", "honour_pythonpath"]
+                           "slepc", "slope", "packages", "honour_pythonpath",
+                           "petsc_int_type"]
 
 
 def deep_update(this, that):
     import collections
-    for k, v in that.iteritems():
+    for k, v in that.items():
         if isinstance(v, collections.Mapping) and k in this.keys():
             this[k] = deep_update(this.get(k, {}), v)
         else:
@@ -79,6 +81,7 @@ branches = {}
 # Disgusting hack, are we running on travis/drone?
 travis = "TRAVIS" in os.environ
 drone = "DRONE" in os.environ
+jenkins = "JENKINS_URL" in os.environ
 ci = travis or drone
 ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
 travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
@@ -122,8 +125,13 @@ honoured.""",
                         help="Do not attempt to use apt or homebrew to install operating system packages on which we depend.")
     parser.add_argument("--minimal-petsc", "--minimal_petsc", action="store_true",
                         help="Minimise the set of petsc dependencies installed. This creates faster build times (useful for build testing).")
-    parser.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
-                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
+                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
+                       default="int32", type=str,
+                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
+
     parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true",
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
@@ -199,8 +207,13 @@ else:
                         help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true", dest="slepc", default=config["options"]["slepc"],
                         help="Install SLEPc along with PETSc")
-    parser.add_argument("--honour-petsc-dir", action="store_true",
-                        help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--honour-petsc-dir", "--honour_petsc_dir", action="store_true",
+                       help="Usually it is best to let Firedrake build its own PETSc. If you wish to use another PETSc, set PETSC_DIR and pass this option.")
+    group.add_argument("--petsc-int-type", choices=["int32", "int64"],
+                       default="int32", type=str,
+                       help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
+
     parser.add_argument("--honour-pythonpath", "--honour_pythonpath", action="store_true", default=config["options"].get("honour-pythonpath", False),
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--clean", action='store_true',
@@ -219,6 +232,11 @@ else:
 
     args.packages = list(set(args.packages))  # remove duplicates
 
+    petsc_int_type_changed = False
+    if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
+        petsc_int_type_changed = True
+        args.rebuild = True
+
     config = deep_update(config, FiredrakeConfiguration(args))
     if legacy:
         del legacy_args["adjoint"]
@@ -236,10 +254,10 @@ where shortname is one of the names given below:
     header = componentformat.format("Name", "Description")
     line = "-" * (len(header) - 1) + "\n"
     help_string += line + header + line
-    for package, d in firedrake_apps.iteritems():
+    for package, d in firedrake_apps.items():
         help_string += componentformat.format(package, d[0])
     help_string += line
-    print help_string
+    print(help_string)
     sys.exit(0)
 
 # Set up logging
@@ -288,9 +306,6 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 # Record of obsolete packages which --clean should remove from old installs.
 old_git_packages = ["instant", "ffc"]
 
-python = ["python"]
-pyinstall = ["python", "setup.py", "install"]
-
 if mode == "install":
     firedrake_env = os.path.abspath(args.virtualenv_name)
 else:
@@ -300,10 +315,13 @@ else:
         quit("Unable to retrieve virtualenv name from the environment.\n Please ensure the virtualenv is active before running firedrake-update.")
 
 # virtualenv install
+python = ["%s/bin/python" % firedrake_env]
 # Use the pip from the virtualenv
 pip = ["%s/bin/pip" % firedrake_env]
+if jenkins:
+    # Explicitly run python on pip because Jenkins can make illegaly long shebang lines.
+    pip = python + pip
 pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
-python = ["%s/bin/python" % firedrake_env]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
 
@@ -318,9 +336,15 @@ if options["minimal_petsc"]:
     # If you change these minimal PETSc options, you will have to
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-hdf5 --download-hypre"""
+    if options["petsc_int_type"] == "int64":
+        petsc_opts = """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-eigen --with-64-bit-indices"""
+    else:
+        petsc_opts = """--download-chaco --download-hdf5 --download-hypre --download-eigen"""
 else:
-    petsc_opts = """--download-ctetgen --download-triangle --download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+    if options["petsc_int_type"] == "int64":
+        petsc_opts = """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-eigen --with-64-bit-indices"""
+    else:
+        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -329,6 +353,9 @@ else:
     for opt in petsc_opts.split():
         if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
             os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
+
+if mode == "update" and petsc_int_type_changed:
+    log.warning("""Force rebuilding all packages because PETSc int type changed""")
 
 
 def check_call(arguments, env=None):
@@ -344,7 +371,13 @@ def check_call(arguments, env=None):
 
 def check_output(args, env=None):
     try:
-        return subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
+        result = subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
+        if isinstance(result, str):
+            # Python 2
+            return result
+        else:
+            # Python 3
+            return result.decode()
     except subprocess.CalledProcessError as e:
         log.debug(e.output)
         raise
@@ -406,6 +439,77 @@ def git_url(plain_url, protocol):
         raise ValueError("Unknown git protocol: %s" % protocol)
 
 
+def update_and_apply_petsc_fix():
+    HEAD1 = check_output(["git", "rev-parse", "HEAD~"]).strip()
+    # Fetch from upstream
+    check_call(["git", "fetch", "origin"])
+    # Check if we've applied horrific monkey-patching
+    magic_sha = "156a1856fd44f55220132393778f0fda1e6096e3"
+    if HEAD1 == magic_sha:
+        # Yes, check if the upstream branch pointer has
+        # changed, in which case we can reset to upstream.
+        log.info("Already applied eigen fix, checking if upstream is newer")
+        remote_sha = check_output(["git", "rev-parse", "origin/firedrake"]).strip()
+        if remote_sha != magic_sha:
+            log.info("Upstream is newer, resetting to upstream")
+            check_call(["git", "reset", "--hard", magic_sha])
+            check_call(["git", "pull"])
+    else:
+        # Update, then check if we need to apply a patch.
+        check_call(["git", "pull"])
+        HEAD = check_output(["git", "rev-parse", "HEAD"]).strip()
+        if HEAD == magic_sha:
+            # No, and we need to, so apply the fix.
+            log.info("Apply temporary --download-eigen fix")
+            patch = """\
+From a2a264416ccac135640344f54852f6b74bf9de1e Mon Sep 17 00:00:00 2001
+From: Lawrence Mitchell <lawrence.mitchell@imperial.ac.uk>
+Date: Tue, 11 Apr 2017 10:35:04 +0100
+Subject: [PATCH] Temporary workaround for --download-eigen --prefix issues
+
+---
+ config/BuildSystem/config/package.py        | 2 ++
+ config/BuildSystem/config/packages/eigen.py | 2 +-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/config/BuildSystem/config/package.py b/config/BuildSystem/config/package.py
+index ba78667..6aa03bb 100644
+--- a/config/BuildSystem/config/package.py
++++ b/config/BuildSystem/config/package.py
+@@ -351,6 +351,8 @@ class Package(config.base.Configure):
+   def generateGuesses(self):
+     d = self.checkDownload()
+     if d:
++      if not self.liblist:
++        yield('Download '+self.PACKAGE, d, [], self.getIncludeDirs(d, self.includedir))
+       for libdir in [self.libdir, self.altlibdir]:
+         libdirpath = os.path.join(d, libdir)
+         if not os.path.isdir(libdirpath):
+diff --git a/config/BuildSystem/config/packages/eigen.py b/config/BuildSystem/config/packages/eigen.py
+index 1353c04..e136e6f 100644
+--- a/config/BuildSystem/config/packages/eigen.py
++++ b/config/BuildSystem/config/packages/eigen.py
+@@ -7,7 +7,7 @@ class Configure(config.package.CMakePackage):
+     self.download          = ['hg://https://bitbucket.org/eigen/eigen/']
+     self.functions         = []
+     self.includes          = ['Eigen/Core']
+-    self.liblist           = [[]]
++    self.liblist           = []
+     self.cxx               = 1
+     self.includedir        = os.path.join('include', 'eigen3')
+     self.useddirectly      = 0
+--
+2.7.0.297.g563e384
+"""
+            try:
+                p = subprocess.Popen(["git", "am"], stdout=subprocess.PIPE,
+                                     stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
+                p.communicate(input=patch)
+            except subprocess.CalledProcessError as e:
+                log.debug(e.output)
+                raise
+
+
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
     if name == "petsc" and args.honour_petsc_dir:
@@ -436,6 +540,8 @@ def git_clone(url):
         except subprocess.CalledProcessError:
             log.error("Failed to check out branch %s" % branch)
             raise
+        if name == "petsc":
+            update_and_apply_petsc_fix()
     return name
 
 
@@ -494,7 +600,10 @@ def git_update(name, url=None):
                and "github.com/firedrakeproject" in plain_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
-        check_call(["git", "pull"])
+        if name == "petsc":
+            update_and_apply_petsc_fix()
+        else:
+            check_call(["git", "pull"])
     git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     os.chdir("..")
     return git_sha != git_sha_new
@@ -525,7 +634,12 @@ def pip_requirements(package):
     if os.path.isfile("%s/requirements-ext.txt" % package):
         run_pip_install(["-r", "%s/requirements-ext.txt" % package])
     elif os.path.isfile("%s/requirements.txt" % package):
-        run_pip_install(["-r", "%s/requirements.txt" % package])
+        if package == "COFFEE":
+            # FIXME: Horrible hack to work around
+            # https://github.com/coin-or/pulp/issues/123
+            run_pip_install(["--no-deps", "-r", "%s/requirements.txt" % package])
+        else:
+            run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
         log.info("No dependencies found. Skipping.")
 
@@ -686,10 +800,25 @@ def build_and_install_h5py():
     if os.path.exists("h5py.tar.gz"):
         log.info("Removing old h5py.tar.gz")
         os.remove("h5py.tar.gz")
+
+    url = "git+https://github.com/firedrakeproject/h5py.git@firedrake#egg=h5py"
     if os.path.exists("h5py"):
-        changed = git_update("h5py")
+        changed = False
+        with directory("h5py"):
+            # Rewrite old h5py/h5py remote to firedrakeproject/h5py remote.
+            plain_url = split_requirements_url(url)[1]
+            current_remote = check_output(["git", "remote", "-v"]).split()[1]
+            proto = "https" if current_remote.startswith("https") else "ssh"
+            new_remote = git_url(plain_url, proto)
+            if new_remote != current_remote and "h5py/h5py.git" in current_remote:
+                log.info("Updating git remote for h5py from %s to %s", current_remote, new_remote)
+                check_call(["git", "remote", "set-url", "origin", new_remote])
+                check_call(["git", "fetch", "-p", "origin"])
+                check_call(["git", "checkout", "firedrake"])
+                changed = True
+        changed |= git_update("h5py")
     else:
-        git_clone("git+https://github.com/h5py/h5py.git")
+        git_clone(url)
         changed = True
 
     if args.honour_petsc_dir:
@@ -698,7 +827,7 @@ def build_and_install_h5py():
     else:
         try:
             petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
 
             petsc_arch = ""
         except subprocess.CalledProcessError:
@@ -710,9 +839,12 @@ def build_and_install_h5py():
     os.environ["CC"] = options["mpicc"] or "mpicc"
     os.environ["HDF5_DIR"] = hdf5_dir
     os.environ["HDF5_MPI"] = "ON"
-    if changed:
+    if changed or args.rebuild:
         # Only uninstall if things changed.
         pip_uninstall("h5py")
+        # Pip installing from dirty directory is potentially unsafe.
+        with directory("h5py/"):
+            check_call(["git", "clean", "-fdx"])
         install("h5py/")
     if oldcc is None:
         del os.environ["CC"]
@@ -762,7 +894,7 @@ def build_and_install_libspatialindex():
 
 def build_and_install_slepc():
     try:
-        petsc_dir = check_output(python + ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+        petsc_dir = check_output(python + ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
         petsc_arch = ""
     except subprocess.CalledProcessError:
         raise InstallError("Unable to find installed PETSc when building SLEPc")
@@ -808,7 +940,7 @@ def build_and_install_adjoint():
     else:
         try:
             petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print petsc.get_petsc_dir()"]).strip()
+                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
 
             petsc_arch = ""
         except subprocess.CalledProcessError:
@@ -923,7 +1055,7 @@ if travis:
         import time
         while True:
             time.sleep(60)
-            print "."
+            print(".")
 
     travis_writer = Process(target=stdout_writer)
     travis_writer.daemon = True
@@ -933,10 +1065,6 @@ if travis:
 osname = platform.uname()[0]
 if osname == "Darwin":
     if options["package_manager"]:
-        try:
-            check_call(["xcodebuild", "-version"])
-        except:
-            quit("Xcode not found. Please install xcode from the App Store and try again.")
 
         log.info("Installing command line tools...")
         try:
@@ -959,6 +1087,7 @@ if osname == "Darwin":
         brew_install("automake")
         brew_install("cmake")
         brew_install("libtool")
+        brew_install("mercurial")
 
     else:
         log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
@@ -1105,6 +1234,9 @@ int main(int argc, char **argv) {
 
 
 if mode == "install":
+    if os.path.exists(firedrake_env):
+        log.warning("Specified virtualenv '%s' already exists", firedrake_env)
+        quit("Can't install into existing virtualenv '%s'" % firedrake_env)
     try:
         import virtualenv
     except:
@@ -1122,7 +1254,7 @@ if mode == "install":
     run_pip(["install", "-U", "pip"])
 
 virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
-execfile("%s/bin/activate_this.py" % firedrake_env, virtual_env_vars)
+exec(open("%s/bin/activate_this.py" % firedrake_env).read(), virtual_env_vars)
 # Activating the virtual_env from within Python does not automatically set the environment variable.
 os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
 
@@ -1134,23 +1266,26 @@ if mode == "install":
     os.mkdir("src")
     os.chdir("src")
 
-    git_clone("git+https://github.com/firedrakeproject/firedrake.git")
-    if ci and ci_testing_firedrake:
-        if travis:
-            pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-            commit = os.environ["TRAVIS_COMMIT"]
-        elif drone:
-            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
-            commit = os.environ["DRONE_COMMIT_SHA"]
-        else:
-            raise NotImplementedError("Unhandled CI type")
-        os.chdir("firedrake")
-        if pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
-            check_call(["git", "checkout", "FETCH_HEAD"])
-        else:
-            check_call(["git", "checkout", commit])
-        os.chdir("..")
+    if jenkins and ci_testing_firedrake:
+        check_call(["ln", "-s", "../../../", "firedrake"])
+    else:
+        git_clone("git+https://github.com/firedrakeproject/firedrake.git")
+        if ci and ci_testing_firedrake:
+            if travis:
+                pull_request = os.environ["TRAVIS_PULL_REQUEST"]
+                commit = os.environ["TRAVIS_COMMIT"]
+            elif drone:
+                pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
+                commit = os.environ["DRONE_COMMIT_SHA"]
+            else:
+                raise NotImplementedError("Unhandled CI type")
+            os.chdir("firedrake")
+            if pull_request != "false":
+                check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
+                check_call(["git", "checkout", "FETCH_HEAD"])
+            else:
+                check_call(["git", "checkout", commit])
+            os.chdir("..")
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1196,10 +1331,11 @@ if mode == "install":
         packages.remove("petsc4py")
         packages.remove("firedrake")
         v = sys.version_info
-        easyinstall = file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
-        new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
-        file("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
-            easyinstall[:1] + new_packages + easyinstall[1:])
+        if v.major <= 2:
+            easyinstall = open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
+            new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
+            open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
+                easyinstall[:1] + new_packages + easyinstall[1:])
 
     build_update_script()
 
@@ -1220,7 +1356,7 @@ else:
         name = split_requirements_url(p)[0]
         deps.update(list_cloned_dependencies(name))
         deps[name] = p
-    packages = deps.keys()
+    packages = list(deps.keys())
     packages += ["firedrake"]
 
     # update packages.
@@ -1314,7 +1450,7 @@ if mode == "update":
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
         from pyop2.compilation import clear_cache as pyop2_clear_cache
-        print 'Removing cached TSFC kernels from %s' % TSFCKernel._cachedir
+        print('Removing cached TSFC kernels from %s' % TSFCKernel._cachedir)
         clear_cache()
         pyop2_clear_cache()
     except:

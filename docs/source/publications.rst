@@ -23,14 +23,14 @@ obtain the correct `citations for PETSc
 If you cannot use this approach, there are a number of papers.  Those
 which are relevant depend a little on which functionality you used.
 
-For Firedrake itself, please cite :cite:`Rathgeber2015`.  If you use
+For Firedrake itself, please cite :cite:`Rathgeber2016`.  If you use
 the :doc:`extruded mesh </extruded-meshes>` functionality please cite
 :cite:`McRae2016` and :cite:`Bercea2016`. When using quadrilateral meshes,
 please cite :cite:`Homolya2016` and :cite:`McRae2016`.
 
 If your work relies on the kernel-level performance optimisations that
 Firedrake performs using `COFFEE
-<http://github.com/coneoproject/COFFEE>`_, please cite the
+<https://github.com/coneoproject/COFFEE>`_, please cite the
 COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2016`.
 
 .. bibliography:: _static/bibliography.bib
@@ -42,7 +42,7 @@ Firedrake relies heavily on PETSc, which you should cite
 `appropriately
 <http://www.mcs.anl.gov/petsc/documentation/referencing.html>`_.
 Additionally, if you talk about UFL in your work, please cite the `UFL
-paper <http://fenicsproject.org/citing/#ufl>`_.
+paper <http://fenicsproject.org/citing/>`_.
 
 Making your simulations reproducible with Zenodo integration
 ------------------------------------------------------------

@@ -41,7 +41,7 @@ this equation equivalent to the strong form so we will solve it pointwise.
 In time we use a simple symplectic method in which we offset :math:`p`
 and :math:`\phi` by a half timestep.
 
-This time we created the mesh with `Gmsh <http://geuz.org/gmsh/>`_:
+This time we created the mesh with `Gmsh <http://gmsh.info/>`_:
 
 .. code-block:: bash
 

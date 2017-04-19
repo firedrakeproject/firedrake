@@ -3,6 +3,7 @@ div(u0*D) = 0, for a prescribed velocity field u0.  An upwind
 method is used, which stress-tests both interior and exterior
 facet integrals.
 """
+from __future__ import absolute_import, print_function, division
 
 import pytest
 from firedrake import *
@@ -10,7 +11,7 @@ from firedrake import *
 
 @pytest.fixture(scope='module')
 def mesh():
-    m = UnitIntervalMesh(4)
+    m = UnitIntervalMesh(10)
     return ExtrudedMesh(m, layers=4, layer_height=0.25)
 
 

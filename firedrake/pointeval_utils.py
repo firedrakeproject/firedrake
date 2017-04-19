@@ -1,8 +1,10 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, print_function, division
+from six.moves import map, range
 
 import collections
 import numpy
 import sympy
+from pyop2.datatypes import IntType, as_cstr
 
 
 def operands_and_reconstruct(expr):
@@ -30,7 +32,7 @@ class SSATransformer(object):
         elif e in self._regs:
             return self._regs[e]
         else:
-            s = reconstruct(map(lambda e_: self(e_), ops))
+            s = reconstruct(list(map(self, ops)))
             r = self._new_reg()
             self._regs[e] = r
             self._code[r] = s
@@ -146,7 +148,7 @@ def compile_element(ufl_element, cdim):
 
         # Symbolic tabulation
         tabs = fiat_element.tabulate(0, np.array([[sp.Symbol("reference_coords.X[%d]" % i)
-                                                   for i in xrange(tdim)]]))
+                                                   for i in range(tdim)]]))
         tabs = tabs[(0,) * tdim]
         tabs = tabs.reshape(tabs.shape[:-1])
 
@@ -203,8 +205,9 @@ def compile_element(ufl_element, cdim):
         "geometric_dimension": cell.geometric_dimension(),
         "ndofs": element.space_dimension(),
         "calculate_basisvalues": calculate_basisvalues,
-        "extruded_arg": ", int nlayers" if extruded else "",
+        "extruded_arg": ", %s nlayers" % as_cstr(IntType) if extruded else "",
         "nlayers": ", f->n_layers" if extruded else "",
+        "IntType": as_cstr(IntType),
     }
 
     evaluate_template_c = """static inline void evaluate_kernel(double *result, double *phi_, double **F)
@@ -233,7 +236,7 @@ def compile_element(ufl_element, cdim):
     }
 }
 
-static inline void wrap_evaluate(double *result, double *phi, double *data, int *map%(extruded_arg)s, int cell);
+static inline void wrap_evaluate(double *result, double *phi, double *data, %(IntType)s *map%(extruded_arg)s, %(IntType)s cell);
 
 int evaluate(struct Function *f, double *x, double *result)
 {
