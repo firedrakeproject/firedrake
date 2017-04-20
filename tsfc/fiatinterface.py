@@ -25,13 +25,11 @@ from __future__ import absolute_import, print_function, division
 
 from singledispatch import singledispatch
 from functools import partial
-import types
 import weakref
 
 import FIAT
 from FIAT.reference_element import FiredrakeQuadrilateral
 from FIAT.dual_set import DualSet
-from FIAT.mixed import MixedElement
 from FIAT.quadrature import QuadratureRule  # noqa
 
 import ufl
@@ -172,16 +170,19 @@ def _(element, vector_is_mixed):
         # Real element is just DG0
         cell = element.cell()
         return create_element(ufl.FiniteElement("DG", cell, 0), vector_is_mixed)
-    if element.family() == "Quadrature":
-        # Sneaky import from FFC
-        from ffc.quadratureelement import QuadratureElement
-        ffc_element = QuadratureElement(element)
-
-        def tabulate(self, order, points, entity):
-            return QuadratureElement.tabulate(self, order, points)
-        ffc_element.tabulate = types.MethodType(tabulate, ffc_element)
-        return ffc_element
     cell = as_fiat_cell(element.cell())
+    if element.family() == "Quadrature":
+        degree = element.degree()
+        if degree is None:
+            # FEniCS default (ffc/fiatinterface.py:65)
+            degree = 1
+        scheme = element.quadrature_scheme()
+        if scheme is None:
+            # FEniCS default (ffc/fiatinterface.py:66)
+            scheme = "canonical"
+
+        quad_rule = FIAT.create_quadrature(cell, degree, scheme)
+        return FIAT.QuadratureElement(cell, quad_rule.get_points())
     lmbda = supported_elements[element.family()]
     if lmbda is None:
         if element.cell().cellname() != "quadrilateral":
@@ -275,7 +276,7 @@ def _(element, vector_is_mixed):
     rec(element.sub_elements())
     fiat_elements = map(partial(create_element, vector_is_mixed=vector_is_mixed),
                         elements)
-    return MixedElement(fiat_elements)
+    return FIAT.MixedElement(fiat_elements)
 
 
 quad_tpc = ufl.TensorProductCell(ufl.Cell("interval"), ufl.Cell("interval"))

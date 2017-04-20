@@ -98,11 +98,11 @@ def convert_finiteelement(element):
     if element.family() == "Quadrature":
         degree = element.degree()
         if degree is None:
-            # FEniCS default (ffc/quadratureelement.py:34)
+            # FEniCS default (ffc/fiatinterface.py:65)
             degree = 1
         scheme = element.quadrature_scheme()
         if scheme is None:
-            # FEniCS default (ffc/quadratureelement.py:35)
+            # FEniCS default (ffc/fiatinterface.py:66)
             scheme = "canonical"
         return finat.QuadratureElement(cell, degree, scheme)
     if element.family() not in supported_elements:
