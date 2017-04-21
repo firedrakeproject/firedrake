@@ -66,7 +66,10 @@ class FiatElementWrapper(FiatElementBase):
 
     @property
     def degree(self):
-        return self._degree or super(FiatElementWrapper, self).degree
+        if self._degree is not None:
+            return self._degree
+        else:
+            return super(FiatElementWrapper, self).degree
 
 
 def fiat_compat(element):
