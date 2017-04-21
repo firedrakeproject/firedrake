@@ -196,6 +196,7 @@ class KernelBuilder(KernelBuilderBase):
         for i in range(len(integral_data.enabled_coefficients)):
             if integral_data.enabled_coefficients[i]:
                 coefficient = form_data.reduced_coefficients[i]
+                coefficient = form_data.function_replace_map[coefficient]
                 if type(coefficient.ufl_element()) == ufl_MixedElement:
                     split = [Coefficient(FunctionSpace(coefficient.ufl_domain(), element))
                              for element in coefficient.ufl_element().sub_elements()]
