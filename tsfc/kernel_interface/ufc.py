@@ -89,6 +89,7 @@ class KernelBuilder(KernelBuilderBase):
                 continue
 
             coeff = form_data.reduced_coefficients[n]
+            coeff = form_data.function_replace_map[coeff]
             if type(coeff.ufl_element()) == ufl_MixedElement:
                 coeffs = [Coefficient(FunctionSpace(coeff.ufl_domain(), element))
                           for element in coeff.ufl_element().sub_elements()]
