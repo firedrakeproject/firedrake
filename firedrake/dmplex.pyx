@@ -416,6 +416,46 @@ def quadrilateral_closure_ordering(PETSc.DM plex,
 
     return cell_closure
 
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def create_section(mesh, nodes_per_entity):
+    """Create the section describing a global numbering.
+
+    :arg mesh: The mesh.
+    :arg nodes_per_entity: Number of nodes on each
+        type of topological entity of the mesh.
+
+    :returns: A PETSc Section providing the number of dofs, and offset
+        of each dof, on each mesh point.
+    """
+    # We don't use DMPlexCreateSection because we only ever put one
+    # field in each section.
+    cdef:
+        PETSc.DM dm
+        PETSc.Section section
+        PETSc.IS renumbering
+        PetscInt i, p, pStart, pEnd
+        PetscInt dimension
+        np.ndarray[PetscInt, ndim=1, mode="c"] nodes
+
+    dm = mesh._plex
+    renumbering = mesh._plex_renumbering
+    section = PETSc.Section().create(comm=mesh.comm)
+    pStart, pEnd = dm.getChart()
+    section.setChart(pStart, pEnd)
+    CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
+
+    nodes = np.asarray(nodes_per_entity, dtype=IntType)
+    dimension = dm.getDepth()
+    for i in range(dimension + 1):
+        pStart, pEnd = dm.getDepthStratum(i)
+        for p in range(pStart, pEnd):
+            CHKERR(PetscSectionSetDof(section.sec, p, nodes[i]))
+    section.setUp()
+    return section
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def get_cell_nodes(PETSc.Section global_numbering,

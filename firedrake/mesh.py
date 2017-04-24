@@ -564,7 +564,7 @@ class MeshTopology(object):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        return self._plex.createSection([1], nodes_per_entity, perm=self._plex_renumbering)
+        return dmplex.create_section(self, nodes_per_entity)
 
     def node_classes(self, nodes_per_entity):
         """Compute node classes given nodes per entity.
