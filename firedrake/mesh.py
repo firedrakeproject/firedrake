@@ -543,6 +543,10 @@ class MeshTopology(object):
             unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
                                     dtype=IntType)
             op.Free()
+            print "exterior: local_ids %s" % local_ids
+            print "exterior: unique_ids %s" % unique_ids
+            print "exterior: np.unique(boundary_ids) %s" % np.unique(boundary_ids)
+            unique_ids = np.unique(boundary_ids)
         else:
             boundary_ids = None
             unique_ids = None
@@ -568,6 +572,33 @@ class MeshTopology(object):
             dmplex.get_facets_by_class(self._plex, b"interior_facets",
                                        self._facet_ordering)
 
+        label = "Face Sets"
+        if self._plex.hasLabel(label):
+            boundary_ids = np.zeros(interior_facets.size, dtype=np.int32)
+            for i, facet in enumerate(interior_facets):
+                boundary_ids[i] = self._plex.getLabelValue(label, facet)
+
+            # Determine union of boundary IDs.  All processes must
+            # know the values of all ids, for collective reasons.
+            comm = self.comm
+            from mpi4py import MPI
+
+            def merge_ids(x, y, datatype):
+                return x.union(y)
+
+            op = MPI.Op.Create(merge_ids, commute=True)
+
+            local_ids = set(self._plex.getLabelIdIS(label).indices)
+            unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
+                                    dtype=np.int32)
+            op.Free()
+            print "interior: local_ids %s" % local_ids
+            print "interior: unique_ids %s" % unique_ids
+            print "interior: np.unique(boundary_ids) %s" % np.unique(boundary_ids)
+            unique_ids = np.unique(boundary_ids)
+        else:
+            boundary_ids = None
+            unique_ids = None
         interior_local_facet_number, interior_facet_cell = \
             dmplex.facet_numbering(self._plex, "interior",
                                    interior_facets,
@@ -575,7 +606,7 @@ class MeshTopology(object):
                                    self.cell_closure)
 
         return _Facets(self, interior_facet_classes, "interior",
-                       interior_facet_cell, interior_local_facet_number)
+                       interior_facet_cell, interior_local_facet_number, boundary_ids, unique_markers=unique_ids)
 
     @utils.cached_property
     def cell_to_facets(self):
