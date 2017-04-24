@@ -305,7 +305,16 @@ def create_section(mesh, nodes_per_entity):
         PetscInt i, p, layers, pStart, pEnd
         PetscInt dimension, ndof
         numpy.ndarray[PetscInt, ndim=2, mode="c"] nodes
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents = mesh.layer_extents
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        bint variable
+
+    try:
+        variable = not mesh.cell_set.constant_layers
+    except AttributeError:
+        variable = False
+
+    if variable:
+        layer_extents = mesh.layer_extents
 
     dm = mesh._plex
     renumbering = mesh._plex_renumbering
@@ -320,8 +329,11 @@ def create_section(mesh, nodes_per_entity):
     for i in range(dimension + 1):
         pStart, pEnd = dm.getDepthStratum(i)
         for p in range(pStart, pEnd):
-            layers = layer_extents[p, 1] - layer_extents[p, 0]
-            ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+            if variable:
+                layers = layer_extents[p, 1] - layer_extents[p, 0]
+                ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+            else:
+                ndof = nodes[i]
             CHKERR(PetscSectionSetDof(section.sec, p, ndof))
     section.setUp()
     return section
@@ -571,6 +583,15 @@ def get_cell_nodes(mesh,
 @cython.wraparound(False)
 def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, label,
                     numpy.ndarray[PetscInt, ndim=1, mode="c"] offset):
+    """Build to DoF mapping from facets.
+
+    :arg mesh: The mesh.
+    :arg cell_nodes: numpy array mapping from cells to function space nodes.
+    :arg label: which set of facets to ask for (interior_facets or exterior_facets).
+    :arg offset: optional offset (extruded only).
+    :returns: numpy array mapping from facets to nodes in the closure
+        of the support of that facet.
+    """
     cdef:
         PETSc.DM dm
         PETSc.Section cell_numbering
@@ -584,6 +605,9 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
         PetscBool flg
         bint variable, add_offset
 
+    if label not in {"interior_facets", "exterior_facets"}:
+        raise ValueError("Unsupported facet label '%s'", label)
+
     dm = mesh._plex
     try:
         variable = not mesh.cell_set.constant_layers
@@ -596,21 +620,16 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
     fStart, fEnd = dm.getHeightStratum(1)
 
     ndof = cell_nodes.shape[1]
-    if label is None:
-        nfacet = fEnd - fStart
-    else:
-        nfacet = dm.getStratumSize(label, 1)
-    if label == "interior_facets":
-        shape = (nfacet, ndof*2)
-    elif label == "exterior_facets":
-        shape = (nfacet, ndof)
-    else:
-        raise ValueError("Unsupported facet label '%s'", label)
+
+    nfacet = dm.getStratumSize(label, 1)
+    shape = {"interior_facets": (nfacet, ndof*2),
+             "exterior_facets": (nfacet, ndof)}[label]
+
     facet_nodes = numpy.full(shape, -1, dtype=IntType)
 
-    if label is not None:
-        CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
-        CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+    CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
+    CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+
     pStart, pEnd = dm.getChart()
     CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     cell_numbering = mesh._cell_numbering
@@ -622,27 +641,26 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
     for p in range(pStart, pEnd):
         point = renumbering[p]
         if fStart <= point < fEnd:
-            if clabel:
-                DMLabelHasPoint(clabel, point, &flg)
-            else:
-                flg = PETSC_TRUE
+            CHKERR(DMLabelHasPoint(clabel, point, &flg))
+            if not flg:
+                # Not a facet we want.
+                continue
 
-            if flg:
-                DMPlexGetSupportSize(dm.dm, point, &supportSize)
-                DMPlexGetSupport(dm.dm, point, &support)
-                for i in range(supportSize):
-                    PetscSectionGetOffset(cell_numbering.sec, support[i], &cell)
-                    for j in range(ndof):
-                        dof = cell_nodes[cell, j]
-                        if variable:
-                            # This facet iterates from higher than the
-                            # cell numbering of the cell, so we need
-                            # to add on the difference.
-                            dof += offset[j]*(layer_extents[point, 2] - layer_extents[support[i], 0])
-                        facet_nodes[facet, ndof*i + j] = dof
-                facet += 1
-    if label is not None:
-        CHKERR(DMLabelDestroyIndex(clabel))
+            DMPlexGetSupportSize(dm.dm, point, &supportSize)
+            DMPlexGetSupport(dm.dm, point, &support)
+            for i in range(supportSize):
+                PetscSectionGetOffset(cell_numbering.sec, support[i], &cell)
+                for j in range(ndof):
+                    dof = cell_nodes[cell, j]
+                    if variable:
+                        # This facet iterates from higher than the
+                        # cell numbering of the cell, so we need
+                        # to add on the difference.
+                        dof += offset[j]*(layer_extents[point, 2] - layer_extents[support[i], 0])
+                    facet_nodes[facet, ndof*i + j] = dof
+            facet += 1
+
+    CHKERR(DMLabelDestroyIndex(clabel))
     CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     return facet_nodes
 
