@@ -356,6 +356,12 @@ class MeshTopology(object):
             if IntType.itemsize == 8:
                 # Default to Parmetis on 64bit ints (Chaco is 32 bit int only)
                 partitioner.setType(partitioner.Type.PARMETIS)
+            try:
+                sizes, points = distribute
+                partitioner.setType(partitioner.Type.SHELL)
+                partitioner.setShellPartition(self.comm.size, sizes, points)
+            except TypeError:
+                pass
             partitioner.setFromOptions()
             plex.distribute(overlap=0)
 
@@ -1115,6 +1121,10 @@ def Mesh(meshfile, **kwargs):
            meshes for better cache locality.  If not supplied the
            default value in ``parameters["reorder_meshes"]``
            is used.
+    :param distribute: should the mesh be distributed.  May be
+           ``None`` (use the default choice), ``False`` (do not)
+           ``True`` (do), or a 2-tuple that specifies a partitioning
+           of the cells (only really useful for debugging).
     :param comm: the communicator to use when creating the mesh.  If
            not supplied, then the mesh will be created on COMM_WORLD.
            Ignored if ``meshfile`` is a DMPlex object (in which case
@@ -1156,6 +1166,8 @@ def Mesh(meshfile, **kwargs):
     if reorder is None:
         reorder = parameters["reorder_meshes"]
     distribute = kwargs.get("distribute", True)
+    if distribute is None:
+        distribute = True
 
     if isinstance(meshfile, PETSc.DMPlex):
         name = "plexmesh"
