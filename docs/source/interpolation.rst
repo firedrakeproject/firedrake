@@ -51,6 +51,48 @@ Here is an example demonstrating some of these features:
    f = interpolate(sqrt(3.2 * div(g)), V)
 
 
+Interpolation from external data
+--------------------------------
+
+Unfortunately, UFL interpolation is not applicable if some of the
+source data is not yet available as a Firedrake :py:class:`~.Function`
+or UFL expression.  Here we describe a recipe for moving external to
+Firedrake fields.
+
+Let us assume that there is some function ``mydata(X)`` which takes as
+input an :math:`n \times d` array, where :math:`n` is the number of
+points at which the data values are needed, and :math:`d` is the
+geometric dimension of the mesh.  ``mydata(X)`` shall return a
+:math:`n` long vector of the scalar values evaluated at the points
+provided.  (Assuming that the target :py:class:`~.FunctionSpace` is
+scalar valued, although this recipe can be extended to vector or
+tensor valued fields.)  Presumably ``mydata`` works by interpolating
+the external data source, but the precise details are not relevant
+now.  In this case, interpolation into a target function space ``V``
+proceeds as follows:
+
+.. code-block:: python
+
+   # First, grab the mesh.
+   m = V.ufl_domain()
+
+   # Now make the VectorFunctionSpace corresponding to V.
+   W = VectorFunctionSpace(m, V.ufl_element())
+
+   # Next, interpolate the coordinates onto the nodes of W.
+   X = interpolate(m.coordinates, W)
+
+   # Make an output function.
+   f = Function(V)
+
+   # Use the external data function to interpolate the values of f.
+   f.dat.data[:] = mydata(X.dat.data_ro)
+
+This will also work in parallel, as the interpolation will occur on
+each process, and Firedrake will take care of the halo updates before
+the next operation using ``f``.
+
+
 C string expressions
 --------------------
 
