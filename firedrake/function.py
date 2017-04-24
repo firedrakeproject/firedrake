@@ -504,9 +504,12 @@ class Function(ufl.Coefficient):
         if not arg.shape:
             arg = arg.reshape(-1)
 
+        mesh = self.function_space().mesh()
+        if mesh.cell_set._extruded and not mesh.cell_set.constant_layers:
+            raise NotImplementedError("Point evaluation not implemented for variable layers")
         # Immersed not supported
-        tdim = self.function_space().mesh().ufl_cell().topological_dimension()
-        gdim = self.function_space().mesh().ufl_cell().geometric_dimension()
+        tdim = mesh.ufl_cell().topological_dimension()
+        gdim = mesh.ufl_cell().geometric_dimension()
         if tdim < gdim:
             raise NotImplementedError("Point is almost certainly not on the manifold.")
 

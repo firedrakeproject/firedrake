@@ -1084,6 +1084,8 @@ values from f.)"""
         :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
+        if self.cell_set._extruded and not self.cell_set.constant_layers:
+            raise NotImplementedError("Cell location not implemented for variable layers")
         x = np.asarray(x, dtype=np.float)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
