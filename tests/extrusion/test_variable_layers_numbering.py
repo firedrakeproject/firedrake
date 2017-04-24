@@ -2,6 +2,7 @@ import pytest
 import numpy
 from firedrake import *
 from firedrake.mesh import _from_cell_list as create_dm
+from pyop2.datatypes import IntType
 
 
 def test_disconnected():
@@ -339,3 +340,166 @@ def test_numbering_two_d_bigger():
 
     assert numpy.equal(DirichletBC(V, 0, 4).nodes,
                        [12, 13, 14, 15, 16, 17, 18, 19, 20]).all()
+
+
+@pytest.mark.parallel(nprocs=4)
+def test_layer_extents_parallel():
+    # +-----+-----+
+    # |\  1 |\  3 |  cell_layers = [[0, 1],
+    # | \   | \   |                 [0, 1],
+    # |  \  |  \  |                 [0, 1],
+    # |   \ |   \ |                 [0, 2]]
+    # | 0  \| 2  \|
+    # +-----+-----+
+    #
+    # Cell ownership (rank -> cell):
+    # 0 -> 1
+    # 1 -> 0
+    # 2 -> 3
+    # 3 -> 2
+    #
+    # So after growing halos, ranks 0 and 3 see the whole mesh, ranks
+    # 1 and 2 see almost the whole mesh.
+    mesh = UnitSquareMesh(2, 1, reorder=False)
+    V = FunctionSpace(mesh, "DG", 0)
+
+    x, _ = SpatialCoordinate(mesh)
+    selector = interpolate(x - 0.5, V)
+
+    layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
+
+    data = selector.dat.data_ro_with_halos
+    for cell in V.cell_node_map().values_with_halo:
+        if data[cell] < 0.25:
+            layers[cell, :] = [0, 1]
+        else:
+            layers[cell, :] = [0, 2]
+
+    extmesh = ExtrudedMesh(mesh, layers=layers, layer_height=1)
+
+    if mesh.comm.rank == 0:
+        #  Top view, plex points
+        #  5--10-8--14-6
+        #  |\  0 |\  2 |
+        #  | \   | \   |
+        # 11 12  16 17 15
+        #  |   \ |   \ |
+        #  | 1  \| 3  \|
+        #  4--13-7--18-9
+        expected = numpy.asarray([
+            # cells
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 3],
+            [0, 2, 0, 2],
+            # vertices
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 3],
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 3, 0, 2],
+            # edges
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 3],
+            [0, 3, 0, 3],
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 2, 0, 2]], dtype=IntType)
+    elif mesh.comm.rank == 1:
+        #  Top view, plex points
+        #  4--11-6
+        #  |\  1 |\
+        #  | \   | \
+        #  8  9  12 13
+        #  |   \ |   \
+        #  | 0  \| 2  \
+        #  3--10-5--14-7
+        expected = numpy.asarray([
+            # cells
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            # vertices
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 3, 0, 2],
+            # edges
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 2, 0, 2]], dtype=IntType)
+    elif mesh.comm.rank == 2:
+        #  Top view, plex points
+        #  4--10-6--8--3
+        #   \  1 |\  0 |
+        #    \   | \   |
+        #    11  12 13 9
+        #      \ |   \ |
+        #       \| 2  \|
+        #        5--14-7
+        expected = numpy.asarray([
+            # cells
+            [0, 3, 0, 3],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            # vertices
+            [0, 3, 0, 3],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 3, 0, 2],
+            # edges
+            [0, 3, 0, 3],
+            [0, 3, 0, 3],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 2, 0, 2]], dtype=IntType)
+    elif mesh.comm.rank == 3:
+        #  Top view, plex points
+        #  8--13-5--17-9
+        #  |\  1 |\  3 |
+        #  | \   | \   |
+        # 14 15  10 11 18
+        #  |   \ |   \ |
+        #  | 2  \| 0  \|
+        #  7--16-4--12-6
+        expected = numpy.asarray([
+            # cells
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 3],
+            # vertices
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 3, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 3],
+            # edges
+            [0, 2, 0, 2],
+            [0, 3, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 2, 0, 2],
+            [0, 3, 0, 3],
+            [0, 3, 0, 3]], dtype=IntType)
+
+    assert numpy.equal(extmesh.layer_extents, expected).all()
+
+    V = FunctionSpace(extmesh, "CG", 1)
+
+    assert V.dof_dset.layout_vec.getSize() == 15
