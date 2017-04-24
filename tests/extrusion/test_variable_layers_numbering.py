@@ -360,7 +360,14 @@ def test_layer_extents_parallel():
     #
     # So after growing halos, ranks 0 and 3 see the whole mesh, ranks
     # 1 and 2 see almost the whole mesh.
-    mesh = UnitSquareMesh(2, 1, reorder=False)
+    if COMM_WORLD.rank == 0:
+        sizes = numpy.asarray([1, 1, 1, 1], dtype=IntType)
+        points = numpy.asarray([1, 0, 3, 2], dtype=IntType)
+    else:
+        sizes = None
+        points = None
+
+    mesh = UnitSquareMesh(2, 1, reorder=False, distribute=(sizes, points))
     V = FunctionSpace(mesh, "DG", 0)
 
     x, _ = SpatialCoordinate(mesh)
