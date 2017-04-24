@@ -395,7 +395,7 @@ def entity_layers(mesh, height, label=None):
     :arg height: the height of the entity to consider (in the DMPlex
        sense). e.g. 0 -> cells, 1 -> facets, etc...
     :arg label: optional label to select some subset of the points of
-       the given height (may be None, meaning, select all points).
+       the given height (may be None meaning select all points).
 
     :returns: a numpy array of shape (num_entities, 2) providing the
        layer extents for iteration on the requested entities.
@@ -403,67 +403,18 @@ def entity_layers(mesh, height, label=None):
     cdef:
         PETSc.DM dm
         DMLabel clabel = NULL
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] facet_points
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layers
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        PetscInt f, p, i, fStart, fEnd
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layers
+        PetscInt f, p, i, hStart, hEnd, pStart, pEnd
+        PetscInt point, offset
+        const PetscInt *renumbering
         PetscBool flg
 
-    dm = mesh._base_mesh._plex
+    dm = mesh._plex
 
-    if height == 0:
-        if label is not None:
-            raise ValueError("Not expecting non-None label")
-        return mesh.cell_set.layers_array
-    elif height == 1:
-        fStart, fEnd = dm.getHeightStratum(height)
-        if label is None:
-            size = fEnd - fStart
-        else:
-            size = dm.getStratumSize(label, 1)
-
-        layers = numpy.zeros((size, 2), dtype=IntType)
-        facet_points = mesh._base_mesh._facet_ordering
-        f = 0
-        layer_extents = mesh.layer_extents
-
-        if label is not None:
-            CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
-            CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
-
-        for i in range(facet_points.shape[0]):
-            p = facet_points[i]
-            if clabel:
-                CHKERR(DMLabelHasPoint(clabel, p, &flg))
-            else:
-                flg = PETSC_TRUE
-            if flg:
-                layers[f, 0] = layer_extents[p, 2]
-                layers[f, 1] = layer_extents[p, 3]
-                f += 1
-        if label is not None:
-            CHKERR(DMLabelDestroyIndex(clabel))
-        return layers
-    else:
-        raise ValueError("Unsupported height '%s' (not 0 or 1)", height)
-
-
-# More generic version (works on all entities)
-def entity_layers2(mesh, height, label=None):
-    cdef:
-        PETSc.DM dm
-        DMLabel clabel = NULL
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] facet_points
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layers
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        PetscInt f, p, i, pStart, pEnd
-        PetscBool flg
-
-    dm = mesh._base_mesh._plex
-
-    pStart, pEnd = dm.getHeightStratum(height)
+    hStart, hEnd = dm.getHeightStratum(height)
     if label is None:
-        size = pEnd - pStart
+        size = hEnd - hStart
     else:
         size = dm.getStratumSize(label, 1)
 
@@ -473,19 +424,21 @@ def entity_layers2(mesh, height, label=None):
     offset = 0
     if label is not None:
         CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
-        CHKERR(DMLabelCreateIndex(clabel, pStart, pEnd))
-    for p in range(*dm.getChart()):
-        plex_point = mesh._base_mesh._plex_renumbering.indices[p]
-        if pStart <= plex_point < pEnd:
+        CHKERR(DMLabelCreateIndex(clabel, hStart, hEnd))
+    pStart, pEnd = dm.getChart()
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    for p in range(pStart, pEnd):
+        point = renumbering[p]
+        if hStart <= point < hEnd:
             if clabel:
-                CHKERR(DMLabelHasPoint(clabel, plex_point, &flg))
-            else:
-                flg = PETSC_TRUE
-            if flg:
-                layers[offset, 0] = layer_extents[plex_point, 2]
-                layers[offset, 1] = layer_extents[plex_point, 3]
-                offset += 1
+                CHKERR(DMLabelHasPoint(clabel, point, &flg))
+                if not flg:
+                    continue
+            layers[offset, 0] = layer_extents[point, 2]
+            layers[offset, 1] = layer_extents[point, 3]
+            offset += 1
 
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     if label is not None:
         CHKERR(DMLabelDestroyIndex(clabel))
     return layers
