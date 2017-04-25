@@ -518,7 +518,6 @@ class FunctionSpaceData(object):
         # V is only really used for error checking and "name".
         assert len(V) == 1, "get_map should not be called on MixedFunctionSpace"
         entity_node_list = self.entity_node_lists[entity_set]
-        cache = self.map_caches[entity_set]
 
         if bcs is not None:
             # Separate explicit bcs (we just place negative entries in
