@@ -1375,23 +1375,21 @@ def ExtrudedMesh(mesh, layers, layer_height=None, extrusion_type='uniform', kern
     import firedrake.function as function
 
     mesh.init()
-    try:
-        layers = np.asarray(layers, dtype=IntType).reshape(mesh.cell_set.total_size, 2)
+    layers = np.asarray(layers, dtype=IntType)
+    if layers.shape:
+        if layers.shape != (mesh.cell_set.total_size, 2):
+            raise ValueError("Must provide single layer number or array of shape (%d, 2), not %s",
+                             mesh.cell_set.total_size, layers.shape)
+        if layer_height is None:
+            raise ValueError("Must provide layer height for variable layers")
+        # Convert to internal representation
         layers[:, 1] += 1 + layers[:, 0]
-    except ValueError:
-        layers = np.asarray(layers, dtype=IntType)
-        if layers.shape:
-            raise ValueError("Must provide scalar layer value, not %s", layers)
-        if layers < 1:
-            raise ValueError("Must have at least one layer of extruded cells (not %d)", layers)
+    else:
         if layer_height is None:
             # Default to unit
             layer_height = 1 / layers
         # All internal logic works with layers of base mesh (not layers of cells)
         layers = layers + 1
-
-    if layer_height is None and layers.shape:
-        raise ValueError("Must provide layer height for variable layers")
 
     topology = ExtrudedMeshTopology(mesh.topology, layers)
 
