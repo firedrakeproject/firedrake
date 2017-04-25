@@ -308,10 +308,7 @@ def create_section(mesh, nodes_per_entity):
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         bint variable
 
-    try:
-        variable = not mesh.cell_set.constant_layers
-    except AttributeError:
-        variable = False
+    variable = mesh.variable_layers
 
     if variable:
         layer_extents = mesh.layer_extents
@@ -475,7 +472,7 @@ def get_cell_nodes(mesh,
         numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
         bint variable
 
-    variable = not mesh.cell_set.constant_layers
+    variable = mesh.variable_layers
     cell_closures = mesh.cell_closure
     if variable:
         layer_extents = mesh.layer_extents
@@ -562,10 +559,7 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
         raise ValueError("Unsupported facet label '%s'", label)
 
     dm = mesh._plex
-    try:
-        variable = not mesh.cell_set.constant_layers
-    except AttributeError:
-        variable = False
+    variable = mesh.variable_layers
 
     if variable and offset is None:
         raise ValueError("Offset cannot be None with variable layer extents")

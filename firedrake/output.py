@@ -124,12 +124,7 @@ def get_topology(coordinates):
         cell_layers = 1
         offsets = 0
     else:
-        if mesh.cell_set.constant_layers:
-            cell_layers = mesh.cell_set.layers - 1
-            offsets = numpy.arange(cell_layers, dtype=IntType) * scale
-            offsets = numpy.tile(offsets.reshape(-1, 1), (num_cells, 1))
-            num_cells *= cell_layers
-        else:
+        if mesh.variable_layers:
             layers = mesh.cell_set.layers_array[:num_cells, ...]
             cell_layers = layers[:, 1] - layers[:, 0] - 1
 
@@ -140,6 +135,11 @@ def get_topology(coordinates):
             offsets = vrange(cell_layers) * scale
             offsets = offsets.reshape(-1, 1)
             num_cells = cell_layers.sum()
+        else:
+            cell_layers = mesh.cell_set.layers - 1
+            offsets = numpy.arange(cell_layers, dtype=IntType) * scale
+            offsets = numpy.tile(offsets.reshape(-1, 1), (num_cells, 1))
+            num_cells *= cell_layers
 
     connectivity = numpy.repeat(values, cell_layers, axis=0)
 

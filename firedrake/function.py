@@ -505,7 +505,7 @@ class Function(ufl.Coefficient):
             arg = arg.reshape(-1)
 
         mesh = self.function_space().mesh()
-        if mesh.cell_set._extruded and not mesh.cell_set.constant_layers:
+        if mesh.variable_layers:
             raise NotImplementedError("Point evaluation not implemented for variable layers")
         # Immersed not supported
         tdim = mesh.ufl_cell().topological_dimension()

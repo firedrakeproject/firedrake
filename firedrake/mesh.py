@@ -419,6 +419,12 @@ class MeshTopology(object):
                 self._facet_ordering = dmplex.get_facet_ordering(self._plex, facet_numbering)
         self._callback = callback
 
+    layers = None
+    """No layers on unstructured mesh"""
+
+    variable_layers = False
+    """No variable layers on unstructured mesh"""
+
     def mpi_comm(self):
         """The MPI communicator this mesh is built on (an mpi4py object)."""
         return self.comm
@@ -440,10 +446,6 @@ class MeshTopology(object):
 
         This is to ensure consistent naming for some multigrid codes."""
         return self
-
-    @property
-    def layers(self):
-        return None
 
     def ufl_cell(self):
         """The UFL :class:`~ufl.classes.Cell` associated with the mesh."""
@@ -818,11 +820,11 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         if kind not in {"interior_facets", "exterior_facets"}:
             raise ValueError("Unexpected kind '%s'", kind)
-        if self.cell_set.constant_layers:
+        if self.variable_layers:
+            return extnum.get_facet_nodes(self, cell_node_list, kind, offsets)
+        else:
             facet = getattr(self, kind)
             return dmplex.get_facet_nodes(facet.facet_cell, cell_node_list)
-        else:
-            return extnum.get_facet_nodes(self, cell_node_list, kind, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -845,12 +847,12 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: a new PETSc Section.
         """
-        if self.cell_set.constant_layers:
+        if self.variable_layers:
+            return extnum.create_section(self, nodes_per_entity)
+        else:
             nodes = np.asarray(nodes_per_entity, dtype=IntType)
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).create_section(nodes_per_entity)
-        else:
-            return extnum.create_section(self, nodes_per_entity)
 
     def node_classes(self, nodes_per_entity):
         """Compute node classes given nodes per entity.
@@ -858,12 +860,12 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg nodes_per_entity: number of function space nodes per topological entity.
         :returns: the number of nodes in aech of core, owned, exec, and non exec classes.
         """
-        if self.cell_set.constant_layers:
+        if self.variable_layers:
+            return extnum.node_classes(self, nodes_per_entity)
+        else:
             nodes = np.asarray(nodes_per_entity)
             nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
             return super(ExtrudedMeshTopology, self).node_classes(nodes_per_entity)
-        else:
-            return extnum.node_classes(self, nodes_per_entity)
 
     def make_offset(self, entity_dofs, ndofs):
         """Returns the offset between the neighbouring cells of a
@@ -883,14 +885,19 @@ class ExtrudedMeshTopology(MeshTopology):
                     dof_offset[i] = entity_offset[b]
         return dof_offset
 
-    @property
+    @utils.cached_property
     def layers(self):
         """Return the number of layers of the extruded mesh
         represented by the number of occurences of the base mesh."""
-        if self.cell_set.constant_layers:
-            return self.cell_set.layers
-        else:
+        if self.variable_layers:
             raise ValueError("Can't ask for mesh layers with variable layers")
+        else:
+            return self.cell_set.layers
+
+    @utils.cached_property
+    def variable_layers(self):
+        """Does the extruded mesh have variable layer numbers?"""
+        return not self.cell_set.constant_layers
 
     def entity_layers(self, height, label=None):
         """Return the number of layers on each entity of a given plex
@@ -904,10 +911,10 @@ class ExtrudedMeshTopology(MeshTopology):
            for entities (or a single layer number for the constant
            layer case).
         """
-        if self.cell_set.constant_layers:
-            return self.cell_set.layers
-        else:
+        if self.variable_layers:
             return extnum.entity_layers(self, height, label)
+        else:
+            return self.cell_set.layers
 
     @utils.cached_property
     def layer_extents(self):
@@ -1084,7 +1091,7 @@ values from f.)"""
         :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
-        if self.cell_set._extruded and not self.cell_set.constant_layers:
+        if self.variable_layers:
             raise NotImplementedError("Cell location not implemented for variable layers")
         x = np.asarray(x, dtype=np.float)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,

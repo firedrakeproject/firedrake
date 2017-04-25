@@ -242,32 +242,33 @@ def get_top_bottom_boundary_nodes(mesh, key, V, entity_dofs):
     _, mask, kind = key
     cell_node_list = V.cell_node_list
     offset = V.offset
-    if mesh.cell_set.constant_layers:
+    if mesh.variable_layers:
+        return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
+                                                entity_dofs, offset,
+                                                mask, kind)
+    else:
         nodes = cell_node_list[:, mask]
         if kind == "top":
             nodes = nodes + offset.take(mask)*(mesh.cell_set.layers - 2)
         return numpy.unique(nodes)
-    else:
-        return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
-                                                entity_dofs, offset,
-                                                mask, kind)
 
 
 @cached
 def get_boundary_nodes(mesh, key, V):
     _, sub_domain, method = key
-    nodes = V.exterior_facet_boundary_node_map(method).values_with_halo
-    if sub_domain != "on_boundary":
-        indices = mesh.exterior_facets.subset(sub_domain).indices
-        nodes = nodes.take(indices, axis=0)
-    if not V.extruded:
-        indices = numpy.unique(nodes)
-    if mesh.cell_set.constant_layers:
-        offset = V.exterior_facet_boundary_node_map(method).offset
-        indices = numpy.unique(numpy.concatenate([nodes + i * offset
-                                                  for i in range(mesh.cell_set.layers - 1)]))
-    else:
+    if mesh.variable_layers:
         indices = extnum.boundary_nodes(V, sub_domain, method)
+    else:
+        nodes = V.exterior_facet_boundary_node_map(method).values_with_halo
+        if sub_domain != "on_boundary":
+            indices = mesh.exterior_facets.subset(sub_domain).indices
+            nodes = nodes.take(indices, axis=0)
+            if not V.extruded:
+                indices = numpy.unique(nodes)
+            else:
+                offset = V.exterior_facet_boundary_node_map(method).offset
+                indices = numpy.unique(numpy.concatenate([nodes + i * offset
+                                                          for i in range(mesh.cell_set.layers - 1)]))
     # We need a halo exchange to determine all bc nodes.
     # Should be improved by doing this on the DM topology once.
     d = op2.Dat(V.dof_dset.set, dtype=IntType)
@@ -464,7 +465,7 @@ class FunctionSpaceData(object):
                                   dtype=numpy.uintc)
         if self.extruded:
             offset = self.offset[boundary_dofs[0]]
-            if not self.mesh.cell_set.constant_layers:
+            if self.mesh.variable_layers:
                 raise NotImplementedError("Variable layer case not handled, should never reach here")
         else:
             offset = None

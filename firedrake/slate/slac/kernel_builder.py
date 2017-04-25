@@ -33,8 +33,7 @@ class KernelBuilder(object):
                               with the expression.
         """
         assert isinstance(expression, TensorBase)
-        cell_set = expression.ufl_domain().cell_set
-        if cell_set._extruded and not cell_set.constant_layers:
+        if expression.ufl_domain().variable_layers:
             raise NotImplementedError("Variable layers not yet handled in SLATE")
         self.expression = expression
         self.tsfc_parameters = tsfc_parameters
