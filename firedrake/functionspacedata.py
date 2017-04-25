@@ -18,7 +18,7 @@ import numpy
 import finat
 from decorator import decorator
 from functools import reduce
-
+from collections import namedtuple
 
 from finat.finiteelementbase import entity_support_dofs
 
@@ -180,6 +180,9 @@ def get_dof_offset(mesh, key, entity_dofs, ndof):
     return mesh.make_offset(entity_dofs, ndof)
 
 
+BTMasks = namedtuple("BTMasks", ["bottom", "top"])
+
+
 @cached
 def get_bt_masks(mesh, key, finat_element):
     """Get masks for top and bottom dofs.
@@ -202,10 +205,10 @@ def get_bt_masks(mesh, key, finat_element):
     horiz_facet_dim = sorted(closure_dofs.keys())[-2]
     b_mask = closure_dofs[horiz_facet_dim][0]
     t_mask = closure_dofs[horiz_facet_dim][1]
-    bt_masks["topological"] = (b_mask, t_mask)  # conversion to tuple
+    bt_masks["topological"] = BTMasks(bottom=b_mask, top=t_mask)
     # Geometric facet dofs
     facet_dofs = entity_support_dofs(finat_element, horiz_facet_dim)
-    bt_masks["geometric"] = (facet_dofs[0], facet_dofs[1])
+    bt_masks["geometric"] = BTMasks(bottom=facet_dofs[0], top=facet_dofs[1])
     return bt_masks
 
 
@@ -478,20 +481,19 @@ class FunctionSpaceData(object):
         self.map_caches["boundary_node"][method] = val
         return val
 
-    def top_bottom_boundary_nodes(self, V, mask, kind):
-        if kind not in {"bottom", "top"}:
-            raise ValueError("Don't know how to extract nodes with kind '%s'", kind)
-        entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
-        key = (entity_dofs_key(entity_dofs), tuple(mask), kind)
-        return get_top_bottom_boundary_nodes(V.mesh(), key, V, entity_dofs)
-
     def boundary_nodes(self, V, sub_domain, method):
         if method not in {"topological", "geometric"}:
             raise ValueError("Don't know how to extract nodes with method '%s'", method)
-        if sub_domain == "bottom":
-            return V.bottom_nodes(method)
-        elif sub_domain == "top":
-            return V.top_nodes(method)
+        if sub_domain in ["bottom", "top"]:
+            masks = V.bt_masks
+            if masks is None:
+                raise ValueError("Subdomain '%s' doesn't make sense on non-extruded meshes.", sub_domain)
+            if method not in masks:
+                raise ValueError("Unknown boundary condition method '%s'", method)
+            entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
+            mask = getattr(masks[method], sub_domain)
+            key = (entity_dofs_key(entity_dofs), tuple(mask), sub_domain)
+            return get_top_bottom_boundary_nodes(V.mesh(), key, V, entity_dofs)
         else:
             if sub_domain == "on_boundary":
                 sdkey = sub_domain

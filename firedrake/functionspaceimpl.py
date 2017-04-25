@@ -523,27 +523,6 @@ class FunctionSpace(object):
         """
         return self._shared_data.boundary_nodes(self, sub_domain, method)
 
-    def bottom_nodes(self, method='topological'):
-        """Return a list of the bottom boundary nodes of the extruded mesh.
-        The bottom mask is applied to every bottom layer cell to get the
-        dof ids."""
-        if self.bt_masks is None:
-            raise ValueError("Doesn't make sense on non extruded space.")
-        if method not in self.bt_masks:
-            raise ValueError("Unknown boundary condition method '%s'", method)
-        return self._shared_data.top_bottom_boundary_nodes(self, self.bt_masks[method][0],
-                                                           "bottom")
-
-    def top_nodes(self, method='topological'):
-        """Return a list of the top boundary nodes of the extruded mesh.
-        The top mask is applied to every top layer cell to get the dof ids."""
-        if self.bt_masks is None:
-            raise ValueError("Doesn't make sense on non extruded space.")
-        if method not in self.bt_masks:
-            raise ValueError("Unknown boundary condition method '%s'", method)
-        return self._shared_data.top_bottom_boundary_nodes(self, self.bt_masks[method][1],
-                                                           "top")
-
 
 class MixedFunctionSpace(object):
     """A function space on a mixed finite element.
