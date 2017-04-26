@@ -1,6 +1,6 @@
 from __future__ import absolute_import, print_function, division
 from firedrake import *
-from FIAT.finite_element import entity_support_dofs
+from finat.finiteelementbase import entity_support_dofs
 import pytest
 
 
@@ -39,8 +39,8 @@ def hex_mesh():
                             3: [1, 3, 4, 5, 6, 7, 10, 11]})])
 def test_hex(hex_mesh, args, kwargs, horiz_expected, vert_expected):
     V = FunctionSpace(hex_mesh, *args, **kwargs)
-    assert horiz_expected == entity_support_dofs(V.fiat_element, (2, 0))
-    assert vert_expected == entity_support_dofs(V.fiat_element, (1, 1))
+    assert horiz_expected == entity_support_dofs(V.finat_element, (2, 0))
+    assert vert_expected == entity_support_dofs(V.finat_element, (1, 1))
 
 
 if __name__ == '__main__':

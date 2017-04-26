@@ -1,5 +1,7 @@
 from __future__ import absolute_import, print_function, division
 
+import collections
+
 from coffee import base as ast
 from coffee.visitor import Visitor
 
@@ -78,16 +80,17 @@ class Transformer(Visitor):
     def visit_FunDecl(self, o, *args, **kwargs):
         """Visits a COFFEE FunDecl object and reconstructs
         the FunDecl body and header to generate
-        Eigen::MatrixBase C++ template functions.
+        ``Eigen::MatrixBase`` C++ template functions.
 
-        Creates a template function for each subkernel form
-        template <typename Derived>:
+        Creates a template function for each subkernel form.
 
-        template <typename Derived>
-        static inline void foo(Eigen::MatrixBase<Derived> const & A, ...)
-        {
-          [Body...]
-        }
+        .. code-block:: c++
+
+            template <typename Derived>
+            static inline void foo(Eigen::MatrixBase<Derived> const & A, ...)
+            {
+              [Body...]
+            }
         """
         name = kwargs.get("name", "A")
         new = self.visit_Node(o, *args, **kwargs)
@@ -133,3 +136,43 @@ class Transformer(Visitor):
             return o
 
         return SymbolWithFuncallIndexing(o.symbol, o.rank, o.offset)
+
+
+# Thanks, Miklos!
+def traverse_dags(expr_dags):
+    """Traverses a DAG and returns the unique operands associated
+    with the DAG.
+
+    :arg expr_dags: an iterable of Slate nodes that make up the
+                    DAG of a given Slate expression.
+    """
+    seen = set()
+    container = []
+
+    for tensor in expr_dags:
+        if tensor not in seen:
+            seen.add(tensor)
+            container.append(tensor)
+
+    while container:
+        tensor = container.pop()
+        yield tensor
+        for operand in tensor.operands:
+            if operand not in seen:
+                seen.add(operand)
+                container.append(operand)
+
+
+# This function is based on the GEM DAG reference count
+# algorithm in TSFC and adapted for Slate tensors.
+def collect_reference_count(expr_dags):
+    """Returns a mapping from operand to reference count.
+
+    :arg expr_dags: an iterable of Slate nodes that make up the
+                    DAG of a given Slate expression.
+    """
+    result = collections.Counter(expr_dags)
+    for tensor in traverse_dags(expr_dags):
+        result.update(tensor.operands)
+
+    return result

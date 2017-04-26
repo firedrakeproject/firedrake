@@ -1,6 +1,8 @@
 #ifndef _EVALUATE_H
 #define _EVALUATE_H
 
+#include <petsc.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -14,11 +16,11 @@ struct Function {
 
 	/* Coordinate values and node mapping */
 	double *coords;
-	int *coords_map;
+	PetscInt *coords_map;
 
 	/* Field values and node mapping */
 	double *f;
-	int *f_map;
+	PetscInt *f_map;
 
 	/* Spatial index */
 	void *sidx;

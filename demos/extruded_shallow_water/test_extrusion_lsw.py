@@ -30,7 +30,8 @@ u_1 = Function(W)
 p_0 = Function(X)
 p_1 = Function(X)
 p_plot = Function(Xplot)
-p_0.interpolate(Expression("sin(4*pi*x[0])*sin(2*pi*x[1])"))
+x, y = SpatialCoordinate(m)
+p_0.interpolate(sin(4*pi*x)*sin(2*pi*x))
 
 T = 0.5
 t = 0

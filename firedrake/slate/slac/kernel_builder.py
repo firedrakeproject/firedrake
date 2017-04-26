@@ -1,9 +1,13 @@
 from __future__ import absolute_import, print_function, division
 
+from collections import OrderedDict
+
 from coffee import base as ast
 
-from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
-from firedrake.slate.slac.utils import Transformer
+from firedrake.slate.slate import (TensorBase, Tensor, TensorOp,
+                                   Action, Inverse)
+from firedrake.slate.slac.utils import (Transformer, traverse_dags,
+                                        collect_reference_count)
 from firedrake.utils import cached_property
 
 from ufl import MixedElement
@@ -36,12 +40,18 @@ class KernelBuilder(object):
         self.needs_mesh_layers = False
         self.oriented = False
         self.finalized_ast = None
+        self._is_finalized = False
 
         # Generate coefficient map (both mixed and non-mixed cases handled)
         self.coefficient_map = prepare_coefficients(expression)
-        # Initialize temporaries and any auxiliary expressions for special
-        # handling
-        self.temps, self.aux_exprs = generate_expr_data(expression)
+
+        # Initialize temporaries and any auxiliary temporaries
+        temps, aux_exprs = generate_expr_data(expression)
+        self.temps = temps
+        self.aux_exprs = aux_exprs
+
+        # Collect the reference count of operands in auxiliary expressions
+        self._ref_counts = collect_reference_count([expression])
 
     @property
     def integral_type(self):
@@ -66,13 +76,6 @@ class KernelBuilder(object):
         """
         self.needs_mesh_layers = True
 
-    def get_temporary(self, expr):
-        """Extracts a temporary given a particular terminal expression."""
-        if expr not in self.temps:
-            raise ValueError("No temporary for the given expression")
-
-        return self.temps[expr]
-
     def coefficient(self, coefficient):
         """Extracts a coefficient from the coefficient_map. This handles both
         the case when the coefficient is defined on a mixed or non-mixed
@@ -86,7 +89,7 @@ class KernelBuilder(object):
 
     @cached_property
     def context_kernels(self):
-        """Gathers all `ContextKernel`s containing all TSFC kernels,
+        """Gathers all :class:`~.ContextKernel`\s containing all TSFC kernels,
         and integral type information.
         """
         from firedrake.slate.slac.tsfc_driver import compile_terminal_form
@@ -98,15 +101,6 @@ class KernelBuilder(object):
         cxt_kernels = [cxt_k for cxt_tuple in cxt_list
                        for cxt_k in cxt_tuple]
         return cxt_kernels
-
-    @cached_property
-    def full_kernel_list(self):
-        """Unwraps all TSFC kernels into one iterable."""
-
-        cxt_kernels = self.context_kernels
-        splitkernels = [splitkernel for cxt_k in cxt_kernels
-                        for splitkernel in cxt_k.tsfc_kernels]
-        return splitkernels
 
     def construct_macro_kernel(self, name, args, statements):
         """Constructs a macro kernel function that calls any subkernels.
@@ -139,7 +133,11 @@ class KernelBuilder(object):
         transformer = Transformer()
         oriented = self.oriented
 
-        for splitkernel in self.full_kernel_list:
+        cxt_kernels = self.context_kernels
+        splitkernels = [splitkernel for cxt_k in cxt_kernels
+                        for splitkernel in cxt_k.tsfc_kernels]
+
+        for splitkernel in splitkernels:
             oriented = oriented or splitkernel.kinfo.oriented
             # TODO: Extend multiple domains support
             assert splitkernel.kinfo.subdomain_id == "otherwise"
@@ -148,6 +146,7 @@ class KernelBuilder(object):
 
         self.oriented = oriented
         self.finalized_ast = kernel_list
+        self._is_finalized = True
 
     def construct_ast(self, macro_kernels):
         """Constructs the final kernel AST.
@@ -161,7 +160,10 @@ class KernelBuilder(object):
         assert isinstance(macro_kernels, list), (
             "Please wrap all macro kernel functions in a list"
         )
-        self._finalize_kernels_and_update()
+        assert self._is_finalized, (
+            "AST not finalized. Did you forget to call "
+            "builder._finalize_kernels_and_update()?"
+        )
         kernel_ast = self.finalized_ast
         kernel_ast.extend(macro_kernels)
 
@@ -184,50 +186,43 @@ def prepare_coefficients(expression):
     return coefficient_map
 
 
-def generate_expr_data(expr, temps=None, aux_exprs=None):
+def generate_expr_data(expr):
     """This function generates a mapping of the form:
 
-       ``temporaries = {terminal_node: symbol_name}``
+       ``temporaries = {node: symbol_name}``
 
-    where `terminal_node` objects are :class:`slate.Tensor` nodes, and
+    where `node` objects are :class:`slate.TensorBase` nodes, and
     `symbol_name` are :class:`coffee.base.Symbol` objects. In addition,
     this function will return a list `aux_exprs` of any expressions that
     require special handling in the compiler. This includes expressions
-    that require performing operations on already assembled data.
+    that require performing operations on already assembled data or
+    generating extra temporaries.
 
     This mapping is used in the :class:`KernelBuilder` to provide direct
     access to all temporaries associated with a particular slate expression.
 
     :arg expression: a :class:`slate.TensorBase` object.
-    :arg temps: a dictionary that becomes populated recursively and is later
-                returned as the temporaries map. This argument is initialized
-                as an empty `dict` before recursion starts.
-    :arg aux_exprs: a list that becomes populated recursively and is later
-                    returned as the list of auxiliary expressions that require
-                    special handling in Slate's linear algebra compiler
 
-    Returns: the arguments temps and aux_exprs.
+    Returns: the terminal temporaries map and auxiliary temporaries.
     """
     # Prepare temporaries map and auxiliary expressions list
-    if temps is None:
-        temps = {}
+    # NOTE: Ordering here matters, especially when running
+    # Slate in parallel.
+    temps = OrderedDict()
+    aux_exprs = []
+    for tensor in traverse_dags([expr]):
+        if isinstance(tensor, Tensor):
+            temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
-    if aux_exprs is None:
-        aux_exprs = []
+        elif isinstance(tensor, TensorOp):
+            # For Action, we need to declare a temporary later on for the
+            # acting coefficient. For inverses, we may declare additional
+            # temporaries (depending on reference count).
+            if isinstance(tensor, (Action, Inverse)):
+                aux_exprs.append(tensor)
 
-    if isinstance(expr, Tensor):
-        temps.setdefault(expr, ast.Symbol("T%d" % len(temps)))
-
-    elif isinstance(expr, TensorOp):
-        # If we have an Action instance, store expr in aux_exprs for
-        # special handling in the compiler
-        if isinstance(expr, Action):
-            aux_exprs.append(expr)
-
-        # Send operands through recursively
-        map(lambda x: generate_expr_data(x, temps=temps,
-                                         aux_exprs=aux_exprs), expr.operands)
-    else:
-        raise NotImplementedError("Type %s not supported." % type(expr))
+    # Aux expressions are visited pre-order. We want to declare as if we'd
+    # visited post-order (child temporaries first), so reverse.
+    aux_exprs = list(OrderedDict.fromkeys(reversed(aux_exprs)))
 
     return temps, aux_exprs

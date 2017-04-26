@@ -63,7 +63,8 @@ We declare a function over our function space and give it the
 value of our right hand side function::
 
   f = Function(V)
-  f.interpolate(Expression("(1+8*pi*pi)*cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+  x, y = SpatialCoordinate(mesh)
+  f.interpolate((1+8*pi*pi)*cos(x*pi*2)*cos(y*pi*2))
 
 We can now define the bilinear and linear forms for the left and right
 hand sides of our equation respectively::
@@ -123,7 +124,7 @@ Don't forget to show the image::
 Alternatively, since we have an analytic solution, we can check the
 :math:`L_2` norm of the error in the solution::
 
-  f.interpolate(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+  f.interpolate(cos(x*pi*2)*cos(y*pi*2))
   print sqrt(assemble(dot(u - f, u - f) * dx))
 
 A python script version of this demo can be found `here <helmholtz.py>`__.

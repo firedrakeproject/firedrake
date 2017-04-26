@@ -1,4 +1,5 @@
 from __future__ import absolute_import, print_function, division
+from six import iterkeys
 
 import numpy
 from functools import partial
@@ -9,6 +10,7 @@ import ufl
 from coffee import base as ast
 from pyop2 import op2
 
+from tsfc.fiatinterface import create_element
 from tsfc import compile_expression_at_points as compile_ufl_kernel
 
 import firedrake
@@ -136,7 +138,7 @@ def make_interpolator(expr, V, subset):
 
 
 def _interpolator(V, dat, expr, subset):
-    to_element = V.fiat_element
+    to_element = create_element(V.ufl_element(), vector_is_mixed=False)
     to_pts = []
 
     if V.ufl_element().mapping() != "identity":
@@ -147,7 +149,7 @@ def _interpolator(V, dat, expr, subset):
         if not isinstance(dual, FIAT.functional.PointEvaluation):
             raise NotImplementedError("Can only interpolate onto point "
                                       "evaluation operators. Try projecting instead")
-        to_pts.append(dual.pt_dict.keys()[0])
+        to_pts.append(list(iterkeys(dual.pt_dict))[0])
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
@@ -208,7 +210,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     function provided."""
 
     coords_space = coords.function_space()
-    coords_element = coords_space.fiat_element
+    coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
 
     X_remap = coords_element.tabulate(0, to_pts).values()[0]
 
@@ -225,8 +227,8 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
             # Pass a slice for the scalar case but just the
             # current vector in the VFS case. This ensures the
             # eval method has a Dolfin compatible API.
-            expression.eval(output[i:i+1, ...] if numpy.rank(output) == 1 else output[i, ...],
-                            X[i:i+1, ...] if numpy.rank(X) == 1 else X[i, ...], **kwargs)
+            expression.eval(output[i:i+1, ...] if numpy.ndim(output) == 1 else output[i, ...],
+                            X[i:i+1, ...] if numpy.ndim(X) == 1 else X[i, ...], **kwargs)
 
     coefficients = [coords]
     for _, arg in expression._user_args:
@@ -238,7 +240,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
     """Produce a :class:`PyOP2.Kernel` from the c expression provided."""
 
     coords_space = coords.function_space()
-    coords_element = coords_space.fiat_element
+    coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
 
     names = {v[0] for v in expression._user_args}
 

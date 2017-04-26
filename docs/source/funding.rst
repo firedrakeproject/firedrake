@@ -24,7 +24,7 @@
 
 .. |Grantham| image:: /images/grantham.*
   :height: 60px
-  :target: http://www.imperial.ac.uk/climatechange
+  :target: http://www.imperial.ac.uk/grantham/
 
 .. only:: html
 

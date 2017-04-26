@@ -23,13 +23,14 @@ from collections import OrderedDict
 
 from firedrake.constant import Constant
 from firedrake.tsfc_interface import SplitKernel, KernelInfo
-from firedrake.slate.slate import (TensorBase, Tensor,
-                                   Transpose, Inverse, Negative,
-                                   Add, Sub, Mul, Action)
+from firedrake.slate.slate import (TensorBase, Transpose, Inverse,
+                                   Negative, Add, Sub, Mul,
+                                   Action)
 from firedrake.slate.slac.kernel_builder import KernelBuilder
 from firedrake import op2
 
 from pyop2.utils import get_petsc_dir
+from pyop2.datatypes import as_cstr
 
 from tsfc.parameters import SCALAR_TYPE
 
@@ -40,6 +41,8 @@ __all__ = ['compile_expression']
 
 
 PETSC_DIR = get_petsc_dir()
+
+cell_to_facets_dtype = np.dtype(np.int8)
 
 supported_integral_types = [
     "cell",
@@ -75,8 +78,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # If the expression has already been symbolically compiled, then
     # simply reuse the produced kernel.
-    if slate_expr._kernels is not None:
-        return slate_expr._kernels
+    if slate_expr._metakernel_cache is not None:
+        return slate_expr._metakernel_cache
 
     # Initialize coefficients, shape and statements list
     expr_coeffs = slate_expr.coefficients()
@@ -96,20 +99,26 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     builder = KernelBuilder(expression=slate_expr,
                             tsfc_parameters=tsfc_parameters)
 
-    # Initialize coordinate and facet/layer symbols
+    # Initialize coordinate, cell orientations and facet/layer
+    # symbols
     coordsym = ast.Symbol("coords")
     coords = None
+    cell_orientations = ast.Symbol("cell_orientations")
     cellfacetsym = ast.Symbol("cell_facets")
     mesh_layer_sym = ast.Symbol("layer")
     inc = []
 
+    # We keep track of temporaries that have been declared
+    declared_temps = {}
     for cxt_kernel in builder.context_kernels:
         exp = cxt_kernel.tensor
-        t = builder.get_temporary(exp)
+        t = builder.temps[exp]
 
-        # Declare and initialize the temporary
-        statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
-        statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+        if exp not in declared_temps:
+            # Declare and initialize the temporary
+            statements.append(ast.Decl(eigen_matrixbase_type(exp.shape), t))
+            statements.append(ast.FlatBlock("%s.setZero();\n" % t))
+            declared_temps[exp] = t
 
         it_type = cxt_kernel.original_integral_type
 
@@ -139,6 +148,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                 clist = [c for ci in kinfo.coefficient_map
                          for c in builder.coefficient(exp.coefficients()[ci])]
 
+                if kinfo.oriented:
+                    clist.insert(0, cell_orientations)
+
                 incl.extend(kinfo.kernel._include_dirs)
                 tensor = eigen_tensor(exp, t, index)
                 statements.append(ast.FunCall(kinfo.kernel.name,
@@ -151,7 +163,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # information and looping over facet indices.
             builder.require_cell_facets()
             loop_stmt, incl = facet_integral_loop(cxt_kernel, builder,
-                                                  coordsym, cellfacetsym)
+                                                  coordsym, cellfacetsym,
+                                                  cell_orientations)
             statements.append(loop_stmt)
 
         elif it_type == "interior_facet_horiz":
@@ -176,7 +189,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                   top_sks,
                                                   bottom_sks,
                                                   coordsym,
-                                                  mesh_layer_sym)
+                                                  mesh_layer_sym,
+                                                  cell_orientations)
             statements.append(stmt)
 
         elif it_type in ["exterior_facet_bottom", "exterior_facet_top"]:
@@ -184,7 +198,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             # the top or bottom layers of the extruded mesh.
             builder.require_mesh_layers()
             stmt, incl = extruded_top_bottom_facet(cxt_kernel, builder,
-                                                   coordsym, mesh_layer_sym)
+                                                   coordsym, mesh_layer_sym,
+                                                   cell_orientations)
             statements.append(stmt)
 
         else:
@@ -194,14 +209,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         inc_dir = list(set(incl) - set(inc))
         inc.extend(inc_dir)
 
-    # Now we handle any terms that require auxiliary data (if any)
-    # and update our temporaries and code statements.
-    # In particular, if we need to apply the action of a
-    # Slate tensor on an already assembled coefficient.
-    context_temps = builder.temps.copy()
-    if bool(builder.aux_exprs):
-        aux_temps, aux_statements = auxiliary_information(builder)
-        context_temps.update(aux_temps)
+    # Now we handle any terms that require auxiliary temporaries,
+    # such as inverses, transposes and actions of a tensor on a
+    # coefficient
+    if builder.aux_exprs:
+        # The declared temps will be updated within this method
+        aux_statements = auxiliary_temporaries(builder, declared_temps)
         statements.extend(aux_statements)
 
     # Now we create the result statement by declaring its eigen type and
@@ -219,11 +232,20 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Generate the complete c++ string performing the linear algebra operations
     # on Eigen matrices/vectors
     cpp_string = ast.FlatBlock(metaphrase_slate_to_cpp(slate_expr,
-                                                       context_temps))
+                                                       declared_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
+
+    # Finalize AST for macro kernel construction
+    builder._finalize_kernels_and_update()
 
     # Generate arguments for the macro kernel
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
+
+    # Orientation information
+    if builder.oriented:
+        args.append(ast.Decl("int **", cell_orientations))
+
+    # Coefficient information
     for c in expr_coeffs:
         if isinstance(c, Constant):
             ctype = "%s *" % SCALAR_TYPE
@@ -231,8 +253,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             ctype = "%s **" % SCALAR_TYPE
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
+    # Facet information
     if builder.needs_cell_facets:
-        args.append(ast.Decl("char *", cellfacetsym))
+        args.append(ast.Decl("%s *" % as_cstr(cell_to_facets_dtype),
+                             cellfacetsym))
 
     # NOTE: We need to be careful about the ordering here. Mesh layers are
     # added as the final argument to the kernel.
@@ -277,13 +301,16 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     idx = tuple([0]*slate_expr.rank)
 
     kernels = (SplitKernel(idx, kinfo),)
-    slate_expr._kernels = kernels
+
+    # Store the resulting kernel for reuse
+    slate_expr._metakernel_cache = kernels
 
     return kernels
 
 
 def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
-                             coordsym, mesh_layer_sym):
+                             coordsym, mesh_layer_sym,
+                             cell_orientations):
     """Generates a code statement for evaluating interior horizontal
     facet integrals.
 
@@ -296,10 +323,12 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
     :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
+    :arg cell_orientations: An `ast.Symbol` representing cell orientation
+                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
-    t = builder.get_temporary(exp)
+    t = builder.temps[exp]
     nlayers = exp.ufl_domain().topological.layers - 1
 
     incl = []
@@ -317,6 +346,9 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
         coefficient_map = tuple(OrderedDict.fromkeys(c_set))
         clist = [c for ci in coefficient_map
                  for c in builder.coefficient(exp.coefficients()[ci])]
+
+        if top.kinfo.oriented and btm.kinfo.oriented:
+            clist.insert(0, cell_orientations)
 
         dirs = top.kinfo.kernel._include_dirs + btm.kinfo.kernel._include_dirs
         incl.extend(tuple(OrderedDict.fromkeys(dirs)))
@@ -337,7 +369,8 @@ def extruded_int_horiz_facet(exp, builder, top_sks, bottom_sks,
     return stmt, incl
 
 
-def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
+def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
+                              cell_orientations):
     """Generates a code statement for evaluating exterior top/bottom
     facet integrals.
 
@@ -348,11 +381,13 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
     :arg mesh_layer_sym: An `ast.Symbol` representing the mesh layer.
+    :arg cell_orientations: An `ast.Symbol` representing cell orientation
+                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
     exp = cxt_kernel.tensor
-    t = builder.get_temporary(exp)
+    t = builder.temps[exp]
     nlayers = exp.ufl_domain().topological.layers - 1
 
     incl = []
@@ -365,6 +400,9 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
         # if any are required
         clist = [c for ci in kinfo.coefficient_map
                  for c in builder.coefficient(exp.coefficients()[ci])]
+
+        if kinfo.oriented:
+            clist.insert(0, cell_orientations)
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
@@ -382,7 +420,8 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym):
     return stmt, incl
 
 
-def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
+def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym,
+                        cell_orientations):
     """Generates a code statement for evaluating exterior/interior facet
     integrals.
 
@@ -393,11 +432,13 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
     :arg coordsym: An `ast.Symbol` object representing coordinate arguments
                    for the kernel.
     :arg cellfacetsym: An `ast.Symbol` representing the cell facets.
+    :arg cell_orientations: An `ast.Symbol` representing cell orientation
+                            information.
 
     Returns: A COFFEE code statement and updated include_dirs
     """
     exp = cxt_kernel.tensor
-    t = builder.get_temporary(exp)
+    t = builder.temps[exp]
     it_type = cxt_kernel.original_integral_type
     itsym = ast.Symbol("i0")
 
@@ -436,6 +477,9 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
 
+        if kinfo.oriented:
+            clist.insert(0, cell_orientations)
+
         clist.append(ast.FlatBlock("&%s" % itsym))
         funcalls.append(ast.FunCall(kinfo.kernel.name,
                                     tensor,
@@ -452,67 +496,96 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym):
     return loop_stmt, incl
 
 
-def auxiliary_information(builder):
-    """This function generates any auxiliary information regarding special
-    handling of expressions that do not have any integral forms or subkernels
-    associated with it.
+def auxiliary_temporaries(builder, declared_temps):
+    """This function generates auxiliary information regarding special
+    handling of expressions that require creating additional temporaries.
 
     :arg builder: a :class:`KernelBuilder` object that contains all the
                   necessary temporary and expression information.
-
-    Returns: a mapping of the form ``{aux_node: aux_temp}``, where `aux_node`
-             is an already assembled data-object provided as a
-             `firedrake.Function` and `aux_temp` is the corresponding
-             temporary.
-
-             a list of auxiliary statements are returned that contain temporary
+    :arg declared_temps: a `dict` of temporaries that have already been
+                         declared and assigned values. This will be
+                         updated in this method and referenced later
+                         in the compiler.
+    Returns: a list of auxiliary statements are returned that contain temporary
              declarations and any code-blocks needed to evaluate the
              expression.
     """
-    aux_temps = {}
     aux_statements = []
-    for i, exp in enumerate(builder.aux_exprs):
-        if isinstance(exp, Action):
+    for exp in builder.aux_exprs:
+        if isinstance(exp, Inverse):
+            if builder._ref_counts[exp] > 1:
+                # Get the temporary for the particular expression
+                result = metaphrase_slate_to_cpp(exp, declared_temps)
+
+                # Now we use the generated result and assign the value to the
+                # corresponding temporary.
+                temp = ast.Symbol("auxT%d" % len(declared_temps))
+                shape = exp.shape
+                aux_statements.append(ast.Decl(eigen_matrixbase_type(shape),
+                                               temp))
+                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+                aux_statements.append(ast.Assign(temp, result))
+
+                # Update declared temps
+                declared_temps[exp] = temp
+
+        elif isinstance(exp, Action):
+            # Action computations are relatively inexpensive, so
+            # we don't waste memory space on creating temps for
+            # these expressions. However, we must create a temporary
+            # for the actee coefficient (if we haven't already).
             actee, = exp.actee
+            if actee not in declared_temps:
+                # Declare a temporary for the coefficient
+                V = actee.function_space()
+                shape_array = [(Vi.finat_element.space_dimension(),
+                                np.prod(Vi.shape))
+                               for Vi in V.split()]
+                ctemp = ast.Symbol("auxT%d" % len(declared_temps))
+                shape = sum(n * d for (n, d) in shape_array)
+                typ = eigen_matrixbase_type(shape=(shape,))
+                aux_statements.append(ast.Decl(typ, ctemp))
+                aux_statements.append(ast.FlatBlock("%s.setZero();\n" % ctemp))
 
-            # Create a temporary for the assembled coefficient and
-            # compute its shape to declare as an Eigen::MatrixBase object
-            temp = ast.Symbol("C%d" % i)
-            V = actee.function_space()
-            node_extent = V.fiat_element.space_dimension()
-            dof_extent = np.prod(V.ufl_element().value_shape())
-            typ = eigen_matrixbase_type(shape=(dof_extent * node_extent,))
-            aux_statements.append(ast.Decl(typ, temp))
-            aux_statements.append(ast.FlatBlock("%s.setZero();\n" % temp))
+                # Now we populate the temporary with the coefficient
+                # information and insert in the right place.
+                offset = 0
+                for i, shp in enumerate(shape_array):
+                    node_extent, dof_extent = shp
+                    # Now we unpack the function and insert its entries into a
+                    # 1D vector temporary
+                    isym = ast.Symbol("i1")
+                    jsym = ast.Symbol("j1")
+                    tensor_index = ast.Sum(offset,
+                                           ast.Sum(ast.Prod(dof_extent,
+                                                            isym), jsym))
 
-            # Now we unpack the function and insert its entries into a
-            # 1D vector temporary
-            isym = ast.Symbol("i1")
-            jsym = ast.Symbol("j1")
-            tensor_index = ast.Sum(ast.Prod(dof_extent, isym), jsym)
+                    # Inner-loop running over dof_extent
+                    coeff_sym = ast.Symbol(builder.coefficient(actee)[i],
+                                           rank=(isym, jsym))
+                    coeff_temp = ast.Symbol(ctemp, rank=(tensor_index,))
+                    inner_loop = ast.For(ast.Decl("unsigned int", jsym,
+                                                  init=0),
+                                         ast.Less(jsym, dof_extent),
+                                         ast.Incr(jsym, 1),
+                                         ast.Assign(coeff_temp, coeff_sym))
+                    # Outer-loop running over node_extent
+                    loop = ast.For(ast.Decl("unsigned int", isym, init=0),
+                                   ast.Less(isym, node_extent),
+                                   ast.Incr(isym, 1),
+                                   inner_loop)
 
-            # Inner-loop running over dof_extent
-            coeff_sym = ast.Symbol(builder.coefficient_map[actee],
-                                   rank=(isym, jsym))
-            coeff_temp = ast.Symbol(temp, rank=(tensor_index,))
-            inner_loop = ast.For(ast.Decl("unsigned int", jsym, init=0),
-                                 ast.Less(jsym, dof_extent),
-                                 ast.Incr(jsym, 1),
-                                 ast.Assign(coeff_temp, coeff_sym))
-            # Outer-loop running over node_extent
-            loop = ast.For(ast.Decl("unsigned int", isym, init=0),
-                           ast.Less(isym, node_extent),
-                           ast.Incr(isym, 1),
-                           inner_loop)
+                    aux_statements.append(loop)
+                    offset += node_extent * dof_extent
 
-            aux_statements.append(loop)
-            aux_temps[actee] = temp
+                # Update declared temporaries with the coefficient
+                declared_temps[actee] = ctemp
         else:
             raise NotImplementedError(
                 "Auxiliary expr type %s not currently implemented." % type(exp)
             )
 
-    return aux_temps, aux_statements
+    return aux_statements
 
 
 def parenthesize(arg, prec=None, parent=None):
@@ -538,7 +611,10 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         This function returns a `string` which represents the C/C++ code
         representation of the `slate.TensorBase` expr.
     """
-    if isinstance(expr, Tensor):
+    # If the tensor is terminal, it has already been declared.
+    # Coefficients in action expressions will have been declared by now,
+    # as well as any inverses with high reference count.
+    if expr in temps:
         return temps[expr].gencode()
 
     elif isinstance(expr, Transpose):
@@ -571,7 +647,6 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
         result = "(%s) * %s" % (metaphrase_slate_to_cpp(tensor,
                                                         temps,
                                                         expr.prec), temps[c])
-
         return parenthesize(result, expr.prec, prec)
 
     else:

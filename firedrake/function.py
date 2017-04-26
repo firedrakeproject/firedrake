@@ -7,6 +7,7 @@ import ctypes
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
+from pyop2.datatypes import ScalarType, IntType, as_ctypes
 
 from firedrake import functionspaceimpl
 from firedrake.logging import warning
@@ -22,24 +23,22 @@ except ImportError:
 __all__ = ['Function', 'PointNotInDomainError']
 
 
-valuetype = np.float64
-
-
 class _CFunction(ctypes.Structure):
     """C struct collecting data from a :class:`Function`"""
     _fields_ = [("n_cols", c_int),
                 ("n_layers", c_int),
                 ("coords", POINTER(c_double)),
-                ("coords_map", POINTER(c_int)),
+                ("coords_map", POINTER(as_ctypes(IntType))),
+                # FIXME: what if f does not have type double?
                 ("f", POINTER(c_double)),
-                ("f_map", POINTER(c_int)),
+                ("f_map", POINTER(as_ctypes(IntType))),
                 ("sidx", c_void_p)]
 
 
 class CoordinatelessFunction(ufl.Coefficient):
     """A function on a mesh topology."""
 
-    def __init__(self, function_space, val=None, name=None, dtype=valuetype):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         """
         :param function_space: the :class:`.FunctionSpace`, or
             :class:`.MixedFunctionSpace` on which to build this
@@ -53,7 +52,7 @@ class CoordinatelessFunction(ufl.Coefficient):
             value.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
-               (defaults to ``valuetype``).
+               (defaults to ``ScalarType``).
         """
         assert isinstance(function_space, (functionspaceimpl.FunctionSpace,
                                            functionspaceimpl.MixedFunctionSpace)), \
@@ -214,7 +213,7 @@ class Function(ufl.Coefficient):
     the :class:`.FunctionSpace`.
     """
 
-    def __init__(self, function_space, val=None, name=None, dtype=valuetype):
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
         """
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
@@ -223,7 +222,7 @@ class Function(ufl.Coefficient):
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
-               (defaults to ``valuetype``).
+               (defaults to ``ScalarType``).
         """
 
         V = function_space
@@ -443,9 +442,10 @@ class Function(ufl.Coefficient):
         else:
             c_function.n_layers = 1
         c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
-        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        # FIXME: What about complex?
         c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
-        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(c_int))
+        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
         return c_function
 
     @property
@@ -457,12 +457,15 @@ class Function(ufl.Coefficient):
         # Return pointer
         return ctypes.pointer(c_function)
 
-    @utils.cached_property
-    def _c_evaluate(self):
-        result = make_c_evaluate(self)
-        result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
-        result.restype = c_int
-        return result
+    def _c_evaluate(self, tolerance=None):
+        cache = self.__dict__.setdefault("_c_evaluate_cache", {})
+        try:
+            return cache[tolerance]
+        except KeyError:
+            result = make_c_evaluate(self, tolerance=tolerance)
+            result.argtypes = [POINTER(_CFunction), POINTER(c_double), POINTER(c_double)]
+            result.restype = c_int
+            return cache.setdefault(tolerance, result)
 
     def evaluate(self, coord, mapping, component, index_values):
         # Called by UFL when evaluating expressions at coordinates
@@ -471,7 +474,13 @@ class Function(ufl.Coefficient):
         return self.at(coord)
 
     def at(self, arg, *args, **kwargs):
-        """Evaluate function at points."""
+        """Evaluate function at points.
+
+        :arg arg: The point to locate.
+        :arg args: Additional points.
+        :kwarg dont_raise: Do not raise an error if a point is not found.
+        :kwarg tolerance: Tolerance to use when checking for points in cell.
+        """
         # Need to ensure data is up-to-date for reading
         self.dat._force_evaluation(read=True, write=False)
         from mpi4py import MPI
@@ -482,6 +491,7 @@ class Function(ufl.Coefficient):
 
         dont_raise = kwargs.get('dont_raise', False)
 
+        tolerance = kwargs.get('tolerance', None)
         # Handle f.at(0.3)
         if not arg.shape:
             arg = arg.reshape(-1)
@@ -509,9 +519,9 @@ class Function(ufl.Coefficient):
 
         def single_eval(x, buf):
             """Helper function to evaluate at a single point."""
-            err = self._c_evaluate(self._ctypes,
-                                   x.ctypes.data_as(POINTER(c_double)),
-                                   buf.ctypes.data_as(POINTER(c_double)))
+            err = self._c_evaluate(tolerance=tolerance)(self._ctypes,
+                                                        x.ctypes.data_as(POINTER(c_double)),
+                                                        buf.ctypes.data_as(POINTER(c_double)))
             if err == -1:
                 raise PointNotInDomainError(self.function_space().mesh(), x.reshape(-1))
 
@@ -582,18 +592,19 @@ class PointNotInDomainError(Exception):
         return "domain %s does not contain point %s" % (self.domain, self.point)
 
 
-def make_c_evaluate(function, c_name="evaluate", ldargs=None):
+def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     """Generates, compiles and loads a C function to evaluate the
     given Firedrake :class:`Function`."""
 
     from os import path
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
+    from pyop2.utils import get_petsc_dir
     import firedrake.pointquery_utils as pq_utils
 
     function_space = function.function_space()
 
-    src = pq_utils.src_locate_cell(function_space.mesh())
+    src = pq_utils.src_locate_cell(function_space.mesh(), tolerance=tolerance)
     src += compile_element(function_space.ufl_element(), function_space.dim)
     src += pq_utils.make_wrapper(function,
                                  forward_args=["double*", "double*"],
@@ -605,6 +616,7 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None):
     ldargs += ["-L%s/lib" % sys.prefix, "-lspatialindex_c", "-Wl,-rpath,%s/lib" % sys.prefix]
     return compilation.load(src, "c", c_name,
                             cppargs=["-I%s" % path.dirname(__file__),
-                                     "-I%s/include" % sys.prefix],
+                                     "-I%s/include" % sys.prefix] +
+                            ["-I%s/include" % d for d in get_petsc_dir()],
                             ldargs=ldargs,
                             comm=function.comm)

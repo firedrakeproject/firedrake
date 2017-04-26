@@ -213,7 +213,7 @@ class ImplicitMatrixContext(object):
     # extraction for our custom matrix type.  Note that we are splitting UFL
     # and index sets rather than an assembled matrix, keeping matrix
     # assembly deferred as long as possible.
-    def getSubMatrix(self, mat, row_is, col_is, target=None):
+    def createSubMatrix(self, mat, row_is, col_is, target=None):
         if target is not None:
             # Repeat call, just return the matrix, since we don't
             # actually assemble in here.

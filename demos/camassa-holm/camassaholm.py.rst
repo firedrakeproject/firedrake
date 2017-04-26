@@ -108,8 +108,9 @@ Then we interpolate the initial condition,
 
 into u, ::
 
-  u0.interpolate(Expression("""0.2*2/(exp(x[0]-403./15.) + exp(-x[0]+403./15.))
-                             + 0.5*2/(exp(x[0]-203./15.)+exp(-x[0]+203./15.))"""))
+  x, = SpatialCoordinate(mesh)
+  u0.interpolate(0.2*2/(exp(x-403./15.) + exp(-x+403./15.))
+                 + 0.5*2/(exp(x-203./15.)+exp(-x+203./15.)))
 
 before solving for the initial condition for ``m``. This is done by
 setting up the linear problem and solving it (here we use a direct
