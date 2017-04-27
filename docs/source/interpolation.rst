@@ -30,7 +30,7 @@ The recommended way to specify the source expression is UFL.  UFL_
 produces clear error messages in case of syntax or type errors, yet
 UFL expressions have good run-time performance, since they are
 translated to C interpolation kernels using TSFC_ technology.
-Moreover, it offers a rich language for describing expressions,
+Moreover, UFL offers a rich language for describing expressions,
 including:
 
 * The coordinates: in physical space as
