@@ -872,15 +872,14 @@ def build_and_install_libspatialindex():
     log.info("Installing libspatialindex\n")
     if os.path.exists("libspatialindex"):
         log.info("Updating the git repository for libspatialindex")
-        os.chdir("libspatialindex")
-        check_call(["git", "fetch"])
-        git_sha = check_output(["git", "rev-parse", "HEAD"])
-        git_sha_new = check_output(["git", "rev-parse", "@{u}"])
-        libspatialindex_changed = git_sha != git_sha_new
-        if libspatialindex_changed:
-            check_call(["git", "reset", "--hard"])
-            check_call(["git", "pull"])
-        os.chdir("..")
+        with directory("libspatialindex"):
+            check_call(["git", "fetch"])
+            git_sha = check_output(["git", "rev-parse", "HEAD"])
+            git_sha_new = check_output(["git", "rev-parse", "@{u}"])
+            libspatialindex_changed = git_sha != git_sha_new
+            if libspatialindex_changed:
+                check_call(["git", "reset", "--hard"])
+                check_call(["git", "pull"])
     else:
         git_clone("git+https://github.com/firedrakeproject/libspatialindex.git")
         libspatialindex_changed = True
