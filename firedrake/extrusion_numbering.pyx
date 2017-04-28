@@ -160,16 +160,19 @@ example::
 
 The bottom boundary nodes are::
 
-   [0, 3, 6, 9]
+   [0, 3, 4, 6, 7, 9]
 
 whereas the top are::
 
-   [2, 5, 8, 10]
+   [2, 5, 7, 8, 10]
 
-We just need to ensure that when we visit the second cell column for
-the bottom nodes we do not consider the node 4 to be at the bottom of
-the mesh, even though it looks to be at the bottom of the column for
-that cell.
+For these strange "interior" facets, we first walk over the cells,
+picking up the dofs in the closure of the base (ceiling) of the cell,
+then we walk over facets, picking up all the dofs in the closure of
+facets that are exposed (there may be more than one of these in the
+cell column).  We don't have to worry about any lower-dimensional
+entities, because if a co-dim 2 or greater entity is exposed in a
+column, then the co-dim 1 entity in its star is also exposed.
 
 For the side boundary nodes, we can make a simplification: we know
 that the facet heights are always the same as the cell column heights
@@ -613,80 +616,103 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
 
 
 @cython.wraparound(False)
-def top_bottom_boundary_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_node_list,
-                              entity_dofs, offsets, mask, kind):
+def top_bottom_boundary_nodes(mesh,
+                              numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_node_list,
+                              masks,
+                              numpy.ndarray[PetscInt, ndim=1, mode="c"] offsets,
+                              kind):
     """Extract top or bottom boundary nodes from an extruded function space.
 
     :arg mesh: The extruded mesh.
     :arg cell_node_list: The map from cells to nodes.
-    :arg entity_dofs: The flattened entity dofs for the function space.
+    :arg masks: masks for dofs in the closure of the facets of the
+        cell.  First the vertical facets, then the horizontal facets
+        (bottom then top).
     :arg offsets: Offsets to apply walking up the column.
-    :arg mask: A mask to select the nodes on the reference cell.
     :arg kind: Whether we should select the bottom, or the top, nodes.
-    :returns: a numpy array of unique indices on the requested side.
+    :returns: a numpy array of unique indices of nodes on the bottom
+        or top of the mesh.
     """
     cdef:
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] entity_mask
+        bint top
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
+        numpy.ndarray[numpy.uint8_t, ndim=2, mode="c", cast=True] dof_masks = masks
+        numpy.ndarray[numpy.uint8_t, ndim=1, mode="c", cast=True] horiz_mask
         numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
-        PetscInt ncell, nclosure
-        PetscInt cell, entity, ndof, layers
-        PetscInt c, i, nmask, dof, idx, offset
-        bint bottom
+        PetscInt ncell, nclosure, nfacet, fstart
+        PetscInt idx, cell, facet, d, i, c, dof
+        PetscInt initial_offset, exposed_layers, layer
 
     if kind not in {"bottom", "top"}:
         raise ValueError("Don't know how to extract nodes with kind '%s'", kind)
-    bottom = kind == "bottom"
 
-    ent = 0
-    nmask = len(mask)
-    idx = 0
-    # Build the masking data we will index to select on a per-cell
-    # basis.
-    entity_mask = numpy.empty((nmask, 3), dtype=IntType)
-    for dim in sorted(entity_dofs.keys()):
-        for entity_num in range(len(entity_dofs[dim])):
-            for d in entity_dofs[dim][entity_num]:
-                if d in mask:
-                    entity_mask[idx, :] = (d, ent, offsets[d])
-                    idx += 1
-            ent += 1
+    top = kind == "top"
 
     layer_extents = mesh.layer_extents
     cell_closure = mesh.cell_closure
     ncell, nclosure = mesh.cell_closure.shape
 
-    indices = numpy.empty(len(mask)*ncell, dtype=IntType)
+    nfacet = mesh._base_mesh.ufl_cell().num_facets()
+    fstart = nclosure - nfacet - 1
+    ndof = cell_node_list.shape[1]
+    assert all(sum(masks[i, :]) == sum(masks[0, :]) for i in range(nfacet))
 
+    dm = mesh._plex
+    fStart, fEnd = dm.getHeightStratum(1)
+    if top:
+        horiz_mask = dof_masks[nfacet + 1, :]
+        num_indices = (sum(horiz_mask) * ncell
+                       + sum(dof_masks[0, :]) * numpy.sum(layer_extents[fStart:fEnd, 1]
+                                                   - layer_extents[fStart:fEnd, 3]))
+    else:
+        horiz_mask = dof_masks[nfacet, :]
+        num_indices = (sum(horiz_mask) * ncell
+                       + sum(dof_masks[0, :]) * numpy.sum(layer_extents[fStart:fEnd, 2]
+                                                   - layer_extents[fStart:fEnd, 0]))
+    indices = numpy.full(num_indices, -1, dtype=IntType)
     idx = 0
     for cell in range(ncell):
         # Walk over all the cells, extract the plex cell this cell
         # corresponds to.
-        c = cell_closure[cell, nclosure-1]
-        for i in range(nmask):
-            # Now over each of the masked dofs.
-            dof = cell_node_list[cell, entity_mask[i, 0]]
-            entity = cell_closure[cell, entity_mask[i, 1]]
-            offset = entity_mask[i, 2]
-            # Now we need to check if this dof is actually on the boundary.
-            if bottom:
-                # On the bottom, we need the cell column we're looking
-                # through to start at the same height as the entity
-                # column.
-                if layer_extents[c, 0] == layer_extents[entity, 0]:
-                    indices[idx] = dof
-                    idx += 1
+        c = cell_closure[cell, nclosure - 1]
+        # First pick up the dofs in the closure of the horizontal
+        # facet at the top or bottom of the cell column.
+        if top:
+            initial_offset = layer_extents[c, 1] - layer_extents[c, 0] - 2
+        else:
+            initial_offset = 0
+        assert initial_offset >= 0, "Not expecting negative number of layers"
+        for d in range(ndof):
+            if not horiz_mask[d]:
+                continue
+            dof = cell_node_list[cell, d]
+            indices[idx] = dof + offsets[d] * initial_offset
+            idx += 1
+        # Now pick up dofs from any exposed facets.
+        for i in range(nfacet):
+            facet = cell_closure[cell, fstart + i]
+            if top:
+                # Is the facet exposed when viewed through this cell?
+                if layer_extents[c, 1] == layer_extents[facet, 3]:
+                    continue
+                # Count number of exposed layers.
+                initial_offset = layer_extents[facet, 3] - layer_extents[facet, 2] - 1
+                exposed_layers = layer_extents[facet, 1] - layer_extents[facet, 3]
             else:
-                # On the top, we need the cell column we're looking
-                # through to finish at the same height as the entity
-                # column.
-                if layer_extents[c, 1] == layer_extents[entity, 1]:
-                    # Offset by the number of layers from the bottom
-                    # of the current *cell* column (the entity column
-                    # may go lower) to the top.
-                    layers = layer_extents[c, 1] - layer_extents[c, 0]
-                    indices[idx] = dof + offset * (layers - 2)
+                # Is the facet exposed when viewed through this cell?
+                if layer_extents[c, 0] == layer_extents[facet, 2]:
+                    continue
+                initial_offset = 0
+                exposed_layers = layer_extents[facet, 2] - layer_extents[facet, 0]
+            assert initial_offset >= 0, "Not expecting negative number of layers"
+            assert exposed_layers >= 1, "Expecting at least one exposed layer"
+            for d in range(ndof):
+                if not dof_masks[i, d]:
+                    continue
+                for layer in range(exposed_layers):
+                    dof = cell_node_list[cell, d]
+                    indices[idx] = dof + offsets[d] * (initial_offset + layer)
                     idx += 1
     return numpy.unique(indices[:idx])
 
