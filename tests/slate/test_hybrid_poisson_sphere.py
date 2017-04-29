@@ -29,7 +29,8 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     nullsp = MixedVectorSpaceBasis(W, [VectorSpaceBasis(constant=True), W[1]])
     solve(a == L, w,
           nullspace=nullsp,
-          solver_parameters={'mat_type': 'matfree',
+          solver_parameters={'ksp_type': 'gmres',
+                             'mat_type': 'matfree',
                              'pc_type': 'python',
                              'pc_python_type': 'firedrake.HybridizationPC',
                              'hybridization_pc_type': 'hypre',
