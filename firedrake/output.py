@@ -232,7 +232,7 @@ class File(object):
     _footer = ('</Collection>\n'
                '</VTKFile>\n')
 
-    def __init__(self, filename, project_output=False, comm=None):
+    def __init__(self, filename, project_output=False, comm=None, restart=0):
         """Create an object for outputting data for visualisation.
 
         This produces output in VTU format, suitable for visualisation
@@ -244,6 +244,7 @@ class File(object):
         :kwarg project_output: Should the output be projected to
             linears?  Default is to use interpolation.
         :kwarg comm: The MPI communicator to use.
+        :kwarg restart: Restart at timestep.
 
         .. note::
 
@@ -259,10 +260,13 @@ class File(object):
 
         comm = dup_comm(comm or COMM_WORLD)
 
-        if comm.rank == 0:
+        if comm.rank == 0 and restart == 0:
             outdir = os.path.dirname(os.path.abspath(filename))
             if not os.path.exists(outdir):
                 os.makedirs(outdir)
+        elif comm.rank == 0:
+            if not os.path.exists(os.path.abspath(filename)):
+                raise ValueError("Need a file to restart from.")
         comm.barrier()
 
         self.comm = comm
@@ -272,10 +276,18 @@ class File(object):
         self.timestep = itertools.count()
         self.project = project_output
 
-        if self.comm.rank == 0:
+        if self.comm.rank == 0 and restart == 0:
             with open(self.filename, "wb") as f:
                 f.write(self._header)
                 f.write(self._footer)
+        elif self.comm.rank == 0:
+            import xml.etree.ElementTree as ET
+            tree = ET.parse(os.path.abspath(filename))
+            for dataset in tree.getroot().iter("DataSet"):
+                if restart >= 0:
+                    next(self.counter)
+                    next(self.timestep)
+                    restart = restart - 1
 
         self._fnames = None
         self._topology = None
