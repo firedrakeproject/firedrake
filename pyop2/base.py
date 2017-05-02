@@ -2778,11 +2778,10 @@ class Map(object):
 
     For extruded problems (where ``iterset`` is an
     :class:`ExtrudedSet`) with boundary conditions applied at the top
-    and bottom of the domain, one needs to provide a list of which of
-    the `arity` values in each map entry correspond to values on the
-    bottom boundary and which correspond to the top.  This is done by
-    supplying two lists of indices in `bt_masks`, the first provides
-    indices for the bottom, the second for the top.
+    and bottom of the domain, ``bt_masks`` should be a :class:`dict`
+    mapping boundary condition types to a 2-tuple of masks that should
+    be applied to switch off respectively the "bottom" and "top" nodes
+    of a cell.
 
     """
 
