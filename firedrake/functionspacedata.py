@@ -16,6 +16,7 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 
 import numpy
 import finat
+from collections import namedtuple
 from decorator import decorator
 from functools import reduce
 
@@ -31,6 +32,7 @@ import firedrake.extrusion_numbering as extnum
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
+from firedrake.petsc import PETSc
 
 
 __all__ = ("get_shared_data", )
@@ -179,6 +181,12 @@ def get_dof_offset(mesh, key, entity_dofs, ndof):
     return mesh.make_offset(entity_dofs, ndof)
 
 
+EntityMasks = namedtuple("EntityMasks", ["section", "iset",
+                                         "facet_points"])
+"""A CSR-encoded mask of nodes that are non-zero on each entity for a
+given finite element."""
+
+
 @cached
 def get_boundary_masks(mesh, key, finat_element):
     """Get masks for facet dofs.
@@ -196,30 +204,45 @@ def get_boundary_masks(mesh, key, finat_element):
     if not mesh.cell_set._extruded:
         return None
     masks = {}
-    # Compute the top and bottom masks to identify boundary dofs
-    #
-    # Sorting the keys of the closure entity dofs, the whole cell
-    # comes last [-1], before that the horizontal facet [-2], before
-    # that vertical facets [-3]. We need the horizontal facets here.
     dim = finat_element.cell.get_spatial_dimension()
-    ndof = finat_element.space_dimension()
-    topological_closure = finat_element.entity_closure_dofs()
-    nfacet = sum(len(v) for k, v in iteritems(topological_closure) if sum(k) == dim - 1)
-    topo_masks = numpy.zeros((nfacet, ndof), dtype=bool)
-    geo_masks = numpy.zeros((nfacet, ndof), dtype=bool)
-    i = 0
-    for entity in sorted(topological_closure.keys()):
-        if sum(entity) != dim - 1:
+    ecd = finat_element.entity_closure_dofs()
+    horiz_facet = sorted(ecd.keys())[-2]
+    # Number of entities on cell excepting the cell itself.
+    chart = sum(map(len, ecd.values())) - 1
+    closure_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    support_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    closure_section.setChart(0, chart)
+    support_section.setChart(0, chart)
+    closure_indices = []
+    support_indices = []
+    facet_points = []
+    p = 0
+    for ent in sorted(ecd.keys()):
+        # Never need closure of cell
+        if sum(ent) == dim:
             continue
-        topo_dofs = topological_closure[entity]
-        geo_dofs = entity_support_dofs(finat_element, entity)
-        for key in sorted(topo_dofs.keys()):
-            topo_masks[i, topo_dofs[key]] = True
-            geo_masks[i, geo_dofs[key]] = True
-            i += 1
-
-    masks["topological"] = topo_masks
-    masks["geometric"] = geo_masks
+        for key in sorted(ecd[ent].keys()):
+            closure_section.setDof(p, len(ecd[ent][key]))
+            # Only record support dofs for horizontal facets.
+            # Computing the support on all entities is very
+            # expensive, so we just don't support that option on
+            # generic extruded meshes with variable numbers of
+            # layers.
+            if ent == horiz_facet:
+                esd = entity_support_dofs(finat_element, ent)
+                support_section.setDof(p, len(esd[key]))
+                support_indices.extend(sorted(esd[key]))
+            if sum(ent) == dim - 1:
+                facet_points.append(p)
+            closure_indices.extend(sorted(ecd[ent][key]))
+            p += 1
+    closure_section.setUp()
+    support_section.setUp()
+    closure_indices = PETSc.IS().createGeneral(closure_indices, comm=PETSc.COMM_SELF)
+    support_indices = PETSc.IS().createGeneral(support_indices, comm=PETSc.COMM_SELF)
+    facet_points = PETSc.IS().createGeneral(facet_points, comm=PETSc.COMM_SELF)
+    masks["topological"] = EntityMasks(closure_section, closure_indices, facet_points)
+    masks["geometric"] = EntityMasks(support_section, support_indices, facet_points)
     return masks
 
 
@@ -253,13 +276,19 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
     cell_node_list = V.cell_node_list
     offset = V.offset
     if mesh.variable_layers:
+        if method == "geometric":
+            raise NotImplementedError("Generic entity_support_dofs not implemented.")
         return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
                                                 V.boundary_masks[method],
                                                 offset,
                                                 sub_domain)
     else:
         idx = {"bottom": -2, "top": -1}[sub_domain]
-        mask = V.boundary_masks[method][idx, :]
+        section, iset, facet_iset = V.boundary_masks[method]
+        facet = facet_iset.indices[idx]
+        dof = section.getDof(facet)
+        off = section.getOffset(facet)
+        mask = iset.indices[off:off+dof]
         nodes = cell_node_list[..., mask]
         if sub_domain == "top":
             nodes = nodes + offset[mask]*(mesh.cell_set.layers - 2)
@@ -628,8 +657,15 @@ class FunctionSpaceData(object):
             else:
                 masks = {}
                 # Convert to format that PyOP2 wants
-                for name, val in self.boundary_masks.items():
-                    (bottom, ), (top, ) = map(numpy.nonzero, tuple(val[-2:, ...]))
+                for name, (section, iset, facet_iset) in self.boundary_masks.items():
+                    bottom, top = facet_iset.indices[-2:]
+                    boff = section.getOffset(bottom)
+                    bdof = section.getDof(bottom)
+                    toff = section.getOffset(top)
+                    tdof = section.getDof(top)
+                    section.getDof(top)
+                    bottom = iset.indices[boff:boff+bdof]
+                    top = iset.indices[toff:toff+tdof]
                     masks[name] = (bottom, top)
             val = op2.Map(entity_set, self.node_set,
                           map_arity,

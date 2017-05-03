@@ -35,6 +35,15 @@ def test_mismatch_layers_array():
         ExtrudedMesh(mesh, [[0, 2], [1, 1]])
 
 
+def test_geometric_bcs_not_supported():
+    mesh = UnitIntervalMesh(2)
+    extmesh = ExtrudedMesh(mesh, [[0, 2], [1, 1]],
+                           layer_height=1)
+    V = FunctionSpace(extmesh, "CG", 1)
+    with pytest.raises(NotImplementedError):
+        DirichletBC(V, 0, "top", method="geometric").nodes
+
+
 def test_numbering_one_d_P1():
     #      7----10
     #      |    |

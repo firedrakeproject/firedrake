@@ -618,7 +618,7 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
 @cython.wraparound(False)
 def top_bottom_boundary_nodes(mesh,
                               numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_node_list,
-                              masks,
+                              mask,
                               numpy.ndarray[PetscInt, ndim=1, mode="c"] offsets,
                               kind):
     """Extract top or bottom boundary nodes from an extruded function space.
@@ -637,40 +637,48 @@ def top_bottom_boundary_nodes(mesh,
         bint top
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
-        numpy.ndarray[numpy.uint8_t, ndim=2, mode="c", cast=True] dof_masks = masks
-        numpy.ndarray[numpy.uint8_t, ndim=1, mode="c", cast=True] horiz_mask
+        PETSc.Section section
+        PETSc.IS iset, facet_iset
         numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
-        PetscInt ncell, nclosure, nfacet, fstart
+        PetscInt ncell, nclosure, n_vert_facet, fstart
         PetscInt idx, cell, facet, d, i, c, dof
         PetscInt initial_offset, exposed_layers, layer
+        PetscInt ndof, offset
+        const PetscInt *masked_indices
+        const PetscInt *facet_points
 
     if kind not in {"bottom", "top"}:
         raise ValueError("Don't know how to extract nodes with kind '%s'", kind)
 
+    section, iset, facet_iset = mask
     top = kind == "top"
 
     layer_extents = mesh.layer_extents
     cell_closure = mesh.cell_closure
     ncell, nclosure = mesh.cell_closure.shape
+    n_vert_facet = mesh._base_mesh.ufl_cell().num_facets()
+    assert facet_iset.getSize() == n_vert_facet + 2
 
-    nfacet = mesh._base_mesh.ufl_cell().num_facets()
-    fstart = nclosure - nfacet - 1
+    CHKERR(ISGetIndices(facet_iset.iset, &facet_points))
+    bottom_facet = facet_points[n_vert_facet]
+    top_facet = facet_points[n_vert_facet+1]
+    fstart = nclosure - n_vert_facet - 1
     ndof = cell_node_list.shape[1]
-    assert all(sum(masks[i, :]) == sum(masks[0, :]) for i in range(nfacet))
+    # All vertical facets should have same number of masked dofs
+    assert all(section.getDof(facet_points[i]) == section.getDof(facet_points[0]) for p in range(n_vert_facet))
 
     dm = mesh._plex
     fStart, fEnd = dm.getHeightStratum(1)
     if top:
-        horiz_mask = dof_masks[nfacet + 1, :]
-        num_indices = (sum(horiz_mask) * ncell
-                       + sum(dof_masks[0, :]) * numpy.sum(layer_extents[fStart:fEnd, 1]
-                                                   - layer_extents[fStart:fEnd, 3]))
+        num_indices = (section.getDof(top_facet) * ncell
+                       + section.getDof(facet_points[0]) * numpy.sum(layer_extents[fStart:fEnd, 1]
+                                                                     - layer_extents[fStart:fEnd, 3]))
     else:
-        horiz_mask = dof_masks[nfacet, :]
-        num_indices = (sum(horiz_mask) * ncell
-                       + sum(dof_masks[0, :]) * numpy.sum(layer_extents[fStart:fEnd, 2]
-                                                   - layer_extents[fStart:fEnd, 0]))
+        num_indices = (section.getDof(bottom_facet) * ncell
+                       + section.getDof(facet_points[0]) * numpy.sum(layer_extents[fStart:fEnd, 2]
+                                                                     - layer_extents[fStart:fEnd, 0]))
     indices = numpy.full(num_indices, -1, dtype=IntType)
+    CHKERR(ISGetIndices(iset.iset, &masked_indices))
     idx = 0
     for cell in range(ncell):
         # Walk over all the cells, extract the plex cell this cell
@@ -679,18 +687,26 @@ def top_bottom_boundary_nodes(mesh,
         # First pick up the dofs in the closure of the horizontal
         # facet at the top or bottom of the cell column.
         if top:
+            CHKERR(PetscSectionGetDof(section.sec, top_facet, &ndof))
+            CHKERR(PetscSectionGetOffset(section.sec, top_facet, &offset))
             initial_offset = layer_extents[c, 1] - layer_extents[c, 0] - 2
         else:
+            CHKERR(PetscSectionGetDof(section.sec, bottom_facet, &ndof))
+            CHKERR(PetscSectionGetOffset(section.sec, bottom_facet, &offset))
             initial_offset = 0
         assert initial_offset >= 0, "Not expecting negative number of layers"
-        for d in range(ndof):
-            if not horiz_mask[d]:
-                continue
+
+        for p in range(ndof):
+            d = masked_indices[offset + p]
             dof = cell_node_list[cell, d]
             indices[idx] = dof + offsets[d] * initial_offset
             idx += 1
         # Now pick up dofs from any exposed facets.
-        for i in range(nfacet):
+        for i in range(n_vert_facet):
+            CHKERR(PetscSectionGetDof(section.sec, facet_points[i], &ndof))
+            CHKERR(PetscSectionGetOffset(section.sec, facet_points[i], &offset))
+            if ndof <= 0:
+                continue
             facet = cell_closure[cell, fstart + i]
             if top:
                 # Is the facet exposed when viewed through this cell?
@@ -707,13 +723,14 @@ def top_bottom_boundary_nodes(mesh,
                 exposed_layers = layer_extents[facet, 2] - layer_extents[facet, 0]
             assert initial_offset >= 0, "Not expecting negative number of layers"
             assert exposed_layers >= 1, "Expecting at least one exposed layer"
-            for d in range(ndof):
-                if not dof_masks[i, d]:
-                    continue
+            for p in range(ndof):
+                d = masked_indices[offset + p]
                 for layer in range(exposed_layers):
                     dof = cell_node_list[cell, d]
                     indices[idx] = dof + offsets[d] * (initial_offset + layer)
                     idx += 1
+    CHKERR(ISRestoreIndices(iset.iset, &masked_indices))
+    CHKERR(ISRestoreIndices(facet_iset.iset, &facet_points))
     return numpy.unique(indices[:idx])
 
 
