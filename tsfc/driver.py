@@ -376,6 +376,8 @@ def pick_mode(mode):
     "Return one of the specialized optimisation modules from a mode string."
     if mode == "vanilla":
         import tsfc.vanilla as m
+    elif mode == "coffee":
+        import tsfc.coffee_mode as m
     elif mode == "spectral":
         import tsfc.spectral as m
     else:
