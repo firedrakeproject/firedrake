@@ -1,4 +1,10 @@
+import collections
+import itertools
+import functools
+import numpy
+
 from pyop2 import op2
+from pyop2.datatypes import IntType
 
 
 def make_extruded_coords(extruded_topology, base_coords, ext_coords,
@@ -173,3 +179,57 @@ def flat_entity_dofs(entity_dofs):
                                       entity_dofs[(b, 1)][i] +
                                       entity_dofs[(b, 0)][2*i+1])
     return flat_entity_dofs
+
+
+def entity_indices(cell):
+    """Return a dict mapping topological entities on a cell to their integer index.
+
+    This provides an iteration ordering for entities on extruded meshes.
+
+    :arg cell: a FIAT cell.
+    """
+    d = collections.defaultdict(functools.partial(next, itertools.count()))
+    for key in sorted(itertools.chain(*(entity for eid in cell.sub_entities.values() for entity in eid.values()))):
+        d[key]
+    return d
+
+
+def entity_reordering(cell):
+    """Return an array reordering extruded cell entities.
+
+    If we iterate over the base cell, it is natural to then go over
+    all the entities induced by the product with an interval.  This
+    iteration order is not the same as the natural iteration order, so
+    we need a reordering.
+
+    :arg cell: a FIAT tensor product cell.
+    """
+    def points(t):
+        for k in sorted(t.keys()):
+            yield itertools.repeat(k, len(t[k]))
+
+    counter = collections.Counter()
+
+    topos = (c.get_topology() for c in cell.cells)
+
+    indices = entity_indices(cell)
+    ordering = numpy.zeros(len(indices), dtype=IntType)
+    for i, ent in enumerate(itertools.product(*(itertools.chain(*points(t)) for t in topos))):
+        ordering[i] = indices[ent, counter[ent]]
+        counter[ent] += 1
+    return ordering
+
+
+def entity_closures(cell):
+    """Map entities in a cell to points in the topological closure of
+    the entity.
+
+    :arg cell: a FIAT cell.
+    """
+    indices = entity_indices(cell)
+    closure = {}
+    for e, ents in cell.sub_entities.items():
+        for ent, vals in ents.items():
+            idx = indices[(e, ent)]
+            closure[idx] = list(map(indices.get, vals))
+    return closure

@@ -196,7 +196,10 @@ cimport numpy
 import cython
 cimport petsc4py.PETSc as PETSc
 from pyop2.datatypes import IntType
+from pyop2 import op2
+from tsfc.fiatinterface import as_fiat_cell
 
+import firedrake.extrusion_utils as eutils
 numpy.import_array()
 
 include "dmplexinc.pxi"
@@ -807,3 +810,216 @@ def boundary_nodes(V, sub_domain, method):
                 idx += 1
 
     return numpy.unique(boundary_nodes[:idx])
+
+
+def cell_entity_masks(mesh):
+    """Compute a masking integer for each cell in the extruded mesh.
+
+    This integer indicates for each cell, which topological entities
+    in the cell are on the boundary of the domain.  If the ith bit in
+    the integer is on, that indicates that the ith entity is on the
+    boundary, meaning that the appropriate boundary mask should be
+    used to discard element tensor contributions when assembling
+    bilinear forms.
+
+    :arg mesh: the extruded mesh.
+    :returns: a tuple of section, bottom, and top masks.  The section
+        records the number of entities in each column and the offset
+        in the masking arrays for the start of each column.
+    """
+    cell_closure = mesh.cell_closure
+    layer_extents = mesh.layer_extents
+    ncell, nclosure = cell_closure.shape
+    cStart, cEnd = mesh._plex.getHeightStratum(0)
+    top_masks = numpy.zeros(numpy.sum(layer_extents[cStart:cEnd, 1] - layer_extents[cStart:cEnd, 0] - 1),
+                            dtype=IntType)
+    bottom_masks = numpy.zeros_like(top_masks)
+    # We iterate over the base cell and do all the entities in the extruded cell above it,
+    # therefore we need a mapping from the standard firedrake entity ordering to this one.
+    cell = as_fiat_cell(mesh.ufl_cell())
+    points = eutils.entity_reordering(cell)
+    # Some masks incorporate others (since the closure of the entity
+    # is not just the entity itself), we'll use this to minimise the
+    # number of mask bits that are on.
+    flips = numpy.zeros_like(points)
+    for k, v in eutils.entity_closures(cell).items():
+        flips[k] = ~sum(2**x for x in v)
+    idx = 0
+    section = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    section.setChart(0, ncell)
+    for cell in range(ncell):
+        closure = cell_closure[cell, ...]
+        c = closure[-1]
+        cell_bottom = layer_extents[c, 0]
+        cell_top = layer_extents[c, 1]
+        section.setDof(cell, cell_top - cell_bottom - 1)
+        for layer in range(cell_bottom, cell_top - 1):
+            top_mask = 0
+            bottom_mask = 0
+            p = 0
+            # Iteration order.  Normal FIAT ordering for the entities
+            # in the base cell.  Then, on each entity, we look at the
+            # bottom vertex of the interval, then the top vertex, then
+            # the cell.
+            for ent in closure:
+                ent_top = layer_extents[ent, 3]
+                ent_bottom = layer_extents[ent, 2]
+                if layer >= ent_top - 1:
+                    # Full entity layer exposed, mark everything in
+                    # the closure of the interval's cell.
+                    point = points[p + 2]
+                    # Switch off all the entities in the closure
+                    top_mask &= flips[point]
+                    # Switch on the entity
+                    top_mask |= 2**point
+                elif layer == ent_top - 2:
+                    # Top of entity layer is exposed, so pick up the
+                    # top vertex.
+                    point = points[p + 1]
+                    top_mask &= flips[point]
+                    top_mask |= 2**point
+                else:
+                    pass
+
+                if layer < ent_bottom:
+                    # Full entity layer exposed
+                    point = points[p + 2]
+                    bottom_mask &= flips[point]
+                    top_mask |= 2**point
+                elif layer == ent_bottom:
+                    # Bottom of entity layer exposed, pick up the
+                    # bottom vertex.
+                    point = points[p]
+                    bottom_mask &= flips[point]
+                    bottom_mask |= 2**point
+                else:
+                    pass
+                # Go to the next entity.
+                p += 3
+            top_masks[idx] = top_mask
+            bottom_masks[idx] = bottom_mask
+            idx += 1
+    section.setUp()
+    assert section.getStorageSize() == bottom_masks.shape[0]
+    bottom = PETSc.IS().createGeneral(bottom_masks, comm=PETSc.COMM_SELF)
+    top = PETSc.IS().createGeneral(top_masks, comm=PETSc.COMM_SELF)
+    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
+
+
+def exterior_facet_entity_masks(mesh):
+    """Compute a masking integer for each exterior facet in the
+    extruded mesh.
+
+    This integer indicates for each facet, which topological entities
+    in the closure of the support of the facet are on the boundary of
+    the domain.  If the ith bit in the integer is on, that indicates
+    that the ith entity is on the boundary, meaning that the
+    appropriate boundary mask should be used to discard element tensor
+    contributions when assembling bilinear forms.
+
+    :arg mesh: the extruded mesh.
+    :returns: a tuple of section, bottom, and top masks.  The section
+        records the number of entities in each column and the offset
+        in the masking arrays for the start of each column.
+    """
+    label = "exterior_facets"
+    dm = mesh._plex
+
+    pStart, pEnd = dm.getChart()
+
+    cell_numbering = mesh._cell_numbering
+    renumbering = mesh._plex_renumbering.indices
+    fStart, fEnd = dm.getHeightStratum(1)
+
+    layers = mesh.exterior_facets.set.layers_array
+    top_masks = numpy.zeros(numpy.sum(layers[:, 1] - layers[:, 0] - 1),
+                            dtype=IntType)
+    bottom_masks = numpy.zeros_like(top_masks)
+
+    section = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    section.setChart(0, mesh.exterior_facets.set.total_size)
+    for p in range(*section.getChart()):
+        section.setDof(p, layers[p, 1] - layers[p, 0] - 1)
+    section.setUp()
+
+    csection, cbottom, ctop = mesh.cell_set.masks
+    facet = 0
+
+    for p in range(pStart, pEnd):
+        point = renumbering[p]
+        if fStart <= point < fEnd:
+            if dm.getLabelValue(label, point) == -1:
+                continue
+            c, = dm.getSupport(point)
+            cell = cell_numbering.getOffset(c)
+            bottom = layer_extents[c, 0]
+            top = layer_extents[c, 1]
+            coffset = csection.getOffset(cell)
+            foffset = section.getOffset(facet)
+            for i in range(top - bottom - 1):
+                top_masks[foffset + i] = ctop[coffset + i]
+                bottom_masks[foffset + i] = cbottom[coffset + i]
+            facet += 1
+    bottom = PETSc.IS().createGeneral(bottom_masks, comm=PETSc.COMM_SELF)
+    top = PETSc.IS().createGeneral(top_masks, comm=PETSc.COMM_SELF)
+    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
+
+
+def interior_facet_entity_masks(mesh):
+    """Compute a pair of masking integers for each interior facet in the
+    extruded mesh.
+
+    This integer indicates for each facet, which topological entities
+    in the closure of the support of the facet are on the boundary of
+    the domain.  If the ith bit in the integer is on, that indicates
+    that the ith entity is on the boundary, meaning that the
+    appropriate boundary mask should be used to discard element tensor
+    contributions when assembling bilinear forms.
+
+    :arg mesh: the extruded mesh.
+    :returns: a tuple of section, bottom, and top masks.  The section
+        records the number of entities in each column and the offset
+        in the masking arrays for the start of each column.
+    """
+    label = "interior_facets"
+    dm = mesh._plex
+
+    pStart, pEnd = dm.getChart()
+
+    cell_numbering = mesh._cell_numbering
+    renumbering = mesh._plex_renumbering.indices
+    fStart, fEnd = dm.getHeightStratum(1)
+
+    layers = mesh.interior_facets.set.layers_array
+    top_masks = numpy.zeros((numpy.sum(layers[:, 1] - layers[:, 0] - 1), 2),
+                            dtype=IntType)
+    bottom_masks = numpy.zeros_like(top_masks)
+
+    section = PETSc.Section().create(comm=PETSc.COMM_SELF)
+    section.setChart(0, mesh.exterior_facets.set.total_size)
+    for p in range(*section.getChart()):
+        section.setDof(p, layers[p, 1] - layers[p, 0] - 1)
+    section.setUp()
+
+    csection, cbottom, ctop = mesh.cell_set.masks
+    facet = 0
+
+    for p in range(pStart, pEnd):
+        point = renumbering[p]
+        if fStart <= point < fEnd:
+            if dm.getLabelValue(label, point) == -1:
+                continue
+            bottom = layer_extents[point, 0]
+            top = layer_extents[point, 1]
+            for j, c in enumerate(dm.getSupport(point)):
+                cell = cell_numbering.getOffset(c)
+                cbottom = layer_extents[c, 0]
+                coffset = csection.getOffset(cell)
+                foffset = section.getOffset(facet)
+                for i in range(top - bottom - 1):
+                    top_masks[foffset + i, j] = ctop[coffset + i + bottom - cbottom]
+                    bottom_masks[foffset + i, j] = cbottom[coffset + i + bottom - cbottom]
+            facet += 1
+    bottom = PETSc.IS().createGeneral(bottom_masks, comm=PETSc.COMM_SELF)
+    top = PETSc.IS().createGeneral(top_masks, comm=PETSc.COMM_SELF)
+    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
