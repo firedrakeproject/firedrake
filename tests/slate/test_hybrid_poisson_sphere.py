@@ -29,11 +29,11 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     nullsp = MixedVectorSpaceBasis(W, [VectorSpaceBasis(constant=True), W[1]])
     solve(a == L, w,
           nullspace=nullsp,
-          solver_parameters={'ksp_type': 'gmres',
+          solver_parameters={'ksp_type': 'preonly',
                              'mat_type': 'matfree',
                              'pc_type': 'python',
                              'pc_python_type': 'firedrake.HybridizationPC',
-                             'hybridization_pc_type': 'hypre',
+                             'hybridization_pc_type': 'lu',
                              'hybridization_ksp_type': 'preonly',
                              'hybridization_projector_tolerance': 1e-14})
     u_h, _ = w.split()
@@ -41,34 +41,20 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     return error
 
 
-@pytest.mark.parametrize(('MeshClass', 'hdiv_family'),
-                         [(UnitIcosahedralSphereMesh, 'RT'),
-                          (UnitIcosahedralSphereMesh, 'BDM'),
-                          (UnitCubedSphereMesh, 'RTCF')])
-def test_hybrid_conv(MeshClass, hdiv_family):
-    """Should expect approximately quadratic convergence for lowest order
-    mixed method.
-    """
-    errors = [run_hybrid_poisson_sphere(MeshClass, r, hdiv_family)
-              for r in range(1, 4)]
-    errors = np.asarray(errors)
-    l2conv = np.log2(errors[:-1] / errors[1:])[-1]
-    assert l2conv > 1.7
-
-
 @pytest.mark.parallel
 @pytest.mark.parametrize(('MeshClass', 'hdiv_family'),
                          [(UnitIcosahedralSphereMesh, 'RT'),
+                          (UnitIcosahedralSphereMesh, 'BDM'),
                           (UnitCubedSphereMesh, 'RTCF')])
 def test_hybrid_conv_parallel(MeshClass, hdiv_family):
     """Should expect approximately quadratic convergence for lowest order
     mixed method.
     """
     errors = [run_hybrid_poisson_sphere(MeshClass, r, hdiv_family)
-              for r in range(1, 4)]
+              for r in range(2, 5)]
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])[-1]
-    assert l2conv > 1.7
+    assert l2conv > 1.8
 
 
 if __name__ == '__main__':
