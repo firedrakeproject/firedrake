@@ -2886,7 +2886,7 @@ class Map(object):
         """Return any implicit (extruded "top" or "bottom") bcs to
         apply to this :class:`Map`. Normally empty except in the case of
         some :class:`DecoratedMap`\s."""
-        return frozenset([])
+        return ()
 
     @cached_property
     def vector_index(self):
@@ -3040,7 +3040,7 @@ class DecoratedMap(Map, ObjectCached):
         if implicit_bcs is None:
             implicit_bcs = []
         implicit_bcs = as_tuple(implicit_bcs)
-        self.implicit_bcs = frozenset(implicit_bcs)
+        self.implicit_bcs = tuple(sorted(implicit_bcs))
         self.vector_index = vector_index
         self._initialized = True
 
