@@ -38,6 +38,7 @@ subclass these as required to implement backend-specific features.
 import abc
 
 from contextlib import contextmanager
+from collections import namedtuple
 import itertools
 import numpy as np
 import ctypes
@@ -46,7 +47,7 @@ import operator
 import types
 from hashlib import md5
 
-from pyop2.datatypes import IntType, as_cstr
+from pyop2.datatypes import IntType, as_cstr, _EntityMask, _MapMask
 from pyop2.configuration import configuration
 from pyop2.caching import Cached, ObjectCached
 from pyop2.exceptions import *
@@ -833,6 +834,22 @@ class ExtrudedSet(Set):
     def __repr__(self):
         return "ExtrudedSet(%r, %r)" % (self._parent, self._layers)
 
+    class EntityMask(namedtuple("_EntityMask_", ["section", "bottom", "top"])):
+        """Mask bits on each set entity indicating which topological
+        entities in the closure of said set entity are exposed on the
+        bottom or top of the extruded set.  The section encodes the
+        number of entities in each entity column, and their offset
+        from the start of the set."""
+        _argtype = ctypes.POINTER(_EntityMask)
+
+        @cached_property
+        def handle(self):
+            struct = _EntityMask()
+            struct.section = self.section.handle
+            struct.bottom = self.bottom.handle
+            struct.top = self.top.handle
+            return ctypes.pointer(struct)
+
     @cached_property
     def parent(self):
         return self._parent
@@ -936,7 +953,7 @@ class Subset(ExtrudedSet):
     def masks(self):
         if self._superset.masks is None:
             return None
-        (pbottom, ptop), psection = self._superset.masks
+        psection, pbottom, ptop = self._superset.masks
         # Avoid importing PETSc directly!
         section = type(psection)().create(comm=MPI.COMM_SELF)
         section.setChart(0, self.total_size)
@@ -953,7 +970,7 @@ class Subset(ExtrudedSet):
                 idx += 1
             section.setDof(i, nval)
         section.setUp()
-        return (bottom, top), section
+        return ExtrudedSet.EntityMask(section, bottom, top)
 
     @cached_property
     def _argtype(self):
@@ -2813,7 +2830,7 @@ class Map(object):
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
                    ('arity', numbers.Integral, ArityTypeError), ('name', str, NameTypeError))
-    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, bt_masks=None):
+    def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, boundary_masks=None):
         self._iterset = iterset
         self._toset = toset
         self.comm = toset.comm
@@ -2834,16 +2851,18 @@ class Map(object):
         self._cache = {}
         # Which indices in the extruded map should be masked out for
         # the application of strong boundary conditions
-        self._bottom_mask = {}
-        self._top_mask = {}
-
-        if offset is not None and bt_masks is not None:
-            for name, mask in bt_masks.items():
-                self._bottom_mask[name] = np.zeros(len(offset), dtype=IntType)
-                self._bottom_mask[name][mask[0]] = -1
-                self._top_mask[name] = np.zeros(len(offset), dtype=IntType)
-                self._top_mask[name][mask[1]] = -1
+        self.boundary_masks = boundary_masks
         Map._globalcount += 1
+
+    class MapMask(namedtuple("_MapMask_", ["section", "indices", "facet_points"])):
+        _argtype = ctypes.POINTER(_MapMask)
+
+        @cached_property
+        def handle(self):
+            struct = _MapMask()
+            struct.section = self.section.handle
+            struct.indices = self.indices.ctypes.data
+            return ctypes.pointer(struct)
 
     @validate_type(('index', (int, IterationIndex), IndexTypeError))
     def __getitem__(self, index):
@@ -2948,15 +2967,31 @@ class Map(object):
         """The vertical offset."""
         return self._offset
 
+    def _constant_layer_masks(self, which):
+        if self.offset is None:
+            return {}
+        idx = {"bottom": -2, "top": -1}[which]
+        masks = {}
+        for method, (section, indices, facet_indices) in self.boundary_masks.items():
+            facet = facet_indices[idx]
+            off = section.getOffset(facet)
+            dof = section.getDof(facet)
+            section.getDof(facet)
+            indices = indices[off:off+dof]
+            mask = np.zeros(len(self.offset), dtype=IntType)
+            mask[indices] = -1
+            masks[method] = mask
+        return masks
+
     @cached_property
     def top_mask(self):
         """The top layer mask to be applied on a mesh cell."""
-        return self._top_mask
+        return self._constant_layer_masks("top")
 
     @cached_property
     def bottom_mask(self):
         """The bottom layer mask to be applied on a mesh cell."""
-        return self._bottom_mask
+        return self._constant_layer_masks("bottom")
 
     def __str__(self):
         return "OP2 Map: %s from (%s) to (%s) with arity %s" \
