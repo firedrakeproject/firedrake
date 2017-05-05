@@ -16,7 +16,6 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 
 import numpy
 import finat
-from collections import namedtuple
 from decorator import decorator
 from functools import reduce
 
@@ -181,12 +180,6 @@ def get_dof_offset(mesh, key, entity_dofs, ndof):
     return mesh.make_offset(entity_dofs, ndof)
 
 
-EntityMasks = namedtuple("EntityMasks", ["section", "iset",
-                                         "facet_points"])
-"""A CSR-encoded mask of nodes that are non-zero on each entity for a
-given finite element."""
-
-
 @cached
 def get_boundary_masks(mesh, key, finat_element):
     """Get masks for facet dofs.
@@ -241,8 +234,8 @@ def get_boundary_masks(mesh, key, finat_element):
     closure_indices = PETSc.IS().createGeneral(closure_indices, comm=PETSc.COMM_SELF)
     support_indices = PETSc.IS().createGeneral(support_indices, comm=PETSc.COMM_SELF)
     facet_points = PETSc.IS().createGeneral(facet_points, comm=PETSc.COMM_SELF)
-    masks["topological"] = EntityMasks(closure_section, closure_indices, facet_points)
-    masks["geometric"] = EntityMasks(support_section, support_indices, facet_points)
+    masks["topological"] = op2.Map.MapMask(closure_section, closure_indices, facet_points)
+    masks["geometric"] = op2.Map.MapMask(support_section, support_indices, facet_points)
     return masks
 
 
@@ -528,6 +521,9 @@ class FunctionSpaceData(object):
         if method not in {"topological", "geometric"}:
             raise ValueError("Don't know how to extract nodes with method '%s'", method)
         if sub_domain in ["bottom", "top"]:
+            if not V.extruded:
+                raise ValueError("Invalid subdomain '%s' for non-extruded mesh",
+                                 sub_domain)
             entity_dofs = eutils.flat_entity_dofs(V.finat_element.entity_dofs())
             key = (entity_dofs_key(entity_dofs), sub_domain, method)
             return get_top_bottom_boundary_nodes(V.mesh(), key, V)
@@ -652,28 +648,13 @@ class FunctionSpaceData(object):
                 new_entity_node_list = entity_node_list
 
             # TODO: handle kind == interior_facet
-            if self.boundary_masks is None:
-                masks = None
-            else:
-                masks = {}
-                # Convert to format that PyOP2 wants
-                for name, (section, iset, facet_iset) in self.boundary_masks.items():
-                    bottom, top = facet_iset.indices[-2:]
-                    boff = section.getOffset(bottom)
-                    bdof = section.getDof(bottom)
-                    toff = section.getOffset(top)
-                    tdof = section.getDof(top)
-                    section.getDof(top)
-                    bottom = iset.indices[boff:boff+bdof]
-                    top = iset.indices[toff:toff+tdof]
-                    masks[name] = (bottom, top)
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           new_entity_node_list,
                           ("%s_"+name) % (V.name),
                           offset=offset,
                           parent=parent,
-                          bt_masks=masks)
+                          boundary_masks=self.boundary_masks)
 
             if decorate:
                 val = op2.DecoratedMap(val, vector_index=True)
