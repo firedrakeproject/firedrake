@@ -583,6 +583,8 @@ class Set(object):
     _OWNED_SIZE = 1
     _GHOST_SIZE = 2
 
+    masks = None
+
     @validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, size, name=None, halo=None, comm=None):
@@ -846,8 +848,8 @@ class ExtrudedSet(Set):
         def handle(self):
             struct = _EntityMask()
             struct.section = self.section.handle
-            struct.bottom = self.bottom.handle
-            struct.top = self.top.handle
+            struct.bottom = self.bottom.ctypes.data
+            struct.top = self.top.ctypes.data
             return ctypes.pointer(struct)
 
     @cached_property

@@ -109,6 +109,9 @@ class Arg(base.Arg):
                 if map is not None:
                     for j, m in enumerate(map):
                         val += ", %s *%s" % (as_cstr(IntType), self.c_map_name(i, j))
+                        # boundary masks for variable layer extrusion
+                        if m.iterset._extruded and not m.iterset.constant_layers and m.implicit_bcs:
+                            val += ", struct MapMask *%s_mask" % self.c_map_name(i, j)
         return val
 
     def c_vec_dec(self, is_facet=False):
@@ -325,10 +328,10 @@ class Arg(base.Arg):
                 """ % fdict)
                 nrows *= rdim
                 ncols *= cdim
-        ret.append("""%(addto)s(%(mat)s, %(nrows)s, %(rows)s,
+        ret.append("""ierr = %(addto)s(%(mat)s, %(nrows)s, %(rows)s,
                                          %(ncols)s, %(cols)s,
                                          (const PetscScalar *)%(vals)s,
-                                         %(insert)s);""" %
+                                         %(insert)s); CHKERRQ(ierr);""" %
                    {'mat': self.c_arg_name(i, j),
                     'vals': addto_name,
                     'addto': addto,
@@ -439,6 +442,56 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                     'off_top': ' + start_layer' if is_top else '',
                                     'off': ' + ' + str(m.offset[idx])})
         return '\n'.join(val)+'\n'
+
+    def c_map_bcs_variable(self, sign, is_facet):
+        if is_facet:
+            raise NotImplementedError
+        maps = as_tuple(self.map, Map)
+        val = []
+        if sign == "-":
+            val.append("const PetscInt bottom_mask = bottom_masks[entity_offset + j_0];")
+            val.append("const PetscInt top_mask = top_masks[entity_offset + j_0];")
+            val.append("PetscInt dof, off;")
+        bottom_masking = []
+        top_masking = []
+        chart = None
+        for i, map in enumerate(maps):
+            if not map.iterset._extruded:
+                continue
+            for j, m in enumerate(map):
+                map_name = self.c_map_name(i, j)
+                for location, method in m.implicit_bcs:
+                    if chart is None:
+                        chart = m.boundary_masks[method].section.getChart()
+                    else:
+                        assert chart == m.boundary_masks[method].section.getChart()
+                    tmp = []
+                    tmp.append("ierr = PetscSectionGetDof(%(map_name)s_mask->section, bit, &dof); CHKERRQ(ierr);")
+                    tmp.append("ierr = PetscSectionGetOffset(%(map_name)s_mask->section, bit, &off); CHKERRQ(ierr);")
+                    tmp.append("for (int k = off; k < off + dof; k++) {")
+                    tmp.append("    xtr_%(map_name)s[%(map_name)s_mask_indices[k]] %(sign)s= 10000000;")
+                    tmp.append("}")
+                    tmp = "\n".join(tmp) % {"map_name": map_name,
+                                            "name": location,
+                                            "sign": sign}
+                    if location == "bottom":
+                        bottom_masking.append(tmp)
+                    else:
+                        top_masking.append(tmp)
+        if chart is None:
+            # No implicit bcs found
+            return ""
+        val.append("for (int bit = %d; bit < %d; bit++) {" % chart)
+        if len(bottom_masking) > 0:
+            val.append("    if (bottom_mask & (1L<<bit)) {")
+            val.append("        \n".join(bottom_masking))
+            val.append("    }")
+        if len(top_masking) > 0:
+            val.append("    if (top_mask & (1L<<bit)) {")
+            val.append("        \n".join(top_masking))
+            val.append("    }")
+        val.append("}")
+        return "\n".join(val)
 
     def c_map_bcs(self, sign, is_facet):
         maps = as_tuple(self.map, Map)
@@ -566,30 +619,49 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 class JITModule(base.JITModule):
 
     _wrapper = """
-void %(wrapper_name)s(int start,
+struct MapMask {
+    /* Row pointer */
+    PetscSection section;
+    /* Indices */
+    IS           indices;
+};
+
+struct EntityMask {
+    PetscSection section;
+    IS           bottom;
+    IS           top;
+};
+
+PetscErrorCode %(wrapper_name)s(int start,
                       int end,
+                      %(iterset_masks)s
                       %(ssinds_arg)s
                       %(wrapper_args)s
                       %(layer_arg)s) {
+  PetscErrorCode ierr;
   %(user_code)s
   %(wrapper_decs)s;
   %(map_decl)s
   %(vec_decs)s;
+  %(get_mask_indices)s;
   for ( int n = start; n < end; n++ ) {
     %(IntType)s i = %(index_expr)s;
     %(layer_decls)s;
+    %(entity_offset)s;
     %(vec_inits)s;
     %(map_init)s;
     %(extr_loop)s
-    %(map_bcs_m)s;
     %(buffer_decl)s;
     %(buffer_gather)s
     %(kernel_name)s(%(kernel_args)s);
+    %(map_bcs_m)s;
     %(itset_loop_body)s
     %(map_bcs_p)s;
     %(apply_offset)s;
     %(extr_loop_close)s
   }
+  %(restore_mask_indices)s;
+  return 0;
 }
 """
 
@@ -662,24 +734,24 @@ void %(wrapper_name)s(int start,
                    'header': headers}
         else:
             kernel_code = """
-            %(header)s
-            %(code)s
+%(header)s
+%(code)s
             """ % {'code': self._kernel.code(),
                    'header': headers}
         code_to_compile = strip(dedent(self._wrapper) % self.generate_code())
 
         code_to_compile = """
-        #include <petsc.h>
-        #include <stdbool.h>
-        #include <math.h>
-        #include <inttypes.h>
-        %(sys_headers)s
+#include <petsc.h>
+#include <stdbool.h>
+#include <math.h>
+#include <inttypes.h>
+%(sys_headers)s
 
-        %(kernel)s
+%(kernel)s
 
-        %(externc_open)s
-        %(wrapper)s
-        %(externc_close)s
+%(externc_open)s
+%(wrapper)s
+%(externc_close)s
         """ % {'kernel': kernel_code,
                'wrapper': code_to_compile,
                'externc_open': externc_open,
@@ -716,7 +788,7 @@ void %(wrapper_name)s(int start,
                                      cppargs=cppargs,
                                      ldargs=ldargs,
                                      argtypes=self._argtypes,
-                                     restype=None,
+                                     restype=ctypes.c_int,
                                      compiler=compiler.get('name'),
                                      comm=self.comm)
         # Blow away everything we don't need any more
@@ -741,6 +813,8 @@ void %(wrapper_name)s(int start,
         argtypes = [index_type, index_type]
         if isinstance(iterset, Subset):
             argtypes.append(iterset._argtype)
+        if iterset.masks is not None:
+            argtypes.append(iterset.masks._argtype)
         for arg in args:
             if arg._is_mat:
                 argtypes.append(arg.data._argtype)
@@ -753,7 +827,15 @@ void %(wrapper_name)s(int start,
                     if map is not None:
                         for m in map:
                             argtypes.append(m._argtype)
-
+                            if m.iterset._extruded and not m.iterset.constant_layers:
+                                method = None
+                                for location, method_ in m.implicit_bcs:
+                                    if method is None:
+                                        method = method_
+                                    else:
+                                        assert method == method_, "Mixed implicit bc methods not supported"
+                                if method is not None:
+                                    argtypes.append(m.boundary_masks[method]._argtype)
         if iterset._extruded:
             argtypes.append(ctypes.c_voidp)
 
@@ -766,7 +848,8 @@ class ParLoop(petsc_base.ParLoop):
         arglist = []
         if isinstance(iterset, Subset):
             arglist.append(iterset._indices.ctypes.data)
-
+        if iterset.masks is not None:
+            arglist.append(iterset.masks.handle)
         for arg in args:
             if arg._is_mat:
                 arglist.append(arg.data.handle.handle)
@@ -780,7 +863,10 @@ class ParLoop(petsc_base.ParLoop):
                     if map is not None:
                         for m in map:
                             arglist.append(m._values.ctypes.data)
-
+                            if m.iterset._extruded and not m.iterset.constant_layers:
+                                if m.implicit_bcs:
+                                    _, method = m.implicit_bcs[0]
+                                    arglist.append(m.boundary_masks[method].handle)
         if iterset._extruded:
             arglist.append(iterset.layers_array.ctypes.data)
         return arglist
@@ -876,6 +962,10 @@ def wrapper_snippets(itspace, args,
     _map_bcs_p = ""
     _layer_arg = ""
     _layer_decls = ""
+    _iterset_masks = ""
+    _entity_offset = ""
+    _get_mask_indices = ""
+    _restore_mask_indices = ""
     if itspace._extruded:
         _layer_arg = ", %s *layers" % as_cstr(IntType)
         if itspace.iterset.constant_layers:
@@ -889,6 +979,27 @@ def wrapper_snippets(itspace, args,
             else:
                 idx0 = "2*i"
                 idx1 = "2*i+1"
+            _iterset_masks = "struct EntityMask *iterset_masks,"
+            for arg in args:
+                if arg._is_mat and any(len(m.implicit_bcs) > 0 for map in as_tuple(arg.map) for m in map):
+                    _entity_offset = "PetscInt entity_offset;\n"
+                    _entity_offset += "ierr = PetscSectionGetOffset(iterset_masks->section, n, &entity_offset);CHKERRQ(ierr);\n"
+                    get_tmp = ["const PetscInt *bottom_masks;",
+                               "const PetscInt *top_masks;",
+                               "ierr = ISGetIndices(iterset_masks->bottom, &bottom_masks); CHKERRQ(ierr);",
+                               "ierr = ISGetIndices(iterset_masks->top, &top_masks); CHKERRQ(ierr);"]
+                    restore_tmp = ["ierr = ISRestoreIndices(iterset_masks->bottom, &bottom_masks); CHKERRQ(ierr);",
+                                   "ierr = ISRestoreIndices(iterset_masks->top, &top_masks); CHKERRQ(ierr);"]
+                    for i, map in enumerate(as_tuple(arg.map)):
+                        for j, m in enumerate(map):
+                            if m.implicit_bcs:
+                                name = "%s_mask_indices" % arg.c_map_name(i, j)
+                                get_tmp.append("const PetscInt *%s;" % name)
+                                get_tmp.append("ierr = ISGetIndices(%s_mask->indices, &%s); CHKERRQ(ierr);" % (arg.c_map_name(i, j), name))
+                                restore_tmp.append("ierr = ISRestoreIndices(%s_mask->indices, &%s); CHKERRQ(ierr);" % (arg.c_map_name(i, j), name))
+                    _get_mask_indices = "\n".join(get_tmp)
+                    _restore_mask_indices = "\n".join(restore_tmp)
+                    break
         _layer_decls = "%(IntType)s bottom_layer = layers[%(idx0)s];\n"
         if iteration_region == ON_BOTTOM:
             _layer_decls += "%(IntType)s start_layer = layers[%(idx0)s];\n"
@@ -913,8 +1024,12 @@ def wrapper_snippets(itspace, args,
                                  for arg in args if arg._uses_itspace])
         _map_init += ';\n'.join([arg.c_map_init(is_top=is_top, is_facet=is_facet)
                                  for arg in args if arg._uses_itspace])
-        _map_bcs_m += ';\n'.join([arg.c_map_bcs("-", is_facet) for arg in args if arg._is_mat])
-        _map_bcs_p += ';\n'.join([arg.c_map_bcs("+", is_facet) for arg in args if arg._is_mat])
+        if itspace.iterset.constant_layers:
+            _map_bcs_m += ';\n'.join([arg.c_map_bcs("-", is_facet) for arg in args if arg._is_mat])
+            _map_bcs_p += ';\n'.join([arg.c_map_bcs("+", is_facet) for arg in args if arg._is_mat])
+        else:
+            _map_bcs_m += ';\n'.join([arg.c_map_bcs_variable("-", is_facet) for arg in args if arg._is_mat])
+            _map_bcs_p += ';\n'.join([arg.c_map_bcs_variable("+", is_facet) for arg in args if arg._is_mat])
         _apply_offset += ';\n'.join([arg.c_add_offset_map(is_facet=is_facet)
                                      for arg in args if arg._uses_itspace])
         _apply_offset += ';\n'.join([arg.c_add_offset(is_facet=is_facet)
@@ -1033,11 +1148,15 @@ def wrapper_snippets(itspace, args,
     return {'kernel_name': kernel_name,
             'wrapper_name': wrapper_name,
             'ssinds_arg': _ssinds_arg,
+            'iterset_masks': _iterset_masks,
             'index_expr': _index_expr,
             'wrapper_args': _wrapper_args,
             'user_code': user_code,
             'wrapper_decs': indent(_wrapper_decs, 1),
             'vec_inits': indent(_vec_inits, 2),
+            'entity_offset': indent(_entity_offset, 2),
+            'get_mask_indices': indent(_get_mask_indices, 1),
+            'restore_mask_indices': indent(_restore_mask_indices, 1),
             'layer_arg': _layer_arg,
             'map_decl': indent(_map_decl, 2),
             'vec_decs': indent(_vec_decs, 2),
@@ -1107,10 +1226,10 @@ static inline void %(wrapper_name)s(%(wrapper_fargs)s%(wrapper_args)s%(nlayers_a
     %(extr_pos_loop)s
         %(apply_offset)s;
     %(extr_loop_close)s
-    %(map_bcs_m)s;
     %(buffer_decl)s;
     %(buffer_gather)s
     %(kernel_name)s(%(kernel_fargs)s%(kernel_args)s);
+    %(map_bcs_m)s;
     %(itset_loop_body)s
     %(map_bcs_p)s;
 }
