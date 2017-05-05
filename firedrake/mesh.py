@@ -764,9 +764,6 @@ class ExtrudedMeshTopology(MeshTopology):
         mesh.init()
         self._base_mesh = mesh
         self.comm = mesh.comm
-        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
-        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
-
         # TODO: These attributes are copied so that FunctionSpaceBase can
         # access them directly.  Eventually we would want a better refactoring
         # of responsibilities between mesh and function space.
@@ -775,6 +772,12 @@ class ExtrudedMeshTopology(MeshTopology):
         self._cell_numbering = mesh._cell_numbering
         self._entity_classes = mesh._entity_classes
         self._subsets = {}
+        self._ufl_cell = ufl.TensorProductCell(mesh.ufl_cell(), ufl.interval)
+
+        self.cell_set = op2.ExtrudedSet(mesh.cell_set, layers=layers)
+        if layers.shape:
+            # Bootstrapping issue, this call needs the cell_set to be created.
+            self.cell_set.masks = extnum.cell_entity_masks(self)
 
     @property
     def name(self):
