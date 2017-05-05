@@ -46,7 +46,6 @@ def test_hybrid_extr_helmholtz(quad):
               'pc_python_type': 'firedrake.HybridizationPC',
               'hybridization_ksp_rtol': 1e-8,
               'hybridization_pc_type': 'lu',
-              'hybridization_pc_factor_mat_solver_package': 'mumps',
               'hybridization_ksp_type': 'preonly',
               'hybridization_projector_tolerance': 1e-14}
     solve(a == L, w, solver_parameters=params)

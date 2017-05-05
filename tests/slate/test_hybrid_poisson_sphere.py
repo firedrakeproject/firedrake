@@ -43,8 +43,7 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
 
 @pytest.mark.parallel
 @pytest.mark.parametrize(('MeshClass', 'hdiv_family'),
-                         [(UnitIcosahedralSphereMesh, 'RT'),
-                          (UnitIcosahedralSphereMesh, 'BDM'),
+                         [(UnitIcosahedralSphereMesh, 'BDM'),
                           (UnitCubedSphereMesh, 'RTCF')])
 def test_hybrid_conv_parallel(MeshClass, hdiv_family):
     """Should expect approximately quadratic convergence for lowest order
