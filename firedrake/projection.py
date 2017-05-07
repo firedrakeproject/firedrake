@@ -117,7 +117,7 @@ class Projector(object):
          projecting.
     """
 
-    def __init__(self, v, v_out, solver_parameters=None):
+    def __init__(self, v, v_out, solver_parameters=None, constant_jacobian=True):
 
         if isinstance(v, expression.Expression) or \
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
@@ -137,7 +137,8 @@ class Projector(object):
             a = ufl.inner(p, q)*ufl.dx
             L = ufl.inner(p, v)*ufl.dx
 
-            problem = vs.LinearVariationalProblem(a, L, v_out)
+            problem = vs.LinearVariationalProblem(a, L, v_out,
+                                                  constant_jacobian=constant_jacobian)
 
             if solver_parameters is None:
                 solver_parameters = {}
