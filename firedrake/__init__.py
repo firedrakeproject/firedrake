@@ -40,6 +40,7 @@ from firedrake.output import *
 from firedrake.linear_solver import *
 from firedrake.matrix_free.preconditioners import *
 from firedrake.mesh import *
+from firedrake.meshadapt import *
 from firedrake.mg.mesh import *
 from firedrake.mg.interface import *
 from firedrake.norms import *

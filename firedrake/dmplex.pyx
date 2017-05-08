@@ -2106,86 +2106,27 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
 
 
 
-#def petscAdap(PETSc.DM plex, np.ndarray[np.float64_t, ndim=2, mode="c"] metric):
-#    cdef PETSc.DM newplex;
-#    newplex = PETSc.DMPlex().create()
-#    CHKERR(DMAdap_Plex(plex.dm, MPI.COMM_WORLD, <PetscReal *>metric.data, <PETSc.PetscDM*>&(newplex.dm)))
-#    return newplex
+def sort_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
+    """
+
+    Assumes that the section is for a coordinate field (size dim)
+    """
+    vStart, vEnd = plex.getDepthStratum(0)
+    dim = plex.getDimension()
+    size = dim*dim
+    tmp = np.ndarray(shape=((vEnd-vStart)*dim*dim), dtype=np.float64, order='C');
+
+    met = metric.getArray()
+    for iVer in range(vStart,vEnd):
+        off = int(coordSection.getOffset(iVer)/dim)
+        tmp[size*(iVer-vStart):size*(iVer-vStart+1)] = met[size*off:size*(off+1)]
+    met[:] = tmp
 
 
-def petscAdap(PETSc.DM plex, PETSc.Vec metric):
+
+
+def petscAdapt(PETSc.DM plex, PETSc.Vec metric):
     cdef PETSc.DM newplex
     newplex = PETSc.DMPlex().create()
     CHKERR(DMPlexAdapt(plex.dm, metric.vec, "boundary_ids", <PETSc.PetscDM*>&(newplex.dm)))
     return newplex
-
-
-#def petscWriteGmf(PETSc.DM plex, PetscBool writeMesh, numSol,  PETSc.Vec sol , np.ndarray solType, meshName, np.ndarray solName):
-#    
-#    dim = plex.getDimension()
-#    if dim == 2 :
-#        CHKERR(DMPlexWrite_gmfMesh2d(plex.dm, writeMesh, numSol, <PETSc.PetscVec*>&(sol.vec), <PetscInt *>(solType.data), "", meshName, <char **>(solName.data), PETSC_FALSE))
-#    else :
-#        print "### WARNING 3D writes not implemented yet. Doing nothing."
-
-        
-def petscWriteGmf(PETSc.DM plex, PetscBool writeMesh, bdLabelName, meshName, PetscInt numSol, PETSc.Vec sol , solType, solName, PETSc.Section section):
-
-    cdef PETSc.PetscSection sec = NULL;
-
-    if section != None:
-        sec = section.sec
-
-    dim = plex.getDimension()
-    if dim == 2 :
-        if numSol == 1 :
-            CHKERR(DMPlexWrite_gmfMesh2d_1sol(plex.dm, writeMesh, bdLabelName, meshName, <PETSc.PetscVec>(sol.vec), solType, solName, sec, PETSC_FALSE))
-        elif numSol == 0 :
-            CHKERR(DMPlexWrite_gmfMesh2d_noSol(plex.dm, bdLabelName, meshName, sec, PETSC_FALSE))
-        else :
-            print "####  ERROR  cannot write more than 1 solution in Gmf format for now, whereas %d were given" % numSol
-    elif dim == 3 :
-        if numSol == 1 :
-            CHKERR(DMPlexWrite_gmfMesh3d_1sol(plex.dm, writeMesh, bdLabelName, meshName, <PETSc.PetscVec>(sol.vec), solType, solName, sec, PETSC_FALSE))
-        elif numSol == 0 :
-            CHKERR(DMPlexWrite_gmfMesh3d_noSol(plex.dm, bdLabelName, meshName, sec, PETSC_FALSE))
-        else :
-            print "####  ERROR  cannot write more than 1 solution in Gmf format for now, whereas %d were given" % numSol
-    else :
-        print "####  ERROR   Cannot write %d-dimension files in GMF format" % dim
-
-
-def petscReadGmfMesh(meshName, dim, bdLabelName):
-
-    cdef PETSc.DM newplex
-    newplex = PETSc.DMPlex().create()
-    if dim == 2 :
-        CHKERR(DMPlexCreateGmfFromFile_2d(meshName, bdLabelName, <PETSc.PetscDM*>&(newplex.dm)))
-    elif dim == 3 :
-        CHKERR(DMPlexCreateGmfFromFile_3d(meshName, bdLabelName, <PETSc.PetscDM*>&(newplex.dm)))
-    else :
-        print "####  ERROR   Cannot read %d-dimension files in GMF format" % dim
-    return newplex
-
-
-def petscReadGmfSol(PETSc.DM plex, solName, solType, PETSc.Section section):
-
-    cdef :
-        PETSc.PetscSection sec = NULL
-        PETSc.Vec sol
-
-    sol = PETSc.Vec().create()
-
-    if section != None:
-        sec = section.sec
-
-    dim = plex.getDimension()
-    if dim == 2 :
-        CHKERR(DMPlexReadGmfSolFromFile_2d(plex.dm, sec, solName, solType, <PETSc.PetscVec*>&(sol.vec)))
-    elif dim == 3 :
-        CHKERR(DMPlexReadGmfSolFromFile_3d(plex.dm, sec, solName, solType, <PETSc.PetscVec*>&(sol.vec)))
-    else :
-        print "####  ERROR   Cannot read %d-dimension files in GMF format" % dim
-
-    return sol
-    

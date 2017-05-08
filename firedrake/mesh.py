@@ -28,7 +28,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'adapt', 'writeGmf', 'readGmfMesh', 'readGmfSol']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'writeGmf', 'readGmfMesh', 'readGmfSol']
 
 
 _cells = {
@@ -1378,90 +1378,3 @@ def SubDomainData(geometric_expr):
     # Create cell subset
     indices, = np.nonzero(f.dat.data_ro_with_halos > 0.5)
     return op2.Subset(m.cell_set, indices)
-
-
-
-def adapt(mesh,metric):
-    
-    dim = mesh._topological_dimension
-    entity_dofs = np.zeros(dim+1, dtype=np.int32)
-    entity_dofs[0] = mesh.geometric_dimension()
-    coordSection = mesh._plex.createSection([1], entity_dofs, perm=mesh.topology._plex_renumbering)
-    
-    plex = mesh._plex
-    vStart, vEnd = plex.getDepthStratum(0)
-    nbrVer = vEnd - vStart
-#    print  "DEBUG  vStart: %d  vEnd: %d" % (vStart, vEnd)
-#    coordSection.view()
-    
-    dmCoords = mesh.topology._plex.getCoordinateDM()
-    dmCoords.setDefaultSection(coordSection)    
-#    dmCoords.setDefaultSection(mesh.coordinates.function_space()._dm.getDefaultSection())
-
-    #### TEMPORARY (?) HACK   to sort the metric in the right order (waiting for Matt Knepley fix in plexadapt)
-    
-    met = np.ndarray(shape=metric.dat.data.shape, dtype=metric.dat.data.dtype, order='C');
-    for iVer in range(nbrVer):
-        off = coordSection.getOffset(iVer+vStart)/dim
-#        print "DEBUG  iVer: %d  off: %d   nbrVer: %d" %(iVer, off, nbrVer)
-        met[iVer] = metric.dat.data[off]
-    for iVer in range(nbrVer):
-        metric.dat.data[iVer] = met[iVer]
-#    metric.dat.data.data = met.data
-
-    with mesh.coordinates.dat.vec_ro as coords:
-        mesh.topology._plex.setCoordinatesLocal(coords)
-    with metric.dat.vec_ro as vec:
-        newplex = dmplex.petscAdap(mesh.topology._plex, vec)
-
-    newmesh = Mesh(newplex)
-
-    return newmesh
-
-
-#def writeGmf(mesh, writeMesh, numSol, solList , solTypesList, meshName, solNamesList) :
-#
-#    numVertices = mesh.topology.num_vertices()
-#    solArray = np.ndarray(shape=(numSol,numVertices), order='C')
-#    for i in range(numSol):
-#        with solList[i].dat.vec_ro as vec:
-#            solArray[i] = vec
-#
-#    dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, solArray , np.ascontiguousarray(solTypesList), meshName, np.ascontiguousarray(solNamesList))
-
-
-#def writeGmf(mesh, writeMesh, numSol, sol, solType, meshName, solName) :
-#
-#    with sol.dat.vec_ro as vec:
-#        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, numSol, vec, np.ascontiguousarray([solType]), meshName, np.ascontiguousarray([solName]))
-
-
-def writeGmf(mesh, writeMesh, bdLabelName, meshName, sol, solType, solName, section) :
-
-    if sol :
-        with sol.dat.vec_ro as vec:
-            dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, bdLabelName, meshName, 1, vec, solType, solName, section)
-    else :
-        dmplex.petscWriteGmf(mesh.topology._plex, writeMesh, bdLabelName, meshName, 0, None, solType, solName, section)
-
-
-
-def readGmfMesh(meshName, dim, bdLabelName):
-
-    plex = dmplex.petscReadGmfMesh(meshName, dim, bdLabelName)
-    mesh = Mesh(plex)
-    return mesh
-
-
-
-def readGmfSol(mesh, sol, solName, solType, section):
-
-    solVec = dmplex.petscReadGmfSol(mesh._plex, solName, solType, section)
-    
-    vStart, vEnd = mesh._plex.getDepthStratum(0)
-    numVertices = vEnd - vStart
-#    print "DEBUG  NumVertices: %d" % numVertices
-#    numVertices = mesh.topology.num_vertices()
-
-    
-    sol.dat.data[...] = np.array(solVec.getArray(readonly=True)).reshape(sol.dat.data.shape)
