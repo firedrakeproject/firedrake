@@ -12,7 +12,14 @@ __all__ = ['adapt']
 
 
 
-def adapt(mesh,metric):
+def adapt(mesh, metric):
+    """ Adapt the mesh to a prescribed metric field.
+
+    :arg mesh: the base mesh to adapt
+    :arg metric: a metric tensor field (a Function of a TensorFunctionSpace)
+
+    :return: a new mesh adapted to the metric
+    """
     
     dim = mesh._topological_dimension
     entity_dofs = np.zeros(dim+1, dtype=np.int32)
@@ -29,7 +36,7 @@ def adapt(mesh,metric):
     with mesh.coordinates.dat.vec_ro as coords:
         mesh.topology._plex.setCoordinatesLocal(coords)
     with metric.dat.vec_ro as vec:
-    	dmplex.sort_metric(plex, vec, coordSection)
+    	dmplex.reorder_metric(plex, vec, coordSection)
         newplex = dmplex.petscAdapt(mesh.topology._plex, vec)
 
     newmesh = Mesh(newplex)
@@ -37,8 +44,4 @@ def adapt(mesh,metric):
     return newmesh
 
 
-
-
-
-#class Interpolate(object):
 

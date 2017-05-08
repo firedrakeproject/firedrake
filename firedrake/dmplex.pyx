@@ -2105,11 +2105,13 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
                                <void *>buf.data))
 
 
+def reorder_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
+    """Reorder a PETSc Vec containing a metric w.r.t. to a coordinate Section
 
-def sort_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
-    """
-
-    Assumes that the section is for a coordinate field (size dim)
+    :arg plex: the PETSc DMPlex  on which the Vec and Section are based
+    :arg metric: a PETSc Vec containing a metric field (a tensor per d.o.f.)
+    :arg coordSection: a PETSc Section meant for a coordinate field. (points
+         to a vector of size dim per d.o.f.)
     """
     vStart, vEnd = plex.getDepthStratum(0)
     dim = plex.getDimension()
@@ -2123,9 +2125,16 @@ def sort_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
     met[:] = tmp
 
 
-
-
+# This function is meant to be replaced by the appropriate petsc4py function
+# when petsc4py will be updated
 def petscAdapt(PETSc.DM plex, PETSc.Vec metric):
+    """ Call to DMPlexAdapt to adapt the current mesh to a prescribed metric
+
+    :arg plex: a PETSc DMPlex representing the base mesh
+    :arg metric: a PETSc Vec containing the metric tensor field
+
+    :return: a new plex adapted to the metric.
+    """
     cdef PETSc.DM newplex
     newplex = PETSc.DMPlex().create()
     CHKERR(DMPlexAdapt(plex.dm, metric.vec, "boundary_ids", <PETSc.PetscDM*>&(newplex.dm)))
