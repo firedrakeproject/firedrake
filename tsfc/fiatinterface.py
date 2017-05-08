@@ -173,13 +173,9 @@ def _(element, vector_is_mixed):
     cell = as_fiat_cell(element.cell())
     if element.family() == "Quadrature":
         degree = element.degree()
-        if degree is None:
-            # FEniCS default (ffc/fiatinterface.py:65)
-            degree = 1
         scheme = element.quadrature_scheme()
-        if scheme is None:
-            # FEniCS default (ffc/fiatinterface.py:66)
-            scheme = "canonical"
+        if degree is None or scheme is None:
+            raise ValueError("Quadrature scheme and degree must be specified!")
 
         quad_rule = FIAT.create_quadrature(cell, degree, scheme)
         return FIAT.QuadratureElement(cell, quad_rule.get_points())
