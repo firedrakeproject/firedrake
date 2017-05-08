@@ -117,7 +117,7 @@ class Projector(object):
          projecting.
     """
 
-    def __init__(self, v, v_out, solver_parameters=None, constant_jacobian=True):
+    def __init__(self, v, v_out, bcs=None, solver_parameters=None, constant_jacobian=True):
 
         if isinstance(v, expression.Expression) or \
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
@@ -127,6 +127,16 @@ class Projector(object):
                              v_out.function_space())
         self.v = v
         self.v_out = v_out
+        if bcs:
+            try:
+                bcs = tuple(bcs)
+            except TypeError:
+                bcs = (bcs,)
+            if any(bc.function_space() != v_out.function_space() for bc in bcs):
+                raise ValueError(
+                    "bcs must be enforced on the space of the result function."
+                )
+        self.bcs = bcs
 
         if not self._same_fspace:
             V = v_out.function_space()
@@ -156,3 +166,6 @@ class Projector(object):
             self.v_out.assign(self.v)
         else:
             self.solver.solve()
+        if self.bcs:
+            for bc in self.bcs:
+                bc.apply(self.v_out)
