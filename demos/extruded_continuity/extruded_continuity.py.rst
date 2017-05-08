@@ -18,7 +18,8 @@ towards the interior of the domain. :math:`q` can be interpreted as the
 steady-state distribution of a passive tracer carried by a fluid with velocity
 field :math:`\vec{u}`.
 
-We apply an upwind DG method, as we saw in the previous example.  Denoting the
+We apply an upwind DG method, as we saw in the
+:doc:`previous example <demos/DG_advection.py>`.  Denoting the
 upwind value of :math:`q` on interior facets by :math:`\widetilde{q}`, the full
 set of equations are then
 
@@ -99,7 +100,8 @@ function over part of the bottom of the domain: ::
   q_in = Function(V)
   q_in.interpolate(inflow)
 
-Now we will define our forms.  We use the same trick of defining ``un`` to aid
+Now we will define our forms.  We use the same trick as in the
+:doc:`previous example <demos/DG_advection.py>` of defining ``un`` to aid
 with the upwind terms: ::
 
   n = FacetNormal(mesh)

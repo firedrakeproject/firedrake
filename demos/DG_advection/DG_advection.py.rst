@@ -182,8 +182,13 @@ The right-hand-side is more interesting.  We define ``n`` to be the built-in
 ``FacetNormal`` object; a unit normal vector that can be used in integrals over
 exterior and interior facets.  We next define ``un`` to be an object which is
 equal to :math:`\vec{u}\cdot\vec{n}` if this is positive, and zero if this is
-negative.  This will be useful in the upwind terms.  We now define our
-right-hand-side form ``L1`` as :math:`\Delta t` times the sum of four integrals.
+negative.  This will be useful in the upwind terms. ::
+
+  n = FacetNormal(mesh)
+  un = 0.5*(dot(u, n) + abs(dot(u, n)))
+
+We now define our right-hand-side form ``L1`` as :math:`\Delta t` times the
+sum of four integrals.
 
 The first integral is a straightforward cell integral of
 :math:`q\nabla\cdot(\phi\vec{u})`.  The second integral represents the inflow
@@ -202,9 +207,6 @@ Instead, we make use of the quantity ``un``, which is either
 conditionals. Although it is not obvious at first sight, the expression given in
 code is equivalent to the desired expression, assuming
 :math:`\vec{n}_- = -\vec{n}_+`. ::
-
-  n = FacetNormal(mesh)
-  un = 0.5*(dot(u, n) + abs(dot(u, n)))
 
   L1 = dtc*(q*div(phi*u)*dx
             - conditional(dot(u, n) < 0, phi*dot(u, n)*q_in, 0.0)*ds
