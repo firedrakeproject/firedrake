@@ -243,6 +243,36 @@ def test_projector_expression():
         Projector(expr, vo)
 
 
+@pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
+def test_projector_bcs(tensor):
+    mesh = UnitSquareMesh(2, 2)
+    if tensor == 'scalar':
+        V = FunctionSpace(mesh, "CG", 1)
+        V_ho = FunctionSpace(mesh, "CG", 5)
+        bc = DirichletBC(V_ho, Constant(42.0), (1, 2, 3, 4))
+    elif tensor == 'vector':
+        V = VectorFunctionSpace(mesh, "CG", 1)
+        V_ho = VectorFunctionSpace(mesh, "CG", 5)
+        bc = DirichletBC(V_ho, Expression(("42.0", "42.0")),
+                         (1, 2, 3, 4))
+    elif tensor == 'tensor':
+        V = TensorFunctionSpace(mesh, "CG", 1)
+        V_ho = TensorFunctionSpace(mesh, "CG", 5)
+        bc = DirichletBC(V_ho, Expression(("42.0", "42.0",
+                                           "42.0", "42.0")),
+                         (1, 2, 3, 4))
+
+    exact = Function(V_ho)
+    bc.apply(exact)
+
+    v = Function(V)
+    ret = Function(V_ho)
+    projector = Projector(v, ret, bcs=bc, solver_parameters={"ksp_type": "preonly",
+                                                             "pc_type": "lu"})
+    projector.project()
+    assert sqrt(assemble(inner((ret - exact), (ret - exact)) * dx)) < 1e-10
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
