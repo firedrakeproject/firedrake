@@ -49,7 +49,7 @@ def test_loop_optimise():
 
     # Bj*Ek + Bj*Fk => (Ek + Fk)*Bj
     expr = Sum(Product(Bj, Ek), Product(Bj, Fk))
-    result, = optimise_expressions([expr], ((j,), (k,)))
+    result, = optimise_expressions([expr], (j, k))
     expected = Product(Sum(Ek, Fk), Bj)
     assert result == expected
 
@@ -57,7 +57,7 @@ def test_loop_optimise():
     # (Ek + Fk + Gk)*Bj + (Ek+Fk)*Cj
     expr = Sum(Sum(Sum(Sum(Product(Bj, Ek), Product(Bj, Fk)), Product(Bj, Gk)),
                    Product(Cj, Ek)), Product(Cj, Fk))
-    result, = optimise_expressions([expr], ((j,), (k,)))
+    result, = optimise_expressions([expr], (j, k))
     expected = Sum(Product(Sum(Sum(Ek, Fk), Gk), Bj), Product(Sum(Ek, Fk), Cj))
     assert result == expected
 
@@ -68,7 +68,7 @@ def test_loop_optimise():
                        Product(Z, Product(A2i, Product(Bj, Ek)))),
                    Product(A3i, Product(Bj, Ek))),
                Product(Z, Product(A1i, Product(Bj, Fk))))
-    result, = optimise_expressions([expr], ((j,), (k,)))
+    result, = optimise_expressions([expr], (j, k))
     expected = Product(Sum(Product(Ek, Sum(Sum(Product(Z, A1i), Product(Z, A2i)), A3i)),
                            Product(Fk, Product(Z, A1i))), Bj)
     assert result == expected

@@ -10,7 +10,7 @@ from gem.optimise import (replace_division, make_sum, make_product,
                           unroll_indexsum, replace_delta, remove_componenttensors)
 from gem.refactorise import Monomial, ATOMIC, COMPOUND, OTHER, collect_monomials
 from gem.node import traversal
-from gem.gem import Conditional, Indexed, IndexSum, Failure, one, index_sum
+from gem.gem import Indexed, IndexSum, Failure, one, index_sum
 from gem.utils import groupby
 
 
@@ -45,15 +45,15 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     expressions = replace_delta(expressions)
     expressions = remove_componenttensors(expressions)
     expressions = replace_division(expressions)
-    return optimise_expressions(expressions, argument_multiindices)
+    argument_indices = tuple(itertools.chain(*argument_multiindices))
+    return optimise_expressions(expressions, argument_indices)
 
 
-def optimise_expressions(expressions, argument_multiindices):
+def optimise_expressions(expressions, argument_indices):
     """Perform loop optimisations on GEM DAGs
 
     :arg expressions: list of GEM DAGs
-    :arg argument_multiindices: tuple of argument multiindices,
-                                one multiindex for each argument
+    :arg argument_indices: tuple of argument indices
 
     :returns: list of optimised GEM DAGs
     """
@@ -67,14 +67,13 @@ def optimise_expressions(expressions, argument_multiindices):
         if n == 0:
             return OTHER
         elif n == 1:
-            if isinstance(expression, (Indexed, Conditional)):
+            if isinstance(expression, Indexed):
                 return ATOMIC
             else:
                 return COMPOUND
         else:
             return COMPOUND
 
-    argument_indices = tuple(itertools.chain(*argument_multiindices))
     # Apply argument factorisation unconditionally
     classifier = partial(classify, set(argument_indices))
     monomial_sums = collect_monomials(expressions, classifier)
