@@ -44,25 +44,19 @@ class HybridizationPC(PCBase):
         _, P = pc.getOperators()
         self.cxt = P.getPythonContext()
 
-        assert isinstance(self.cxt, ImplicitMatrixContext), (
-            "The python context must be an ImplicitMatrixContext!"
-        )
+        if not isinstance(self.cxt, ImplicitMatrixContext):
+            raise ValueError("The python context must be an ImplicitMatrixContext")
 
         test, trial = self.cxt.a.arguments()
 
         V = test.function_space()
         mesh = V.mesh()
 
-        assert len(V) == 2, (
-            "Can only hybridize a mixed system with two spaces."
-        )
+        if len(V) != 2:
+            raise ValueError("Expecting two function spaces.")
 
-        # TODO: Future update to include more general spaces
         if all(Vi.ufl_element().value_shape() for Vi in V):
-            raise ValueError(
-                "Expecting an H(div) x L2 pair of spaces. "
-                "Both spaces cannot be vector-valued."
-            )
+            raise ValueError("Expecting an H(div) x L2 pair of spaces.")
 
         # Automagically determine which spaces are vector and scalar
         for i, Vi in enumerate(V):
@@ -89,8 +83,7 @@ class HybridizationPC(PCBase):
         TraceSpace = FunctionSpace(mesh, "HDiv Trace", tdegree)
 
         # Break the function spaces and define fully discontinuous spaces
-        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element())
-                                            for Vi in V])
+        broken_elements = ufl.MixedElement([ufl.BrokenElement(Vi.ufl_element()) for Vi in V])
         V_d = FunctionSpace(mesh, broken_elements)
 
         # Set up the functions for the original, hybridized
@@ -126,9 +119,7 @@ class HybridizationPC(PCBase):
 
         # If boundary conditions are contained in the ImplicitMatrixContext:
         if self.cxt.row_bcs:
-            raise NotImplementedError(
-                "Strong BCs not currently handled. Try imposing them weakly."
-            )
+            raise NotImplementedError("Strong BCs not currently handled. Try imposing them weakly.")
 
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
@@ -139,14 +130,12 @@ class HybridizationPC(PCBase):
 
         schur_comp = K * Atilde.inv * K.T
 
-        self.S = allocate_matrix(schur_comp,
-                                 bcs=trace_bcs,
+        self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.cxt.fc_params)
-        self._assemble_S = create_assembly_callable(
-            schur_comp,
-            tensor=self.S,
-            bcs=trace_bcs,
-            form_compiler_parameters=self.cxt.fc_params)
+        self._assemble_S = create_assembly_callable(schur_comp,
+                                                    tensor=self.S,
+                                                    bcs=trace_bcs,
+                                                    form_compiler_parameters=self.cxt.fc_params)
 
         self._assemble_S()
         self.S.force_evaluation()
@@ -226,16 +215,14 @@ class HybridizationPC(PCBase):
         M = D - C * A.inv * B
         R = K_1.T - C * A.inv * K_0.T
         u_rec = M.inv * f - M.inv * (C * A.inv * g + R * lambdar)
-        self._assemble_sub_unknown = create_assembly_callable(
-            u_rec,
-            tensor=u,
-            form_compiler_parameters=self.cxt.fc_params)
+        self._sub_unknown = create_assembly_callable(u_rec,
+                                                     tensor=u,
+                                                     form_compiler_parameters=self.cxt.fc_params)
 
         sigma_rec = A.inv * g - A.inv * (B * u + K_0.T * lambdar)
-        self._assemble_elim_unknown = create_assembly_callable(
-            sigma_rec,
-            tensor=sigma,
-            form_compiler_parameters=self.cxt.fc_params)
+        self._elim_unknown = create_assembly_callable(sigma_rec,
+                                                      tensor=sigma,
+                                                      form_compiler_parameters=self.cxt.fc_params)
 
     def _reconstruct(self):
         """Reconstructs the system unknowns using the multipliers.
@@ -244,9 +231,9 @@ class HybridizationPC(PCBase):
         """
         # We assemble the unknown which is an expression
         # of the first eliminated variable.
-        self._assemble_sub_unknown()
+        self._sub_unknown()
         # Recover the eliminated unknown
-        self._assemble_elim_unknown()
+        self._elim_unknown()
 
     def update(self, pc):
         """Update by assembling into the operator. No need to
@@ -295,10 +282,7 @@ class HybridizationPC(PCBase):
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
-        raise NotImplementedError(
-            "The transpose application of this PC"
-            "is not implemented."
-        )
+        raise NotImplementedError("The transpose application of the PC is not implemented.")
 
     def view(self, pc, viewer=None):
         super(HybridizationPC, self).view(pc, viewer)
@@ -345,6 +329,5 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
         with tnsp_tmp.dat.vec_ro as v:
             new_vecs.append(v.copy())
 
-    schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs,
-                                               comm=comm)
+    schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
     return schur_nullspace
