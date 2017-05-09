@@ -791,8 +791,13 @@ def IndexedFunctionSpace(index, space, parent):
     :returns: A new :class:`ProxyFunctionSpace` with index and parent
         set.
     """
-    new = ProxyFunctionSpace(space.mesh(), space.ufl_element(),
-                             name=space.name)
+
+    if space.ufl_element().family() == "Real":
+        new = RealFunctionSpace(space.mesh(), space.ufl_element(),
+                                name=space.name)
+    else:
+        new = ProxyFunctionSpace(space.mesh(), space.ufl_element(),
+                                 name=space.name)
     new.index = index
     new.parent = parent
     new.identifier = "indexed"
@@ -822,3 +827,69 @@ def ComponentFunctionSpace(parent, component):
     new.component = component
     new.parent = parent
     return new
+
+
+class RealFunctionSpace(FunctionSpace):
+    """:class:`FunctionSpace` based on elements of family "Real". A
+    :class`RealFunctionSpace` only has a single global value for the
+    whole mesh.
+
+    This class should not be directly instantiated by users. Instead,
+    FunctionSpace objects will transform themselves into
+    :class:`RealFunctionSpace` objects as appropriate.
+
+    """
+
+    finat_element = None
+    dim = 1
+    rank = 0
+    shape = ()
+    node_set = None
+
+    def __init__(self, mesh, element, name):
+        self._ufl_element = element
+        self.name = name
+        self.comm = mesh.comm
+        self._mesh = mesh
+        self.dof_dset = op2.GlobalDataSet(self.make_dat())
+
+    def _dm(self):
+        from firedrake.mg.utils import get_level
+        dm = self.dof_dset.dm
+        _, level = get_level(self.mesh())
+        dmhooks.attach_hooks(dm, level=level,
+                             sf=self.mesh()._plex.getPointSF(),
+                             section=None)
+        # Remember the function space so we can get from DM back to FunctionSpace.
+        dmhooks.set_function_space(dm, self)
+        return dm
+
+    def make_dat(self, val=None, valuetype=None, name=None, uid=None):
+        """Return a newly allocated :class:`pyop2.Global` representing the
+        data for a :class:`.Function` on this space."""
+        return op2.Global(self.dim, val, valuetype, name, self.comm)
+
+    def cell_node_map(self, bcs=None):
+        ":class:`RealFunctionSpace` objects have no cell node map."
+        return None
+
+    def interior_facet_node_map(self, bcs=None):
+        ":class:`RealFunctionSpace` objects have no interior facet node map."
+        return None
+
+    def exterior_facet_node_map(self, bcs=None):
+        ":class:`RealFunctionSpace` objects have no exterior facet node map."
+        return None
+
+    def bottom_nodes(self):
+        ":class:`RealFunctionSpace` objects have no bottom nodes."
+        return None
+
+    def top_nodes(self):
+        ":class:`RealFunctionSpace` objects have no bottom nodes."
+        return None
+
+    def exterior_facet_boundary_node_map(self, method):
+        """":class:`RealFunctionSpace` objects have no exterior facet boundary
+        node map."""
+        return None
