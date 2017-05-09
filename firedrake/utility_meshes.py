@@ -1018,7 +1018,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m = mesh.Mesh(new_coords)
-
+    m._cubed_sphere = radius
     return m
 
 
