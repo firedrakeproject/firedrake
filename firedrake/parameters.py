@@ -57,7 +57,7 @@ parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
 # The COFFEE default optimization level is O2
-coffee_default_optlevel = "O2"
+coffee_default_optlevel = "Ov"
 coffee_opts = Parameters("coffee", optlevel=coffee_default_optlevel)
 coffee_opts.set_update_function(lambda k, v: coffee_reconfigure(**{k: v}))
 parameters.add(coffee_opts)
