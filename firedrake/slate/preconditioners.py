@@ -124,6 +124,12 @@ class HybridizationPC(PCBase):
             trace_bcs = [DirichletBC(TraceSpace, Constant(0.0), "on_boundary")]
             K = Tensor(gammar('+') * ufl.dot(sigma, n) * ufl.dS)
 
+        # If boundary conditions are contained in the ImplicitMatrixContext:
+        if self.cxt.row_bcs:
+            raise NotImplementedError(
+                "Strong BCs not currently handled. Try imposing them weakly."
+            )
+
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = create_assembly_callable(
