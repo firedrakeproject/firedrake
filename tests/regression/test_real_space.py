@@ -170,6 +170,52 @@ def test_real_mixed_solve():
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 
 
+def test_real_space_eq():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "Real", 0)
+    V2 = FunctionSpace(mesh, "Real", 0)
+    assert V == V2
+    assert V is not V2
+
+
+def test_real_space_mixed_assign():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "Real", 0)
+    Q = FunctionSpace(mesh, "CG", 1)
+
+    W = Q*V
+
+    f = Function(W)
+
+    q, v = f.split()
+
+    q.assign(2)
+    g = Function(V)
+
+    g.dat.data[:] = 1
+    v.assign(g)
+
+    assert np.allclose(g.dat.data_ro, 1.0)
+    assert np.allclose(g.dat.data_ro, v.dat.data_ro)
+    assert np.allclose(q.dat.data_ro, 2.0)
+
+
+@pytest.mark.xfail(reason="Error checking in PyOP2 accesses property of None")
+def test_real_space_first():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "Real", 0)
+    Q = FunctionSpace(mesh, "CG", 1)
+    MixedFunctionSpace([V, Q])
+
+
+@pytest.mark.xfail(reason="ParLoop in PyOP2 accesses property of None")
+def test_real_space_assign():
+    mesh = UnitIntervalMesh(4)
+    V = FunctionSpace(mesh, "Real", 0)
+    f = Function(V)
+    f.assign(1)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
