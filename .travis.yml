@@ -56,7 +56,7 @@ install:
   - export CC=mpicc
   - mkdir tmp
   - cd tmp
-  - ../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope  --install thetis --install gusto ${PACKAGE_MANAGER} --package-branch PyOP2 globals_petsc_changes
+  - ../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope  --install thetis --install gusto ${PACKAGE_MANAGER}
   - . ./firedrake/bin/activate
   # Test that running firedrake-update works
   - firedrake-update
