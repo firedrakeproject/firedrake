@@ -840,23 +840,17 @@ class RealFunctionSpace(FunctionSpace):
 
     """
 
+    finat_element = None
+    dim = 1
+    rank = 0
+    shape = ()
+    node_set = None
+
     def __init__(self, mesh, element, name):
-
-        self.name = name
-        self._index = None
         self._ufl_element = element
-        self.fiat_element = None
-        self._mesh = mesh
-        self.dim = 1
-        self.rank = 0
-
-        self._node_count = 1
-
+        self.name = name
         self.comm = mesh.comm
-
-        """:class:`RealFunctionSpace` objects have no node set."""
-        self.node_set = None
-        """:class:`RealFunctionSpace` objects have no dof set."""
+        self._mesh = mesh
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
 
     def _dm(self):

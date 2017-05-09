@@ -207,7 +207,7 @@ def _real_mangle(form):
 
     a = form.arguments()
     reals = map(lambda x: x.ufl_element().family() == "Real", a)
-    if not a or not any(reals):
+    if not any(reals):
         return form
     replacements = {}
     for arg, r in zip(a, reals):
