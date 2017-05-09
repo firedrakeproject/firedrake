@@ -339,7 +339,7 @@ if options["minimal_petsc"]:
     if options["petsc_int_type"] == "int64":
         petsc_opts = """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-eigen --with-64-bit-indices"""
     else:
-        petsc_opts = """--download-chaco --download-hdf5 --download-hypre --download-eigen"""
+        petsc_opts = """--download-chaco --download-hdf5 --download-hypre --download-mumps --download-eigen"""
 else:
     if options["petsc_int_type"] == "int64":
         petsc_opts = """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-eigen --with-64-bit-indices"""
