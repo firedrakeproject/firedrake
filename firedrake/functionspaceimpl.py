@@ -853,6 +853,13 @@ class RealFunctionSpace(FunctionSpace):
         self._mesh = mesh
         self.dof_dset = op2.GlobalDataSet(self.make_dat())
 
+    def __eq__(self, other):
+        if not isinstance(other, RealFunctionSpace):
+            return False
+        # FIXME: Think harder about equality
+        return self.mesh() is other.mesh() and \
+            self.ufl_element() == other.ufl_element()
+
     def _dm(self):
         from firedrake.mg.utils import get_level
         dm = self.dof_dset.dm
