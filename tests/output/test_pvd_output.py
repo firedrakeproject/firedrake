@@ -1,4 +1,7 @@
 from __future__ import absolute_import, print_function, division
+from os import listdir
+from os.path import isfile, join
+from collections import Counter
 import pytest
 from functools import partial
 from firedrake import *
@@ -105,6 +108,27 @@ def test_not_function(mesh, pvd):
 
     with pytest.raises(ValueError):
         pvd.write(grad(f))
+
+
+def test_restart(mesh, tmpdir):
+    V = FunctionSpace(mesh, "DG", 0)
+    g = Function(V)
+
+    outfile = File(str(tmpdir.join("restart_test.pvd")))
+    outfile.write(g)
+    del outfile
+
+    restarted_outfile = File(str(tmpdir.join("restart_test.pvd")), restart=1)
+    restarted_outfile.write(g)
+
+    files_in_tmp = [f for f in listdir(str(tmpdir)) if isfile(join(str(tmpdir), f))]
+
+    expected_files = ['restart_test.pvd', 'restart_test_0.vtu', 'restart_test_1.vtu']
+
+    def compare(s, t):
+        return Counter(s) == Counter(t)
+
+    assert compare(files_in_tmp, expected_files)
 
 
 if __name__ == "__main__":
