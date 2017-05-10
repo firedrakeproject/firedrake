@@ -283,11 +283,19 @@ class File(object):
         elif self.comm.rank == 0:
             import xml.etree.ElementTree as ET
             tree = ET.parse(os.path.abspath(filename))
-            for dataset in tree.getroot().iter("DataSet"):
-                if restart >= 0:
-                    next(self.counter)
-                    next(self.timestep)
-                    restart = restart - 1
+            # Remove parts we want to discard
+            for parent in tree.iter():
+                for child in list(parent):
+                    if child.tag != "DataSet":
+                        continue
+                    if restart > 0:
+                        next(self.counter)
+                        next(self.timestep)
+                        restart -= 1
+                    else:
+                        parent.remove(child)
+            with open(self.filename, "wb") as f:
+                tree.write(f)
 
         self._fnames = None
         self._topology = None
