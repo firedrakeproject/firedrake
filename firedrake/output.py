@@ -244,7 +244,7 @@ class File(object):
         :kwarg project_output: Should the output be projected to
             linears?  Default is to use interpolation.
         :kwarg comm: The MPI communicator to use.
-        :kwarg restart: Restart at timestep.
+        :kwarg restart: Restart at count.
 
         .. note::
 
