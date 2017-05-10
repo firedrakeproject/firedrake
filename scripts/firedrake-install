@@ -331,20 +331,18 @@ If you really want to use your own Python packages, please run again with the
 --honour-pythonpath option.
 """)
 
+petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
+
 if options["minimal_petsc"]:
-    # WARNING WARNING
-    # If you change these minimal PETSc options, you will have to
-    # manually invalidate the Travis cache of PETSc and petsc4py.  See
-    # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
     if options["petsc_int_type"] == "int64":
-        petsc_opts = """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-eigen --with-64-bit-indices"""
+        petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --with-64-bit-indices"""
     else:
-        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5 --download-eigen"""
+        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5"""
 else:
     if options["petsc_int_type"] == "int64":
-        petsc_opts = """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-eigen --with-64-bit-indices"""
+        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
     else:
-        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
+        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
@@ -739,16 +737,10 @@ if travis:
 
 def install(package):
     log.info("Installing %s" % package)
-    if travis and travis_cache_dir and package in ["petsc/", "petsc4py/"]:
-        # Try installing from travis cache
-        src_dir = os.path.abspath(package)
-        dest_dir = sitepackages
-        installed = restore_cache(package, src_dir, travis_cache_dir, dest_dir)
-        if installed:
-            log.info("Installed %s from travis cache %s\n" % (package, travis_cache_dir))
-            return
+    if package == "petsc/":
+        build_and_install_petsc()
     # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
-    if options["developer"] and package not in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
+    elif options["developer"] and package not in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
         run_pip_install(["--ignore-installed", package])
@@ -788,6 +780,15 @@ def pip_uninstall(package):
         i += 1
         if i > 10:
             raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
+
+
+def build_and_install_petsc():
+    if not os.path.exists("eigen-3.3.3.tgz"):
+        log.info("Downloading Eigen-3.3.3 tarball")
+        check_call(["curl", "-L", "-o", "eigen-3.3.3.tgz", "http://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz"])
+    else:
+        log.info("Eigen-3.3.3 tarball already downloaded")
+    run_pip_install(["--ignore-installed", "petsc/"])
 
 
 def build_and_install_h5py():
