@@ -621,7 +621,7 @@ def CircleManifoldMesh(ncells, radius=1, comm=COMM_WORLD):
 
     plex = mesh._from_cell_list(1, cells, vertices, comm)
     m = mesh.Mesh(plex, dim=2, reorder=False)
-    m._circle_manifold = radius
+    m._radius = radius
     return m
 
 
@@ -842,7 +842,7 @@ def IcosahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m = mesh.Mesh(new_coords)
-    m._icosahedral_sphere = radius
+    m._radius = radius
     return m
 
 
@@ -1018,7 +1018,7 @@ def CubedSphereMesh(radius, refinement_level=0, degree=1,
         # "push out" to sphere
         new_coords.dat.data[:] *= (radius / np.linalg.norm(new_coords.dat.data, axis=1)).reshape(-1, 1)
         m = mesh.Mesh(new_coords)
-
+    m._radius = radius
     return m
 
 
