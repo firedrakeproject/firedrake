@@ -129,7 +129,10 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
 
     # Otherwise, build the FunctionSpace.
     topology = mesh.topology
-    new = impl.FunctionSpace(topology, element, name=name)
+    if element.family() == "Real":
+        new = impl.RealFunctionSpace(topology, element, name=name)
+    else:
+        new = impl.FunctionSpace(topology, element, name=name)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:
@@ -212,7 +215,6 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
-
     :arg spaces: An iterable of constituent spaces, or a
         :class:`~ufl.classes.MixedElement`.
     :arg name: An optional name for the mixed function space.
@@ -246,7 +248,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
     for space in spaces:
-        if type(space) is impl.FunctionSpace:
+        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
             continue
         elif type(space) is impl.ProxyFunctionSpace:
             if space.component is not None:

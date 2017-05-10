@@ -83,6 +83,25 @@ def test_vert_facet_exterior(mesh):
     assert np.allclose(A, ref, rtol=1e-8)
 
 
+def test_total_facet(mesh):
+    DG = VectorFunctionSpace(mesh, "DG", 1)
+    n = FacetNormal(mesh)
+    u = TestFunction(DG)
+
+    x, y, z = SpatialCoordinate(mesh)
+    f = project(as_vector([z, y, x]), DG)
+
+    top = dot(f[0]*f[1]*u, n)*ds_t
+    bottom = dot(f[2]*f[1]*u, n)*ds_b
+    horiz = dot(f[0]*u, n)*dS_h
+    vert = dot(f[2]*u, n)*dS_v
+    A = assemble(Tensor(top + bottom + horiz + vert)).dat.data
+    ref_form = top + bottom + jump(f[2]*u, n=n)*dS_v + jump(f[0]*u, n=n)*dS_h
+    ref = assemble(ref_form).dat.data
+
+    assert np.allclose(A, ref, rtol=1e-8)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))

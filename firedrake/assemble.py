@@ -7,7 +7,7 @@ from collections import defaultdict
 
 from pyop2 import op2
 from pyop2.base import collecting_loops
-from pyop2.exceptions import MapValueError
+from pyop2.exceptions import MapValueError, SparsityFormatError
 
 from firedrake import assemble_expressions
 from firedrake import tsfc_interface
@@ -276,12 +276,17 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             map_pairs = tuple(map_pairs)
             # Construct OP2 Mat to assemble into
             fs_names = (test.function_space().name, trial.function_space().name)
-            sparsity = op2.Sparsity((test.function_space().dof_dset,
-                                     trial.function_space().dof_dset),
-                                    map_pairs,
-                                    "%s_%s_sparsity" % fs_names,
-                                    nest=nest,
-                                    block_sparse=baij)
+
+            try:
+                sparsity = op2.Sparsity((test.function_space().dof_dset,
+                                         trial.function_space().dof_dset),
+                                        map_pairs,
+                                        "%s_%s_sparsity" % fs_names,
+                                        nest=nest,
+                                        block_sparse=baij)
+            except SparsityFormatError:
+                raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
+
             result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
@@ -299,9 +304,11 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             raise ValueError("BAIJ matrix type makes no sense for mixed spaces, use 'aij'")
 
         def mat(testmap, trialmap, i, j):
-            return tensor[i, j](op2.INC,
-                                (testmap(test.function_space()[i])[op2.i[0]],
-                                 trialmap(trial.function_space()[j])[op2.i[1]]))
+            m = testmap(test.function_space()[i])
+            n = trialmap(trial.function_space()[j])
+            maps = (m[op2.i[0]] if m else None,
+                    n[op2.i[1 if m else 0]] if n else None)
+            return tensor[i, j](op2.INC, maps)
         result = lambda: result_matrix
         if allocate_only:
             result_matrix._assembly_callback = None
@@ -317,8 +324,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             zero_tensor = tensor.zero
 
         def vec(testmap, i):
-            return tensor[i](op2.INC,
-                             testmap(test.function_space()[i])[op2.i[0]])
+            _testmap = testmap(test.function_space()[i])
+            return tensor[i](op2.INC, _testmap[op2.i[0]] if _testmap else None)
         result = lambda: result_function
     else:
         # 0-forms are always scalar

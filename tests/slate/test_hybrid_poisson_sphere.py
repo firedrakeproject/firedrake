@@ -5,6 +5,7 @@ import numpy as np
 
 
 def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
+    """Test hybridizing lowest order mixed methods on a sphere."""
     mesh = MeshClass(refinement_level=refinement)
     mesh.init_cell_orientations(Expression(("x[0]", "x[1]", "x[2]")))
     x, y, z = SpatialCoordinate(mesh)
@@ -28,35 +29,29 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     nullsp = MixedVectorSpaceBasis(W, [VectorSpaceBasis(constant=True), W[1]])
     solve(a == L, w,
           nullspace=nullsp,
-          solver_parameters={'mat_type': 'matfree',
+          solver_parameters={'ksp_type': 'preonly',
+                             'mat_type': 'matfree',
                              'pc_type': 'python',
                              'pc_python_type': 'firedrake.HybridizationPC',
-                             'hybridization_pc_type': 'hypre',
+                             'hybridization_pc_type': 'lu',
                              'hybridization_ksp_type': 'preonly',
+                             'hybridization_pc_factor_mat_solver_package': 'mumps',
                              'hybridization_projector_tolerance': 1e-14})
     u_h, _ = w.split()
     error = errornorm(u_exact, u_h)
     return error
 
 
-def test_hybrid_conv():
-    """Should expect approximately quadratic convergence for lowest order
-    mixed method.
-    """
-    errors = [run_hybrid_poisson_sphere(UnitIcosahedralSphereMesh, r, 'BDM')
-              for r in range(1, 4)]
-    errors = np.asarray(errors)
-    l2conv = np.log2(errors[:-1] / errors[1:])[-1]
-    assert l2conv > 1.8
-
-
 @pytest.mark.parallel
-def test_hybrid_conv_parallel():
+@pytest.mark.parametrize(('MeshClass', 'hdiv_family'),
+                         [(UnitIcosahedralSphereMesh, 'BDM'),
+                          (UnitCubedSphereMesh, 'RTCF')])
+def test_hybrid_conv_parallel(MeshClass, hdiv_family):
     """Should expect approximately quadratic convergence for lowest order
     mixed method.
     """
-    errors = [run_hybrid_poisson_sphere(UnitIcosahedralSphereMesh, r, 'RT')
-              for r in range(1, 4)]
+    errors = [run_hybrid_poisson_sphere(MeshClass, r, hdiv_family)
+              for r in range(2, 5)]
     errors = np.asarray(errors)
     l2conv = np.log2(errors[:-1] / errors[1:])[-1]
     assert l2conv > 1.8

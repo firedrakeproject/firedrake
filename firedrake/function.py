@@ -70,7 +70,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat)):
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self.comm
             self.dat = val
         else:
