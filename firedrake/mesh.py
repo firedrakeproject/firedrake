@@ -28,7 +28,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'writeGmf', 'readGmfMesh', 'readGmfSol']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData']
 
 
 _cells = {
