@@ -1,22 +1,26 @@
 Simple Helmholtz equation
 =========================
 
-Let's start by considering the Helmholtz equation on a unit square,
+Let's start by considering the modified Helmholtz equation on a unit square,
 :math:`\Omega`, with boundary :math:`\Gamma`:
 
 .. math::
 
-   -\nabla^2 u + u = f
+   -\nabla^2 u + u &= f
 
-   \nabla u \cdot \vec{n} = 0 \ \textrm{on}\ \Gamma
+   \nabla u \cdot \vec{n} &= 0 \quad \textrm{on}\ \Gamma
 
 for some known function :math:`f`. The solution to this equation will
-be some function :math:`u\in V` for some suitable function space
-:math:`V` that satisfies these equations. We transform the equation
-into weak form by multiplying by an arbitrary test function in
-:math:`V`, integrating over the domain and then integrating by
-parts. The variational problem so derived reads: find :math:`u\in V`
-such that:
+be some function :math:`u\in V`, for some suitable function space
+:math:`V`, that satisfies these equations. Note that this is the
+Helmholtz equation that appears in meteorology, rather than the
+indefinite Helmholtz equation :math:`\nabla^2 u + u = f` that arises
+in wave problems.
+
+We transform the equation into weak form by multiplying by an arbitrary
+test function in :math:`V`, integrating over the domain and then
+integrating by parts. The variational problem so derived reads: find
+:math:`u \in V` such that:
 
 .. math::
 
