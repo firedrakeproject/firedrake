@@ -29,7 +29,7 @@ def adapt(mesh, metric):
     with metric.dat.vec as vec:
         dmplex.reorder_metric(mesh.topology._plex, vec, coordSection)
     with metric.dat.vec_ro as vec:
-        newplex = dmplex.petscAdapt(mesh.topology._plex, vec)
+        newplex = mesh.topology._plex.adapt(vec, "boundary_ids")
 
     newmesh = Mesh(newplex)
 

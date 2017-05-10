@@ -2123,19 +2123,3 @@ def reorder_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
         off = int(coordSection.getOffset(iVer)/dim)
         tmp[size*(iVer-vStart):size*(iVer-vStart+1)] = met[size*off:size*(off+1)]
     met[:] = tmp
-
-
-# This function is meant to be replaced by the appropriate petsc4py function
-# when petsc4py will be updated
-def petscAdapt(PETSc.DM plex, PETSc.Vec metric):
-    """ Call to DMPlexAdapt to adapt the current mesh to a prescribed metric
-
-    :arg plex: a PETSc DMPlex representing the base mesh
-    :arg metric: a PETSc Vec containing the metric tensor field
-
-    :return: a new plex adapted to the metric.
-    """
-    cdef PETSc.DM newplex
-    newplex = PETSc.DMPlex().create()
-    CHKERR(DMPlexAdapt(plex.dm, metric.vec, "boundary_ids", <PETSc.PetscDM*>&(newplex.dm)))
-    return newplex
