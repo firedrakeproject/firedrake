@@ -23,14 +23,17 @@ import numpy as np
 from firedrake import *
 
 
-def trace_galerkin_projection(degree, conv_test_flag=0, mesh_res=None):
+def trace_galerkin_projection(degree, quad=False,
+                              conv_test_flag=0, mesh_res=None):
     # Create mesh if needed
     if mesh_res is None:
-        mesh = UnitSquareMesh(10, 10)
+        mesh = UnitSquareMesh(10, 10, quadrilateral=quad)
     elif isinstance(mesh_res, int):
-        mesh = UnitSquareMesh(2 ** mesh_res, 2 ** mesh_res)
+        mesh = UnitSquareMesh(2 ** mesh_res, 2 ** mesh_res, quadrilateral=quad)
     else:
         raise ValueError("Integers or None are only accepted for mesh_res.")
+
+    x, y = SpatialCoordinate(mesh)
 
     # Define the Trace Space
     T = FunctionSpace(mesh, "HDiv Trace", degree)
@@ -48,13 +51,13 @@ def trace_galerkin_projection(degree, conv_test_flag=0, mesh_res=None):
         f = Function(hdv)
     else:
         raise ValueError("conv_test should be either 0 or 1")
-    f.interpolate(Expression("cos(x[0]*pi*2)*cos(x[1]*pi*2)"))
+    f.interpolate(cos(x*pi*2)*cos(y*pi*2))
 
     # Construct bilinear form
-    a = lambdar*gammar*ds + avg(lambdar)*avg(gammar)*dS
+    a = lambdar*gammar*ds + lambdar('+')*gammar('+')*dS
 
     # Construct linear form
-    l = f*gammar*ds + avg(f)*avg(gammar)*dS
+    l = f*gammar*ds + f('+')*gammar('+')*dS
 
     # Compute the solution
     t = Function(T)
@@ -67,18 +70,26 @@ def trace_galerkin_projection(degree, conv_test_flag=0, mesh_res=None):
 
 
 @pytest.mark.parametrize('degree', range(1, 4))
-def test_trace_galerkin_projection(degree):
+@pytest.mark.parametrize('quad', [False, True])
+def test_trace_galerkin_projection(degree, quad):
     """Tests the accuracy of the trace solution for the Galerkin
     projection problem."""
-    tr_err = trace_galerkin_projection(degree, 0)
+    tr_err = trace_galerkin_projection(degree=degree,
+                                       quad=quad,
+                                       conv_test_flag=0)
     assert tr_err < 1e-13
 
 
 @pytest.mark.parametrize(('testdegree', 'convrate'),
                          [(1, 1.5), (2, 2.5), (3, 3.5)])
-def test_convergence_rates_trace_galerkin_projection(testdegree, convrate):
+@pytest.mark.parametrize('quad', [False, True])
+def test_convergence_rates_trace_galerkin_projection(testdegree,
+                                                     convrate, quad):
     """Tests for degree + (1/2) order convergence of the trace problem."""
-    l2errors = np.array([trace_galerkin_projection(testdegree, 1, r)
+    l2errors = np.array([trace_galerkin_projection(degree=testdegree,
+                                                   quad=quad,
+                                                   conv_test_flag=1,
+                                                   mesh_res=r)
                          for r in range(1, 5)])
     conv = np.log2(l2errors[:-1] / l2errors[1:])[-1]
     print("Convergence order: ", conv)
