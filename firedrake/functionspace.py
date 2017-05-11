@@ -215,6 +215,7 @@ def TensorFunctionSpace(mesh, family, degree=None, shape=None,
 
 def MixedFunctionSpace(spaces, name=None, mesh=None):
     """Create a :class:`.MixedFunctionSpace`.
+
     :arg spaces: An iterable of constituent spaces, or a
         :class:`~ufl.classes.MixedElement`.
     :arg name: An optional name for the mixed function space.
