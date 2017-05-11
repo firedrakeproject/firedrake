@@ -10,6 +10,7 @@ from glob import glob
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 from distutils import dir_util
+import atexit
 
 adjoint_deps = {
     "libadjoint": "git+ssh://bitbucket.org/dolfin-adjoint/libadjoint.git",
@@ -26,6 +27,11 @@ firedrake_apps = {
     "thetis": ("""Coastal ocean model. http://thetisproject.org""",
                "git+ssh://github.com/thetisproject/thetis#egg=thetis")
 }
+
+
+@atexit.register
+def print_log_location():
+    log.info("\n\n%s log saved in firedrake-%s.log" % (mode.capitalize(), mode))
 
 
 class InstallError(Exception):
@@ -112,8 +118,6 @@ honoured.""",
                         help="Also install SLOPE. This enables loop tiling in PyOP2.")
     parser.add_argument("--slepc", action="store_true",
                         help="Install SLEPc along with PETSc.")
-    parser.add_argument("--log", action='store_true',
-                        help="Produce a verbose log of the installation process in firedrake-install.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--disable-ssh", "--disable_ssh", action="store_true",
                         help="Do not attempt to use ssh to clone git repositories: fall immediately back to https.")
     parser.add_argument("--no-package-manager", "--no_package_manager", action='store_false', dest="package_manager",
@@ -210,8 +214,6 @@ else:
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--clean", action='store_true',
                         help="Delete any remnants of obsolete Firedrake components.")
-    parser.add_argument("--log", action='store_true',
-                        help="Produce a verbose log of the update process in firedrake-update.log. If you have problem running this script, please include this log in any bug report you file.")
     parser.add_argument("--verbose", "-v", action="store_true", help="Produce more verbose debugging output.")
     parser.add_argument("--install", action="append", dest="packages", default=config["options"].get("packages", []),
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install_help.")
@@ -253,23 +255,21 @@ where shortname is one of the names given below:
     sys.exit(0)
 
 # Set up logging
-if args.log:
-    # Log to file at DEBUG level
-    logging.basicConfig(level=logging.DEBUG,
-                        format='%(asctime)s %(levelname)-6s %(message)s',
-                        filename='firedrake-%s.log' % mode,
-                        filemode='w')
-    # Log to console at INFO level
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(message)s')
-    console.setFormatter(formatter)
-    logging.getLogger().addHandler(console)
-else:
-    # Log to console at INFO level
-    logging.basicConfig(level=logging.INFO,
-                        format='%(message)s')
+# Log to file at DEBUG level
+logging.basicConfig(level=logging.DEBUG,
+                    format='%(asctime)s %(levelname)-6s %(message)s',
+                    filename='firedrake-%s.log' % mode,
+                    filemode='w')
+# Log to console at INFO level
+console = logging.StreamHandler()
+console.setLevel(logging.INFO)
+formatter = logging.Formatter('%(message)s')
+console.setFormatter(formatter)
+logging.getLogger().addHandler(console)
+
 log = logging.getLogger()
+
+log.info("Running %s" % " ".join(sys.argv))
 
 
 class directory(object):
@@ -353,14 +353,11 @@ if mode == "update" and petsc_int_type_changed:
 
 
 def check_call(arguments, env=None):
-    if args.log:
-        try:
-            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env))
-        except subprocess.CalledProcessError as e:
-            log.debug(e.output)
-            raise
-    else:
-        subprocess.check_call(arguments, env=env)
+    try:
+        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env))
+    except subprocess.CalledProcessError as e:
+        log.debug(e.output)
+        raise
 
 
 def check_output(args, env=None):
@@ -592,12 +589,11 @@ def run_pip(args):
 
 
 def run_pip_install(pipargs):
-    if args.log:
-        # Make pip verbose when logging, so we see what the
-        # subprocesses wrote out.
-        # Particularly important for debugging petsc fails.
-        pipargs = ["-vvv"] + pipargs
-    log.info(" ".join(pipinstall + pipargs) + "\n")
+    # Make pip verbose when logging, so we see what the
+    # subprocesses wrote out.
+    # Particularly important for debugging petsc fails.
+    pipargs = ["-vvv"] + pipargs
+    log.debug(" ".join(pipinstall + pipargs) + "\n")
     check_call(pipinstall + pipargs)
 
 
@@ -946,9 +942,9 @@ If you really want to use your own PETSc build, please run again with the
 """)
 
 
-log.info("*** Current environment (output of 'env') ***")
-log.info(check_output(["env"]))
-log.info("\n\n")
+log.debug("*** Current environment (output of 'env') ***")
+log.debug(check_output(["env"]))
+log.debug("\n\n")
 
 
 # Check operating system.
