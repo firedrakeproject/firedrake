@@ -693,7 +693,7 @@ def build_and_install_petsc():
 
 def build_and_install_h5py():
     import shutil
-    log.info("Installing h5py\n")
+    log.info("Installing h5py")
     # Clean up old downloads
     if os.path.exists("h5py-2.5.0"):
         log.info("Removing old h5py-2.5.0 source")
@@ -735,26 +735,28 @@ def build_and_install_h5py():
             raise InstallError("Unable to find installed PETSc when building h5py")
 
     hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
-    log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
-    oldcc = os.environ.get("CC", None)
-    os.environ["CC"] = options["mpicc"] or "mpicc"
-    os.environ["HDF5_DIR"] = hdf5_dir
-    os.environ["HDF5_MPI"] = "ON"
     if changed or args.rebuild:
+        log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
+        oldcc = os.environ.get("CC", None)
+        os.environ["CC"] = options["mpicc"] or "mpicc"
+        os.environ["HDF5_DIR"] = hdf5_dir
+        os.environ["HDF5_MPI"] = "ON"
         # Only uninstall if things changed.
         pip_uninstall("h5py")
         # Pip installing from dirty directory is potentially unsafe.
         with directory("h5py/"):
             check_call(["git", "clean", "-fdx"])
         install("h5py/")
-    if oldcc is None:
-        del os.environ["CC"]
+        if oldcc is None:
+            del os.environ["CC"]
+        else:
+            os.environ["CC"] = oldcc
     else:
-        os.environ["CC"] = oldcc
+        log.info("No need to rebuild h5py")
 
 
 def build_and_install_glpsol():
-    log.info("Installing GLPK\n")
+    log.info("Installing GLPK")
     if os.path.exists("glpk"):
         glpk_changed = git_update("glpk")
     else:
@@ -766,10 +768,13 @@ def build_and_install_glpsol():
             check_call(["./configure", "--disable-shared", "--disable-static"])
             check_call(["make"])
             check_call(["cp", "examples/glpsol", os.environ["VIRTUAL_ENV"] + "/bin/"])
+    else:
+        log.info("No need to rebuild glpk")
+    
 
 
 def build_and_install_libspatialindex():
-    log.info("Installing libspatialindex\n")
+    log.info("Installing libspatialindex")
     if os.path.exists("libspatialindex"):
         log.info("Updating the git repository for libspatialindex")
         with directory("libspatialindex"):
@@ -797,6 +802,8 @@ def build_and_install_libspatialindex():
                         "--enable-shared", "--disable-static"])
             check_call(["make"])
             check_call(["make", "install"])
+    else:
+        log.info("No need to rebuild libspatialindex")
 
 
 def build_and_install_slepc():
@@ -818,6 +825,8 @@ def build_and_install_slepc():
         slepc_changed = True
     if slepc_changed:
         install("slepc/")
+    else:
+        log.info("No need to rebuild slepc")
 
     log.info("Installing slepc4py.")
     if os.path.exists("slepc4py"):
@@ -827,6 +836,8 @@ def build_and_install_slepc():
         slepc4py_changed = True
     if slepc4py_changed:
         install("slepc4py/")
+    else:
+        log.info("No need to rebuild slepc4py")
 
 
 def build_and_install_adjoint():
@@ -869,7 +880,7 @@ def build_and_install_adjoint():
 
 
 def build_and_install_slope():
-    log.info("Installing SLOPE\n")
+    log.info("Installing SLOPE")
     if os.path.exists("SLOPE"):
         slope_changed = git_update("SLOPE")
     else:
@@ -890,6 +901,8 @@ def build_and_install_slope():
             check_call(["cp"] + glob(os.path.join('sparsetiling', 'include', '*')) + [include_dir])
             # Also install the Python interface
             run_cmd(pyinstall)
+    else:
+        log.info("No need to rebuild SLOPE")
 
 
 def clean_obsolete_packages():
