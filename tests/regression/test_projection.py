@@ -249,28 +249,38 @@ def test_projector_bcs(tensor):
     if tensor == 'scalar':
         V = FunctionSpace(mesh, "CG", 1)
         V_ho = FunctionSpace(mesh, "CG", 5)
-        bc = DirichletBC(V_ho, Constant(42.0), (1, 2, 3, 4))
+        bcs = [DirichletBC(V_ho, Constant(0.5), (1, 3)),
+               DirichletBC(V_ho, Constant(-0.5), (2, 4))]
+        expr = Expression('cos(x[0]*pi*2)*sin(x[1]*pi*2)')
     elif tensor == 'vector':
         V = VectorFunctionSpace(mesh, "CG", 1)
         V_ho = VectorFunctionSpace(mesh, "CG", 5)
-        bc = DirichletBC(V_ho, Expression(("42.0", "42.0")),
-                         (1, 2, 3, 4))
+        bcs = [DirichletBC(V_ho, Expression(("0.5", "0.5")), (1, 3)),
+               DirichletBC(V_ho, Expression(("-0.5", "-0.5")), (2, 4))]
+        expr = Expression(['cos(x[0]*pi*2)*sin(x[1]*pi*2)']*2)
     elif tensor == 'tensor':
         V = TensorFunctionSpace(mesh, "CG", 1)
         V_ho = TensorFunctionSpace(mesh, "CG", 5)
-        bc = DirichletBC(V_ho, Expression(("42.0", "42.0",
-                                           "42.0", "42.0")),
-                         (1, 2, 3, 4))
-
-    exact = Function(V_ho)
-    bc.apply(exact)
+        bcs = [DirichletBC(V_ho, Expression(("0.5", "0.5",
+                                             "0.5", "0.5")), (1, 3)),
+               DirichletBC(V_ho, Expression(("-0.5", "-0.5",
+                                             "-0.5", "-0.5")), (2, 4))]
+        expr = Expression(['cos(x[0]*pi*2)*sin(x[1]*pi*2)']*4)
 
     v = Function(V)
+    v.interpolate(expr)
     ret = Function(V_ho)
-    projector = Projector(v, ret, bcs=bc, solver_parameters={"ksp_type": "preonly",
-                                                             "pc_type": "lu"})
+    projector = Projector(v, ret, bcs=bcs, solver_parameters={"ksp_type": "preonly",
+                                                              "pc_type": "lu"})
     projector.project()
-    assert sqrt(assemble(inner((ret - exact), (ret - exact)) * dx)) < 1e-10
+
+    ref = Function(V_ho)
+    # The method "project" already handles bcs.
+    # So we use this as a reference to make sure the
+    # projector does the same thing (up to machine precision).
+    project(v, ref, bcs=bcs, solver_parameters={"ksp_type": "preonly",
+                                                "pc_type": "lu"})
+    assert sqrt(assemble(inner((ret - ref), (ret - ref)) * dx)) < 1e-10
 
 
 if __name__ == '__main__':
