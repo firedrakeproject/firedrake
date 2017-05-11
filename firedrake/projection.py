@@ -38,8 +38,7 @@ def project(v, V, bcs=None, mesh=None,
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned.
 
-    The ``bcs``, ``mesh`` and ``form_compiler_parameters`` are
-    currently ignored."""
+    The ``mesh`` and ``form_compiler_parameters`` are currently ignored."""
     from firedrake import function
 
     if isinstance(V, functionspaceimpl.WithGeometry):
@@ -113,6 +112,8 @@ class Projector(object):
     :arg v: the :class:`ufl.Expr` or
          :class:`.Function` to project
     :arg v_out: :class:`.Function` to put the result in
+    :arg bcs: an optional set of :class:`.DirichletBC` objects to apply
+              on the target function space.
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
     """
@@ -133,12 +134,10 @@ class Projector(object):
             except TypeError:
                 bcs = (bcs,)
             if any(bc.function_space() != v_out.function_space() for bc in bcs):
-                raise ValueError(
-                    "bcs must be enforced on the space of the result function."
-                )
+                raise ValueError("bcs must be enforced on the space of the result function.")
         self.bcs = bcs
 
-        if not self._same_fspace:
+        if not self._same_fspace or self.bcs:
             V = v_out.function_space()
 
             p = ufl_expr.TestFunction(V)
@@ -147,7 +146,7 @@ class Projector(object):
             a = ufl.inner(p, q)*ufl.dx
             L = ufl.inner(p, v)*ufl.dx
 
-            problem = vs.LinearVariationalProblem(a, L, v_out,
+            problem = vs.LinearVariationalProblem(a, L, v_out, bcs=self.bcs,
                                                   constant_jacobian=constant_jacobian)
 
             if solver_parameters is None:
@@ -162,10 +161,7 @@ class Projector(object):
         """
         Apply the projection.
         """
-        if self._same_fspace:
+        if self._same_fspace and not self.bcs:
             self.v_out.assign(self.v)
         else:
             self.solver.solve()
-        if self.bcs:
-            for bc in self.bcs:
-                bc.apply(self.v_out)
