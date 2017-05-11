@@ -279,14 +279,14 @@ class directory(object):
 
     def __enter__(self):
         self.olddir = os.path.abspath(os.getcwd())
-        log.info("Old path '%s'" % self.olddir)
-        log.info("Pushing path '%s'" % self.dir)
+        log.debug("Old path '%s'" % self.olddir)
+        log.debug("Pushing path '%s'" % self.dir)
         os.chdir(self.dir)
 
     def __exit__(self, *args):
-        log.info("Popping path '%s'" % self.dir)
+        log.debug("Popping path '%s'" % self.dir)
         os.chdir(self.olddir)
-        log.info("New path '%s'" % self.olddir)
+        log.debug("New path '%s'" % self.olddir)
 
 
 options = config["options"]
