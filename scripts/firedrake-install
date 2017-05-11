@@ -78,13 +78,8 @@ else:
 
 branches = {}
 
-# Disgusting hack, are we running on travis/drone?
-travis = "TRAVIS" in os.environ
-drone = "DRONE" in os.environ
 jenkins = "JENKINS_URL" in os.environ
-ci = travis or drone
 ci_testing_firedrake = "FIREDRAKE_CI_TESTS" in os.environ
-travis_cache_dir = os.environ.get("CACHE_DIRECTORY", None)
 
 
 if mode == "install":
@@ -152,9 +147,6 @@ honoured.""",
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
 
-    if travis:
-        parser.add_argument("--write-cache", action="store_true",
-                            help="Write the travis cache and exit")
     args = parser.parse_args()
 
     if args.package_branch:
@@ -571,37 +563,21 @@ def git_update(name, url=None):
     log.info("Updating the git repository for %s" % name)
     os.chdir(name)
     git_sha = check_output(["git", "rev-parse", "HEAD"])
-    # Disgusting hack, on travis we've checked out a detached head.
-    if name == "firedrake" and ci and ci_testing_firedrake:
-        if travis:
-            pull_request = os.environ.get("TRAVIS_PULL_REQUEST", "false")
-            commit = os.environ["TRAVIS_COMMIT"]
-        elif drone:
-            pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
-            commit = os.environ["DRONE_COMMIT_SHA"]
-        else:
-            raise NotImplementedError("Unhandled CI type")
-        if pull_request != "false":
-            check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
-            check_call(["git", "checkout", "FETCH_HEAD"])
-        else:
-            check_call(["git", "checkout", commit])
+    # Ensure remotes get updated if and when we move repositories.
+    if url:
+        plain_url = split_requirements_url(url)[1]
+        current_url = check_output(["git", "remote", "-v"]).split()[1]
+        protocol = "https" if current_url.startswith("https") else "ssh"
+        new_url = git_url(plain_url, protocol)
+        # Ensure we only change from bitbucket to github and not the reverse.
+        if new_url != current_url and "bitbucket.org" in current_url \
+           and "github.com/firedrakeproject" in plain_url:
+            log.info("Updating git remote for %s" % name)
+            check_call(["git", "remote", "set-url", "origin", new_url])
+    if name == "petsc":
+        update_and_apply_petsc_fix()
     else:
-        # Ensure remotes get updated if and when we move repositories.
-        if url:
-            plain_url = split_requirements_url(url)[1]
-            current_url = check_output(["git", "remote", "-v"]).split()[1]
-            protocol = "https" if current_url.startswith("https") else "ssh"
-            new_url = git_url(plain_url, protocol)
-            # Ensure we only change from bitbucket to github and not the reverse.
-            if new_url != current_url and "bitbucket.org" in current_url \
-               and "github.com/firedrakeproject" in plain_url:
-                log.info("Updating git remote for %s" % name)
-                check_call(["git", "remote", "set-url", "origin", new_url])
-        if name == "petsc":
-            update_and_apply_petsc_fix()
-        else:
-            check_call(["git", "pull"])
+        check_call(["git", "pull"])
     git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     os.chdir("..")
     return git_sha != git_sha_new
@@ -640,99 +616,6 @@ def pip_requirements(package):
             run_pip_install(["-r", "%s/requirements.txt" % package])
     else:
         log.info("No dependencies found. Skipping.")
-
-
-if travis:
-    # Only enabled in travis mode
-    # Utilise travis directory caching for petsc/petsc4py dependencies
-    def get_src_hash(dir):
-        with directory(dir):
-            try:
-                return check_output(["git", "rev-parse", "HEAD"])
-            except subprocess.CalledProcessError:
-                return None
-
-    def get_cache_hash(dir):
-        try:
-            # Catch IOError both from missing directory and missing
-            # file.
-            with directory(dir):
-                with open("cache-key", "r") as f:
-                    return f.read()
-        except (IOError, OSError):
-            return None
-
-    def write_cache_hash(dir, sha):
-        with directory(dir):
-            with open("cache-key", "w") as f:
-                f.write(sha)
-
-    def find_installed_dep(dep):
-        try:
-            if dep == "petsc":
-                import petsc as p
-            elif dep == "petsc4py":
-                import petsc4py as p
-            return os.path.dirname(p.__file__)
-        except ImportError:
-            return None
-
-    def write_cache(dep, src_dir, cache_dir):
-        cached_dep = os.path.join(cache_dir, dep)
-        src_dep = os.path.join(src_dir, dep)
-        installed_dep = find_installed_dep(dep)
-
-        if installed_dep is None:
-            log.info("Did not find installation of %s, not writing cache\n" % dep)
-            return
-
-        src_hash = get_src_hash(src_dep)
-        if src_hash is None:
-            log.info("Didn't find hash of source tree %s, not writing cache\n" % src_dep)
-            return
-
-        cache_hash = get_cache_hash(cached_dep)
-
-        # If we're here, cache_hash might be None, but src_hash will not be
-        if cache_hash == src_hash:
-            # No need to update cache
-            log.info("Cache %s is already up to date\n" % cached_dep)
-            return
-
-        shutil.rmtree(cached_dep, ignore_errors=True)
-        shutil.copytree(installed_dep, cached_dep)
-        write_cache_hash(cached_dep, src_hash)
-        log.info("Successfully wrote cache %s\n" % cached_dep)
-
-    def restore_cache(dep, src_dir, cache_dir, dest_dir):
-        cached_dep = os.path.join(cache_dir, dep)
-        installed_dep = os.path.join(dest_dir, dep)
-
-        cache_hash = get_cache_hash(cached_dep)
-        if cache_hash is None:
-            log.info("No cache for %s found at %s\n" % (dep, cached_dep))
-            return False
-
-        if os.path.exists(cached_dep):
-            log.info("Found cache for %s at %s with hash %s\n" % (dep, cached_dep, cache_hash))
-
-        if not os.path.exists(src_dir):
-            log.info("No source directory for %s found, can't check cache validity\n" % src_dir)
-            # Outer install loop should handle this case
-            return False
-
-        src_hash = get_src_hash(src_dir)
-
-        # At this point, src_hash may be None, but cache_hash will not be
-        if src_hash == cache_hash:
-            log.info("Cache is up to date for %s, using it\n" % dep)
-            # Ensure this directory doesn't exist
-            shutil.rmtree(installed_dep, ignore_errors=True)
-            shutil.copytree(cached_dep, installed_dep)
-            return True
-        log.info("Cache was not up to date for %s (had key %s, needed %s)\n" %
-                 (dep, cache_hash, src_hash))
-        return False
 
 
 def install(package):
@@ -1037,14 +920,6 @@ def build_update_script():
     check_call(["chmod", "a+x", "../bin/firedrake-update"])
 
 
-if travis and travis_cache_dir and mode == "install" and args.write_cache:
-    # Cache update mode
-    src_dir = os.path.abspath("src")
-    write_cache("petsc", src_dir, travis_cache_dir)
-    write_cache("petsc4py", src_dir, travis_cache_dir)
-    log.info("Wrote caches, exiting\n")
-    sys.exit(0)
-
 if options["show_petsc_configure_options"]:
     log.info("******************************************\n")
     log.info("Building PETSc with the following options:\n")
@@ -1068,20 +943,6 @@ If you really want to use your own PETSc build, please run again with the
 --honour-petsc-dir option.
 """)
 
-if travis:
-    # Produce once a minute output so that travis doesn't think
-    # we're stalled
-    from multiprocessing import Process
-
-    def stdout_writer():
-        import time
-        while True:
-            time.sleep(60)
-            print(".")
-
-    travis_writer = Process(target=stdout_writer)
-    travis_writer.daemon = True
-    travis_writer.start()
 
 # Check operating system.
 osname = platform.uname()[0]
@@ -1195,22 +1056,6 @@ if mode == "install":
         check_call(["ln", "-s", "../../../", "firedrake"])
     else:
         git_clone("git+https://github.com/firedrakeproject/firedrake.git")
-        if ci and ci_testing_firedrake:
-            if travis:
-                pull_request = os.environ["TRAVIS_PULL_REQUEST"]
-                commit = os.environ["TRAVIS_COMMIT"]
-            elif drone:
-                pull_request = os.environ.get("DRONE_PULL_REQUEST", "false")
-                commit = os.environ["DRONE_COMMIT_SHA"]
-            else:
-                raise NotImplementedError("Unhandled CI type")
-            os.chdir("firedrake")
-            if pull_request != "false":
-                check_call(["git", "fetch", "origin", "pull/" + pull_request + "/merge"])
-                check_call(["git", "checkout", "FETCH_HEAD"])
-            else:
-                check_call(["git", "checkout", commit])
-            os.chdir("..")
 
     packages = clone_dependencies("firedrake")
     packages = clone_dependencies("PyOP2") + packages
@@ -1402,7 +1247,3 @@ except Exception as e:
     log.info("Unable to save configuations to a JSON file")
     log.info("Error Message:")
     log.info(e.message)
-
-
-if travis:
-    travis_writer.terminate()
