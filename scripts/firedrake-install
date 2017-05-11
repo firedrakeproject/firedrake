@@ -770,7 +770,6 @@ def build_and_install_glpsol():
             check_call(["cp", "examples/glpsol", os.environ["VIRTUAL_ENV"] + "/bin/"])
     else:
         log.info("No need to rebuild glpk")
-    
 
 
 def build_and_install_libspatialindex():
