@@ -783,11 +783,24 @@ def pip_uninstall(package):
 
 
 def build_and_install_petsc():
+    import hashlib
+    sha = hashlib.sha256()
+    expect = "94878cbfa27b0d0fbc64c00d4aafa137f678d5315ae62ba4aecddbd4269ae75f"
     if not os.path.exists("eigen-3.3.3.tgz"):
         log.info("Downloading Eigen-3.3.3 tarball")
         check_call(["curl", "-L", "-o", "eigen-3.3.3.tgz", "http://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz"])
     else:
         log.info("Eigen-3.3.3 tarball already downloaded")
+    with open("eigen-3.3.3.tgz", "rb") as f:
+        while True:
+            data = f.read(65536)
+            if not data:
+                break
+            sha.update(data)
+    actual = sha.hexdigest()
+    if actual != expect:
+        raise InstallError("Downloaded Eigen tarball has incorrect sha256sum, expected '%s', was '%s'",
+                           expect, actual)
     run_pip_install(["--ignore-installed", "petsc/"])
 
 
