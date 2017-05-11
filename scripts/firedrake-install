@@ -835,7 +835,7 @@ def build_and_install_adjoint():
             git_update(package, adjoint_deps[package])
         except OSError as e:
             if e.errno == 2:
-                log.warn("%s missing, cloning anew.\n" % p)
+                log.warn("%s missing, cloning anew.\n" % package)
                 git_clone(adjoint_deps[package])
             else:
                 raise
