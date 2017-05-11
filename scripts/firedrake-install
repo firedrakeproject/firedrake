@@ -275,14 +275,18 @@ log = logging.getLogger()
 class directory(object):
     """Context manager that executes body in a given directory"""
     def __init__(self, dir):
-        self.dir = dir
+        self.dir = os.path.abspath(dir)
 
     def __enter__(self):
         self.olddir = os.path.abspath(os.getcwd())
+        log.info("Old path '%s'" % self.olddir)
+        log.info("Pushing path '%s'" % self.dir)
         os.chdir(self.dir)
 
     def __exit__(self, *args):
+        log.info("Popping path '%s'" % self.dir)
         os.chdir(self.olddir)
+        log.info("New path '%s'" % self.olddir)
 
 
 options = config["options"]
@@ -561,25 +565,24 @@ def clone_dependencies(name):
 def git_update(name, url=None):
     # Update the named git repo and return true if the current branch actually changed.
     log.info("Updating the git repository for %s" % name)
-    os.chdir(name)
-    git_sha = check_output(["git", "rev-parse", "HEAD"])
-    # Ensure remotes get updated if and when we move repositories.
-    if url:
-        plain_url = split_requirements_url(url)[1]
-        current_url = check_output(["git", "remote", "-v"]).split()[1]
-        protocol = "https" if current_url.startswith("https") else "ssh"
-        new_url = git_url(plain_url, protocol)
-        # Ensure we only change from bitbucket to github and not the reverse.
-        if new_url != current_url and "bitbucket.org" in current_url \
-           and "github.com/firedrakeproject" in plain_url:
-            log.info("Updating git remote for %s" % name)
-            check_call(["git", "remote", "set-url", "origin", new_url])
-    if name == "petsc":
-        update_and_apply_petsc_fix()
-    else:
-        check_call(["git", "pull"])
-    git_sha_new = check_output(["git", "rev-parse", "HEAD"])
-    os.chdir("..")
+    with directory(name):
+        git_sha = check_output(["git", "rev-parse", "HEAD"])
+        # Ensure remotes get updated if and when we move repositories.
+        if url:
+            plain_url = split_requirements_url(url)[1]
+            current_url = check_output(["git", "remote", "-v"]).split()[1]
+            protocol = "https" if current_url.startswith("https") else "ssh"
+            new_url = git_url(plain_url, protocol)
+            # Ensure we only change from bitbucket to github and not the reverse.
+            if new_url != current_url and "bitbucket.org" in current_url \
+               and "github.com/firedrakeproject" in plain_url:
+                log.info("Updating git remote for %s" % name)
+                check_call(["git", "remote", "set-url", "origin", new_url])
+        if name == "petsc":
+            update_and_apply_petsc_fix()
+        else:
+            check_call(["git", "pull"])
+        git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
 
 
@@ -631,9 +634,8 @@ def install(package):
 
 def clean(package):
     log.info("Cleaning %s" % package)
-    os.chdir(package)
-    check_call(["python", "setup.py", "clean"])
-    os.chdir("..")
+    with directory(package):
+        check_call(["python", "setup.py", "clean"])
 
 
 def pip_uninstall(package):
@@ -667,14 +669,17 @@ def pip_uninstall(package):
 
 def build_and_install_petsc():
     import hashlib
+    tarball = "eigen-3.3.3.tgz"
+    url = "http://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz"
     sha = hashlib.sha256()
     expect = "94878cbfa27b0d0fbc64c00d4aafa137f678d5315ae62ba4aecddbd4269ae75f"
-    if not os.path.exists("eigen-3.3.3.tgz"):
-        log.info("Downloading Eigen-3.3.3 tarball")
-        check_call(["curl", "-L", "-o", "eigen-3.3.3.tgz", "http://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz"])
+    if not os.path.exists(tarball):
+        log.info("Downloading Eigen from '%s' to '%s'" % (url, tarball))
+        check_call(["curl", "-L", "-o", tarball, url])
     else:
-        log.info("Eigen-3.3.3 tarball already downloaded")
-    with open("eigen-3.3.3.tgz", "rb") as f:
+        log.info("Eigen tarball already downloaded to '%s'" % tarball)
+    log.info("Checking Eigen tarball integrity")
+    with open(tarball, "rb") as f:
         while True:
             data = f.read(65536)
             if not data:
@@ -684,6 +689,8 @@ def build_and_install_petsc():
     if actual != expect:
         raise InstallError("Downloaded Eigen tarball has incorrect sha256sum, expected '%s', was '%s'",
                            expect, actual)
+    else:
+        log.info("Eigen tarball hash valid")
     run_pip_install(["--ignore-installed", "petsc/"])
 
 
@@ -758,11 +765,10 @@ def build_and_install_glpsol():
         glpk_changed = True
 
     if glpk_changed:
-        os.chdir("glpk")
-        check_call(["./configure", "--disable-shared", "--disable-static"])
-        check_call(["make"])
-        check_call(["cp", "examples/glpsol", os.environ["VIRTUAL_ENV"] + "/bin/"])
-        os.chdir("..")
+        with directory("glpk"):
+            check_call(["./configure", "--disable-shared", "--disable-static"])
+            check_call(["make"])
+            check_call(["cp", "examples/glpsol", os.environ["VIRTUAL_ENV"] + "/bin/"])
 
 
 def build_and_install_libspatialindex():
@@ -782,19 +788,18 @@ def build_and_install_libspatialindex():
         libspatialindex_changed = True
 
     if libspatialindex_changed:
-        os.chdir("libspatialindex")
-        # Clean source directory
-        check_call(["git", "reset", "--hard"])
-        check_call(["git", "clean", "-f", "-x", "-d"])
-        # Patch Makefile.am to skip building test
-        check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
-        # Build and install
-        check_call(["./autogen.sh"])
-        check_call(["./configure", "--prefix=" + sys.prefix,
-                    "--enable-shared", "--disable-static"])
-        check_call(["make"])
-        check_call(["make", "install"])
-        os.chdir("..")
+        with directory("libspatialindex"):
+            # Clean source directory
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            # Patch Makefile.am to skip building test
+            check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
+            # Build and install
+            check_call(["./autogen.sh"])
+            check_call(["./configure", "--prefix=" + sys.prefix,
+                        "--enable-shared", "--disable-static"])
+            check_call(["make"])
+            check_call(["make", "install"])
 
 
 def build_and_install_slepc():
@@ -855,15 +860,13 @@ def build_and_install_adjoint():
     env["PETSC_ARCH"] = petsc_arch
     env["PETSC_DIR"] = petsc_dir
 
-    os.chdir("libadjoint")
-    dir_util.mkpath("build")
-
-    os.chdir("build")
-    log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
-    check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
-    log.info("Installing libadjoint.")
-    check_call(["make", "install"])
-    os.chdir("../..")
+    with directory("libadjoint"):
+        dir_util.mkpath("build")
+        with directory("build"):
+            log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
+            check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
+            log.info("Installing libadjoint.")
+            check_call(["make", "install"])
 
     install("dolfin-adjoint/")
 
@@ -877,20 +880,19 @@ def build_and_install_slope():
         slope_changed = True
 
     if slope_changed:
-        os.chdir("SLOPE")
-        # Clean source directory
-        check_call(["git", "reset", "--hard"])
-        check_call(["git", "clean", "-f", "-x", "-d"])
-        # Build and install (hack: need to do this manually as SLOPE is
-        # still stupid and doesn't have a proper configure+make+install system)
-        check_call(["make"])
-        check_call(["mv"] + glob(os.path.join('lib', '*')) + [os.path.join(sys.prefix, 'lib')])
-        include_dir = os.path.join(sys.prefix, 'include', 'SLOPE')
-        check_call(["mkdir", "-p", include_dir])
-        check_call(["cp"] + glob(os.path.join('sparsetiling', 'include', '*')) + [include_dir])
-        # Also install the Python interface
-        run_cmd(pyinstall)
-        os.chdir("..")
+        with directory("SLOPE"):
+            # Clean source directory
+            check_call(["git", "reset", "--hard"])
+            check_call(["git", "clean", "-f", "-x", "-d"])
+            # Build and install (hack: need to do this manually as SLOPE is
+            # still stupid and doesn't have a proper configure+make+install system)
+            check_call(["make"])
+            check_call(["mv"] + glob(os.path.join('lib', '*')) + [os.path.join(sys.prefix, 'lib')])
+            include_dir = os.path.join(sys.prefix, 'include', 'SLOPE')
+            check_call(["mkdir", "-p", include_dir])
+            check_call(["cp"] + glob(os.path.join('sparsetiling', 'include', '*')) + [include_dir])
+            # Also install the Python interface
+            run_cmd(pyinstall)
 
 
 def clean_obsolete_packages():
