@@ -944,6 +944,11 @@ If you really want to use your own PETSc build, please run again with the
 """)
 
 
+log.info("*** Current environment (output of 'env') ***")
+log.info(check_output(["env"]))
+log.info("\n\n")
+
+
 # Check operating system.
 osname = platform.uname()[0]
 if osname == "Darwin":
