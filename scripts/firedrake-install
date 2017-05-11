@@ -665,13 +665,14 @@ def pip_uninstall(package):
 
 def build_and_install_petsc():
     import hashlib
+    import urllib
     tarball = "eigen-3.3.3.tgz"
-    url = "http://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz"
+    url = "https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz"
     sha = hashlib.sha256()
     expect = "94878cbfa27b0d0fbc64c00d4aafa137f678d5315ae62ba4aecddbd4269ae75f"
     if not os.path.exists(tarball):
         log.info("Downloading Eigen from '%s' to '%s'" % (url, tarball))
-        check_call(["curl", "-L", "-o", tarball, url])
+        urllib.urlretrieve(url, filename=tarball)
     else:
         log.info("Eigen tarball already downloaded to '%s'" % tarball)
     log.info("Checking Eigen tarball integrity")
