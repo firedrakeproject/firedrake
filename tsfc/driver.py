@@ -349,13 +349,15 @@ def lower_integral_type(fiat_cell, integral_type):
     if integral_type == 'cell':
         integration_dim = dim
     elif integral_type in ['exterior_facet', 'interior_facet']:
+        if isinstance(fiat_cell, TensorProductCell):
+            raise ValueError("{} integral cannot be used with a TensorProductCell; need to distinguish between vertical and horizontal contributions.".format(integral_type))
         integration_dim = dim - 1
     elif integral_type == 'vertex':
         integration_dim = 0
     elif integral_type in vert_facet_types + horiz_facet_types:
         # Extrusion case
         if not isinstance(fiat_cell, TensorProductCell):
-            raise ValueError("{} requires a TensorProductCell.".format(integral_type))
+            raise ValueError("{} integral requires a TensorProductCell.".format(integral_type))
         basedim, extrdim = dim
         assert extrdim == 1
 
