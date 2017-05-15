@@ -17,6 +17,8 @@ from ufl.log import GREEN
 import gem
 import gem.impero_utils as impero_utils
 
+from FIAT.reference_element import TensorProductCell
+
 from finat.point_set import PointSet
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
@@ -352,6 +354,8 @@ def lower_integral_type(fiat_cell, integral_type):
         integration_dim = 0
     elif integral_type in vert_facet_types + horiz_facet_types:
         # Extrusion case
+        if not isinstance(fiat_cell, TensorProductCell):
+            raise ValueError("{} requires a TensorProductCell.".format(integral_type))
         basedim, extrdim = dim
         assert extrdim == 1
 
