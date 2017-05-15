@@ -9,6 +9,39 @@ import firedrake.dmplex as dmplex
 __all__ = ['adapt']
 
 
+
+
+class AAdaptation(object):
+
+    """
+    Object that performs anisotropic mesh adaptation
+    """
+
+    def __init__(self, mesh, metric):
+        """
+        """
+        self.mesh = mesh
+        self.metric = metric
+        self.meshnew = None
+
+
+    def adapt(self):
+        """
+        """
+        self.meshnew = adapt(self.mesh, self.metric)
+
+
+
+    def transfer_solution(self, f, fnew):
+        """
+        """
+        if self.newmesh == None:
+            raise("Cannot transfer solution before generating adapted mesh")
+        #TODO many checks
+        fnew.dat.data[:] = f.at(meshnew.coordinates.dat.data)
+
+
+
 def adapt(mesh, metric):
     """ Adapt the mesh to a prescribed metric field.
 
