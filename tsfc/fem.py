@@ -37,15 +37,13 @@ from tsfc.parameters import NUMPY_TYPE, PARAMETERS
 from tsfc.ufl_utils import ModifiedTerminalMixin, PickRestriction, simplify_abs
 
 
-class Context(ProxyKernelInterface):
+class ContextBase(ProxyKernelInterface):
+    """Common UFL -> GEM translation context."""
+
     keywords = ('ufl_cell',
                 'fiat_cell',
                 'integration_dim',
                 'entity_ids',
-                'quadrature_degree',
-                'quadrature_rule',
-                'point_set',
-                'weight_expr',
                 'precision',
                 'argument_multiindices',
                 'cellvolume',
@@ -55,7 +53,7 @@ class Context(ProxyKernelInterface):
     def __init__(self, interface, **kwargs):
         ProxyKernelInterface.__init__(self, interface)
 
-        invalid_keywords = set(kwargs.keys()) - set(Context.keywords)
+        invalid_keywords = set(kwargs.keys()) - set(self.keywords)
         if invalid_keywords:
             raise ValueError("unexpected keyword argument '{0}'".format(invalid_keywords.pop()))
         self.__dict__.update(kwargs)
@@ -69,19 +67,6 @@ class Context(ProxyKernelInterface):
         return self.fiat_cell.get_dimension()
 
     entity_ids = [0]
-
-    @cached_property
-    def quadrature_rule(self):
-        integration_cell = self.fiat_cell.construct_subelement(self.integration_dim)
-        return make_quadrature(integration_cell, self.quadrature_degree)
-
-    @cached_property
-    def point_set(self):
-        return self.quadrature_rule.point_set
-
-    @cached_property
-    def weight_expr(self):
-        return self.quadrature_rule.weight_expression
 
     precision = PARAMETERS["precision"]
 
@@ -112,6 +97,58 @@ class Context(ProxyKernelInterface):
     @cached_property
     def index_cache(self):
         return {}
+
+
+class PointSetContext(ContextBase):
+    """Context for compile-time known evaluation points."""
+
+    keywords = ContextBase.keywords + (
+        'quadrature_degree',
+        'quadrature_rule',
+        'point_set',
+        'weight_expr',
+    )
+
+    @cached_property
+    def quadrature_rule(self):
+        integration_cell = self.fiat_cell.construct_subelement(self.integration_dim)
+        return make_quadrature(integration_cell, self.quadrature_degree)
+
+    @cached_property
+    def point_set(self):
+        return self.quadrature_rule.point_set
+
+    @cached_property
+    def point_indices(self):
+        return self.point_set.indices
+
+    @cached_property
+    def point_expr(self):
+        return self.point_set.expression
+
+    @cached_property
+    def weight_expr(self):
+        return self.quadrature_rule.weight_expression
+
+    def basis_evaluation(self, finat_element, local_derivatives, entity_id):
+        return finat_element.basis_evaluation(local_derivatives,
+                                              self.point_set,
+                                              (self.integration_dim, entity_id))
+
+
+class GemPointContext(ContextBase):
+    """Context for evaluation at arbitrary reference points."""
+
+    keywords = ContextBase.keywords + (
+        'point_indices',
+        'point_expr',
+        'weight_expr',
+    )
+
+    def basis_evaluation(self, finat_element, local_derivatives, entity_id):
+        return finat_element.point_evaluation(local_derivatives,
+                                              self.point_expr,
+                                              (self.integration_dim, entity_id))
 
 
 class Translator(MultiFunction, ModifiedTerminalMixin, ufl2gem.Mixin):
@@ -221,13 +258,13 @@ def translate_cell_edge_vectors(terminal, mt, ctx):
 
 @translate.register(CellCoordinate)
 def translate_cell_coordinate(terminal, mt, ctx):
-    ps = ctx.point_set
     if ctx.integration_dim == ctx.fiat_cell.get_dimension():
-        return ps.expression
+        return ctx.point_expr
 
     # This destroys the structure of the quadrature points, but since
     # this code path is only used to implement CellCoordinate in facet
     # integrals, hopefully it does not matter much.
+    ps = ctx.point_set
     point_shape = tuple(index.extent for index in ps.indices)
 
     def callback(entity_id):
@@ -242,7 +279,7 @@ def translate_cell_coordinate(terminal, mt, ctx):
 @translate.register(FacetCoordinate)
 def translate_facet_coordinate(terminal, mt, ctx):
     assert ctx.integration_dim != ctx.fiat_cell.get_dimension()
-    return ctx.point_set.expression
+    return ctx.point_expr
 
 
 @translate.register(CellVolume)
@@ -284,9 +321,7 @@ def translate_argument(terminal, mt, ctx):
     element = create_element(terminal.ufl_element())
 
     def callback(entity_id):
-        finat_dict = element.basis_evaluation(mt.local_derivatives,
-                                              ctx.point_set,
-                                              (ctx.integration_dim, entity_id))
+        finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
         # Filter out irrelevant derivatives
         filtered_dict = {alpha: table
                          for alpha, table in iteritems(finat_dict)
@@ -315,9 +350,7 @@ def translate_coefficient(terminal, mt, ctx):
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
     for entity_id in ctx.entity_ids:
-        finat_dict = element.basis_evaluation(mt.local_derivatives,
-                                              ctx.point_set,
-                                              (ctx.integration_dim, entity_id))
+        finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
         for alpha, table in iteritems(finat_dict):
             # Filter out irrelevant derivatives
             if sum(alpha) == mt.local_derivatives:
@@ -354,7 +387,7 @@ def translate_coefficient(terminal, mt, ctx):
     # Change from FIAT to UFL arrangement
     result = fiat_to_ufl(value_dict, mt.local_derivatives)
     assert result.shape == mt.expr.ufl_shape
-    assert set(result.free_indices) <= set(ctx.point_set.indices)
+    assert set(result.free_indices) <= set(ctx.point_indices)
 
     # Detect Jacobian of affine cells
     if not result.free_indices and all(numpy.count_nonzero(node.array) <= 2
@@ -365,7 +398,7 @@ def translate_coefficient(terminal, mt, ctx):
 
 
 def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
-    context = Context(**kwargs)
+    context = PointSetContext(**kwargs)
 
     # Abs-simplification
     expression = simplify_abs(expression)
@@ -380,5 +413,5 @@ def compile_ufl(expression, interior_facet=False, point_sum=False, **kwargs):
     translator = Translator(context)
     result = map_expr_dags(translator, expressions)
     if point_sum:
-        result = [gem.index_sum(expr, context.point_set.indices) for expr in result]
+        result = [gem.index_sum(expr, context.point_indices) for expr in result]
     return result
