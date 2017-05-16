@@ -2,13 +2,12 @@
 
   .. sidebar:: Current development information.
   
-     Firedrake and PyOP2 are continually tested using the `Travis
-     continuous integration system <https://travis-ci.org>`__.
+     Firedrake and PyOP2 are continually tested using `Jenkins <https://jenkins.io/>`__  and `Travis <https://travis-ci.org>`__ respectively.
 
      Latest Firedrake status: |firedrakebuild|
 
-     .. |firedrakebuild| image:: https://travis-ci.org/firedrakeproject/firedrake.png?branch=master
-                                 :target: https://travis-ci.org/firedrakeproject/firedrake
+     .. |firedrakebuild| image:: https://jenkins.ese.ic.ac.uk:1080/job/firedrakeproject/job/firedrake/job/master/badge/icon
+                                 :target: https://jenkins.ese.ic.ac.uk:1080/blue/organizations/jenkins/firedrakeproject%2Ffiredrake/branches/
 
      Latest PyOP2 status: |pyop2build|
 
