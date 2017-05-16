@@ -2109,20 +2109,26 @@ def reorder_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
     """Reorder a PETSc Vec containing a metric w.r.t. to a coordinate Section
 
     :arg plex: the PETSc DMPlex  on which the Vec and Section are based
-    :arg metric: a PETSc Vec containing a metric field (a tensor per d.o.f.)
-    :arg coordSection: a PETSc Section meant for a coordinate field. (points
-         to a vector of size dim per d.o.f.)
+    :arg metric: a PETSc Vec containing a metric field (a tensor per vertex)
+    :arg coordSection: a PETSc Section meant for a coordinate field. (dim d.o.f.
+        per vertex)
     """
-    cdef int vStart, vEnd, iVer, dim, size, off
-    cdef np.ndarray tmp, met
+    cdef int        dim, size, start, end, p, off
+    cdef np.ndarray varray, oarray
+    cdef PETSc.Vec  out
 
-    vStart, vEnd = plex.getDepthStratum(0)
+    out = metric.duplicate()
+    varray = metric.array_r
+    oarray = out.array
     dim = plex.getDimension()
     size = dim*dim
-    tmp = np.ndarray(shape=((vEnd-vStart)*dim*dim), dtype=np.float64, order='C');
-
-    met = metric.getArray()
-    for iVer in range(vStart,vEnd):
-        off = int(coordSection.getOffset(iVer)/dim)
-        tmp[size*(iVer-vStart):size*(iVer-vStart+1)] = met[size*off:size*(off+1)]
-    met[:] = tmp
+    start, end = metric.getOwnershipRange()
+    idx = 0
+    for p in range(*coordSection.getChart()):
+        dof = coordSection.getDof(p)
+        if dof > 0:
+            off = coordSection.getOffset(p) // dim
+            if dof > 0 and off >= 0:
+                oarray[size*idx:size*(idx+1)] = varray[size*off:size*(off+1)]
+                idx += 1
+    return out

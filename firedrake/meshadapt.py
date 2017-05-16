@@ -38,9 +38,8 @@ class AAdaptation(object):
         with self.mesh.coordinates.dat.vec_ro as coords:
             plex.setCoordinatesLocal(coords)
         with self.metric.dat.vec as vec:
-            dmplex.reorder_metric(plex, vec, coordSection)
-        with self.metric.dat.vec_ro as vec:
-            newplex = plex.adapt(vec, "boundary_ids")
+            reordered_metric = dmplex.reorder_metric(plex, vec, coordSection)
+        newplex = plex.adapt(reordered_metric)
 
         self.newmesh = Mesh(newplex)
         return self.newmesh
