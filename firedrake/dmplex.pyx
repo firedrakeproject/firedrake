@@ -2113,6 +2113,9 @@ def reorder_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
     :arg coordSection: a PETSc Section meant for a coordinate field. (points
          to a vector of size dim per d.o.f.)
     """
+    cdef int vStart, vEnd, iVer, dim, size, off
+    cdef np.ndarray tmp, met
+
     vStart, vEnd = plex.getDepthStratum(0)
     dim = plex.getDimension()
     size = dim*dim
