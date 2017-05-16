@@ -29,11 +29,6 @@ firedrake_apps = {
 }
 
 
-@atexit.register
-def print_log_location():
-    log.info("\n\n%s log saved in firedrake-%s.log" % (mode.capitalize(), mode))
-
-
 class InstallError(Exception):
     # Exception for generic install problems.
     pass
@@ -270,6 +265,12 @@ logging.getLogger().addHandler(console)
 log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
+
+
+@atexit.register
+def print_log_location():
+    log.info("\n\n%s log saved in firedrake-%s.log" % (mode.capitalize(), mode))
+
 
 
 class directory(object):
