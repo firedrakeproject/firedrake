@@ -272,7 +272,6 @@ def print_log_location():
     log.info("\n\n%s log saved in firedrake-%s.log" % (mode.capitalize(), mode))
 
 
-
 class directory(object):
     """Context manager that executes body in a given directory"""
     def __init__(self, dir):
