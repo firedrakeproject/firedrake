@@ -1,15 +1,39 @@
 from __future__ import absolute_import, print_function, division
+from six import with_metaclass
+import abc
 
 import numpy as np
 
 from firedrake.mesh import Mesh
 import firedrake.dmplex as dmplex
+import firedrake.utils as utils
+import firedrake.functionspace as functionspace
+import firedrake.function as function
 
 
 __all__ = ['adapt']
 
 
-class AAdaptation(object):
+class BaseAdaptation(with_metaclass(abc.ABCMeta)):
+    """
+    Abstract top-level class for mesh adaptation
+    """
+
+    def __init__(self, mesh):
+        """
+        """
+        self.mesh = mesh
+
+    @abc.abstractproperty
+    def newmesh(self):
+        pass
+
+    @abc.abstractmethod
+    def transfer_solution(self, f, **kwargs):
+        pass
+
+
+class AAdaptation(BaseAdaptation):
     """
     Object that performs anisotropic mesh adaptation
     """
@@ -17,15 +41,14 @@ class AAdaptation(object):
     def __init__(self, mesh, metric):
         """
         """
-        self.mesh = mesh
+        # TODO checks on P1, etc should prob be done here
+        super(AAdaptation, self).__init__(mesh)
         self.metric = metric
-        self.meshnew = None
 
-    def adapt(self):
+    @utils.cached_property
+    def newmesh(self):
         """
-        Adapt the current mesh to the metric field.
-
-        :return: the new mesh adapted to the metric
+        Generates the adapted mesh wrt the metric
         """
         plex = self.mesh.topology._plex
         dim = self.mesh._topological_dimension
@@ -43,20 +66,20 @@ class AAdaptation(object):
             reordered_metric = dmplex.to_petsc_numbering(vec, self.metric.function_space())
 
         newplex = plex.adapt(reordered_metric)
-        self.newmesh = Mesh(newplex)
-        return self.newmesh
+        new_mesh = Mesh(newplex)
+        return new_mesh
 
-    def transfer_solution(self, f, fnew):
+    def transfer_solution(self, f, method=None):
         """
         Transfers a solution field from the old mesh to the new mesh
 
         :arg f: function defined on the old mesh that one wants to transfer
-        :arg fnew: tranfered function defined on the new mesh
         """
-        if self.newmesh is None:
-            raise("Cannot transfer solution before generating adapted mesh")
         # TODO many checks
-        fnew.dat.data[:] = f.at(self.meshnew.coordinates.dat.data)
+        Vnew = functionspace.FunctionSpace(self.newmesh, f.function_space().ufl_element())
+        fnew = function.Function(Vnew)
+        fnew.dat.data[:] = f.at(self.newmesh.coordinates.dat.data)
+        return fnew
 
 
 def adapt(mesh, metric):
@@ -69,5 +92,4 @@ def adapt(mesh, metric):
     :return: a new mesh adapted to the metric
     """
     adaptor = AAdaptation(mesh, metric)
-    newmesh = adaptor.adapt()
-    return newmesh
+    return adaptor.newmesh
