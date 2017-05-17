@@ -42,9 +42,10 @@ class AAdaptation(BaseAdaptation):
         """
         """
         if mesh.coordinates.ufl_element().family() != 'Lagrange' \
-           or mesh.coordinates.ufl_element().degree() != 1 :
+           or mesh.coordinates.ufl_element().degree() != 1:
             raise NotImplementedError("Mesh coordinates must be P1.")
-        if metric.ufl_element().family() != 'Lagrange' or metric.ufl_element().degree() != 1 :
+        if metric.ufl_element().family() != 'Lagrange' \
+           or metric.ufl_element().degree() != 1:
             raise ValueError("Metric should be a P1 field.")
         super(AAdaptation, self).__init__(mesh)
         self.metric = metric
@@ -83,15 +84,15 @@ class AAdaptation(BaseAdaptation):
         Vnew = functionspace.FunctionSpace(self.newmesh, f.function_space().ufl_element())
         fnew = function.Function(Vnew)
 
-        if f.ufl_element().family() == 'Lagrange' and f.ufl_element().degree() == 1 :
+        if f.ufl_element().family() == 'Lagrange' and f.ufl_element().degree() == 1:
             fnew.dat.data[:] = f.at(self.newmesh.coordinates.dat.data)
-        elif f.ufl_element().family() == 'Lagrange' :
+        elif f.ufl_element().family() == 'Lagrange':
             degree = f.ufl_element().degree()
             C = functionspace.VectorFunctionSpace(self.newmesh, 'CG', degree)
             interp_coordinates = function.Function(C)
             interp_coordinates.interpolate(self.newmesh.coordinates)
             fnew.dat.data[:] = f.at(interp_coordinates.dat.data)
-        else :
+        else:
             raise NotImplementedError("Can only interpolate CG fields")
         return fnew
 
