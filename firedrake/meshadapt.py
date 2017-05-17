@@ -9,6 +9,7 @@ import firedrake.dmplex as dmplex
 import firedrake.utils as utils
 import firedrake.functionspace as functionspace
 import firedrake.function as function
+import firedrake.mesh as fmesh
 
 
 __all__ = ['adapt']
@@ -41,6 +42,8 @@ class AAdaptation(BaseAdaptation):
     def __init__(self, mesh, metric):
         """
         """
+        if isinstance(mesh.topology, fmesh.ExtrudedMeshTopology):
+            raise NotImplementedError("Cannot adapt extruded meshes")
         if mesh.coordinates.ufl_element().family() != 'Lagrange' \
            or mesh.coordinates.ufl_element().degree() != 1:
             raise NotImplementedError("Mesh coordinates must be P1.")
