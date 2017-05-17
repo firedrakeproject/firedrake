@@ -29,6 +29,8 @@ class AAdaptation(object):
         """
         plex = self.mesh.topology._plex
         dim = self.mesh._topological_dimension
+        # PETSc adapt routine expects that the right coordinate section is set
+        # hence the following bloc of code
         entity_dofs = np.zeros(dim+1, dtype=np.int32)
         entity_dofs[0] = self.mesh.geometric_dimension()
         coordSection = plex.createSection([1], entity_dofs, perm=self.mesh.topology._plex_renumbering)
@@ -37,10 +39,10 @@ class AAdaptation(object):
 
         with self.mesh.coordinates.dat.vec_ro as coords:
             plex.setCoordinatesLocal(coords)
-        with self.metric.dat.vec as vec:
-            reordered_metric = dmplex.reorder_metric(plex, vec, coordSection)
-        newplex = plex.adapt(reordered_metric)
+        with self.metric.dat.vec_ro as vec:
+            reordered_metric = dmplex.to_petsc_numbering(vec, self.metric.function_space())
 
+        newplex = plex.adapt(reordered_metric)
         self.newmesh = Mesh(newplex)
         return self.newmesh
 

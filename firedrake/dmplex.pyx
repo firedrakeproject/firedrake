@@ -2105,30 +2105,34 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
                                <void *>buf.data))
 
 
-def reorder_metric(PETSc.DM plex, PETSc.Vec metric, PETSc.Section coordSection):
-    """Reorder a PETSc Vec containing a metric w.r.t. to a coordinate Section
+def to_petsc_numbering(PETSc.Vec vec, V):
+    """Reorder a PETSc Vec corresponding to a Firedrake Function 
+       w.r.t. to initial PETSc numbering
 
-    :arg plex: the PETSc DMPlex  on which the Vec and Section are based
-    :arg metric: a PETSc Vec containing a metric field (a tensor per vertex)
-    :arg coordSection: a PETSc Section meant for a coordinate field. (dim d.o.f.
-        per vertex)
+    :arg vec: the PETSc Vec to reorder
+    :arg V: the FunctionSpace of the function from which vec comes from
+
+    :ret out: a copy of vec ordered with PETSc numbering
     """
-    cdef int        dim, size, start, end, p, off
-    cdef np.ndarray varray, oarray
-    cdef PETSc.Vec  out
+    cdef int           dim, idx, start, end, p, dof, off, d, k
+    cdef PETSc.Vec     out
+    cdef PETSc.Section section
+    cdef np.ndarray    varray, oarray
 
-    out = metric.duplicate()
-    varray = metric.array_r
+    section = V.dm.getDefaultGlobalSection()
+    out = vec.duplicate()
+    varray = vec.array_r
     oarray = out.array
-    dim = plex.getDimension()
-    size = dim*dim
-    start, end = metric.getOwnershipRange()
+    dim = V.dim
     idx = 0
-    for p in range(*coordSection.getChart()):
-        dof = coordSection.getDof(p)
+    start, end = vec.getOwnershipRange()
+    for p in range(*section.getChart()):
+        dof = section.getDof(p)
         if dof > 0:
-            off = coordSection.getOffset(p) // dim
-            if dof > 0 and off >= 0:
-                oarray[size*idx:size*(idx+1)] = varray[size*off:size*(off+1)]
-                idx += 1
+            off = section.getOffset(p)
+            if off >= 0:
+                for d in range(dof):
+                    for k in range(dim):
+                        oarray[idx] = varray[dim*off + d*off + k - start]
+                        idx += 1
     return out
