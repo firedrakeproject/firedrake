@@ -142,7 +142,7 @@ class HybridizationPC(PCBase):
         Smat = self.S.petscmat
 
         # Nullspace for the multiplier problem
-        nullspace = create_schur_nullspace(P, -(K * K.T).inv * K * Atilde,
+        nullspace = create_schur_nullspace(P, -K * Atilde,
                                            V, V_d, TraceSpace,
                                            pc.comm)
         if nullspace:

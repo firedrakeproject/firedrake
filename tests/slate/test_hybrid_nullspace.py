@@ -54,7 +54,7 @@ def test_hybrid_nullspace(W):
     nullsp._build_monolithic_basis()
     A.petscmat.setNullSpace(nullsp._nullspace)
 
-    Snullsp = create_schur_nullspace(A.petscmat, -(K * K.T).inv * K * Atilde,
+    Snullsp = create_schur_nullspace(A.petscmat, -K * Atilde,
                                      W, Wd, T, COMM_WORLD)
     v = Snullsp.getVecs()[0]
 
