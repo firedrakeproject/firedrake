@@ -15,6 +15,7 @@ all low-level numerical linear algebra operations are performed using
 this templated function library.
 """
 from __future__ import absolute_import, print_function, division
+from six import iteritems
 from six.moves import range
 
 from coffee import base as ast
@@ -80,9 +81,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # simply reuse the produced kernel.
     if slate_expr._metakernel_cache is not None:
         return slate_expr._metakernel_cache
-
-    # Initialize coefficients, shape and statements list
-    expr_coeffs = slate_expr.coefficients()
 
     # We treat scalars as 1x1 MatrixBase objects, so we give
     # the right shape to do so and everything just falls out.
@@ -246,12 +244,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         args.append(ast.Decl("int **", cell_orientations))
 
     # Coefficient information
-    for c in expr_coeffs:
+    for c, csym_info in iteritems(builder.coefficient_map):
         if isinstance(c, Constant):
             ctype = "%s *" % SCALAR_TYPE
         else:
             ctype = "%s **" % SCALAR_TYPE
-        args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
+        args.extend([ast.Decl(ctype, csym) for csym in csym_info])
 
     # Facet information
     if builder.needs_cell_facets:
@@ -289,6 +287,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Send back a "TSFC-like" SplitKernel object with an
     # index and KernelInfo
+    expr_coeffs = slate_expr.coefficients()
     kinfo = KernelInfo(kernel=op2kernel,
                        integral_type=builder.integral_type,
                        oriented=builder.oriented,
