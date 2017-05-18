@@ -98,10 +98,10 @@ def test_quadrilateral_variant_spectral_dq():
 
 def test_quadrilateral_variant_spectral_rtcf():
     element = create_element(ufl.FiniteElement('RTCF', ufl.quadrilateral, 2, variant='spectral'))
-    assert isinstance(element.element.A.A, FIAT.GaussLobattoLegendre)
-    assert isinstance(element.element.A.B, FIAT.GaussLegendre)
-    assert isinstance(element.element.B.A, FIAT.GaussLegendre)
-    assert isinstance(element.element.B.B, FIAT.GaussLobattoLegendre)
+    assert isinstance(element.element._elements[0].A, FIAT.GaussLobattoLegendre)
+    assert isinstance(element.element._elements[0].B, FIAT.GaussLegendre)
+    assert isinstance(element.element._elements[1].A, FIAT.GaussLegendre)
+    assert isinstance(element.element._elements[1].B, FIAT.GaussLobattoLegendre)
 
 
 def test_cache_hit(ufl_element):
