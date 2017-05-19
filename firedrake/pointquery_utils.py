@@ -20,6 +20,8 @@ import tsfc
 import tsfc.kernel_interface.firedrake as firedrake_interface
 import tsfc.ufl_utils as ufl_utils
 
+from coffee.base import ArrayInit
+
 
 def make_args(function):
     arg = function.dat(op2.READ, function.cell_node_map())
@@ -48,48 +50,6 @@ def src_locate_cell(mesh, tolerance=None):
     return src
 
 
-format = {
-    "assign": lambda v, w: "%s = %s;" % (v, str(w)),
-}
-
-
-def set_float_formatting(precision):
-    "Set floating point formatting based on precision."
-
-    # Options for float formatting
-    f1 = "%%.%dg" % precision
-    f2 = "%%.%dg" % precision
-    f_int = "%%.%df" % 1
-
-    eps = eval("1e-%s" % precision)
-
-    # Regular float formatting
-    def floating_point_regular(v):
-        if abs(v - round(v, 1)) < eps:
-            return f_int % v
-        elif abs(v) < 100.0:
-            return f1 % v
-        else:
-            return f2 % v
-
-    # Special float formatting on Windows (remove extra leading zero)
-    def floating_point_windows(v):
-        return floating_point_regular(v).replace("e-0", "e-").replace("e+0", "e+")
-
-    # Set float formatting
-    import platform
-    if platform.system() == "Windows":
-        format["float"] = floating_point_windows
-    else:
-        format["float"] = floating_point_regular
-
-    # FIXME: KBO: Remove once we agree on the format of 'f1'
-    format["floating point"] = format["float"]
-
-    # Set machine precision
-    format["epsilon"] = 10.0*eval("1e-%s" % precision)
-
-
 def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
     """Generates C code for changing to reference coordinates.
 
@@ -102,9 +62,6 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         _ = tsfc.default_parameters()
         _.update(parameters)
         parameters = _
-
-    # Set code generation parameters
-    set_float_formatting(parameters["precision"])
 
     def dX_norm_square(topological_dimension):
         return " + ".join("dX[{0}]*dX[{0}]".format(i)
@@ -124,12 +81,11 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=contains_eps).args)
 
     def init_X(fiat_cell):
-        f_float = format["floating point"]
-        f_assign = format["assign"]
-
         vertices = numpy.array(fiat_cell.get_vertices())
         X = numpy.average(vertices, axis=0)
-        return "\n".join(f_assign("X[%d]" % i, f_float(v)) for i, v in enumerate(X))
+
+        formatter = ArrayInit(X, precision=parameters["precision"])._formatter
+        return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
 
     def to_reference_coordinates(ufl_coordinate_element):
         # Set up UFL form
@@ -208,9 +164,6 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
     evaluate_template_c = """#include <math.h>
 struct ReferenceCoords {
     double X[%(geometric_dimension)d];
-    double J[%(geometric_dimension)d * %(topological_dimension)d];
-    double K[%(topological_dimension)d * %(geometric_dimension)d];
-    double detJ;
 };
 
 static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double **C)
@@ -226,9 +179,6 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
     double *X = result->X;
 %(init_X)s
     double x[space_dim];
-    double *J = result->J;
-    double *K = result->K;
-    double detJ;
 
     int converged = 0;
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
@@ -241,8 +191,6 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
 
 %(X_isub_dX)s
     }
-
-    result->detJ = detJ;
 
     // Are we inside the reference element?
     *return_value = %(inside_predicate)s;
