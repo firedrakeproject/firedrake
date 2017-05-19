@@ -86,6 +86,13 @@ def compile_element(expression, coordinates, parameters=None):
         return_variable = gem.Indexed(gem.Variable('R', (1,)), (0,))
         result_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('R', rank=(1,)))
 
+    # Unroll
+    max_extent = parameters["unroll_indexsum"]
+    if max_extent:
+        def predicate(index):
+            return index.extent <= max_extent
+        result, = gem.optimise.unroll_indexsum([result], predicate=predicate)
+
     # Translate GEM -> COFFEE
     result, = gem.impero_utils.preprocess_gem([result])
     impero_c = gem.impero_utils.compile_gem([(return_variable, result)], tensor_indices)
