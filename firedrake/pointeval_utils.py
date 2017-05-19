@@ -4,7 +4,7 @@ from pyop2.datatypes import IntType, as_cstr
 
 from coffee import base as ast
 
-from ufl import TensorProductCell
+from ufl import MixedElement, TensorProductCell
 from ufl.corealg.map_dag import map_expr_dags
 from ufl.algorithms import extract_arguments, extract_coefficients
 
@@ -41,6 +41,10 @@ def compile_element(expression, coordinates, parameters=None):
     # Collect required coefficients
     coefficient, = extract_coefficients(expression)
 
+    # Point evaluation of mixed coefficients not supported here
+    if type(coefficient.ufl_element()) == MixedElement:
+        raise NotImplementedError("Cannot point evaluate mixed elements yet!")
+
     # Replace coordinates (if any)
     domain = expression.ufl_domain()
     assert coordinates.ufl_domain() == domain
@@ -51,7 +55,7 @@ def compile_element(expression, coordinates, parameters=None):
     x_arg = builder._coefficient(coordinates, "x")
     f_arg = builder._coefficient(coefficient, "f")
 
-    # Point evaluation of mixed coefficients not supported here
+    # TODO: restore this for expression evaluation!
     # expression = ufl_utils.split_coefficients(expression, builder.coefficient_split)
 
     # Translate to GEM
