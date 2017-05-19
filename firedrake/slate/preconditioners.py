@@ -142,7 +142,7 @@ class HybridizationPC(PCBase):
         Smat = self.S.petscmat
 
         # Nullspace for the multiplier problem
-        nullspace = create_schur_nullspace(P, K * Atilde.inv,
+        nullspace = create_schur_nullspace(P, -K * Atilde,
                                            V, V_d, TraceSpace,
                                            pc.comm)
         if nullspace:
@@ -330,4 +330,8 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
             new_vecs.append(v.copy())
 
     schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
+
+    # Normalize
+    for schur_vecs in schur_nullspace.getVecs():
+        schur_vecs.normalize()
     return schur_nullspace
