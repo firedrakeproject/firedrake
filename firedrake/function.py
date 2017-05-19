@@ -540,7 +540,7 @@ class Function(ufl.Coefficient):
                 if mixed:
                     l_result.append((i, tuple(f.at(p) for f in split)))
                 else:
-                    p_result = np.empty(value_shape, dtype=float)
+                    p_result = np.zeros(value_shape, dtype=float)
                     single_eval(points[i:i+1], p_result)
                     l_result.append((i, p_result))
             except PointNotInDomainError:
@@ -600,13 +600,25 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
+    from pyop2.base import build_itspace
+    from pyop2.sequential import generate_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
-    function_space = function.function_space()
+    mesh = function.ufl_domain()
+    src = pq_utils.src_locate_cell(mesh, tolerance=tolerance)
+    src += compile_element(function, mesh.coordinates)
 
-    src = pq_utils.src_locate_cell(function_space.mesh(), tolerance=tolerance)
-    src += compile_element(function_space.ufl_element(), function_space.dim)
-    src += pq_utils.make_wrapper(function,
+    args = []
+
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
+    arg.position = 0
+    args.append(arg)
+
+    arg = function.dat(op2.READ, function.cell_node_map())
+    arg.position = 1
+    args.append(arg)
+
+    src += generate_cell_wrapper(build_itspace(args, mesh.cell_set), args,
                                  forward_args=["double*", "double*"],
                                  kernel_name="evaluate_kernel",
                                  wrapper_name="wrap_evaluate")
