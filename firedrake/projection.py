@@ -128,13 +128,6 @@ class Projector(object):
                              v_out.function_space())
         self.v = v
         self.v_out = v_out
-        if bcs:
-            try:
-                bcs = tuple(bcs)
-            except TypeError:
-                bcs = (bcs,)
-            if any(bc.function_space() != v_out.function_space() for bc in bcs):
-                raise ValueError("bcs must be enforced on the space of the result function.")
         self.bcs = bcs
 
         if not self._same_fspace or self.bcs:
