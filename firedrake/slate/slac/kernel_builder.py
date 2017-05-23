@@ -145,8 +145,11 @@ class KernelBuilder(object):
 
         for splitkernel in splitkernels:
             oriented = oriented or splitkernel.kinfo.oriented
+
             # TODO: Extend multiple domains support
-            assert splitkernel.kinfo.subdomain_id == "otherwise"
+            if splitkernel.kinfo.subdomain_id != "otherwise":
+                raise NotImplementedError("Subdomains not implemented yet.")
+
             kast = transformer.visit(splitkernel.kinfo.kernel._ast)
             kernel_list.append(kast)
 
