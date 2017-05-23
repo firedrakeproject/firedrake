@@ -3,7 +3,6 @@ import numpy
 import pytest
 
 
-@pytest.mark.xfail(reason="FunctionSpace dim not used in cache key")
 @pytest.mark.parametrize("typ",
                          ["inject", "prolong"])
 def test_transfer_scalar_vector(typ):
