@@ -241,7 +241,6 @@ class HybridizationPC(PCBase):
         """
         self._assemble_S()
         self.S.force_evaluation()
-        self._assemble_Srhs()
 
     def apply(self, pc, x, y):
         """We solve the forward eliminated problem for the
