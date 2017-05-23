@@ -42,19 +42,6 @@ class KernelBuilder(object):
         self.finalized_ast = None
         self._is_finalized = False
 
-        coefficient_map = OrderedDict()
-        for i, coefficient in enumerate(self.expression.coefficients()):
-            if type(coefficient.ufl_element()) == MixedElement:
-                csym_info = []
-                for j, _ in enumerate(coefficient.split()):
-                    csym_info.append(ast.Symbol("w_%d_%d" % (i, j)))
-            else:
-                csym_info = (ast.Symbol("w_%d" % i),)
-
-            coefficient_map[coefficient] = tuple(csym_info)
-
-        self.coefficient_map = coefficient_map
-
         # Initialize temporaries and any auxiliary temporaries
         temps, aux_exprs = generate_expr_data(expression)
         self.temps = temps
@@ -85,6 +72,25 @@ class KernelBuilder(object):
         needed.
         """
         self.needs_mesh_layers = True
+
+    @cached_property
+    def coefficient_map(self):
+        """Generates a mapping from a coefficient to its kernel argument
+        symbol. If the coefficient is mixed, all of its split components
+        will be returned.
+        """
+        coefficient_map = OrderedDict()
+        for i, coefficient in enumerate(self.expression.coefficients()):
+            if type(coefficient.ufl_element()) == MixedElement:
+                csym_info = []
+                for j, _ in enumerate(coefficient.split()):
+                    csym_info.append(ast.Symbol("w_%d_%d" % (i, j)))
+            else:
+                csym_info = (ast.Symbol("w_%d" % i),)
+
+            coefficient_map[coefficient] = tuple(csym_info)
+
+        return coefficient_map
 
     def coefficient(self, coefficient):
         """Extracts the kernel arguments corresponding to a particular coefficient.
@@ -145,7 +151,6 @@ class KernelBuilder(object):
 
         for splitkernel in splitkernels:
             oriented = oriented or splitkernel.kinfo.oriented
-
             # TODO: Extend multiple domains support
             if splitkernel.kinfo.subdomain_id != "otherwise":
                 raise NotImplementedError("Subdomains not implemented yet.")
