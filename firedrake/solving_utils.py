@@ -221,7 +221,7 @@ def check_snes_convergence(snes):
             inner = True
             reason = KSPReasons[r]
         except KeyError:
-            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_convered_reason and -ksp_converged_reason"
+            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_converged_reason and -ksp_converged_reason"
     if r < 0:
         if inner:
             msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
