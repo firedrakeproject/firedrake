@@ -2,7 +2,6 @@ from __future__ import absolute_import, print_function, division
 from six.moves import range
 
 from os import path
-import collections
 import numpy
 import sympy
 
@@ -11,7 +10,17 @@ from pyop2.datatypes import IntType, as_cstr
 from pyop2.base import build_itspace
 from pyop2.sequential import generate_cell_wrapper
 
-from ufl import Cell, TensorProductCell
+import ufl
+from ufl.corealg.map_dag import map_expr_dag
+
+import gem
+import gem.impero_utils as impero_utils
+
+import tsfc
+import tsfc.kernel_interface.firedrake as firedrake_interface
+import tsfc.ufl_utils as ufl_utils
+
+from coffee.base import ArrayInit
 
 
 def make_args(function):
@@ -41,239 +50,18 @@ def src_locate_cell(mesh, tolerance=None):
     return src
 
 
-cellname = {
-    Cell("interval"): "interval_1d",
-    Cell("interval", 2): "interval_2d",
-    Cell("interval", 3): "interval_3d",
-    Cell("triangle"): "triangle_2d",
-    Cell("triangle", 3): "triangle_3d",
-    Cell("tetrahedron"): "tetrahedron_3d",
-    Cell("quadrilateral"): "quad_2d",
-    Cell("quadrilateral", 3): "quad_3d",
-    TensorProductCell(Cell("interval"), Cell("interval")): "quad_2d",
-    TensorProductCell(Cell("interval"), Cell("interval"), geometric_dimension=3): "quad_3d",
-    TensorProductCell(Cell("triangle"), Cell("interval")): "prism_3d",
-    TensorProductCell(Cell("quadrilateral"), Cell("interval")): "hex_3d",
-}
-
-
-def _declaration(type, name, value=None):
-    if value is None:
-        return "%s %s;" % (type, name)
-    return "%s %s = %s;" % (type, name, str(value))
-
-
-def _component(var, k):
-    if not isinstance(k, (list, tuple)):
-        k = [k]
-    return "%s" % var + "".join("[%s]" % str(i) for i in k)
-
-
-def _tabulate_tensor(vals):
-    "Tabulate a multidimensional tensor. (Replace tabulate_matrix and tabulate_vector)."
-
-    # Prefetch formats to speed up code generation
-    f_block = format["block"]
-    f_list_sep = format["list separator"]
-    f_block_sep = format["block separator"]
-    # FIXME: KBO: Change this to "float" once issue in set_float_formatting is fixed.
-    f_float = format["floating point"]
-    f_epsilon = format["epsilon"]
-
-    # Create numpy array and get shape.
-    tensor = numpy.array(vals)
-    shape = numpy.shape(tensor)
-    if len(shape) == 1:
-        # Create zeros if value is smaller than tolerance.
-        values = []
-        for v in tensor:
-            if not isinstance(v, (float, int)):
-                values.append(str(v))
-            elif abs(v) < f_epsilon:
-                values.append(f_float(0.0))
-            else:
-                values.append(f_float(v))
-        # Format values.
-        return f_block(f_list_sep.join(values))
-    elif len(shape) > 1:
-        return f_block(f_block_sep.join([_tabulate_tensor(tensor[i]) for i in range(shape[0])]))
-    else:
-        raise ValueError("Not an N-dimensional array:\n%s" % tensor)
-
-
-format = {
-    "assign": lambda v, w: "%s = %s;" % (v, str(w)),
-    "declaration": _declaration,
-    "float declaration": "double",
-    "block": lambda v: "{%s}" % v,
-    "list separator": ", ",
-    "block separator": ",\n",
-    "new line": "\\\n",
-    "component": _component,
-    "tabulate tensor": _tabulate_tensor,
-}
-
-
-def set_float_formatting(precision):
-    "Set floating point formatting based on precision."
-
-    # Options for float formatting
-    f1 = "%%.%dg" % precision
-    f2 = "%%.%dg" % precision
-    f_int = "%%.%df" % 1
-
-    eps = eval("1e-%s" % precision)
-
-    # Regular float formatting
-    def floating_point_regular(v):
-        if abs(v - round(v, 1)) < eps:
-            return f_int % v
-        elif abs(v) < 100.0:
-            return f1 % v
-        else:
-            return f2 % v
-
-    # Special float formatting on Windows (remove extra leading zero)
-    def floating_point_windows(v):
-        return floating_point_regular(v).replace("e-0", "e-").replace("e+0", "e+")
-
-    # Set float formatting
-    import platform
-    if platform.system() == "Windows":
-        format["float"] = floating_point_windows
-    else:
-        format["float"] = floating_point_regular
-
-    # FIXME: KBO: Remove once we agree on the format of 'f1'
-    format["floating point"] = format["float"]
-
-    # Set machine precision
-    format["epsilon"] = 10.0*eval("1e-%s" % precision)
-
-
-def operands_and_reconstruct(expr):
-    if isinstance(expr, sympy.Expr):
-        return (expr.args,
-                lambda children: expr.func(*children))
-    else:
-        # e.g. floating-point numbers
-        return (), None
-
-
-class SSATransformer(object):
-    def __init__(self, prefix=None):
-        self._regs = {}
-        self._code = collections.OrderedDict()
-        self._prefix = prefix or "r"
-
-    def _new_reg(self):
-        return sympy.Symbol('%s%d' % (self._prefix, len(self._regs)))
-
-    def __call__(self, e):
-        ops, reconstruct = operands_and_reconstruct(e)
-        if len(ops) == 0:
-            return e
-        elif e in self._regs:
-            return self._regs[e]
-        else:
-            s = reconstruct(list(map(self, ops)))
-            r = self._new_reg()
-            self._regs[e] = r
-            self._code[r] = s
-            return r
-
-    @property
-    def code(self):
-        return self._code.items()
-
-
-def rounding(expr):
-    eps = format["epsilon"]
-
-    if isinstance(expr, (float, sympy.numbers.Float)):
-        v = float(expr)
-        if abs(v - round(v, 1)) < eps:
-            return round(v, 1)
-    elif isinstance(expr, sympy.Expr):
-        if expr.args:
-            return expr.func(*map(rounding, expr.args))
-
-    return expr
-
-
-def ssa_arrays(args, prefix=None):
-    transformer = SSATransformer(prefix=prefix)
-
-    refs = []
-    for arg in args:
-        ref = numpy.zeros_like(arg, dtype=object)
-        arg_flat = arg.reshape(-1)
-        ref_flat = ref.reshape(-1)
-        for i, e in enumerate(arg_flat):
-            ref_flat[i] = transformer(rounding(e))
-        refs.append(ref)
-
-    return transformer.code, refs
-
-
-class _CPrinter(sympy.printing.StrPrinter):
-    """sympy.printing.StrPrinter uses a Pythonic syntax which is invalid in C.
-    This subclass replaces the printing of power with C compatible code."""
-
-    def _print_Pow(self, expr, rational=False):
-        # WARNING: Code mostly copied from sympy source code!
-        from sympy.core import S
-        from sympy.printing.precedence import precedence
-
-        PREC = precedence(expr)
-
-        if expr.exp is S.Half and not rational:
-            return "sqrt(%s)" % self._print(expr.base)
-
-        if expr.is_commutative:
-            if -expr.exp is S.Half and not rational:
-                # Note: Don't test "expr.exp == -S.Half" here, because that will
-                # match -0.5, which we don't want.
-                return "1/sqrt(%s)" % self._print(expr.base)
-            if expr.exp is -S.One:
-                # Similarly to the S.Half case, don't test with "==" here.
-                return '1/%s' % self.parenthesize(expr.base, PREC)
-
-        e = self.parenthesize(expr.exp, PREC)
-        if self.printmethod == '_sympyrepr' and expr.exp.is_Rational and expr.exp.q != 1:
-            # the parenthesized exp should be '(Rational(a, b))' so strip parens,
-            # but just check to be sure.
-            if e.startswith('(Rational'):
-                e = e[1:-1]
-
-        # Changes below this line!
-        if e == "2":
-            return '{0}*{0}'.format(self.parenthesize(expr.base, PREC))
-        elif e == "3":
-            return '{0}*{0}*{0}'.format(self.parenthesize(expr.base, PREC))
-        else:
-            return 'pow(%s,%s)' % (self.parenthesize(expr.base, PREC), e)
-
-
-def c_print(expr):
-    printer = _CPrinter(dict(order=None))
-    return printer.doprint(expr)
-
-
-def compile_coordinate_element(ufl_coordinate_element, contains_eps):
+def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=None):
     """Generates C code for changing to reference coordinates.
 
     :arg ufl_coordinate_element: UFL element of the coordinates
     :returns: C code as string
     """
-    from tsfc import default_parameters
-    from tsfc.fiatinterface import create_element
-    from FIAT.reference_element import TensorProductCell as two_product_cell
-    import sympy as sp
-    import numpy as np
-
-    # Set code generation parameters
-    set_float_formatting(default_parameters()["precision"])
+    if parameters is None:
+        parameters = tsfc.default_parameters()
+    else:
+        _ = tsfc.default_parameters()
+        _.update(parameters)
+        parameters = _
 
     def dX_norm_square(topological_dimension):
         return " + ".join("dX[{0}]*dX[{0}]".format(i)
@@ -286,90 +74,84 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps):
     def is_affine(ufl_element):
         return ufl_element.cell().is_simplex() and ufl_element.degree() <= 1 and ufl_element.family() in ["Discontinuous Lagrange", "Lagrange"]
 
-    def inside_check(ufl_cell, fiat_cell):
-        dim = ufl_cell.topological_dimension()
-        point = tuple(sp.Symbol("X[%d]" % i) for i in range(dim))
+    def inside_check(fiat_cell):
+        dim = fiat_cell.get_spatial_dimension()
+        point = tuple(sympy.Symbol("X[%d]" % i) for i in range(dim))
 
         return " && ".join("(%s)" % arg for arg in fiat_cell.contains_point(point, epsilon=contains_eps).args)
 
-    def init_X(fiat_element):
-        f_float = format["floating point"]
-        f_assign = format["assign"]
+    def init_X(fiat_cell):
+        vertices = numpy.array(fiat_cell.get_vertices())
+        X = numpy.average(vertices, axis=0)
 
-        fiat_cell = fiat_element.get_reference_element()
-        vertices = np.array(fiat_cell.get_vertices())
-        X = np.average(vertices, axis=0)
-        return "\n".join(f_assign("X[%d]" % i, f_float(v)) for i, v in enumerate(X))
+        formatter = ArrayInit(X, precision=parameters["precision"])._formatter
+        return "\n".join("%s = %s;" % ("X[%d]" % i, formatter(v)) for i, v in enumerate(X))
 
-    def to_reference_coordinates(ufl_cell, fiat_element):
-        f_decl = format["declaration"]
-        f_float_decl = format["float declaration"]
+    def to_reference_coordinates(ufl_coordinate_element):
+        # Set up UFL form
+        cell = ufl_coordinate_element.cell()
+        domain = ufl.Mesh(ufl_coordinate_element)
+        K = ufl.JacobianInverse(domain)
+        x = ufl.SpatialCoordinate(domain)
+        x0_element = ufl.VectorElement("Real", cell, 0)
+        x0 = ufl.Coefficient(ufl.FunctionSpace(domain, x0_element))
+        expr = ufl.dot(K, x - x0)
 
-        # Get the element cell name and geometric dimension.
-        cell = ufl_cell
-        gdim = cell.geometric_dimension()
-        tdim = cell.topological_dimension()
+        # Translation to GEM
+        C = ufl_utils.coordinate_coefficient(domain)
+        expr = ufl_utils.preprocess_expression(expr)
+        expr = ufl_utils.replace_coordinates(expr, C)
+        expr = ufl_utils.simplify_abs(expr)
 
-        code = []
+        builder = firedrake_interface.KernelBuilderBase()
+        builder._coefficient(C, "C")
+        builder._coefficient(x0, "x0")
 
-        # Symbolic tabulation
-        tabs = fiat_element.tabulate(1, np.array([[sp.Symbol("X[%d]" % i) for i in range(tdim)]]))
-        tabs = sorted((d, value.reshape(value.shape[:-1])) for d, value in tabs.iteritems())
+        dim = cell.topological_dimension()
+        point = gem.Variable('X', (dim,))
+        context = tsfc.fem.GemPointContext(
+            interface=builder,
+            ufl_cell=cell,
+            precision=parameters["precision"],
+            point_indices=(),
+            point_expr=point,
+        )
+        translator = tsfc.fem.Translator(context)
+        ir = map_expr_dag(translator, expr)
 
-        # Generate code for intermediate values
-        s_code, d_phis = ssa_arrays([v for k, v in tabs], prefix="t")
-        phi = d_phis.pop(0)
+        # Unroll result
+        ir = [gem.Indexed(ir, alpha) for alpha in numpy.ndindex(ir.shape)]
 
-        for name, value in s_code:
-            code += [f_decl(f_float_decl, name, c_print(value))]
+        # Unroll IndexSums
+        max_extent = parameters["unroll_indexsum"]
+        if max_extent:
+            def predicate(index):
+                return index.extent <= max_extent
+        ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
 
-        # Cell coordinate data
-        C = np.array([[sp.Symbol("C[%d][%d]" % (i, j)) for j in range(gdim)]
-                      for i in range(fiat_element.space_dimension())])
+        # Translate to COFFEE
+        ir = impero_utils.preprocess_gem(ir)
+        return_variable = gem.Variable('dX', (dim,))
+        assignments = [(gem.Indexed(return_variable, (i,)), e)
+                       for i, e in enumerate(ir)]
+        impero_c = impero_utils.compile_gem(assignments, ())
+        body = tsfc.coffee.generate(impero_c, {}, parameters["precision"])
+        body.open_scope = False
 
-        # Generate physical coordinates
-        x = phi.dot(C)
-        for i, e in enumerate(x):
-            code += ["\tx[%d] = %s;" % (i, e)]
+        return body
 
-        # Generate Jacobian
-        grad_phi = np.vstack(reversed(d_phis))
-        J = np.transpose(grad_phi.dot(C))
-        for i, row in enumerate(J):
-            for j, e in enumerate(row):
-                code += ["\tJ[%d * %d + %d] = %s;" % (i, tdim, j, e)]
+    # Create FInAT element
+    element = tsfc.finatinterface.create_element(ufl_coordinate_element)
 
-        # Get code snippets for Jacobian, inverse of Jacobian and mapping of
-        # coordinates from physical element to the FIAT reference element.
-        code += ["compute_jacobian_inverse_%s(K, detJ, J);" % cellname[cell]]
-        # FIXME: use cell orientations!
-        # if needs_orientation:
-        #     code_ += [format["orientation"]["ufc"](tdim, gdim)]
-
-        x = np.array([sp.Symbol("x[%d]" % i) for i in range(gdim)])
-        x0 = np.array([sp.Symbol("x0[%d]" % i) for i in range(gdim)])
-        K = np.array([[sp.Symbol("K[%d]" % (i*gdim + j)) for j in range(gdim)]
-                      for i in range(tdim)])
-
-        dX = K.dot(x - x0)
-        for i, e in enumerate(dX):
-            code += ["\tdX[%d] = %s;" % (i, e)]
-
-        return "\n".join(code)
-
-    # Create FIAT element
-    element = create_element(ufl_coordinate_element, vector_is_mixed=False)
     cell = ufl_coordinate_element.cell()
-
-    # calculate_basisvalues, vdim = calculate_basisvalues(cell, element)
-    extruded = isinstance(element.get_reference_element(), two_product_cell)
+    extruded = isinstance(cell, ufl.TensorProductCell)
 
     code = {
         "geometric_dimension": cell.geometric_dimension(),
         "topological_dimension": cell.topological_dimension(),
-        "inside_predicate": inside_check(cell, element.get_reference_element()),
-        "to_reference_coords": to_reference_coordinates(cell, element),
-        "init_X": init_X(element),
+        "inside_predicate": inside_check(element.cell),
+        "to_reference_coords": to_reference_coordinates(ufl_coordinate_element),
+        "init_X": init_X(element.cell),
         "max_iteration_count": 1 if is_affine(ufl_coordinate_element) else 16,
         "convergence_epsilon": 1e-12,
         "dX_norm_square": dX_norm_square(cell.topological_dimension()),
@@ -380,13 +162,8 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps):
     }
 
     evaluate_template_c = """#include <math.h>
-#include <firedrake_geometry.h>
-
 struct ReferenceCoords {
     double X[%(geometric_dimension)d];
-    double J[%(geometric_dimension)d * %(topological_dimension)d];
-    double K[%(topological_dimension)d * %(geometric_dimension)d];
-    double detJ;
 };
 
 static inline void to_reference_coords_kernel(void *result_, double *x0, int *return_value, double **C)
@@ -402,24 +179,18 @@ static inline void to_reference_coords_kernel(void *result_, double *x0, int *re
     double *X = result->X;
 %(init_X)s
     double x[space_dim];
-    double *J = result->J;
-    double *K = result->K;
-    double detJ;
 
-    double dX[%(topological_dimension)d];
     int converged = 0;
-
     for (int it = 0; !converged && it < %(max_iteration_count)d; it++) {
+        double dX[%(topological_dimension)d] = { 0.0 };
 %(to_reference_coords)s
 
-         if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
-             converged = 1;
-         }
+        if (%(dX_norm_square)s < %(convergence_epsilon)g * %(convergence_epsilon)g) {
+            converged = 1;
+        }
 
 %(X_isub_dX)s
     }
-
-    result->detJ = detJ;
 
     // Are we inside the reference element?
     *return_value = %(inside_predicate)s;
