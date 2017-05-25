@@ -89,10 +89,44 @@ class HybridizationPC(PCBase):
         # Set up the functions for the original, hybridized
         # and schur complement systems
         self.broken_solution = Function(V_d)
-        self.broken_rhs = Function(V_d)
+        self.broken_residual = Function(V_d)
         self.trace_solution = Function(TraceSpace)
         self.unbroken_solution = Function(V)
-        self.unbroken_rhs = Function(V)
+        self.unbroken_residual = Function(V)
+
+        # Set up the KSP for the hdiv residual projection
+        hd_ksp = PETSc.KSP().create(comm=pc.comm)
+        hd_ksp.setOptionsPrefix(prefix + "hdiv_residual_")
+
+        # HDiv mass operator
+        p = TrialFunction(V[self.vidx])
+        q = TestFunction(V[self.vidx])
+        mass = ufl.dot(p, q)*ufl.dx
+        # TODO: Bcs?
+        self.M = allocate_matrix(mass, bcs=None,
+                                 form_compiler_parameters=self.cxt.fc_params)
+        self._assemble_M = create_assembly_callable(mass,
+                                                    tensor=self.M,
+                                                    bcs=None,
+                                                    form_compiler_parameters=self.cxt.fc_params)
+        self._assemble_M()
+        self.M.force_evaluation()
+        Mmat = self.M.petscmat
+
+        hd_ksp.setOperators(Mmat)
+        hd_ksp.setUp()
+        hd_ksp.setFromOptions()
+        self.hd_ksp = hd_ksp
+
+        # Storing the result of A.inv * r, where A is the HDiv
+        # mass matrix and r is the HDiv residual
+        self._computed_hdr = Function(V[self.vidx])
+
+        tau = TestFunction(V_d[self.vidx])
+        self._assemble_broken_hdr = create_assembly_callable(
+            ufl.dot(self._computed_hdr, tau)*ufl.dx,
+            tensor=self.broken_residual.split()[self.vidx],
+            form_compiler_parameters=self.cxt.fc_params)
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
@@ -124,7 +158,7 @@ class HybridizationPC(PCBase):
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * self.broken_rhs,
+            K * Atilde.inv * self.broken_residual,
             tensor=self.schur_rhs,
             form_compiler_parameters=self.cxt.fc_params)
 
@@ -149,26 +183,18 @@ class HybridizationPC(PCBase):
             Smat.setNullSpace(nullspace)
 
         # Set up the KSP for the system of Lagrange multipliers
-        ksp = PETSc.KSP().create(comm=pc.comm)
-        ksp.setOptionsPrefix(prefix)
-        ksp.setOperators(Smat)
-        ksp.setUp()
-        ksp.setFromOptions()
-        self.ksp = ksp
+        trace_ksp = PETSc.KSP().create(comm=pc.comm)
+        trace_ksp.setOptionsPrefix(prefix)
+        trace_ksp.setOperators(Smat)
+        trace_ksp.setUp()
+        trace_ksp.setFromOptions()
+        self.trace_ksp = trace_ksp
 
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
 
         # Generate reconstruction calls
         self._reconstruction_calls(split_mixed_op, split_trace_op)
-
-        # Set up the projectors
-        data_params = {"ksp_type": "preonly",
-                       "pc_type": "bjacobi",
-                       "sub_pc_type": "ilu"}
-        self.data_projector = Projector(self.unbroken_rhs.split()[self.vidx],
-                                        self.broken_rhs.split()[self.vidx],
-                                        solver_parameters=data_params)
 
         # NOTE: Tolerance is very important here and so we provide
         # the user a way to specify projector tolerance
@@ -204,10 +230,10 @@ class HybridizationPC(PCBase):
         K_1 = Tensor(split_trace_op[(0, id1)])
 
         # Split functions and reconstruct each bit separately
-        split_rhs = self.broken_rhs.split()
+        split_residual = self.broken_residual.split()
         split_sol = self.broken_solution.split()
-        g = split_rhs[id0]
-        f = split_rhs[id1]
+        g = split_residual[id0]
+        f = split_residual[id1]
         sigma = split_sol[id0]
         u = split_sol[id1]
         lambdar = self.trace_solution
@@ -250,22 +276,35 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-        with self.unbroken_rhs.dat.vec as v:
+        with self.unbroken_residual.dat.vec as v:
             x.copy(v)
 
         # Transfer unbroken_rhs into broken_rhs
-        unbroken_scalar_data = self.unbroken_rhs.split()[self.pidx]
-        broken_scalar_data = self.broken_rhs.split()[self.pidx]
-        self.data_projector.project()
+        # NOTE: Scalar space is already "broken" so no need for
+        # any projections
+        unbroken_scalar_data = self.unbroken_residual.split()[self.pidx]
+        broken_scalar_data = self.broken_residual.split()[self.pidx]
         unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
+
+        # Handle the incoming HDiv residual:
+        # Solve (approximately) for `g = A.inv * r`, where `A` is the HDiv
+        # mass matrix and `r` is the HDiv residual.
+        # Once `g` is obtained, we take the inner product against broken
+        # HDiv test functions to obtain a broken residual.
+        with self.unbroken_residual.split()[self.vidx].dat.vec_ro as hdr:
+            with self._computed_hdr.dat.vec as g:
+                self.hd_ksp.solve(hdr, g)
+
+        # Now assemble the new "broken" hdiv residual
+        self._assemble_broken_hdr()
 
         # Compute the rhs for the multiplier system
         self._assemble_Srhs()
 
         # Solve the system for the Lagrange multipliers
         with self.schur_rhs.dat.vec_ro as b:
-            with self.trace_solution.dat.vec as x:
-                self.ksp.solve(b, x)
+            with self.trace_solution.dat.vec as x_trace:
+                self.trace_ksp.solve(b, x_trace)
 
         # Reconstruct the unknowns
         self._reconstruct()
