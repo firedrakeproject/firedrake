@@ -42,9 +42,6 @@ class KernelBuilder(object):
         self.finalized_ast = None
         self._is_finalized = False
 
-        # Generate coefficient map (both mixed and non-mixed cases handled)
-        self.coefficient_map = prepare_coefficients(expression)
-
         # Initialize temporaries and any auxiliary temporaries
         temps, aux_exprs = generate_expr_data(expression)
         self.temps = temps
@@ -76,16 +73,31 @@ class KernelBuilder(object):
         """
         self.needs_mesh_layers = True
 
-    def coefficient(self, coefficient):
-        """Extracts a coefficient from the coefficient_map. This handles both
-        the case when the coefficient is defined on a mixed or non-mixed
-        function space.
+    @cached_property
+    def coefficient_map(self):
+        """Generates a mapping from a coefficient to its kernel argument
+        symbol. If the coefficient is mixed, all of its split components
+        will be returned.
         """
-        if type(coefficient.ufl_element()) == MixedElement:
-            sub_coeffs = coefficient.split()
-            return tuple(self.coefficient_map[c] for c in sub_coeffs)
-        else:
-            return (self.coefficient_map[coefficient],)
+        coefficient_map = OrderedDict()
+        for i, coefficient in enumerate(self.expression.coefficients()):
+            if type(coefficient.ufl_element()) == MixedElement:
+                csym_info = []
+                for j, _ in enumerate(coefficient.split()):
+                    csym_info.append(ast.Symbol("w_%d_%d" % (i, j)))
+            else:
+                csym_info = (ast.Symbol("w_%d" % i),)
+
+            coefficient_map[coefficient] = tuple(csym_info)
+
+        return coefficient_map
+
+    def coefficient(self, coefficient):
+        """Extracts the kernel arguments corresponding to a particular coefficient.
+        This handles both the case when the coefficient is defined on a mixed
+        or non-mixed function space.
+        """
+        return self.coefficient_map[coefficient]
 
     @cached_property
     def context_kernels(self):
@@ -140,7 +152,9 @@ class KernelBuilder(object):
         for splitkernel in splitkernels:
             oriented = oriented or splitkernel.kinfo.oriented
             # TODO: Extend multiple domains support
-            assert splitkernel.kinfo.subdomain_id == "otherwise"
+            if splitkernel.kinfo.subdomain_id != "otherwise":
+                raise NotImplementedError("Subdomains not implemented yet.")
+
             kast = transformer.visit(splitkernel.kinfo.kernel._ast)
             kernel_list.append(kast)
 
@@ -168,22 +182,6 @@ class KernelBuilder(object):
         kernel_ast.extend(macro_kernels)
 
         return ast.Node(kernel_ast)
-
-
-def prepare_coefficients(expression):
-    """Prepares the coefficient map that maps a `ufl.Coefficient`
-    to `coffee.Symbol`.
-    """
-    coefficient_map = {}
-
-    for i, coefficient in enumerate(expression.coefficients()):
-        if type(coefficient.ufl_element()) == MixedElement:
-            for j, sub_coeff in enumerate(coefficient.split()):
-                coefficient_map[sub_coeff] = ast.Symbol("w_%d_%d" % (i, j))
-        else:
-            coefficient_map[coefficient] = ast.Symbol("w_%d" % i)
-
-    return coefficient_map
 
 
 def generate_expr_data(expr):
