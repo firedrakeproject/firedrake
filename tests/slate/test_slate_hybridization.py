@@ -57,6 +57,8 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
                              'ksp_type': 'preonly',
                              'pc_type': 'python',
                              'pc_python_type': 'firedrake.HybridizationPC',
+                             'hybridization_hdiv_residual_ksp_type': 'cg',
+                             'hybridization_hdiv_residual_ksp_rtol': 1e-14,
                              'hybridization_ksp_rtol': 1e-8,
                              'hybridization_pc_type': 'lu',
                              'hybridization_ksp_type': 'preonly',
