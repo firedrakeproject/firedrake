@@ -296,6 +296,27 @@ def test_projector_bcs(tensor, same_fspace):
     assert errornorm(ret, ref) < 1.0e-10
 
 
+@pytest.mark.parametrize(('family', 'degree', 'quad'),
+                         [('RT', 1, False), ('BDM', 1, False), ('RTCF', 1, True),
+                          ('RT', 2, False), ('BDM', 2, False), ('RTCF', 2, True)])
+def test_reconstruct(family, degree, quad):
+    mesh = UnitSquareMesh(2, 2, quadrilateral=quad)
+    if quad:
+        element = FiniteElement(family, quadrilateral, degree)
+    else:
+        element = FiniteElement(family, triangle, degree)
+
+    V = FunctionSpace(mesh, element)
+    x = SpatialCoordinate(mesh)
+    vo = Function(V).project(as_vector([x[0] ** 2, x[1] ** 2]))
+
+    V_d = FunctionSpace(mesh, BrokenElement(element))
+    vd = Function(V_d).project(vo)
+
+    v_rec = reconstruct(vd, V)
+    assert errornorm(v_rec, vo) < 1.0e-10
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
