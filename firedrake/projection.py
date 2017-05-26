@@ -124,7 +124,7 @@ def reconstruct(v_b, V):
     if not isinstance(v_b.function_space().ufl_element(), ufl.BrokenElement):
         raise ValueError("Function space must be defined on a broken element.")
 
-    if not v_b.function_space.ufl_element()._element == V.ufl_element():
+    if not v_b.function_space().ufl_element()._element == V.ufl_element():
         raise ValueError(
             "The ufl element of the target function space must "
             "coincide with the element broken by ufl.BrokenElement."
