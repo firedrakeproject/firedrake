@@ -316,6 +316,12 @@ def test_reconstruct(family, degree, quad):
     v_rec = reconstruct(vd, V)
     assert errornorm(v_rec, vo) < 1.0e-10
 
+    # This uses the alternate syntax in which
+    # the target Function is already available.
+    v_c = Function(V)
+    reconstruct(vd, v_c)
+    assert errornorm(v_c, vo) < 1.0e-10
+
 
 if __name__ == '__main__':
     import os
