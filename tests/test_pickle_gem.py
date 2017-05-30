@@ -18,6 +18,14 @@ def test_pickle_gem(protocol):
     assert repr(expr) == repr(unpickled)
 
 
+@pytest.mark.parametrize('protocol', range(3))
+def test_listtensor(protocol):
+    expr = gem.ListTensor([gem.Variable('x', ()), gem.Zero()])
+
+    unpickled = pickle.loads(pickle.dumps(expr, protocol))
+    assert expr == unpickled
+
+
 if __name__ == "__main__":
     import os
     import sys
