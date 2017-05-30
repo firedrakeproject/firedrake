@@ -101,7 +101,7 @@ def project(v, V, bcs=None, mesh=None,
     return ret
 
 
-def reconstruct(v_b, V):
+def reconstruct(v_b, V, name=None):
     """Reconstruct a :class:`.Function`, defined on a broken function
     space and transfer its data into a function defined on an unbroken
     finite element space.
@@ -115,7 +115,9 @@ def reconstruct(v_b, V):
     averages between facet degrees of freedom.
 
     :arg v_b: the :class:`.Function` to reconstruct.
-    :arg V: the target function space.
+    :arg V: the :class:`.FunctionSpace` or :class:`.Function` to reconstruct
+            into.
+    :arg name: name of the resulting :class:`.Function`
     """
 
     if not isinstance(v_b, function.Function):
@@ -124,7 +126,17 @@ def reconstruct(v_b, V):
     if not isinstance(v_b.function_space().ufl_element(), ufl.BrokenElement):
         raise ValueError("Function space must be defined on a broken element.")
 
-    if not v_b.function_space().ufl_element()._element == V.ufl_element():
+    if isinstance(V, functionspaceimpl.WithGeometry):
+        result = function.Function(V, name=name)
+    elif isinstance(V, function.Function):
+        result = V
+        V = V.function_space()
+    else:
+        raise RuntimeError(
+            'Can only project into functions and function spaces, not %r'
+            % type(V))
+
+    if v_b.function_space().ufl_element()._element != V.ufl_element():
         raise ValueError(
             "The ufl element of the target function space must "
             "coincide with the element broken by ufl.BrokenElement."
@@ -141,7 +153,6 @@ def reconstruct(v_b, V):
     }"""
 
     w = function.Function(V)
-    result = function.Function(V)
     par_loop(weight_kernel, ufl.dx, {"weight": (w, INC)})
     par_loop(average_kernel, ufl.dx, {"vrec": (result, INC),
                                       "v_b": (v_b, READ),
