@@ -120,11 +120,11 @@ class HybridizationPC(PCBase):
 
         # Storing the result of A.inv * r, where A is the HDiv
         # mass matrix and r is the HDiv residual
-        self._computed_hdr = Function(V[self.vidx])
+        self._computed_r_map = Function(V[self.vidx])
 
         tau = TestFunction(V_d[self.vidx])
         self._assemble_broken_hdr = create_assembly_callable(
-            ufl.dot(self._computed_hdr, tau)*ufl.dx,
+            ufl.dot(self._computed_r_map, tau)*ufl.dx,
             tensor=self.broken_residual.split()[self.vidx],
             form_compiler_parameters=self.cxt.fc_params)
 
@@ -292,7 +292,7 @@ class HybridizationPC(PCBase):
         # Once `g` is obtained, we take the inner product against broken
         # HDiv test functions to obtain a broken residual.
         with self.unbroken_residual.split()[self.vidx].dat.vec_ro as hdr:
-            with self._computed_hdr.dat.vec as g:
+            with self._computed_r_map.dat.vec as g:
                 self.hd_ksp.solve(hdr, g)
 
         # Now assemble the new "broken" hdiv residual
