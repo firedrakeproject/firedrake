@@ -35,6 +35,7 @@
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
+import abc
 
 from contextlib import contextmanager
 import itertools
@@ -587,8 +588,6 @@ class Set(object):
         self._halo = halo
         self._partition_size = 1024
         self._extruded = False
-        if self.halo:
-            self.halo.verify(self)
         # A cache of objects built on top of this set
         self._cache = {}
         Set._globalcount += 1
@@ -1363,154 +1362,59 @@ class MixedDataSet(DataSet, ObjectCached):
         return "MixedDataSet(%r)" % (self._dsets,)
 
 
-class Halo(object):
+class Halo(object, metaclass=abc.ABCMeta):
 
     """A description of a halo associated with a :class:`Set`.
 
     The halo object describes which :class:`Set` elements are sent
     where, and which :class:`Set` elements are received from where.
-
-    The `sends` should be a dict whose key is the process we want to
-    send to, similarly the `receives` should be a dict whose key is the
-    process we want to receive from.  The value should in each case be
-    a numpy array of the set elements to send to/receive from each
-    `process`.
-
-    The gnn2unn array is a map from process-local set element
-    numbering to cross-process set element numbering.  It must
-    correctly number all the set elements in the halo region as well
-    as owned elements.  Providing this array is only necessary if you
-    will access :class:`Mat` objects on the :class:`Set` this `Halo`
-    lives on.  Insertion into :class:`Dat`\s always uses process-local
-    numbering, however insertion into :class:`Mat`\s uses cross-process
-    numbering under the hood.
-
-    You can provide your own Halo class, and use that instead when
-    initialising :class:`Set`\s.  It must provide the following
-    methods::
-
-       - :meth:`Halo.begin`
-       - :meth:`Halo.end`
-       - :meth:`Halo.verify`
-
-    and the following properties::
-
-       - :attr:`Halo.global_to_petsc_numbering`
-       - :attr:`Halo.comm`
-
     """
 
-    def __init__(self, sends, receives, comm=None, gnn2unn=None):
-        self._sends = sends
-        self._receives = receives
-        # The user might have passed lists, not numpy arrays, so fix that here.
-        for i, a in self._sends.items():
-            self._sends[i] = np.asarray(a)
-        for i, a in self._receives.items():
-            self._receives[i] = np.asarray(a)
-        self._global_to_petsc_numbering = gnn2unn
-        self.comm = dup_comm(comm)
-        rank = self.comm.rank
+    @abc.abstractproperty
+    def comm(self):
+        """The MPI communicator for this halo."""
+        pass
 
-        assert rank not in self._sends, \
-            "Halo was specified with self-sends on rank %d" % rank
-        assert rank not in self._receives, \
-            "Halo was specified with self-receives on rank %d" % rank
+    @abc.abstractproperty
+    def local_to_global_numbering(self):
+        """The mapping from process-local to process-global numbers for this halo."""
+        pass
 
-    @collective
-    def begin(self, dat, reverse=False):
-        """Begin halo exchange.
+    @abc.abstractmethod
+    def global_to_local_begin(self, dat, insert_mode):
+        """Begin an exchange from global (assembled) to local (ghosted) representation.
 
-        :arg dat: The :class:`Dat` to perform the exchange on.
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
-        sends = self.sends
-        receives = self.receives
-        if reverse:
-            sends, receives = receives, sends
-        for dest, ele in sends.items():
-            dat._send_buf[dest] = dat._data[ele]
-            dat._send_reqs[dest] = self.comm.Isend(dat._send_buf[dest],
-                                                   dest=dest, tag=dat._id)
-        for source, ele in receives.items():
-            dat._recv_buf[source] = dat._data[ele]
-            dat._recv_reqs[source] = self.comm.Irecv(dat._recv_buf[source],
-                                                     source=source, tag=dat._id)
-
-    @collective
-    def end(self, dat, reverse=False):
-        """End halo exchange.
-
-        :arg dat: The :class:`Dat` to perform the exchange on.
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
-        with timed_region("Halo exchange receives wait"):
-            MPI.Request.Waitall(dat._recv_reqs.values())
-        with timed_region("Halo exchange sends wait"):
-            MPI.Request.Waitall(dat._send_reqs.values())
-        dat._recv_reqs.clear()
-        dat._send_reqs.clear()
-        dat._send_buf.clear()
-        receives = self.receives
-        if reverse:
-            receives = self.sends
-        maybe_setflags(dat._data, write=True)
-        for source, buf in dat._recv_buf.items():
-            if reverse:
-                dat._data[receives[source]] += buf
-            else:
-                dat._data[receives[source]] = buf
-        maybe_setflags(dat._data, write=False)
-        dat._recv_buf.clear()
-
-    @property
-    def sends(self):
-        """Return the sends associated with this :class:`Halo`.
-
-        A dict of numpy arrays, keyed by the rank to send to, with
-        each array indicating the :class:`Set` elements to send.
-
-        For example, to send no elements to rank 0, elements 1 and 2 to rank 1
-        and no elements to rank 2 (with ``comm.size == 3``) we would have: ::
-
-            {1: np.array([1,2], dtype=np.int32)}.
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
         """
-        return self._sends
+        pass
 
-    @property
-    def receives(self):
-        """Return the receives associated with this :class:`Halo`.
+    @abc.abstractmethod
+    def global_to_local_end(self, dat, insert_mode):
+        """Finish an exchange from global (assembled) to local (ghosted) representation.
 
-        A dict of numpy arrays, keyed by the rank to receive from,
-        with each array indicating the :class:`Set` elements to
-        receive.
-
-        See :func:`Halo.sends` for an example.
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
         """
-        return self._receives
+        pass
 
-    @property
-    def global_to_petsc_numbering(self):
-        """The mapping from global (per-process) dof numbering to
-    petsc (cross-process) dof numbering."""
-        return self._global_to_petsc_numbering
+    @abc.abstractmethod
+    def local_to_global_begin(self, dat, insert_mode):
+        """Begin an exchange from local (ghosted) to global (assembled) representation.
 
-    def verify(self, s):
-        """Verify that this :class:`Halo` is valid for a given
-:class:`Set`."""
-        for dest, sends in self.sends.items():
-            assert (sends >= 0).all() and (sends < s.size).all(), \
-                "Halo send to %d is invalid (outside owned elements)" % dest
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
+        """
+        pass
 
-        for source, receives in self.receives.items():
-            assert (receives >= s.size).all() and \
-                (receives < s.total_size).all(), \
-                "Halo receive from %d is invalid (not in halo elements)" % \
-                source
+    @abc.abstractmethod
+    def local_to_global_end(self, dat, insert_mode):
+        """Finish an exchange from local (ghosted) to global (assembled) representation.
+
+        :arg dat: The :class:`Dat` to exchange.
+        :arg insert_mode: The insertion mode.
+        """
+        pass
 
 
 class IterationSpace(object):
@@ -1783,12 +1687,6 @@ class Dat(DataCarrier, _EmptyDataMixin):
         else:
             self._id = uid
         self._name = name or "dat_%d" % self._id
-        halo = dataset.halo
-        if halo is not None:
-            self._send_reqs = {}
-            self._send_buf = {}
-            self._recv_reqs = {}
-            self._recv_buf = {}
 
     @validate_in(('access', _modes, ModeValueError))
     def __call__(self, access, path=None):
@@ -2228,7 +2126,10 @@ class Dat(DataCarrier, _EmptyDataMixin):
         halo = self.dataset.halo
         if halo is None:
             return
-        halo.begin(self, reverse=reverse)
+        if reverse:
+            halo.local_to_global_begin(self, INC)
+        else:
+            halo.global_to_local_begin(self, WRITE)
 
     @collective
     def halo_exchange_end(self, reverse=False):
@@ -2241,7 +2142,10 @@ class Dat(DataCarrier, _EmptyDataMixin):
         halo = self.dataset.halo
         if halo is None:
             return
-        halo.end(self, reverse=reverse)
+        if reverse:
+            halo.local_to_global_end(self, INC)
+        else:
+            halo.global_to_local_end(self, WRITE)
 
     @classmethod
     def fromhdf5(cls, dataset, f, name):

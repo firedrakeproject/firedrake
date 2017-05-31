@@ -58,7 +58,7 @@ class DataSet(base.DataSet):
             lgmap.create(indices=np.arange(self.size, dtype=IntType),
                          bsize=self.cdim, comm=self.comm)
         else:
-            lgmap.create(indices=self.halo.global_to_petsc_numbering,
+            lgmap.create(indices=self.halo.local_to_global_numbering,
                          bsize=self.cdim, comm=self.comm)
         return lgmap
 
@@ -283,7 +283,7 @@ class MixedDataSet(DataSet, base.MixedDataSet):
             self.comm.Scan(owned_sz, field_offset)
             self.comm.Allgather(field_offset, current_offsets[1:])
             # Find the ranks each entry in the l2g belongs to
-            l2g = s.halo.global_to_petsc_numbering
+            l2g = s.halo.local_to_global_numbering
             # If cdim > 1, we need to unroll the node numbering to dof
             # numbering
             if s.cdim > 1:
