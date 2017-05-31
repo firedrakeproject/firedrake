@@ -339,7 +339,7 @@ class Dat(base.Dat):
         self._vec.stateIncrease()
         yield self._vec
         if access is not base.READ:
-            self.needs_halo_update = True
+            self.halo_valid = False
 
     @property
     @collective
@@ -409,7 +409,7 @@ class MixedDat(base.MixedDat):
                                        mode=PETSc.ScatterMode.REVERSE)
                     vscat.scatterEnd(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
                                      mode=PETSc.ScatterMode.REVERSE)
-            self.needs_halo_update = True
+            self.halo_valid = False
 
     @property
     @collective

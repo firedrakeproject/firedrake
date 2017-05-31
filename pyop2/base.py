@@ -465,35 +465,46 @@ class Arg(object):
         return self._is_mat or isinstance(self.idx, IterationIndex)
 
     @collective
-    def halo_exchange_begin(self, update_inc=False):
+    def global_to_local_begin(self):
         """Begin halo exchange for the argument if a halo update is required.
         Doing halo exchanges only makes sense for :class:`Dat` objects.
-
-        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
+        """
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         assert not self._in_flight, \
             "Halo exchange already in flight for Arg %s" % self
-        access = [READ, RW]
-        if update_inc:
-            access.append(INC)
-        if self.access in access and self.data.needs_halo_update:
-            self.data.needs_halo_update = False
+        if self.access in [READ, RW, INC] and not self.data.halo_valid:
             self._in_flight = True
-            self.data.halo_exchange_begin()
+            self.data.global_to_local_begin(WRITE)
 
     @collective
-    def halo_exchange_end(self, update_inc=False):
-        """End halo exchange if it is in flight.
+    def global_to_local_end(self):
+        """Finish halo exchange for the argument if a halo update is required.
         Doing halo exchanges only makes sense for :class:`Dat` objects.
-
-        :kwarg update_inc: if True also force halo exchange for :class:`Dat`\s accessed via INC."""
+        """
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
-        access = [READ, RW]
-        if update_inc:
-            access.append(INC)
-        if self.access in access and self._in_flight:
-            self.data.halo_exchange_end()
+        if self.access in [READ, RW, INC] and self._in_flight:
             self._in_flight = False
+            self.data.global_to_local_end(WRITE)
+        self.data.halo_valid = True
+
+    @collective
+    def local_to_global_begin(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        assert not self._in_flight, \
+            "Halo exchange already in flight for Arg %s" % self
+        if self.access in [INC, MIN, MAX]:
+            self._in_flight = True
+            self.data.local_to_global_begin(self.access)
+
+    @collective
+    def local_to_global_end(self):
+        assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
+        if self.access in [INC, MIN, MAX] and self._in_flight:
+            self._in_flight = False
+            self.data.local_to_global_end(self.access)
+        # WRITE/RW doesn't require halo exchange, but the ghosts are
+        # now dirty.
+        self.data.halo_valid = self.access is not READ
 
     @collective
     def reduction_begin(self, comm):
@@ -1678,7 +1689,7 @@ class Dat(DataCarrier, _EmptyDataMixin):
         self.comm = dataset.comm
         # Are these data to be treated as SoA on the device?
         self._soa = bool(soa)
-        self.needs_halo_update = False
+        self.halo_valid = True
         # If the uid is not passed in from outside, assume that Dats
         # have been declared in the same order everywhere.
         if uid is None:
@@ -1750,9 +1761,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         _trace.evaluate(set([self]), set([self]))
         if self.dataset.total_size > 0 and self._data.size == 0 and self.cdim > 0:
             raise RuntimeError("Illegal access: no data associated with this Dat!")
-        maybe_setflags(self._data, write=True)
+        self.halo_valid = False
         v = self._data[:self.dataset.size].view()
-        self.needs_halo_update = True
+        v.setflags(write=True)
         return v
 
     @property
@@ -1766,12 +1777,13 @@ class Dat(DataCarrier, _EmptyDataMixin):
         With this accessor, you get to see up to date halo values, but
         you should not try and modify them, because they will be
         overwritten by the next halo exchange."""
-        self.data               # force evaluation
-        self.halo_exchange_begin()
-        self.halo_exchange_end()
-        self.needs_halo_update = True
-        maybe_setflags(self._data, write=True)
-        return self._data
+        _trace.evaluate(set([self]), set([self]))
+        self.global_to_local_begin(WRITE)
+        self.global_to_local_end(WRITE)
+        self.halo_valid = False
+        v = self._data.view()
+        v.setflags(write=True)
+        return v
 
     @property
     @collective
@@ -1806,10 +1818,9 @@ class Dat(DataCarrier, _EmptyDataMixin):
         overwritten by the next halo exchange.
 
         """
-        self.data_ro            # force evaluation
-        self.halo_exchange_begin()
-        self.halo_exchange_end()
-        self.needs_halo_update = False
+        _trace.evaluate(set([self]), set())
+        self.global_to_local_begin(WRITE)
+        self.global_to_local_end(WRITE)
         v = self._data.view()
         v.setflags(write=False)
         return v
@@ -2116,36 +2127,48 @@ class Dat(DataCarrier, _EmptyDataMixin):
     __idiv__ = __itruediv__  # Python 2 compatibility
 
     @collective
-    def halo_exchange_begin(self, reverse=False):
-        """Begin halo exchange.
+    def global_to_local_begin(self, access_mode):
+        """Begin a halo exchange from global to ghosted representation.
 
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
+        :kwarg access_mode: Mode with which the data will subsequently
+           be accessed."""
         halo = self.dataset.halo
         if halo is None:
             return
-        if reverse:
-            halo.local_to_global_begin(self, INC)
-        else:
-            halo.global_to_local_begin(self, WRITE)
+        halo.global_to_local_begin(self, access_mode)
 
     @collective
-    def halo_exchange_end(self, reverse=False):
-        """End halo exchange. Waits on MPI recv.
+    def global_to_local_end(self, access_mode):
+        """End a halo exchange from global to ghosted representation.
 
-        :kwarg reverse: if True, switch round the meaning of sends and receives.
-               This can be used when computing non-redundantly and
-               INCing into a :class:`Dat` to obtain correct local
-               values."""
+        :kwarg access_mode: Mode with which the data will subsequently
+           be accessed."""
         halo = self.dataset.halo
         if halo is None:
             return
-        if reverse:
-            halo.local_to_global_end(self, INC)
-        else:
-            halo.global_to_local_end(self, WRITE)
+        halo.global_to_local_end(self, access_mode)
+        self.halo_valid = True
+
+    @collective
+    def local_to_global_begin(self, insert_mode):
+        """Begin a halo exchange from ghosted to global representation.
+
+        :kwarg insert_mode: insertion mode (an access descriptor)"""
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        halo.local_to_global_begin(self, insert_mode)
+
+    @collective
+    def local_to_global_end(self, insert_mode):
+        """End a halo exchange from ghosted to global representation.
+
+        :kwarg insert_mode: insertion mode (an access descriptor)"""
+        halo = self.dataset.halo
+        if halo is None:
+            return
+        halo.local_to_global_end(self, insert_mode)
+        self.halo_valid = False
 
     @classmethod
     def fromhdf5(cls, dataset, f, name):
@@ -2305,25 +2328,35 @@ class MixedDat(Dat):
         return tuple(s.data_ro_with_halos for s in self._dats)
 
     @property
-    def needs_halo_update(self):
-        """Has this Dat been written to since the last halo exchange?"""
-        return any(s.needs_halo_update for s in self._dats)
+    def halo_valid(self):
+        """Does this Dat have up to date halos?"""
+        return all(s.halo_valid for s in self)
 
-    @needs_halo_update.setter
-    def needs_halo_update(self, val):
+    @halo_valid.setter
+    def halo_valid(self, val):
         """Indictate whether this Dat requires a halo update"""
-        for d in self._dats:
-            d.needs_halo_update = val
+        for d in self:
+            d.halo_valid = val
 
     @collective
-    def halo_exchange_begin(self, reverse=False):
-        for s in self._dats:
-            s.halo_exchange_begin(reverse)
+    def global_to_local_begin(self, access_mode):
+        for s in self:
+            s.global_to_local_begin(access_mode)
 
     @collective
-    def halo_exchange_end(self, reverse=False):
-        for s in self._dats:
-            s.halo_exchange_end(reverse)
+    def global_to_local_end(self, access_mode):
+        for s in self:
+            s.global_to_local_end(access_mode)
+
+    @collective
+    def local_to_global_begin(self, insert_mode):
+        for s in self:
+            s.local_to_global_begin(insert_mode)
+
+    @collective
+    def local_to_global_end(self, insert_mode):
+        for s in self:
+            s.local_to_global_end(insert_mode)
 
     @collective
     def zero(self, subset=None):
@@ -2627,13 +2660,25 @@ class Global(DataCarrier, _EmptyDataMixin):
         self._zero_loop.enqueue()
 
     @collective
-    def halo_exchange_begin(self):
+    def global_to_local_begin(self, access_mode):
         """Dummy halo operation for the case in which a :class:`Global` forms
         part of a :class:`MixedDat`."""
         pass
 
     @collective
-    def halo_exchange_end(self):
+    def global_to_local_end(self, access_mode):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
+    @collective
+    def local_to_global_begin(self, insert_mode):
+        """Dummy halo operation for the case in which a :class:`Global` forms
+        part of a :class:`MixedDat`."""
+        pass
+
+    @collective
+    def local_to_global_end(self, insert_mode):
         """Dummy halo operation for the case in which a :class:`Global` forms
         part of a :class:`MixedDat`."""
         pass
@@ -4102,7 +4147,7 @@ class ParLoop(LazyComputation):
     def compute(self):
         """Executes the kernel over all members of the iteration space."""
         with timed_region("ParLoopExecute"):
-            self.halo_exchange_begin()
+            self.global_to_local_begin()
             iterset = self.iterset
             arglist = self.arglist
             fun = self._jitmodule
@@ -4111,12 +4156,12 @@ class ParLoop(LazyComputation):
             for g in self._reduced_globals.keys():
                 g._data[...] = 0
             self._compute(iterset.core_part, fun, *arglist)
-            self.halo_exchange_end()
+            self.global_to_local_end()
             self._compute(iterset.owned_part, fun, *arglist)
             self.reduction_begin()
             if self._only_local:
-                self.reverse_halo_exchange_begin()
-                self.reverse_halo_exchange_end()
+                self.local_to_global_begin()
+                self.local_to_global_end()
             if self.needs_exec_halo:
                 self._compute(iterset.exec_part, fun, *arglist)
             self.reduction_end()
@@ -4134,41 +4179,36 @@ class ParLoop(LazyComputation):
         raise RuntimeError("Must select a backend")
 
     @collective
-    def halo_exchange_begin(self):
+    def global_to_local_begin(self):
         """Start halo exchanges."""
         if self.is_direct:
             return
         for arg in self.dat_args:
-            arg.halo_exchange_begin(update_inc=self._only_local)
+            arg.global_to_local_begin()
 
     @collective
-    @timed_function("ParLoopHaloEnd")
-    def halo_exchange_end(self):
+    def global_to_local_end(self):
+        """Finish halo exchanges"""
+        if self.is_direct:
+            return
+        for arg in self.dat_args:
+            arg.global_to_local_end()
+
+    @collective
+    def local_to_global_begin(self):
+        """Start halo exchanges."""
+        if self.is_direct:
+            return
+        for arg in self.dat_args:
+            arg.local_to_global_begin()
+
+    @collective
+    def local_to_global_end(self):
         """Finish halo exchanges (wait on irecvs)"""
         if self.is_direct:
             return
         for arg in self.dat_args:
-            arg.halo_exchange_end(update_inc=self._only_local)
-
-    @collective
-    @timed_function("ParLoopRHaloBegin")
-    def reverse_halo_exchange_begin(self):
-        """Start reverse halo exchanges (to gather remote data)"""
-        if self.is_direct:
-            return
-        for arg in self.dat_args:
-            if arg.access is INC:
-                arg.data.halo_exchange_begin(reverse=True)
-
-    @collective
-    @timed_function("ParLoopRHaloEnd")
-    def reverse_halo_exchange_end(self):
-        """Finish reverse halo exchanges (to gather remote data)"""
-        if self.is_direct:
-            return
-        for arg in self.dat_args:
-            if arg.access is INC:
-                arg.data.halo_exchange_end(reverse=True)
+            arg.local_to_global_end()
 
     @collective
     @timed_function("ParLoopRednBegin")
@@ -4198,14 +4238,10 @@ class ParLoop(LazyComputation):
     def update_arg_data_state(self):
         """Update the state of the :class:`DataCarrier`\s in the arguments to the `par_loop`.
 
-        This marks :class:`Dat`\s that need halo updates, sets the
-        data to read-only, and marks :class:`Mat`\s that need assembly."""
+        This marks :class:`Mat`\s that need assembly."""
         for arg in self.args:
-            if arg._is_dat:
-                if arg.access in [INC, WRITE, RW]:
-                    arg.data.needs_halo_update = True
-                for d in arg.data:
-                    d._data.setflags(write=False)
+            if arg._is_dat and arg.access is not READ:
+                arg.data.halo_valid = False
             if arg._is_mat and arg.access is not READ:
                 state = {WRITE: Mat.INSERT_VALUES,
                          INC: Mat.ADD_VALUES}[arg.access]
