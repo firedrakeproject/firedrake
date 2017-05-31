@@ -472,9 +472,9 @@ class Arg(object):
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         assert not self._in_flight, \
             "Halo exchange already in flight for Arg %s" % self
-        if self.access in [READ, RW, INC] and not self.data.halo_valid:
+        if self.access in [READ, RW, INC]:
             self._in_flight = True
-            self.data.global_to_local_begin(WRITE)
+            self.data.global_to_local_begin(self.access)
 
     @collective
     def global_to_local_end(self):
@@ -484,8 +484,7 @@ class Arg(object):
         assert self._is_dat, "Doing halo exchanges only makes sense for Dats"
         if self.access in [READ, RW, INC] and self._in_flight:
             self._in_flight = False
-            self.data.global_to_local_end(WRITE)
-        self.data.halo_valid = True
+            self.data.global_to_local_end(self.access)
 
     @collective
     def local_to_global_begin(self):
@@ -504,7 +503,8 @@ class Arg(object):
             self.data.local_to_global_end(self.access)
         # WRITE/RW doesn't require halo exchange, but the ghosts are
         # now dirty.
-        self.data.halo_valid = self.access is not READ
+        if self.access is not READ:
+            self.data.halo_valid = False
 
     @collective
     def reduction_begin(self, comm):
@@ -704,8 +704,6 @@ class Set(object):
         """Indicate whether a given DataSet is compatible with this Set."""
         if isinstance(dset, DataSet):
             return dset.set is self
-        elif isinstance(dset, LocalSet):
-            return dset.superset is self
         else:
             return False
 
@@ -828,8 +826,6 @@ class ExtrudedSet(Set):
         return getattr(self._parent, name)
 
     def __contains__(self, set):
-        if isinstance(set, LocalSet):
-            return set.superset is self or set.superset in self
         return set is self.parent
 
     def __str__(self):
@@ -847,63 +843,6 @@ class ExtrudedSet(Set):
     def layers(self):
         """The number of layers in this extruded set."""
         return self._layers
-
-
-class LocalSet(ExtrudedSet, ObjectCached):
-
-    """A wrapper around a :class:`Set` or :class:`ExtrudedSet`.
-
-    A :class:`LocalSet` behaves exactly like the :class:`Set` it was
-    built on except during parallel loop iterations. Iteration over a
-    :class:`LocalSet` indicates that the :func:`par_loop` should not
-    compute redundantly over halo entities.  It may be used in
-    conjunction with a :func:`par_loop` that ``INC``\s into a
-    :class:`Dat`.  In this case, after the local computation has
-    finished, remote contributions to local data with be gathered,
-    such that local data is correct on all processes.  Iteration over
-    a :class:`LocalSet` makes no sense for :func:`par_loop`\s
-    accessing a :class:`Mat` or those accessing a :class:`Dat` with
-    ``WRITE`` or ``RW`` access descriptors, in which case an error is
-    raised.
-
-
-    .. note::
-
-       Building :class:`DataSet`\s and hence :class:`Dat`\s on a
-       :class:`LocalSet` is unsupported.
-
-    """
-    def __init__(self, set):
-        if self._initialized:
-            return
-        self._superset = set
-        self._sizes = (set.core_size, set.size, set.size, set.size)
-
-    @classmethod
-    def _process_args(cls, set, **kwargs):
-        return (set, ) + (set, ), kwargs
-
-    @classmethod
-    def _cache_key(cls, set, **kwargs):
-        return (set, )
-
-    def __getattr__(self, name):
-        """Look up attributes on the contained :class:`Set`."""
-        return getattr(self._superset, name)
-
-    @cached_property
-    def superset(self):
-        return self._superset
-
-    def __repr__(self):
-        return "LocalSet(%r)" % self.superset
-
-    def __str__(self):
-        return "OP2 LocalSet on %s" % self.superset
-
-    def __pow__(self, e):
-        """Derive a :class:`DataSet` with dimension ``e``"""
-        raise NotImplementedError("Deriving a DataSet from a Localset is unsupported")
 
 
 class Subset(ExtrudedSet):
@@ -2135,7 +2074,10 @@ class Dat(DataCarrier, _EmptyDataMixin):
         halo = self.dataset.halo
         if halo is None:
             return
-        halo.global_to_local_begin(self, access_mode)
+        if access_mode in [READ, RW] and not self.halo_valid:
+            halo.global_to_local_begin(self, WRITE)
+        elif access_mode is INC:
+            self._data[self.dataset.size:] = 0
 
     @collective
     def global_to_local_end(self, access_mode):
@@ -2146,8 +2088,11 @@ class Dat(DataCarrier, _EmptyDataMixin):
         halo = self.dataset.halo
         if halo is None:
             return
-        halo.global_to_local_end(self, access_mode)
-        self.halo_valid = True
+        if access_mode in [READ, RW] and not self.halo_valid:
+            halo.global_to_local_end(self, WRITE)
+            self.halo_valid = True
+        elif access_mode is INC:
+            self.halo_valid = False
 
     @collective
     def local_to_global_begin(self, insert_mode):
@@ -3262,30 +3207,23 @@ class Sparsity(ObjectCached):
         self._dsets = dsets
 
         if isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
-            self._d_nz = 0
-            self._o_nz = 0
             self._dims = (((1, 1),),)
-            self._rowptr = None
-            self._colidx = None
             self._d_nnz = None
             self._o_nnz = None
             self._nrows = None if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].toset.size
             self._ncols = None if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].toset.size
             self.lcomm = dsets[0].comm if isinstance(dsets[0], GlobalDataSet) else self._rmaps[0].comm
             self.rcomm = dsets[1].comm if isinstance(dsets[1], GlobalDataSet) else self._cmaps[0].comm
-            self._rowptr = None
-            self._colidx = None
-            self._d_nnz = 0
-            self._o_nnz = 0
         else:
             self.lcomm = self._rmaps[0].comm
             self.rcomm = self._cmaps[0].comm
 
+            rset, cset = self.dsets
             # All rmaps and cmaps have the same data set - just use the first.
-            self._nrows = self._rmaps[0].toset.size
-            self._ncols = self._cmaps[0].toset.size
+            self._nrows = rset.size
+            self._ncols = cset.size
 
-            self._has_diagonal = self._rmaps[0].toset == self._cmaps[0].toset
+            self._has_diagonal = (rset == cset)
 
             tmp = itertools.product([x.cdim for x in self._dsets[0]],
                                     [x.cdim for x in self._dsets[1]])
@@ -3317,12 +3255,8 @@ class Sparsity(ObjectCached):
                                                      rm, cm in maps],
                                         block_sparse=block_sparse))
                 self._blocks.append(row)
-            self._rowptr = tuple(s._rowptr for s in self)
-            self._colidx = tuple(s._colidx for s in self)
             self._d_nnz = tuple(s._d_nnz for s in self)
             self._o_nnz = tuple(s._o_nnz for s in self)
-            self._d_nz = sum(s._d_nz for s in self)
-            self._o_nz = sum(s._o_nz for s in self)
         elif isinstance(dsets[0], GlobalDataSet) or isinstance(dsets[1], GlobalDataSet):
             # Where the sparsity maps either from or to a Global, we
             # don't really have any sparsity structure.
@@ -3332,11 +3266,12 @@ class Sparsity(ObjectCached):
             for dset in dsets:
                 if isinstance(dset, MixedDataSet) and any([isinstance(d, GlobalDataSet) for d in dset]):
                     raise SparsityFormatError("Mixed monolithic matrices with Global rows or columns are not supported.")
-            with timed_region("CreateSparsity"):
-                build_sparsity(self, parallel=(self.comm.size > 1),
-                               block=self._block_sparse)
-            self._blocks = [[self]]
             self._nested = False
+            with timed_region("CreateSparsity"):
+                nnz, onnz = build_sparsity(self)
+                self._d_nnz = nnz
+                self._o_nnz = onnz
+            self._blocks = [[self]]
         self._initialized = True
 
     _cache = {}
@@ -3515,16 +3450,6 @@ class Sparsity(ObjectCached):
         return "Sparsity(%r, %r, %r)" % (self.dsets, self.maps, self.name)
 
     @cached_property
-    def rowptr(self):
-        """Row pointer array of CSR data structure."""
-        return self._rowptr
-
-    @cached_property
-    def colidx(self):
-        """Column indices array of CSR data structure."""
-        return self._colidx
-
-    @cached_property
     def nnz(self):
         """Array containing the number of non-zeroes in the various rows of the
         diagonal portion of the local submatrix.
@@ -3544,15 +3469,11 @@ class Sparsity(ObjectCached):
 
     @cached_property
     def nz(self):
-        """Number of non-zeroes in the diagonal portion of the local
-        submatrix."""
-        return int(self._d_nz)
+        return self._d_nnz.sum()
 
     @cached_property
     def onz(self):
-        """Number of non-zeroes in the off-diagonal portion of the local
-        submatrix."""
-        return int(self._o_nz)
+        return self._o_nnz.sum()
 
     def __contains__(self, other):
         """Return true if other is a pair of maps in self.maps(). This
@@ -4065,9 +3986,6 @@ class ParLoop(LazyComputation):
             if not self._is_layered:
                 raise ValueError("Can't request layer arg for non-extruded iteration")
 
-        # Are we only computing over owned set entities?
-        self._only_local = isinstance(iterset, LocalSet)
-
         self.iterset = iterset
         self.comm = iterset.comm
 
@@ -4082,15 +4000,6 @@ class ParLoop(LazyComputation):
                     # the same)
                     if arg2.data is arg1.data and arg2.map is arg1.map:
                         arg2.indirect_position = arg1.indirect_position
-
-        if self.is_direct and self._only_local:
-            raise RuntimeError("Iteration over a LocalSet makes no sense for direct loops")
-        if self._only_local:
-            for arg in self.args:
-                if arg._is_mat:
-                    raise RuntimeError("Iteration over a LocalSet does not make sense for par_loops with Mat args")
-                if arg._is_dat and arg.access not in [INC, READ, WRITE]:
-                    raise RuntimeError("Iteration over a LocalSet does not make sense for RW args")
 
         self._it_space = self._build_itspace(iterset)
 
@@ -4122,8 +4031,6 @@ class ParLoop(LazyComputation):
     def num_flops(self):
         iterset = self.iterset
         size = iterset.size
-        if self.needs_exec_halo:
-            size = iterset.exec_size
         if self.is_indirect and iterset._extruded:
             region = self.iteration_region
             if region is ON_INTERIOR_FACETS:
@@ -4159,12 +4066,9 @@ class ParLoop(LazyComputation):
             self.global_to_local_end()
             self._compute(iterset.owned_part, fun, *arglist)
             self.reduction_begin()
-            if self._only_local:
-                self.local_to_global_begin()
-                self.local_to_global_end()
-            if self.needs_exec_halo:
-                self._compute(iterset.exec_part, fun, *arglist)
+            self.local_to_global_begin()
             self.reduction_end()
+            self.local_to_global_end()
             self.update_arg_data_state()
 
     @collective
@@ -4279,15 +4183,6 @@ class ParLoop(LazyComputation):
         return not self.is_direct
 
     @cached_property
-    def needs_exec_halo(self):
-        """Does the parallel loop need an exec halo?
-
-        True if the parallel loop is not a "local" loop and there are
-        any indirect arguments that are not read-only."""
-        return not self._only_local and any(arg._is_indirect_and_not_read or arg._is_mat
-                                            for arg in self.args)
-
-    @cached_property
     def kernel(self):
         """Kernel executed by this parallel loop."""
         return self._kernel
@@ -4342,7 +4237,7 @@ def build_itspace(args, iterset):
 
     :return: class:`IterationSpace` for this :class:`ParLoop`"""
 
-    if isinstance(iterset, (LocalSet, Subset)):
+    if isinstance(iterset, Subset):
         _iterset = iterset.superset
     else:
         _iterset = iterset
