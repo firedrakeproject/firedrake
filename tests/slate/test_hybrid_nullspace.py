@@ -56,13 +56,13 @@ def test_hybrid_nullspace(W):
 
     Snullsp = create_schur_nullspace(A.petscmat, -K * Atilde,
                                      W, Wd, T, COMM_WORLD)
-    v = Snullsp.getVecs()[0]
+    v = Snullsp.getVecs()[0].array_r
 
     S = K * Atilde.inv * K.T
     _, _, vv = np.linalg.svd(assemble(S, mat_type="aij").M.values)
     singular_vector = vv[-1]
 
     assert np.allclose(np.linalg.norm(v), 1.0, 1e-13)
-    assert np.allclose(v.array_r.min(), v.array_r.max(), 1e-13)
-    assert np.allclose(np.absolute(v.array_r),
+    assert np.allclose(v.min(), v.max(), 1e-13)
+    assert np.allclose(np.absolute(v),
                        np.absolute(singular_vector), 1e-13)
