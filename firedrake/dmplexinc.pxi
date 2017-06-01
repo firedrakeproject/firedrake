@@ -11,12 +11,12 @@ cdef extern from "petsc.h":
        PETSC_OWN_POINTER,
        PETSC_USE_POINTER
 
-cdef extern from "petscsys.h":
+cdef extern from "petscsys.h" nogil:
    int PetscMalloc1(PetscInt,void*)
    int PetscFree(void*)
    int PetscSortIntWithArray(PetscInt,PetscInt[],PetscInt[])
 
-cdef extern from "petscdmplex.h":
+cdef extern from "petscdmplex.h" nogil:
     int DMPlexGetHeightStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
     int DMPlexGetDepthStratum(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt*)
 
@@ -29,9 +29,9 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
-    int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[]))
+    int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[],void*),void*)
 
-cdef extern from "petscdmlabel.h":
+cdef extern from "petscdmlabel.h" nogil:
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
     int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
@@ -42,17 +42,17 @@ cdef extern from "petscdmlabel.h":
     int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
     int DMLabelClearValue(DMLabel, PetscInt, PetscInt)
 
-cdef extern from "petscdm.h":
+cdef extern from "petscdm.h" nogil:
     int DMGetLabel(PETSc.PetscDM,char[],DMLabel*)
 
-cdef extern from "petscis.h":
+cdef extern from "petscis.h" nogil:
     int PetscSectionGetOffset(PETSc.PetscSection,PetscInt,PetscInt*)
     int PetscSectionGetDof(PETSc.PetscSection,PetscInt,PetscInt*)
     int ISGetIndices(PETSc.PetscIS,PetscInt*[])
     int ISRestoreIndices(PETSc.PetscIS,PetscInt*[])
     int ISGeneralSetIndices(PETSc.PetscIS,PetscInt,PetscInt[],PetscCopyMode)
 
-cdef extern from "petscsf.h":
+cdef extern from "petscsf.h" nogil:
     struct PetscSFNode:
         PetscInt rank
         PetscInt index
@@ -65,7 +65,7 @@ cdef extern from "petscsf.h":
     int PetscSFReduceBegin(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
     int PetscSFReduceEnd(PETSc.PetscSF,MPI.MPI_Datatype,const void*, void*,MPI.MPI_Op)
 
-cdef extern from "petscbt.h":
+cdef extern from "petscbt.h" nogil:
     ctypedef char * PetscBT
     int PetscBTCreate(PetscInt,PetscBT*)
     int PetscBTDestroy(PetscBT*)
