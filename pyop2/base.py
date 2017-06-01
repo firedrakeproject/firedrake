@@ -571,8 +571,7 @@ class Set(object):
 
         [0, CORE)
         [CORE, OWNED)
-        [OWNED, EXECUTE HALO)
-        [EXECUTE HALO, NON EXECUTE HALO).
+        [OWNED, GHOST)
 
     Halo send/receive data is stored on sets in a :class:`Halo`.
     """
@@ -581,19 +580,17 @@ class Set(object):
 
     _CORE_SIZE = 0
     _OWNED_SIZE = 1
-    _IMPORT_EXEC_SIZE = 2
-    _IMPORT_NON_EXEC_SIZE = 3
+    _GHOST_SIZE = 2
 
     @validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, size=None, name=None, halo=None, comm=None):
         self.comm = dup_comm(comm)
         if isinstance(size, numbers.Integral):
-            size = [size] * 4
-        size = as_tuple(size, numbers.Integral, 4)
+            size = [size] * 3
+        size = as_tuple(size, numbers.Integral, 3)
         assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
-            size[Set._IMPORT_EXEC_SIZE] <= size[Set._IMPORT_NON_EXEC_SIZE], \
-            "Set received invalid sizes: %s" % size
+            size[Set._GHOST_SIZE], "Set received invalid sizes: %s" % size
         self._sizes = size
         self._name = name or "set_%d" % Set._globalcount
         self._halo = halo
@@ -614,18 +611,10 @@ class Set(object):
         return self._sizes[Set._OWNED_SIZE]
 
     @cached_property
-    def exec_size(self):
-        """Set size including execute halo elements.
-
-        If a :class:`ParLoop` is indirect, we do redundant computation
-        by executing over these set elements as well as owned ones.
-        """
-        return self._sizes[Set._IMPORT_EXEC_SIZE]
-
-    @cached_property
     def total_size(self):
-        """Total set size, including halo elements."""
-        return self._sizes[Set._IMPORT_NON_EXEC_SIZE]
+        """Set size including ghost elements.
+        """
+        return self._sizes[Set._GHOST_SIZE]
 
     @cached_property
     def sizes(self):
@@ -639,14 +628,6 @@ class Set(object):
     @cached_property
     def owned_part(self):
         return SetPartition(self, self.core_size, self.size - self.core_size)
-
-    @cached_property
-    def exec_part(self):
-        return SetPartition(self, self.size, self.exec_size - self.size)
-
-    @cached_property
-    def all_part(self):
-        return SetPartition(self, 0, self.exec_size)
 
     @cached_property
     def name(self):
@@ -743,10 +724,6 @@ class GlobalSet(Set):
         return 1 if self.comm.rank == 0 else 0
 
     @cached_property
-    def exec_size(self):
-        return 0
-
-    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return 1 if self.comm.rank == 0 else 0
@@ -754,7 +731,7 @@ class GlobalSet(Set):
     @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
-        return (self.core_size, self.size, self.exec_size, self.total_size)
+        return (self.core_size, self.size, self.total_size)
 
     @cached_property
     def name(self):
@@ -878,7 +855,6 @@ class Subset(ExtrudedSet):
 
         self._sizes = ((self._indices < superset.core_size).sum(),
                        (self._indices < superset.size).sum(),
-                       (self._indices < superset.exec_size).sum(),
                        len(self._indices))
 
     # Look up any unspecified attributes on the _set.
@@ -981,11 +957,6 @@ class MixedSet(Set, ObjectCached):
         return sum(0 if s is None else s.size for s in self._sets)
 
     @cached_property
-    def exec_size(self):
-        """Set size including execute halo elements."""
-        return sum(s.exec_size for s in self._sets)
-
-    @cached_property
     def total_size(self):
         """Total set size, including halo elements."""
         return sum(s.total_size for s in self._sets)
@@ -993,7 +964,7 @@ class MixedSet(Set, ObjectCached):
     @cached_property
     def sizes(self):
         """Set sizes: core, owned, execute halo, total."""
-        return (self.core_size, self.size, self.exec_size, self.total_size)
+        return (self.core_size, self.size, self.total_size)
 
     @cached_property
     def name(self):
@@ -1420,10 +1391,10 @@ class IterationSpace(object):
         return self._iterset.size
 
     @cached_property
-    def exec_size(self):
+    def total_size(self):
         """The size of the :class:`Set` over which this IterationSpace
-        is defined, including halo elements to be executed over"""
-        return self._iterset.exec_size
+        is defined, including halo elements."""
+        return self._iterset.total_size
 
     @cached_property
     def layers(self):
@@ -1440,13 +1411,6 @@ class IterationSpace(object):
     def partition_size(self):
         """Default partition size"""
         return self.iterset.partition_size
-
-    @cached_property
-    def total_size(self):
-        """The total size of :class:`Set` over which this IterationSpace is defined.
-
-        This includes all halo set elements."""
-        return self._iterset.total_size
 
     @cached_property
     def _extent_ranges(self):
@@ -1717,8 +1681,8 @@ class Dat(DataCarrier, _EmptyDataMixin):
         you should not try and modify them, because they will be
         overwritten by the next halo exchange."""
         _trace.evaluate(set([self]), set([self]))
-        self.global_to_local_begin(WRITE)
-        self.global_to_local_end(WRITE)
+        self.global_to_local_begin(RW)
+        self.global_to_local_end(RW)
         self.halo_valid = False
         v = self._data.view()
         v.setflags(write=True)
@@ -1758,8 +1722,8 @@ class Dat(DataCarrier, _EmptyDataMixin):
 
         """
         _trace.evaluate(set([self]), set())
-        self.global_to_local_begin(WRITE)
-        self.global_to_local_end(WRITE)
+        self.global_to_local_begin(READ)
+        self.global_to_local_end(READ)
         v = self._data.view()
         v.setflags(write=False)
         return v

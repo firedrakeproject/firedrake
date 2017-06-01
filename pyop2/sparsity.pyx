@@ -194,7 +194,7 @@ def fill_with_zeros(PETSc.Mat mat not None, dims, maps, set_diag=True):
     extruded = maps[0][0].iterset._extruded
     for pair in maps:
         # Iterate over row map values including value entries
-        set_size = pair[0].iterset.exec_size
+        set_size = pair[0].iterset.size
         if set_size == 0:
             continue
         # Memoryviews require writeable buffers

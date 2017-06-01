@@ -481,17 +481,13 @@ class TestMixedSetAPI:
         "MixedSet size should return the sum of the Set sizes."
         assert mset.size == sum(s.size for s in mset)
 
-    def test_mixed_set_exec_size(self, mset):
-        "MixedSet exec_size should return the sum of the Set exec_sizes."
-        assert mset.exec_size == sum(s.exec_size for s in mset)
-
     def test_mixed_set_total_size(self, mset):
         "MixedSet total_size should return the sum of the Set total_sizes."
         assert mset.total_size == sum(s.total_size for s in mset)
 
     def test_mixed_set_sizes(self, mset):
         "MixedSet sizes should return a tuple of the Set sizes."
-        assert mset.sizes == (mset.core_size, mset.size, mset.exec_size, mset.total_size)
+        assert mset.sizes == (mset.core_size, mset.size, mset.total_size)
 
     def test_mixed_set_name(self, mset):
         "MixedSet name should return a tuple of the Set names."
@@ -1011,16 +1007,16 @@ class TestMixedDatAPI:
     def test_mixed_dat_needs_halo_update(self, mdat):
         """MixedDat needs_halo_update should indicate if at least one contained
         Dat needs a halo update."""
-        assert not mdat.needs_halo_update
-        mdat[0].needs_halo_update = True
-        assert mdat.needs_halo_update
+        assert mdat.halo_valid
+        mdat[0].halo_valid = False
+        assert not mdat.halo_valid
 
     def test_mixed_dat_needs_halo_update_setter(self, mdat):
         """Setting MixedDat needs_halo_update should set the property for all
         contained Dats."""
-        assert not mdat.needs_halo_update
-        mdat.needs_halo_update = True
-        assert all(d.needs_halo_update for d in mdat)
+        assert mdat.halo_valid
+        mdat.halo_valid = False
+        assert not any(d.halo_valid for d in mdat)
 
     def test_mixed_dat_iter(self, mdat, dats):
         "MixedDat should be iterable and yield the Dats."
