@@ -1107,7 +1107,7 @@ class _GlobalMatPayload(object):
 
     def mult(self, mat, x, result):
         if result.comm.rank == 0:
-            result.array[...] = self.global_.data_ro * x.array
+            result.array[...] = self.global_.data_ro * x.array_r
         else:
             result.array[...]
 
