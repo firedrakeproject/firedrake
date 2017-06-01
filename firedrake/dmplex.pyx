@@ -2014,3 +2014,113 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
         CHKERR(PetscSFBcastEnd(sf.sf, dtype.ob_mpi,
                                <const void *>buf.data,
                                <void *>buf.data))
+
+
+cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
+                                          PetscInt p,
+                                          PetscInt *adjSize,
+                                          PetscInt adj[],
+                                          void *ctx) nogil:
+    """Custom adjacency callback for one-sided halo growth.
+
+    :arg dm: The DMPlex object.
+    :arg p: The mesh point to compute the adjacency of.
+    :arg adjSize: Output parameter, the size of the computed adjacency.
+    :arg adj: Output parameter, the adjacent mesh points.
+    :arg ctx: User context.
+
+    The halo we need for owner-computes is everything in the stencil
+    of the owned mesh points.  For cells, we already have everything,
+    for facets, if we own the facet, we need the mesh points in
+    closure(support(facet)).  This function returns non-zero adjacency
+    only for facets, which then means that everything else falls
+    through right.
+    """
+    cdef:
+        const PetscInt *support = NULL;
+        PetscInt numAdj = 0
+        PetscInt maxAdjSize = adjSize[0]
+        PetscInt supportSize
+        PetscInt s
+        PetscInt fStart, fEnd
+        PetscInt point, closureSize, ci, q
+        PetscInt *closure = NULL
+        DMLabel label = <DMLabel>ctx;
+        PetscBool flg = PETSC_TRUE
+
+    CHKERR(DMPlexGetHeightStratum(dm, 1, &fStart, &fEnd))
+    if not (fStart <= p < fEnd):
+        # Not a facet, no adjacent points
+        adjSize[0] = 0
+        return 0
+    if label != NULL:
+        # If a label is provided to filter out points, use it.
+        # Requires that the label has already had an index created.
+        # The label should mark those points that are not owned.
+        # If the point is owned, then we would like to grow the halo.
+        # So we need the remote process to donate those points.
+        # Hence, if we own the point, we return an empty adjacency (we
+        # don't want to donate those points to the remote process),
+        # and vice versa.
+        CHKERR(DMLabelHasPoint(label, p, &flg))
+        if not flg:
+            # This point is owned, no adjacency.
+            adjSize[0] = 0
+            return 0
+    # OK, it's a remote point, let's gather the adjacency
+    CHKERR(DMPlexGetSupportSize(dm, p, &supportSize))
+    CHKERR(DMPlexGetSupport(dm, p, &support))
+    for s in range(supportSize):
+        point = support[s]
+        CHKERR(DMPlexGetTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
+        for ci in range(closureSize):
+            # This is just ensuring that the adjacency is unique.
+            for q in range(numAdj):
+                if closure[2*ci] == adj[q]:
+                    break
+            else:
+                adj[numAdj] = closure[2*ci]
+                numAdj += 1
+            # Too many adjacenct points for the provided output array.
+            if numAdj > maxAdjSize:
+                SETERR(77)
+    CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
+    adjSize[0] = numAdj
+    return 0
+
+
+def set_adjacency_callback(PETSc.DM dm not None):
+    """Set the callback for DMPlexGetAdjacency.
+
+    :arg dm: The DMPlex object.
+
+    This is used during DMPlexDistributeOverlap to determine where to
+    grow the halos."""
+    cdef:
+        PetscInt fStart, fEnd, p
+        DMLabel label = NULL
+        PETSc.SF sf
+        PetscInt nleaves
+        const PetscInt *ilocal
+    # Mark remote points from point overlap SF
+    sf = dm.getPointSF()
+    CHKERR(PetscSFGetGraph(sf.sf, NULL, &nleaves, &ilocal, NULL))
+    dm.createLabel("ghost_region")
+    CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
+    fStart, fEnd = dm.getChart()
+    for p in range(nleaves):
+        CHKERR(DMLabelSetValue(label, ilocal[p], 1))
+    CHKERR(DMLabelCreateIndex(label, fStart, fEnd))
+    CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, <void *>label))
+
+
+def clear_adjacency_callback(PETSc.DM dm not None):
+    """Clear the callback for DMPlexGetAdjacency.
+
+    :arg dm: The DMPlex object"""
+    cdef:
+        DMLabel label = NULL
+    CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
+    CHKERR(DMLabelDestroyIndex(label))
+    dm.removeLabel("ghost_region")
+    CHKERR(DMLabelDestroy(&label))

@@ -29,12 +29,14 @@ cdef extern from "petscdmplex.h":
     int DMPlexGetTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
+    int DMPlexSetAdjacencyUser(PETSc.PetscDM,int(*)(PETSc.PetscDM,PetscInt,PetscInt*,PetscInt[]))
 
 cdef extern from "petscdmlabel.h":
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
     int DMLabelCreateIndex(DMLabel, PetscInt, PetscInt)
     int DMLabelDestroyIndex(DMLabel)
+    int DMLabelDestroy(DMLabel*)
     int DMLabelHasPoint(DMLabel, PetscInt, PetscBool*)
     int DMLabelSetValue(DMLabel, PetscInt, PetscInt)
     int DMLabelGetValue(DMLabel, PetscInt, PetscInt*)
