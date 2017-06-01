@@ -49,7 +49,7 @@ class _Facets(object):
 
         self.mesh = mesh
 
-        classes = as_tuple(classes, int, 4)
+        classes = as_tuple(classes, int, 3)
         self.classes = classes
 
         self.kind = kind

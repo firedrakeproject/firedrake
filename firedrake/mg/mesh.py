@@ -51,10 +51,9 @@ class MeshHierarchy(object):
             # facets.  Interior facets will be relabeled in Mesh
             # construction below.
             impl.filter_exterior_facet_labels(rdm)
-            rdm.removeLabel("op2_core")
-            rdm.removeLabel("op2_non_core")
-            rdm.removeLabel("op2_exec_halo")
-            rdm.removeLabel("op2_non_exec_halo")
+            rdm.removeLabel("core")
+            rdm.removeLabel("owned")
+            rdm.removeLabel("ghost")
 
             dm_hierarchy.append(rdm)
             cdm = rdm
