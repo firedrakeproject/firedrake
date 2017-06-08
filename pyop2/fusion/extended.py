@@ -672,7 +672,7 @@ class TilingParLoop(ParLoop):
     def compute(self):
         """Execute the kernel over all members of the iteration space."""
         with timed_region("ParLoopChain: executor (%s)" % self._insp_name):
-            self.halo_exchange_begin()
+            self.global_to_local_begin()
             kwargs = {
                 'all_kernels': self._all_kernels,
                 'all_itspaces': self._all_itspaces,
@@ -685,7 +685,7 @@ class TilingParLoop(ParLoop):
             fun = TilingJITModule(self.kernel, self.it_space, *self.args, **kwargs)
             arglist = self.prepare_arglist(None, *self.args)
             self._compute(0, fun, *arglist)
-            self.halo_exchange_end()
+            self.global_to_local_end()
             self._compute(1, fun, *arglist)
             # Only meaningful if the user is enforcing tiling in presence of
             # global reductions
