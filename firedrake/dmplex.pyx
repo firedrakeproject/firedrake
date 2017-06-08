@@ -2021,7 +2021,7 @@ cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
                                           PetscInt *adjSize,
                                           PetscInt adj[],
                                           void *ctx) nogil:
-    """Custom adjacency callback for one-sided halo growth.
+    """Custom adjacency callback for halo growth.
 
     :arg dm: The DMPlex object.
     :arg p: The mesh point to compute the adjacency of.
@@ -2081,7 +2081,7 @@ cdef int DMPlexGetAdjacency_Facet_Support(PETSc.PetscDM dm,
             else:
                 adj[numAdj] = closure[2*ci]
                 numAdj += 1
-            # Too many adjacenct points for the provided output array.
+            # Too many adjacent points for the provided output array.
             if numAdj > maxAdjSize:
                 SETERR(77)
     CHKERR(DMPlexRestoreTransitiveClosure(dm, point, PETSC_TRUE, &closureSize, &closure))
@@ -2102,16 +2102,21 @@ def set_adjacency_callback(PETSc.DM dm not None):
         PETSc.SF sf
         PetscInt nleaves
         const PetscInt *ilocal
-    # Mark remote points from point overlap SF
-    sf = dm.getPointSF()
-    CHKERR(PetscSFGetGraph(sf.sf, NULL, &nleaves, &ilocal, NULL))
-    dm.createLabel("ghost_region")
-    CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
-    fStart, fEnd = dm.getChart()
-    for p in range(nleaves):
-        CHKERR(DMLabelSetValue(label, ilocal[p], 1))
-    CHKERR(DMLabelCreateIndex(label, fStart, fEnd))
-    CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, <void *>label))
+    if False:
+        # In theory we can grow halos asymmetrically, but in practice
+        # the implementation of parallel quad orientation relies on
+        # the halo being symmetric.
+
+        # Mark remote points from point overlap SF
+        sf = dm.getPointSF()
+        CHKERR(PetscSFGetGraph(sf.sf, NULL, &nleaves, &ilocal, NULL))
+        dm.createLabel("ghost_region")
+        CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
+        fStart, fEnd = dm.getChart()
+        for p in range(nleaves):
+            CHKERR(DMLabelSetValue(label, ilocal[p], 1))
+        CHKERR(DMLabelCreateIndex(label, fStart, fEnd))
+    CHKERR(DMPlexSetAdjacencyUser(dm.dm, DMPlexGetAdjacency_Facet_Support, NULL))
 
 
 def clear_adjacency_callback(PETSc.DM dm not None):
@@ -2120,7 +2125,9 @@ def clear_adjacency_callback(PETSc.DM dm not None):
     :arg dm: The DMPlex object"""
     cdef:
         DMLabel label = NULL
-    CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
-    CHKERR(DMLabelDestroyIndex(label))
-    dm.removeLabel("ghost_region")
-    CHKERR(DMLabelDestroy(&label))
+    if False:
+        CHKERR(DMGetLabel(dm.dm, "ghost_region", &label))
+        CHKERR(DMLabelDestroyIndex(label))
+        dm.removeLabel("ghost_region")
+        CHKERR(DMLabelDestroy(&label))
+    CHKERR(DMPlexSetAdjacencyUser(dm.dm, NULL, NULL))
