@@ -979,9 +979,12 @@ def wrapper_snippets(itspace, args,
             else:
                 idx0 = "2*i"
                 idx1 = "2*i+1"
-            _iterset_masks = "struct EntityMask *iterset_masks,"
+            if itspace.iterset.masks is not None:
+                _iterset_masks = "struct EntityMask *iterset_masks,"
             for arg in args:
                 if arg._is_mat and any(len(m.implicit_bcs) > 0 for map in as_tuple(arg.map) for m in map):
+                    if itspace.iterset_masks.masks is None:
+                        raise RuntimeError("Somehow iteration set has no masks, but they are needed")
                     _entity_offset = "PetscInt entity_offset;\n"
                     _entity_offset += "ierr = PetscSectionGetOffset(iterset_masks->section, n, &entity_offset);CHKERRQ(ierr);\n"
                     get_tmp = ["const PetscInt *bottom_masks;",
