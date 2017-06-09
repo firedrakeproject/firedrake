@@ -143,7 +143,7 @@ class Vector(object):
         """Set process local values
 
         :arg values: a numpy array of values of length :func:`Vector.local_size`"""
-        with self.dat.vec as v:
+        with self.dat.vec_wo as v:
             v.array[:] = values
 
     def local_size(self):
