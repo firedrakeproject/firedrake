@@ -218,3 +218,16 @@ Citations().add("Homolya2017", """
   url =           {http://arxiv.org/abs/1705.003667}
 }
 """)
+
+Citations().add("Mitchell2017", """
+@Misc{Mitchell2017,
+  author =       {Lawrence Mitchell and Robert C. Kirby},
+  title =        {{Solver composition across the PDE/linear algebra
+                  barrier}},
+  year =         2017,
+  archiveprefix ={arXiv},
+  eprint =       {1706.01346},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1706.01346}
+}
+""")
