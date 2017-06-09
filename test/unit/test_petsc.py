@@ -62,3 +62,24 @@ class TestPETSc:
 
         with d.vec_ro as v:
             assert np.allclose(v.norm(), 2.0)
+
+    def test_mixed_vec_access(self):
+        s = op2.Set(1)
+        ms = op2.MixedSet([s, s])
+        d = op2.MixedDat(ms)
+
+        d.data[0][:] = 1.0
+        d.data[1][:] = 2.0
+
+        with d.vec_ro as v:
+            assert np.allclose(v.array_r, [1.0, 2.0])
+
+        d.data[0][:] = 0.0
+        d.data[0][:] = 0.0
+
+        with d.vec_wo as v:
+            assert np.allclose(v.array_r, [1.0, 2.0])
+            v.array[:] = 1
+
+        assert d.data[0][0] == 1
+        assert d.data[1][0] == 1
