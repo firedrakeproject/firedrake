@@ -445,7 +445,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
 
     def c_map_bcs_variable(self, sign, is_facet):
         if is_facet:
-            raise NotImplementedError
+            raise NotImplementedError("Haven't figured out to do facet integrals yet")
         maps = as_tuple(self.map, Map)
         val = []
         if sign == "-":
