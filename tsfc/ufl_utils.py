@@ -19,7 +19,8 @@ from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
                          MixedElement, MultiIndex, Product,
                          ScalarValue, Sqrt, Zero, CellVolume,
-                         FacetArea)
+                         ScalarValue, Sqrt, Zero, Conj,
+                         CellVolume, FacetArea)
 
 from gem.node import MemoizerArg
 
@@ -248,6 +249,12 @@ def _simplify_abs_expr(o, self, in_abs):
 def _simplify_abs_sqrt(o, self, in_abs):
     # Square root is always non-negative
     return ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
+    
+
+@_simplify_abs.register(Conj)
+def _simplify_abs_conj(o, self, in_abs):
+    # Conjugation and abs are the same
+    return ufl_reuse_if_untouched(0, self(o.ufl_operands[0], False))
 
 
 @_simplify_abs.register(ScalarValue)
