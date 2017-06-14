@@ -237,14 +237,19 @@ def _expression_division(expr, parameters):
 @_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
-    return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
+    return coffee.FunCall("cpow", expression(base, parameters), expression(exponent, parameters))
+
+
+@_expression.register(gem.Conj):
+def _expression_conj(expr, parameters):
+    return coffee.FunCall('conj', *[expression(c, parameters) for c in expr.children])
 
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
     name_map = {
-        'abs': 'fabs',
-        'ln': 'log',
+        'abs': 'cabs',
+        'ln': 'clog',
 
         # Bessel functions
         'cyl_bessel_j': 'jn',
@@ -272,6 +277,8 @@ def _expression_mathfunction(expr, parameters):
             return coffee.FunCall('y1', expression(arg, parameters))
     return coffee.FunCall(name, *[expression(c, parameters) for c in expr.children])
 
+
+# TO DO: remove these/throw exceptions? what happens if you use > in C w/ complex nos?
 
 @_expression.register(gem.MinValue)
 def _expression_minvalue(expr, parameters):
