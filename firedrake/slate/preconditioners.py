@@ -10,6 +10,7 @@ from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
+from pyop2.profiling import timed_region, timed_function
 
 
 __all__ = ['HybridizationPC']
@@ -24,6 +25,8 @@ class HybridizationPC(PCBase):
     The forward eliminations and backwards reconstructions
     are performed element-local using the Slate language.
     """
+
+    @timed_function("HybridInit")
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
@@ -259,6 +262,7 @@ class HybridizationPC(PCBase):
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.cxt.fc_params)
 
+    @timed_function("HybridRecon")
     def _reconstruct(self):
         """Reconstructs the system unknowns using the multipliers.
         Note that the reconstruction calls are assumed to be
@@ -270,6 +274,7 @@ class HybridizationPC(PCBase):
         # Recover the eliminated unknown
         self._elim_unknown()
 
+    @timed_function("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
@@ -285,52 +290,58 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-        with self.unbroken_residual.dat.vec as v:
-            x.copy(v)
 
-        # Transfer unbroken_rhs into broken_rhs
-        # NOTE: Scalar space is already "broken" so no need for
-        # any projections
-        unbroken_scalar_data = self.unbroken_residual.split()[self.pidx]
-        broken_scalar_data = self.broken_residual.split()[self.pidx]
-        unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
+        with timed_region("HybridBreak"):
+            with self.unbroken_residual.dat.vec as v:
+                x.copy(v)
 
-        # Handle the incoming HDiv residual:
-        # Solve (approximately) for `g = A.inv * r`, where `A` is the HDiv
-        # mass matrix and `r` is the HDiv residual.
-        # Once `g` is obtained, we take the inner product against broken
-        # HDiv test functions to obtain a broken residual.
-        with self.unbroken_residual.split()[self.vidx].dat.vec_ro as r:
-            with self._primal_r.dat.vec as g:
-                self.hdiv_mass_ksp.solve(r, g)
+            # Transfer unbroken_rhs into broken_rhs
+            # NOTE: Scalar space is already "broken" so no need for
+            # any projections
+            unbroken_scalar_data = self.unbroken_residual.split()[self.pidx]
+            broken_scalar_data = self.broken_residual.split()[self.pidx]
+            unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
-        # Now assemble the new "broken" hdiv residual
-        self._assemble_broken_r()
+        with timed_region("HybridProject"):
+            # Handle the incoming HDiv residual:
+            # Solve (approximately) for `g = A.inv * r`, where `A` is the HDiv
+            # mass matrix and `r` is the HDiv residual.
+            # Once `g` is obtained, we take the inner product against broken
+            # HDiv test functions to obtain a broken residual.
+            with self.unbroken_residual.split()[self.vidx].dat.vec_ro as r:
+                with self._primal_r.dat.vec as g:
+                    self.hdiv_mass_ksp.solve(r, g)
 
-        # Compute the rhs for the multiplier system
-        self._assemble_Srhs()
+        with timed_region("HybridRHS"):
+            # Now assemble the new "broken" hdiv residual
+            self._assemble_broken_r()
 
-        # Solve the system for the Lagrange multipliers
-        with self.schur_rhs.dat.vec_ro as b:
-            with self.trace_solution.dat.vec as x_trace:
-                self.trace_ksp.solve(b, x_trace)
+            # Compute the rhs for the multiplier system
+            self._assemble_Srhs()
+
+        with timed_region("HybridSolve"):
+            # Solve the system for the Lagrange multipliers
+            with self.schur_rhs.dat.vec_ro as b:
+                with self.trace_solution.dat.vec as x_trace:
+                    self.trace_ksp.solve(b, x_trace)
 
         # Reconstruct the unknowns
         self._reconstruct()
 
-        # Project the broken solution into non-broken spaces
-        broken_pressure = self.broken_solution.split()[self.pidx]
-        unbroken_pressure = self.unbroken_solution.split()[self.pidx]
-        broken_pressure.dat.copy(unbroken_pressure.dat)
+        with timed_region("HybridRecover"):
+            # Project the broken solution into non-broken spaces
+            broken_pressure = self.broken_solution.split()[self.pidx]
+            unbroken_pressure = self.unbroken_solution.split()[self.pidx]
+            broken_pressure.dat.copy(unbroken_pressure.dat)
 
-        # Compute the hdiv projection of the broken hdiv solution
-        self._assemble_projection_rhs()
-        with self._projection_rhs.dat.vec_ro as b_proj:
-            with self.unbroken_solution.split()[self.vidx].dat.vec as hdiv_sol:
-                self.hdiv_projection_ksp.solve(b_proj, hdiv_sol)
+            # Compute the hdiv projection of the broken hdiv solution
+            self._assemble_projection_rhs()
+            with self._projection_rhs.dat.vec_ro as b_proj:
+                with self.unbroken_solution.split()[self.vidx].dat.vec as sol:
+                    self.hdiv_projection_ksp.solve(b_proj, sol)
 
-        with self.unbroken_solution.dat.vec_ro as v:
-            v.copy(y)
+            with self.unbroken_solution.dat.vec_ro as v:
+                v.copy(y)
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
