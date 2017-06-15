@@ -10,6 +10,7 @@ from firedrake.matrix_free.preconditioners import PCBase
 from firedrake.matrix_free.operators import ImplicitMatrixContext
 from firedrake.petsc import PETSc
 from firedrake.slate.slate import Tensor
+from pyop2.profiling import timed_region, timed_function
 
 
 __all__ = ['HybridizationPC']
@@ -24,6 +25,8 @@ class HybridizationPC(PCBase):
     The forward eliminations and backwards reconstructions
     are performed element-local using the Slate language.
     """
+
+    @timed_function("HybridInit")
     def initialize(self, pc):
         """Set up the problem context. Take the original
         mixed problem and reformulate the problem as a
@@ -33,7 +36,7 @@ class HybridizationPC(PCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC, Projector)
+                               DirichletBC, assemble)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from firedrake.formmanipulation import split_form
@@ -89,10 +92,38 @@ class HybridizationPC(PCBase):
         # Set up the functions for the original, hybridized
         # and schur complement systems
         self.broken_solution = Function(V_d)
-        self.broken_rhs = Function(V_d)
+        self.broken_residual = Function(V_d)
         self.trace_solution = Function(TraceSpace)
         self.unbroken_solution = Function(V)
-        self.unbroken_rhs = Function(V)
+        self.unbroken_residual = Function(V)
+
+        # Set up the KSP for the hdiv residual projection
+        hdiv_mass_ksp = PETSc.KSP().create(comm=pc.comm)
+        hdiv_mass_ksp.setOptionsPrefix(prefix + "hdiv_residual_")
+
+        # HDiv mass operator
+        p = TrialFunction(V[self.vidx])
+        q = TestFunction(V[self.vidx])
+        mass = ufl.dot(p, q)*ufl.dx
+        # TODO: Bcs?
+        M = assemble(mass, bcs=None, form_compiler_parameters=self.cxt.fc_params)
+        M.force_evaluation()
+        Mmat = M.petscmat
+
+        hdiv_mass_ksp.setOperators(Mmat)
+        hdiv_mass_ksp.setUp()
+        hdiv_mass_ksp.setFromOptions()
+        self.hdiv_mass_ksp = hdiv_mass_ksp
+
+        # Storing the result of A.inv * r, where A is the HDiv
+        # mass matrix and r is the HDiv residual
+        self._primal_r = Function(V[self.vidx])
+
+        tau = TestFunction(V_d[self.vidx])
+        self._assemble_broken_r = create_assembly_callable(
+            ufl.dot(self._primal_r, tau)*ufl.dx,
+            tensor=self.broken_residual.split()[self.vidx],
+            form_compiler_parameters=self.cxt.fc_params)
 
         # Create the symbolic Schur-reduction:
         # Original mixed operator replaced with "broken"
@@ -124,12 +155,11 @@ class HybridizationPC(PCBase):
         # Assemble the Schur complement operator and right-hand side
         self.schur_rhs = Function(TraceSpace)
         self._assemble_Srhs = create_assembly_callable(
-            K * Atilde.inv * self.broken_rhs,
+            K * Atilde.inv * self.broken_residual,
             tensor=self.schur_rhs,
             form_compiler_parameters=self.cxt.fc_params)
 
         schur_comp = K * Atilde.inv * K.T
-
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.cxt.fc_params)
         self._assemble_S = create_assembly_callable(schur_comp,
@@ -149,12 +179,12 @@ class HybridizationPC(PCBase):
             Smat.setNullSpace(nullspace)
 
         # Set up the KSP for the system of Lagrange multipliers
-        ksp = PETSc.KSP().create(comm=pc.comm)
-        ksp.setOptionsPrefix(prefix)
-        ksp.setOperators(Smat)
-        ksp.setUp()
-        ksp.setFromOptions()
-        self.ksp = ksp
+        trace_ksp = PETSc.KSP().create(comm=pc.comm)
+        trace_ksp.setOptionsPrefix(prefix)
+        trace_ksp.setOperators(Smat)
+        trace_ksp.setUp()
+        trace_ksp.setFromOptions()
+        self.trace_ksp = trace_ksp
 
         split_mixed_op = dict(split_form(Atilde.form))
         split_trace_op = dict(split_form(K.form))
@@ -162,22 +192,30 @@ class HybridizationPC(PCBase):
         # Generate reconstruction calls
         self._reconstruction_calls(split_mixed_op, split_trace_op)
 
-        # Set up the projectors
-        data_params = {"ksp_type": "preonly",
-                       "pc_type": "bjacobi",
-                       "sub_pc_type": "ilu"}
-        self.data_projector = Projector(self.unbroken_rhs.split()[self.vidx],
-                                        self.broken_rhs.split()[self.vidx],
-                                        solver_parameters=data_params)
+        # NOTE: The projection stage *might* be replaced by a Fortin
+        # operator. We may want to allow the user to specify if they
+        # wish to use a Fortin operator over a projection, or vice-versa.
+        # In a future add-on, we can add a switch which chooses either
+        # the Fortin reconstruction or the usual KSP projection.
 
-        # NOTE: Tolerance is very important here and so we provide
-        # the user a way to specify projector tolerance
-        opts = PETSc.Options()
-        tol = opts.getReal(prefix + "projector_tolerance", 1e-8)
-        self.projector = Projector(self.broken_solution.split()[self.vidx],
-                                   self.unbroken_solution.split()[self.vidx],
-                                   solver_parameters={"ksp_type": "cg",
-                                                      "ksp_rtol": tol})
+        # Set up the projection KSP
+        hdiv_projection_ksp = PETSc.KSP().create(comm=pc.comm)
+        hdiv_projection_ksp.setOptionsPrefix(prefix + 'hdiv_projection_')
+
+        # Reuse the mass operator from the hdiv_mass_ksp
+        hdiv_projection_ksp.setOperators(Mmat)
+
+        # Construct the RHS for the projection stage
+        self._projection_rhs = Function(V[self.vidx])
+        self._assemble_projection_rhs = create_assembly_callable(
+            ufl.dot(self.broken_solution.split()[self.vidx], q)*ufl.dx,
+            tensor=self._projection_rhs,
+            form_compiler_parameters=self.cxt.fc_params)
+
+        # Finalize ksp setup
+        hdiv_projection_ksp.setUp()
+        hdiv_projection_ksp.setFromOptions()
+        self.hdiv_projection_ksp = hdiv_projection_ksp
 
     def _reconstruction_calls(self, split_mixed_op, split_trace_op):
         """This generates the reconstruction calls for the unknowns using the
@@ -204,10 +242,10 @@ class HybridizationPC(PCBase):
         K_1 = Tensor(split_trace_op[(0, id1)])
 
         # Split functions and reconstruct each bit separately
-        split_rhs = self.broken_rhs.split()
+        split_residual = self.broken_residual.split()
         split_sol = self.broken_solution.split()
-        g = split_rhs[id0]
-        f = split_rhs[id1]
+        g = split_residual[id0]
+        f = split_residual[id1]
         sigma = split_sol[id0]
         u = split_sol[id1]
         lambdar = self.trace_solution
@@ -224,6 +262,7 @@ class HybridizationPC(PCBase):
                                                       tensor=sigma,
                                                       form_compiler_parameters=self.cxt.fc_params)
 
+    @timed_function("HybridRecon")
     def _reconstruct(self):
         """Reconstructs the system unknowns using the multipliers.
         Note that the reconstruction calls are assumed to be
@@ -235,13 +274,13 @@ class HybridizationPC(PCBase):
         # Recover the eliminated unknown
         self._elim_unknown()
 
+    @timed_function("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
         reconstruct symbolic objects.
         """
         self._assemble_S()
         self.S.force_evaluation()
-        self._assemble_Srhs()
 
     def apply(self, pc, x, y):
         """We solve the forward eliminated problem for the
@@ -251,46 +290,82 @@ class HybridizationPC(PCBase):
         Lastly, we project the broken solutions into the mimetic
         non-broken finite element space.
         """
-        with self.unbroken_rhs.dat.vec as v:
-            x.copy(v)
 
-        # Transfer unbroken_rhs into broken_rhs
-        unbroken_scalar_data = self.unbroken_rhs.split()[self.pidx]
-        broken_scalar_data = self.broken_rhs.split()[self.pidx]
-        self.data_projector.project()
-        unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
+        with timed_region("HybridBreak"):
+            with self.unbroken_residual.dat.vec as v:
+                x.copy(v)
 
-        # Compute the rhs for the multiplier system
-        self._assemble_Srhs()
+            # Transfer unbroken_rhs into broken_rhs
+            # NOTE: Scalar space is already "broken" so no need for
+            # any projections
+            unbroken_scalar_data = self.unbroken_residual.split()[self.pidx]
+            broken_scalar_data = self.broken_residual.split()[self.pidx]
+            unbroken_scalar_data.dat.copy(broken_scalar_data.dat)
 
-        # Solve the system for the Lagrange multipliers
-        with self.schur_rhs.dat.vec_ro as b:
-            with self.trace_solution.dat.vec as x:
-                self.ksp.solve(b, x)
+        with timed_region("HybridProject"):
+            # Handle the incoming HDiv residual:
+            # Solve (approximately) for `g = A.inv * r`, where `A` is the HDiv
+            # mass matrix and `r` is the HDiv residual.
+            # Once `g` is obtained, we take the inner product against broken
+            # HDiv test functions to obtain a broken residual.
+            with self.unbroken_residual.split()[self.vidx].dat.vec_ro as r:
+                with self._primal_r.dat.vec as g:
+                    self.hdiv_mass_ksp.solve(r, g)
+
+        with timed_region("HybridRHS"):
+            # Now assemble the new "broken" hdiv residual
+            self._assemble_broken_r()
+
+            # Compute the rhs for the multiplier system
+            self._assemble_Srhs()
+
+        with timed_region("HybridSolve"):
+            # Solve the system for the Lagrange multipliers
+            with self.schur_rhs.dat.vec_ro as b:
+                with self.trace_solution.dat.vec as x_trace:
+                    self.trace_ksp.solve(b, x_trace)
 
         # Reconstruct the unknowns
         self._reconstruct()
 
-        # Project the broken solution into non-broken spaces
-        broken_pressure = self.broken_solution.split()[self.pidx]
-        unbroken_pressure = self.unbroken_solution.split()[self.pidx]
-        broken_pressure.dat.copy(unbroken_pressure.dat)
-        self.projector.project()
+        with timed_region("HybridRecover"):
+            # Project the broken solution into non-broken spaces
+            broken_pressure = self.broken_solution.split()[self.pidx]
+            unbroken_pressure = self.unbroken_solution.split()[self.pidx]
+            broken_pressure.dat.copy(unbroken_pressure.dat)
 
-        with self.unbroken_solution.dat.vec_ro as v:
-            v.copy(y)
+            # Compute the hdiv projection of the broken hdiv solution
+            self._assemble_projection_rhs()
+            with self._projection_rhs.dat.vec_ro as b_proj:
+                with self.unbroken_solution.split()[self.vidx].dat.vec as sol:
+                    self.hdiv_projection_ksp.solve(b_proj, sol)
+
+            with self.unbroken_solution.dat.vec_ro as v:
+                v.copy(y)
 
     def applyTranspose(self, pc, x, y):
         """Apply the transpose of the preconditioner."""
         raise NotImplementedError("The transpose application of the PC is not implemented.")
 
     def view(self, pc, viewer=None):
+        """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
-        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
         viewer.pushASCIITab()
+        viewer.printfASCII("Construct the broken HDiv residual.\n")
+        viewer.printfASCII("KSP solver for computing the primal map g = A.inv * r:\n")
+        self.hdiv_mass_ksp.view(viewer)
+        viewer.popASCIITab()
+        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
         viewer.printfASCII("KSP solver for the multipliers:\n")
         viewer.pushASCIITab()
-        self.ksp.view(viewer)
+        self.trace_ksp.view(viewer)
+        viewer.popASCIITab()
+        viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
+        viewer.pushASCIITab()
+        viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
+        viewer.printfASCII("KSP for the HDiv projection stage:\n")
+        viewer.pushASCIITab()
+        self.hdiv_projection_ksp.view(viewer)
         viewer.popASCIITab()
 
 
