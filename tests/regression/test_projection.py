@@ -323,6 +323,35 @@ def test_reconstruct(family, degree, quad):
     assert errornorm(v_c, vo) < 1.0e-10
 
 
+@pytest.mark.parametrize(('family', 'degree', 'quad'),
+                         [('RT', 1, False), ('BDM', 1, False), ('RTCF', 1, True),
+                          ('RT', 2, False), ('BDM', 2, False), ('RTCF', 2, True)])
+def test_reconstruct_sphere_domain(family, degree, quad):
+    if quad:
+        element = FiniteElement(family, quadrilateral, degree)
+        mesh = UnitCubedSphereMesh(refinement_level=3)
+    else:
+        element = FiniteElement(family, triangle, degree)
+        mesh = UnitIcosahedralSphereMesh(refinement_level=3)
+
+    x = SpatialCoordinate(mesh)
+    mesh.init_cell_orientations(x)
+    V = FunctionSpace(mesh, element)
+    vo = Function(V).project(as_vector([x[0] ** 2, x[1] ** 2, x[2] ** 2]))
+
+    V_d = FunctionSpace(mesh, BrokenElement(element))
+    vd = Function(V_d).project(vo)
+
+    v_rec = reconstruct(vd, V)
+    assert errornorm(v_rec, vo) < 1.0e-10
+
+    # This uses the alternate syntax in which
+    # the target Function is already available.
+    v_c = Function(V)
+    reconstruct(vd, v_c)
+    assert errornorm(v_c, vo) < 1.0e-10
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
