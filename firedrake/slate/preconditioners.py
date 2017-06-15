@@ -33,7 +33,7 @@ class HybridizationPC(PCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC, Projector, assemble)
+                               DirichletBC, assemble)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from firedrake.formmanipulation import split_form
