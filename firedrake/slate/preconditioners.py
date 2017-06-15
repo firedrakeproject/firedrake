@@ -337,12 +337,24 @@ class HybridizationPC(PCBase):
         raise NotImplementedError("The transpose application of the PC is not implemented.")
 
     def view(self, pc, viewer=None):
+        """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
-        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
         viewer.pushASCIITab()
+        viewer.printfASCII("Construct the broken HDiv residual.\n")
+        viewer.printfASCII("KSP solver for computing the primal map g = A.inv * r:\n")
+        self.hdiv_mass_ksp.view(viewer)
+        viewer.popASCIITab()
+        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
         viewer.printfASCII("KSP solver for the multipliers:\n")
         viewer.pushASCIITab()
-        self.ksp.view(viewer)
+        self.trace_ksp.view(viewer)
+        viewer.popASCIITab()
+        viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
+        viewer.pushASCIITab()
+        viewer.printfASCII("Project the broken hdiv solution into the HDiv space.\n")
+        viewer.printfASCII("KSP for the HDiv projection stage:\n")
+        viewer.pushASCIITab()
+        self.hdiv_projection_ksp.view(viewer)
         viewer.popASCIITab()
 
 
