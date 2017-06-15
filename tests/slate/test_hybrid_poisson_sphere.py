@@ -27,19 +27,20 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
     w = Function(W)
 
     nullsp = MixedVectorSpaceBasis(W, [VectorSpaceBasis(constant=True), W[1]])
-    solve(a == L, w,
-          nullspace=nullsp,
-          solver_parameters={'ksp_type': 'preonly',
-                             'mat_type': 'matfree',
-                             'pc_type': 'python',
-                             'pc_python_type': 'firedrake.HybridizationPC',
-                             'hybridization_hdiv_residual_ksp_type': 'preonly',
-                             'hybridization_hdiv_residual_pc_type': 'bjacobi',
-                             'hybridization_hdiv_residual_sub_pc_type': 'ilu',
-                             'hybridization_pc_type': 'lu',
-                             'hybridization_ksp_type': 'preonly',
-                             'hybridization_pc_factor_mat_solver_package': 'mumps',
-                             'hybridization_projector_tolerance': 1e-14})
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu',
+                                'pc_factor_mat_solver_package': 'mumps',
+                                'hdiv_residual': {'ksp_type': 'cg',
+                                                  'ksp_rtol': 1e-14,
+                                                  'pc_type': 'bjacobi',
+                                                  'sub_pc_type': 'ilu'},
+                                'hdiv_projection': {'ksp_type': 'cg',
+                                                    'ksp_rtol': 1e-14}}}
+    solve(a == L, w, nullspace=nullsp, solver_parameters=params)
     u_h, _ = w.split()
     error = errornorm(u_exact, u_h)
     return error
