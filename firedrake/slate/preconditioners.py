@@ -329,16 +329,6 @@ class HybridizationPC(PCBase):
         # Recover the eliminated unknown
         self._elim_unknown()
 
-    def _hdiv_reconstruct(self):
-        """Reconstructs the broken HDiv solution into an
-        HDiv-conforming function. This is performed using an
-        averaging operator rather than the standard Galerkin
-        projection.
-        """
-        from firedrake.projection import reconstruct
-        reconstruct(self.broken_solution.split()[self.vidx],
-                    self.unbroken_solution.split()[self.vidx])
-
     @timed_function("HybridUpdate")
     def update(self, pc):
         """Update by assembling into the operator. No need to
@@ -405,7 +395,11 @@ class HybridizationPC(PCBase):
 
             # Compute the hdiv projection of the broken hdiv solution
             if self.recon_flag:
-                self._hdiv_reconstruct()
+                # The projection is performed using averaging operator
+                # rather than the standard Galerkin projection.
+                from firedrake.projection import reconstruct
+                reconstruct(self.broken_solution.split()[self.vidx],
+                            self.unbroken_solution.split()[self.vidx])
             else:
                 self._assemble_projection_rhs()
                 with self._projection_rhs.dat.vec_ro as b_proj:
@@ -423,22 +417,21 @@ class HybridizationPC(PCBase):
         """Viewer calls for the various configurable objects in this PC."""
         super(HybridizationPC, self).view(pc, viewer)
         viewer.pushASCIITab()
-        viewer.printfASCII("Construct the broken HDiv residual.\n")
+        viewer.printfASCII("Constructing the broken HDiv residual.\n")
         viewer.printfASCII("KSP solver for computing the primal map g = A.inv * r:\n")
         self.hdiv_mass_ksp.view(viewer)
         viewer.popASCIITab()
-        viewer.printfASCII("Solves K * P^-1 * K.T using local eliminations.\n")
+        viewer.printfASCII("Solving K * A^-1 * K.T using local eliminations.\n")
         viewer.printfASCII("KSP solver for the multipliers:\n")
         viewer.pushASCIITab()
         self.trace_ksp.view(viewer)
         viewer.popASCIITab()
         viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
         viewer.pushASCIITab()
-
         if self.recon_flag:
             viewer.printfASCII("Reconstructing HDiv solution.\n")
         else:
-            viewer.printfASCII("Project the broken HDiv solution into the HDiv space.\n")
+            viewer.printfASCII("Projecting the broken HDiv solution into the HDiv space.\n")
             viewer.printfASCII("KSP for the HDiv projection stage:\n")
             viewer.pushASCIITab()
             self.hdiv_projection_ksp.view(viewer)
