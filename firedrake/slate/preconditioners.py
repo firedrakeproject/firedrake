@@ -189,14 +189,30 @@ class HybridizationPC(PCBase):
         # Generate reconstruction calls
         self._reconstruction_calls(split_mixed_op, split_trace_op)
 
-        # NOTE: Tolerance is very important here and so we provide
-        # the user a way to specify projector tolerance
-        opts = PETSc.Options()
-        tol = opts.getReal(prefix + "projector_tolerance", 1e-8)
-        self.projector = Projector(self.broken_solution.split()[self.vidx],
-                                   self.unbroken_solution.split()[self.vidx],
-                                   solver_parameters={"ksp_type": "cg",
-                                                      "ksp_rtol": tol})
+        # NOTE: The projection stage *might* be replaced by a Fortin
+        # operator. We may want to allow the user to specify if they
+        # wish to use a Fortin operator over a projection, or vice-versa.
+        # In a future add-on, we can add a switch which chooses either
+        # the Fortin reconstruction or the usual KSP projection.
+
+        # Set up the projection KSP
+        hdiv_projection_ksp = PETSc.KSP().create(comm=pc.comm)
+        hdiv_projection_ksp.setOptionsPrefix(prefix + 'hdiv_projection_')
+
+        # Reuse the mass operator from the hdiv_mass_ksp
+        hdiv_projection_ksp.setOperators(Mmat)
+
+        # Construct the RHS for the projection stage
+        self._projection_rhs = Function(V[self.vidx])
+        self._assemble_projection_rhs = create_assembly_callable(
+            ufl.dot(self.broken_solution.split()[self.vidx], q)*ufl.dx,
+            tensor=self._projection_rhs,
+            form_compiler_parameters=self.cxt.fc_params)
+
+        # Finalize ksp setup
+        hdiv_projection_ksp.setUp()
+        hdiv_projection_ksp.setFromOptions()
+        self.hdiv_projection_ksp = hdiv_projection_ksp
 
     def _reconstruction_calls(self, split_mixed_op, split_trace_op):
         """This generates the reconstruction calls for the unknowns using the
@@ -306,7 +322,12 @@ class HybridizationPC(PCBase):
         broken_pressure = self.broken_solution.split()[self.pidx]
         unbroken_pressure = self.unbroken_solution.split()[self.pidx]
         broken_pressure.dat.copy(unbroken_pressure.dat)
-        self.projector.project()
+
+        # Compute the hdiv projection of the broken hdiv solution
+        self._assemble_projection_rhs()
+        with self._projection_rhs.dat.vec_ro as b_proj:
+            with self.unbroken_solution.split()[self.vidx].dat.vec as hdiv_sol:
+                self.hdiv_projection_ksp.solve(b_proj, hdiv_sol)
 
         with self.unbroken_solution.dat.vec_ro as v:
             v.copy(y)
