@@ -33,7 +33,7 @@ class HybridizationPC(PCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC, Projector)
+                               DirichletBC, Projector, assemble)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from firedrake.formmanipulation import split_form
@@ -95,36 +95,30 @@ class HybridizationPC(PCBase):
         self.unbroken_residual = Function(V)
 
         # Set up the KSP for the hdiv residual projection
-        hd_ksp = PETSc.KSP().create(comm=pc.comm)
-        hd_ksp.setOptionsPrefix(prefix + "hdiv_residual_")
+        hdiv_mass_ksp = PETSc.KSP().create(comm=pc.comm)
+        hdiv_mass_ksp.setOptionsPrefix(prefix + "hdiv_residual_")
 
         # HDiv mass operator
         p = TrialFunction(V[self.vidx])
         q = TestFunction(V[self.vidx])
         mass = ufl.dot(p, q)*ufl.dx
         # TODO: Bcs?
-        self.M = allocate_matrix(mass, bcs=None,
-                                 form_compiler_parameters=self.cxt.fc_params)
-        self._assemble_M = create_assembly_callable(mass,
-                                                    tensor=self.M,
-                                                    bcs=None,
-                                                    form_compiler_parameters=self.cxt.fc_params)
-        self._assemble_M()
-        self.M.force_evaluation()
-        Mmat = self.M.petscmat
+        M = assemble(mass, bcs=None, form_compiler_parameters=self.cxt.fc_params)
+        M.force_evaluation()
+        Mmat = M.petscmat
 
-        hd_ksp.setOperators(Mmat)
-        hd_ksp.setUp()
-        hd_ksp.setFromOptions()
-        self.hd_ksp = hd_ksp
+        hdiv_mass_ksp.setOperators(Mmat)
+        hdiv_mass_ksp.setUp()
+        hdiv_mass_ksp.setFromOptions()
+        self.hdiv_mass_ksp = hdiv_mass_ksp
 
         # Storing the result of A.inv * r, where A is the HDiv
         # mass matrix and r is the HDiv residual
-        self._computed_r_map = Function(V[self.vidx])
+        self._primal_r = Function(V[self.vidx])
 
         tau = TestFunction(V_d[self.vidx])
-        self._assemble_broken_hdr = create_assembly_callable(
-            ufl.dot(self._computed_r_map, tau)*ufl.dx,
+        self._assemble_broken_r = create_assembly_callable(
+            ufl.dot(self._primal_r, tau)*ufl.dx,
             tensor=self.broken_residual.split()[self.vidx],
             form_compiler_parameters=self.cxt.fc_params)
 
@@ -163,7 +157,6 @@ class HybridizationPC(PCBase):
             form_compiler_parameters=self.cxt.fc_params)
 
         schur_comp = K * Atilde.inv * K.T
-
         self.S = allocate_matrix(schur_comp, bcs=trace_bcs,
                                  form_compiler_parameters=self.cxt.fc_params)
         self._assemble_S = create_assembly_callable(schur_comp,
@@ -291,12 +284,12 @@ class HybridizationPC(PCBase):
         # mass matrix and `r` is the HDiv residual.
         # Once `g` is obtained, we take the inner product against broken
         # HDiv test functions to obtain a broken residual.
-        with self.unbroken_residual.split()[self.vidx].dat.vec_ro as hdr:
-            with self._computed_r_map.dat.vec as g:
-                self.hd_ksp.solve(hdr, g)
+        with self.unbroken_residual.split()[self.vidx].dat.vec_ro as r:
+            with self._primal_r.dat.vec as g:
+                self.hdiv_mass_ksp.solve(r, g)
 
         # Now assemble the new "broken" hdiv residual
-        self._assemble_broken_hdr()
+        self._assemble_broken_r()
 
         # Compute the rhs for the multiplier system
         self._assemble_Srhs()
