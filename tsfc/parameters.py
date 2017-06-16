@@ -37,3 +37,4 @@ def set_scalar_type(type_):
     SCALAR_TYPE = type_
     NUMPY_TYPE = {"double", numpy.dtype("double"),
                "float", numpy.dtype("float32")}["type_"]
+               

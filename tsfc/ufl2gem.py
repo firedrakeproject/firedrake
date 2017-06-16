@@ -45,7 +45,7 @@ class Mixin(object):
         return Division(numerator, denominator)
 
     def conj(self, o, expr):
-        if o.ufl_shape: # is this necessary? i guess that this does element-wise conj?
+        if o.ufl_shape:
             indices = tuple(Index() for i in range(len(o.ufl_shape)))
             return ComponentTensor(Conj(Indexed(expr, indices)), indices)
         else:
