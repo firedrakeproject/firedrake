@@ -43,8 +43,8 @@ def compile_form(form, prefix="form", parameters=None):
 
     assert isinstance(form, Form)
 
-    complx = parameters and isinstance(parameters["scalar_type"], complex)
-    fd = ufl_utils.compute_form_data(form)
+    complx = parameters and parameters["scalar_type"] is 'complex'
+    fd = ufl_utils.compute_form_data(form, complex_mode=complx)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
     kernels = []

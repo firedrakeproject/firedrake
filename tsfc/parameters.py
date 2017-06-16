@@ -35,6 +35,6 @@ def set_scalar_type(type_):
     global SCALAR_TYPE
 
     SCALAR_TYPE = type_
-    NUMPY_TYPE = {"double", numpy.dtype("double"),
-               "float", numpy.dtype("float32")}["type_"]
-               
+    NUMPY_TYPE = {"double": numpy.dtype("double"),
+               "float": numpy.dtype("float32"),
+               "complex": numpy.dtype("complex128")}[type_]
