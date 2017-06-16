@@ -254,8 +254,8 @@ def _expression_conj(expr, parameters):
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
     name_map = {
-        'abs': 'cabs',
-        'ln': 'clog',
+        'abs': 'fabs',
+        'ln': 'log',
 
         # Bessel functions
         'cyl_bessel_j': 'jn',
@@ -268,7 +268,14 @@ def _expression_mathfunction(expr, parameters):
         'cyl_bessel_i': 'boost::math::cyl_bessel_i',
         'cyl_bessel_k': 'boost::math::cyl_bessel_k',
     }
-    name = name_map.get(expr.name, expr.name)
+    complex_name_map = {
+        'abs': 'cabs',
+        'ln': 'clog'
+    }
+    if parameters['scalar_type'] is 'complex':
+        name = complex_name_map.get(expr.name, expr.name)
+    else:
+        name = name_map.get(expr.name, expr.name)
     if name == 'jn':
         nu, arg = expr.children
         if nu == gem.Zero():
