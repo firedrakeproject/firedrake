@@ -237,12 +237,18 @@ def _expression_division(expr, parameters):
 @_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
-    return coffee.FunCall("cpow", expression(base, parameters), expression(exponent, parameters))
+    if parameters['scalar_type'] is 'complex':
+        return coffee.FunCall("cpow", expression(base, parameters), expression(exponent, parameters))
+    else:
+        return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
 
 
-@_expression.register(gem.Conj):
+@_expression.register(gem.Conj)
 def _expression_conj(expr, parameters):
-    return coffee.FunCall('conj', *[expression(c, parameters) for c in expr.children])
+    if parameters['scalar_type'] is 'complex':
+        return coffee.FunCall('conj', *[expression(c, parameters) for c in expr.children])
+    else:
+        pass
 
 
 @_expression.register(gem.MathFunction)
