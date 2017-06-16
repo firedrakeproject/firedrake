@@ -231,9 +231,9 @@ def get_boundary_masks(mesh, key, finat_element):
             p += 1
     closure_section.setUp()
     support_section.setUp()
-    closure_indices = PETSc.IS().createGeneral(closure_indices, comm=PETSc.COMM_SELF)
-    support_indices = PETSc.IS().createGeneral(support_indices, comm=PETSc.COMM_SELF)
-    facet_points = PETSc.IS().createGeneral(facet_points, comm=PETSc.COMM_SELF)
+    closure_indices = numpy.asarray(closure_indices, dtype=IntType)
+    support_indices = numpy.asarray(support_indices, dtype=IntType)
+    facet_points = numpy.asarray(facet_points, dtype=IntType)
     masks["topological"] = op2.Map.MapMask(closure_section, closure_indices, facet_points)
     masks["geometric"] = op2.Map.MapMask(support_section, support_indices, facet_points)
     return masks
@@ -277,11 +277,11 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
                                                 sub_domain)
     else:
         idx = {"bottom": -2, "top": -1}[sub_domain]
-        section, iset, facet_iset = V.boundary_masks[method]
-        facet = facet_iset.indices[idx]
+        section, indices, facet_points = V.boundary_masks[method]
+        facet = facet_points[idx]
         dof = section.getDof(facet)
         off = section.getOffset(facet)
-        mask = iset.indices[off:off+dof]
+        mask = indices[off:off+dof]
         nodes = cell_node_list[..., mask]
         if sub_domain == "top":
             nodes = nodes + offset[mask]*(mesh.cell_set.layers - 2)

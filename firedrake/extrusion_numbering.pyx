@@ -641,34 +641,34 @@ def top_bottom_boundary_nodes(mesh,
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closure
         PETSc.Section section
-        PETSc.IS iset, facet_iset
         numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
         PetscInt ncell, nclosure, n_vert_facet, fstart
         PetscInt idx, cell, facet, d, i, c, dof
         PetscInt initial_offset, exposed_layers, layer
         PetscInt ndof, offset
-        const PetscInt *masked_indices
-        const PetscInt *facet_points
+        numpy.ndarray[PetscInt, ndim=1, mode="c"] masked_indices
+        numpy.ndarray[PetscInt, ndim=1, mode="c"] facet_points
 
     if kind not in {"bottom", "top"}:
         raise ValueError("Don't know how to extract nodes with kind '%s'", kind)
 
-    section, iset, facet_iset = mask
+    section, masked_indices, facet_points = mask
     top = kind == "top"
 
     layer_extents = mesh.layer_extents
     cell_closure = mesh.cell_closure
     ncell, nclosure = mesh.cell_closure.shape
     n_vert_facet = mesh._base_mesh.ufl_cell().num_facets()
-    assert facet_iset.getSize() == n_vert_facet + 2
+    assert facet_points.shape[0] == n_vert_facet + 2
 
-    CHKERR(ISGetIndices(facet_iset.iset, &facet_points))
     bottom_facet = facet_points[n_vert_facet]
     top_facet = facet_points[n_vert_facet+1]
     fstart = nclosure - n_vert_facet - 1
     ndof = cell_node_list.shape[1]
     # All vertical facets should have same number of masked dofs
-    assert all(section.getDof(facet_points[i]) == section.getDof(facet_points[0]) for p in range(n_vert_facet))
+    for i in range(n_vert_facet):
+        if section.getDof(facet_points[i]) != section.getDof(facet_points[0]):
+            raise ValueError("All vertical facets should mask same number of dofs")
 
     dm = mesh._plex
     fStart, fEnd = dm.getHeightStratum(1)
@@ -681,7 +681,6 @@ def top_bottom_boundary_nodes(mesh,
                        + section.getDof(facet_points[0]) * numpy.sum(layer_extents[fStart:fEnd, 2]
                                                                      - layer_extents[fStart:fEnd, 0]))
     indices = numpy.full(num_indices, -1, dtype=IntType)
-    CHKERR(ISGetIndices(iset.iset, &masked_indices))
     idx = 0
     for cell in range(ncell):
         # Walk over all the cells, extract the plex cell this cell
@@ -732,8 +731,6 @@ def top_bottom_boundary_nodes(mesh,
                     dof = cell_node_list[cell, d]
                     indices[idx] = dof + offsets[d] * (initial_offset + layer)
                     idx += 1
-    CHKERR(ISRestoreIndices(iset.iset, &masked_indices))
-    CHKERR(ISRestoreIndices(facet_iset.iset, &facet_points))
     return numpy.unique(indices[:idx])
 
 
@@ -831,9 +828,9 @@ def cell_entity_masks(mesh):
     layer_extents = mesh.layer_extents
     ncell, nclosure = cell_closure.shape
     cStart, cEnd = mesh._plex.getHeightStratum(0)
-    top_masks = numpy.zeros(numpy.sum(layer_extents[cStart:cEnd, 1] - layer_extents[cStart:cEnd, 0] - 1),
-                            dtype=IntType)
-    bottom_masks = numpy.zeros_like(top_masks)
+    top = numpy.zeros(numpy.sum(layer_extents[cStart:cEnd, 1] - layer_extents[cStart:cEnd, 0] - 1),
+                            dtype=numpy.int64)
+    bottom = numpy.zeros_like(top)
     # We iterate over the base cell and do all the entities in the extruded cell above it,
     # therefore we need a mapping from the standard firedrake entity ordering to this one.
     cell = as_fiat_cell(mesh.ufl_cell())
@@ -896,17 +893,15 @@ def cell_entity_masks(mesh):
                     pass
                 # Go to the next entity.
                 p += 3
-            top_masks[idx] = top_mask
-            bottom_masks[idx] = bottom_mask
+            top[idx] = top_mask
+            bottom[idx] = bottom_mask
             idx += 1
     section.setUp()
-    assert section.getStorageSize() == bottom_masks.shape[0]
-    bottom = PETSc.IS().createGeneral(bottom_masks, comm=PETSc.COMM_SELF)
-    top = PETSc.IS().createGeneral(top_masks, comm=PETSc.COMM_SELF)
+    assert section.getStorageSize() == bottom.shape[0]
     return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
 
 
-def exterior_facet_entity_masks(mesh):
+def exterior_facet_entity_masks(mesh, layers):
     """Compute a masking integer for each exterior facet in the
     extruded mesh.
 
@@ -931,13 +926,12 @@ def exterior_facet_entity_masks(mesh):
     renumbering = mesh._plex_renumbering.indices
     fStart, fEnd = dm.getHeightStratum(1)
 
-    layers = mesh.exterior_facets.set.layers_array
-    top_masks = numpy.zeros(numpy.sum(layers[:, 1] - layers[:, 0] - 1),
-                            dtype=IntType)
-    bottom_masks = numpy.zeros_like(top_masks)
+    top = numpy.zeros(numpy.sum(layers[:, 1] - layers[:, 0] - 1),
+                            dtype=numpy.int64)
+    bottom = numpy.zeros_like(top)
 
     section = PETSc.Section().create(comm=PETSc.COMM_SELF)
-    section.setChart(0, mesh.exterior_facets.set.total_size)
+    section.setChart(0, mesh._base_mesh.exterior_facets.set.total_size)
     for p in range(*section.getChart()):
         section.setDof(p, layers[p, 1] - layers[p, 0] - 1)
     section.setUp()
@@ -952,21 +946,19 @@ def exterior_facet_entity_masks(mesh):
                 continue
             c, = dm.getSupport(point)
             cell = cell_numbering.getOffset(c)
-            bottom = layer_extents[c, 0]
-            top = layer_extents[c, 1]
+            ent_bottom = mesh.layer_extents[c, 0]
+            ent_top = mesh.layer_extents[c, 1]
             coffset = csection.getOffset(cell)
             foffset = section.getOffset(facet)
-            for i in range(top - bottom - 1):
-                top_masks[foffset + i] = ctop[coffset + i]
-                bottom_masks[foffset + i] = cbottom[coffset + i]
+            for i in range(ent_top - ent_bottom - 1):
+                top[foffset + i] = ctop[coffset + i]
+                bottom[foffset + i] = cbottom[coffset + i]
             facet += 1
-    bottom = PETSc.IS().createGeneral(bottom_masks, comm=PETSc.COMM_SELF)
-    top = PETSc.IS().createGeneral(top_masks, comm=PETSc.COMM_SELF)
     return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
 
 
-def interior_facet_entity_masks(mesh):
-    """Compute a pair of masking integers for each interior facet in the
+def interior_facet_entity_masks(mesh, layers):
+    """Compute a masking integer for each interior facet in the
     extruded mesh.
 
     This integer indicates for each facet, which topological entities
@@ -990,13 +982,12 @@ def interior_facet_entity_masks(mesh):
     renumbering = mesh._plex_renumbering.indices
     fStart, fEnd = dm.getHeightStratum(1)
 
-    layers = mesh.interior_facets.set.layers_array
-    top_masks = numpy.zeros((numpy.sum(layers[:, 1] - layers[:, 0] - 1), 2),
-                            dtype=IntType)
-    bottom_masks = numpy.zeros_like(top_masks)
+    top = numpy.zeros(numpy.sum(layers[:, 1] - layers[:, 0] - 1),
+                      dtype=numpy.int64)
+    bottom = numpy.zeros_like(top)
 
     section = PETSc.Section().create(comm=PETSc.COMM_SELF)
-    section.setChart(0, mesh.exterior_facets.set.total_size)
+    section.setChart(0, mesh._base_mesh.interior_facets.set.total_size)
     for p in range(*section.getChart()):
         section.setDof(p, layers[p, 1] - layers[p, 0] - 1)
     section.setUp()
@@ -1009,17 +1000,15 @@ def interior_facet_entity_masks(mesh):
         if fStart <= point < fEnd:
             if dm.getLabelValue(label, point) == -1:
                 continue
-            bottom = layer_extents[point, 0]
-            top = layer_extents[point, 1]
+            ent_bottom = layer_extents[point, 0]
+            ent_top = layer_extents[point, 1]
             for j, c in enumerate(dm.getSupport(point)):
                 cell = cell_numbering.getOffset(c)
                 cbottom = layer_extents[c, 0]
                 coffset = csection.getOffset(cell)
                 foffset = section.getOffset(facet)
-                for i in range(top - bottom - 1):
-                    top_masks[foffset + i, j] = ctop[coffset + i + bottom - cbottom]
-                    bottom_masks[foffset + i, j] = cbottom[coffset + i + bottom - cbottom]
+                for i in range(ent_top - ent_bottom - 1):
+                    top[foffset + i, j] = ctop[coffset + i + bottom - cbottom]
+                    bottom[foffset + i, j] = cbottom[coffset + i + bottom - cbottom]
             facet += 1
-    bottom = PETSc.IS().createGeneral(bottom_masks, comm=PETSc.COMM_SELF)
-    top = PETSc.IS().createGeneral(top_masks, comm=PETSc.COMM_SELF)
     return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
