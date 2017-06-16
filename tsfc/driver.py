@@ -26,7 +26,7 @@ from tsfc import fem, ufl_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
-from tsfc.parameters import default_parameters
+from tsfc.parameters import default_parameters, set_scalar_type
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
@@ -43,6 +43,7 @@ def compile_form(form, prefix="form", parameters=None):
 
     assert isinstance(form, Form)
 
+    complx = parameters and isinstance(parameters["scalar_type"], complex)
     fd = ufl_utils.compute_form_data(form)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
@@ -75,6 +76,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         _ = default_parameters()
         _.update(parameters)
         parameters = _
+
+    set_scalar_type(parameters["scalar_type"])
 
     # Remove these here, they're handled below.
     if parameters.get("quadrature_degree") in ["auto", "default", None, -1, "-1"]:

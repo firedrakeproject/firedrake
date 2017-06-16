@@ -3,8 +3,7 @@ import numpy
 
 NUMPY_TYPE = numpy.dtype("double")
 
-SCALAR_TYPE = {numpy.dtype("double"): "double",
-               numpy.dtype("float32"): "float"}[NUMPY_TYPE]
+SCALAR_TYPE = "double"
 
 
 PARAMETERS = {
@@ -22,8 +21,19 @@ PARAMETERS = {
 
     # Precision of float printing (number of digits)
     "precision": numpy.finfo(NUMPY_TYPE).precision,
+
+    "scalar_type": "double"
 }
 
 
 def default_parameters():
     return PARAMETERS.copy()
+
+
+def set_scalar_type(type_):
+    global NUMPY_TYPE
+    global SCALAR_TYPE
+
+    SCALAR_TYPE = type_
+    NUMPY_TYPE = {"double", numpy.dtype("double"),
+               "float", numpy.dtype("float32")}["type_"]
