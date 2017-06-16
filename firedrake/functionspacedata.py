@@ -16,6 +16,7 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 
 from __future__ import absolute_import, print_function, division
 from six.moves import map, range
+from six import iteritems
 
 import numpy
 import finat
@@ -426,7 +427,8 @@ class FunctionSpaceData(object):
         self.map_caches["boundary_node"][method] = val
         return val
 
-    def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent):
+    def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent,
+                kind=None):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
@@ -538,13 +540,28 @@ class FunctionSpaceData(object):
             else:
                 new_entity_node_list = entity_node_list
 
+            if kind == "interior_facet" and self.bt_masks is not None:
+                bt_masks = {}
+                off = map_arity // 2
+                for method, (bottom, top) in iteritems(self.bt_masks):
+                    b = []
+                    t = []
+                    for i in bottom:
+                        b.append(i)
+                        b.append(i+off)
+                    for i in top:
+                        t.append(i)
+                        t.append(i+off)
+                    bt_masks[method] = (b, t)
+            else:
+                bt_masks = self.bt_masks
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           new_entity_node_list,
                           ("%s_"+name) % (V.name),
                           offset=offset,
                           parent=parent,
-                          bt_masks=self.bt_masks)
+                          bt_masks=bt_masks)
 
             if decorate:
                 val = op2.DecoratedMap(val, vector_index=True)

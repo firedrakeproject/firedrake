@@ -1,10 +1,8 @@
 from __future__ import absolute_import, print_function, division
 import numpy as np
-import pytest
 from firedrake import *
 
 
-@pytest.mark.xfail(reason="Bad BC masking")
 def test_top_bcs_interior_facet(extmesh_2D):
     mesh = extmesh_2D(2, 1)
     V = FunctionSpace(mesh, "CG", 1)
@@ -28,7 +26,6 @@ def test_top_bcs_interior_facet(extmesh_2D):
                         [0., 0., 1.]])
 
 
-@pytest.mark.xfail(reason="Bad BC masking")
 def test_bottom_bcs_interior_facet(extmesh_2D):
     mesh = extmesh_2D(2, 1)
     V = FunctionSpace(mesh, "CG", 1)
