@@ -2114,10 +2114,11 @@ def to_petsc_numbering(PETSc.Vec vec, V):
 
     :ret out: a copy of vec ordered with PETSc numbering
     """
-    cdef int           dim, idx, start, end, p, dof, off, d, k
-    cdef PETSc.Vec     out
+    cdef int dim, idx, start, end, p, d, k
+    cdef PetscInt dof, off
+    cdef PETSc.Vec out
     cdef PETSc.Section section
-    cdef np.ndarray    varray, oarray
+    cdef np.ndarray[PetscReal, mode="c", ndim=1] varray, oarray
 
     section = V.dm.getDefaultGlobalSection()
     out = vec.duplicate()
@@ -2127,12 +2128,12 @@ def to_petsc_numbering(PETSc.Vec vec, V):
     idx = 0
     start, end = vec.getOwnershipRange()
     for p in range(*section.getChart()):
-        dof = section.getDof(p)
+        CHKERR(PetscSectionGetDof(section.sec, p, &dof))
         if dof > 0:
-            off = section.getOffset(p)
+            CHKERR(PetscSectionGetOffset(section.sec, p, &off))
             if off >= 0:
                 for d in range(dof):
                     for k in range(dim):
-                        oarray[idx] = varray[dim*off + d*off + k - start]
+                        oarray[idx] = varray[dim*off + d*off + k - start]  # TODO cython -a => light yellow, is that ok ?
                         idx += 1
     return out
