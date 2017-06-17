@@ -337,14 +337,14 @@ if options["minimal_petsc"]:
     # manually invalidate the Travis cache of PETSc and petsc4py.  See
     # https://docs.travis-ci.com/user/caching/#Clearing-Caches.
     if options["petsc_int_type"] == "int64":
-        petsc_opts = """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-eigen --with-64-bit-indices"""
+        petsc_opts = """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-eigen --download-pragmatic --with-64-bit-indices"""
     else:
-        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5 --download-eigen"""
+        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5 --download-eigen --download-pragmatic"""
 else:
     if options["petsc_int_type"] == "int64":
-        petsc_opts = """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-eigen --with-64-bit-indices"""
+        petsc_opts = """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-eigen --download-pragmatic --with-64-bit-indices"""
     else:
-        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen"""
+        petsc_opts = """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-eigen --download-pragmatic"""
 
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
