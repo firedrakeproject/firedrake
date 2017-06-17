@@ -77,27 +77,33 @@ class AAdaptation(BaseAdaptation):
         new_mesh = Mesh(newplex)
         return new_mesh
 
-    def transfer_solution(self, f, method=None):
+    def transfer_solution(self, *fields, **kwargs):
         """
         Transfers a solution field from the old mesh to the new mesh
 
         :arg f: function defined on the old mesh that one wants to transfer
         """
-        # TODO many checks
-        Vnew = functionspace.FunctionSpace(self.newmesh, f.function_space().ufl_element())
-        fnew = function.Function(Vnew)
+        method = kwargs.get('method')  # only way I can see to make it work for now. With python 3 I can put it back in the parameters
+        fields_new = ()
+        print("fields size: ", len(fields), "method: ", method)
+        for f in fields:
+            # TODO many other checks ??
+            Vnew = functionspace.FunctionSpace(self.newmesh, f.function_space().ufl_element())
+            fnew = function.Function(Vnew)
 
-        if f.ufl_element().family() == 'Lagrange' and f.ufl_element().degree() == 1:
-            fnew.dat.data[:] = f.at(self.newmesh.coordinates.dat.data)
-        elif f.ufl_element().family() == 'Lagrange':
-            degree = f.ufl_element().degree()
-            C = functionspace.VectorFunctionSpace(self.newmesh, 'CG', degree)
-            interp_coordinates = function.Function(C)
-            interp_coordinates.interpolate(self.newmesh.coordinates)
-            fnew.dat.data[:] = f.at(interp_coordinates.dat.data)
-        else:
-            raise NotImplementedError("Can only interpolate CG fields")
-        return fnew
+            if f.ufl_element().family() == 'Lagrange' and f.ufl_element().degree() == 1:
+                fnew.dat.data[:] = f.at(self.newmesh.coordinates.dat.data)
+            elif f.ufl_element().family() == 'Lagrange':
+                degree = f.ufl_element().degree()
+                C = functionspace.VectorFunctionSpace(self.newmesh, 'CG', degree)
+                interp_coordinates = function.Function(C)
+                interp_coordinates.interpolate(self.newmesh.coordinates)
+                fnew.dat.data[:] = f.at(interp_coordinates.dat.data)
+            else:
+                raise NotImplementedError("Can only interpolate CG fields")
+            fields_new += (fnew,)
+            print("fields_new size: ", len(fields_new))
+        return fields_new
 
 
 def adapt(mesh, metric):
