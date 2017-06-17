@@ -111,8 +111,8 @@ def reconstruct(v_b, V, name=None):
     the data into an unbroken function space.
 
     This method avoids assembling a mass matrix system to solve a Galerkin
-    projection problem; instead kernels are generated which computes weighted
-    averages between facet degrees of freedom.
+    projection problem; instead a kernel is generated which computes weights
+    and then the broken values are averaged between facet degrees of freedom.
 
     :arg v_b: the :class:`.Function` to reconstruct.
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to reconstruct
@@ -142,21 +142,18 @@ def reconstruct(v_b, V, name=None):
             "coincide with the element broken by ufl.BrokenElement."
         )
 
-    weight_kernel = """
-    for (int i=0; i<weight.dofs; ++i) {
+    accumulate_kernel = """
+    for (int i=0; i<vrec.dofs; ++i) {
+    vrec[i][0] += v_b[i][0];
     weight[i][0] += 1.0;
     }"""
 
-    average_kernel = """
-    for (int i=0; i<vrec.dofs; ++i) {
-    vrec[i][0] += v_b[i][0]/weight[i][0];
-    }"""
-
     w = function.Function(V)
-    par_loop(weight_kernel, ufl.dx, {"weight": (w, INC)})
-    par_loop(average_kernel, ufl.dx, {"vrec": (result, INC),
-                                      "v_b": (v_b, READ),
-                                      "weight": (w, READ)})
+    par_loop(accumulate_kernel, ufl.dx, {"vrec": (result, INC),
+                                         "weight": (w, INC),
+                                         "v_b": (v_b, READ)})
+    result.dat /= w.dat
+
     return result
 
 
