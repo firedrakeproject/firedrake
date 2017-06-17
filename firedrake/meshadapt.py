@@ -12,7 +12,7 @@ import firedrake.function as function
 import firedrake.mesh as fmesh
 
 
-__all__ = ['adapt']
+__all__ = ['adapt', 'AAdaptation']
 
 
 class BaseAdaptation(with_metaclass(abc.ABCMeta)):
