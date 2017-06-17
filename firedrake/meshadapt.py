@@ -73,7 +73,7 @@ class AAdaptation(BaseAdaptation):
         with self.metric.dat.vec_ro as vec:
             reordered_metric = dmplex.to_petsc_numbering(vec, self.metric.function_space())
 
-        newplex = plex.adapt(reordered_metric)
+        newplex = plex.adapt(reordered_metric, "boundary_ids")
         new_mesh = Mesh(newplex)
         return new_mesh
 
@@ -85,7 +85,6 @@ class AAdaptation(BaseAdaptation):
         """
         method = kwargs.get('method')  # only way I can see to make it work for now. With python 3 I can put it back in the parameters
         fields_new = ()
-        print("fields size: ", len(fields), "method: ", method)
         for f in fields:
             # TODO many other checks ??
             Vnew = functionspace.FunctionSpace(self.newmesh, f.function_space().ufl_element())
@@ -102,7 +101,6 @@ class AAdaptation(BaseAdaptation):
             else:
                 raise NotImplementedError("Can only interpolate CG fields")
             fields_new += (fnew,)
-            print("fields_new size: ", len(fields_new))
         return fields_new
 
 

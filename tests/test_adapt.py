@@ -24,3 +24,20 @@ g.interpolate(x+y)
 gnew = adaptor.transfer_solution(g)[0]
 
 File("mesha2.pvd").write(gnew)
+
+# test preservation of boundary labels
+
+plex = newmesh._plex
+bdLabelSize = plex.getLabelSize("boundary_ids")
+lis = plex.getLabelIdIS("boundary_ids")
+bdLabelVal = lis.getIndices()
+
+plexnew = newmesh._plex
+bdLabelSizenew = plexnew.getLabelSize("boundary_ids")
+assert(bdLabelSizenew==4)
+lisnew = plexnew.getLabelIdIS("boundary_ids")
+bdLabelValnew = lisnew.getIndices()
+assert((bdLabelVal==bdLabelValnew).all)
+for i in range(bdLabelSizenew):
+    size = plexnew.getStratumSize("boundary_ids", bdLabelValnew[i])
+    assert(size > 0)
