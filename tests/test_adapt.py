@@ -26,8 +26,8 @@ g = Function(FunctionSpace(mesh, 'CG', 1)).interpolate(x+y)
 gnew = adaptor.transfer_solution(g)[0]
 
 xnew, ynew = SpatialCoordinate(newmesh)
-hnew =  Function(FunctionSpace(newmesh, 'CG', 1)).interpolate(xnew+ynew)
-assert(np.allclose(gnew.dat.data,hnew.dat.data))
+hnew = Function(FunctionSpace(newmesh, 'CG', 1)).interpolate(xnew+ynew)
+assert(np.allclose(gnew.dat.data, hnew.dat.data))
 
 # test preservation of boundary labels
 
@@ -38,10 +38,10 @@ bdLabelVal = lis.getIndices()
 
 plexnew = newmesh._plex
 bdLabelSizenew = plexnew.getLabelSize("boundary_ids")
-assert(bdLabelSizenew==4)
+assert(bdLabelSizenew == 4)
 lisnew = plexnew.getLabelIdIS("boundary_ids")
 bdLabelValnew = lisnew.getIndices()
-assert((bdLabelVal==bdLabelValnew).all)
+assert((bdLabelVal == bdLabelValnew).all)
 for i in range(bdLabelSizenew):
     size = plexnew.getStratumSize("boundary_ids", bdLabelValnew[i])
     assert(size > 0)

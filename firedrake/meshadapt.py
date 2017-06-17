@@ -79,7 +79,7 @@ class AnisotropicAdaptation(AdaptationBase):
 
         :arg fields: tuple of functions defined on the old mesh that one wants to transfer
         """
-        method = kwargs.get('method')  # only way I can see to make it work for now. With python 3 I can put it back in the parameters
+        # method = kwargs.get('method')  # only way I can see to make it work for now. With python 3 I can put it back in the parameters
         fields_new = ()
         for f in fields:
             # TODO other checks ?
