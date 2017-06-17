@@ -1,5 +1,7 @@
 from __future__ import absolute_import, print_function, division
 
+import numpy as np
+
 from firedrake import *
 
 
@@ -12,18 +14,20 @@ metric.interpolate(as_tensor([[1+500*x, 0], [0, 1+500*y]]))
 # test adapt function
 newmesh = adapt(mesh, metric)
 f = Function(VectorFunctionSpace(newmesh, 'CG', 1)).interpolate(SpatialCoordinate(newmesh))
-File("mesha.pvd").write(f)
 
 # test adapt class
 
-adaptor = AAdaptation(mesh, metric)
-newmesh = adaptor.newmesh
+adaptor = AnisotropicAdaptation(mesh, metric)
+newmesh = adaptor.adapted_mesh
 
-g = Function(FunctionSpace(mesh, 'CG', 1))
-g.interpolate(x+y)
+# test interpolation
+
+g = Function(FunctionSpace(mesh, 'CG', 1)).interpolate(x+y)
 gnew = adaptor.transfer_solution(g)[0]
 
-File("mesha2.pvd").write(gnew)
+xnew, ynew = SpatialCoordinate(newmesh)
+hnew =  Function(FunctionSpace(newmesh, 'CG', 1)).interpolate(xnew+ynew)
+assert(np.allclose(gnew.dat.data,hnew.dat.data))
 
 # test preservation of boundary labels
 

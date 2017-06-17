@@ -12,21 +12,19 @@ import firedrake.function as function
 import firedrake.mesh as fmesh
 
 
-__all__ = ['adapt', 'AAdaptation']
+__all__ = ['adapt', 'AnisotropicAdaptation']
 
 
-class BaseAdaptation(with_metaclass(abc.ABCMeta)):
-    """
-    Abstract top-level class for mesh adaptation
-    """
+class AdaptationBase(with_metaclass(abc.ABCMeta)):
 
     def __init__(self, mesh):
         """
+        Abstract top-level class for mesh adaptation
         """
         self.mesh = mesh
 
     @abc.abstractproperty
-    def newmesh(self):
+    def adapted_mesh(self):
         pass
 
     @abc.abstractmethod
@@ -34,13 +32,11 @@ class BaseAdaptation(with_metaclass(abc.ABCMeta)):
         pass
 
 
-class AAdaptation(BaseAdaptation):
-    """
-    Object that performs anisotropic mesh adaptation
-    """
+class AnisotropicAdaptation(AdaptationBase):
 
     def __init__(self, mesh, metric):
         """
+        Object that performs anisotropic mesh adaptation
         """
         if isinstance(mesh.topology, fmesh.ExtrudedMeshTopology):
             raise NotImplementedError("Cannot adapt extruded meshes")
@@ -50,11 +46,11 @@ class AAdaptation(BaseAdaptation):
         if metric.ufl_element().family() != 'Lagrange' \
            or metric.ufl_element().degree() != 1:
             raise ValueError("Metric should be a P1 field.")
-        super(AAdaptation, self).__init__(mesh)
+        super(AnisotropicAdaptation, self).__init__(mesh)
         self.metric = metric
 
     @utils.cached_property
-    def newmesh(self):
+    def adapted_mesh(self):
         """
         Generates the adapted mesh wrt the metric
         """
@@ -73,8 +69,8 @@ class AAdaptation(BaseAdaptation):
         with self.metric.dat.vec_ro as vec:
             reordered_metric = dmplex.to_petsc_numbering(vec, self.metric.function_space())
 
-        newplex = plex.adapt(reordered_metric, "boundary_ids")
-        new_mesh = Mesh(newplex)
+        new_plex = plex.adapt(reordered_metric, "boundary_ids")
+        new_mesh = Mesh(new_plex)
         return new_mesh
 
     def transfer_solution(self, *fields, **kwargs):
@@ -86,21 +82,21 @@ class AAdaptation(BaseAdaptation):
         method = kwargs.get('method')  # only way I can see to make it work for now. With python 3 I can put it back in the parameters
         fields_new = ()
         for f in fields:
-            # TODO many other checks ??
-            Vnew = functionspace.FunctionSpace(self.newmesh, f.function_space().ufl_element())
-            fnew = function.Function(Vnew)
+            # TODO other checks ?
+            V_new = functionspace.FunctionSpace(self.adapted_mesh, f.function_space().ufl_element())
+            f_new = function.Function(V_new)
 
             if f.ufl_element().family() == 'Lagrange' and f.ufl_element().degree() == 1:
-                fnew.dat.data[:] = f.at(self.newmesh.coordinates.dat.data)
+                f_new.dat.data[:] = f.at(self.adapted_mesh.coordinates.dat.data)
             elif f.ufl_element().family() == 'Lagrange':
                 degree = f.ufl_element().degree()
-                C = functionspace.VectorFunctionSpace(self.newmesh, 'CG', degree)
+                C = functionspace.VectorFunctionSpace(self.adapted_mesh, 'CG', degree)
                 interp_coordinates = function.Function(C)
-                interp_coordinates.interpolate(self.newmesh.coordinates)
-                fnew.dat.data[:] = f.at(interp_coordinates.dat.data)
+                interp_coordinates.interpolate(self.adapted_mesh.coordinates)
+                f_new.dat.data[:] = f.at(interp_coordinates.dat.data)
             else:
                 raise NotImplementedError("Can only interpolate CG fields")
-            fields_new += (fnew,)
+            fields_new += (f_new,)
         return fields_new
 
 
@@ -113,5 +109,5 @@ def adapt(mesh, metric):
 
     :return: a new mesh adapted to the metric
     """
-    adaptor = AAdaptation(mesh, metric)
-    return adaptor.newmesh
+    adaptor = AnisotropicAdaptation(mesh, metric)
+    return adaptor.adapted_mesh
