@@ -30,8 +30,6 @@ cdef extern from "petscdmplex.h":
     int DMPlexRestoreTransitiveClosure(PETSc.PetscDM,PetscInt,PetscBool,PetscInt *,PetscInt *[])
     int DMPlexDistributeData(PETSc.PetscDM,PETSc.PetscSF,PETSc.PetscSection,MPI.MPI_Datatype,void*,PETSc.PetscSection,void**)
 
-    int DMPlexAdapt(PETSc.PetscDM, PETSc.PetscVec, const char [], PETSc.PetscDM*);
-
 cdef extern from "petscdmlabel.h":
     struct _n_DMLabel
     ctypedef _n_DMLabel* DMLabel "DMLabel"
