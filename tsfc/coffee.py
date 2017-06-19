@@ -342,7 +342,6 @@ def _expression_scalar(expr, parameters):
         return coffee.Symbol("NAN")
     else:
         vr = expr.value.real
-        print(vr)
         rr = round(vr, 1)
         if rr and abs(vr - rr) < parameters.epsilon:
             vr = rr  # round to nonzero
