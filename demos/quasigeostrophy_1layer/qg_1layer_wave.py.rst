@@ -147,8 +147,8 @@ along with the physical parameters of the model. ::
 Next, we define the variational problems.  First the elliptic problem
 for the stream function. ::
 
-  psi = TrialFunction(Vcg)  # Test function
-  phi = TestFunction(Vcg)   # Trial function
+  psi = TrialFunction(Vcg)
+  phi = TestFunction(Vcg)
 
   # Build the weak form for the inversion
   Apsi = (inner(grad(psi),grad(phi)) + F*psi*phi)*dx
