@@ -129,7 +129,8 @@ def reconstruct(v_b, V, name=None):
     if isinstance(V, functionspaceimpl.WithGeometry):
         result = function.Function(V, name=name)
     elif isinstance(V, function.Function):
-        result = V
+        # Make sure the function we reconstruct into is zeroed out
+        result = V.assign(0.0)
         V = V.function_space()
     else:
         raise RuntimeError(
