@@ -138,7 +138,8 @@ def derivative(form, u, du=None, coefficient_derivatives=None):
 
     See also :func:`ufl.derivative`.
     """
-    if set(extract_coefficients(form)) & set(u.split()):
+    # TODO: What about Constant?
+    if len(u.split()) > 1 and set(extract_coefficients(form)) & set(u.split()):
         raise ValueError("Taking derivative of form wrt u, but form contains coefficients from u.split()."
                          "\nYou probably meant to write split(u) when defining your form.")
     if du is None:
