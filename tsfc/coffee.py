@@ -4,7 +4,7 @@ This is the final stage of code generation in TSFC."""
 
 from collections import defaultdict
 from functools import singledispatch, reduce
-from math import isnan
+from cmath import isnan
 import itertools
 
 import numpy
