@@ -237,7 +237,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         name_multiindex(multiindex, name)
 
     # Construct kernel
-    body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, split_argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], 
+                            parameters["scalar_type"], expressions, split_argument_indices)
 
     return builder.construct_kernel(kernel_name, body)
 

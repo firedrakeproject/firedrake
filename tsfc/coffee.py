@@ -20,7 +20,7 @@ class Bunch(object):
     pass
 
 
-def generate(impero_c, index_names, precision, roots=(), argument_indices=()):
+def generate(impero_c, index_names, precision, scalar_type, roots=(), argument_indices=()):
     """Generates COFFEE code.
 
     :arg impero_c: ImperoC tuple with Impero AST and other data
@@ -40,6 +40,7 @@ def generate(impero_c, index_names, precision, roots=(), argument_indices=()):
     params.epsilon = 10.0 * eval("1e-%d" % precision)
     params.roots = roots
     params.argument_indices = argument_indices
+    params.scalar_type = scalar_type
 
     params.names = {}
     for i, temp in enumerate(impero_c.temporaries):
@@ -237,7 +238,7 @@ def _expression_division(expr, parameters):
 @_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
-    if parameters['scalar_type'] is 'complex':
+    if parameters.scalar_type is 'complex':
         return coffee.FunCall("cpow", expression(base, parameters), expression(exponent, parameters))
     else:
         return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
@@ -245,7 +246,7 @@ def _expression_power(expr, parameters):
 
 @_expression.register(gem.Conj)
 def _expression_conj(expr, parameters):
-    if parameters['scalar_type'] is 'complex':
+    if parameters.scalar_type is 'complex':
         return coffee.FunCall('conj', *[expression(c, parameters) for c in expr.children])
     else:
         pass
@@ -272,7 +273,7 @@ def _expression_mathfunction(expr, parameters):
         'abs': 'cabs',
         'ln': 'clog'
     }
-    if parameters['scalar_type'] is 'complex':
+    if parameters.scalar_type is 'complex':
         name = complex_name_map.get(expr.name, expr.name)
     else:
         name = name_map.get(expr.name, expr.name)
@@ -340,11 +341,23 @@ def _expression_scalar(expr, parameters):
     if isnan(expr.value):
         return coffee.Symbol("NAN")
     else:
-        v = expr.value
-        r = round(v, 1)
-        if r and abs(v - r) < parameters.epsilon:
-            v = r  # round to nonzero
-        return coffee.Symbol(("%%.%dg" % parameters.precision) % v)
+        vr = expr.value.real
+        print(vr)
+        rr = round(vr, 1)
+        if rr and abs(vr - rr) < parameters.epsilon:
+            vr = rr  # round to nonzero
+
+        vi = expr.value.imag # also checks if v is purely real
+        if vi == 0.0:
+            return coffee.Symbol(("%%.%dg" % parameters.precision) % vr)
+        ri = round(vi, 1)
+        
+        # TO DO: determine if this is the right syntax for this coffee Symbol
+
+        if ri and abs(vi - ri) < parameters.epsilon:
+            vi = ri
+        return coffee.Symbol(("%%.%dg" % parameters.precision) % vr + " + "
+                             + ("%%.%dg" % parameters.precision) % vi  + " * I")
 
 
 @_expression.register(gem.Variable)
