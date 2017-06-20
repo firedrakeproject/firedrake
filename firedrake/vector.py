@@ -162,6 +162,11 @@ class Vector(object):
         with self.dat.vec_ro as v:
             return v.max()[1]
 
+    def sum(self):
+        """Return global sum of vector entries."""
+        with self.dat.vec_ro as v:
+            return v.sum()
+
     def size(self):
         """Return the global size of the data"""
         return self.dat.dataset.layout_vec.getSizes()[1]
