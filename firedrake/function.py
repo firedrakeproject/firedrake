@@ -218,8 +218,10 @@ class Function(ufl.Coefficient):
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.
+            will be used to build this :class:`Function`.  In this
+        case, the function values are copied.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+            If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
@@ -232,7 +234,8 @@ class Function(ufl.Coefficient):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
-        if isinstance(val, CoordinatelessFunction):
+        if isinstance(val, (Function, CoordinatelessFunction)):
+            val = val.topological
             if val.function_space() != V.topological:
                 raise ValueError("Function values have wrong function space.")
             self._data = val
