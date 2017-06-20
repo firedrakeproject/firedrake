@@ -263,14 +263,14 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
                           ast.FlatBlock("%s" % code))
                for i, code in enumerate(expression.code)]
 
-    dim = coords_space.dim
+    dim = coords_space.value_size
     ndof = to_element.space_dimension()
     xndof = coords_element.space_dimension()
-    nfdof = to_element.space_dimension() * numpy.prod(fs.dim, dtype=int)
+    nfdof = to_element.space_dimension() * numpy.prod(fs.value_size, dtype=int)
 
     init_X = ast.Decl(typ="double", sym=ast.Symbol(X, rank=(ndof, xndof)),
                       qualifiers=["const"], init=X_str)
-    init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.dim,)))
+    init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.value_size,)))
     init_pi = ast.Decl(typ="double", sym="pi", qualifiers=["const"],
                        init="3.141592653589793")
     init = ast.Block([init_X, init_x, init_pi])

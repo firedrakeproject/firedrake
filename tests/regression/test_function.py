@@ -59,7 +59,7 @@ def test_firedrake_tensor_function(W):
 
 def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
     f = Function(W_nonstandard_shape)
-    vals = np.arange(1, W_nonstandard_shape.dim+1).reshape(f.ufl_shape)
+    vals = np.arange(1, W_nonstandard_shape.value_size+1).reshape(f.ufl_shape)
     f.interpolate(Expression(vals.astype("string")))
     assert np.allclose(f.dat.data_ro, vals)
 
@@ -97,13 +97,13 @@ def test_mismatching_shape_interpolation(V):
 
 def test_function_val(V):
     """Initialise a Function with a NumPy array."""
-    f = Function(V, np.ones((V.node_count, V.dim)))
+    f = Function(V, np.ones((V.node_count, V.value_size)))
     assert (f.dat.data_ro == 1.0).all()
 
 
 def test_function_dat(V):
     """Initialise a Function with an op2.Dat."""
-    f = Function(V, op2.Dat(V.node_set**V.dim))
+    f = Function(V, op2.Dat(V.node_set**V.value_size))
     f.interpolate(Expression("1"))
     assert (f.dat.data_ro == 1.0).all()
 

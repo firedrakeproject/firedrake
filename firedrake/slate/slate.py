@@ -79,7 +79,7 @@ class TensorBase(with_metaclass(ABCMeta)):
         """
         shapes = {}
         for i, arg in enumerate(self.arguments()):
-            shapes[i] = tuple(fs.finat_element.space_dimension() * fs.dim
+            shapes[i] = tuple(fs.finat_element.space_dimension() * fs.value_size
                               for fs in arg.function_space())
         return shapes
 

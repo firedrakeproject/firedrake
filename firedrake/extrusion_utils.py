@@ -58,7 +58,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                 ext_coords[2*d+1][%(base_coord_dim)d] = *layer_height * (layer[0][0] + 1);
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
-                'base_coord_dim': base_coords.function_space().dim},
+                'base_coord_dim': base_coords.function_space().value_size},
             "uniform_extrusion_kernel")
     elif extrusion_type == 'radial':
         kernel = op2.Kernel("""
@@ -78,7 +78,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                 }
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
-                'base_coord_dim': base_coords.function_space().dim},
+                'base_coord_dim': base_coords.function_space().value_size},
             "radial_extrusion_kernel")
     elif extrusion_type == 'radial_hedgehog':
         # Only implemented for interval in 2D and triangle in 3D.
@@ -145,7 +145,7 @@ def make_extruded_coords(extruded_topology, base_coords, ext_coords,
                 }
             }
         }""" % {'base_map_arity': base_coords.cell_node_map().arity,
-                'base_coord_dim': base_coords.function_space().dim},
+                'base_coord_dim': base_coords.function_space().value_size},
             "radial_hedgehog_extrusion_kernel")
     else:
         raise NotImplementedError('Unsupported extrusion type "%s"' % extrusion_type)

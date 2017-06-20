@@ -131,8 +131,8 @@ def ioptest(f, expr, x, op):
 
 
 def interpolatetest(f, expr, x):
-    if f.function_space().dim > 1:
-        expr = (expr,) * f.function_space().dim
+    if f.function_space().value_size > 1:
+        expr = (expr,) * f.function_space().value_size
     return evaluate(f.interpolate(Expression(expr)).dat.data, x)
 
 

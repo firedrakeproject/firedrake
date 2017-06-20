@@ -273,7 +273,8 @@ class FunctionSpace(object):
         :class:`~ufl.classes.TensorElement` instances have rank equivalent to
         the number of components of their
         :meth:`~ufl.classes.FiniteElementBase.value_shape`."""
-        self.dim = numpy.prod(self.shape, dtype=int)
+
+        self.value_size = numpy.prod(self.shape, dtype=int)
         """The total number of degrees of freedom at each function
         space node."""
         self.name = name
@@ -391,7 +392,7 @@ class FunctionSpace(object):
         from firedrake.functionspace import MixedFunctionSpace
         return MixedFunctionSpace((self, other))
 
-    @property
+    @utils.cached_property
     def node_count(self):
         """The number of nodes (includes halo nodes) of this function space on
         this process.  If the :class:`FunctionSpace` has :attr:`rank` 0, this
@@ -399,11 +400,17 @@ class FunctionSpace(object):
         :attr:`dim` times the :attr:`node_count`."""
         return self.node_set.total_size
 
-    @property
+    @utils.cached_property
     def dof_count(self):
         """The number of degrees of freedom (includes halo dofs) of this
         function space on this process. Cf. :attr:`node_count`."""
-        return self.node_count*self.dim
+        return self.node_count*self.value_size
+
+    def dim(self):
+        """The global number of degrees of freedom for this function space.
+
+        See also :attr:`dof_count` and :attr:`node_count`."""
+        return self.dof_dset.layout_vec.getSize()
 
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Dat` defined on the
@@ -606,26 +613,32 @@ class MixedFunctionSpace(object):
     def __str__(self):
         return "MixedFunctionSpace(%s)" % ", ".join(str(s) for s in self)
 
-    @property
-    def dim(self):
-        """Return the sum of the :attr:`FunctionSpace.dim`\s of the
+    @utils.cached_property
+    def value_size(self):
+        """Return the sum of the :attr:`FunctionSpace.value_size`\s of the
         :class:`FunctionSpace`\s this :class:`MixedFunctionSpace` is
         composed of."""
-        return sum(fs.dim for fs in self._spaces)
+        return sum(fs.value_size for fs in self._spaces)
 
-    @property
+    @utils.cached_property
     def node_count(self):
         """Return a tuple of :attr:`FunctionSpace.node_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
         return tuple(fs.node_count for fs in self._spaces)
 
-    @property
+    @utils.cached_property
     def dof_count(self):
         """Return a tuple of :attr:`FunctionSpace.dof_count`\s of the
         :class:`FunctionSpace`\s of which this :class:`MixedFunctionSpace` is
         composed."""
         return tuple(fs.dof_count for fs in self._spaces)
+
+    def dim(self):
+        """The global number of degrees of freedom for this function space.
+
+        See also :attr:`dof_count` and :attr:`node_count`."""
+        return self.dof_dset.layout_vec.getSize()
 
     @utils.cached_property
     def node_set(self):
@@ -817,9 +830,9 @@ def ComponentFunctionSpace(parent, component):
     """
     element = parent.ufl_element()
     assert type(element) is ufl.VectorElement
-    if not (0 <= component < parent.dim):
+    if not (0 <= component < parent.value_size):
         raise IndexError("Invalid component %d. not in [0, %d)" %
-                         (component, parent.dim))
+                         (component, parent.value_size))
     if component > 2:
         raise NotImplementedError("Indexing component > 2 not implemented")
     new = ProxyFunctionSpace(parent.mesh(), element.sub_elements()[0],
@@ -845,6 +858,7 @@ class RealFunctionSpace(FunctionSpace):
     dim = 1
     rank = 0
     shape = ()
+    value_size = 1
     node_set = None
 
     def __init__(self, mesh, element, name):
@@ -875,7 +889,7 @@ class RealFunctionSpace(FunctionSpace):
     def make_dat(self, val=None, valuetype=None, name=None, uid=None):
         """Return a newly allocated :class:`pyop2.Global` representing the
         data for a :class:`.Function` on this space."""
-        return op2.Global(self.dim, val, valuetype, name, self.comm)
+        return op2.Global(self.value_size, val, valuetype, name, self.comm)
 
     def cell_node_map(self, bcs=None):
         ":class:`RealFunctionSpace` objects have no cell node map."

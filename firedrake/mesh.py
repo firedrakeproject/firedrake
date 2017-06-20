@@ -1128,10 +1128,10 @@ def make_mesh_from_coordinates(coordinates):
     element = coordinates.ufl_element()
     if V.rank != 1 or len(element.value_shape()) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension() <= V.dim
+    assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
     # Build coordinate element
     element = coordinates.ufl_element()
-    cell = element.cell().reconstruct(geometric_dimension=V.dim)
+    cell = element.cell().reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)
