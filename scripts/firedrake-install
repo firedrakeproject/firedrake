@@ -954,6 +954,11 @@ If you really want to use your own PETSc build, please run again with the
 --honour-petsc-dir option.
 """)
 
+if "PETSC_DIR" not in os.environ and args.honour_petsc_dir:
+    quit("""The --honour-petsc-dir is set, but PETSC_DIR environment variable is
+not defined. If you have compiled PETSc manually, set PETSC_DIR
+(and optionally PETSC_ARCH) variables to point to the build directory.
+""")
 
 log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
