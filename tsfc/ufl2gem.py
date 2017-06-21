@@ -3,7 +3,7 @@
 import collections
 import ufl
 
-from gem import (Literal, Zero, Identity, Sum, Product, Division, Conj,
+from gem import (Literal, Zero, Identity, Sum, Product, Division, Real, Imag,
                  Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
@@ -43,6 +43,20 @@ class Mixin(object):
 
     def division(self, o, numerator, denominator):
         return Division(numerator, denominator)
+
+    def real(self, o, expr):
+        if o.ufl_shape:
+            indices = tuple(Index() for i in range(len(o.ufl_shape)))
+            return ComponentTensor(Real(Indexed(expr, indices)), indices)
+        else:
+            return Real(expr)
+
+    def imag(self, o, expr):
+        if o.ufl_shape:
+            indices = tuple(Index() for i in range(len(o.ufl_shape)))
+            return ComponentTensor(Imag(Indexed(expr, indices)), indices)
+        else:
+            return Imag(expr)
 
     def conj(self, o, expr):
         if o.ufl_shape:
