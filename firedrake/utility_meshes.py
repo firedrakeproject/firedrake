@@ -5,6 +5,7 @@ import ufl
 
 from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
+from netCDF4 import Dataset
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
     par_loop, dx, WRITE, READ
@@ -24,7 +25,8 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
-           'TorusMesh', 'CylinderMesh']
+           'TorusMesh', 'CylinderMesh',
+           'NetCDFMesh']
 
 
 def IntervalMesh(ncells, length_or_left, right=None, comm=COMM_WORLD):
@@ -1237,3 +1239,55 @@ cells in each direction are not currently supported")
         new_coordinates.dat.data[:] = np.dot(new_coordinates.dat.data, operator.T)
 
     return mesh.Mesh(new_coordinates)
+
+
+def NetCDFMesh(filename, comm=COMM_WORLD):
+    """Generate a mesh using NetCDF data
+
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    dataset = Dataset(str(filename), 'r', format="NETCDF4")
+    lon = dataset['nav_lon'][:,:]
+    lat = dataset['nav_lat'][:,:]
+    nlon = dataset.dimensions['x'].size
+    nlat = dataset.dimensions['y'].size
+    dataset.close()
+
+    # Crude hard code to get the coordinates that are south of equator (-ve lats)
+    nlatsouth = 1500
+    lon = lon[:nlatsouth,:]
+    lat = lat[:nlatsouth,:]
+
+    # The lat and lon arrays are 2D. Use ravel to create 1D arrays
+    lon = np.ravel(lon)
+    lat = np.ravel(lat)
+
+    # Convert lon and lat into coords list
+    coords = np.zeros((lon.shape[0], 2))
+    coords[:, 0] = lon
+    coords[:, 1] = lat
+
+    # The cells array contains the coordinate numbers that make up each cell
+    ncells = nlon * (nlatsouth - 1)
+    cells = np.zeros((ncells, 4))
+    i = 0
+    for k in range(ncells):
+        if (k+1) % nlon == 0:
+            # "zip up" the mesh
+            cells[k, :] = [i, i-nlon+1, i+1, i+nlon]
+        else:
+            cells[k, :] = [i, i+1, i+nlon+1, i+nlon]
+        i += 1
+
+    # Convert coords from lat/lon 2D to cartesian 3D
+    lat = lat * np.pi / 180
+    lon = lon * np.pi / 180
+    a = 6371e3  # Radius of Earth
+    coords_cart = np.zeros((lon.shape[0], 3))
+    coords_cart[:, 0] = a * np.sin(lat) * np.cos(lon)
+    coords_cart[:, 1] = a * np.sin(lat) * np.sin(lon)
+    coords_cart[:, 2] = a * np.cos(lat)
+
+    plex = mesh._from_cell_list(3, cells, coords_cart, comm)
+    return mesh.Mesh(plex, reorder=False)
