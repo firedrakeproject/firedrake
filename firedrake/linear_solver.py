@@ -127,6 +127,8 @@ class LinearSolver(solving_utils.ParametersMixin):
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
             raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
+        if isinstance(b, vector.Vector):
+            b = b.function
         if not isinstance(b, function.Function):
             raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
 

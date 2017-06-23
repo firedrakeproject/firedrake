@@ -161,7 +161,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self.dat)
+        return vector.Vector(self)
 
     def function_space(self):
         """Return the :class:`.FunctionSpace`, or
@@ -320,7 +320,7 @@ class Function(ufl.Coefficient):
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self.dat)
+        return vector.Vector(self)
 
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
