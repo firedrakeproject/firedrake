@@ -61,9 +61,9 @@ class Mixin(object):
     def conj(self, o, expr):
         if o.ufl_shape:
             indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(MathFunction('conj', Indexed(expr, indices)), indices)
+            return ComponentTensor(Conj(Indexed(expr, indices)), indices)
         else:
-            return MathFunction('conj', expr)
+            return Conj(expr)
 
     def abs(self, o, expr):
         if o.ufl_shape:
