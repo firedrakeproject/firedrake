@@ -252,6 +252,22 @@ def _expression_conj(expr, parameters):
         pass
 
 
+@_expression.register(gem.Real)
+def _expression_real(expr, parameters):
+    if parameters.scalar_type is 'complex':
+        return coffee.FunCall('creal', *[expression(c, parameters) for c in expr.children])
+    else:
+        pass
+
+
+@_expression.register(gem.Imag)
+def _expression_imag(expr, parameters):
+    if parameters.scalar_type is 'complex':
+        return coffee.FunCall('cimag', *[expression(c, parameters) for c in expr.children])
+    else:
+        pass
+
+
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
     name_map = {
