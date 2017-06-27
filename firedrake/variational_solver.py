@@ -118,7 +118,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         .. code-block:: python
 
             def update_diffusivity(current_solution):
-                with cursol.dat.vec as v:
+                with cursol.dat.vec_wo as v:
                     current_solution.copy(v)
                 solve(trial*test*dx == dot(grad(cursol), grad(test))*dx, diffusivity)
 
@@ -168,7 +168,7 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
         self._problem = problem
 
         self._ctx = ctx
-        self._work = type(problem.u)(problem.u.function_space())
+        self._work = problem.u.dof_dset.layout_vec.duplicate()
         self.snes.setDM(problem.dm)
 
         ctx.set_function(self.snes)
@@ -211,14 +211,13 @@ class NonlinearVariationalSolver(solving_utils.ParametersMixin):
             lower, upper = bounds
             with lower.dat.vec_ro as lb, upper.dat.vec_ro as ub:
                 self.snes.setVariableBounds(lb, ub)
-        work = self._work.dat
+        work = self._work
         # Ensure options database has full set of options (so monitors work right)
         with self.inserted_options():
-            with work.vec as v:
-                with self._problem.u.dat.vec as u:
-                    u.copy(v)
-                    self.snes.solve(None, v)
-                    v.copy(u)
+            with self._problem.u.dat.vec as u:
+                u.copy(work)
+                self.snes.solve(None, work)
+                work.copy(u)
 
         solving_utils.check_snes_convergence(self.snes)
 
