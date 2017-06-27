@@ -455,7 +455,8 @@ class FunctionSpace(object):
                             bcs,
                             "interior_facet_node",
                             offset,
-                            parent)
+                            parent,
+                            kind="interior_facet")
         map.factors = (self.mesh().interior_facets.facet_cell_map,
                        self.cell_node_map())
         return map
