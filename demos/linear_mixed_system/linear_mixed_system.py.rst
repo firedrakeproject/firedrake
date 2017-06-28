@@ -204,7 +204,7 @@ Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it
     LVP_X = LinearVariationalProblem(a_X, L_X, X, bcs = [BC_bottom, BC_exclude_beyond_solid])
     LVS_X = LinearVariationalSolver( LVP_X )
 
-Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in the mixed domain. Note that avg(...) is necessary for terms in expressions containing n_int, which is built in "DG" space::
+Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in the mixed domain. In particular, value of :math:`\phi` at the free surface is used as a boundary condition. Note that avg(...) is necessary for terms in expressions containing n_int, which is built in "DG" space::
 
     # phi-U
     # no-motion beam bottom boundary condition in the mixed space
