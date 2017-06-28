@@ -12,7 +12,7 @@ and `Onno Bokhove <mailto:O.Bokhove@leeds.ac.uk>`__.
 The work is based on the article "Variational modelling of wave-structure interactions with an
 offshore wind-turbine mast" by Tomasz Salwa, Onno Bokhove and Mark Kelmanson :cite:`Salwa:2017`. The authors gratefully acknowledge funding from European Commission, Marie Curie Actions - Initial Training Networks (ITN), project number 607596.
 
-The model considered consists of fluid with a free surface and an elastic solid. For simplicity we consider a model in 2D, however it can be relatively easily generalized to 3D. The starting point is the linearized version (domain is fixed) of the fully nonlinear variational principle. In non-dimensional units:
+The model considered consists of fluid with a free surface and an elastic solid. We will be using interchangeably notions of fluid/water and structure/solid/beam. For simplicity (and speed of computation) we consider a model in 2D, however it can be easily generalized to 3D. The starting point is the linearized version (domain is fixed) of the fully nonlinear variational principle. In non-dimensional units:
 
 .. math::
 
@@ -48,7 +48,7 @@ After numerous manipulations (described in detail in :cite:`Salwa:2017`) and eva
     & \int {\bf v} \cdot {\bf X}^{n+1} \, {\mathrm d} V_S = \int {\bf v} \cdot ( {\bf X}^n + \Delta t {\bf U}^{n+1} ) \, {\mathrm d} V_S \, .
     \end{align}
 
-The underlined terms are the coupling terms. Geometry of the system with initial condition is shown below.
+The underlined terms are the coupling terms. Note that the first equation for :math:`\phi` at the free surface is solved on the free surface only, the last equation for :math:`{\bf X}` in the structure domain, while others in both domains. Moreover, the second and third equations for :math:`\phi` and :math:`{\bf U}` need to be solved simultaneously. Geometry of the system with initial condition is shown below.
 
 .. figure:: geometry.png
    :align: center
@@ -107,18 +107,22 @@ Let us define function spaces, including the mixed one::
     V_B = VectorFunctionSpace(mesh, "CG", 1)
     mixed_V = V_W * V_B
 
-Then, we define functions. Functions from mixed function space are needed to solve coupled equations in both subdomains simultaneously::
+Then, we define functions. First, in the fluid domain:: 
 
     phi = Function(V_W, name="phi")
-    phi_f = Function(V_W, name="phi_f")
+    phi_f = Function(V_W, name="phi_f") # at the free surface
     eta = Function(V_W, name="eta")
     trial_W = TrialFunction(V_W)
     v_W = TestFunction(V_W)
+
+Second, in the beam domain::
 
     X = Function(V_B, name="X")
     U = Function(V_B, name="U")
     trial_B = TrialFunction(V_B)
     v_B = TestFunction(V_B)
+
+And last, mixed functions in the mixed domain::
 
     trial_f, trial_s = TrialFunctions(mixed_V)
     v_f, v_s = TestFunctions(mixed_V)
@@ -126,7 +130,7 @@ Then, we define functions. Functions from mixed function space are needed to sol
     tmp_s = Function(V_B)
     result_mixed = Function(mixed_V)
 
-We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the other. We need them both in "CG" and "DG" space::
+We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the other. They are needed both in "CG" and "DG" space. We use the fact, that the fluid and structure subdomains are defined in the mesh file with an appropriate ID number that Firedrake is able to recognize. That can be used in constructing indicator functions::
 
     V_DG0_W = FunctionSpace(mesh, "DG", 0)
     V_DG0_B = FunctionSpace(mesh, "DG", 0)
@@ -150,7 +154,7 @@ We use indicator functions to construct normal unit vector outward to the fluid 
     n_vec = FacetNormal(mesh)
     n_int = I_B("+") * n_vec("+") + I_B("-") * n_vec("-")
 
-Now we need special boundary conditions that limit the solvers only to the appropriate subdomain of our interest::
+Now we can construct special boundary conditions that limit the solvers only to the appropriate subdomains of our interest::
 
     class MyBC(DirichletBC):
         def __init__(self, V, value, markers):
@@ -184,21 +188,23 @@ Now we need special boundary conditions that limit the solvers only to the appro
     BC_exclude_beyond_surface_mixed = surface_BC_mixed()
     BC_exclude_beyond_solid = MyBC( V_B, 0, I_cg_B )
 
-Finally, we are ready to define the solvers of our equations. Note that avg(...) is necessary for terms in expression containing functions from "DG" space::
+Finally, we are ready to define the solvers of our equations. First, equation for :math:`\phi` at the free surface::
 
-    # phi_f
     a_phi_f = trial_W * v_W * ds(top_id)
     L_phi_f = ( phi_f - dt * eta ) * v_W * ds(top_id)
     LVP_phi_f = LinearVariationalProblem( a_phi_f, L_phi_f, phi_f, bcs=BC_exclude_beyond_surface )
     LVS_phi_f = LinearVariationalSolver( LVP_phi_f )
 
-    # X
+Second, equation for the beam displacement :math:`{\bf X}`, where we also fix it to the bottom by applying zero Dirichlet boundary condition::
+
     a_X = dot( trial_B, v_B ) * dx(structure_id)
     L_X = dot( (X + dt * U), v_B ) * dx(structure_id)
     # no-motion beam bottom boundary condition
     BC_bottom = DirichletBC( V_B, Expression([0.,0.]), bottom_id)
     LVP_X = LinearVariationalProblem(a_X, L_X, X, bcs = [BC_bottom, BC_exclude_beyond_solid])
     LVS_X = LinearVariationalSolver( LVP_X )
+
+Finally, we define solvers for :math:`\phi`, :math:`{\bf U}` and :math:`\eta` in the mixed domain. Note that avg(...) is necessary for terms in expressions containing n_int, which is built in "DG" space::
 
     # phi-U
     # no-motion beam bottom boundary condition in the mixed space
