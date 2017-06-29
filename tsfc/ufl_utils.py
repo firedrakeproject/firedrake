@@ -255,8 +255,9 @@ def _simplify_abs_sqrt(o, self, in_abs):
 
 @_simplify_abs.register(Conj)
 def _simplify_abs_conj(o, self, in_abs):
-    # Conjugation and abs are the same
-    return ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
+    # Conj(Abs()) is same as Abs()
+    # Abs(Conj()) is same as Abs()
+    return self(o.ufl_operands[0], True)
 
 
 @_simplify_abs.register(ScalarValue)
