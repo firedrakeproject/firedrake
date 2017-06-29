@@ -37,4 +37,13 @@ def set_scalar_type(type_):
     SCALAR_TYPE = type_
     NUMPY_TYPE = {"double": numpy.dtype("double"),
                "float": numpy.dtype("float32"),
-               "complex": numpy.dtype("complex128")}[type_]
+               "double complex": numpy.dtype("complex128")}[type_]
+
+
+def scalar_type():
+    return SCALAR_TYPE
+
+
+def numpy_type():
+    return NUMPY_TYPE
+    
