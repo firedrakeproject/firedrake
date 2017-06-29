@@ -13,8 +13,6 @@ import coffee.base as coffee
 
 from gem import gem, impero as imp
 
-from tsfc.parameters import SCALAR_TYPE
-
 
 class Bunch(object):
     pass
@@ -109,7 +107,7 @@ def statement_block(tree, parameters):
     statements = [statement(child, parameters) for child in tree.children]
     declares = []
     for expr in parameters.declare[tree]:
-        declares.append(coffee.Decl(SCALAR_TYPE, _decl_symbol(expr, parameters)))
+        declares.append(coffee.Decl(parameters.scalar_type, _decl_symbol(expr, parameters)))
     return coffee.Block(declares + statements, open_scope=True)
 
 
@@ -133,7 +131,7 @@ def statement_for(tree, parameters):
 @statement.register(imp.Initialise)
 def statement_initialise(leaf, parameters):
     if parameters.declare[leaf]:
-        return coffee.Decl(SCALAR_TYPE, _decl_symbol(leaf.indexsum, parameters), 0.0)
+        return coffee.Decl(parameters.scalar_type, _decl_symbol(leaf.indexsum, parameters), 0.0)
     else:
         return coffee.Assign(_ref_symbol(leaf.indexsum, parameters), 0.0)
 
@@ -168,7 +166,7 @@ def statement_evaluate(leaf, parameters):
     if isinstance(expr, gem.ListTensor):
         if parameters.declare[leaf]:
             array_expression = numpy.vectorize(lambda v: expression(v, parameters))
-            return coffee.Decl(SCALAR_TYPE,
+            return coffee.Decl(parameters.scalar_type,
                                _decl_symbol(expr, parameters),
                                coffee.ArrayInit(array_expression(expr.array),
                                                 precision=parameters.precision))
@@ -180,14 +178,14 @@ def statement_evaluate(leaf, parameters):
             return coffee.Block(ops, open_scope=False)
     elif isinstance(expr, gem.Constant):
         assert parameters.declare[leaf]
-        return coffee.Decl(SCALAR_TYPE,
+        return coffee.Decl(parameters.scalar_type,
                            _decl_symbol(expr, parameters),
                            coffee.ArrayInit(expr.array, parameters.precision),
                            qualifiers=["static", "const"])
     else:
         code = expression(expr, parameters, top=True)
         if parameters.declare[leaf]:
-            return coffee.Decl(SCALAR_TYPE, _decl_symbol(expr, parameters), code)
+            return coffee.Decl(parameters.scalar_type, _decl_symbol(expr, parameters), code)
         else:
             return coffee.Assign(_ref_symbol(expr, parameters), code)
 
@@ -238,35 +236,21 @@ def _expression_division(expr, parameters):
 @_expression.register(gem.Power)
 def _expression_power(expr, parameters):
     base, exponent = expr.children
-    if parameters.scalar_type is 'complex':
+    if parameters.scalar_type is 'double complex':
         return coffee.FunCall("cpow", expression(base, parameters), expression(exponent, parameters))
     else:
         return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
 
 
-@_expression.register(gem.Conj)
-def _expression_conj(expr, parameters):
-    if parameters.scalar_type is 'complex':
-        return coffee.FunCall('conj', *[expression(c, parameters) for c in expr.children])
-    else:
-        pass
-
-
-@_expression.register(gem.Real)
-def _expression_real(expr, parameters):
-    if parameters.scalar_type is 'complex':
-        return coffee.FunCall('creal', *[expression(c, parameters) for c in expr.children])
-    else:
-        pass
-
-
-@_expression.register(gem.Imag)
-def _expression_imag(expr, parameters):
-    if parameters.scalar_type is 'complex':
-        return coffee.FunCall('cimag', *[expression(c, parameters) for c in expr.children])
-    else:
-        pass
-
+@_expression.register(gem.ComplexPartsFunction)
+def _expression_complexpartsfunction(expr, parameters):
+    name_map = {
+        'real': 'creal',
+        'imag': 'cimag',
+        'conj': 'conj',
+    }
+    name = name_map.get(expr.name, expr.name)
+    return coffee.FunCall(name, *[expression(c, parameters) for c in expr.children])
 
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
@@ -287,9 +271,10 @@ def _expression_mathfunction(expr, parameters):
     }
     complex_name_map = {
         'abs': 'cabs',
-        'ln': 'clog'
+        'ln': 'clog',
+        'conj': 'conj'
     }
-    if parameters.scalar_type is 'complex':
+    if parameters.scalar_type == 'double complex':
         name = complex_name_map.get(expr.name, expr.name)
     else:
         name = name_map.get(expr.name, expr.name)
