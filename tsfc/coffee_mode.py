@@ -121,34 +121,50 @@ def find_optimal_atomics(monomials, argument_indices):
     """
     atomic_index = defaultdict(partial(next, itertools.count()))  # atomic -> int
     connections = []
-    # add connections (list of tuples, items in each tuple form a product)
+    # add connections (list of sets, items in each tuple form a product)
     for monomial in monomials:
-        connections.append(tuple(map(lambda a: atomic_index[a], monomial.atomics)))
+        connections.append(set(map(lambda a: atomic_index[a], monomial.atomics)))
 
-    if len(atomic_index) <= 1:
+    num_atomics = len(atomic_index)
+    if num_atomics <= 1:
         return tuple(iterkeys(atomic_index))
 
-    # set up the ILP
-    import pulp as ilp
-    ilp_prob = ilp.LpProblem('gem factorise', ilp.LpMinimize)
-    ilp_var = ilp.LpVariable.dicts('node', range(len(atomic_index)), 0, 1, ilp.LpBinary)
+    # 0-1 integer programming
+    def calculate_extent(solution):
+        extent = 0
+        for atomic, index in iteritems(atomic_index):
+            if index in solution:
+                extent += index_extent(atomic, argument_indices)
+        return extent
 
-    # Objective function
-    # Minimise number of factors to pull. If same number, favour factor with larger extent
-    penalty = 2 * max(index_extent(atomic, argument_indices) for atomic in atomic_index) * len(atomic_index)
-    ilp_prob += ilp.lpSum(ilp_var[index] * (penalty - index_extent(atomic, argument_indices))
-                          for atomic, index in iteritems(atomic_index))
+    def solve_ip(idx, solution, optimal_solution):
+        if idx >= num_atomics:
+            return
+        if len(solution) >= len(optimal_solution):
+            return
+        solution.add(idx)
+        feasible = True
+        for conn in connections:
+            if not solution.intersection(conn):
+                feasible = False
+                break
+        if feasible:
+            if len(solution) < len(optimal_solution) or \
+                    (len(solution) == len(optimal_solution) and calculate_extent(solution) > calculate_extent(optimal_solution)):
+                optimal_solution.clear()
+                optimal_solution.update(solution)
+            # No need to search further
+        else:
+            solve_ip(idx + 1, solution, optimal_solution)
+        solution.remove(idx)
+        solve_ip(idx + 1, solution, optimal_solution)
 
-    # constraints
-    for connection in connections:
-        ilp_prob += ilp.lpSum(ilp_var[index] for index in connection) >= 1
-
-    ilp_prob.solve()
-    if ilp_prob.status != 1:
-        raise RuntimeError("Something bad happened during ILP")
+    optimal_solution = set(range(num_atomics))  # start by choosing all atomics
+    solution = set()
+    solve_ip(0, solution, optimal_solution)
 
     def optimal(atomic):
-        return ilp_var[atomic_index[atomic]].value() == 1
+        return atomic_index[atomic] in optimal_solution
 
     return tuple(sorted(filter(optimal, atomic_index), key=atomic_index.get))
 
