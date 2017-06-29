@@ -23,10 +23,10 @@ from finat.point_set import PointSet
 from finat.quadrature import AbstractQuadratureRule, make_quadrature
 
 from tsfc import fem, ufl_utils
-from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
+from tsfc.coffee import generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
 from tsfc.logging import logger
-from tsfc.parameters import default_parameters, set_scalar_type
+from tsfc.parameters import default_parameters, set_scalar_type, scalar_type
 
 import tsfc.kernel_interface.firedrake as firedrake_interface
 
@@ -42,8 +42,7 @@ def compile_form(form, prefix="form", parameters=None):
     cpu_time = time.time()
 
     assert isinstance(form, Form)
-
-    complx = parameters and parameters["scalar_type"] is 'complex'
+    complx = parameters and parameters["scalar_type"] is 'double complex'
     fd = ufl_utils.compute_form_data(form, complex_mode=complx)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
@@ -305,7 +304,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     return_shape = (len(points),) + value_shape
     return_indices = point_set.indices + tensor_indices
     return_var = gem.Variable('A', return_shape)
-    return_arg = ast.Decl(SCALAR_TYPE, ast.Symbol('A', rank=return_shape))
+    return_arg = ast.Decl(scalar_type(), ast.Symbol('A', rank=return_shape))
     return_expr = gem.Indexed(return_var, return_indices)
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
