@@ -109,6 +109,48 @@ def monomial_sum_to_expression(monomial_sum):
     return make_sum(indexsums)
 
 
+def solve_ip(size, is_feasible, compare):
+    """Solve a 0-1 integer programming problem. The algorithm tries to set each
+    variable to 1 recursively, and stop the recursion early by comparing with
+    the optimal solution at entry. At worst case this is 2^N (as this is a
+    NP-hard problem), but recursions can be trimmed as soon as a reasonable
+    solutions have been found. One potential improvement is to keep track of
+    violated constraints at each step, and only try to set the variables which
+    could help these constraints in the next step. This will help find decent
+    solutions faster with additional overhead of maintaining a list of
+    violated constraints and finding helpful variables.
+
+    :param size: number of 0-1 variables
+    :param is_feasible: function to test if a combination is feasible
+    :param compare: function to compare two solutions, compare(s1, s2) returns
+           True if s1 is a better solution than s2, and False otherwise
+    :returns: optimal solution represented as a set of variables with value 1
+    """
+
+    def solve(idx, solution, optimal_solution):
+        if idx >= size:
+            return
+        if not compare(solution, optimal_solution):
+            return
+        solution.add(idx)
+        if is_feasible(solution):
+            if compare(solution, optimal_solution):
+                optimal_solution.clear()
+                optimal_solution.update(solution)
+            # No need to search further
+            # as adding more variable will only make the solution worse
+        else:
+            solve(idx + 1, solution, optimal_solution)
+        solution.remove(idx)
+        solve(idx + 1, solution, optimal_solution)
+
+    optimal_solution = set(range(size))  # start by choosing all atomics
+    solution = set()
+    solve(0, solution, optimal_solution)
+
+    return optimal_solution
+
+
 def find_optimal_atomics(monomials, argument_indices):
     """Find optimal atomic common subexpressions, which produce least number of
     terms in the resultant IndexSum when factorised.
@@ -129,7 +171,6 @@ def find_optimal_atomics(monomials, argument_indices):
     if num_atomics <= 1:
         return tuple(iterkeys(atomic_index))
 
-    # 0-1 integer programming
     def calculate_extent(solution):
         extent = 0
         for atomic, index in iteritems(atomic_index):
@@ -137,36 +178,23 @@ def find_optimal_atomics(monomials, argument_indices):
                 extent += index_extent(atomic, argument_indices)
         return extent
 
-    def solve_ip(idx, solution, optimal_solution):
-        if idx >= num_atomics:
-            return
-        if len(solution) >= len(optimal_solution):
-            return
-        solution.add(idx)
-        feasible = True
+    def is_feasible(solution):
         for conn in connections:
             if not solution.intersection(conn):
-                feasible = False
-                break
-        if feasible:
-            if len(solution) < len(optimal_solution) or \
-                    (len(solution) == len(optimal_solution) and calculate_extent(solution) > calculate_extent(optimal_solution)):
-                optimal_solution.clear()
-                optimal_solution.update(solution)
-            # No need to search further
+                return False
+        return True
+
+    def compare(sol1, sol2):
+        if len(sol1) < len(sol2):
+            return True
+        elif len(sol1) > len(sol2):
+            return False
         else:
-            solve_ip(idx + 1, solution, optimal_solution)
-        solution.remove(idx)
-        solve_ip(idx + 1, solution, optimal_solution)
+            return calculate_extent(sol1) > calculate_extent(sol2)
 
-    optimal_solution = set(range(num_atomics))  # start by choosing all atomics
-    solution = set()
-    solve_ip(0, solution, optimal_solution)
+    optimal_solution = solve_ip(num_atomics, is_feasible, compare)
 
-    def optimal(atomic):
-        return atomic_index[atomic] in optimal_solution
-
-    return tuple(sorted(filter(optimal, atomic_index), key=atomic_index.get))
+    return tuple(sorted(filter(lambda a: atomic_index[a] in optimal_solution, atomic_index), key=atomic_index.get))
 
 
 def factorise_atomics(monomials, optimal_atomics, argument_indices):
