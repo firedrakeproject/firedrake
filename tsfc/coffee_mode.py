@@ -4,7 +4,6 @@ import numpy
 import itertools
 from functools import partial
 from six import iteritems, iterkeys
-from six.moves import filter
 from collections import defaultdict
 from gem.optimise import (replace_division, make_sum, make_product,
                           unroll_indexsum, replace_delta, remove_componenttensors)
@@ -127,7 +126,10 @@ def solve_ip(size, is_feasible, compare):
     :returns: optimal solution represented as a set of variables with value 1
     """
 
-    def solve(idx, solution, optimal_solution):
+    optimal_solution = set(range(size))  # start by choosing all atomics
+    solution = set()
+
+    def solve(idx):
         if idx >= size:
             return
         if not compare(solution, optimal_solution):
@@ -140,13 +142,11 @@ def solve_ip(size, is_feasible, compare):
             # No need to search further
             # as adding more variable will only make the solution worse
         else:
-            solve(idx + 1, solution, optimal_solution)
+            solve(idx + 1)
         solution.remove(idx)
-        solve(idx + 1, solution, optimal_solution)
+        solve(idx + 1)
 
-    optimal_solution = set(range(size))  # start by choosing all atomics
-    solution = set()
-    solve(0, solution, optimal_solution)
+    solve(0)
 
     return optimal_solution
 
@@ -193,8 +193,7 @@ def find_optimal_atomics(monomials, argument_indices):
             return calculate_extent(sol1) > calculate_extent(sol2)
 
     optimal_solution = solve_ip(num_atomics, is_feasible, compare)
-
-    return tuple(sorted(filter(lambda a: atomic_index[a] in optimal_solution, atomic_index), key=atomic_index.get))
+    return tuple(sorted([a for a, i in iteritems(atomic_index) if i in optimal_solution], key=atomic_index.get))
 
 
 def factorise_atomics(monomials, optimal_atomics, argument_indices):
