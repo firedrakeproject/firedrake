@@ -113,10 +113,10 @@ def solve_ip(size, is_feasible, compare):
     variable to 1 recursively, and stop the recursion early by comparing with
     the optimal solution at entry. At worst case this is 2^N (as this is a
     NP-hard problem), but recursions can be trimmed as soon as a reasonable
-    solutions have been found. One potential improvement is to keep track of
+    solution have been found. One potential improvement is to keep track of
     violated constraints at each step, and only try to set the variables which
     could help these constraints in the next step. This will help find decent
-    solutions faster with additional overhead of maintaining a list of
+    solutions faster with the additional overhead of maintaining a list of
     violated constraints and finding helpful variables.
 
     :param size: number of 0-1 variables
