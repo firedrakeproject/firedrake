@@ -147,7 +147,11 @@ class LinearSolver(solving_utils.ParametersMixin):
             b = b_bc
         with self.inserted_options():
             with b.dat.vec_ro as rhs:
-                with x.dat.vec as solution:
+                if self.ksp.getInitialGuessNonzero():
+                    acc = x.dat.vec
+                else:
+                    acc = x.dat.vec_wo
+                with acc as solution:
                     self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()

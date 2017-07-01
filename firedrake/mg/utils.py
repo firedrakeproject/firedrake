@@ -52,7 +52,7 @@ def get_transfer_kernel(coarse, fine, typ=None):
     ch, level = get_level(coarse.mesh())
     mesh = ch[0]
     assert hasattr(mesh, "_shared_data_cache")
-    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (typ, )
+    key = entity_dofs_key(coarse.finat_element.entity_dofs()) + (typ, coarse.dim)
     cache = mesh._shared_data_cache["hierarchy_transfer_kernel"]
     try:
         return cache[key]

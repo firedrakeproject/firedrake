@@ -52,6 +52,7 @@ export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
 export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
 firedrake-clean
 pip install pytest-cov pytest-xdist
+pip list
 cd firedrake/src/firedrake
 py.test -n 4 --cov firedrake -v tests
 '''

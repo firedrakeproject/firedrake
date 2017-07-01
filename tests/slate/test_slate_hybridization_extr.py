@@ -44,10 +44,12 @@ def test_hybrid_extr_helmholtz(quad):
               'ksp_type': 'preonly',
               'pc_type': 'python',
               'pc_python_type': 'firedrake.HybridizationPC',
-              'hybridization_ksp_rtol': 1e-8,
-              'hybridization_pc_type': 'lu',
-              'hybridization_ksp_type': 'preonly',
-              'hybridization_projector_tolerance': 1e-14}
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu',
+                                'hdiv_residual': {'ksp_type': 'cg',
+                                                  'ksp_rtol': 1e-14},
+                                'hdiv_projection': {'ksp_type': 'cg',
+                                                    'ksp_rtol': 1e-14}}}
     solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.split()
 
@@ -57,8 +59,8 @@ def test_hybrid_extr_helmholtz(quad):
                'ksp_type': 'cg',
                'ksp_rtol': 1e-8,
                'pc_fieldsplit_schur_fact_type': 'FULL',
-               'fieldsplit_0_ksp_type': 'cg',
-               'fieldsplit_1_ksp_type': 'cg'}
+               'fieldsplit_0': {'ksp_type': 'cg'},
+               'fieldsplit_1': {'ksp_type': 'cg'}}
     solve(a == L, w2, solver_parameters=params2)
     nh_sigma, nh_u = w2.split()
 

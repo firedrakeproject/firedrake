@@ -31,7 +31,7 @@ please cite :cite:`Homolya2016` and :cite:`McRae2016`.
 If your work relies on the kernel-level performance optimisations that
 Firedrake performs using `COFFEE
 <https://github.com/coneoproject/COFFEE>`_, please cite the
-COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2016`.
+COFFEE papers :cite:`Luporini2015` and :cite:`Luporini2017`.
 
 .. bibliography:: _static/bibliography.bib
 

@@ -52,15 +52,17 @@ def test_slate_hybridization(degree, hdiv_family, quadrilateral):
     # Compare hybridized solution with non-hybridized
     # (Hybrid) Python preconditioner, pc_type slate.HybridizationPC
     w = Function(W)
-    solve(a == L, w,
-          solver_parameters={'mat_type': 'matfree',
-                             'ksp_type': 'preonly',
-                             'pc_type': 'python',
-                             'pc_python_type': 'firedrake.HybridizationPC',
-                             'hybridization_ksp_rtol': 1e-8,
-                             'hybridization_pc_type': 'lu',
-                             'hybridization_ksp_type': 'preonly',
-                             'hybridization_projector_tolerance': 1e-14})
+    params = {'mat_type': 'matfree',
+              'ksp_type': 'preonly',
+              'pc_type': 'python',
+              'pc_python_type': 'firedrake.HybridizationPC',
+              'hybridization': {'ksp_type': 'preonly',
+                                'pc_type': 'lu',
+                                'hdiv_residual': {'ksp_type': 'cg',
+                                                  'ksp_rtol': 1e-14},
+                                'hdiv_projection': {'ksp_type': 'cg',
+                                                    'ksp_rtol': 1e-14}}}
+    solve(a == L, w, solver_parameters=params)
     sigma_h, u_h = w.split()
 
     # (Non-hybrid) Need to slam it with preconditioning due to the

@@ -121,7 +121,7 @@ class ImplicitMatrixContext(object):
                                                           form_compiler_parameters=self.fc_params)
 
     def mult(self, mat, X, Y):
-        with self._x.dat.vec as v:
+        with self._x.dat.vec_wo as v:
             X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
@@ -145,7 +145,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._xbc.dat.vec as v:
+                with self._xbc.dat.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._y, self._xbc)
@@ -158,7 +158,7 @@ class ImplicitMatrixContext(object):
 
     def multTranspose(self, mat, Y, X):
         # As for mult, just everything swapped round.
-        with self._y.dat.vec as v:
+        with self._y.dat.vec_wo as v:
             Y.copy(v)
 
         for bc in self.row_bcs:
@@ -169,7 +169,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._ybc.dat.vec as v:
+                with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
             for bc in self.col_bcs:
                 bc.set(self._x, self._ybc)

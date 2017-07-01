@@ -14,6 +14,7 @@ team = OrderedDict([
     ("Michael Lange", "http://www.imperial.ac.uk/people/michael.lange"),
     ("Simon Funke", "http://www.simonfunke.com"),
     ("Colin Cotter", "http://www.imperial.ac.uk/people/colin.cotter"),
+    ("Rob Kirby", "http://www.baylor.edu/math/index.php?id=90540"),
     ("Florian Rathgeber", "https://kynan.github.io"),
     ("Doru Bercea", "http://www.imperial.ac.uk/people/gheorghe-teodor.bercea08"),
     ("Graham Markall", "http://www.doc.ic.ac.uk/~grm08/"),
