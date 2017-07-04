@@ -33,7 +33,7 @@ class HybridizationPC(PCBase):
         """
         from firedrake import (FunctionSpace, Function, Constant,
                                TrialFunction, TrialFunctions, TestFunction,
-                               DirichletBC, assemble)
+                               DirichletBC, assemble, Projector)
         from firedrake.assemble import (allocate_matrix,
                                         create_assembly_callable)
         from firedrake.formmanipulation import split_form
@@ -267,10 +267,19 @@ class HybridizationPC(PCBase):
         hdiv_projection_ksp.setFromOptions()
         self.hdiv_projection_ksp = hdiv_projection_ksp
 
-        # Switch to using the reconstructor over a KSP to get the
+        # Switch to using the averaging method over a KSP to get the
         # HDiv conforming solution
         opts = PETSc.Options()
-        self.recon_flag = bool(opts.getBool(prefix + "use_reconstructor", False))
+        projection_prefix = prefix + 'hdiv_projection_'
+        self._method = opts.getString(projection_prefix + 'method', 'l2')
+        if self._method == 'average':
+            self.averager = Projector(self.broken_solution.split()[self.vidx],
+                                      self.unbroken_solution.split()[self.vidx],
+                                      method=self._method)
+        else:
+            assert self._method == 'l2', (
+                "Only projection methods 'l2' and 'average' are supported."
+            )
 
     def _reconstruction_calls(self, split_mixed_op, split_trace_op):
         """This generates the reconstruction calls for the unknowns using the
@@ -394,12 +403,10 @@ class HybridizationPC(PCBase):
             broken_pressure.dat.copy(unbroken_pressure.dat)
 
             # Compute the hdiv projection of the broken hdiv solution
-            if self.recon_flag:
-                # The projection is performed using averaging operator
+            if self._method == 'average':
+                # The projection is performed using averaging
                 # rather than the standard Galerkin projection.
-                from firedrake.projection import reconstruct
-                reconstruct(self.broken_solution.split()[self.vidx],
-                            self.unbroken_solution.split()[self.vidx])
+                self.averager.project()
             else:
                 self._assemble_projection_rhs()
                 with self._projection_rhs.dat.vec_ro as b_proj:
@@ -428,8 +435,8 @@ class HybridizationPC(PCBase):
         viewer.popASCIITab()
         viewer.printfASCII("Locally reconstructing the broken solutions from the multipliers.\n")
         viewer.pushASCIITab()
-        if self.recon_flag:
-            viewer.printfASCII("Reconstructing HDiv solution.\n")
+        if self._method == 'average':
+            viewer.printfASCII("Projecting HDiv solution using the average method.\n")
         else:
             viewer.printfASCII("Projecting the broken HDiv solution into the HDiv space.\n")
             viewer.printfASCII("KSP for the HDiv projection stage:\n")
