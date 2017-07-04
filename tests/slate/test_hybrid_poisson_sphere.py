@@ -37,7 +37,7 @@ def run_hybrid_poisson_sphere(MeshClass, refinement, hdiv_space):
                                                   'ksp_rtol': 1e-14,
                                                   'pc_type': 'bjacobi',
                                                   'sub_pc_type': 'ilu'},
-                                'use_reconstructor': True}}
+                                'hdiv_projection': {'method': 'average'}}}
     solve(a == L, w, nullspace=nullsp, solver_parameters=params)
     u_h, _ = w.split()
     error = errornorm(u_exact, u_h)
