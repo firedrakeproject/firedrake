@@ -245,7 +245,7 @@ def test_projector_expression():
 @pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
 @pytest.mark.parametrize('same_fspace', [False, True])
 def test_projector_bcs(tensor, same_fspace):
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitSquareMesh(4, 4)
     x = SpatialCoordinate(mesh)
     if tensor == 'scalar':
         V = FunctionSpace(mesh, "CG", 1)
@@ -293,7 +293,7 @@ def test_projector_bcs(tensor, same_fspace):
     solve(a == L, ref, bcs=bcs, solver_parameters={"ksp_type": "preonly",
                                                    "pc_type": "lu"})
 
-    assert errornorm(ret, ref) < 1.0e-10
+    assert errornorm(ret, ref) < 1.0e-13
 
 
 @pytest.mark.parametrize(('family', 'degree', 'quad'),
@@ -374,7 +374,7 @@ def test_average_method_dg_to_cg(family, degree, tensor):
                                                  [x[0] ** 2, x[1] ** 2]]))
 
     else:
-        mesh = UnitSquareMesh(2, 2)
+        mesh = UnitSquareMesh(4, 4)
         if rank == 'vector':
             Vc = VectorFunctionSpace(mesh, family, degree)
             Vdg = VectorFunctionSpace(mesh, "DG", degree)
@@ -398,6 +398,45 @@ def test_average_method_dg_to_cg(family, degree, tensor):
     v_c = Function(Vc)
     project(vd, v_c, method="average")
     assert errornorm(v_c, vo) < 1.0e-13
+
+
+@pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
+def test_averaging_bcs(tensor):
+    mesh = UnitSquareMesh(4, 4)
+    x = SpatialCoordinate(mesh)
+    if tensor == 'scalar':
+        Vcg = FunctionSpace(mesh, "CG", 1)
+        Vdg = FunctionSpace(mesh, "DG", 1)
+        bcs = [DirichletBC(Vcg, Constant(0.5), (1, 3)),
+               DirichletBC(Vcg, Constant(-0.5), (2, 4))]
+        fct = cos(x[0]*pi*2)*sin(x[1]*pi*2)
+
+    elif tensor == 'vector':
+        Vcg = VectorFunctionSpace(mesh, "CG", 1)
+        Vdg = VectorFunctionSpace(mesh, "DG", 1)
+        bcs = [DirichletBC(Vcg, Constant((0.5, 0.5)), (1, 3)),
+               DirichletBC(Vcg, Constant((-0.5, -0.5)), (2, 4))]
+        fct = as_vector([cos(x[0]*pi*2)*sin(x[1]*pi*2),
+                         cos(x[0]*pi*2)*sin(x[1]*pi*2)])
+
+    elif tensor == 'tensor':
+        Vcg = TensorFunctionSpace(mesh, "CG", 1)
+        Vdg = TensorFunctionSpace(mesh, "DG", 1)
+        bcs = [DirichletBC(Vcg, Constant(((0.5, 0.5),
+                                          (0.5, 0.5))), (1, 3)),
+               DirichletBC(Vcg, Constant(((-0.5, -0.5),
+                                          (-0.5, -0.5))), (2, 4))]
+        fct = as_tensor([[cos(x[0]*pi*2)*sin(x[1]*pi*2),
+                          cos(x[0]*pi*2)*sin(x[1]*pi*2)],
+                         [cos(x[0]*pi*2)*sin(x[1]*pi*2),
+                          cos(x[0]*pi*2)*sin(x[1]*pi*2)]])
+
+    vcg = project(fct, Vcg, bcs=bcs)
+
+    vdg = project(vcg, Vdg)
+    v = project(vdg, Vcg, method="average")
+
+    assert errornorm(v, vcg) < 1.0e-13
 
 
 if __name__ == '__main__':
