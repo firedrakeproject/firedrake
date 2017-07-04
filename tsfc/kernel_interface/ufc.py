@@ -13,7 +13,8 @@ import ufl
 
 from tsfc.kernel_interface.common import KernelBuilderBase
 from tsfc.finatinterface import create_element as _create_element
-from tsfc.coffee import SCALAR_TYPE
+from tsfc.parameters import scalar_type
+
 
 
 # UFC DoF ordering for vector/tensor elements is XXXX YYYY ZZZZ.
@@ -81,7 +82,7 @@ class KernelBuilder(KernelBuilderBase):
         """
         name = "w"
         self.coefficient_args = [
-            coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+            coffee.Decl(scalar_type(), coffee.Symbol(name),
                         pointers=[("const",), ()],
                         qualifiers=["const"])
         ]
@@ -218,16 +219,16 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
                                    transposed_indices)
 
     if not interior_facet:
-        funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+        funargs = [coffee.Decl(scalar_type(), coffee.Symbol(name),
                                pointers=[("",)],
                                qualifiers=["const"])]
         variable = gem.Variable(name, (size,))
         expression = transpose(gem.reshape(variable, transposed_shape))
     else:
-        funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name+"_0"),
+        funargs = [coffee.Decl(scalar_type(), coffee.Symbol(name+"_0"),
                                pointers=[("",)],
                                qualifiers=["const"]),
-                   coffee.Decl(SCALAR_TYPE, coffee.Symbol(name+"_1"),
+                   coffee.Decl(scalar_type(), coffee.Symbol(name+"_1"),
                                pointers=[("",)],
                                qualifiers=["const"])]
         variable0 = gem.Variable(name+"_0", (size,))
@@ -253,7 +254,7 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
          expressions - GEM expressions referring to the argument
                        tensor
     """
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A"), pointers=[()])
+    funarg = coffee.Decl(scalar_type(), coffee.Symbol("A"), pointers=[()])
     varexp = gem.Variable("A", (None,))
 
     if len(arguments) == 0:

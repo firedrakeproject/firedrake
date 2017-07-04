@@ -12,7 +12,7 @@ from gem.optimise import remove_componenttensors as prune
 
 from tsfc.finatinterface import create_element
 from tsfc.kernel_interface.common import KernelBuilderBase as _KernelBuilderBase
-from tsfc.coffee import SCALAR_TYPE
+from tsfc.parameters import scalar_type
 
 
 # Expression kernel description type
@@ -272,7 +272,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
 
     if coefficient.ufl_element().family() == 'Real':
         # Constant
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+        funarg = coffee.Decl(scalar_type(), coffee.Symbol(name),
                              pointers=[("restrict",)],
                              qualifiers=["const"])
 
@@ -285,7 +285,7 @@ def prepare_coefficient(coefficient, name, interior_facet=False):
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
 
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
+    funarg = coffee.Decl(scalar_type(), coffee.Symbol(name),
                          pointers=[("restrict",)],
                          qualifiers=["const"])
 
@@ -317,7 +317,7 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
 
     if len(arguments) == 0:
         # No arguments
-        funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=(1,)))
+        funarg = coffee.Decl(scalar_type(), coffee.Symbol("A", rank=(1,)))
         expression = gem.Indexed(gem.Variable("A", (1,)), (0,))
 
         return funarg, [expression]
@@ -339,7 +339,7 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
         c_shape = tuple(u_shape)
         slicez = [[slice(s) for s in u_shape]]
 
-    funarg = coffee.Decl(SCALAR_TYPE, coffee.Symbol("A", rank=c_shape))
+    funarg = coffee.Decl(scalar_type(), coffee.Symbol("A", rank=c_shape))
     varexp = gem.Variable("A", c_shape)
     expressions = [expression(gem.view(varexp, *slices)) for slices in slicez]
     return funarg, prune(expressions)
