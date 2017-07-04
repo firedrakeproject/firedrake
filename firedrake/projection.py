@@ -9,8 +9,10 @@ from firedrake import function
 from firedrake.parloops import par_loop, READ, INC
 import firedrake.variational_solver as vs
 
+import numpy as np
 
-__all__ = ['project', 'reconstruct', 'Projector']
+
+__all__ = ['project', 'Projector']
 
 # Store the solve function to use in a variable so external packages
 # (dolfin-adjoint) can override it.
@@ -20,6 +22,7 @@ _solve = solving.solve
 def project(v, V, bcs=None, mesh=None,
             solver_parameters=None,
             form_compiler_parameters=None,
+            method="l2",
             name=None):
     """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
 
@@ -31,6 +34,13 @@ def project(v, V, bcs=None, mesh=None,
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
     :arg form_compiler_parameters: parameters to the form compiler
+    :arg method: a string denoting which type of projection to perform.
+                 By default, "l2" is used, which is the standard Galerkin
+                 projection. The other option would be to use the method
+                 "average," which performs the projection using weighted
+                 averages. This should only be used if you're projecting
+                 from a discontinuous space to a continuous one. That is,
+                 DG -> CG or Broken Raviart-Thomas -> Raviart-Thomas.
     :arg name: name of the resulting :class:`.Function`
 
     If ``V`` is a :class:`.Function` then ``v`` is projected into
@@ -83,79 +93,46 @@ def project(v, V, bcs=None, mesh=None,
         raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %
                            (v.ufl_shape, ret.ufl_shape))
 
-    p = ufl_expr.TestFunction(V)
-    q = ufl_expr.TrialFunction(V)
-    a = ufl.inner(p, q) * ufl.dx(domain=V.mesh())
-    L = ufl.inner(p, v) * ufl.dx(domain=V.mesh())
+    if method == "l2":
+        # Perform standard L2 projection
+        p = ufl_expr.TestFunction(V)
+        q = ufl_expr.TrialFunction(V)
+        a = ufl.inner(p, q) * ufl.dx(domain=V.mesh())
+        L = ufl.inner(p, v) * ufl.dx(domain=V.mesh())
 
-    # Default to 1e-8 relative tolerance
-    if solver_parameters is None:
-        solver_parameters = {'ksp_type': 'cg', 'ksp_rtol': 1e-8}
+        # Default to 1e-8 relative tolerance
+        if solver_parameters is None:
+            solver_parameters = {'ksp_type': 'cg', 'ksp_rtol': 1e-8}
+        else:
+            solver_parameters.setdefault('ksp_type', 'cg')
+            solver_parameters.setdefault('ksp_rtol', 1e-8)
+
+        _solve(a == L, ret, bcs=bcs,
+               solver_parameters=solver_parameters,
+               form_compiler_parameters=form_compiler_parameters)
+
+    elif method == "average":
+        # Loop over node extent and dof extent
+        shapes = (V.finat_element.space_dimension(), np.prod(V.shape))
+        accumulate_kernel = """
+        for (int i=0; i<%d; ++i) {
+            for (int j=0; j<%d; ++j) {
+                vo[i][j] += v[i][j];
+                w[i][j] += 1.0;
+        }}""" % shapes
+
+        # Ensure function we populate into is zeroed out
+        ret.assign(0.0)
+        w = function.Function(V)
+        par_loop(accumulate_kernel, ufl.dx, {"vo": (ret, INC),
+                                             "w": (w, INC),
+                                             "v": (v, READ)})
+        ret.dat /= w.dat
+
     else:
-        solver_parameters.setdefault('ksp_type', 'cg')
-        solver_parameters.setdefault('ksp_rtol', 1e-8)
+        raise ValueError("Method type %s not recognized" % str(method))
 
-    _solve(a == L, ret, bcs=bcs,
-           solver_parameters=solver_parameters,
-           form_compiler_parameters=form_compiler_parameters)
     return ret
-
-
-def reconstruct(v_b, V, name=None):
-    """Reconstruct a :class:`.Function`, defined on a broken function
-    space and transfer its data into a function defined on an unbroken
-    finite element space.
-
-    In other words: suppose we have a function v defined on a space constructed
-    from a :class:`ufl.BrokenElement`. This methods allows one to "project"
-    the data into an unbroken function space.
-
-    This method avoids assembling a mass matrix system to solve a Galerkin
-    projection problem; instead a kernel is generated which computes weights
-    and then the broken values are averaged between facet degrees of freedom.
-
-    :arg v_b: the :class:`.Function` to reconstruct.
-    :arg V: the :class:`.FunctionSpace` or :class:`.Function` to reconstruct
-            into.
-    :arg name: name of the resulting :class:`.Function`
-    """
-
-    if not isinstance(v_b, function.Function):
-        raise RuntimeError("Argument must be a function. Not %s" % type(v_b))
-
-    if not isinstance(v_b.function_space().ufl_element(), ufl.BrokenElement):
-        raise ValueError("Function space must be defined on a broken element.")
-
-    if isinstance(V, functionspaceimpl.WithGeometry):
-        result = function.Function(V, name=name)
-    elif isinstance(V, function.Function):
-        # Make sure the function we reconstruct into is zeroed out
-        result = V.assign(0.0)
-        V = V.function_space()
-    else:
-        raise RuntimeError(
-            'Can only project into functions and function spaces, not %r'
-            % type(V))
-
-    if v_b.function_space().ufl_element()._element != V.ufl_element():
-        raise ValueError(
-            "The ufl element of the target function space must "
-            "coincide with the element broken by ufl.BrokenElement."
-        )
-
-    accumulate_kernel = """
-    for (int i=0; i<vrec.dofs; ++i) {
-    vrec[i][0] += v_b[i][0];
-    weight[i][0] += 1.0;
-    }"""
-
-    w = function.Function(V)
-    par_loop(accumulate_kernel, ufl.dx, {"vrec": (result, INC),
-                                         "weight": (w, INC),
-                                         "v_b": (v_b, READ)})
-    result.dat /= w.dat
-
-    return result
 
 
 class Projector(object):
@@ -173,9 +150,17 @@ class Projector(object):
               on the target function space.
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
+    :arg method: a string denoting which type of projection to perform.
+                 By default, "l2" is used, which is the standard Galerkin
+                 projection. The other option would be to use the method
+                 "average," which performs the projection using weighted
+                 averages. This should only be used if you're projecting
+                 from a discontinuous space to a continuous one. That is,
+                 DG -> CG or Broken Raviart-Thomas -> Raviart-Thomas.
     """
 
-    def __init__(self, v, v_out, bcs=None, solver_parameters=None, constant_jacobian=True):
+    def __init__(self, v, v_out, bcs=None, solver_parameters=None,
+                 constant_jacobian=True, method="l2"):
 
         if isinstance(v, expression.Expression) or \
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
@@ -186,32 +171,63 @@ class Projector(object):
         self.v = v
         self.v_out = v_out
         self.bcs = bcs
+        self.method = method
 
-        if not self._same_fspace or self.bcs:
-            V = v_out.function_space()
+        if self.method == "l2":
+            if not self._same_fspace or self.bcs:
+                V = v_out.function_space()
 
-            p = ufl_expr.TestFunction(V)
-            q = ufl_expr.TrialFunction(V)
+                p = ufl_expr.TestFunction(V)
+                q = ufl_expr.TrialFunction(V)
 
-            a = ufl.inner(p, q)*ufl.dx
-            L = ufl.inner(p, v)*ufl.dx
+                a = ufl.inner(p, q)*ufl.dx
+                L = ufl.inner(p, v)*ufl.dx
 
-            problem = vs.LinearVariationalProblem(a, L, v_out, bcs=self.bcs,
-                                                  constant_jacobian=constant_jacobian)
+                problem = vs.LinearVariationalProblem(a, L, v_out, bcs=self.bcs,
+                                                      constant_jacobian=constant_jacobian)
 
-            if solver_parameters is None:
-                solver_parameters = {}
+                if solver_parameters is None:
+                    solver_parameters = {}
 
-            solver_parameters.setdefault("ksp_type", "cg")
+                solver_parameters.setdefault("ksp_type", "cg")
 
-            self.solver = vs.LinearVariationalSolver(problem,
-                                                     solver_parameters=solver_parameters)
+                self.solver = vs.LinearVariationalSolver(problem,
+                                                         solver_parameters=solver_parameters)
+        elif self.method == "average":
+            # NOTE: Any bcs on the function self.v should just work.
+            # Loop over node extent and dof extent
+            V = self.v_out.function_space()
+            shapes = (V.finat_element.space_dimension(), np.prod(V.shape))
+            self._accumulate_kernel = """
+            for (int i=0; i<%d; ++i) {
+                for (int j=0; j<%d; ++j) {
+                    vo[i][j] += v[i][j];
+                    w[i][j] += 1.0;
+            }}""" % shapes
+
+            self._w = function.Function(V)
+        else:
+            raise ValueError("Method type %s not recognized" % str(method))
 
     def project(self):
         """
         Apply the projection.
         """
-        if self._same_fspace and not self.bcs:
-            self.v_out.assign(self.v)
+        if self.method == "l2":
+            if self._same_fspace and not self.bcs:
+                self.v_out.assign(self.v)
+            else:
+                self.solver.solve()
+
         else:
-            self.solver.solve()
+            assert self.method == "average", (
+                "Only 'l2' and 'average' are supported methods at this time."
+            )
+            # Ensure the functions we populate into are zeroed out
+            self.v_out.assign(0.0)
+            self._w.assign(0.0)
+            par_loop(self._accumulate_kernel, ufl.dx, {"vo": (self.v_out, INC),
+                                                       "w": (self._w, INC),
+                                                       "v": (self.v, READ)})
+            self.v_out.dat /= self._w.dat
+            return self.v_out
