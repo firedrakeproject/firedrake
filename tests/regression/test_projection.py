@@ -299,8 +299,8 @@ def test_projector_bcs(tensor, same_fspace):
 @pytest.mark.parametrize(('family', 'degree', 'quad'),
                          [('RT', 1, False), ('BDM', 1, False), ('RTCF', 1, True),
                           ('RT', 2, False), ('BDM', 2, False), ('RTCF', 2, True)])
-def test_reconstruct(family, degree, quad):
-    mesh = UnitSquareMesh(2, 2, quadrilateral=quad)
+def test_average_method(family, degree, quad):
+    mesh = UnitSquareMesh(4, 4, quadrilateral=quad)
     if quad:
         element = FiniteElement(family, quadrilateral, degree)
     else:
@@ -313,20 +313,20 @@ def test_reconstruct(family, degree, quad):
     V_d = FunctionSpace(mesh, BrokenElement(element))
     vd = Function(V_d).project(vo)
 
-    v_rec = reconstruct(vd, V)
-    assert errornorm(v_rec, vo) < 1.0e-10
+    v_rec = project(vd, V, method="average")
+    assert errornorm(v_rec, vo) < 1.0e-13
 
     # This uses the alternate syntax in which
     # the target Function is already available.
     v_c = Function(V)
-    reconstruct(vd, v_c)
-    assert errornorm(v_c, vo) < 1.0e-10
+    project(vd, v_c, method="average")
+    assert errornorm(v_c, vo) < 1.0e-13
 
 
 @pytest.mark.parametrize(('family', 'degree', 'quad'),
                          [('RT', 1, False), ('BDM', 1, False), ('RTCF', 1, True),
                           ('RT', 2, False), ('BDM', 2, False), ('RTCF', 2, True)])
-def test_reconstruct_sphere_domain(family, degree, quad):
+def test_average_method_sphere_domain(family, degree, quad):
     if quad:
         element = FiniteElement(family, quadrilateral, degree)
         mesh = UnitCubedSphereMesh(refinement_level=3)
@@ -342,14 +342,62 @@ def test_reconstruct_sphere_domain(family, degree, quad):
     V_d = FunctionSpace(mesh, BrokenElement(element))
     vd = Function(V_d).project(vo)
 
-    v_rec = reconstruct(vd, V)
-    assert errornorm(v_rec, vo) < 1.0e-10
+    v_rec = project(vd, V, method="average")
+    assert errornorm(v_rec, vo) < 1.0e-13
 
     # This uses the alternate syntax in which
     # the target Function is already available.
     v_c = Function(V)
-    reconstruct(vd, v_c)
-    assert errornorm(v_c, vo) < 1.0e-10
+    project(vd, v_c, method="average")
+    assert errornorm(v_c, vo) < 1.0e-13
+
+
+@pytest.mark.parametrize(('family', 'degree', 'tensor'),
+                         [('CG', 1, 'vector'), ('CG', 2, 'vector'), ('CG', 3, 'vector'),
+                          ('Q', 1, 'vector'), ('Q', 2, 'vector'), ('Q', 3, 'vector'),
+                          ('CG', 1, 'tensor'), ('CG', 2, 'tensor'), ('CG', 3, 'tensor'),
+                          ('Q', 1, 'tensor'), ('Q', 2, 'tensor'), ('Q', 3, 'tensor')])
+def test_average_method_dg_to_cg(family, degree, tensor):
+    if family == 'Q':
+        mesh = UnitSquareMesh(4, 4, quadrilateral=True)
+        if rank == 'vector':
+            Vc = VectorFunctionSpace(mesh, family, degree)
+            Vdg = VectorFunctionSpace(mesh, "DQ", degree)
+            x = SpatialCoordinate(mesh)
+            vo = Function(Vc).project(as_vector([x[0] ** 2, x[1] ** 2]))
+
+        else:
+            Vc = TensorFunctionSpace(mesh, family, degree)
+            Vdg = TensorFunctionSpace(mesh, "DQ", degree)
+            x = SpatialCoordinate(mesh)
+            vo = Function(Vc).project(as_tensor([[x[0] ** 2, x[1] ** 2],
+                                                 [x[0] ** 2, x[1] ** 2]]))
+
+    else:
+        mesh = UnitSquareMesh(2, 2)
+        if rank == 'vector':
+            Vc = VectorFunctionSpace(mesh, family, degree)
+            Vdg = VectorFunctionSpace(mesh, "DG", degree)
+            x = SpatialCoordinate(mesh)
+            vo = Function(Vc).project(as_vector([x[0] ** 2, x[1] ** 2]))
+
+        else:
+            Vc = TensorFunctionSpace(mesh, family, degree)
+            Vdg = TensorFunctionSpace(mesh, "DG", degree)
+            x = SpatialCoordinate(mesh)
+            vo = Function(Vc).project(as_tensor([[x[0] ** 2, x[1] ** 2],
+                                                 [x[0] ** 2, x[1] ** 2]]))
+
+    vd = project(vo, Vdg)
+
+    v_rec = project(vd, Vc, method="average")
+    assert errornorm(v_rec, vo) < 1.0e-13
+
+    # This uses the alternate syntax in which
+    # the target Function is already available.
+    v_c = Function(Vc)
+    project(vd, v_c, method="average")
+    assert errornorm(v_c, vo) < 1.0e-13
 
 
 if __name__ == '__main__':
