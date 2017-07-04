@@ -76,6 +76,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         _.update(parameters)
         parameters = _
 
+    # Set the scalar type
     set_scalar_type(parameters["scalar_type"])
 
     # Remove these here, they're handled below.
@@ -264,6 +265,9 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     # No arguments, please!
     if extract_arguments(expression):
         return ValueError("Cannot interpolate UFL expression with Arguments!")
+
+    # Set the scalar type
+    set_scalar_type(parameters["scalar_type"])
 
     # Apply UFL preprocessing
     expression = ufl_utils.preprocess_expression(expression)
