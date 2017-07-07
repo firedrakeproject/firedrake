@@ -149,7 +149,7 @@ class TestPyParLoop:
 
         expect = np.empty_like(d2.data)
         expect[:] = 10.0
-        expect[m12.values[subset.indices]] = d1.data[subset.indices]
+        expect[m12.values[subset.indices].reshape(-1)] = d1.data[subset.indices]
 
         assert np.allclose(d2.data, expect)
 
