@@ -56,7 +56,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath",
-                           "petsc_int_type"]
+                           "petsc_int_type", "complex"]
 
 
 def deep_update(this, that):
@@ -145,6 +145,8 @@ honoured.""",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install_help.")
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
+    parser.add_argument("--complex", action="store_true",
+                        help="Installs the complex version of Firedrake; rebuilds PETSc in complex mode.")
 
     args = parser.parse_args()
 
@@ -214,6 +216,8 @@ else:
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install_help.")
     parser.add_argument("--install_help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
+    parser.add_argument("--complex", action="store_true",
+                        help="Installs the complex version of Firedrake; rebuilds PETSc in complex mode.")
 
     args = parser.parse_args()
 
@@ -224,6 +228,11 @@ else:
     petsc_int_type_changed = False
     if config["options"].get("petsc_int_type", "int32") != args.petsc_int_type:
         petsc_int_type_changed = True
+        args.rebuild = True
+
+    petsc_complex_type_changed = False
+    if config["options"].get("complex", False) != args.complex:
+        petsc_complex_type_changed = True
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
@@ -329,27 +338,32 @@ If you really want to use your own Python packages, please run again with the
 
 petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
-if options["minimal_petsc"]:
-    if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --with-64-bit-indices"""
-    else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5"""
-else:
-    if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
-    else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
+full_opts = '--download-chaco --download-metis --download-parmetis \
+--download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii'
 
+split_opts = set(full_opts.split())
+
+if options["minimal_petsc"]:
+    split_opts |= {'--download-netcdf','--download-exodusii'}
+if options["petsc_int_type"] == 'int64':
+    split_opts -= {'--download-chaco','--download-scalapack','--download-mumps'}
+    split_opts |= {'--with-64-bit-indices'}
+if options["complex"]:
+    split_opts -= {'--download-hypre'}
+    split_opts |= {'--with-scalar-type=complex'}
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
-    os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
+    os.environ["PETSC_CONFIGURE_OPTIONS"] = " ".join(split_opts)
 else:
-    for opt in petsc_opts.split():
+    for opt in split_opts:
         if opt not in os.environ["PETSC_CONFIGURE_OPTIONS"]:
             os.environ["PETSC_CONFIGURE_OPTIONS"] += " " + opt
 
 if mode == "update" and petsc_int_type_changed:
     log.warning("""Force rebuilding all packages because PETSc int type changed""")
+
+if mode == "update" and petsc_complex_type_changed:
+    log.warning("""Force rebuilding all packages because PETSc scalar type changed between real and complex""")
 
 
 def check_call(arguments, env=None):
