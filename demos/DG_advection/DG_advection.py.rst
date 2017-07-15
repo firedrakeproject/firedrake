@@ -158,7 +158,7 @@ We declare the output filename, and write out the initial condition. ::
   outfile = File("DGadv.pvd")
   outfile.write(q)
 
-We will run for time :math:`2\pi`, a full rotation.  We take 500 steps, giving
+We will run for time :math:`2\pi`, a full rotation.  We take 600 steps, giving
 a timestep close to the CFL limit.  We declare an extra variable ``dtc``; for
 technical reasons, this means that Firedrake does not have to compile new C code
 if the user tries different timesteps.  Finally, we define the inflow boundary
@@ -166,7 +166,7 @@ condition, :math:`q_\mathrm{in}`.  In general, this would be a ``Function``, but
 here we just use a ``Constant`` value. ::
 
   T = 2*math.pi
-  dt = T/500.0
+  dt = T/600.0
   dtc = Constant(dt)
   q_in = Constant(1.0)
 
