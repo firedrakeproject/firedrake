@@ -293,8 +293,6 @@ def _expression_mathfunction(expr, parameters):
     return coffee.FunCall(name, *[expression(c, parameters) for c in expr.children])
 
 
-# TO DO: remove these/throw exceptions? what happens if you use > in C w/ complex nos?
-
 @_expression.register(gem.MinValue)
 def _expression_minvalue(expr, parameters):
     return coffee.FunCall('fmin', *[expression(c, parameters) for c in expr.children])
