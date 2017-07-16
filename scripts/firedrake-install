@@ -344,7 +344,7 @@ full_opts = '--download-chaco --download-metis --download-parmetis \
 split_opts = set(full_opts.split())
 
 if options["minimal_petsc"]:
-    split_opts |= {'--download-netcdf','--download-exodusii'}
+    split_opts -= {'--download-netcdf','--download-exodusii'}
 if options["petsc_int_type"] == 'int64':
     split_opts -= {'--download-chaco','--download-scalapack','--download-mumps'}
     split_opts |= {'--with-64-bit-indices'}
