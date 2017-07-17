@@ -99,7 +99,7 @@ framework, which does not exist in the CG version of the problem and it
 is referred to as :math:`a_{flux}`. This above problem must be solved
 for :math:`q^{(1)}` and then :math:`q^{(2)}` and then these are used to
 compute the numerical approximation to the PV at the new time
-:math:`q^{n+1)}`.
+:math:`q^{n+1}`.
 
 We now move on to the implementation of the QG model for the case of a
 freely propagating Rossby wave.  As ever, we begin by importing the
@@ -147,8 +147,8 @@ along with the physical parameters of the model. ::
 Next, we define the variational problems.  First the elliptic problem
 for the stream function. ::
 
-  psi = TrialFunction(Vcg)  # Test function
-  phi = TestFunction(Vcg)   # Trial function
+  psi = TrialFunction(Vcg)
+  phi = TestFunction(Vcg)
 
   # Build the weak form for the inversion
   Apsi = (inner(grad(psi),grad(phi)) + F*psi*phi)*dx

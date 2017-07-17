@@ -221,7 +221,7 @@ def check_snes_convergence(snes):
             inner = True
             reason = KSPReasons[r]
         except KeyError:
-            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_convered_reason and -ksp_converged_reason"
+            reason = "unknown reason (petsc4py enum incomplete?), try with -snes_converged_reason and -ksp_converged_reason"
     if r < 0:
         if inner:
             msg = "Inner linear solve failed to converge after %d iterations with reason: %s" % \
@@ -339,7 +339,7 @@ class _SNESContext(object):
 
     def set_function(self, snes):
         """Set the residual evaluation function"""
-        with self._F.dat.vec as v:
+        with self._F.dat.vec_wo as v:
             snes.setFunction(self.form_function, v)
 
     def set_jacobian(self, snes):
@@ -416,7 +416,7 @@ class _SNESContext(object):
         problem = ctx._problem
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.dat.vec as v:
+        with ctx._x.dat.vec_wo as v:
             X.copy(v)
 
         if ctx._pre_function_callback is not None:
@@ -455,7 +455,7 @@ class _SNESContext(object):
 
         # X may not be the same vector as the vec behind self._x, so
         # copy guess in from X.
-        with ctx._x.dat.vec as v:
+        with ctx._x.dat.vec_wo as v:
             X.copy(v)
 
         if ctx._pre_jacobian_callback is not None:

@@ -26,11 +26,80 @@ interpolation is:
    Interpolation currently only works if all nodes of the target
    finite element are point evaluation nodes.
 
-Firedrake offers three ways to specify the source expression:
+The recommended way to specify the source expression is UFL.  UFL_
+produces clear error messages in case of syntax or type errors, yet
+UFL expressions have good run-time performance, since they are
+translated to C interpolation kernels using TSFC_ technology.
+Moreover, UFL offers a rich language for describing expressions,
+including:
+
+* The coordinates: in physical space as
+  :py:class:`~ufl.SpatialCoordinate`, and in reference space as
+  :py:class:`ufl.geometry.CellCoordinate`.
+* Firedrake :py:class:`~.Function`\s, derivatives of
+  :py:class:`~.Function`\s, and :py:class:`~.Constant`\s.
+* Literal numbers, basic arithmetic operations, and also mathematical
+  functions such as ``sin``, ``cos``, ``sqrt``, ``abs``, etc.
+* Conditional expressions using UFL :py:class:`~ufl.conditional`.
+* Compound expressions involving any of the above.
+
+Here is an example demonstrating some of these features:
+
+.. code-block:: python
+
+   # g is a vector-valued Function, e.g. on an H(div) function space
+   f = interpolate(sqrt(3.2 * div(g)), V)
+
+
+Interpolation from external data
+--------------------------------
+
+Unfortunately, UFL interpolation is not applicable if some of the
+source data is not yet available as a Firedrake :py:class:`~.Function`
+or UFL expression.  Here we describe a recipe for moving external to
+Firedrake fields.
+
+Let us assume that there is some function ``mydata(X)`` which takes as
+input an :math:`n \times d` array, where :math:`n` is the number of
+points at which the data values are needed, and :math:`d` is the
+geometric dimension of the mesh.  ``mydata(X)`` shall return a
+:math:`n` long vector of the scalar values evaluated at the points
+provided.  (Assuming that the target :py:class:`~.FunctionSpace` is
+scalar valued, although this recipe can be extended to vector or
+tensor valued fields.)  Presumably ``mydata`` works by interpolating
+the external data source, but the precise details are not relevant
+now.  In this case, interpolation into a target function space ``V``
+proceeds as follows:
+
+.. code-block:: python
+
+   # First, grab the mesh.
+   m = V.ufl_domain()
+
+   # Now make the VectorFunctionSpace corresponding to V.
+   W = VectorFunctionSpace(m, V.ufl_element())
+
+   # Next, interpolate the coordinates onto the nodes of W.
+   X = interpolate(m.coordinates, W)
+
+   # Make an output function.
+   f = Function(V)
+
+   # Use the external data function to interpolate the values of f.
+   f.dat.data[:] = mydata(X.dat.data_ro)
+
+This will also work in parallel, as the interpolation will occur on
+each process, and Firedrake will take care of the halo updates before
+the next operation using ``f``.
 
 
 C string expressions
 --------------------
+
+.. warning::
+
+   This is a deprecated feature, but it remains supported for
+   compatibility with FEniCS.
 
 The :py:class:`~.Expression` class wraps a C string expression,
 e.g. ``Expression("sin(x[0]*pi)")``, which is then copy-pasted into
@@ -47,43 +116,8 @@ It is possible to augment this environment.  For example,
 ``Expression('sin(x[0]*t)', t=t)`` takes the value from the Python
 variable ``t``, and uses that value for ``t`` inside the C string.
 
-
-Python expression classes
--------------------------
-
-One can subclass :py:class:`~.Expression` and define a Python method
-``eval`` on the subclass.  An example usage:
-
-.. code-block:: python
-
-   class MyExpression(Expression):
-       def eval(self, value, x):
-           value[:] = numpy.dot(x, x)
-
-       def value_shape(self):
-           return (1,)
-
-   f.interpolate(MyExpression())
-
-Here the arguments ``value`` and ``x`` of ``eval`` are `numpy` arrays.
-``x`` contains the physical coordinates, and the result of the
-expression must be written into ``value``.  One *must not reassign*
-the local variable ``value``, but *overwrite* its content.
-
-
-UFL expressions
----------------
-
-Using UFL_ expressions is the most general way that Firedrake offers
-to specify the source expression of an interpolation.  This option
-allows the source expressions to contain:
-
-* other :py:class:`~.Function`\s,
-* derivatives of :py:class:`~.Function`\s,
-* :py:class:`~.Constant`\s,
-* compound expressions involving any of the above.
-
-One can rewrite any of the above examples using UFL_:
+Since C string expressions are deprecated, below are a few examples on
+how to replace them with UFL expressions:
 
 .. code-block:: python
 
@@ -101,41 +135,53 @@ One can rewrite any of the above examples using UFL_:
    x = SpatialCoordinate(V.mesh())
    f = interpolate(sin(x[0] * t), V)
 
+
+Python expression classes
+-------------------------
+
+.. warning::
+
+   This is a deprecated feature, but it remains supported for
+   compatibility with FEniCS.
+
+One can subclass :py:class:`~.Expression` and define a Python method
+``eval`` on the subclass.  An example usage:
+
+.. code-block:: python
+
+   class MyExpression(Expression):
+       def eval(self, value, x):
+           value[:] = numpy.dot(x, x)
+
+       def value_shape(self):
+           return ()
+
+   f.interpolate(MyExpression())
+
+Here the arguments ``value`` and ``x`` of ``eval`` are `numpy` arrays.
+``x`` contains the physical coordinates, and the result of the
+expression must be written into ``value``.  One *must not reassign*
+the local variable ``value``, but *overwrite* its content.
+
+Since Python :py:class:`~.Expression` classes expressions are
+deprecated, below are a few examples on how to replace them with UFL
+expressions:
+
+.. code-block:: python
+
    # Python expression:
    class MyExpression(Expression):
        def eval(self, value, x):
            value[:] = numpy.dot(x, x)
 
        def value_shape(self):
-           return (1,)
+           return ()
 
    f.interpolate(MyExpression())
 
    # UFL equivalent:
    x = SpatialCoordinate(f.function_space().mesh())
    f.interpolate(dot(x, x))
-
-As mentioned above, one can have :py:class:`~.Function`\s in UFL
-expressions for interpolation.  Here is an example which has no
-equivalent using C strings or Python expression classes:
-
-.. code-block:: python
-
-   # g is a vector-valued Function, e.g. on an H(div) function space
-   f = interpolate(sqrt(3.2 * div(g)), V)
-
-
-.. note::
-
-   UFL expressions are type checked, and thus safer to use than C
-   strings, which rely on string manipulation to assemble the
-   interpolation kernel.
-
-.. note::
-
-   UFL expressions have good run-time performance (unlike Python
-   expression classes), since they are translated to C interpolation
-   kernels using TSFC_ technology.
 
 
 .. _math.h: http://en.cppreference.com/w/c/numeric/math

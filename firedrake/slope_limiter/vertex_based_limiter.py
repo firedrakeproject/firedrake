@@ -31,6 +31,7 @@ class VertexBasedLimiter(Limiter):
 
         # Storage containers for cell means, max and mins
         self.centroids = Function(self.P0)
+        self.centroids_rhs = Function(self.P0)
         self.max_field = Function(self.P1CG)
         self.min_field = Function(self.P1CG)
 
@@ -75,8 +76,8 @@ for (int i=0; i<q.dofs; i++) {
         """
         Update centroid values
         """
-        b = assemble(TestFunction(self.P0) * field * dx)
-        self.centroid_solver.solve(self.centroids, b)
+        assemble(TestFunction(self.P0) * field * dx, tensor=self.centroids_rhs)
+        self.centroid_solver.solve(self.centroids, self.centroids_rhs)
 
     def compute_bounds(self, field):
         """

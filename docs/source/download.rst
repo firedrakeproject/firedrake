@@ -35,12 +35,10 @@ Reporting installation bugs
 
 If ``firedrake-install`` fails to work, please report a bug so that we
 can fix it for you by creating a new `github issue
-<https://github.com/firedrakeproject/firedrake/issues>`__.  To capture
-information about what is going wrong, please run
-``firedrake-install`` with the ``--log`` option and include the log
-file ``firedrake-install.log`` in your bug report.  Similarly if
-``firedrake-update`` fails, you can also run with ``--log`` which
-produces a ``firedrake-update.log`` file.
+<https://github.com/firedrakeproject/firedrake/issues>`__.  Please
+include the log file ``firedrake-install.log`` in your bug report.
+Similarly if ``firedrake-update`` fails, it produces a
+``firedrake-update.log`` file which will help us to debug the problem.
 
 Testing the installation
 ------------------------
