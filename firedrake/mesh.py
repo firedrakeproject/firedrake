@@ -543,10 +543,6 @@ class MeshTopology(object):
             unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
                                     dtype=IntType)
             op.Free()
-            print "exterior: local_ids %s" % local_ids
-            print "exterior: unique_ids %s" % unique_ids
-            print "exterior: np.unique(boundary_ids) %s" % np.unique(boundary_ids)
-            unique_ids = np.unique(boundary_ids)
         else:
             boundary_ids = None
             unique_ids = None
@@ -592,9 +588,6 @@ class MeshTopology(object):
             unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
                                     dtype=np.int32)
             op.Free()
-            print "interior: local_ids %s" % local_ids
-            print "interior: unique_ids %s" % unique_ids
-            print "interior: np.unique(boundary_ids) %s" % np.unique(boundary_ids)
             unique_ids = np.unique(boundary_ids)
         else:
             boundary_ids = None
