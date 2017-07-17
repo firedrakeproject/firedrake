@@ -42,7 +42,11 @@ def compile_form(form, prefix="form", parameters=None):
     cpu_time = time.time()
 
     assert isinstance(form, Form)
+    
+    # determine if we're in complex mode; coffee mode does not support complex
     complx = parameters and parameters["scalar_type"] is 'double complex'
+    if complx:
+        parameters["mode"] = 'vanilla'
     fd = ufl_utils.compute_form_data(form, complex_mode=complx)
     logger.info(GREEN % "compute_form_data finished in %g seconds.", time.time() - cpu_time)
 
