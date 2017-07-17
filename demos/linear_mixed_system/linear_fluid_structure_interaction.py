@@ -1,4 +1,4 @@
-Linear mixed fluid-structure system
+Linear mixed fluid-structure interaction system
 =================================================
 
 
@@ -9,16 +9,13 @@ This tutorial is aimed to demonstrate the use of subdomain functionality and sho
 The tutorial was contributed by `Tomasz Salwa <mailto:mmtjs@leeds.ac.uk>`__
 and `Onno Bokhove <mailto:O.Bokhove@leeds.ac.uk>`__.
 
-The work is based on the article "Variational modelling of wave-structure interactions with an
-offshore wind-turbine mast" by Tomasz Salwa, Onno Bokhove and Mark Kelmanson :cite:`Salwa:2017`. The authors gratefully acknowledge funding from European Commission, Marie Curie Actions - Initial Training Networks (ITN), project number 607596.
-
-The model considered consists of fluid with a free surface and an elastic solid. We will be using interchangeably notions of fluid/water and structure/solid/beam. For simplicity (and speed of computation) we consider a model in 2D, however it can be easily generalized to 3D. The starting point is the linearized version (domain is fixed) of the fully nonlinear variational principle. In non-dimensional units:
+The model considered consists of fluid with a free surface and an elastic solid. We will be using interchangeably notions of fluid/water and structure/solid/beam. For simplicity (and speed of computation) we consider a model in 2D, however it can be easily generalised to 3D. The starting point is the linearised version (domain is fixed) of the fully nonlinear variational principle. In non-dimensional units:
 
 .. math::
 
-    0 = & \delta \int_0^{t_{\text{end}}} \int \left( \partial_t{\eta} \phi - \frac{1}{2} \eta^2 \right) {\mathrm d} S_f - \int \frac{1}{2} |\nabla \phi|^2 {\mathrm d} V_F \\
-    & + \int {\bf n} \cdot \partial_t {\bf X} \phi \, {\mathrm d} S_s\\
-    & + \int \rho_0 \partial_t {\bf X} \cdot {\bf U} - \frac 12 \rho_0 |{\bf U}|^2 - \frac 12 \lambda e_{ii}e_{jj} - \mu e_{ij}^2\, {\mathrm d} V_S \, {\mathrm d} t \, ,
+    0 = & \delta \int_0^{t_{\text{end}}} \int \left( \partial_t{\eta} \phi - \frac{1}{2} \eta^2 \right) {\mathrm d} S_f - \int \frac{1}{2} |\nabla \phi|^2 {\mathrm d} x_F \\
+    & + \int {\bf n} \cdot \partial_t {\bf X} \phi \, {\mathrm d} s_s\\
+    & + \int \rho_0 \partial_t {\bf X} \cdot {\bf U} - \frac 12 \rho_0 |{\bf U}|^2 - \frac 12 \lambda e_{ii}e_{jj} - \mu e_{ij} e_{ij}\, {\mathrm d} x_S \, {\mathrm d} t \, ,
 
 in which the first line contains integration over fluid domain, second, fluid-structure interface, and third, structure domain. The following notions are used:
     * :math:`\eta` - free surface deviation
@@ -28,11 +25,11 @@ in which the first line contains integration over fluid domain, second, fluid-st
     * :math:`\mu` - second Lame constant (material parameter)
     * :math:`{\bf X}` - structure displacement
     * :math:`{\bf U}` - structure velocity
-    * :math:`e_{ij} = \frac{1}{2} \bigl( \frac{\partial \tilde{X}_j }{ \partial x_i } + \frac{ \partial \tilde{X}_i }{ \partial x_j } \bigr)` - linear strain tensor; :math:`i`, :math:`j` denote vector components
+    * :math:`e_{ij} = \frac{1}{2} \bigl( \frac{\partial X_j }{ \partial x_i } + \frac{ \partial X_i }{ \partial x_j } \bigr)` - linear strain tensor; :math:`i`, :math:`j` denote vector components
     * :math:`{\mathrm d} S_f` - integration element over fluid free surface
-    * :math:`{\mathrm d} S_s` - integration element over structure-fluid interface
-    * :math:`{\mathrm d} V_F` - integration element over fluid domain
-    * :math:`{\mathrm d} V_S` - integration element over structure domain
+    * :math:`{\mathrm d} s_s` - integration element over structure-fluid interface
+    * :math:`{\mathrm d} x_F` - integration element over fluid domain
+    * :math:`{\mathrm d} x_S` - integration element over structure domain
 
 After numerous manipulations (described in detail in :cite:`Salwa:2017`) and evaluation of individual variations, the time-discrete equations, with symplectic Euler scheme, that we would like to implement in Firedrake, are:
 
@@ -40,15 +37,15 @@ After numerous manipulations (described in detail in :cite:`Salwa:2017`) and eva
 
     \begin{align}
     & \int v \phi^{n+1} \, {\mathrm d} S_f = \int v (\phi^n - \Delta t \eta^n) \, {\mathrm d} S_f \\
-    & \int \rho_0 {\bf v} \cdot {\bf U}^{n+1} \, {\mathrm d} V_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^{n+1} \, {\mathrm d} S_s} = \rho_0 \int {\bf v} \cdot {\bf U}^n \, {\mathrm d} V_S \nonumber\\ 
-    & \hspace{5cm}  - \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  ( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} ) \right) \, {\mathrm d} V_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} S_s }
+    & \int \rho_0 {\bf v} \cdot {\bf U}^{n+1} \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^{n+1} \, {\mathrm d} s_s} = \rho_0 \int {\bf v} \cdot {\bf U}^n \, {\mathrm d} x_S \nonumber\\ 
+    & \hspace{5cm}  - \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  ( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} ) \right) \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} s_s }
     \\
-    & \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} V_F \underline{ - \int v {\bf n} \cdot {\bf U}^{n+1} \, {\mathrm d} S_s }= 0 \\ %\hspace{1cm} (+ \text{Dirichlet BC at } \partial \Omega_f)\\
-    & \int v \eta^{n+1} \, {\mathrm d} S_f = \int v \eta^n \, {\mathrm d} S_f + \Delta  t \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} V_F   \underline{ - \Delta t \int v {\bf n} \cdot {\bf U}^{n+1}\, {\mathrm d} S_s }\\
-    & \int {\bf v} \cdot {\bf X}^{n+1} \, {\mathrm d} V_S = \int {\bf v} \cdot ( {\bf X}^n + \Delta t {\bf U}^{n+1} ) \, {\mathrm d} V_S \, .
+    & \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F \underline{ - \int v {\bf n} \cdot {\bf U}^{n+1} \, {\mathrm d} s_s }= 0 \\ %\hspace{1cm} (+ \text{Dirichlet BC at } \partial \Omega_f)\\
+    & \int v \eta^{n+1} \, {\mathrm d} S_f = \int v \eta^n \, {\mathrm d} S_f + \Delta  t \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F   \underline{ - \Delta t \int v {\bf n} \cdot {\bf U}^{n+1}\, {\mathrm d} s_s }\\
+    & \int {\bf v} \cdot {\bf X}^{n+1} \, {\mathrm d} x_S = \int {\bf v} \cdot ( {\bf X}^n + \Delta t {\bf U}^{n+1} ) \, {\mathrm d} x_S \, .
     \end{align}
 
-The underlined terms are the coupling terms. Note that the first equation for :math:`\phi` at the free surface is solved on the free surface only, the last equation for :math:`{\bf X}` in the structure domain, while others in both domains. Moreover, the second and third equations for :math:`\phi` and :math:`{\bf U}` need to be solved simultaneously. Geometry of the system with initial condition is shown below.
+The underlined terms are the coupling terms. Note that the first equation for :math:`\phi` at the free surface is solved on the free surface only, the last equation for :math:`{\bf X}` in the structure domain, while the others are solved in both domains. Moreover, the second and third equations for :math:`\phi` and :math:`{\bf U}` need to be solved simultaneously. The geometry of the system with initial condition is shown below.
 
 .. figure:: geometry.png
    :align: center
@@ -73,9 +70,10 @@ Then, we set parameters of the simulation::
     Lz = 10. # height of the tank [m]; needed for computing initial condition
     rho = 1000. # fluid density in kg/m^2 in 2D [water]
     # solid parameters
-    rho_B = 7700. # structure density in kg/m^2 in 2D [steel]
-    lam = 1e7 # 9.695e10 for steel, # N/m in 2D - first Lame constant
-    mu = 1e7 # 7.617e10 for steel, # N/m in 2D - second Lame constant
+    #  - we use a sufficiently soft material to be able to see noticeable structural displacement
+    rho_B = 7700. # structure density in kg/m^2 in 2D
+    lam = 1e7 # N/m in 2D - first Lame constant
+    mu = 1e7 # N/m in 2D - second Lame constant
     # mesh
     mesh = Mesh("L_domain.msh")
     # these numbers must match the ones defined in the mesh file
@@ -130,7 +128,7 @@ And last, mixed functions in the mixed domain::
     tmp_s = Function(V_B)
     result_mixed = Function(mixed_V)
 
-We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the other. They are needed both in "CG" and "DG" space. We use the fact, that the fluid and structure subdomains are defined in the mesh file with an appropriate ID number that Firedrake is able to recognize. That can be used in constructing indicator functions::
+We need auxiliary indicator functions, that are 0 in one subdomain and 1 in the other. They are needed both in "CG" and "DG" space. We use the fact that the fluid and structure subdomains are defined in the mesh file with an appropriate ID number that Firedrake is able to recognise. That can be used in constructing indicator functions::
 
     V_DG0_W = FunctionSpace(mesh, "DG", 0)
     V_DG0_B = FunctionSpace(mesh, "DG", 0)
@@ -254,12 +252,9 @@ Let us set the initial condition. We choose no motion at the beginning in both f
     phi.interpolate( phi_exact_expr )
     phi_f.assign( phi, bc_top.node_set)
 
-Files to store data for visualization::
+A file to store data for visualization::
 
     outfile_phi = File("results_pvd/phi.pvd")
-    outfile_eta = File("results_pvd/eta.pvd")
-    outfile_X = File("results_pvd/X.pvd")
-    outfile_U = File("results_pvd/U.pvd")
 
 To save data for visualization, we change the position of the nodes in the mesh, so that they represent the computed dynamic position of the free surface and the structure::
 
@@ -270,9 +265,6 @@ To save data for visualization, we change the position of the nodes in the mesh,
         mesh.coordinates.vector().set_local( mesh_static + X.vector().get_local() )
         mesh.coordinates.dat.data[:,1] += eta.dat.data_ro
         outfile_phi.write( phi )
-        outfile_eta.write( eta )
-        outfile_X.write( X )
-        outfile_U.write( U )
         mesh.coordinates.vector().set_local( mesh_static )
     output_data.counter = -1 # -1 to exclude counting print of initial state
 
@@ -299,27 +291,16 @@ In the end, we proceed with the actual computation loop::
 
 The result of the computation, visualised with `paraview <http://www.paraview.org/>`__, is shown below.
 
-.. figure:: scene1.png
-   :align: center
-   :alt: Scene 1
+.. youtube:: https://www.youtube.com/watch?v=C4CpFmxKZGw
 
-   At time t = 0 s. The mesh is deflected for visualization only. The actual mesh used for computation is fixed.
+The mesh is deflected for visualization only. As the model is linear, the actual mesh used for computation is fixed. Colours indicate values of the flow potential :math:`\phi`.
 
-.. figure:: scene2.png
-   :align: center
-   :alt: Scene 2
 
-   At time t = 0.1 s. Colors indicate values of the flow potential :math:`\phi`.
-
-.. figure:: scene3.png
-   :align: center
-   :alt: Scene 3
-
-   At time t = 0.25 s.
-
-A python script version of this demo can be found `here <linear_mixed_system.py>`__.
+A python script version of this demo can be found `here <linear_fluid_structure_interaction.py>`__.
 
 The mesh file is `here <L_domain.msh>`__. It can be generated with `gmsh <http://gmsh.info/>`__ from `this file <L_domain.geo>`__ with a command: gmsh -2 L_domain.geo.
+
+The work is based on the article "Variational modelling of wave-structure interactions with an offshore wind-turbine mast" by Tomasz Salwa, Onno Bokhove and Mark Kelmanson :cite:`Salwa:2017`. The authors gratefully acknowledge funding from European Commission, Marie Curie Actions - Initial Training Networks (ITN), project number 607596.
 
 
 .. rubric:: References
