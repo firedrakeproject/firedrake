@@ -127,7 +127,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         if max_extent:
             def predicate(index):
                 return index.extent <= max_extent
-        ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
+            ir = gem.optimise.unroll_indexsum(ir, predicate=predicate)
 
         # Translate to COFFEE
         ir = impero_utils.preprocess_gem(ir)
