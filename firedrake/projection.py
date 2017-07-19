@@ -21,10 +21,11 @@ def project(v, V, bcs=None, mesh=None,
             solver_parameters=None,
             form_compiler_parameters=None,
             name=None):
-    """Project an :class:`.Expression` or :class:`.Function` into a :class:`.FunctionSpace`
+    """Project an :class:`.Expression`, :class:`.Function`, or
+    :class:`.Cofunction` into a :class:`.FunctionSpace`
 
-    :arg v: the :class:`.Expression`, :class:`ufl.Expr` or
-         :class:`.Function` to project
+    :arg v: the :class:`.Expression`, :class:`ufl.Expr`,
+         :class:`.Function`, or :class:"`.Cofunction` to project
     :arg V: the :class:`.FunctionSpace` or :class:`.Function` to project into
     :arg bcs: boundary conditions to apply in the projection
     :arg mesh: the mesh to project into
@@ -38,7 +39,12 @@ def project(v, V, bcs=None, mesh=None,
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned.
 
-    The ``mesh`` and ``form_compiler_parameters`` are currently ignored."""
+    If ``v`` is a :class:`.Cofunction` then ``V`` will be the Riesz
+    representer of ``v``.
+
+    The ``mesh`` and ``form_compiler_parameters`` are currently ignored.
+
+    """
     from firedrake import function
 
     if isinstance(V, functionspaceimpl.WithGeometry):
@@ -73,7 +79,7 @@ def project(v, V, bcs=None, mesh=None,
         f = function.Function(fs)
         f.interpolate(v)
         v = f
-    elif isinstance(v, function.Function):
+    elif isinstance(v, (function.Function, function.Cofunction)):
         if v.function_space().mesh() != ret.function_space().mesh():
             raise RuntimeError("Can't project between mismatching meshes")
     elif not isinstance(v, ufl.core.expr.Expr):
@@ -86,7 +92,10 @@ def project(v, V, bcs=None, mesh=None,
     p = ufl_expr.TestFunction(V)
     q = ufl_expr.TrialFunction(V)
     a = ufl.inner(p, q) * ufl.dx(domain=V.mesh())
-    L = ufl.inner(p, v) * ufl.dx(domain=V.mesh())
+    if isinstance(v, function.Cofunction):
+        L = v
+    else:
+        L = ufl.inner(p, v) * ufl.dx(domain=V.mesh())
 
     # Default to 1e-8 relative tolerance
     if solver_parameters is None:

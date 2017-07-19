@@ -59,7 +59,7 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
 
     If f is a :class:`~ufl.classes.Form` then this evaluates the corresponding
     integral(s) and returns a :class:`float` for 0-forms, a
-    :class:`.Function` for 1-forms and a :class:`.Matrix` or :class:`.ImplicitMatrix`
+    :class:`.Cofunction` for 1-forms and a :class:`.Matrix` or :class:`.ImplicitMatrix`
     for 2-forms.
 
     If f is an expression other than a form, it will be evaluated
@@ -136,12 +136,16 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    loops = _assemble(f, tensor=tensor, bcs=bcs,
-                      form_compiler_parameters=form_compiler_parameters,
-                      inverse=inverse, mat_type=mat_type,
-                      sub_mat_type=sub_mat_type,
-                      collect_loops=True)
-    return functools.partial(map, operator.methodcaller("__call__"), loops)
+    if isinstance(f, function.Cofunction):
+        # If f is a pre-assembled Cofunction, just copy it.
+        return lambda: tensor.assign(f)
+    else:
+        loops = _assemble(f, tensor=tensor, bcs=bcs,
+                          form_compiler_parameters=form_compiler_parameters,
+                          inverse=inverse, mat_type=mat_type,
+                          sub_mat_type=sub_mat_type,
+                          collect_loops=True)
+        return functools.partial(map, operator.methodcaller("__call__"), loops)
 
 
 @utils.known_pyop2_safe
@@ -152,7 +156,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
               allocate_only=False):
     """Assemble the form or Slate expression f and return a Firedrake object
     representing the result. This will be a :class:`float` for 0-forms/rank-0
-    Slate tensors, a :class:`.Function` for 1-forms/rank-1 Slate tensors and
+    Slate tensors, a :class:`.Cofunction` for 1-forms/rank-1 Slate tensors and
     a :class:`.Matrix` for 2-forms/rank-2 Slate tensors.
 
     :arg bcs: A tuple of :class`.DirichletBC`\s to be applied.
@@ -316,7 +320,7 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     elif is_vec:
         test = f.arguments()[0]
         if tensor is None:
-            result_function = function.Function(test.function_space())
+            result_function = function.Cofunction(test.function_space())
             tensor = result_function.dat
         else:
             result_function = tensor

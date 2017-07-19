@@ -7,6 +7,9 @@ from firedrake import solving_utils
 from firedrake import ufl_expr
 from firedrake import utils
 from firedrake.petsc import PETSc
+from firedrake import function
+from firedrake import assemble
+
 
 __all__ = ["LinearVariationalProblem",
            "LinearVariationalSolver",
@@ -32,7 +35,6 @@ class NonlinearVariationalProblem(object):
             compiler (optional)
         """
         from firedrake import solving
-        from firedrake import function
 
         # Store input UFL forms and solution Function
         self.F = F
@@ -252,7 +254,11 @@ class LinearVariationalProblem(NonlinearVariationalProblem):
         if len(L.arguments()) != 1:
             raise ValueError("Provided RHS is not a linear form")
 
-        F = ufl.action(J, u) - L
+        if isinstance(L, function.Cofunction):
+            self._L = L
+            F = function.Cofunction(L)
+        else:
+            F = ufl.action(J, u) - L
 
         super(LinearVariationalProblem, self).__init__(F, u, bcs, J, aP,
                                                        form_compiler_parameters=form_compiler_parameters)
@@ -284,3 +290,23 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         parameters.setdefault('ksp_rtol', 1.0e-7)
         kwargs["solver_parameters"] = parameters
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
+
+    def solve(self, bounds=None):
+        """Solve the variational problem.
+
+        :arg bounds: Optional bounds on the solution (lower, upper).
+            ``lower`` and ``upper`` must both be
+            :class:`~.Function`\s. or :class:`~.Vector`\s.
+
+        .. note::
+
+           If bounds are provided the ``snes_type`` must be set to
+           ``vinewtonssls`` or ``vinewtonrsls``.
+        """
+
+        p = self._problem
+        if hasattr(p, "_L"):
+            assemble(ufl.action(p.L, p.u), tensor=p.F, form_compiler_parameters=p.form_compiler_parameters)
+            p.F -= p._L
+
+        super(LinearVariationalSolver, self).solve(bounds=bounds)

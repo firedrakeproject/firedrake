@@ -578,6 +578,284 @@ class Function(ufl.Coefficient):
         return g_result
 
 
+# Note that this should eventually be a ufl.Cofunction, once such a thing exists.
+class Cofunction(ufl.Coefficient):
+    """A :class:`Cofunction` represents a discretised functional in the
+    dual space to a :class:`.FunctionSpace`. Cofunctions are
+    represented as sums of basis functions of the dual space:
+
+    .. math::
+
+            f = \\sum_i f_i \phi^*_i
+
+    The :class:`Cofunction` class provides storage for the coefficients
+    :math:`f_i` and associates them with a :class:`.FunctionSpace` object
+    which provides the primal basis functions :math:`\\phi_i(x)`.
+
+    Note that the coefficients are always scalars: if the
+    :class:`Cofunction` is vector-valued then this is specified in
+    the :class:`.FunctionSpace`.
+
+    """
+
+    def __init__(self, function_space, val=None, name=None, dtype=ScalarType):
+        """
+        :param function_space: the :class:`.FunctionSpace`,
+            or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
+            Alternatively, a :class:`Function` or a :class:`Cofunction` may be passed here and its function space
+            will be used to build this :class:`Cofunction`.
+        :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+        :param name: user-defined name for this :class:`Cofunction` (optional).
+        :param dtype: optional data type for this :class:`Cofunction`
+               (defaults to ``ScalarType``).
+        """
+
+        V = function_space
+        if isinstance(V, (Function, Cofunction)):
+            V = V.function_space()
+        elif not isinstance(V, functionspaceimpl.WithGeometry):
+            raise NotImplementedError("Can't make a Cofunction defined on a "
+                                      + str(type(function_space)))
+
+        # Do we need CoordinatelessCofunction ?
+        if isinstance(val, CoordinatelessFunction):
+            if val.function_space() != V.topological:
+                raise ValueError("Function values have wrong function space.")
+            self._data = val
+        else:
+            self._data = CoordinatelessFunction(V.topological,
+                                                val=val, name=name, dtype=dtype)
+
+        self._function_space = V
+        ufl.Coefficient.__init__(self, self.function_space().ufl_function_space())
+        self._split = None
+
+        if cachetools:
+            # LRU cache for expressions assembled onto this function
+            self._expression_cache = cachetools.LRUCache(maxsize=50)
+        else:
+            self._expression_cache = None
+
+        if isinstance(function_space, Cofunction):
+            self.assign(function_space)
+
+    @property
+    def topological(self):
+        """The underlying coordinateless function."""
+        return self._data
+
+    def copy(self, deepcopy=False):
+        """Return a copy of this Cofunction.
+
+        :kwarg deepcopy: If ``True``, the new :class:`Cofunction` will
+            allocate new space and copy values.  If ``False``, the
+            default, then the new :class:`Cofunction` will share the dof
+            values.
+        """
+        val = self.topological.copy(deepcopy=deepcopy)
+        return type(self)(self.function_space(), val=val)
+
+    def __getattr__(self, name):
+        return getattr(self._data, name)
+
+    def split(self):
+        """Extract any sub :class:`Cofunction`\s defined on the component spaces
+        of this this :class:`Function`'s :class:`.FunctionSpace`."""
+        if self._split is None:
+            self._split = tuple(Cofunction(fs, dat, name="%s[%d]" % (self.name(), i))
+                                for i, (fs, dat) in
+                                enumerate(zip(self.function_space(), self.dat)))
+        return self._split
+
+    def sub(self, i):
+        """Extract the ith sub :class:`Cofunction` of this :class:`Cofunction`.
+
+        :arg i: the index to extract
+
+        See also :meth:`split`.
+
+        If the :class:`Cofunction` is defined on a
+        :class:`~.VectorFunctionSpace`, this returns a proxy object
+        indexing the ith component of the space, suitable for use in
+        boundary condition application."""
+        if len(self.function_space()) == 1 and self.function_space().rank == 1:
+            fs = self.function_space().sub(i)
+            return Cofunction(fs, val=op2.DatView(self.dat, i),
+                              name="view[%d](%s)" % (i, self.name()))
+        return self.split()[i]
+
+    # Need ot thing throough how project works for cofunctions.
+    # def project(self, b, *args, **kwargs):
+    #     """Project ``b`` onto ``self``. ``b`` must be a :class:`Function` or an
+    #     :class:`.Expression`.
+
+    #     This is equivalent to ``project(b, self)``.
+    #     Any of the additional arguments to :func:`~firedrake.projection.project`
+    #     may also be passed, and they will have their usual effect.
+    #     """
+    #     from firedrake import projection
+    #     return projection.project(b, self, *args, **kwargs)
+
+    def function_space(self):
+        """Return the :class:`.FunctionSpace`, or :class:`.MixedFunctionSpace`
+            on which this :class:`Cofunction` is defined.
+        """
+        return self._function_space
+
+    def vector(self):
+        """Return a :class:`.Vector` wrapping the data in this :class:`Cofunction`"""
+        return vector.Vector(self.dat)
+
+    def riesz(self, *args, **kwargs):
+        """Return a :class:`Function` whose value is the Riesz representer of
+        this :class:`Cofunction` using the natural inner product for this
+        :class:`.FunctionSpace`. This is equivalent to ``project(self, self.function_space())``.
+         Any of the additional arguments to :func:`~firedrake.projection.project`
+         may also be passed, and they will have their usual effect.
+         """
+        from firedrake import projection
+        return projection.project(self, self.function_space(), *args, **kwargs)
+
+    # Does interpolation even make sense here?
+    # def interpolate(self, expression, subset=None):
+    #     """Interpolate an expression onto this :class:`Function`.
+
+    #     :param expression: :class:`.Expression` or a UFL expression to interpolate
+    #     :returns: this :class:`Function` object"""
+    #     from firedrake import interpolation
+    #     return interpolation.interpolate(expression, self, subset=subset)
+
+    @utils.known_pyop2_safe
+    def assign(self, expr, subset=None):
+        """Set the :class:`Cofunction` value to the pointwise value of
+        expr. expr may only contain :class:`Cofunction`\s on the same
+        :class:`.FunctionSpace` as the :class:`Cofunction` being assigned to.
+
+        Similar functionality is available for the augmented assignment
+        operators `+=`, `-=`, `*=` and `/=`. For example, if `f` and `g` are
+        both Functions on the same :class:`.FunctionSpace` then::
+
+          f += 2 * g
+
+        will add twice `g` to `f`.
+
+        If present, subset must be an :class:`pyop2.Subset` of this
+        :class:`Function`'s ``node_set``.  The expression will then
+        only be assigned to the nodes on that subset.
+        """
+
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            expr.dat.copy(self.dat, subset=subset)
+            return self
+
+        from firedrake import assemble_expressions
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.Assign(self, expr), subset)
+        return self
+
+    @utils.known_pyop2_safe
+    def __iadd__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat += expr
+            return self
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat += expr.dat
+            return self
+
+        from firedrake import assemble_expressions
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.IAdd(self, expr))
+
+        return self
+
+    @utils.known_pyop2_safe
+    def __isub__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat -= expr
+            return self
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat -= expr.dat
+            return self
+
+        from firedrake import assemble_expressions
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.ISub(self, expr))
+
+        return self
+
+    @utils.known_pyop2_safe
+    def __imul__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat *= expr
+            return self
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat *= expr.dat
+            return self
+
+        from firedrake import assemble_expressions
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.IMul(self, expr))
+
+        return self
+
+    @utils.known_pyop2_safe
+    def __idiv__(self, expr):
+
+        if np.isscalar(expr):
+            self.dat /= expr
+            return self
+        if isinstance(expr, Cofunction) and \
+           expr.function_space() == self.function_space():
+            self.dat /= expr.dat
+            return self
+
+        from firedrake import assemble_expressions
+        assemble_expressions.evaluate_expression(
+            assemble_expressions.IDiv(self, expr))
+
+        return self
+
+    __itruediv__ = __idiv__
+
+    @utils.cached_property
+    def _constant_ctypes(self):
+        # Retrieve data from Python object
+        function_space = self.function_space()
+        mesh = function_space.mesh()
+        coordinates = mesh.coordinates
+        coordinates_space = coordinates.function_space()
+
+        # Store data into ``C struct''
+        c_function = _CFunction()
+        c_function.n_cols = mesh.num_cells()
+        if hasattr(mesh, '_layers'):
+            c_function.n_layers = mesh.layers - 1
+        else:
+            c_function.n_layers = 1
+        c_function.coords = coordinates.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.coords_map = coordinates_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        # FIXME: What about complex?
+        c_function.f = self.dat.data.ctypes.data_as(POINTER(c_double))
+        c_function.f_map = function_space.cell_node_list.ctypes.data_as(POINTER(as_ctypes(IntType)))
+        return c_function
+
+    @property
+    def _ctypes(self):
+        mesh = self.ufl_domain()
+        c_function = self._constant_ctypes
+        c_function.sidx = mesh.spatial_index and mesh.spatial_index.ctypes
+
+        # Return pointer
+        return ctypes.pointer(c_function)
+
+
 class PointNotInDomainError(Exception):
     """Raised when attempting to evaluate a function outside its domain,
     and no fill value was given.

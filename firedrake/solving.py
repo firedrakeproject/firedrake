@@ -26,6 +26,7 @@ import ufl
 
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
+from firedrake import function
 
 
 def solve(*args, **kwargs):
@@ -52,9 +53,10 @@ def solve(*args, **kwargs):
 
     A linear variational problem a(u, v) = L(v) for all v may be
     solved by calling solve(a == L, u, ...), where a is a bilinear
-    form, L is a linear form, u is a :class:`.Function` (the
-    solution). Optional arguments may be supplied to specify boundary
-    conditions or solver parameters. Some examples are given below:
+    form, L is a linear form, or a :class:`.Cofunction`, u is a
+    :class:`.Function` (the solution). Optional arguments may be
+    supplied to specify boundary conditions or solver parameters. Some
+    examples are given below:
 
     .. code-block:: python
 
@@ -138,7 +140,7 @@ def _solve_varproblem(*args, **kwargs):
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
-    if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, ufl.Form):
+    if isinstance(eq.lhs, ufl.Form) and isinstance(eq.rhs, (ufl.Form, function.Cofunction)):
 
         # Create problem
         problem = vs.LinearVariationalProblem(eq.lhs, eq.rhs, u, bcs, Jp,
