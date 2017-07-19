@@ -52,6 +52,8 @@ supported_elements = {
     # These require special treatment below
     "DQ": None,
     "Q": None,
+    "RTCE": None,
+    "RTCF": None,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
