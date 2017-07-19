@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 from __future__ import absolute_import, print_function, division
 import logging
 import platform
@@ -98,8 +98,8 @@ if mode == "install":
 3. The core set of Python packages is downloaded to ./firedrake/src/ and
    installed to the specified location.
 
-The install creates a virtualenv in ./firedrake and installs inside
-that virtualenv.
+The install creates a venv in ./firedrake and installs inside
+that venv.
 
 The installer will ensure that the required configuration options are
 passed to PETSc. In addition, any configure options which you provide
@@ -138,9 +138,9 @@ honoured.""",
                         help="C compiler to use when building with MPI (default is 'mpicc')")
     parser.add_argument("--show-petsc-configure-options", action="store_true",
                         help="Print out the configure options passed to PETSc")
-    parser.add_argument("--virtualenv-name", default="firedrake",
+    parser.add_argument("--venv-name", default="firedrake",
                         type=str, action="store",
-                        help="Name of the virtualenv to create (default is 'firedrake')")
+                        help="Name of the venv to create (default is 'firedrake')")
     parser.add_argument("--install", action="append", dest="packages",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install_help.")
     parser.add_argument("--install-help", action="store_true",
@@ -303,16 +303,15 @@ sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 old_git_packages = ["instant", "ffc"]
 
 if mode == "install":
-    firedrake_env = os.path.abspath(args.virtualenv_name)
+    firedrake_env = os.path.abspath(args.venv_name)
 else:
-    try:
-        firedrake_env = os.environ["VIRTUAL_ENV"]
-    except KeyError:
-        quit("Unable to retrieve virtualenv name from the environment.\n Please ensure the virtualenv is active before running firedrake-update.")
+    # venv is the directory above the update script. Strictly, it
+    # doesn't need to be active.
+    firedrake_env = os.path.realpath(__file__) + "/../"
 
-# virtualenv install
+# venv install
 python = ["%s/bin/python" % firedrake_env]
-# Use the pip from the virtualenv
+# Use the pip from the venv
 pip = ["%s/bin/pip" % firedrake_env]
 if jenkins:
     # Explicitly run python on pip because Jenkins can make illegaly long shebang lines.
@@ -492,7 +491,7 @@ index 1353c04..e136e6f 100644
 --
 2.7.0.297.g563e384
 """
-            try:
+             try:
                 p = subprocess.Popen(["git", "am"], stdout=subprocess.PIPE,
                                      stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
                 p.communicate(input=patch)
@@ -646,8 +645,8 @@ def pip_uninstall(package):
     again = True
     i = 0
     while again:
-        # List installed packages, "locally".  In a virtualenv,
-        # this just tells me packages in the virtualenv, otherwise it
+        # List installed packages, "locally".  In a venv,
+        # this just tells me packages in the venv, otherwise it
         # gives me everything.
         lines = check_output(pip + ["freeze", "-l"])
         again = False
@@ -870,7 +869,7 @@ def build_and_install_adjoint():
     with directory("libadjoint"):
         dir_util.mkpath("build")
         with directory("build"):
-            log.info("Configuring libadjoint for virtualenv installation in %s" % os.environ["VIRTUAL_ENV"])
+            log.info("Configuring libadjoint for venv installation in %s" % os.environ["VIRTUAL_ENV"])
             check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
             log.info("Installing libadjoint.")
             check_call(["make", "install"])
@@ -1044,28 +1043,18 @@ else:
 
 if mode == "install":
     if os.path.exists(firedrake_env):
-        log.warning("Specified virtualenv '%s' already exists", firedrake_env)
-        quit("Can't install into existing virtualenv '%s'" % firedrake_env)
-    try:
-        import virtualenv
-    except:
-        log.info("Installing virtualenv.")
-        # sys.real_prefix exists if we are already in the virtualenv
-        if hasattr(sys, "real_prefix"):
-            check_call(["pip", "install", "virtualenv"])
-        else:
-            check_call(["pip", "install", "--user", "virtualenv"])
-        quit("Virtual env installed. Please run firedrake-%s again." % mode)
-    log.info("Creating firedrake virtualenv in '%s'." % firedrake_env)
-    virtualenv.create_environment(firedrake_env, site_packages=False)
+        log.warning("Specified venv '%s' already exists", firedrake_env)
+        quit("Can't install into existing venv '%s'" % firedrake_env)
+
+    log.info("Creating firedrake venv in '%s'." % firedrake_env)
+    import venv
+    venv.create_environment(firedrake_env, site_packages=False)
     # Ensure pip and setuptools are at the latest version.
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
 
-virtual_env_vars = dict(__file__='%s/bin/activate_this.py' % firedrake_env)
-exec(open("%s/bin/activate_this.py" % firedrake_env).read(), virtual_env_vars)
-# Activating the virtual_env from within Python does not automatically set the environment variable.
-os.environ["VIRTUAL_ENV"] = virtual_env_vars["base"]
+    # We haven't activated the venv so we need to manually set the environment.
+    os.environ["VIRTUAL_ENV"] = firedrake_env
 
 os.chdir(firedrake_env)
 
@@ -1253,11 +1242,11 @@ os.chdir("../..")
 
 log.info("\n\nSuccessfully installed Firedrake.\n")
 
-log.info("\nFiredrake has been installed in a python virtualenv. You activate it with:\n")
+log.info("\nFiredrake has been installed in a python venv. You activate it with:\n")
 log.info("  . %s/bin/activate\n" % firedrake_env)
-log.info("The virtualenv can be deactivated by running:\n")
+log.info("The venv can be deactivated by running:\n")
 log.info("  deactivate\n\n")
-log.info("To upgrade Firedrake activate the virtualenv and run firedrake-update\n")
+log.info("To upgrade Firedrake activate the venv and run firedrake-update\n")
 
 
 try:
