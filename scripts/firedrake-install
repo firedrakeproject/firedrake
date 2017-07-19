@@ -491,7 +491,7 @@ index 1353c04..e136e6f 100644
 --
 2.7.0.297.g563e384
 """
-             try:
+            try:
                 p = subprocess.Popen(["git", "am"], stdout=subprocess.PIPE,
                                      stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
                 p.communicate(input=patch)
