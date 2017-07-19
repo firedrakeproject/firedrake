@@ -137,6 +137,11 @@ def convert_finiteelement(element):
     return lmbda(cell, element.degree())
 
 
+@convert.register(ufl.EnrichedElement)
+def convert_enrichedelement(element):
+    return finat.EnrichedElement([create_element(elem) for elem in element._elements])
+
+
 # VectorElement case
 @convert.register(ufl.VectorElement)
 def convert_vectorelement(element):
