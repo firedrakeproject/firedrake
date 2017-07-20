@@ -42,7 +42,7 @@ def fs(request, mesh):
 def f(fs):
     f = Function(fs, name="f")
     if fs.rank >= 1:
-        f.interpolate(Expression(("x[0]",) * fs.dim))
+        f.interpolate(Expression(("x[0]",) * fs.value_size))
     else:
         f.interpolate(Expression("x[0]"))
     return f
@@ -52,7 +52,7 @@ def f(fs):
 def one(fs):
     one = Function(fs, name="one")
     if fs.rank >= 1:
-        one.interpolate(Expression(("1",) * fs.dim))
+        one.interpolate(Expression(("1",) * fs.value_size))
     else:
         one.interpolate(Expression("1"))
     return one
@@ -72,7 +72,7 @@ def test_one_form(M, f):
         if f.function_space().rank == 2:
             assert abs(f.dat.data.sum() - 0.5*sum(f.function_space().shape)) < 1.0e-12
         else:
-            assert abs(f.dat.data.sum() - 0.5*f.function_space().dim) < 1.0e-12
+            assert abs(f.dat.data.sum() - 0.5*f.function_space().value_size) < 1.0e-12
 
 
 def test_zero_form(M, f, one):

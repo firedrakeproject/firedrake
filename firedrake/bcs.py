@@ -8,6 +8,7 @@ from ufl.algorithms.analysis import has_type
 import pyop2 as op2
 from pyop2.profiling import timed_function
 from pyop2 import exceptions
+from pyop2.utils import as_tuple
 
 import firedrake.expression as expression
 import firedrake.function as function
@@ -157,6 +158,13 @@ class DirichletBC(object):
         self.function_arg = val
         self._original_arg = self.function_arg
         self._original_val = val
+
+    @utils.cached_property
+    def domain_args(self):
+        """The sub_domain the BC applies to."""
+        if isinstance(self.sub_domain, str):
+            return (self.sub_domain, )
+        return (as_tuple(self.sub_domain), )
 
     @utils.cached_property
     def nodes(self):

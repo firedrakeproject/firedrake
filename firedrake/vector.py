@@ -1,8 +1,7 @@
 from __future__ import absolute_import, print_function, division
 import numpy as np
 
-from pyop2 import op2
-
+import firedrake
 from firedrake.petsc import PETSc
 from firedrake.matrix import MatrixBase
 
@@ -26,6 +25,7 @@ class MatrixShim(object):
         self._mat = mat
 
     def mat(self):
+        self._mat.force_evaluation()
         return self._mat.petscmat
 
 
@@ -46,16 +46,24 @@ class Vector(object):
     def __init__(self, x):
         """Build a `Vector` that wraps a :class:`pyop2.Dat` for Dolfin compatibilty.
 
-        :arg x: an :class:`pyop2.Dat` to wrap or a :class:`Vector` to copy.
-                This copies the underlying data in the :class:`pyop2.Dat`.
+        :arg x: an :class:`~.Function` to wrap or a :class:`Vector` to copy.
+                The former shares data, the latter copies data.
         """
         if isinstance(x, Vector):
-            self.dat = type(x.dat)(x.dat)
-        elif isinstance(x, (op2.Dat, op2.MixedDat)):  # ugh
-            self.dat = x
+            self.function = type(x.function)(x.function)
+        elif isinstance(x, firedrake.Function):
+            self.function = x
         else:
             raise RuntimeError("Don't know how to build a Vector from a %r" % type(x))
         self.comm = self.dat.comm
+
+    @firedrake.utils.cached_property
+    def dat(self):
+        return self.function.dat
+
+    # Make everything mostly pretend to be like a Function
+    def __getattr__(self, name):
+        return getattr(self.function, name)
 
     def axpy(self, a, x):
         """Add a*x to self.
@@ -160,6 +168,11 @@ class Vector(object):
         """Return the maximum entry in the vector."""
         with self.dat.vec_ro as v:
             return v.max()[1]
+
+    def sum(self):
+        """Return global sum of vector entries."""
+        with self.dat.vec_ro as v:
+            return v.sum()
 
     def size(self):
         """Return the global size of the data"""

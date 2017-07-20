@@ -505,9 +505,9 @@ class FunctionSpaceData(object):
                         # with high bits, so we need to set all the
                         # high bits for these bcs
                         idx = numpy.searchsorted(bcids, bc.nodes)
-                        if bc.function_space().dim > 3:
-                            raise ValueError("Can't have component BCs with more than three components (have %d)", bc.function_space().dim)
-                        for cmp in range(bc.function_space().dim):
+                        if bc.function_space().value_size > 3:
+                            raise ValueError("Can't have component BCs with more than three components (have %d)", bc.function_space().value_size)
+                        for cmp in range(bc.function_space().value_size):
                             negids[idx] |= (1 << (nbits - cmp))
 
                     # FunctionSpace with component is IndexedVFS
