@@ -52,7 +52,7 @@ class FiredrakeConfiguration(dict):
                 if o in args.__dict__.keys():
                     self["options"][o] = args.__dict__[o]
 
-    _persistent_options = ["developer", "package_manager",
+    _persistent_options = ["package_manager",
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath",
@@ -151,40 +151,15 @@ honoured.""",
     if args.package_branch:
         branches = {package: branch for package, branch in args.package_branch}
 
-    args.developer = True  # All new installations are developer mode, since there is no advantage to non-developer mode installs.
     args.prefix = False  # Disabled as untested
     args.packages = args.packages or []
 
     config = FiredrakeConfiguration(args)
 else:
-    class LegacyState(object):
-        pass
-    # The following args modifications are retained for backwards compatibility.
-    # new options should not be added here.
-    args = LegacyState()
-    args.developer = False
-    args.package_manager = False
-    args.minimal_petsc = False
-    args.rebuild_script = False
-    args.mpicc = False
-    args.disable_ssh = False
-    args.show_petsc_configure_options = False
-    args.adjoint = False
-    args.slope = False
-    args.slepc = False
-
-    legacy_args = args.__dict__.copy()
-    legacy = False
-    try:
-        import firedrake_configuration
-        config = firedrake_configuration.get_config()
-        if config is None:
-            legacy = True
-    except ImportError:
-        legacy = True
-
-    if legacy:
-        config = {"options": args.__dict__}
+    import firedrake_configuration
+    config = firedrake_configuration.get_config()
+    if config is None:
+        raise InstallError("Failed to find existing Firedrake configuration")
 
     parser = ArgumentParser(description="""Update this firedrake install to the latest versions of all packages.""",
                             formatter_class=RawDescriptionHelpFormatter)
@@ -227,11 +202,6 @@ else:
         args.rebuild = True
 
     config = deep_update(config, FiredrakeConfiguration(args))
-    if legacy:
-        del legacy_args["adjoint"]
-        del legacy_args["slope"]
-        del legacy_args["slepc"]
-        config["options"] = deep_update(config["options"], legacy_args)
 
 if args.install_help:
     help_string = """
@@ -312,10 +282,7 @@ else:
 # venv install
 python = ["%s/bin/python" % firedrake_env]
 # Use the pip from the venv
-pip = ["%s/bin/pip" % firedrake_env]
-if jenkins:
-    # Explicitly run python on pip because Jenkins can make illegaly long shebang lines.
-    pip = python + pip
+pip = python + ["-m", "pip"]
 pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
 pyinstall = python + ["setup.py", "install"]
 sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
@@ -620,8 +587,8 @@ def install(package):
     log.info("Installing %s" % package)
     if package == "petsc/":
         build_and_install_petsc()
-    # The following outrageous hack works around the fact that petsc cannot be installed in developer mode.
-    elif options["developer"] and package not in ["petsc/", "petsc4py/", "slepc/", "slepc4py/"]:
+    # The following outrageous hack works around the fact that petsc and co. cannot be installed in developer mode.
+    elif package not in ["petsc4py/", "slepc/", "slepc4py/"]:
         run_pip_install(["-e", package])
     else:
         run_pip_install(["--ignore-installed", package])
@@ -664,14 +631,14 @@ def pip_uninstall(package):
 
 def build_and_install_petsc():
     import hashlib
-    import urllib
+    import urllib.request
     tarball = "eigen-3.3.3.tgz"
     url = "https://bitbucket.org/eigen/eigen/get/3.3.3.tar.gz"
     sha = hashlib.sha256()
     expect = "94878cbfa27b0d0fbc64c00d4aafa137f678d5315ae62ba4aecddbd4269ae75f"
     if not os.path.exists(tarball):
         log.info("Downloading Eigen from '%s' to '%s'" % (url, tarball))
-        urllib.urlretrieve(url, filename=tarball)
+        urllib.request.urlretrieve(url, filename=tarball)
     else:
         log.info("Eigen tarball already downloaded to '%s'" % tarball)
     log.info("Checking Eigen tarball integrity")
@@ -1048,7 +1015,7 @@ if mode == "install":
 
     log.info("Creating firedrake venv in '%s'." % firedrake_env)
     import venv
-    venv.create_environment(firedrake_env, site_packages=False)
+    venv.EnvBuilder(with_pip=True).create(firedrake_env)
     # Ensure pip and setuptools are at the latest version.
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
@@ -1099,23 +1066,21 @@ if mode == "install":
     pipinstall.append("--no-deps")
     for p in packages:
         install(p+"/")
-        if options["developer"]:
-            sys.path.append(os.getcwd() + "/" + p)
+        sys.path.append(os.getcwd() + "/" + p)
 
     # Work around easy-install.pth bug.
-    if options["developer"]:
-        try:
-            packages.remove("petsc")
-        except ValueError:
-            pass
-        packages.remove("petsc4py")
-        packages.remove("firedrake")
-        v = sys.version_info
-        if v.major <= 2:
-            easyinstall = open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
-            new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
-            open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
-                easyinstall[:1] + new_packages + easyinstall[1:])
+    try:
+        packages.remove("petsc")
+    except ValueError:
+        pass
+    packages.remove("petsc4py")
+    packages.remove("firedrake")
+    v = sys.version_info
+    if v.major <= 2:
+        easyinstall = open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "r").readlines()
+        new_packages = [os.getcwd() + "/" + p + "\n" for p in packages]
+        open("../lib/python%d.%d/site-packages/easy-install.pth" % (v.major, v.minor), "w").writelines(
+            easyinstall[:1] + new_packages + easyinstall[1:])
 
     build_update_script()
 
@@ -1149,34 +1114,13 @@ else:
     packages.remove("petsc")
     packages.remove("petsc4py")
 
-    # Forcibly upgrade old installations to developer mode.
-    if not options["developer"]:
-        forced_developer = True
-        args.clean = True
-        options["developer"] = True
-    else:
-        forced_developer = False
-
     if args.clean:
-        try:
-            clean_obsolete_packages()
-            for package in packages:
-                pip_uninstall(package)
-            if args.rebuild:
-                pip_uninstall("petsc")
-                pip_uninstall("petsc4py")
-        except:
-            if forced_developer:
-                log.error("*************************************************************")
-                log.error("* Uninstalling packages failed while attemping to upgrade   *")
-                log.error("* your installation to developer mode.                      *")
-                log.error("*                                                           *")
-                log.error("* Please try running firedrake-update again, and if the     *")
-                log.error("* problem persists, please raise an issue via github, the   *")
-                log.error("* email list or the slack channel.                          *")
-                log.error("*************************************************************")
-
-            raise
+        clean_obsolete_packages()
+        for package in packages:
+            pip_uninstall(package)
+        if args.rebuild:
+            pip_uninstall("petsc")
+            pip_uninstall("petsc4py")
 
     for p in packages:
         try:
