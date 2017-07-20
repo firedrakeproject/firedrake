@@ -70,7 +70,7 @@ def as_tuple(item, type=None, length=None):
     if item is None:
         t = ()
     else:
-        # Convert iterable to list...
+        # Convert iterable to tuple...
         try:
             t = tuple(item)
         # ... or create a list of a single item
