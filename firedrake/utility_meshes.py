@@ -969,7 +969,8 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
         COMM_WORLD).
     """
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
-                                degree=degree, reorder=reorder,
+                                degree=degree, hemisphere=hemisphere,
+                                reorder=reorder,
                                 comm=comm)
 
 
