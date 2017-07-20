@@ -220,7 +220,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     coords_space = coords.function_space()
     coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
 
-    X_remap = coords_element.tabulate(0, to_pts).values()[0]
+    X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
 
     # The par_loop will just pass us arguments, since it doesn't
     # know about keyword args at all so unpack into a dict that we
@@ -252,7 +252,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
 
     names = {v[0] for v in expression._user_args}
 
-    X = coords_element.tabulate(0, to_pts).values()[0]
+    X = list(coords_element.tabulate(0, to_pts).values())[0]
 
     # Produce C array notation of X.
     X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
