@@ -864,7 +864,8 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                                  comm=comm)
 
 
-def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
+def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
+                         hemisphere=False, reorder=None,
                          comm=COMM_WORLD):
     """Generate an octahedral approximation to the surface of the
     sphere.
@@ -874,6 +875,7 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
         octahedron).
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
+    :kwarg hemisphere: if True, mesh Northern Hemisphere only
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
@@ -884,21 +886,33 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     if degree < 1:
         raise ValueError("Mesh coordinate degree must be at least 1")
     # vertices of an octahedron of radius 1
-    vertices = np.array([[1.0, 0.0, 0.0],
-                         [0.0, 1.0, 0.0],
-                         [0.0, 0.0, 1.0],
-                         [-1.0, 0.0, 0.0],
-                         [0.0, -1.0, 0.0],
-                         [0.0, 0.0, -1.0]])
-    # faces of the base octahedron
-    faces = np.array([[0, 1, 2],
-                      [0, 1, 5],
-                      [0, 2, 4],
-                      [0, 4, 5],
-                      [1, 2, 3],
-                      [1, 3, 5],
-                      [2, 3, 4],
-                      [3, 4, 5]], dtype=np.int32)
+    if hemisphere:
+        vertices = np.array([[1.0, 0.0, 0.0],
+                             [0.0, 1.0, 0.0],
+                             [0.0, 0.0, 1.0],
+                             [-1.0, 0.0, 0.0],
+                             [0.0, -1.0, 0.0]])
+        # faces of the base octahedron
+        faces = np.array([[0, 1, 2],
+                          [0, 2, 4],
+                          [1, 2, 3],
+                          [2, 3, 4]], dtype=np.int32)
+    else:
+        vertices = np.array([[1.0, 0.0, 0.0],
+                             [0.0, 1.0, 0.0],
+                             [0.0, 0.0, 1.0],
+                             [-1.0, 0.0, 0.0],
+                             [0.0, -1.0, 0.0],
+                             [0.0, 0.0, -1.0]])
+        # faces of the base octahedron
+        faces = np.array([[0, 1, 2],
+                          [0, 1, 5],
+                          [0, 2, 4],
+                          [0, 4, 5],
+                          [1, 2, 3],
+                          [1, 3, 5],
+                          [2, 3, 4],
+                          [3, 4, 5]], dtype=np.int32)
 
     plex = mesh._from_cell_list(2, faces, vertices, comm)
     plex.setRefinementUniform(True)
@@ -940,7 +954,8 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     return m
 
 
-def UnitOctahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
+def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
+                             hemisphere=False, reorder=None,
                              comm=COMM_WORLD):
     """Generate an octahedral approximation to the unit sphere.
 
@@ -948,6 +963,7 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
         octahedron).
     :kwarg degree: polynomial degree of coordinate space (defaults
         to 1: flat triangles)
+    :kwarg hemisphere: if True, mesh Northern Hemisphere only
     :kwarg reorder: (optional), should the mesh be reordered?
     :kwarg comm: Optional communicator to build the mesh on (defaults to
         COMM_WORLD).
