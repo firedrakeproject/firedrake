@@ -122,7 +122,7 @@ def project(v, V, bcs=None, mesh=None,
         }}""" % shapes
 
         # Ensure function we populate into is zeroed out
-        ret.assign(0.0)
+        ret.dat.zero()
         w = function.Function(V)
         par_loop(accumulate_kernel, ufl.dx, {"vo": (ret, INC),
                                              "w": (w, INC),
@@ -224,8 +224,8 @@ class Projector(object):
                 "Only 'l2' and 'average' are supported methods at this time."
             )
             # Ensure the functions we populate into are zeroed out
-            self.v_out.assign(0.0)
-            self._w.assign(0.0)
+            self.v_out.dat.zero()
+            self._w.dat.zero()
             par_loop(self._accumulate_kernel, ufl.dx, {"vo": (self.v_out, INC),
                                                        "w": (self._w, INC),
                                                        "v": (self.v, READ)})
