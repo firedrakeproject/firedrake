@@ -755,7 +755,7 @@ class ProxyFunctionSpace(FunctionSpace):
     """
     def __new__(cls, mesh, element, name=None):
         topology = mesh.topology
-        self = super(ProxyFunctionSpace, cls).__new__(cls, topology, element, name=name)
+        self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
             return WithGeometry(self, mesh)
         else:
