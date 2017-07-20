@@ -23,9 +23,9 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
+           'OctahedralSphereMesh', 'UnitOctahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
            'TorusMesh', 'CylinderMesh']
-
 
 def IntervalMesh(ncells, length_or_left, right=None, comm=COMM_WORLD):
     """
@@ -862,6 +862,84 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                                  degree=degree, reorder=reorder,
                                  comm=comm)
 
+
+def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
+                         comm=COMM_WORLD):
+    """Generate an octahedral approximation to the surface of the
+    sphere.
+
+    :arg radius: The radius of the sphere to approximate.
+    :kwarg refinement_level: optional number of refinements (0 is an
+        octahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    if refinement_level < 0 or refinement_level % 1:
+            raise RuntimeError("Number of refinements must be a non-negative integer")
+
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
+    # vertices of an octahedron of radius 1
+    vertices = np.array([[1.0, 0.0, 0.0],
+                         [0.0, 1.0, 0.0],
+                         [0.0, 0.0, 1.0],
+                         [-1.0, 0.0, 0.0],
+                         [0.0, -1.0, 0.0],
+                         [0.0, 0.0, -1.0]])
+    # faces of the base octahedron
+    faces = np.array([[0, 1, 2],
+                      [0, 1, 5],
+                      [0, 2, 4],
+                      [0, 4, 5],
+                      [1, 2, 3],
+                      [1, 3, 5],
+                      [2, 3, 4],
+                      [3, 4, 5]], dtype=np.int32)
+
+    plex = mesh._from_cell_list(2, faces, vertices, comm)
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    #build the initial mesh
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    if degree > 1:
+        #use it to build a higher-order mesh
+        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
+        x, y, z = SpatialCoordinate(m)
+        new_coords.interpolate(as_vector([x, y, z]))
+        m = mesh.Mesh(new_coords)
+
+    #remap to a cone
+    x, y, z = SpatialCoordinate(m)
+    r = ufl.sqrt(x**2 + y**2)
+    rnew = abs(z)-1
+    Vc = mesh.coordinates.function_space()
+    xcone = Function(VC).interpolate(as_vector([x*rnew/r, y*rnew/r, z]))
+    mesh.coordinates.assign(xcone)
+    
+    #remember to rescale by radius at end
+    m._octahedral_sphere = radius
+    return m
+
+def UnitOctahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
+                             comm=COMM_WORLD):
+    """Generate an octahedral approximation to the unit sphere.
+
+    :kwarg refinement_level: optional number of refinements (0 is an
+        octahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
+                                degree=degree, reorder=reorder,
+                                comm=comm)
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
     """Generate vertex and face lists for cubed sphere """
