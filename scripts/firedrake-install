@@ -33,7 +33,6 @@ class InstallError(Exception):
     # Exception for generic install problems.
     pass
 
-
 class FiredrakeConfiguration(dict):
     """A dictionary extended to facilitate the storage of Firedrake
     configuration information."""
@@ -236,6 +235,9 @@ log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
 
+# Python version idiot check as soon as logging is up
+if sys.version_info.major != 3:
+    quit("Firedrake requires Python 3. firedrake-%s was run with Python %s" % (mode, sys.version))
 
 @atexit.register
 def print_log_location():
