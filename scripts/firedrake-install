@@ -322,9 +322,9 @@ if mode == "update" and petsc_int_type_changed:
 
 def check_call(arguments, env=None):
     try:
-        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env))
+        log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env).decode())
     except subprocess.CalledProcessError as e:
-        log.debug(e.output)
+        log.debug(e.output.decode())
         raise
 
 
@@ -338,7 +338,7 @@ def check_output(args, env=None):
             # Python 3
             return result.decode()
     except subprocess.CalledProcessError as e:
-        log.debug(e.output)
+        log.debug(e.output.decode())
         raise
 
 
