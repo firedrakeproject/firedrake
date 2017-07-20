@@ -316,8 +316,6 @@ def test_average_method(family, degree, quad):
     v_rec = project(vd, V, method="average")
     assert errornorm(v_rec, vo) < 1.0e-13
 
-    # This uses the alternate syntax in which
-    # the target Function is already available.
     v_c = Function(V)
     project(vd, v_c, method="average")
     assert errornorm(v_c, vo) < 1.0e-13
@@ -345,8 +343,6 @@ def test_average_method_sphere_domain(family, degree, quad):
     v_rec = project(vd, V, method="average")
     assert errornorm(v_rec, vo) < 1.0e-13
 
-    # This uses the alternate syntax in which
-    # the target Function is already available.
     v_c = Function(V)
     project(vd, v_c, method="average")
     assert errornorm(v_c, vo) < 1.0e-13
@@ -393,8 +389,6 @@ def test_average_method_dg_to_cg(family, degree, tensor):
     v_rec = project(vd, Vc, method="average")
     assert errornorm(v_rec, vo) < 1.0e-13
 
-    # This uses the alternate syntax in which
-    # the target Function is already available.
     v_c = Function(Vc)
     project(vd, v_c, method="average")
     assert errornorm(v_c, vo) < 1.0e-13
