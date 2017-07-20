@@ -1,5 +1,4 @@
 #! /usr/bin/env python3
-from __future__ import absolute_import, print_function, division
 import logging
 import platform
 import subprocess
@@ -191,8 +190,6 @@ else:
 
     args = parser.parse_args()
 
-    args.rebuild_script = legacy_args["rebuild_script"]
-
     args.packages = list(set(args.packages))  # remove duplicates
 
     petsc_int_type_changed = False
@@ -266,13 +263,9 @@ options = config["options"]
 # Apply short cut package names.
 options["packages"] = [firedrake_apps.get(p, (None, p))[1] for p in options["packages"]]
 
-# Where are packages installed relative to --root?
-# This is a bit of a hack.
-v = sys.version_info
-sitepackages = "/usr/local/lib/python%d.%d/site-packages/" % (v.major, v.minor)
 
 # Record of obsolete packages which --clean should remove from old installs.
-old_git_packages = ["instant", "ffc"]
+old_git_packages = []
 
 if mode == "install":
     firedrake_env = os.path.abspath(args.venv_name)
@@ -287,7 +280,6 @@ python = ["%s/bin/python" % firedrake_env]
 pip = python + ["-m", "pip"]
 pipinstall = pip + ["install", "--no-binary", ",".join(wheel_blacklist)]
 pyinstall = python + ["setup.py", "install"]
-sitepackages = "%s/lib/python%d.%d/site-packages" % (firedrake_env, v.major, v.minor)
 
 if "PYTHONPATH" in os.environ and not args.honour_pythonpath:
     quit("""The PYTHONPATH environment variable is set. This is probably an error.
@@ -398,76 +390,6 @@ def git_url(plain_url, protocol):
         raise ValueError("Unknown git protocol: %s" % protocol)
 
 
-def update_and_apply_petsc_fix():
-    HEAD1 = check_output(["git", "rev-parse", "HEAD~"]).strip()
-    # Fetch from upstream
-    check_call(["git", "fetch", "origin"])
-    # Check if we've applied horrific monkey-patching
-    magic_sha = "156a1856fd44f55220132393778f0fda1e6096e3"
-    if HEAD1 == magic_sha:
-        # Yes, check if the upstream branch pointer has
-        # changed, in which case we can reset to upstream.
-        log.info("Already applied eigen fix, checking if upstream is newer")
-        remote_sha = check_output(["git", "rev-parse", "origin/firedrake"]).strip()
-        if remote_sha != magic_sha:
-            log.info("Upstream is newer, resetting to upstream")
-            check_call(["git", "reset", "--hard", magic_sha])
-            check_call(["git", "pull"])
-    else:
-        # Update, then check if we need to apply a patch.
-        check_call(["git", "pull"])
-        HEAD = check_output(["git", "rev-parse", "HEAD"]).strip()
-        if HEAD == magic_sha:
-            # No, and we need to, so apply the fix.
-            log.info("Apply temporary --download-eigen fix")
-            patch = """\
-From a2a264416ccac135640344f54852f6b74bf9de1e Mon Sep 17 00:00:00 2001
-From: Lawrence Mitchell <lawrence.mitchell@imperial.ac.uk>
-Date: Tue, 11 Apr 2017 10:35:04 +0100
-Subject: [PATCH] Temporary workaround for --download-eigen --prefix issues
-
----
- config/BuildSystem/config/package.py        | 2 ++
- config/BuildSystem/config/packages/eigen.py | 2 +-
- 2 files changed, 3 insertions(+), 1 deletion(-)
-
-diff --git a/config/BuildSystem/config/package.py b/config/BuildSystem/config/package.py
-index ba78667..6aa03bb 100644
---- a/config/BuildSystem/config/package.py
-+++ b/config/BuildSystem/config/package.py
-@@ -351,6 +351,8 @@ class Package(config.base.Configure):
-   def generateGuesses(self):
-     d = self.checkDownload()
-     if d:
-+      if not self.liblist:
-+        yield('Download '+self.PACKAGE, d, [], self.getIncludeDirs(d, self.includedir))
-       for libdir in [self.libdir, self.altlibdir]:
-         libdirpath = os.path.join(d, libdir)
-         if not os.path.isdir(libdirpath):
-diff --git a/config/BuildSystem/config/packages/eigen.py b/config/BuildSystem/config/packages/eigen.py
-index 1353c04..e136e6f 100644
---- a/config/BuildSystem/config/packages/eigen.py
-+++ b/config/BuildSystem/config/packages/eigen.py
-@@ -7,7 +7,7 @@ class Configure(config.package.CMakePackage):
-     self.download          = ['hg://https://bitbucket.org/eigen/eigen/']
-     self.functions         = []
-     self.includes          = ['Eigen/Core']
--    self.liblist           = [[]]
-+    self.liblist           = []
-     self.cxx               = 1
-     self.includedir        = os.path.join('include', 'eigen3')
-     self.useddirectly      = 0
---
-2.7.0.297.g563e384
-"""
-            try:
-                p = subprocess.Popen(["git", "am"], stdout=subprocess.PIPE,
-                                     stdin=subprocess.PIPE, stderr=subprocess.STDOUT)
-                p.communicate(input=patch)
-            except subprocess.CalledProcessError as e:
-                log.debug(e.output)
-                raise
-
 
 def git_clone(url):
     name, plain_url, branch = split_requirements_url(url)
@@ -499,8 +421,6 @@ def git_clone(url):
         except subprocess.CalledProcessError:
             log.error("Failed to check out branch %s" % branch)
             raise
-        if name == "petsc":
-            update_and_apply_petsc_fix()
     return name
 
 
@@ -543,10 +463,7 @@ def git_update(name, url=None):
                and "github.com/firedrakeproject" in plain_url:
                 log.info("Updating git remote for %s" % name)
                 check_call(["git", "remote", "set-url", "origin", new_url])
-        if name == "petsc":
-            update_and_apply_petsc_fix()
-        else:
-            check_call(["git", "pull"])
+        check_call(["git", "pull"])
         git_sha_new = check_output(["git", "rev-parse", "HEAD"])
     return git_sha != git_sha_new
 
@@ -656,6 +573,7 @@ def build_and_install_petsc():
                            expect, actual)
     else:
         log.info("Eigen tarball hash valid")
+    log.info("Building PETSc. \nDepending on your platform, may take between a few minutes and an hour or more to build!")
     run_pip_install(["--ignore-installed", "petsc/"])
 
 
@@ -765,7 +683,7 @@ def build_and_install_libspatialindex():
             check_call(["sed", "-i", "-e", "/^SUBDIRS/s/ test//", "Makefile.am"])
             # Build and install
             check_call(["./autogen.sh"])
-            check_call(["./configure", "--prefix=" + sys.prefix,
+            check_call(["./configure", "--prefix=" + firedrake_env,
                         "--enable-shared", "--disable-static"])
             check_call(["make"])
             check_call(["make", "install"])
@@ -862,8 +780,8 @@ def build_and_install_slope():
             # Build and install (hack: need to do this manually as SLOPE is
             # still stupid and doesn't have a proper configure+make+install system)
             check_call(["make"])
-            check_call(["mv"] + glob(os.path.join('lib', '*')) + [os.path.join(sys.prefix, 'lib')])
-            include_dir = os.path.join(sys.prefix, 'include', 'SLOPE')
+            check_call(["mv"] + glob(os.path.join('lib', '*')) + [os.path.join(firedrake_env, 'lib')])
+            include_dir = os.path.join(firedrake_env, 'include', 'SLOPE')
             check_call(["mkdir", "-p", include_dir])
             check_call(["cp"] + glob(os.path.join('sparsetiling', 'include', '*')) + [include_dir])
             # Also install the Python interface
@@ -1000,8 +918,8 @@ elif osname == "Linux":
         log.info("* MPI")
         log.info("* Blas and Lapack")
         log.info("* Git, Mercurial")
-        log.info("* Python version 2.7")
-        log.info("* pip and the Python headers")
+        log.info("* Python version >=3.5")
+        log.info("* The Python headers")
         log.info("* autoconf, automake, libtool")
         log.info("* CMake")
         log.info("* zlib")
@@ -1055,7 +973,6 @@ if mode == "install":
     if not args.honour_petsc_dir:
         pipinstall.append("--no-deps")
         packages.remove("petsc")
-        log.info("Depending on your platform, PETSc may take an hour or more to build!")
         install("petsc/")
         pipinstall.pop()
 
