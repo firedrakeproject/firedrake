@@ -909,19 +909,32 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     if degree > 1:
         #use it to build a higher-order mesh
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
-        x, y, z = SpatialCoordinate(m)
-        new_coords.interpolate(as_vector([x, y, z]))
+        x, y, z = ufl.SpatialCoordinate(m)
+        new_coords.interpolate(ufl.as_vector([x, y, z]))
         m = mesh.Mesh(new_coords)
 
     #remap to a cone
-    x, y, z = SpatialCoordinate(m)
-    r = ufl.sqrt(x**2 + y**2)
-    rnew = abs(z)-1
-    Vc = mesh.coordinates.function_space()
-    xcone = Function(VC).interpolate(as_vector([x*rnew/r, y*rnew/r, z]))
-    mesh.coordinates.assign(xcone)
-    
-    #remember to rescale by radius at end
+    x, y, z = ufl.SpatialCoordinate(m)
+    tol = 1.0e-8
+    rnew = ufl.Max(1 - abs(z), 0)
+    x0 = x/(rnew + tol)
+    y0 = y/(rnew + tol)
+    theta = ufl.conditional(ufl.ge(y0,0),
+                            ufl.pi/2*(1-x0),
+                            ufl.pi/2.0*(x0-1))
+    Vc = m.coordinates.function_space()
+    xcone = Function(Vc).interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
+                                                    ufl.sin(theta)*rnew, z]))
+    m.coordinates.assign(xcone)
+
+    if(True):
+        phi = ufl.pi*z/2
+        rnew += tol
+        rnew2 = ufl.cos(phi) + tol
+        znew = ufl.sin(phi)
+        xsphere = Function(Vc).interpolate(ufl.as_vector([x*rnew2/rnew,
+                                                          y*rnew2/rnew, znew]))
+        m.coordinates.assign(xsphere*radius)
     m._octahedral_sphere = radius
     return m
 
