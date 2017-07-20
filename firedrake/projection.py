@@ -48,7 +48,7 @@ def project(v, V, bcs=None, mesh=None,
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned.
 
-    The ``mesh`` and ``form_compiler_parameters`` are currently ignored."""
+    The ``mesh`` argument is currently ignored."""
     from firedrake import function
 
     if isinstance(V, functionspaceimpl.WithGeometry):
@@ -93,45 +93,11 @@ def project(v, V, bcs=None, mesh=None,
         raise RuntimeError('Shape mismatch between source %s and target function spaces %s in project' %
                            (v.ufl_shape, ret.ufl_shape))
 
-    if method == "l2":
-        # Perform standard L2 projection
-        p = ufl_expr.TestFunction(V)
-        q = ufl_expr.TrialFunction(V)
-        a = ufl.inner(p, q) * ufl.dx(domain=V.mesh())
-        L = ufl.inner(p, v) * ufl.dx(domain=V.mesh())
+    projector = Projector(v, ret, bcs=bcs, solver_parameters=solver_parameters,
+                          form_compiler_parameters=form_compiler_parameters,
+                          method=method)
 
-        # Default to 1e-8 relative tolerance
-        if solver_parameters is None:
-            solver_parameters = {'ksp_type': 'cg', 'ksp_rtol': 1e-8}
-        else:
-            solver_parameters.setdefault('ksp_type', 'cg')
-            solver_parameters.setdefault('ksp_rtol', 1e-8)
-
-        _solve(a == L, ret, bcs=bcs,
-               solver_parameters=solver_parameters,
-               form_compiler_parameters=form_compiler_parameters)
-
-    elif method == "average":
-        # Loop over node extent and dof extent
-        shapes = (V.finat_element.space_dimension(), np.prod(V.shape))
-        accumulate_kernel = """
-        for (int i=0; i<%d; ++i) {
-            for (int j=0; j<%d; ++j) {
-                vo[i][j] += v[i][j];
-                w[i][j] += 1.0;
-        }}""" % shapes
-
-        # Ensure function we populate into is zeroed out
-        ret.dat.zero()
-        w = function.Function(V)
-        par_loop(accumulate_kernel, ufl.dx, {"vo": (ret, INC),
-                                             "w": (w, INC),
-                                             "v": (v, READ)})
-        ret.dat /= w.dat
-
-    else:
-        raise ValueError("Method type %s not recognized" % str(method))
-
+    projector.project()
     return ret
 
 
@@ -150,6 +116,7 @@ class Projector(object):
               on the target function space.
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
+    :arg form_compiler_parameters: parameters to the form compiler.
     :arg method: a string denoting which type of projection to perform.
                  By default, "l2" is used, which is the standard Galerkin
                  projection. The other option would be to use the method
@@ -160,7 +127,8 @@ class Projector(object):
     """
 
     def __init__(self, v, v_out, bcs=None, solver_parameters=None,
-                 constant_jacobian=True, method="l2"):
+                 form_compiler_parameters=None, constant_jacobian=True,
+                 method="l2"):
 
         if isinstance(v, expression.Expression) or \
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
@@ -184,6 +152,7 @@ class Projector(object):
                 L = ufl.inner(p, v)*ufl.dx
 
                 problem = vs.LinearVariationalProblem(a, L, v_out, bcs=self.bcs,
+                                                      form_compiler_parameters=form_compiler_parameters,
                                                       constant_jacobian=constant_jacobian)
 
                 if solver_parameters is None:
@@ -220,9 +189,6 @@ class Projector(object):
                 self.solver.solve()
 
         else:
-            assert self.method == "average", (
-                "Only 'l2' and 'average' are supported methods at this time."
-            )
             # Ensure the functions we populate into are zeroed out
             self.v_out.dat.zero()
             self._w.dat.zero()
