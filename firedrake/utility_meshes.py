@@ -27,6 +27,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
            'TorusMesh', 'CylinderMesh']
 
+
 def IntervalMesh(ncells, length_or_left, right=None, comm=COMM_WORLD):
     """
     Generate a uniform mesh of an interval.
@@ -904,22 +905,22 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
     for i in range(refinement_level):
         plex = plex.refine()
 
-    #build the initial mesh
+    # build the initial mesh
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     if degree > 1:
-        #use it to build a higher-order mesh
+        # use it to build a higher-order mesh
         new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
         x, y, z = ufl.SpatialCoordinate(m)
         new_coords.interpolate(ufl.as_vector([x, y, z]))
         m = mesh.Mesh(new_coords)
 
-    #remap to a cone
+    # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
     tol = 1.0e-8
     rnew = ufl.Max(1 - abs(z), 0)
     x0 = x/(rnew + tol)
     y0 = y/(rnew + tol)
-    theta = ufl.conditional(ufl.ge(y0,0),
+    theta = ufl.conditional(ufl.ge(y0, 0),
                             ufl.pi/2*(1-x0),
                             ufl.pi/2.0*(x0-1))
     Vc = m.coordinates.function_space()
@@ -927,16 +928,17 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1, reorder=None,
                                                     ufl.sin(theta)*rnew, z]))
     m.coordinates.assign(xcone)
 
-    if(True):
-        phi = ufl.pi*z/2
-        rnew += tol
-        rnew2 = ufl.cos(phi) + tol
-        znew = ufl.sin(phi)
-        xsphere = Function(Vc).interpolate(ufl.as_vector([x*rnew2/rnew,
-                                                          y*rnew2/rnew, znew]))
-        m.coordinates.assign(xsphere*radius)
+    # push out to a sphere
+    phi = ufl.pi*z/2
+    rnew += tol
+    rnew2 = ufl.cos(phi) + tol
+    znew = ufl.sin(phi)
+    xsphere = Function(Vc).interpolate(ufl.as_vector([x*rnew2/rnew,
+                                                      y*rnew2/rnew, znew]))
+    m.coordinates.assign(xsphere*radius)
     m._octahedral_sphere = radius
     return m
+
 
 def UnitOctahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
                              comm=COMM_WORLD):
@@ -953,6 +955,7 @@ def UnitOctahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
     return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
                                 degree=degree, reorder=reorder,
                                 comm=comm)
+
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
     """Generate vertex and face lists for cubed sphere """

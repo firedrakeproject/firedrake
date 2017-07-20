@@ -213,6 +213,20 @@ def test_icosahedral_sphere_mesh_num_exterior_facets_parallel():
     run_icosahedral_sphere_mesh_num_exterior_facets()
 
 
+def run_octahedral_sphere_mesh_num_exterior_facets():
+    m = UnitOctahedralSphereMesh(0)
+    assert_num_exterior_facets_equals_zero(m)
+
+
+def test_octahedral_sphere_mesh_num_exterior_facets():
+    run_octahedral_sphere_mesh_num_exterior_facets()
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_octahedral_sphere_mesh_num_exterior_facets_parallel():
+    run_octahedral_sphere_mesh_num_exterior_facets()
+
+
 def run_cubed_sphere_mesh_num_exterior_facets():
     m = UnitCubedSphereMesh(0)
     assert_num_exterior_facets_equals_zero(m)
@@ -260,6 +274,36 @@ def test_bendy_icos_parallel(degree):
 @pytest.mark.parallel(nprocs=2)
 def test_bendy_icos_unit_parallel(degree):
     return run_bendy_icos_unit(degree)
+
+
+def run_bendy_octa(degree):
+    m = OctahedralSphereMesh(5.0, refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+
+
+def run_bendy_octa_unit(degree):
+    m = UnitOctahedralSphereMesh(refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+
+
+def test_bendy_octa(degree):
+    return run_bendy_octa(degree)
+
+
+def test_bendy_octa_unit(degree):
+    return run_bendy_octa_unit(degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_octa_parallel(degree):
+    return run_bendy_octa(degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_octa_unit_parallel(degree):
+    return run_bendy_octa_unit(degree)
 
 
 def run_bendy_cube(degree):
