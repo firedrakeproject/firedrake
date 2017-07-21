@@ -148,6 +148,16 @@ def test_mixed():
     assert np.allclose(1.0, g.dat.data)
 
 
+@pytest.mark.xfail(reason="rvalue cannot contain lvalue")
+def test_lvalue_rvalue():
+    mesh = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    u.assign(1.0)
+    u.interpolate(u + 1.0)
+    assert np.allclose(u.dat.data_ro, 2.0)
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
