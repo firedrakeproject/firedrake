@@ -213,6 +213,50 @@ def test_icosahedral_sphere_mesh_num_exterior_facets_parallel():
     run_icosahedral_sphere_mesh_num_exterior_facets()
 
 
+def run_octahedral_sphere_mesh_num_exterior_facets():
+    m = UnitOctahedralSphereMesh(0)
+    assert_num_exterior_facets_equals_zero(m)
+
+
+def test_octahedral_sphere_mesh_num_exterior_facets():
+    run_octahedral_sphere_mesh_num_exterior_facets()
+
+
+@pytest.mark.parametrize("kind", ("both", "north", "south"))
+def test_hemispherical_octa(kind):
+    expected_bbox = {"both": np.asarray([[-1, -1, -1],
+                                         [1, 1, 1]]),
+                     "north": np.asarray([[-1, -1, 0],
+                                          [1, 1, 1]]),
+                     "south": np.asarray([[-1, -1, -1],
+                                          [1, 1, 0]])}[kind]
+    mesh = UnitOctahedralSphereMesh(1, hemisphere=kind)
+    coords = mesh.coordinates.dat.data_ro
+    bbox = np.asarray([np.min(coords, axis=0), np.max(coords, axis=0)])
+    assert np.allclose(bbox, expected_bbox)
+
+
+def test_invalid_hemispherical_octa():
+    with pytest.raises(ValueError):
+        UnitOctahedralSphereMesh(1, hemisphere="east")
+
+
+@pytest.mark.parametrize("refinement", (-1, 1.2))
+def test_invalid_octa_refinement(refinement):
+    with pytest.raises(ValueError):
+        UnitOctahedralSphereMesh(refinement)
+
+
+def test_invalid_octa_degree():
+    with pytest.raises(ValueError):
+        UnitOctahedralSphereMesh(2, degree=0)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_octahedral_sphere_mesh_num_exterior_facets_parallel():
+    run_octahedral_sphere_mesh_num_exterior_facets()
+
+
 def run_cubed_sphere_mesh_num_exterior_facets():
     m = UnitCubedSphereMesh(0)
     assert_num_exterior_facets_equals_zero(m)
@@ -260,6 +304,36 @@ def test_bendy_icos_parallel(degree):
 @pytest.mark.parallel(nprocs=2)
 def test_bendy_icos_unit_parallel(degree):
     return run_bendy_icos_unit(degree)
+
+
+def run_bendy_octa(degree):
+    m = OctahedralSphereMesh(5.0, refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 5.0)
+
+
+def run_bendy_octa_unit(degree):
+    m = UnitOctahedralSphereMesh(refinement_level=1, degree=degree)
+    coords = m.coordinates.dat.data
+    assert np.allclose(np.linalg.norm(coords, axis=1), 1.0)
+
+
+def test_bendy_octa(degree):
+    return run_bendy_octa(degree)
+
+
+def test_bendy_octa_unit(degree):
+    return run_bendy_octa_unit(degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_octa_parallel(degree):
+    return run_bendy_octa(degree)
+
+
+@pytest.mark.parallel(nprocs=2)
+def test_bendy_octa_unit_parallel(degree):
+    return run_bendy_octa_unit(degree)
 
 
 def run_bendy_cube(degree):

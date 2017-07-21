@@ -7,7 +7,7 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ
+    par_loop, dx, WRITE, READ, interpolate
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
@@ -23,6 +23,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
+           'OctahedralSphereMesh', 'UnitOctahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
            'TorusMesh', 'CylinderMesh']
 
@@ -861,6 +862,118 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
     return IcosahedralSphereMesh(1.0, refinement_level=refinement_level,
                                  degree=degree, reorder=reorder,
                                  comm=comm)
+
+
+def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
+                         hemisphere="both", reorder=None,
+                         comm=COMM_WORLD):
+    """Generate an octahedral approximation to the surface of the
+    sphere.
+
+    :arg radius: The radius of the sphere to approximate.
+    :kwarg refinement_level: optional number of refinements (0 is an
+        octahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
+    :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    if refinement_level < 0 or refinement_level % 1:
+        raise ValueError("Number of refinements must be a non-negative integer")
+
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
+    if hemisphere not in {"both", "north", "south"}:
+        raise ValueError("Unhandled hemisphere '%s'" % hemisphere)
+    # vertices of an octahedron of radius 1
+    vertices = np.array([[1.0, 0.0, 0.0],
+                         [0.0, 1.0, 0.0],
+                         [0.0, 0.0, 1.0],
+                         [-1.0, 0.0, 0.0],
+                         [0.0, -1.0, 0.0],
+                         [0.0, 0.0, -1.0]])
+    faces = np.array([[0, 1, 2],
+                      [0, 1, 5],
+                      [0, 2, 4],
+                      [0, 4, 5],
+                      [1, 2, 3],
+                      [1, 3, 5],
+                      [2, 3, 4],
+                      [3, 4, 5]], dtype=IntType)
+    if hemisphere == "north":
+        vertices = vertices[[0, 1, 2, 3, 4], ...]
+        faces = faces[0::2, ...]
+    elif hemisphere == "south":
+        indices = [0, 1, 3, 4, 5]
+        vertices = vertices[indices, ...]
+        faces = faces[1::2, ...]
+        for new, idx in enumerate(indices):
+            faces[faces == idx] = new
+
+    plex = mesh._from_cell_list(2, faces, vertices, comm)
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    # build the initial mesh
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    if degree > 1:
+        # use it to build a higher-order mesh
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+
+    # remap to a cone
+    x, y, z = ufl.SpatialCoordinate(m)
+    # This will DTWT on meshes with more than 26 refinement levels.
+    # (log_2 1e8 ~= 26.5)
+    tol = Constant(1.0e-8)
+    rnew = ufl.Max(1 - abs(z), 0)
+    # Avoid division by zero (when rnew is zero, x & y are also zero)
+    x0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, x/rnew)
+    y0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, y/rnew)
+    theta = ufl.conditional(ufl.ge(y0, 0),
+                            ufl.pi/2*(1-x0),
+                            ufl.pi/2.0*(x0-1))
+    Vc = m.coordinates.function_space()
+    xcone = Function(Vc).interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
+                                                    ufl.sin(theta)*rnew, z]))
+    m.coordinates.assign(xcone)
+
+    # push out to a sphere
+    phi = ufl.pi*z/2
+    # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
+    scale = ufl.conditional(ufl.lt(rnew, tol),
+                            0, ufl.cos(phi)/rnew)
+    znew = ufl.sin(phi)
+    xsphere = Function(Vc).interpolate(Constant(radius)*ufl.as_vector([x*scale,
+                                                                       y*scale,
+                                                                       znew]))
+    m.coordinates.assign(xsphere)
+    m._radius = radius
+    return m
+
+
+def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
+                             hemisphere="both", reorder=None,
+                             comm=COMM_WORLD):
+    """Generate an octahedral approximation to the unit sphere.
+
+    :kwarg refinement_level: optional number of refinements (0 is an
+        octahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
+    :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
+                                degree=degree, hemisphere=hemisphere,
+                                reorder=reorder,
+                                comm=comm)
 
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
