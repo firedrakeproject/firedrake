@@ -6,6 +6,7 @@ from firedrake import functionspaceimpl
 from firedrake import solving
 from firedrake import ufl_expr
 from firedrake import function
+from firedrake import utils
 from firedrake.parloops import par_loop, READ, INC
 import firedrake.variational_solver as vs
 
@@ -140,13 +141,13 @@ class Projector(object):
         self.v_out = v_out
         self.bcs = bcs
         self.method = method
+        self.V = v_out.function_space()
 
         if self.method == "l2":
             if not self._same_fspace or self.bcs:
-                V = v_out.function_space()
 
-                p = ufl_expr.TestFunction(V)
-                q = ufl_expr.TrialFunction(V)
+                p = ufl_expr.TestFunction(self.V)
+                q = ufl_expr.TrialFunction(self.V)
 
                 a = ufl.inner(p, q)*ufl.dx
                 L = ufl.inner(p, v)*ufl.dx
@@ -167,18 +168,30 @@ class Projector(object):
         elif self.method == "average":
             # NOTE: Any bcs on the function self.v should just work.
             # Loop over node extent and dof extent
-            V = self.v_out.function_space()
-            shapes = (V.finat_element.space_dimension(), np.prod(V.shape))
-            self._accumulate_kernel = """
+            self._shapes = (self.V.finat_element.space_dimension(), np.prod(self.V.shape))
+            self._average_kernel = """
             for (int i=0; i<%d; ++i) {
                 for (int j=0; j<%d; ++j) {
-                    vo[i][j] += v[i][j];
-                    w[i][j] += 1.0;
-            }}""" % shapes
+                    vo[i][j] += v[i][j]/w[i][j];
+            }}""" % self._shapes
 
-            self._w = function.Function(V)
         else:
             raise ValueError("Method type %s not recognized" % str(method))
+
+    @utils.cached_property
+    def _weighting(self):
+        """
+        Generates a weight function for computing a projection via averaging.
+        """
+        w = function.Function(self.V)
+        weight_kernel = """
+        for (int i=0; i<%d; ++i) {
+            for (int j=0; j<%d; ++j) {
+                w[i][j] += 1.0;
+        }}""" % self._shapes
+
+        par_loop(weight_kernel, ufl.dx, {"w": (w, INC)})
+        return w
 
     def project(self):
         """
@@ -191,11 +204,9 @@ class Projector(object):
                 self.solver.solve()
 
         else:
-            # Ensure the functions we populate into are zeroed out
+            # Ensure the function we populate into is zeroed out
             self.v_out.dat.zero()
-            self._w.dat.zero()
-            par_loop(self._accumulate_kernel, ufl.dx, {"vo": (self.v_out, INC),
-                                                       "w": (self._w, INC),
-                                                       "v": (self.v, READ)})
-            self.v_out.dat /= self._w.dat
+            par_loop(self._average_kernel, ufl.dx, {"vo": (self.v_out, INC),
+                                                    "w": (self._weighting, READ),
+                                                    "v": (self.v, READ)})
             return self.v_out
