@@ -38,7 +38,7 @@ After numerous manipulations (described in detail in :cite:`Salwa:2017`) and eva
     \begin{align}
     & \int v \phi^{n+1} \, {\mathrm d} S_f = \int v (\phi^n - \Delta t \eta^n) \, {\mathrm d} S_f \\
     & \int \rho_0 {\bf v} \cdot {\bf U}^{n+1} \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^{n+1} \, {\mathrm d} s_s} = \rho_0 \int {\bf v} \cdot {\bf U}^n \, {\mathrm d} x_S \nonumber\\ 
-    & \hspace{5cm}  - \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  ( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} ) \right) \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} s_s }
+    & \hspace{5cm}  - \Delta t \int \left( \lambda \nabla \cdot {\bf v} \nabla \cdot {\bf X}^n + \mu \frac{\partial X^n_j}{\partial x_i}  \left( \frac{\partial v_i}{\partial x_j}  + \frac{\partial v_j}{\partial x_i} \right) \right) \, {\mathrm d} x_S \underline{ + \int {\bf n} \cdot {\bf v} \, \phi^n \, {\mathrm d} s_s }
     \\
     & \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F \underline{ - \int v {\bf n} \cdot {\bf U}^{n+1} \, {\mathrm d} s_s }= 0 \\ %\hspace{1cm} (+ \text{Dirichlet BC at } \partial \Omega_f)\\
     & \int v \eta^{n+1} \, {\mathrm d} S_f = \int v \eta^n \, {\mathrm d} S_f + \Delta  t \int \nabla v \cdot \nabla \phi^{n+1} \, {\mathrm d} x_F   \underline{ - \Delta t \int v {\bf n} \cdot {\bf U}^{n+1}\, {\mathrm d} s_s }\\
@@ -291,7 +291,11 @@ In the end, we proceed with the actual computation loop::
 
 The result of the computation, visualised with `paraview <http://www.paraview.org/>`__, is shown below.
 
-.. youtube:: https://www.youtube.com/watch?v=C4CpFmxKZGw
+.. only:: html
+
+  .. container:: youtube
+
+    .. youtube:: C4CpFmxKZGw?modestbranding=1;controls=0;rel=0
 
 The mesh is deflected for visualization only. As the model is linear, the actual mesh used for computation is fixed. Colours indicate values of the flow potential :math:`\phi`.
 
