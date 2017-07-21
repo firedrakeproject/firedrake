@@ -26,14 +26,6 @@ streches the mesh in the *y*-direction. Another possibility is to use
 
 This can also be used if `f` is a solution to a PDE.
 
-.. note::
-
-   Unfortunately, the following is currently broken:
-
-   .. code-block:: python
-
-      mesh.coordinates.interpolate(as_vector([x, y*2.0]))
-
 
 Changing the coordinate function space
 --------------------------------------
