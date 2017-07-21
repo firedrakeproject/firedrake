@@ -155,10 +155,12 @@ class Projector(object):
                                                       form_compiler_parameters=form_compiler_parameters,
                                                       constant_jacobian=constant_jacobian)
 
+                # Default to 1e-8 relative tolerance
                 if solver_parameters is None:
-                    solver_parameters = {}
-
-                solver_parameters.setdefault("ksp_type", "cg")
+                    solver_parameters = {'ksp_type': 'cg', 'ksp_rtol': 1e-8}
+                else:
+                    solver_parameters.setdefault('ksp_type', 'cg')
+                    solver_parameters.setdefault('ksp_rtol', 1e-8)
 
                 self.solver = vs.LinearVariationalSolver(problem,
                                                          solver_parameters=solver_parameters)
