@@ -7,7 +7,7 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ
+    par_loop, dx, WRITE, READ, interpolate
 from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
@@ -923,17 +923,19 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     if degree > 1:
         # use it to build a higher-order mesh
-        new_coords = function.Function(functionspace.VectorFunctionSpace(m, "CG", degree))
-        x, y, z = ufl.SpatialCoordinate(m)
-        new_coords.interpolate(ufl.as_vector([x, y, z]))
-        m = mesh.Mesh(new_coords)
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
 
     # remap to a cone
     x, y, z = ufl.SpatialCoordinate(m)
-    tol = 1.0e-8
+    # This will DTRT on meshes with more than 26 refinement levels.
+    # (log_2 1e8 ~= 26.5)
+    tol = Constant(1.0e-8)
     rnew = ufl.Max(1 - abs(z), 0)
-    x0 = x/(rnew + tol)
-    y0 = y/(rnew + tol)
+    # Avoid division by zero (when rnew is zero, x & y are also zero)
+    x0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, x/rnew)
+    y0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, y/rnew)
     theta = ufl.conditional(ufl.ge(y0, 0),
                             ufl.pi/2*(1-x0),
                             ufl.pi/2.0*(x0-1))
@@ -944,13 +946,15 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
 
     # push out to a sphere
     phi = ufl.pi*z/2
-    rnew += tol
-    rnew2 = ufl.cos(phi) + tol
+    # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
+    scale = ufl.conditional(ufl.lt(rnew, tol),
+                            0, ufl.cos(phi)/rnew)
     znew = ufl.sin(phi)
-    xsphere = Function(Vc).interpolate(ufl.as_vector([x*rnew2/rnew,
-                                                      y*rnew2/rnew, znew]))
-    m.coordinates.assign(xsphere*radius)
-    m._octahedral_sphere = radius
+    xsphere = Function(Vc).interpolate(Constant(radius)*ufl.as_vector([x*scale,
+                                                                       y*scale,
+                                                                       znew]))
+    m.coordinates.assign(xsphere)
+    m._radius = radius
     return m
 
 
