@@ -4,6 +4,7 @@ from functools import reduce
 
 from gem import index_sum, Sum
 from gem.optimise import unroll_indexsum
+from gem.unconcatenate import unconcatenate
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
@@ -29,19 +30,20 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     return [index_sum(e, quadrature_multiindex) for e in expressions]
 
 
-def flatten(var_reps):
+def flatten(var_reps, index_cache):
     """Flatten mode-specific intermediate representation to a series of
     assignments.
 
     :arg var_reps: series of (return variable, [integral representation]) pairs
+    :arg index_cache: cache :py:class:`dict` for :py:func:`unconcatenate`
 
     :returns: series of (return variable, GEM expression root) pairs
     """
-    for variable, reps in var_reps:
-        expressions = reps  # representations are expressions
-        yield (variable, reduce(Sum, expressions))
+    return unconcatenate([(variable, reduce(Sum, reps))
+                          for variable, reps in var_reps],
+                         cache=index_cache)
 
 
-finalise_options = {}
+finalise_options = dict(remove_componenttensors=False)
 """To avoid duplicate work, these options that are safe to pass to
 :py:func:`gem.impero_utils.preprocess_gem`."""

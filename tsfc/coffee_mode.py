@@ -1,50 +1,49 @@
 from __future__ import absolute_import, print_function, division
+from six.moves import filter, map, range, zip
 
 import numpy
 import itertools
-from functools import partial
+from functools import partial, reduce
 from six import iteritems, iterkeys
-from six.moves import filter
 from collections import defaultdict
-from gem.optimise import make_sum, make_product, replace_division, unroll_indexsum
+from gem.optimise import make_sum, make_product
 from gem.refactorise import Monomial, collect_monomials
+from gem.unconcatenate import unconcatenate
 from gem.node import traversal
-from gem.gem import IndexSum, Failure, one, index_sum
+from gem.gem import IndexSum, Failure, Sum, one
 from gem.utils import groupby
 
-import tsfc.vanilla as vanilla
-from tsfc.spectral import classify
+import tsfc.spectral as spectral
 
 
-flatten = vanilla.flatten
+Integrals = spectral.Integrals
+
+
+def flatten(var_reps, index_cache):
+    """Flatten mode-specific intermediate representation to a series of
+    assignments.
+
+    :arg var_reps: series of (return variable, [integral representation]) pairs
+    :arg index_cache: cache :py:class:`dict` for :py:func:`unconcatenate`
+
+    :returns: series of (return variable, GEM expression root) pairs
+    """
+    assignments = unconcatenate([(variable, reduce(Sum, reps))
+                                 for variable, reps in var_reps],
+                                cache=index_cache)
+
+    def group_key(assignment):
+        variable, expression = assignment
+        return variable.free_indices
+
+    for argument_indices, assignment_group in groupby(assignments, group_key):
+        variables, expressions = zip(*assignment_group)
+        expressions = optimise_expressions(expressions, argument_indices)
+        for var, expr in zip(variables, expressions):
+            yield (var, expr)
+
 
 finalise_options = dict(remove_componenttensors=False)
-
-
-def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
-    """Constructs an integral representation for each GEM integrand
-    expression.
-
-    :arg expressions: integrand multiplied with quadrature weight;
-                      multi-root GEM expression DAG
-    :arg quadrature_multiindex: quadrature multiindex (tuple)
-    :arg argument_multiindices: tuple of argument multiindices,
-                                one multiindex for each argument
-    :arg parameters: parameters dictionary
-
-    :returns: list of integral representations
-    """
-    # Unroll
-    max_extent = parameters["unroll_indexsum"]
-    if max_extent:
-        def predicate(index):
-            return index.extent <= max_extent
-        expressions = unroll_indexsum(expressions, predicate=predicate)
-    # Choose GEM expression as the integral representation
-    expressions = [index_sum(e, quadrature_multiindex) for e in expressions]
-    expressions = replace_division(expressions)
-    argument_indices = tuple(itertools.chain(*argument_multiindices))
-    return optimise_expressions(expressions, argument_indices)
 
 
 def optimise_expressions(expressions, argument_indices):
@@ -61,7 +60,7 @@ def optimise_expressions(expressions, argument_indices):
             return expressions
 
     # Apply argument factorisation unconditionally
-    classifier = partial(classify, set(argument_indices))
+    classifier = partial(spectral.classify, set(argument_indices))
     monomial_sums = collect_monomials(expressions, classifier)
     return [optimise_monomial_sum(ms, argument_indices) for ms in monomial_sums]
 

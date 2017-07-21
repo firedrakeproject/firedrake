@@ -83,7 +83,7 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     return result
 
 
-def flatten(var_reps):
+def flatten(var_reps, index_cache):
     for variable, reps in var_reps:
         expressions = reps
         for expression in expressions:

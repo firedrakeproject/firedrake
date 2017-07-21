@@ -25,6 +25,7 @@ from FIAT.reference_element import make_affine_mapping
 import gem
 from gem.node import traversal
 from gem.optimise import ffc_rounding
+from gem.unconcatenate import unconcatenate
 from gem.utils import cached_property
 
 from finat.quadrature import make_quadrature
@@ -376,12 +377,15 @@ def translate_coefficient(terminal, mt, ctx):
     ctx.index_cache.setdefault(terminal.ufl_element(), element.get_indices())
     beta = ctx.index_cache[terminal.ufl_element()]
     zeta = element.get_value_indices()
+    vec_beta, = gem.optimise.remove_componenttensors([gem.Indexed(vec, beta)])
     value_dict = {}
     for alpha, table in iteritems(per_derivative):
-        value = gem.IndexSum(gem.Product(gem.Indexed(table, beta + zeta),
-                                         gem.Indexed(vec, beta)),
-                             beta)
-        optimised_value = gem.optimise.contraction(value)
+        table_qi = gem.Indexed(table, beta + zeta)
+        summands = []
+        for var, expr in unconcatenate([(vec_beta, table_qi)], ctx.index_cache):
+            value = gem.IndexSum(gem.Product(expr, var), var.index_ordering())
+            summands.append(gem.optimise.contraction(value))
+        optimised_value = gem.optimise.make_sum(summands)
         value_dict[alpha] = gem.ComponentTensor(optimised_value, zeta)
 
     # Change from FIAT to UFL arrangement
