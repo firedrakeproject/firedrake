@@ -222,6 +222,36 @@ def test_octahedral_sphere_mesh_num_exterior_facets():
     run_octahedral_sphere_mesh_num_exterior_facets()
 
 
+@pytest.mark.parametrize("kind", ("both", "north", "south"))
+def test_hemispherical_octa(kind):
+    expected_bbox = {"both": np.asarray([[-1, -1, -1],
+                                         [1, 1, 1]]),
+                     "north": np.asarray([[-1, -1, 0],
+                                          [1, 1, 1]]),
+                     "south": np.asarray([[-1, -1, -1],
+                                          [1, 1, 0]])}[kind]
+    mesh = UnitOctahedralSphereMesh(1, hemisphere=kind)
+    coords = mesh.coordinates.dat.data_ro
+    bbox = np.asarray([np.min(coords, axis=0), np.max(coords, axis=0)])
+    assert np.allclose(bbox, expected_bbox)
+
+
+def test_invalid_hemispherical_octa():
+    with pytest.raises(ValueError):
+        UnitOctahedralSphereMesh(1, hemisphere="east")
+
+
+@pytest.mark.parametrize("refinement", (-1, 1.2))
+def test_invalid_octa_refinement(refinement):
+    with pytest.raises(ValueError):
+        UnitOctahedralSphereMesh(refinement)
+
+
+def test_invalid_octa_degree():
+    with pytest.raises(ValueError):
+        UnitOctahedralSphereMesh(2, degree=0)
+
+
 @pytest.mark.parallel(nprocs=2)
 def test_octahedral_sphere_mesh_num_exterior_facets_parallel():
     run_octahedral_sphere_mesh_num_exterior_facets()
