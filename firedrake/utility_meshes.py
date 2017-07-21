@@ -938,10 +938,8 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     theta = ufl.conditional(ufl.ge(y0, 0),
                             ufl.pi/2*(1-x0),
                             ufl.pi/2.0*(x0-1))
-    Vc = m.coordinates.function_space()
-    xcone = Function(Vc).interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
-                                                    ufl.sin(theta)*rnew, z]))
-    m.coordinates.assign(xcone)
+    m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
+                                             ufl.sin(theta)*rnew, z]))
 
     # push out to a sphere
     phi = ufl.pi*z/2
@@ -949,10 +947,9 @@ def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
     scale = ufl.conditional(ufl.lt(rnew, tol),
                             0, ufl.cos(phi)/rnew)
     znew = ufl.sin(phi)
-    xsphere = Function(Vc).interpolate(Constant(radius)*ufl.as_vector([x*scale,
-                                                                       y*scale,
-                                                                       znew]))
-    m.coordinates.assign(xsphere)
+    m.coordinates.interpolate(Constant(radius)*ufl.as_vector([x*scale,
+                                                              y*scale,
+                                                              znew]))
     m._radius = radius
     return m
 
