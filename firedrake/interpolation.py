@@ -112,19 +112,19 @@ def make_interpolator(expr, V, subset):
         if len(V) > 1:
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
-        loops.append(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, f.dat, expr, subset))
     elif hasattr(expr, 'eval'):
         if len(V) > 1:
             raise NotImplementedError(
                 "Python expressions for mixed functions are not yet supported.")
-        loops.append(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, f.dat, expr, subset))
     else:
         # Slice the expression and pass in the right number of values for
         # each component function space of this function
         d = 0
         for fs, dat, dim in zip(V, f.dat, dims):
             idx = d if fs.rank == 0 else slice(d, d+dim)
-            loops.append(_interpolator(fs, dat,
+            loops.extend(_interpolator(fs, dat,
                                        SubExpression(expr, idx, fs.ufl_element().value_shape()),
                                        subset))
             d += dim
@@ -185,6 +185,11 @@ def _interpolator(V, dat, expr, subset):
         cell_set = subset
     args = [kernel, cell_set]
 
+    copy_back = False
+    if dat in set((c.dat for c in coefficients)):
+        output = dat
+        dat = op2.Dat(dat.dataset)
+        copy_back = True
     if indexed:
         args.append(dat(op2.WRITE, V.cell_node_map()[op2.i[0]]))
     else:
@@ -195,7 +200,10 @@ def _interpolator(V, dat, expr, subset):
     for coefficient in coefficients:
         args.append(coefficient.dat(op2.READ, coefficient.cell_node_map()))
 
-    return partial(op2.par_loop, *args)
+    if copy_back:
+        return partial(op2.par_loop, *args), partial(dat.copy, output)
+    else:
+        return (partial(op2.par_loop, *args), )
 
 
 class GlobalWrapper(object):
