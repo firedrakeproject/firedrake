@@ -24,7 +24,7 @@ from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked']
 
 
 _cells = {
@@ -32,6 +32,10 @@ _cells = {
     2: {3: "triangle", 4: "quadrilateral"},
     3: {4: "tetrahedron"}
 }
+
+
+unmarked = -1
+"""A mesh marker that selects all entities that are not explicitly marked."""
 
 
 class _Facets(object):
@@ -49,7 +53,7 @@ class _Facets(object):
         self.classes = classes
 
         self.kind = kind
-        assert(kind in ["interior", "exterior"])
+        assert kind in ["interior", "exterior"]
         if kind == "interior":
             self._rank = 2
         else:
@@ -61,9 +65,8 @@ class _Facets(object):
 
         # assert that markers is a proper subset of unique_markers
         if markers is not None:
-            for marker in markers:
-                assert (marker in unique_markers), \
-                    "Every marker has to be contained in unique_markers"
+            assert set(markers) <= set(unique_markers).union([unmarked]), \
+                "Every marker has to be contained in unique_markers"
 
         self.markers = markers
         self.unique_markers = [] if unique_markers is None else unique_markers
@@ -147,8 +150,9 @@ class _Facets(object):
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            if len(set(markers).difference(self.unique_markers)) > 0:
-                invalid = set(markers).difference(self.unique_markers)
+            valid_markers = set([unmarked]).union(self.unique_markers)
+            if len(set(markers).difference(valid_markers)) > 0:
+                invalid = set(markers).difference(valid_markers)
                 raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
 
             # build a list of indices corresponding to the subsets selected by
@@ -490,93 +494,47 @@ class MeshTopology(object):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
-    @utils.cached_property
-    def exterior_facets(self):
-        # If there are no exterior facets on this process, everything
-        # just falls through nicely, so no need to special case.
+    def _facets(self, kind):
+        if kind not in ["interior", "exterior"]:
+            raise ValueError("Unknown facet type '%s'" % kind)
 
-        # Compute the facet_numbering
-        # Order exterior facets by OP2 entity class
-        exterior_facets, exterior_facet_classes = \
-            dmplex.get_facets_by_class(self._plex, b"exterior_facets",
-                                       self._facet_ordering)
-
-        # Derive attached boundary IDs
-        if self._plex.hasLabel(dmplex.FACE_SETS_LABEL):
-            boundary_ids = np.zeros(exterior_facets.size, dtype=IntType)
-            for i, facet in enumerate(exterior_facets):
-                boundary_ids[i] = self._plex.getLabelValue(dmplex.FACE_SETS_LABEL, facet)
-
-            # Determine union of boundary IDs.  All processes must
-            # know the values of all ids, for collective reasons.
-            comm = self.comm
+        dm = self._plex
+        facets, classes = dmplex.get_facets_by_class(dm, (kind + "_facets").encode(),
+                                                     self._facet_ordering)
+        label = dmplex.FACE_SETS_LABEL
+        if dm.hasLabel(label):
             from mpi4py import MPI
+            markers = dmplex.get_facet_markers(dm, facets)
+            local_markers = set(dm.getLabelIdIS(label).indices)
 
             def merge_ids(x, y, datatype):
                 return x.union(y)
 
             op = MPI.Op.Create(merge_ids, commute=True)
 
-            local_ids = set(self._plex.getLabelIdIS(dmplex.FACE_SETS_LABEL).indices)
-            unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
-                                    dtype=IntType)
+            unique_markers = np.asarray(sorted(self.comm.allreduce(local_markers, op=op)),
+                                        dtype=IntType)
             op.Free()
         else:
-            boundary_ids = None
-            unique_ids = None
+            markers = None
+            unique_markers = None
 
-        exterior_local_facet_number, exterior_facet_cell = \
-            dmplex.facet_numbering(self._plex, "exterior",
-                                   exterior_facets,
+        local_facet_number, facet_cell = \
+            dmplex.facet_numbering(dm, kind, facets,
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        return _Facets(self, exterior_facet_classes, "exterior",
-                       exterior_facet_cell, exterior_local_facet_number,
-                       boundary_ids, unique_markers=unique_ids)
+        return _Facets(self, classes, kind,
+                       facet_cell, local_facet_number,
+                       markers, unique_markers=unique_markers)
+
+    @utils.cached_property
+    def exterior_facets(self):
+        return self._facets("exterior")
 
     @utils.cached_property
     def interior_facets(self):
-        # If there are no interior facets on this process, everything
-        # just falls through nicely, so no need to special case.
-
-        # Compute the facet_numbering
-        # Order interior facets by OP2 entity class
-        interior_facets, interior_facet_classes = \
-            dmplex.get_facets_by_class(self._plex, b"interior_facets",
-                                       self._facet_ordering)
-
-        if self._plex.hasLabel(dmplex.FACE_SETS_LABEL):
-            boundary_ids = np.zeros(interior_facets.size, dtype=np.int32)
-            for i, facet in enumerate(interior_facets):
-                boundary_ids[i] = self._plex.getLabelValue(dmplex.FACE_SETS_LABEL, facet)
-
-            # Determine union of boundary IDs.  All processes must
-            # know the values of all ids, for collective reasons.
-            comm = self.comm
-            from mpi4py import MPI
-
-            def merge_ids(x, y, datatype):
-                return x.union(y)
-
-            op = MPI.Op.Create(merge_ids, commute=True)
-
-            local_ids = set(self._plex.getLabelIdIS(dmplex.FACE_SETS_LABEL).indices)
-            unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
-                                    dtype=np.int32)
-            op.Free()
-            unique_ids = np.unique(boundary_ids)
-        else:
-            boundary_ids = None
-            unique_ids = None
-        interior_local_facet_number, interior_facet_cell = \
-            dmplex.facet_numbering(self._plex, "interior",
-                                   interior_facets,
-                                   self._cell_numbering,
-                                   self.cell_closure)
-
-        return _Facets(self, interior_facet_classes, "interior",
-                       interior_facet_cell, interior_local_facet_number, boundary_ids, unique_markers=unique_ids)
+        return self._facets("interior")
 
     @utils.cached_property
     def cell_to_facets(self):
