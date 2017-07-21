@@ -487,7 +487,8 @@ cells in each direction are not currently supported")
 
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder,
                   comm=comm)
-    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    coord_family = 'DQ' if quadrilateral else 'DG'
+    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
@@ -1312,7 +1313,8 @@ cells in each direction are not currently supported")
 
     m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder, comm=comm)
-    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    coord_family = 'DQ' if quadrilateral else 'DG'
+    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
