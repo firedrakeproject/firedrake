@@ -39,7 +39,7 @@ def project(v, V, bcs=None, mesh=None,
                  projection. The other option would be to use the method
                  "average," which performs the projection using weighted
                  averages. This should only be used if you're projecting
-                 from a discontinuous space to a continuous one. That is,
+                 from a discontinuous space to a continuous one. For example,
                  DG -> CG or Broken Raviart-Thomas -> Raviart-Thomas.
     :arg name: name of the resulting :class:`.Function`
 
@@ -122,7 +122,7 @@ class Projector(object):
                  projection. The other option would be to use the method
                  "average," which performs the projection using weighted
                  averages. This should only be used if you're projecting
-                 from a discontinuous space to a continuous one. That is,
+                 from a discontinuous space to a continuous one. For example,
                  DG -> CG or Broken Raviart-Thomas -> Raviart-Thomas.
     """
 
