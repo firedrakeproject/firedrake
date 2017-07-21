@@ -186,14 +186,6 @@ def _from_gmsh(filename, comm=None):
     gmsh_viewer.setFileName(filename)
     gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, comm=comm)
 
-    if gmsh_plex.hasLabel("Face Sets"):
-        boundary_ids = gmsh_plex.getLabelIdIS("Face Sets").getIndices()
-        gmsh_plex.createLabel("boundary_ids")
-        for bid in boundary_ids:
-            faces = gmsh_plex.getStratumIS("Face Sets", bid).getIndices()
-            for f in faces:
-                gmsh_plex.setLabelValue("boundary_ids", f, bid)
-
     return gmsh_plex
 
 
@@ -204,14 +196,6 @@ def _from_exodus(filename, comm):
     """
     plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
 
-    if plex.hasLabel("Face Sets"):
-        boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
-        plex.createLabel("boundary_ids")
-        for bid in boundary_ids:
-            faces = plex.getStratumIS("Face Sets", bid).getIndices()
-            for f in faces:
-                plex.setLabelValue("boundary_ids", f, bid)
-
     return plex
 
 
@@ -221,8 +205,6 @@ def _from_cgns(filename, comm):
     :arg comm: communicator to build the mesh on.
     """
     plex = PETSc.DMPlex().createCGNSFromFile(filename, comm=comm)
-
-    # TODO: Add boundary IDs
     return plex
 
 
@@ -289,7 +271,7 @@ def _from_triangle(filename, dim, comm):
                 bid = facet[-1]
                 vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
                 join = plex.getJoin(vertices)
-                plex.setLabelValue("boundary_ids", join[0], bid)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, join[0], bid)
 
     free_comm(comm)
     return plex
@@ -520,10 +502,10 @@ class MeshTopology(object):
                                        self._facet_ordering)
 
         # Derive attached boundary IDs
-        if self._plex.hasLabel("boundary_ids"):
+        if self._plex.hasLabel(dmplex.FACE_SETS_LABEL):
             boundary_ids = np.zeros(exterior_facets.size, dtype=IntType)
             for i, facet in enumerate(exterior_facets):
-                boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
+                boundary_ids[i] = self._plex.getLabelValue(dmplex.FACE_SETS_LABEL, facet)
 
             # Determine union of boundary IDs.  All processes must
             # know the values of all ids, for collective reasons.
@@ -535,7 +517,7 @@ class MeshTopology(object):
 
             op = MPI.Op.Create(merge_ids, commute=True)
 
-            local_ids = set(self._plex.getLabelIdIS("boundary_ids").indices)
+            local_ids = set(self._plex.getLabelIdIS(dmplex.FACE_SETS_LABEL).indices)
             unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
                                     dtype=IntType)
             op.Free()
@@ -564,11 +546,10 @@ class MeshTopology(object):
             dmplex.get_facets_by_class(self._plex, b"interior_facets",
                                        self._facet_ordering)
 
-        label = "Face Sets"
-        if self._plex.hasLabel(label):
+        if self._plex.hasLabel(dmplex.FACE_SETS_LABEL):
             boundary_ids = np.zeros(interior_facets.size, dtype=np.int32)
             for i, facet in enumerate(interior_facets):
-                boundary_ids[i] = self._plex.getLabelValue(label, facet)
+                boundary_ids[i] = self._plex.getLabelValue(dmplex.FACE_SETS_LABEL, facet)
 
             # Determine union of boundary IDs.  All processes must
             # know the values of all ids, for collective reasons.
@@ -580,7 +561,7 @@ class MeshTopology(object):
 
             op = MPI.Op.Create(merge_ids, commute=True)
 
-            local_ids = set(self._plex.getLabelIdIS(label).indices)
+            local_ids = set(self._plex.getLabelIdIS(dmplex.FACE_SETS_LABEL).indices)
             unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
                                     dtype=np.int32)
             op.Free()

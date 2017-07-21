@@ -21,6 +21,10 @@ cdef extern from "mpi-compat.h":
 include "dmplexinc.pxi"
 
 
+FACE_SETS_LABEL = "Face Sets"
+CELL_SETS_LABEL = "Cell Sets"
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def facet_numbering(PETSc.DM plex, kind,
@@ -872,13 +876,13 @@ def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
         np.ndarray[PetscInt, ndim=1, mode="c"] cells
         np.ndarray[PetscInt, ndim=1, mode="c"] indices
 
-    if not plex.hasLabel("Cell Sets"):
+    if not plex.hasLabel(CELL_SETS_LABEL):
         return np.empty(0, dtype=IntType)
-    vals = plex.getLabelIdIS("Cell Sets").indices
+    vals = plex.getLabelIdIS(CELL_SETS_LABEL).indices
     if subdomain_id not in vals:
         raise ValueError("Invalid subdomain_id %d not in %s" % (subdomain_id, vals))
 
-    indices = plex.getStratumIS("Cell Sets", subdomain_id).indices
+    indices = plex.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
     cells = np.empty(indices.shape[0], dtype=IntType)
     cEnd = indices.shape[0]
     for i in range(cEnd):
