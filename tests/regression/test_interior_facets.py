@@ -140,6 +140,24 @@ def test_interior_facet_vfs_vert_mixed():
     assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
 
 
+@pytest.fixture
+def circle_in_square_mesh():
+    from os.path import abspath, join, dirname
+    cwd = abspath(dirname(__file__))
+    return Mesh(join(cwd, "..", "meshes", "circle_in_square.msh"))
+
+
+def test_interior_facet_integration(circle_in_square_mesh):
+    V = FunctionSpace(circle_in_square_mesh, "CG", 1)
+    f = Function(V)
+    f.interpolate(Constant(1.0))
+    assert np.allclose(assemble(f*ds(1)), 16.0)
+    assert np.allclose(assemble(f*dS(2)), 2*pi, rtol=1e-2)
+
+    assert np.allclose(assemble(f*dS),
+                       assemble(f*dS(2)) + assemble(f*dS(unmarked)))
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
