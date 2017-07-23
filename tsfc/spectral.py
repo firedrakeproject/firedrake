@@ -4,7 +4,7 @@ from six.moves import map, zip
 from functools import partial
 from itertools import chain
 
-from gem import index_sum
+from gem import Delta, Indexed, index_sum
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import sum_factorise as _sum_factorise
 from gem.optimise import unroll_indexsum
@@ -45,17 +45,21 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
             for e in expressions]
 
 
-def flatten(var_reps):
-    # Classifier for argument factorisation
-    def classify(argument_indices, expression):
-        n = len(argument_indices.intersection(expression.free_indices))
-        if n == 0:
-            return OTHER
-        elif n == 1:
+def classify(argument_indices, expression):
+    """Classifier for argument factorisation"""
+    n = len(argument_indices.intersection(expression.free_indices))
+    if n == 0:
+        return OTHER
+    elif n == 1:
+        if isinstance(expression, (Delta, Indexed)):
             return ATOMIC
         else:
             return COMPOUND
+    else:
+        return COMPOUND
 
+
+def flatten(var_reps):
     for variable, reps in var_reps:
         # Destructure representation
         argument_indicez, expressions = zip(*reps)
@@ -74,4 +78,4 @@ def flatten(var_reps):
                 yield (variable, sum_factorise(*monomial))
 
 
-finalise_options = {}
+finalise_options = dict(remove_componenttensors=False)

@@ -5,19 +5,19 @@ import itertools
 from functools import partial
 from six import iteritems, iterkeys
 from collections import defaultdict
-from gem.optimise import (replace_division, make_sum, make_product,
-                          unroll_indexsum, replace_delta, remove_componenttensors)
-from gem.refactorise import Monomial, ATOMIC, COMPOUND, OTHER, collect_monomials
+from gem.optimise import make_sum, make_product, replace_division, unroll_indexsum
+from gem.refactorise import Monomial, collect_monomials
 from gem.node import traversal
-from gem.gem import Indexed, IndexSum, Failure, one, index_sum
+from gem.gem import IndexSum, Failure, one, index_sum
 from gem.utils import groupby
 
-
 import tsfc.vanilla as vanilla
+from tsfc.spectral import classify
+
 
 flatten = vanilla.flatten
 
-finalise_options = dict(replace_delta=False, remove_componenttensors=False)
+finalise_options = dict(remove_componenttensors=False)
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
@@ -41,8 +41,6 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
         expressions = unroll_indexsum(expressions, predicate=predicate)
     # Choose GEM expression as the integral representation
     expressions = [index_sum(e, quadrature_multiindex) for e in expressions]
-    expressions = replace_delta(expressions)
-    expressions = remove_componenttensors(expressions)
     expressions = replace_division(expressions)
     argument_indices = tuple(itertools.chain(*argument_multiindices))
     return optimise_expressions(expressions, argument_indices)
@@ -60,18 +58,6 @@ def optimise_expressions(expressions, argument_indices):
     for n in traversal(expressions):
         if isinstance(n, Failure):
             return expressions
-
-    def classify(argument_indices, expression):
-        n = len(argument_indices.intersection(expression.free_indices))
-        if n == 0:
-            return OTHER
-        elif n == 1:
-            if isinstance(expression, Indexed):
-                return ATOMIC
-            else:
-                return COMPOUND
-        else:
-            return COMPOUND
 
     # Apply argument factorisation unconditionally
     classifier = partial(classify, set(argument_indices))

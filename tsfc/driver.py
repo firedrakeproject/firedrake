@@ -8,6 +8,8 @@ import time
 from functools import reduce
 from itertools import chain
 
+from numpy import asarray
+
 import ufl
 from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
@@ -144,6 +146,19 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         # the estimated polynomial degree attached by compute_form_data
         quadrature_degree = params.get("quadrature_degree",
                                        params["estimated_polynomial_degree"])
+        try:
+            quadrature_degree = params["quadrature_degree"]
+        except KeyError:
+            quadrature_degree = params["estimated_polynomial_degree"]
+            functions = list(arguments) + [coordinates] + list(integral_data.integral_coefficients)
+            function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
+            if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
+                   for degree in function_degrees):
+                logger.warning("Estimated quadrature degree %d more "
+                               "than tenfold greater than any "
+                               "argument/coefficient degree (max %d)",
+                               quadrature_degree, max(function_degrees))
+
         try:
             quad_rule = params["quadrature_rule"]
         except KeyError:

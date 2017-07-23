@@ -28,9 +28,7 @@ from functools import partial
 import weakref
 
 import FIAT
-from FIAT.reference_element import FiredrakeQuadrilateral
-from FIAT.dual_set import DualSet
-from FIAT.quadrature import QuadratureRule  # noqa
+from FIAT.tensor_product import FlattenedDimensions
 
 import ufl
 
@@ -66,77 +64,6 @@ supported_elements = {
 FIAT-equivalent constructors.  If the value is ``None``, the UFL
 element is supported, but must be handled specially because it doesn't
 have a direct FIAT equivalent."""
-
-
-class FlattenToQuad(FIAT.FiniteElement):
-    """A wrapper class that flattens a FIAT quadrilateral element defined
-    on a TensorProductCell to one with FiredrakeQuadrilateral entities
-    and tabulation properties."""
-
-    def __init__(self, element):
-        """ Constructs a FlattenToQuad element.
-
-        :arg element: a fiat element
-        """
-        nodes = element.dual.nodes
-        ref_el = FiredrakeQuadrilateral()
-        entity_ids = element.dual.entity_ids
-
-        flat_entity_ids = {}
-        flat_entity_ids[0] = entity_ids[(0, 0)]
-        flat_entity_ids[1] = dict(enumerate(
-            [v for k, v in sorted(entity_ids[(0, 1)].items())] +
-            [v for k, v in sorted(entity_ids[(1, 0)].items())]
-        ))
-        flat_entity_ids[2] = entity_ids[(1, 1)]
-        dual = DualSet(nodes, ref_el, flat_entity_ids)
-        super(FlattenToQuad, self).__init__(ref_el, dual,
-                                            element.get_order(),
-                                            element.get_formdegree(),
-                                            element._mapping)
-        self.element = element
-
-    def degree(self):
-        """Return the degree of the (embedding) polynomial space."""
-        return self.element.degree()
-
-    def tabulate(self, order, points, entity=None):
-        """Return tabulated values of derivatives up to a given order of
-        basis functions at given points.
-
-        :arg order: The maximum order of derivative.
-        :arg points: An iterable of points.
-        :arg entity: Optional (dimension, entity number) pair
-                     indicating which topological entity of the
-                     reference element to tabulate on.  If ``None``,
-                     default cell-wise tabulation is performed.
-        """
-        if entity is None:
-            entity = (2, 0)
-
-        # Entity is provided in flattened form (d, i)
-        # We factor the entity and construct an appropriate
-        # entity id for a TensorProductCell: ((d1, d2), i)
-        entity_dim, entity_id = entity
-        if entity_dim == 2:
-            assert entity_id == 0
-            product_entity = ((1, 1), 0)
-        elif entity_dim == 1:
-            facets = [((0, 1), 0),
-                      ((0, 1), 1),
-                      ((1, 0), 0),
-                      ((1, 0), 1)]
-            product_entity = facets[entity_id]
-        elif entity_dim == 0:
-            raise NotImplementedError("Not implemented for 0 dimension entities")
-        else:
-            raise ValueError("Illegal entity dimension %s" % entity_dim)
-
-        return self.element.tabulate(order, points, product_entity)
-
-    def value_shape(self):
-        """Return the value shape of the finite element functions."""
-        return self.element.value_shape()
 
 
 def as_fiat_cell(cell):
@@ -186,7 +113,7 @@ def _(element, vector_is_mixed):
                              element.family())
         # Handle quadrilateral short names like RTCF and RTCE.
         element = element.reconstruct(cell=quad_tpc)
-        return FlattenToQuad(create_element(element, vector_is_mixed))
+        return FlattenedDimensions(create_element(element, vector_is_mixed))
 
     kind = element.variant()
     if kind is None:

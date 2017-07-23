@@ -4,13 +4,13 @@ import pytest
 import numpy as np
 
 from FIAT.reference_element import UFCInterval, UFCTriangle, UFCTetrahedron
-from FIAT.reference_element import FiredrakeQuadrilateral, TensorProductCell
+from FIAT.reference_element import UFCQuadrilateral, TensorProductCell
 
 from tsfc.fem import make_cell_facet_jacobian
 
 interval = UFCInterval()
 triangle = UFCTriangle()
-quadrilateral = FiredrakeQuadrilateral()
+quadrilateral = UFCQuadrilateral()
 tetrahedron = UFCTetrahedron()
 interval_x_interval = TensorProductCell(interval, interval)
 triangle_x_interval = TensorProductCell(triangle, interval)
