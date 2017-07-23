@@ -157,10 +157,7 @@ def find_optimal_atomics(monomials, argument_indices):
         # Solution is only feasible if it intersects with all monomials
         # Potentially can improve this by keeping track of violated constraints
         # and suggest the next atomic to try (instead of just returning True or False)
-        for monomial in monomials:
-            if not solution.intersection(monomial.atomics):
-                return False
-        return True
+        return all(solution.intersection(monomial.atomics) for monomial in monomials)
 
     def compare(sol1, sol2):
         if len(sol1) == len(sol2):
