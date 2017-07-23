@@ -142,10 +142,12 @@ def find_optimal_atomics(monomials, argument_indices):
     :returns: list of atomic GEM expressions
     """
     atomics = OrderedDict()
+    idx = 0
     for monomial in monomials:
         for atomic in monomial.atomics:
-            atomics[atomic] = 0
-    atomics = list(atomics.keys())
+            if atomic not in atomics:
+                atomics[atomic] = idx
+                idx += 1
 
     if len(atomics) <= 1:
         return tuple(atomics)
@@ -165,7 +167,7 @@ def find_optimal_atomics(monomials, argument_indices):
         else:
             return len(sol1) < len(sol2)
 
-    return tuple(sorted(solve_ip(atomics, is_feasible, compare)))
+    return tuple(sorted(solve_ip(list(atomics.keys()), is_feasible, compare), key=atomics.get))
 
 
 def factorise_atomics(monomials, optimal_atomics, argument_indices):
