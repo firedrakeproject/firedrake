@@ -3,8 +3,7 @@ from __future__ import absolute_import, print_function, division
 import numpy
 import itertools
 from functools import partial
-from six import iteritems, iterkeys
-from collections import defaultdict
+from collections import OrderedDict
 from gem.optimise import make_sum, make_product, replace_division, unroll_indexsum
 from gem.refactorise import Monomial, collect_monomials
 from gem.node import traversal
@@ -94,42 +93,37 @@ def monomial_sum_to_expression(monomial_sum):
     return make_sum(indexsums)
 
 
-def solve_ip(size, is_feasible, compare):
+def solve_ip(variables, is_feasible, compare):
     """Solve a 0-1 integer programming problem. The algorithm tries to set each
     variable to 1 recursively, and stop the recursion early by comparing with
     the optimal solution at entry. At worst case this is 2^N (as this is a
     NP-hard problem), but recursions can be trimmed as soon as a reasonable
-    solution have been found. One potential improvement is to keep track of
-    violated constraints at each step, and only try to set the variables which
-    could help these constraints in the next step. This will help find decent
-    solutions faster with the additional overhead of maintaining a list of
-    violated constraints and finding helpful variables.
+    solution have been found.
 
-    :param size: number of 0-1 variables
+    :param varialbes: list of unique 0-1 variables
     :param is_feasible: function to test if a combination is feasible
     :param compare: function to compare two solutions, compare(s1, s2) returns
            True if s1 is a better solution than s2, and False otherwise
     :returns: optimal solution represented as a set of variables with value 1
     """
 
-    optimal_solution = set(range(size))  # start by choosing all atomics
+    optimal_solution = set(variables)  # start by choosing all atomics
     solution = set()
 
     def solve(idx):
-        if idx >= size:
+        if idx >= len(variables):
             return
         if not compare(solution, optimal_solution):
             return
-        solution.add(idx)
+        solution.add(variables[idx])
         if is_feasible(solution):
             if compare(solution, optimal_solution):
                 optimal_solution.clear()
                 optimal_solution.update(solution)
-            # No need to search further
-            # as adding more variable will only make the solution worse
+            # No need to search further as adding more variable will only make the solution worse
         else:
             solve(idx + 1)
-        solution.remove(idx)
+        solution.remove(variables[idx])
         solve(idx + 1)
 
     solve(0)
@@ -147,39 +141,34 @@ def find_optimal_atomics(monomials, argument_indices):
 
     :returns: list of atomic GEM expressions
     """
-    atomic_index = defaultdict(partial(next, itertools.count()))  # atomic -> int
-    connections = []
-    # add connections (list of sets, items in each tuple form a product)
+    atomics = OrderedDict()
     for monomial in monomials:
-        connections.append(set(map(lambda a: atomic_index[a], monomial.atomics)))
+        for atomic in monomial.atomics:
+            atomics[atomic] = 0
+    atomics = list(atomics.keys())
 
-    num_atomics = len(atomic_index)
-    if num_atomics <= 1:
-        return tuple(iterkeys(atomic_index))
+    if len(atomics) <= 1:
+        return tuple(atomics)
 
     def calculate_extent(solution):
-        extent = 0
-        for atomic, index in iteritems(atomic_index):
-            if index in solution:
-                extent += index_extent(atomic, argument_indices)
-        return extent
+        return sum(map(lambda atomic: index_extent(atomic, argument_indices), solution))
 
     def is_feasible(solution):
-        for conn in connections:
-            if not solution.intersection(conn):
+        # Solution is only feasible if it intersects with all monomials
+        # Potentially can improve this by keeping track of violated constraints
+        # and suggest the next atomic to try (instead of just returning True or False)
+        for monomial in monomials:
+            if not solution.intersection(monomial.atomics):
                 return False
         return True
 
     def compare(sol1, sol2):
-        if len(sol1) < len(sol2):
-            return True
-        elif len(sol1) > len(sol2):
-            return False
-        else:
+        if len(sol1) == len(sol2):
             return calculate_extent(sol1) > calculate_extent(sol2)
+        else:
+            return len(sol1) < len(sol2)
 
-    optimal_solution = solve_ip(num_atomics, is_feasible, compare)
-    return tuple(sorted([a for a, i in iteritems(atomic_index) if i in optimal_solution], key=atomic_index.get))
+    return tuple(sorted(solve_ip(atomics, is_feasible, compare)))
 
 
 def factorise_atomics(monomials, optimal_atomics, argument_indices):
