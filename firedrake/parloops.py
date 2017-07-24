@@ -255,8 +255,8 @@ def par_loop(kernel, measure, args, **kwargs):
     op2args.append(_map['itspace'](mesh, measure))
 
     def mkarg(f, intent):
-        if isinstance(func, Indexed):
-            c, i = func.ufl_operands
+        if isinstance(f, Indexed):
+            c, i = f.ufl_operands
             idx = i._indices[0]._value
             m = _map['nodes'](c)
             return c.dat[idx](intent, m.split[idx] if m else None)
