@@ -246,7 +246,7 @@ execute the time loop. ::
 
     # Store solutions to xml and pvd
     t += Dt
-    print t
+    print(t)
 
     tdump += 1
     if tdump == dumpfreq:

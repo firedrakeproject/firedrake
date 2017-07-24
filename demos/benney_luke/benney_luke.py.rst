@@ -189,7 +189,7 @@ from piecewise quadratic functions to piecewise linears::
 We are now ready to enter the main time iteration loop::
 
   while t < T:
-        print t, abs((E-E0)/E0)
+        print(t, abs((E-E0)/E0))
         t += dt
 
         t_.assign(t)

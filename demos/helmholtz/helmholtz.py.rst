@@ -129,6 +129,6 @@ Alternatively, since we have an analytic solution, we can check the
 :math:`L_2` norm of the error in the solution::
 
   f.interpolate(cos(x*pi*2)*cos(y*pi*2))
-  print sqrt(assemble(dot(u - f, u - f) * dx))
+  print(sqrt(assemble(dot(u - f, u - f) * dx)))
 
 A python script version of this demo can be found `here <helmholtz.py>`__.

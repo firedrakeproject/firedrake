@@ -91,7 +91,7 @@ Let's start with our first test.  We'll confirm a working solve by
 using a direct method. ::
 
   u = run_solve({"ksp_type": "preonly", "pc_type": "lu"})
-  print 'LU solve error', error(u)
+  print('LU solve error', error(u))
 
 Next we'll use the conjugate gradient method preconditioned by a
 geometric multigrid V-cycle.  Firedrake automatically takes care of
@@ -99,7 +99,7 @@ rediscretising the operator on coarse grids, and providing the number
 of levels to PETSc. ::
 
   u = run_solve({"ksp_type": "cg", "pc_type": "mg"})
-  print 'MG V-cycle + CG error', error(u)
+  print('MG V-cycle + CG error', error(u))
 
 For such a simple problem, an appropriately configured multigrid solve
 can achieve algebraic error equal to discretisation error in one
@@ -119,7 +119,7 @@ appropriate settings using solver parameters. ::
   }
 
   u = run_solve(parameters)
-  print 'MG F-cycle error', error(u)
+  print('MG F-cycle error', error(u))
      
 A saddle-point system: The Stokes equations
 -------------------------------------------

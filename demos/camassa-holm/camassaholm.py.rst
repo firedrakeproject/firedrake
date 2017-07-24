@@ -191,7 +191,7 @@ The energy can be computed and checked. ::
 
   #
      E = assemble((u0*u0 + alphasq*u0.dx(0)*u0.dx(0))*dx)
-     print "t = ", t, "E = ", E
+     print("t = ", t, "E = ", E)
 
 To implement the timestepping algorithm, we just call the solver, and assign
 ``w1`` to ``w0``. ::
