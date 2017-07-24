@@ -539,7 +539,7 @@ def _bezier_calculate_points(function):
     basis = fiat_element.dual_basis()
     for i in range(deg + 1):
         for j in range(deg + 1):
-            M[i, j] = _bernstein(basis[j].get_point_dict().keys()[0][0],
+            M[i, j] = _bernstein(list(basis[j].get_point_dict().keys())[0][0],
                                  i, deg)
     M_inv = np.linalg.inv(M)
     cell_node_list = function.function_space().cell_node_list
