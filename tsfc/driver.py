@@ -273,8 +273,11 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     # Set the scalar type
     set_scalar_type(parameters["scalar_type"])
 
+    # determine if we're in complex mode
+    complx = parameters and parameters["scalar_type"] is 'double complex'
+
     # Apply UFL preprocessing
-    expression = ufl_utils.preprocess_expression(expression)
+    expression = ufl_utils.preprocess_expression(expression, complex_mode=complx)
 
     # Initialise kernel builder
     builder = firedrake_interface.ExpressionKernelBuilder()
