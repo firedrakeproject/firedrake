@@ -102,7 +102,7 @@ class WithGeometry(ufl.FunctionSpace):
         from firedrake.functionspacedata import get_work_function_cache, set_max_work_functions
         cache = get_work_function_cache(self.mesh(), self.ufl_element())
         if val < len(cache):
-            for k in cache.keys():
+            for k in list(cache.keys()):
                 if not cache[k]:
                     del cache[k]
             if val < len(cache):
