@@ -468,7 +468,7 @@ def create_cell_node_map(coarse, fine, np.ndarray[PetscInt, ndim=2, mode="c"] c2
 
     fiat_element = create_element(coarse.ufl_element(), vector_is_mixed=False)
     perms = utils.get_node_permutations(fiat_element)
-    permutations = np.empty((len(perms), len(perms.values()[0])), dtype=np.int32)
+    permutations = np.empty((len(perms), len(next(iter(perms.values())))), dtype=np.int32)
     for k, v in perms.iteritems():
         if tdim == 1:
             permutations[k[0], :] = v[:]
