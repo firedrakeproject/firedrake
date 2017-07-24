@@ -8,6 +8,15 @@ import sys
 import numpy as np
 import petsc4py
 
+try:
+    from Cython.Distutils.extension import Extension
+    if '--with-scalar-type=complex' in env.get('PETSC_CONFIGURE_OPTIONS', ''):
+        complx = True
+except ImportError:
+    # No Cython extension means no complex mode!
+    from distutils.extension import Extension
+    complx = False
+
 
 def get_petsc_dir():
     try:
@@ -58,6 +67,7 @@ except ImportError:
 if 'CC' not in env:
     env['CC'] = "mpicc"
 
+
 petsc_dirs = get_petsc_dir()
 include_dirs = [np.get_include(), petsc4py.get_include()]
 include_dirs += ["%s/include" % d for d in petsc_dirs]
@@ -83,7 +93,8 @@ setup(name='firedrake',
                              libraries=["petsc"],
                              extra_link_args=["-L%s/lib" % d for d in petsc_dirs] +
                              ["-Wl,-rpath,%s/lib" % d for d in petsc_dirs] +
-                             ["-Wl,-rpath,%s/lib" % sys.prefix]),
+                             ["-Wl,-rpath,%s/lib" % sys.prefix],
+                             cython_compile_time_env={'COMPLEX':complx}),
                    Extension('firedrake.hdf5interface',
                              sources=h5iface_sources,
                              include_dirs=include_dirs,
