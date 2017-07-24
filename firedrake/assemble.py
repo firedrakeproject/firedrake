@@ -1,7 +1,5 @@
 from __future__ import absolute_import, print_function, division
 import numpy
-import operator
-import functools
 import ufl
 from collections import defaultdict
 
@@ -141,7 +139,11 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
                       inverse=inverse, mat_type=mat_type,
                       sub_mat_type=sub_mat_type,
                       collect_loops=True)
-    return functools.partial(map, operator.methodcaller("__call__"), loops)
+
+    def thunk():
+        for kernel in loops:
+            kernel()
+    return thunk
 
 
 @utils.known_pyop2_safe
