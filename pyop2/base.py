@@ -789,6 +789,10 @@ class GlobalSet(Set):
         # Currently all GlobalSets compare equal.
         return isinstance(other, GlobalSet)
 
+    def __hash__(self):
+        # Currently all GlobalSets compare equal.
+        return hash(type(self))
+
 
 class ExtrudedSet(Set):
 
