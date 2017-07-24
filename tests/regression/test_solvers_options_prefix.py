@@ -22,7 +22,7 @@ def opts(request, prefix, global_parameters):
     if prefix is None:
         prefix = ""
 
-    for k, v in global_parameters.iteritems():
+    for k, v in global_parameters.items():
         opts[prefix + k] = v
 
     # Pretend these came from the commandline

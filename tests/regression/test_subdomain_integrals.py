@@ -72,7 +72,7 @@ def test_cell_facet_subdomains(square, forms):
     V = FunctionSpace(square, "CG", 1)
     v = TestFunction(V)         # noqa
     u = TrialFunction(V)        # noqa
-    forms = map(eval, forms)
+    forms = list(map(eval, forms))
     full = reduce(add, forms)
     full_mat = assemble(full).M.values
     part_mat = reduce(add, map(lambda x: assemble(x).M.values, forms))
