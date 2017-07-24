@@ -718,7 +718,7 @@ class Set(object):
         if slot.shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
-        return cls(size[0], name)
+        return cls(int(size[0]), name)
 
 
 class GlobalSet(Set):
