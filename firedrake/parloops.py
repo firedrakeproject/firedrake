@@ -68,7 +68,7 @@ def _form_kernel(kernel, measure, args, **kwargs):
     kargs = []
     lkernel = kernel
 
-    for var, (func, intent) in args.iteritems():
+    for var, (func, intent) in args.items():
         if isinstance(func, constant.Constant):
             if intent is not READ:
                 raise RuntimeError("Only READ access is allowed to Constant")
@@ -218,13 +218,13 @@ def par_loop(kernel, measure, args, **kwargs):
     # Ensure that the dict args passed in are consistently ordered
     # (sorted by the string key).
     sorted_args = collections.OrderedDict()
-    for k in sorted(args.iterkeys()):
+    for k in sorted(args.keys()):
         sorted_args[k] = args[k]
     args = sorted_args
 
     if measure is direct:
         mesh = None
-        for (func, intent) in args.itervalues():
+        for (func, intent) in args.values():
             if isinstance(func, Indexed):
                 c, i = func.ufl_operands
                 idx = i._indices[0]._value
@@ -243,7 +243,7 @@ def par_loop(kernel, measure, args, **kwargs):
             raise TypeError("No Functions passed to direct par_loop")
     else:
         domains = []
-        for func, _ in args.itervalues():
+        for func, _ in args.values():
             domains.extend(func.ufl_domains())
         domains = join_domains(domains)
         # Assume only one domain
@@ -261,6 +261,6 @@ def par_loop(kernel, measure, args, **kwargs):
             m = _map['nodes'](c)
             return c.dat[idx](intent, m.split[idx] if m else None)
         return f.dat(intent, _map['nodes'](f))
-    op2args += [mkarg(func, intent) for (func, intent) in args.itervalues()]
+    op2args += [mkarg(func, intent) for (func, intent) in args.values()]
 
     return pyop2.par_loop(*op2args)
