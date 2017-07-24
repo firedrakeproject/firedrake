@@ -590,7 +590,7 @@ def auxiliary_temporaries(builder, declared_temps):
 
 def parenthesize(arg, prec=None, parent=None):
     """Parenthesizes an expression."""
-    if prec is None or prec >= parent:
+    if prec is None or parent is None or prec >= parent:
         return arg
     return "(%s)" % arg
 
