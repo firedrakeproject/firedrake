@@ -93,17 +93,16 @@ def monomial_sum_to_expression(monomial_sum):
     return make_sum(indexsums)
 
 
-def solve_ip(variables, is_feasible, compare):
+def solve_ip(variables, is_feasible, key):
     """Solve a 0-1 integer programming problem. The algorithm tries to set each
     variable to 1 recursively, and stop the recursion early by comparing with
     the optimal solution at entry. At worst case this is 2^N (as this is a
     NP-hard problem), but recursions can be trimmed as soon as a reasonable
     solution have been found.
 
-    :param varialbes: list of unique 0-1 variables
+    :param variables: list of unique 0-1 variables
     :param is_feasible: function to test if a combination is feasible
-    :param compare: function to compare two solutions, compare(s1, s2) returns
-           True if s1 is a better solution than s2, and False otherwise
+    :param key: function to use when comparing solutions.
     :returns: optimal solution represented as a set of variables with value 1
     """
 
@@ -113,14 +112,15 @@ def solve_ip(variables, is_feasible, compare):
     def solve(idx):
         if idx >= len(variables):
             return
-        if not compare(solution, optimal_solution):
+        if key(solution) >= key(optimal_solution):
             return
         solution.add(variables[idx])
         if is_feasible(solution):
-            if compare(solution, optimal_solution):
+            if key(solution) < key(optimal_solution):
                 optimal_solution.clear()
                 optimal_solution.update(solution)
-            # No need to search further as adding more variable will only make the solution worse
+            # No need to search further as adding more variables will
+            # only make the solution worse.
         else:
             solve(idx + 1)
         solution.remove(variables[idx])
@@ -141,19 +141,7 @@ def find_optimal_atomics(monomials, argument_indices):
 
     :returns: list of atomic GEM expressions
     """
-    atomics = OrderedDict()
-    idx = 0
-    for monomial in monomials:
-        for atomic in monomial.atomics:
-            if atomic not in atomics:
-                atomics[atomic] = idx
-                idx += 1
-
-    if len(atomics) <= 1:
-        return tuple(atomics)
-
-    def calculate_extent(solution):
-        return sum(map(lambda atomic: index_extent(atomic, argument_indices), solution))
+    atomics = tuple(OrderedDict.fromkeys(itertools.chain(*(monomial.atomics for monomial in monomials))))
 
     def is_feasible(solution):
         # Solution is only feasible if it intersects with all monomials
@@ -161,13 +149,13 @@ def find_optimal_atomics(monomials, argument_indices):
         # and suggest the next atomic to try (instead of just returning True or False)
         return all(solution.intersection(monomial.atomics) for monomial in monomials)
 
-    def compare(sol1, sol2):
-        if len(sol1) == len(sol2):
-            return calculate_extent(sol1) > calculate_extent(sol2)
-        else:
-            return len(sol1) < len(sol2)
+    def cost(solution):
+        extent = sum(map(lambda atomic: index_extent(atomic, argument_indices), solution))
+        # Prefer shorter solutions, but larger extents
+        return (len(solution), -extent)
 
-    return tuple(sorted(solve_ip(list(atomics.keys()), is_feasible, compare), key=atomics.get))
+    optimal_atomics = solve_ip(atomics, is_feasible, key=cost)
+    return tuple(atomic for atomic in atomics if atomic in optimal_atomics)
 
 
 def factorise_atomics(monomials, optimal_atomics, argument_indices):
