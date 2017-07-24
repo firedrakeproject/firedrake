@@ -12,6 +12,8 @@ from ufl.algorithms.apply_function_pullbacks import apply_function_pullbacks
 from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
+from ufl.algorithms.comparison_checker import do_comparison_check
+from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
 from ufl.geometry import QuadratureWeight
@@ -81,12 +83,14 @@ def one_times(measure):
     return integrand, degree
 
 
-def preprocess_expression(expression):
+def preprocess_expression(expression, complex_mode=False):
     """Imitates the compute_form_data processing pipeline.
 
     Useful, for example, to preprocess non-scalar expressions, which
     are not and cannot be forms.
     """
+    if complex_mode:
+        expression = do_comparison_check(expression)
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
     expression = apply_function_pullbacks(expression)
@@ -94,6 +98,8 @@ def preprocess_expression(expression):
     expression = apply_derivatives(expression)
     expression = apply_geometry_lowering(expression, preserve_geometry_types)
     expression = apply_derivatives(expression)
+    if not complex_mode:
+        expression = remove_complex_nodes(expression)
     return expression
 
 
