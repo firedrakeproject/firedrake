@@ -97,8 +97,8 @@ for dir in sorted(os.listdir(firedrake_env + "/src")):
         else:
             raise
     try:
-        revision = check_output(["git", "rev-parse", "--short", "HEAD"]).strip()
-        branch = check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+        revision = check_output(["git", "rev-parse", "--short", "HEAD"]).decode('ascii').strip()
+        branch = check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).decode('ascii').strip()
     except:
         log.error("Unable to retrieve git information from %s." % dir)
     else:
