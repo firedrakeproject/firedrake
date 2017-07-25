@@ -3815,9 +3815,10 @@ class Kernel(Cached):
         # HACK: Temporary fix!
         if isinstance(code, Node):
             code = code.gencode()
-        return md5(six.b(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                         str(headers) + version + str(configuration['loop_fusion']) +
-                         str(ldargs) + str(cpp))).hexdigest()
+        hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs) +
+                  str(headers) + version + str(configuration['loop_fusion']) +
+                  str(ldargs) + str(cpp))
+        return md5(hashee.encode()).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
