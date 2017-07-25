@@ -181,7 +181,7 @@ else:
                        default="int32", type=str,
                        help="The integer type used by PETSc.  Use int64 if you need to solve problems with more than 2 billion degrees of freedom.  Only takes effect if firedrake-install builds PETSc.")
 
-    parser.add_argument("--honour-pythonpath", action="store_true", default=config["options"].get("honour-pythonpath", False),
+    parser.add_argument("--honour-pythonpath", action="store_true", default=config["options"].get("honour_pythonpath", False),
                         help="Pointing to external Python packages is usually a user error. Set this option if you know that you want PYTHONPATH set.")
     parser.add_argument("--clean", action='store_true',
                         help="Delete any remnants of obsolete Firedrake components.")
