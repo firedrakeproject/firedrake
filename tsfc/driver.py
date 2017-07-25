@@ -238,14 +238,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             for i, index in enumerate(multiindex):
                 name_index(index, name + str(i))
 
+    name_multiindex(quadrature_indices, 'ip')
     for multiindex, name in zip(argument_multiindices, ['j', 'k']):
         name_multiindex(multiindex, name)
-
-    if len(quadrature_indices) == 1:
-        index_names.append((quadrature_indices[0], 'ip'))
-    else:
-        for i, quadrature_index in enumerate(quadrature_indices):
-            index_names.append((quadrature_index, 'ip_%d' % i))
 
     # Construct kernel
     body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, split_argument_indices)
