@@ -166,6 +166,8 @@ else:
                         help="Do not update script before updating Firedrake.")
     parser.add_argument("--rebuild", action="store_true",
                         help="Rebuild all packages even if no new version is available. Usually petsc and petsc4py are only rebuilt if they change. All other packages are always rebuilt.")
+    parser.add_argument("--rebuild-script", "--rebuild_script", action="store_true",
+                        help="Only rebuild the firedrake-install script. Use this option if your firedrake-install script is broken and a fix has been released in upstream Firedrake. You will need to specify any other options which you wish to be honoured by your new update script.")
     parser.add_argument("--adjoint", action='store_true', dest="adjoint", default=config["options"]["adjoint"],
                         help="Also install firedrake-adjoint.")
     parser.add_argument("--slope", action='store_true', dest="slope", default=config["options"]["slope"],
@@ -274,7 +276,7 @@ if mode == "install":
 else:
     # venv is the directory above the update script. Strictly, it
     # doesn't need to be active.
-    firedrake_env = os.path.realpath(__file__) + "/../"
+    firedrake_env = os.path.dirname(os.path.realpath(__file__)) + "/../"
 
 # venv install
 python = ["%s/bin/python" % firedrake_env]
