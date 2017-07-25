@@ -12,6 +12,8 @@ from firedrake.utils import cached_property
 
 from ufl import MixedElement
 
+from firedrake_configuration import get_config
+
 
 class KernelBuilder(object):
     """A helper class for constructing Slate kernels.
@@ -41,6 +43,10 @@ class KernelBuilder(object):
         self.oriented = False
         self.finalized_ast = None
         self._is_finalized = False
+
+        config = get_config()
+        if config['options']['complex']:
+            self.tsfc_parameters['scalar_type'] = 'double complex'
 
         # Initialize temporaries and any auxiliary temporaries
         temps, aux_exprs = generate_expr_data(expression)

@@ -27,6 +27,8 @@ from firedrake.formmanipulation import split_form
 
 from firedrake.parameters import parameters as default_parameters
 
+from firedrake_configuration import get_config
+
 
 KernelInfo = collections.namedtuple("KernelInfo",
                                     ["kernel",
@@ -170,6 +172,11 @@ def compile_form(form, name, parameters=None, inverse=False):
         _ = parameters
         parameters = default_parameters["form_compiler"].copy()
         parameters.update(_)
+
+    # See if we're in complex mode:
+    config = get_config()
+    if config['options']['complex']:
+        parameters['scalar_type'] = 'double complex'
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations

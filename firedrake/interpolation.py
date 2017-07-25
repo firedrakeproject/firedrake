@@ -15,8 +15,12 @@ from tsfc import compile_expression_at_points as compile_ufl_kernel
 
 import firedrake
 from firedrake import utils
+from firedrake_configuration import get_config
 
 __all__ = ("interpolate", "Interpolator")
+
+
+config = get_config()
 
 
 def interpolate(expr, V, subset=None):
@@ -162,12 +166,16 @@ def _interpolator(V, dat, expr, subset):
     mesh = V.ufl_domain()
     coords = mesh.coordinates
 
+    parameters = {}
+    if config['options']['complex']:
+        parameters['scalar_type'] = 'double complex'
+
     if not isinstance(expr, (firedrake.Expression, SubExpression)):
         if expr.ufl_domain() and expr.ufl_domain() != V.mesh():
             raise NotImplementedError("Interpolation onto another mesh not supported.")
         if expr.ufl_shape != V.shape:
             raise ValueError("UFL expression has incorrect shape for interpolation.")
-        ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords)
+        ast, oriented, coefficients = compile_ufl_kernel(expr, to_pts, coords, parameters=parameters)
         kernel = op2.Kernel(ast, ast.name)
         indexed = True
     elif hasattr(expr, "eval"):

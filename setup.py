@@ -7,13 +7,15 @@ import os
 import sys
 import numpy as np
 import petsc4py
+from firedrake_configuration import get_config
 
 try:
     from Cython.Distutils.extension import Extension
-    if '--with-scalar-type=complex' in env.get('PETSC_CONFIGURE_OPTIONS', ''):
+    config = get_config()
+    if config['options']['complex']:
         complx = True
 except ImportError:
-    # No Cython extension means no complex mode!
+    # No Cython Extension means no complex mode!
     from distutils.extension import Extension
     complx = False
 

@@ -32,7 +32,9 @@ from firedrake import op2
 from pyop2.utils import get_petsc_dir
 from pyop2.datatypes import as_cstr
 
-from tsfc.parameters import SCALAR_TYPE
+from tsfc.parameters import set_scalar_type, scalar_type
+
+from firedrake_configuration import get_config
 
 import numpy as np
 
@@ -71,6 +73,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         raise ValueError(
             "Expecting a `TensorBase` expression, not %s" % type(slate_expr)
         )
+
+    config = get_config()
+    if config['options']['complex']:
+        tsfc_parameters['scalar_type'] = 'double complex'
+    set_scalar_type(tsfc_parameters['scalar_type'])
 
     # TODO: Get PyOP2 to write into mixed dats
     if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
@@ -222,10 +229,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     result_sym = ast.Symbol("T%d" % len(builder.temps))
     result_data_sym = ast.Symbol("A%d" % len(builder.temps))
     result_type = "Eigen::Map<%s >" % eigen_matrixbase_type(shape)
-    result = ast.Decl(SCALAR_TYPE, ast.Symbol(result_data_sym, shape))
+    result = ast.Decl(scalar_type(), ast.Symbol(result_data_sym, shape))
     result_statement = ast.FlatBlock("%s %s((%s *)%s);\n" % (result_type,
                                                              result_sym,
-                                                             SCALAR_TYPE,
+                                                             scalar_type(),
                                                              result_data_sym))
     statements.append(result_statement)
 
@@ -239,7 +246,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     builder._finalize_kernels_and_update()
 
     # Generate arguments for the macro kernel
-    args = [result, ast.Decl("%s **" % SCALAR_TYPE, coordsym)]
+    args = [result, ast.Decl("%s **" % scalar_type(), coordsym)]
 
     # Orientation information
     if builder.oriented:
@@ -248,9 +255,9 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Coefficient information
     for c in expr_coeffs:
         if isinstance(c, Constant):
-            ctype = "%s *" % SCALAR_TYPE
+            ctype = "%s *" % scalar_type()
         else:
-            ctype = "%s **" % SCALAR_TYPE
+            ctype = "%s **" % scalar_type()
         args.extend([ast.Decl(ctype, csym) for csym in builder.coefficient(c)])
 
     # Facet information
@@ -681,6 +688,7 @@ def eigen_matrixbase_type(shape):
     else:
         order = ""
 
+    # Does this need to be made complex?
     return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
 
 
