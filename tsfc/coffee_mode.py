@@ -1,11 +1,10 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import filter, map, range, zip
+from six.moves import map, zip
 
 import numpy
 import itertools
 from functools import partial, reduce
-from six import iteritems, iterkeys
-from collections import defaultdict
+from collections import OrderedDict
 from gem.optimise import make_sum, make_product
 from gem.refactorise import Monomial, collect_monomials
 from gem.unconcatenate import unconcatenate
@@ -94,6 +93,44 @@ def monomial_sum_to_expression(monomial_sum):
     return make_sum(indexsums)
 
 
+def solve_ip(variables, is_feasible, key):
+    """Solve a 0-1 integer programming problem. The algorithm tries to set each
+    variable to 1 recursively, and stop the recursion early by comparing with
+    the optimal solution at entry. At worst case this is 2^N (as this is a
+    NP-hard problem), but recursions can be trimmed as soon as a reasonable
+    solution have been found.
+
+    :param variables: list of unique 0-1 variables
+    :param is_feasible: function to test if a combination is feasible
+    :param key: function to use when comparing solutions.
+    :returns: optimal solution represented as a set of variables with value 1
+    """
+
+    optimal_solution = set(variables)  # start by choosing all atomics
+    solution = set()
+
+    def solve(idx):
+        if idx >= len(variables):
+            return
+        if key(solution) >= key(optimal_solution):
+            return
+        solution.add(variables[idx])
+        if is_feasible(solution):
+            if key(solution) < key(optimal_solution):
+                optimal_solution.clear()
+                optimal_solution.update(solution)
+            # No need to search further as adding more variables will
+            # only make the solution worse.
+        else:
+            solve(idx + 1)
+        solution.remove(variables[idx])
+        solve(idx + 1)
+
+    solve(0)
+
+    return optimal_solution
+
+
 def find_optimal_atomics(monomials, argument_indices):
     """Find optimal atomic common subexpressions, which produce least number of
     terms in the resultant IndexSum when factorised.
@@ -104,38 +141,21 @@ def find_optimal_atomics(monomials, argument_indices):
 
     :returns: list of atomic GEM expressions
     """
-    atomic_index = defaultdict(partial(next, itertools.count()))  # atomic -> int
-    connections = []
-    # add connections (list of tuples, items in each tuple form a product)
-    for monomial in monomials:
-        connections.append(tuple(map(lambda a: atomic_index[a], monomial.atomics)))
+    atomics = tuple(OrderedDict.fromkeys(itertools.chain(*(monomial.atomics for monomial in monomials))))
 
-    if len(atomic_index) <= 1:
-        return tuple(iterkeys(atomic_index))
+    def is_feasible(solution):
+        # Solution is only feasible if it intersects with all monomials
+        # Potentially can improve this by keeping track of violated constraints
+        # and suggest the next atomic to try (instead of just returning True or False)
+        return all(solution.intersection(monomial.atomics) for monomial in monomials)
 
-    # set up the ILP
-    import pulp as ilp
-    ilp_prob = ilp.LpProblem('gem factorise', ilp.LpMinimize)
-    ilp_var = ilp.LpVariable.dicts('node', range(len(atomic_index)), 0, 1, ilp.LpBinary)
+    def cost(solution):
+        extent = sum(map(lambda atomic: index_extent(atomic, argument_indices), solution))
+        # Prefer shorter solutions, but larger extents
+        return (len(solution), -extent)
 
-    # Objective function
-    # Minimise number of factors to pull. If same number, favour factor with larger extent
-    penalty = 2 * max(index_extent(atomic, argument_indices) for atomic in atomic_index) * len(atomic_index)
-    ilp_prob += ilp.lpSum(ilp_var[index] * (penalty - index_extent(atomic, argument_indices))
-                          for atomic, index in iteritems(atomic_index))
-
-    # constraints
-    for connection in connections:
-        ilp_prob += ilp.lpSum(ilp_var[index] for index in connection) >= 1
-
-    ilp_prob.solve()
-    if ilp_prob.status != 1:
-        raise RuntimeError("Something bad happened during ILP")
-
-    def optimal(atomic):
-        return ilp_var[atomic_index[atomic]].value() == 1
-
-    return tuple(sorted(filter(optimal, atomic_index), key=atomic_index.get))
+    optimal_atomics = solve_ip(atomics, is_feasible, key=cost)
+    return tuple(atomic for atomic in atomics if atomic in optimal_atomics)
 
 
 def factorise_atomics(monomials, optimal_atomics, argument_indices):
