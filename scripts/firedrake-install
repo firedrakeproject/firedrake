@@ -858,7 +858,7 @@ if osname == "Darwin":
         # Ensure a fortran compiler is available
         brew_install("gcc")
         brew_install("openmpi")
-        brew_install("python")
+        brew_install("python3")
         brew_install("autoconf")
         brew_install("automake")
         brew_install("cmake")
@@ -887,9 +887,10 @@ elif osname == "Linux":
                         "libtool",
                         "mercurial",
                         "openmpi-bin",
-                        "python-dev",
-                        "python-pip",
-                        "python-tk",
+                        "python3-dev",
+                        "python3-pip",
+                        "python3-tk",
+                        "python3-venv",
                         "zlib1g-dev"]
 
         missing_packages = [p for p in apt_packages if not apt_check(p)]
