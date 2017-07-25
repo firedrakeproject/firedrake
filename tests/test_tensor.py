@@ -102,6 +102,17 @@ def test_functional(cell, order):
     assert (rates < order).all()
 
 
+def test_mini():
+    m = Mesh(VectorElement('CG', triangle, 1))
+    P1 = FiniteElement('Lagrange', triangle, 1)
+    B = FiniteElement("Bubble", triangle, 3)
+    V = FunctionSpace(m, VectorElement(P1 + B))
+    u = TrialFunction(V)
+    v = TestFunction(V)
+    a = inner(grad(u), grad(v))*dx
+    count_flops(a)
+
+
 if __name__ == "__main__":
     import os
     import sys
