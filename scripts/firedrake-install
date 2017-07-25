@@ -642,23 +642,6 @@ def build_and_install_h5py():
         log.info("No need to rebuild h5py")
 
 
-def build_and_install_glpsol():
-    log.info("Installing GLPK")
-    if os.path.exists("glpk"):
-        glpk_changed = git_update("glpk")
-    else:
-        git_clone("git+https://github.com/firedrakeproject/glpk.git")
-        glpk_changed = True
-
-    if glpk_changed:
-        with directory("glpk"):
-            check_call(["./configure", "--disable-shared", "--disable-static"])
-            check_call(["make"])
-            check_call(["cp", "examples/glpsol", os.environ["VIRTUAL_ENV"] + "/bin/"])
-    else:
-        log.info("No need to rebuild glpk")
-
-
 def build_and_install_libspatialindex():
     log.info("Installing libspatialindex")
     if os.path.exists("libspatialindex"):
@@ -981,7 +964,6 @@ if mode == "install":
         pip_requirements(p)
 
     build_and_install_h5py()
-    build_and_install_glpsol()
     build_and_install_libspatialindex()
     pipinstall.append("--no-deps")
     for p in packages:
@@ -1068,7 +1050,6 @@ else:
 
     # Always rebuild h5py.
     build_and_install_h5py()
-    build_and_install_glpsol()
     build_and_install_libspatialindex()
 
     try:
