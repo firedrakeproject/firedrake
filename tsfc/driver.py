@@ -92,6 +92,8 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     cell = integral_data.domain.ufl_cell()
     arguments = form_data.preprocessed_form.arguments()
     kernel_name = "%s_%s_integral_%s" % (prefix, integral_type, integral_data.subdomain_id)
+    # Handle negative subdomain_id
+    kernel_name = kernel_name.replace("-", "_")
 
     fiat_cell = as_fiat_cell(cell)
     integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
