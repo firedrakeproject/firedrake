@@ -320,7 +320,7 @@ def compile_expression_at_points(expression, points, coordinates, parameters=Non
     ir, = impero_utils.preprocess_gem([ir])
     impero_c = impero_utils.compile_gem([(return_expr, ir)], return_indices)
     point_index, = point_set.indices
-    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"])
+    body = generate_coffee(impero_c, {point_index: 'p'}, parameters["precision"], scalar_type())
 
     # Handle cell orientations
     if builder.needs_cell_orientations([ir]):
