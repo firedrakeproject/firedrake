@@ -29,7 +29,7 @@ before_install:
   - "xargs -l1 pip install < requirements-ext.txt"
   - "xargs -l1 pip install < requirements-git.txt"
   - pip install pulp
-  - pip install -U flake8 flake8-future-import
+  - pip install -U flake8
 install: "python setup.py develop"
 # command to run tests
 script:
