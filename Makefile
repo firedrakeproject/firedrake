@@ -6,11 +6,11 @@ modules:
 
 lint:
 	@echo "    Linting firedrake codebase"
-	@flake8 firedrake
+	@python -m flake8 firedrake
 	@echo "    Linting firedrake test suite"
-	@flake8 tests
+	@python -m flake8 tests
 	@echo "    Linting firedrake scripts"
-	@flake8 scripts --filename=*
+	@python -m flake8 scripts --filename=*
 
 clean:
 	@echo "    Cleaning extension modules"
@@ -42,22 +42,22 @@ endif
 
 test_regression: modules
 	@echo "    Running non-extruded regression tests"
-	@py.test tests/regression $(PYTEST_ARGS)
+	@python -m pytest tests/regression $(PYTEST_ARGS)
 
 test_extrusion: modules
 	@echo "    Running extruded regression tests"
-	@py.test tests/extrusion $(PYTEST_ARGS)
+	@python -m pytest tests/extrusion $(PYTEST_ARGS)
 
 test_demos: modules
 	@echo "    Running test of demos"
-	@py.test tests/demos $(PYTEST_ARGS)
+	@python -m pytest tests/demos $(PYTEST_ARGS)
 
 test: modules
 	@echo "    Running all regression tests"
-	@py.test tests $(PYTEST_ARGS)
+	@python -m pytest tests $(PYTEST_ARGS)
 
 alltest: modules lint test
 
 shorttest: modules lint
 	@echo "    Running short regression tests"
-	@py.test --short tests $(PYTEST_ARGS)
+	@python -m pytest --short tests $(PYTEST_ARGS)

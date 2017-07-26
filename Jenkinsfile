@@ -32,7 +32,7 @@ pipeline {
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-pip install flake8
+python -m pip install flake8
 cd firedrake/src/firedrake
 make lint
 '''
@@ -48,11 +48,11 @@ make lint
 . ./firedrake/bin/activate
 export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
 export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
-firedrake-clean
-pip install pytest-cov pytest-xdist
-pip list
+python $(which firedrake-clean)
+python -m pip install pytest-cov pytest-xdist
+python -m pip list
 cd firedrake/src/firedrake
-py.test -n 4 --cov firedrake -v tests
+python -m pytest -n 4 --cov firedrake -v tests
 '''
           }
         }
@@ -66,7 +66,7 @@ py.test -n 4 --cov firedrake -v tests
 . ./firedrake/bin/activate
 export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
 export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
-cd firedrake/src/dolfin-adjoint; py.test -n 4 -v tests_firedrake
+cd firedrake/src/dolfin-adjoint; python -m pytest -n 4 -v tests_firedrake
 '''
           }
         }
