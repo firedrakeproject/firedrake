@@ -1,6 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-from __future__ import absolute_import, print_function, division
 from firedrake.tsfc_interface import clear_cache, TSFCKernel
 from pyop2.compilation import clear_cache as pyop2_clear_cache
 
