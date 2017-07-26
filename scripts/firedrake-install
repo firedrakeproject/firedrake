@@ -33,6 +33,10 @@ class InstallError(Exception):
     pass
 
 
+if sys.version_info < (3, 5):
+    raise InstallError("Firedrake requires Python 3, at least version 3.5")
+
+
 class FiredrakeConfiguration(dict):
     """A dictionary extended to facilitate the storage of Firedrake
     configuration information."""
