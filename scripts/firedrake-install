@@ -76,7 +76,7 @@ if os.path.basename(__file__) == "firedrake-install":
     mode = "install"
 elif os.path.basename(__file__) == "firedrake-update":
     mode = "update"
-    os.chdir(os.path.dirname(__file__) + "/../..")
+    os.chdir(os.path.dirname(os.path.realpath(__file__)) + "/../..")
 else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
 
