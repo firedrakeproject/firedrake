@@ -14,8 +14,6 @@ The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as
 all low-level numerical linear algebra operations are performed using
 this templated function library.
 """
-from six.moves import range
-
 from coffee import base as ast
 
 from collections import OrderedDict

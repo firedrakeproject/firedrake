@@ -1,6 +1,3 @@
-from six import iteritems
-from six.moves import range, map, zip
-
 from itertools import permutations
 import numpy as np
 
@@ -195,7 +192,7 @@ def get_node_permutations(fiat_element):
         pt = node.get_point_dict()
         assert len(pt.keys()) == 1
         nodes.append(np.asarray(next(iter(pt.keys())), dtype=float))
-    for perm, transform in iteritems(transforms):
+    for perm, transform in transforms.items():
         p = -np.ones(len(functionals), dtype=PETSc.IntType)
         new_nodes = [apply_transform(transform, node) for node in nodes]
         for i, node in enumerate(new_nodes):

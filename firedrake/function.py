@@ -1,4 +1,3 @@
-from six.moves import range, zip
 import numpy as np
 import sys
 import ufl

@@ -1,4 +1,3 @@
-from six.moves import range, zip
 import numpy as np
 from ufl import Cell
 from tsfc.fiatinterface import create_element

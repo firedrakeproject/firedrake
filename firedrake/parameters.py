@@ -1,6 +1,4 @@
 """The parameters dictionary contains global parameter settings."""
-from six import iteritems
-
 from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
 from tsfc import default_parameters
@@ -16,7 +14,7 @@ class Parameters(dict):
         self._name = name
         self._update_function = None
 
-        for key, value in iteritems(kwargs):
+        for key, value in kwargs.items():
             self.add(key, value)
 
     def add(self, key, value=None):

@@ -4,8 +4,6 @@ This module implements the user-visible API for constructing
 API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
-from six.moves import range
-
 import ufl
 
 from pyop2.utils import flatten

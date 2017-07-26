@@ -1,5 +1,3 @@
-from six import iteritems
-from six.moves import map, zip
 import weakref
 
 import ufl
@@ -45,7 +43,7 @@ def _ast(expr):
     try:
         return expr.ast
     except AttributeError:
-        for t, f in iteritems(_ast_map):
+        for t, f in _ast_map.items():
             if isinstance(expr, t):
                 return f(expr)
         raise TypeError("No ast handler for %s" % str(type(expr)))

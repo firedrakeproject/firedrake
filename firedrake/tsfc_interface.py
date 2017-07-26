@@ -1,6 +1,6 @@
 """Provides the interface to TSFC for compiling a form, and transforms the TSFC-
 generated code in order to make it suitable for passing to the backends."""
-from six.moves import cPickle
+import pickle
 
 from hashlib import md5
 from os import path, environ, getuid, makedirs
@@ -70,7 +70,7 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        val = cPickle.loads(val)
+        val = pickle.loads(val)
         cls._cache[key] = val
         return val
 
@@ -85,7 +85,7 @@ class TSFCKernel(Cached):
             # No need for a barrier after this, since non root
             # processes will never race on this file.
             with gzip.open(tempfile, 'wb') as f:
-                cPickle.dump(val, f, 0)
+                pickle.dump(val, f, 0)
             os.rename(tempfile, filepath)
         comm.barrier()
 

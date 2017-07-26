@@ -14,9 +14,6 @@ ordering, but different numbers of dofs per node (e.g. FiniteElement
 vs VectorElement) can share the PyOP2 Set and Map data.
 """
 
-from six.moves import map, range
-from six import iteritems
-
 import numpy
 import finat
 from decorator import decorator
@@ -542,7 +539,7 @@ class FunctionSpaceData(object):
             if kind == "interior_facet" and self.bt_masks is not None:
                 bt_masks = {}
                 off = map_arity // 2
-                for method, (bottom, top) in iteritems(self.bt_masks):
+                for method, (bottom, top) in self.bt_masks.items():
                     b = []
                     t = []
                     for i in bottom:

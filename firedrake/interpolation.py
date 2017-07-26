@@ -1,5 +1,3 @@
-from six import iterkeys
-
 import numpy
 from functools import partial
 
@@ -148,7 +146,8 @@ def _interpolator(V, dat, expr, subset):
         if not isinstance(dual, FIAT.functional.PointEvaluation):
             raise NotImplementedError("Can only interpolate onto point "
                                       "evaluation operators. Try projecting instead")
-        to_pts.append(list(iterkeys(dual.pt_dict))[0])
+        pts, = dual.pt_dict.keys()
+        to_pts.append(pts)
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'

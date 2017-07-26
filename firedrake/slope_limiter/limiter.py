@@ -1,10 +1,9 @@
-from six import with_metaclass
 from abc import ABCMeta, abstractmethod
 
 __all__ = ("Limiter",)
 
 
-class Limiter(with_metaclass(ABCMeta)):
+class Limiter(object, metaclass=ABCMeta):
 
     @abstractmethod
     def __init__(self, space):

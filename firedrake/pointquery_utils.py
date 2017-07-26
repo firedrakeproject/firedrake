@@ -1,5 +1,3 @@
-from six.moves import range
-
 from os import path
 import numpy
 import sympy

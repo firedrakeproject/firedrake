@@ -1,6 +1,3 @@
-from six import iteritems, itervalues
-from six.moves import map, range
-
 import numpy as np
 import ctypes
 import os
@@ -839,7 +836,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg entity_dofs: FInAT element entity DoFs
         """
         dofs_per_entity = [0] * (1 + self._base_mesh.cell_dimension())
-        for (b, v), entities in iteritems(entity_dofs):
+        for (b, v), entities in entity_dofs.items():
             dofs_per_entity[b] += (self.layers - v) * len(entities[0])
         return dofs_per_entity
 
@@ -851,12 +848,12 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg ndofs: number of DoFs in the FInAT element
         """
         entity_offset = [0] * (1 + self._base_mesh.cell_dimension())
-        for (b, v), entities in iteritems(entity_dofs):
+        for (b, v), entities in entity_dofs.items():
             entity_offset[b] += len(entities[0])
 
         dof_offset = np.zeros(ndofs, dtype=IntType)
-        for (b, v), entities in iteritems(entity_dofs):
-            for dof_indices in itervalues(entities):
+        for (b, v), entities in entity_dofs.items():
+            for dof_indices in entities.values():
                 for i in dof_indices:
                     dof_offset[i] = entity_offset[b]
         return dof_offset

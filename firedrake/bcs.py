@@ -1,5 +1,4 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-from six.moves import map, range
 import numpy as np
 from ufl import as_ufl, SpatialCoordinate, UFLException
 from ufl.algorithms.analysis import has_type
