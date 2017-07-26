@@ -964,6 +964,8 @@ if mode == "install":
         urllib.request.urlretrieve("https://bootstrap.pypa.io/get-pip.py", filename="get-pip.py")
         check_call(python + ["get-pip.py"])
         log.debug("bootstrapping pip succeeded")
+        log.debug("Removing get-pip.py")
+        os.remove("get-pip.py")
     # Ensure pip and setuptools are at the latest version.
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
