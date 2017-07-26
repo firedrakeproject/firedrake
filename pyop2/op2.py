@@ -33,7 +33,6 @@
 
 """The PyOP2 API specification."""
 
-from __future__ import absolute_import, print_function, division
 import atexit
 
 from pyop2.configuration import configuration

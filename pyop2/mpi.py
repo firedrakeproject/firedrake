@@ -33,7 +33,6 @@
 
 """PyOP2 MPI communicator."""
 
-from __future__ import absolute_import, print_function, division
 
 from petsc4py import PETSc
 from mpi4py import MPI  # noqa

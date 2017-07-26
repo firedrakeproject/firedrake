@@ -37,7 +37,6 @@ and two scheduling functions S1 and S2, one can compute L' = S2(S1(L)), with S1(
 returning, for example, [L0, L1',L3] and L' = S2([L0, L1', L3]) = [L0, L1''].
 Different scheduling functions may implement different loop fusion strategies."""
 
-from __future__ import absolute_import, print_function, division
 
 from copy import deepcopy as dcopy, copy as scopy
 import numpy as np

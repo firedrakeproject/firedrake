@@ -35,7 +35,6 @@
 information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
-from __future__ import absolute_import, print_function, division
 
 from contextlib import contextmanager
 import itertools

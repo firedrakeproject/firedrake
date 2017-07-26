@@ -33,7 +33,6 @@
 
 """PyOP2 global configuration."""
 
-from __future__ import absolute_import, print_function, division
 import os
 from tempfile import gettempdir
 
