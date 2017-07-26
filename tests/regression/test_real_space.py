@@ -170,6 +170,38 @@ def test_real_mixed_solve():
     assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
 
 
+@pytest.mark.parallel
+def test_real_mixed_solve_split_comms():
+    def poisson(resolution):
+        mesh = IntervalMesh(resolution, pi, comm=COMM_SELF)
+        rfs = FunctionSpace(mesh, "Real", 0)
+        cgfs = FunctionSpace(mesh, "CG", 1)
+
+        mfs = cgfs*rfs
+
+        v, q = TestFunctions(mfs)
+
+        phi = Function(mfs)
+        f = Function(mfs)
+        x = SpatialCoordinate(mesh)
+
+        f0, _ = f.split()
+
+        f0.interpolate(cos(x[0]))
+
+        f0, _ = split(f)
+
+        phi_0, phi_1 = split(phi)
+
+        residual_form = (dot(grad(phi_0), grad(v)) + phi_1*v + phi_0*q - f0*v) * dx
+
+        solve(residual_form == 0, phi)
+
+        return sqrt(assemble((f - phi)**2*dx))
+
+    assert ln(poisson(50)/poisson(100))/ln(2) > 1.99
+
+
 def test_real_space_eq():
     mesh = UnitIntervalMesh(4)
     V = FunctionSpace(mesh, "Real", 0)
