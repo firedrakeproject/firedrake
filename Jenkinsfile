@@ -6,6 +6,7 @@ pipeline {
     PATH = "/usr/local/bin:/usr/bin:/bin"
     CC = "mpicc"
     FIREDRAKE_CI_TESTS = "1"
+    PYTHONHASHSEED = "12453221"
   }
   stages {
     stage('Clean') {
