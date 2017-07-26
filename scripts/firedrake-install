@@ -921,8 +921,24 @@ if mode == "install":
         quit("Can't install into existing venv '%s'" % firedrake_env)
 
     log.info("Creating firedrake venv in '%s'." % firedrake_env)
+    # Debian's Python3 is screwed, they don't ship ensurepip as part
+    # of the base python package, so the default python -m venv
+    # doesn't work.  Moreover, they have spiked the file such that it
+    # calls sys.exit, which will kill any attempts to create a venv
+    # with pip.
+    try:
+        import ensurepip        # noqa: F401
+        with_pip = True
+    except ImportError:
+        with_pip = False
     import venv
-    venv.EnvBuilder(with_pip=True).create(firedrake_env)
+    venv.EnvBuilder(with_pip=with_pip).create(firedrake_env)
+    if not with_pip:
+        import urllib.request
+        log.debug("ensurepip unavailable, bootstrapping pip using get-pip.py")
+        urllib.request.urlretrieve("https://bootstrap.pypa.io/get-pip.py", filename="get-pip.py")
+        check_call(python + ["get-pip.py"])
+        log.debug("bootstrapping pip succeeded")
     # Ensure pip and setuptools are at the latest version.
     run_pip(["install", "-U", "setuptools"])
     run_pip(["install", "-U", "pip"])
