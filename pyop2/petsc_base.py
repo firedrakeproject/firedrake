@@ -461,11 +461,13 @@ class Global(base.Global):
             size = self.dataset.layout_vec.getSizes()
             if self.comm.rank == 0:
                 self._vec = PETSc.Vec().createWithArray(data, size=size,
-                                                        bsize=self.cdim)
+                                                        bsize=self.cdim,
+                                                        comm=self.comm)
             else:
                 self._vec = PETSc.Vec().createWithArray(np.empty(0, dtype=self.dtype),
                                                         size=size,
-                                                        bsize=self.cdim)
+                                                        bsize=self.cdim,
+                                                        comm=self.comm)
         # PETSc Vecs have a state counter and cache norm computations
         # to return immediately if the state counter is unchanged.
         # Since we've updated the data behind their back, we need to
@@ -797,7 +799,7 @@ class Mat(base.Mat):
                 isinstance(self.sparsity._dsets[1], GlobalDataSet)):
             # In this case both row and column are a Global.
 
-            mat = _GlobalMat()
+            mat = _GlobalMat(comm=self.comm)
         else:
             mat = _DatMat(self.sparsity)
         self.handle = mat
@@ -956,7 +958,7 @@ def _DatMat(sparsity, dat=None):
     else:
         raise ValueError("Not a DatMat")
 
-    A = PETSc.Mat().createPython(sizes)
+    A = PETSc.Mat().createPython(sizes, comm=sparsity.comm)
     A.setPythonContext(_DatMatPayload(sparsity, dat))
     A.setUp()
     return A
@@ -1076,10 +1078,10 @@ class _DatMatPayload(object):
             return _DatMat(self.sparsity)
 
 
-def _GlobalMat(global_=None):
+def _GlobalMat(global_=None, comm=None):
     """A :class:`PETSc.Mat` with global size 1x1 implemented as a
     :class:`.Global`"""
-    A = PETSc.Mat().createPython(((None, 1), (None, 1)))
+    A = PETSc.Mat().createPython(((None, 1), (None, 1)), comm=comm)
     A.setPythonContext(_GlobalMatPayload(global_))
     A.setUp()
     return A
@@ -1107,7 +1109,7 @@ class _GlobalMatPayload(object):
 
     def mult(self, mat, x, result):
         if result.comm.rank == 0:
-            result.array[...] = self.global_.data_ro * x.array
+            result.array[...] = self.global_.data_ro * x.array_r
         else:
             result.array[...]
 
@@ -1125,6 +1127,6 @@ class _GlobalMatPayload(object):
 
     def duplicate(self, mat, copy=True):
         if copy:
-            return _GlobalMat(self.global_.duplicate())
+            return _GlobalMat(self.global_.duplicate(), comm=mat.comm)
         else:
-            return _GlobalMat()
+            return _GlobalMat(comm=mat.comm)

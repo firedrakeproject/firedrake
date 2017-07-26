@@ -3112,7 +3112,7 @@ class MixedMap(Map, ObjectCached):
 
     @classmethod
     def _process_args(cls, *args, **kwargs):
-        maps = as_tuple(args[0], type=Map)
+        maps = as_tuple(args[0], type=Map, allow_none=True)
         cache = maps[0]
         return (cache, ) + (maps, ), kwargs
 
