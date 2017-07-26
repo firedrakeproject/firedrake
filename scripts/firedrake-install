@@ -551,6 +551,40 @@ def pip_uninstall(package):
             raise InstallError("pip claims it uninstalled %s more than 10 times.  Something is probably broken.", package)
 
 
+def get_petsc_dir():
+    if args.honour_petsc_dir:
+        try:
+            petsc_dir = os.environ["PETSC_DIR"]
+        except KeyError:
+            raise InstallError("Unable to find installed PETSc (did you forget to set PETSC_DIR?)")
+        petsc_arch = os.environ.get("PETSC_ARCH", "")
+    else:
+        try:
+            petsc_dir = check_output(python +
+                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
+
+            petsc_arch = ""
+        except subprocess.CalledProcessError:
+            raise InstallError("Unable to find installed PETSc")
+    return petsc_dir, petsc_arch
+
+
+def get_slepc_dir():
+    petsc_dir, petsc_arch = get_petsc_dir()
+    if args.honour_petsc_dir:
+        try:
+            slepc_dir = os.environ["SLEPC_DIR"]
+        except KeyError:
+            raise InstallError("Need to set SLEPC_DIR for --slepc with --honour-petsc-dir")
+    else:
+        try:
+            slepc_dir = check_output(python +
+                                     ["-c", "import slepc; print(slepc.get_slepc_dir())"]).strip()
+        except subprocess.CalledProcessError:
+            raise InstallError("Unable to find installed SLEPc")
+    return slepc_dir, petsc_arch
+
+
 def build_and_install_petsc():
     import hashlib
     import urllib.request
@@ -611,18 +645,7 @@ def build_and_install_h5py():
         git_clone(url)
         changed = True
 
-    if args.honour_petsc_dir:
-        petsc_dir = os.environ["PETSC_DIR"]
-        petsc_arch = os.environ.get("PETSC_ARCH", "")
-    else:
-        try:
-            petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
-
-            petsc_arch = ""
-        except subprocess.CalledProcessError:
-            raise InstallError("Unable to find installed PETSc when building h5py")
-
+    petsc_dir, petsc_arch = get_petsc_dir()
     hdf5_dir = "%s/%s" % (petsc_dir, petsc_arch)
     if changed or args.rebuild:
         log.info("Linking h5py against PETSc found in %s\n" % hdf5_dir)
@@ -678,26 +701,22 @@ def build_and_install_libspatialindex():
 
 
 def build_and_install_slepc():
-    try:
-        petsc_dir = check_output(python + ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
-        petsc_arch = ""
-    except subprocess.CalledProcessError:
-        raise InstallError("Unable to find installed PETSc when building SLEPc")
+    petsc_dir, petsc_arch = get_petsc_dir()
 
-    env = dict(os.environ)
-    env["PETSC_ARCH"] = petsc_arch
-    env["PETSC_DIR"] = petsc_dir
-
-    log.info("Installing SLEPc.")
-    if os.path.exists("slepc"):
-        slepc_changed = git_update("slepc")
+    if args.honour_petsc_dir:
+        slepc_dir, slepc_arch = get_slepc_dir()
+        log.info("Using installed SLEPc from %s/%s", slepc_dir, slepc_arch)
     else:
-        git_clone("git+https://bitbucket.org/slepc/slepc.git")
-        slepc_changed = True
-    if slepc_changed:
-        install("slepc/")
-    else:
-        log.info("No need to rebuild slepc")
+        log.info("Installing SLEPc.")
+        if os.path.exists("slepc"):
+            slepc_changed = git_update("slepc")
+        else:
+            git_clone("git+https://bitbucket.org/slepc/slepc.git")
+            slepc_changed = True
+        if slepc_changed:
+            install("slepc/")
+        else:
+            log.info("No need to rebuild SLEPc")
 
     log.info("Installing slepc4py.")
     if os.path.exists("slepc4py"):
@@ -723,21 +742,13 @@ def build_and_install_adjoint():
             else:
                 raise
 
-    if args.honour_petsc_dir:
-        petsc_dir = os.environ["PETSC_DIR"]
-        petsc_arch = os.environ.get("PETSC_ARCH", "")
-    else:
-        try:
-            petsc_dir = check_output(python +
-                                     ["-c", "import petsc; print(petsc.get_petsc_dir())"]).strip()
-
-            petsc_arch = ""
-        except subprocess.CalledProcessError:
-            raise InstallError("Unable to find installed PETSc when building h5py")
-
     env = dict(os.environ)
+    petsc_dir, petsc_arch = get_petsc_dir()
     env["PETSC_ARCH"] = petsc_arch
     env["PETSC_DIR"] = petsc_dir
+    if options["slepc"]:
+        slepc_dir, _ = get_slepc_dir()
+        env["SLEPC_DIR"] = slepc_dir
 
     with directory("libadjoint"):
         dir_util.mkpath("build")
@@ -831,6 +842,15 @@ if "PETSC_DIR" not in os.environ and args.honour_petsc_dir:
 not defined. If you have compiled PETSc manually, set PETSC_DIR
 (and optionally PETSC_ARCH) variables to point to the build directory.
 """)
+
+if "SLEPC_DIR" not in os.environ and args.honour_petsc_dir and options["slepc"]:
+    quit("""If you use --honour-petsc-dir, you must also build SLEPc manually
+and set the SLEPC_DIR environment variable appropriately""")
+
+if "SLEPC_DIR" in os.environ and not args.honour_petsc_dir and options["slepc"]:
+    quit("""The SLEPC_DIR environment variable is set.  If you want to use
+your own SLEPc version, you must also build your own PETSc and run
+with --honour-petsc-dir.""")
 
 log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
@@ -1081,10 +1101,10 @@ else:
         clean(p)
         install(p+"/")
 
-if options["adjoint"]:
-    build_and_install_adjoint()
 if options["slepc"]:
     build_and_install_slepc()
+if options["adjoint"]:
+    build_and_install_adjoint()
 if options["slope"]:
     build_and_install_slope()
 
