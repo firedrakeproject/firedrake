@@ -979,7 +979,7 @@ class _DatMatPayload(object):
         self.dset = dset
 
     def __getitem__(self, key):
-        shape = [s[0] if s[0] > 0 else 1 for s in self.sizes]
+        shape = [s[0] or 1 for s in self.sizes]
         return self.dat.data_ro.reshape(*shape)[key]
 
     def zeroEntries(self, mat):

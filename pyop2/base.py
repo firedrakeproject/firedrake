@@ -43,6 +43,7 @@ from contextlib import contextmanager
 import itertools
 import numpy as np
 import ctypes
+import numbers
 import operator
 import types
 from hashlib import md5
@@ -574,13 +575,13 @@ class Set(object):
     _IMPORT_EXEC_SIZE = 2
     _IMPORT_NON_EXEC_SIZE = 3
 
-    @validate_type(('size', (int, tuple, list, np.ndarray), SizeTypeError),
+    @validate_type(('size', (numbers.Integral, tuple, list, np.ndarray), SizeTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, size=None, name=None, halo=None, comm=None):
         self.comm = dup_comm(comm)
-        if type(size) is int:
+        if isinstance(size, numbers.Integral):
             size = [size] * 4
-        size = as_tuple(size, int, 4)
+        size = as_tuple(size, numbers.Integral, 4)
         assert size[Set._CORE_SIZE] <= size[Set._OWNED_SIZE] <= \
             size[Set._IMPORT_EXEC_SIZE] <= size[Set._IMPORT_NON_EXEC_SIZE], \
             "Set received invalid sizes: %s" % size
@@ -717,7 +718,7 @@ class Set(object):
         if slot.shape != (1,):
             raise SizeTypeError("Shape of %s is incorrect" % name)
         size = slot.value.astype(np.int)
-        return cls(size[0], name)
+        return cls(int(size[0]), name)
 
 
 class GlobalSet(Set):
@@ -787,6 +788,10 @@ class GlobalSet(Set):
     def __eq__(self, other):
         # Currently all GlobalSets compare equal.
         return isinstance(other, GlobalSet)
+
+    def __hash__(self):
+        # Currently all GlobalSets compare equal.
+        return hash(type(self))
 
 
 class ExtrudedSet(Set):
@@ -1095,7 +1100,7 @@ class DataSet(ObjectCached):
     _globalcount = 0
 
     @validate_type(('iter_set', Set, SetTypeError),
-                   ('dim', (int, tuple, list), DimTypeError),
+                   ('dim', (numbers.Integral, tuple, list), DimTypeError),
                    ('name', str, NameTypeError))
     def __init__(self, iter_set, dim=1, name=None):
         if self._initialized:
@@ -1103,7 +1108,7 @@ class DataSet(ObjectCached):
         if isinstance(iter_set, Subset):
             raise NotImplementedError("Deriving a DataSet from a Subset is unsupported")
         self._set = iter_set
-        self._dim = as_tuple(dim, int)
+        self._dim = as_tuple(dim, numbers.Integral)
         self._cdim = np.asscalar(np.prod(self._dim))
         self._name = name or "dset_%d" % DataSet._globalcount
         DataSet._globalcount += 1
@@ -1115,7 +1120,7 @@ class DataSet(ObjectCached):
 
     @classmethod
     def _cache_key(cls, iter_set, dim=1, name=None):
-        return (iter_set, as_tuple(dim, int))
+        return (iter_set, as_tuple(dim, numbers.Integral))
 
     def __getstate__(self):
         """Extract state to pickle."""
@@ -2819,7 +2824,7 @@ class Map(object):
     _globalcount = 0
 
     @validate_type(('iterset', Set, SetTypeError), ('toset', Set, SetTypeError),
-                   ('arity', int, ArityTypeError), ('name', str, NameTypeError))
+                   ('arity', numbers.Integral, ArityTypeError), ('name', str, NameTypeError))
     def __init__(self, iterset, toset, arity, values=None, name=None, offset=None, parent=None, bt_masks=None):
         self._iterset = iterset
         self._toset = toset
@@ -3810,9 +3815,10 @@ class Kernel(Cached):
         # HACK: Temporary fix!
         if isinstance(code, Node):
             code = code.gencode()
-        return md5(six.b(str(hash(code)) + name + str(opts) + str(include_dirs) +
-                         str(headers) + version + str(configuration['loop_fusion']) +
-                         str(ldargs) + str(cpp))).hexdigest()
+        hashee = (str(code) + name + str(sorted(opts.items())) + str(include_dirs) +
+                  str(headers) + version + str(configuration['loop_fusion']) +
+                  str(ldargs) + str(cpp))
+        return md5(hashee.encode()).hexdigest()
 
     def _ast_to_c(self, ast, opts={}):
         """Transform an Abstract Syntax Tree representing the kernel into a
