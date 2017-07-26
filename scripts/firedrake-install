@@ -278,9 +278,10 @@ old_git_packages = []
 if mode == "install":
     firedrake_env = os.path.abspath(args.venv_name)
 else:
-    # venv is the directory above the update script. Strictly, it
-    # doesn't need to be active.
-    firedrake_env = os.path.dirname(os.path.realpath(__file__)) + "/../"
+    try:
+        firedrake_env = os.environ["VIRTUAL_ENV"]
+    except KeyError:
+        quit("Unable to retrieve venv name from the environment.\n Please ensure the venv is active before running firedrake-update.")
 
 # venv install
 python = ["%s/bin/python" % firedrake_env]
