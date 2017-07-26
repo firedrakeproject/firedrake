@@ -4,7 +4,6 @@ notifications:
     secure: ZHRHwEmv0B5pu3HxFPTkk70chHxupN45X8CkMtY6PTapMatICxRIIJNDhUWZGepmkXZB/JnXM7f4pKQe3p83jGLTM4PCQJCoHju9G6yus3swiS6JXQ85UN/acL4K9DegFZPGEi+PtA5gvVP/4HMwOeursbgrm4ayXgXGQUx94cM=
 language: python
 python:
-  - "2.7"
   - "3.5"
 addons:
   apt:
