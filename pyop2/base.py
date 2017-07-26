@@ -36,8 +36,6 @@ information which is backend independent. Individual runtime backends should
 subclass these as required to implement backend-specific features.
 """
 from __future__ import absolute_import, print_function, division
-import six
-from six.moves import map, zip
 
 from contextlib import contextmanager
 import itertools
@@ -1407,9 +1405,9 @@ class Halo(object):
         self._sends = sends
         self._receives = receives
         # The user might have passed lists, not numpy arrays, so fix that here.
-        for i, a in six.iteritems(self._sends):
+        for i, a in self._sends.items():
             self._sends[i] = np.asarray(a)
-        for i, a in six.iteritems(self._receives):
+        for i, a in self._receives.items():
             self._receives[i] = np.asarray(a)
         self._global_to_petsc_numbering = gnn2unn
         self.comm = dup_comm(comm)
@@ -1433,11 +1431,11 @@ class Halo(object):
         receives = self.receives
         if reverse:
             sends, receives = receives, sends
-        for dest, ele in six.iteritems(sends):
+        for dest, ele in sends.items():
             dat._send_buf[dest] = dat._data[ele]
             dat._send_reqs[dest] = self.comm.Isend(dat._send_buf[dest],
                                                    dest=dest, tag=dat._id)
-        for source, ele in six.iteritems(receives):
+        for source, ele in receives.items():
             dat._recv_buf[source] = dat._data[ele]
             dat._recv_reqs[source] = self.comm.Irecv(dat._recv_buf[source],
                                                      source=source, tag=dat._id)
@@ -1462,7 +1460,7 @@ class Halo(object):
         if reverse:
             receives = self.sends
         maybe_setflags(dat._data, write=True)
-        for source, buf in six.iteritems(dat._recv_buf):
+        for source, buf in dat._recv_buf.items():
             if reverse:
                 dat._data[receives[source]] += buf
             else:
@@ -1505,11 +1503,11 @@ class Halo(object):
     def verify(self, s):
         """Verify that this :class:`Halo` is valid for a given
 :class:`Set`."""
-        for dest, sends in six.iteritems(self.sends):
+        for dest, sends in self.sends.items():
             assert (sends >= 0).all() and (sends < s.size).all(), \
                 "Halo send to %d is invalid (outside owned elements)" % dest
 
-        for source, receives in six.iteritems(self.receives):
+        for source, receives in self.receives.items():
             assert (receives >= s.size).all() and \
                 (receives < s.total_size).all(), \
                 "Halo receive from %d is invalid (not in halo elements)" % \
@@ -2850,7 +2848,7 @@ class Map(object):
         self._top_mask = {}
 
         if offset is not None and bt_masks is not None:
-            for name, mask in six.iteritems(bt_masks):
+            for name, mask in bt_masks.items():
                 self._bottom_mask[name] = np.zeros(len(offset), dtype=IntType)
                 self._bottom_mask[name][mask[0]] = -1
                 self._top_mask[name] = np.zeros(len(offset), dtype=IntType)
@@ -4133,7 +4131,7 @@ class ParLoop(LazyComputation):
             fun = self._jitmodule
             # Need to ensure INC globals are zero on entry to the loop
             # in case it's reused.
-            for g in six.iterkeys(self._reduced_globals):
+            for g in self._reduced_globals.keys():
                 g._data[...] = 0
             self._compute(iterset.core_part, fun, *arglist)
             self.halo_exchange_end()
@@ -4209,7 +4207,7 @@ class ParLoop(LazyComputation):
         for arg in self.global_reduction_args:
             arg.reduction_end(self.comm)
         # Finalise global increments
-        for tmp, glob in six.iteritems(self._reduced_globals):
+        for tmp, glob in self._reduced_globals.items():
             # These can safely access the _data member directly
             # because lazy evaluation has ensured that any pending
             # updates to glob happened before this par_loop started

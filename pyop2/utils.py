@@ -34,7 +34,6 @@
 """Common utility classes/functions."""
 
 from __future__ import absolute_import, print_function, division
-from six.moves import range
 
 import os
 import sys
