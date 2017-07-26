@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 from firedrake.slate.slac import compile_expression as compile_slate

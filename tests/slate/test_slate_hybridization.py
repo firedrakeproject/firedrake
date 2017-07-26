@@ -21,7 +21,6 @@ u = 42
 which appears in the variational form as the term: -<42*tau, n>
 """
 
-from __future__ import absolute_import, print_function, division
 
 import pytest
 from firedrake import *

@@ -1,7 +1,6 @@
 """This demo program sets the top and bottom boundaries
 of an extruded unit square to 42.
 """
-from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 

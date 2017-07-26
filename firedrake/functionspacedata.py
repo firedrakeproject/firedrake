@@ -14,7 +14,6 @@ ordering, but different numbers of dofs per node (e.g. FiniteElement
 vs VectorElement) can share the PyOP2 Set and Map data.
 """
 
-from __future__ import absolute_import, print_function, division
 from six.moves import map, range
 from six import iteritems
 

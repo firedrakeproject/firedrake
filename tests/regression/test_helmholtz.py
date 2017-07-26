@@ -10,7 +10,6 @@ and the analytical solution
 
   u(x, y) = cos(x[0]*2*pi)*cos(x[1]*2*pi)
 """
-from __future__ import absolute_import, print_function, division
 
 from os.path import abspath, dirname, join
 import numpy as np

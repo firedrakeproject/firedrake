@@ -4,7 +4,6 @@ and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
 
-from __future__ import absolute_import, print_function, division
 
 import numpy
 

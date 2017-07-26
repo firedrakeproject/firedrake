@@ -6,7 +6,6 @@ in a unit cube, with Dirichlet boundary conditions on 4 sides
 and Neumann boundary conditions (one explicit, one implicit)
 on the other 2, opposite, sides.
 """
-from __future__ import absolute_import, print_function, division
 
 import pytest
 from firedrake import *

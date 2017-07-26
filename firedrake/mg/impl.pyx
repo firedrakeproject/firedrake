@@ -1,6 +1,4 @@
 # Low-level numbering for multigrid support
-from __future__ import absolute_import, print_function, division
-
 import FIAT
 from tsfc.fiatinterface import create_element
 

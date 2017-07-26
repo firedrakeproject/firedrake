@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake import *
 from firedrake.plot import _calculate_points
 import numpy as np

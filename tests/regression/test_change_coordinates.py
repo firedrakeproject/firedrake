@@ -1,5 +1,4 @@
 """This tests that exchanging the coordinate field for one of a different dimension does the right thing."""
-from __future__ import absolute_import, print_function, division
 
 import pytest
 

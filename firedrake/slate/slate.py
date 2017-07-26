@@ -14,7 +14,6 @@ All Slate expressions are handled by a specialized linear algebra
 compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
-from __future__ import absolute_import, print_function, division
 from six import with_metaclass, iteritems
 
 from abc import ABCMeta, abstractproperty, abstractmethod

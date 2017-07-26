@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from six import iteritems, itervalues
 from six.moves import map, range
 

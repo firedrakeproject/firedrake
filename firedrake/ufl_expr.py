@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import ufl
 import ufl.argument
 from ufl.assertions import ufl_assert

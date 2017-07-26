@@ -1,5 +1,4 @@
 """The parameters dictionary contains global parameter settings."""
-from __future__ import absolute_import, print_function, division
 from six import iteritems
 
 from coffee import coffee_reconfigure

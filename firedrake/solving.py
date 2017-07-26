@@ -17,7 +17,6 @@
 # You should have received a copy of the GNU Lesser General Public License
 # along with DOLFIN. If not, see <http://www.gnu.org/licenses/>.
 
-from __future__ import absolute_import, print_function, division
 from six import iterkeys
 
 __all__ = ["solve"]

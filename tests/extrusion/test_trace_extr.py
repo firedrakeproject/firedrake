@@ -1,5 +1,4 @@
 """Tests projections onto the HDiv Trace space on extruded meshes"""
-from __future__ import absolute_import, print_function, division
 import pytest
 
 from firedrake import *

@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake.petsc import PETSc
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from firedrake import hdf5interface as h5i

@@ -1,7 +1,6 @@
 """This module implements parallel loops reading and writing
 :class:`.Function`\s. This provides a mechanism for implementing
 non-finite element operations such as slope limiters."""
-from __future__ import absolute_import, print_function, division
 import collections
 
 from ufl.indexed import Indexed

@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 from os.path import abspath, basename, dirname, join, splitext
 import os
