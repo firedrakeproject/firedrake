@@ -860,83 +860,83 @@ log.debug("*** Current environment (output of 'env') ***")
 log.debug(check_output(["env"]))
 log.debug("\n\n")
 
+if mode == "install" or not args.update_script:
+    # Check operating system.
+    osname = platform.uname()[0]
+    if osname == "Darwin":
+        if options["package_manager"]:
 
-# Check operating system.
-osname = platform.uname()[0]
-if osname == "Darwin":
-    if options["package_manager"]:
+            log.info("Installing command line tools...")
+            try:
+                check_call(["xcode-select", "--install"])
+            except subprocess.CalledProcessError:
+                # expected failure if already installed
+                pass
 
-        log.info("Installing command line tools...")
+            try:
+                check_call(["brew", "--version"])
+            except:
+                quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
+
+            log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
+            # Ensure a fortran compiler is available
+            brew_install("gcc")
+            brew_install("openmpi")
+            brew_install("python3")
+            brew_install("autoconf")
+            brew_install("automake")
+            brew_install("cmake")
+            brew_install("libtool")
+            brew_install("mercurial")
+
+        else:
+            log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
+
+    elif osname == "Linux":
+        # Check for apt.
         try:
-            check_call(["xcode-select", "--install"])
-        except subprocess.CalledProcessError:
-            # expected failure if already installed
-            pass
+            if not options["package_manager"]:
+                raise InstallError
+            check_call(["apt-get", "--version"])
 
-        try:
-            check_call(["brew", "--version"])
-        except:
-            quit("Homebrew not found. Please install it using the instructions at http://brew.sh and then try again.")
+            apt_packages = ["build-essential",
+                            "autoconf",
+                            "automake",
+                            "cmake",
+                            "gfortran",
+                            "git-core",
+                            "libblas-dev",
+                            "liblapack-dev",
+                            "libopenmpi-dev",
+                            "libtool",
+                            "mercurial",
+                            "openmpi-bin",
+                            "python3-dev",
+                            "python3-pip",
+                            "python3-tk",
+                            "python3-venv",
+                            "zlib1g-dev"]
 
-        log.info("Installing required packages via homebrew. You can safely ignore warnings that packages are already installed")
-        # Ensure a fortran compiler is available
-        brew_install("gcc")
-        brew_install("openmpi")
-        brew_install("python3")
-        brew_install("autoconf")
-        brew_install("automake")
-        brew_install("cmake")
-        brew_install("libtool")
-        brew_install("mercurial")
+            missing_packages = [p for p in apt_packages if not apt_check(p)]
+            if missing_packages:
+                apt_install(missing_packages)
+
+        except (subprocess.CalledProcessError, InstallError):
+            log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
+            log.info("If this is not the case, please install the following and try again:")
+            log.info("* A C and C++ compiler (for example gcc/g++ or clang), GNU make")
+            log.info("* A Fortran compiler (for PETSc)")
+            log.info("* MPI")
+            log.info("* Blas and Lapack")
+            log.info("* Git, Mercurial")
+            log.info("* Python version >=3.5")
+            log.info("* The Python headers")
+            log.info("* autoconf, automake, libtool")
+            log.info("* CMake")
+            log.info("* zlib")
 
     else:
-        log.info("Xcode and homebrew installation disabled. Proceeding on the rash assumption that packaged dependencies are in place.")
-
-elif osname == "Linux":
-    # Check for apt.
-    try:
-        if not options["package_manager"]:
-            raise InstallError
-        check_call(["apt-get", "--version"])
-
-        apt_packages = ["build-essential",
-                        "autoconf",
-                        "automake",
-                        "cmake",
-                        "gfortran",
-                        "git-core",
-                        "libblas-dev",
-                        "liblapack-dev",
-                        "libopenmpi-dev",
-                        "libtool",
-                        "mercurial",
-                        "openmpi-bin",
-                        "python3-dev",
-                        "python3-pip",
-                        "python3-tk",
-                        "python3-venv",
-                        "zlib1g-dev"]
-
-        missing_packages = [p for p in apt_packages if not apt_check(p)]
-        if missing_packages:
-            apt_install(missing_packages)
-
-    except (subprocess.CalledProcessError, InstallError):
-        log.info("apt-get not found or disabled. Proceeding on the rash assumption that your compiled dependencies are in place.")
-        log.info("If this is not the case, please install the following and try again:")
-        log.info("* A C and C++ compiler (for example gcc/g++ or clang), GNU make")
-        log.info("* A Fortran compiler (for PETSc)")
-        log.info("* MPI")
-        log.info("* Blas and Lapack")
-        log.info("* Git, Mercurial")
-        log.info("* Python version >=3.5")
-        log.info("* The Python headers")
-        log.info("* autoconf, automake, libtool")
-        log.info("* CMake")
-        log.info("* zlib")
-
-else:
-    log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
+        log.warn("You do not appear to be running Linux or MacOS. Please do not be surprised if this install fails.")
 
 
 if mode == "install":
