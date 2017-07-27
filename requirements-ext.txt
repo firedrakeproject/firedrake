@@ -1,7 +1,5 @@
-six
 sympy
 cachetools
-singledispatch
 pytest
 pytest-xdist
 pytest-benchmark
