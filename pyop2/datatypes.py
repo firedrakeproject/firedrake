@@ -23,11 +23,13 @@ def as_cstr(dtype):
             "uint32": "uint32_t",
             "uint64": "uint64_t",
             "float32": "float",
-            "float64": "double"}[numpy.dtype(dtype).name]
+            "float64": "double",
+            "complex128": "double complex"}[numpy.dtype(dtype).name]
 
 
 def as_ctypes(dtype):
     """Convert a numpy dtype like object to a ctypes type."""
+    # TODO: make a ctypes-esque type for complex numbers
     return {"bool": ctypes.c_bool,
             "int": ctypes.c_int,
             "int8": ctypes.c_char,
