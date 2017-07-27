@@ -20,6 +20,8 @@ from firedrake import constant
 from firedrake import function
 from firedrake import utils
 
+from firedrake_configuration import get_config
+
 
 def ufl_type(*args, **kwargs):
     """Decorator mimicing :func:`ufl.core.ufl_type.ufl_type`.
@@ -234,7 +236,10 @@ class Power(ufl.algebra.Power):
 
     @property
     def ast(self):
-        return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
+        if get_config()['options']['complex']:
+            return ast.FunCall("cpow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
+        else:
+            return ast.FunCall("pow", _ast(self.ufl_operands[0]), _ast(self.ufl_operands[1]))
 
 
 class Ln(ufl.mathfunctions.Ln):
@@ -247,7 +252,10 @@ class Ln(ufl.mathfunctions.Ln):
 
     @property
     def ast(self):
-        return ast.FunCall("log", _ast(self.ufl_operands[0]))
+        if get_config()['options']['complex']:
+            return ast.FunCall("clog", _ast(self.ufl_operands[0]))
+        else:
+            return ast.FunCall("log", _ast(self.ufl_operands[0]))
 
 
 class ComponentTensor(ufl.tensors.ComponentTensor):
