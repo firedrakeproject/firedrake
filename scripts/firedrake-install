@@ -33,10 +33,6 @@ class InstallError(Exception):
     pass
 
 
-if sys.version_info < (3, 5):
-    raise InstallError("Firedrake requires Python 3, at least version 3.5")
-
-
 class FiredrakeConfiguration(dict):
     """A dictionary extended to facilitate the storage of Firedrake
     configuration information."""
@@ -221,6 +217,19 @@ where shortname is one of the names given below:
     help_string += line
     print(help_string)
     sys.exit(0)
+
+if sys.version_info < (3, 5):
+    if mode == "install":
+        quit("""\nInstalling Firedrake requires Python 3, at least version 3.5.
+You should run firedrake-install with python3.""")
+    if mode == "update":
+        if not args.update_script:
+            # Existing install trying to update past the py2/py3 barrier
+            quit("""\nFiredrake is now Python 3 only.  You cannot upgrade your existing installation.
+Please follow the instructions at http://www.firedrakeproject.org/download.html to reinstall.""")
+        else:
+            # Accidentally (?) running firedrake-update with python2.
+            quit("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
 
 # Set up logging
 # Log to file at DEBUG level
