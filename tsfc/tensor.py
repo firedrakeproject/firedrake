@@ -11,6 +11,7 @@ import numpy
 import gem
 from gem.optimise import remove_componenttensors, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, collect_monomials
+from gem.unconcatenate import flatten as concatenate
 
 
 def einsum(factors, sum_indices):
@@ -47,6 +48,9 @@ def einsum(factors, sum_indices):
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
+    # Concatenate
+    expressions = concatenate(expressions)
+
     # Unroll
     max_extent = parameters["unroll_indexsum"]
     if max_extent:
@@ -83,7 +87,7 @@ def Integrals(expressions, quadrature_multiindex, argument_multiindices, paramet
     return result
 
 
-def flatten(var_reps):
+def flatten(var_reps, index_cache):
     for variable, reps in var_reps:
         expressions = reps
         for expression in expressions:

@@ -4,6 +4,7 @@ from six.moves import range, zip
 
 import collections
 import operator
+import string
 import time
 from functools import reduce
 from itertools import chain
@@ -100,7 +101,6 @@ def compile_integral(integral_data, form_data, prefix, parameters,
 
     argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
                                   for arg in arguments)
-    argument_indices = tuple(chain(*argument_multiindices))
     quadrature_indices = []
 
     # Dict mapping domains to index in original_form.ufl_domains()
@@ -117,6 +117,11 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     # Map from UFL FiniteElement objects to multiindices.  This is
     # so we reuse Index instances when evaluating the same coefficient
     # multiple times with the same table.
+    #
+    # We also use the same dict for the unconcatenate index cache,
+    # which maps index objects to tuples of multiindices.  These two
+    # caches shall never conflict as their keys have different types
+    # (UFL finite elements vs. GEM index objects).
     index_cache = {}
 
     kernel_cfg = dict(interface=builder,
@@ -187,7 +192,7 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     # Finalise mode representations into a set of assignments
     assignments = []
     for mode, var_reps in iteritems(mode_irs):
-        assignments.extend(mode.flatten(viewitems(var_reps)))
+        assignments.extend(mode.flatten(viewitems(var_reps), index_cache))
 
     if assignments:
         return_variables, expressions = zip(*assignments)
@@ -207,7 +212,9 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         builder.require_cell_orientations()
 
     # Construct ImperoC
-    index_ordering = tuple(quadrature_indices) + argument_indices
+    split_argument_indices = tuple(chain(*[var.index_ordering()
+                                           for var in return_variables]))
+    index_ordering = tuple(quadrature_indices) + split_argument_indices
     try:
         impero_c = impero_utils.compile_gem(assignments, index_ordering, remove_zeros=True)
     except impero_utils.NoopError:
@@ -215,17 +222,28 @@ def compile_integral(integral_data, form_data, prefix, parameters,
         return builder.construct_empty_kernel(kernel_name)
 
     # Generate COFFEE
-    index_names = [(si, name + str(n))
-                   for index, name in zip(argument_multiindices, ['j', 'k'])
-                   for n, si in enumerate(index)]
-    if len(quadrature_indices) == 1:
-        index_names.append((quadrature_indices[0], 'ip'))
-    else:
-        for i, quadrature_index in enumerate(quadrature_indices):
-            index_names.append((quadrature_index, 'ip_%d' % i))
+    index_names = []
+
+    def name_index(index, name):
+        index_names.append((index, name))
+        if index in index_cache:
+            for multiindex, suffix in zip(index_cache[index],
+                                          string.ascii_lowercase):
+                name_multiindex(multiindex, name + suffix)
+
+    def name_multiindex(multiindex, name):
+        if len(multiindex) == 1:
+            name_index(multiindex[0], name)
+        else:
+            for i, index in enumerate(multiindex):
+                name_index(index, name + str(i))
+
+    name_multiindex(quadrature_indices, 'ip')
+    for multiindex, name in zip(argument_multiindices, ['j', 'k']):
+        name_multiindex(multiindex, name)
 
     # Construct kernel
-    body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, argument_indices)
+    body = generate_coffee(impero_c, index_names, parameters["precision"], expressions, split_argument_indices)
 
     return builder.construct_kernel(kernel_name, body)
 

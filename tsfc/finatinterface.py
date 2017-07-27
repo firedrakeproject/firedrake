@@ -52,6 +52,8 @@ supported_elements = {
     # These require special treatment below
     "DQ": None,
     "Q": None,
+    "RTCE": None,
+    "RTCF": None,
 }
 """A :class:`.dict` mapping UFL element family names to their
 FInAT-equivalent constructors.  If the value is ``None``, the UFL
@@ -133,6 +135,11 @@ def convert_finiteelement(element):
         else:
             raise ValueError("Variant %r not supported on %s" % (kind, element.cell()))
     return lmbda(cell, element.degree())
+
+
+@convert.register(ufl.EnrichedElement)
+def convert_enrichedelement(element):
+    return finat.EnrichedElement([create_element(elem) for elem in element._elements])
 
 
 # VectorElement case

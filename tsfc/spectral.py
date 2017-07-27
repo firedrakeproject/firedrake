@@ -1,14 +1,15 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import map, zip
+from six.moves import zip
 
-from functools import partial
-from itertools import chain
+from functools import partial, reduce
 
-from gem import Delta, Indexed, index_sum
+from gem import Delta, Indexed, Sum, index_sum
 from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import sum_factorise as _sum_factorise
-from gem.optimise import unroll_indexsum
+from gem.optimise import replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
+from gem.unconcatenate import unconcatenate
+from gem.utils import groupby
 
 
 def delta_elimination(sum_indices, args, rest):
@@ -31,18 +32,26 @@ def sum_factorise(sum_indices, args, rest):
 
 
 def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
+    """Constructs an integral representation for each GEM integrand
+    expression.
+
+    :arg expressions: integrand multiplied with quadrature weight;
+                      multi-root GEM expression DAG
+    :arg quadrature_multiindex: quadrature multiindex (tuple)
+    :arg argument_multiindices: tuple of argument multiindices,
+                                one multiindex for each argument
+    :arg parameters: parameters dictionary
+
+    :returns: list of integral representations
+    """
     # Unroll
     max_extent = parameters["unroll_indexsum"]
     if max_extent:
         def predicate(index):
             return index.extent <= max_extent
         expressions = unroll_indexsum(expressions, predicate=predicate)
-    # Integral representation: pair with the set of argument indices
-    # and a GEM expression
-    argument_indices = set(chain(*argument_multiindices))
-    return [(argument_indices,
-             index_sum(e, quadrature_multiindex))
-            for e in expressions]
+    # Integral representation: just a GEM expression
+    return replace_division([index_sum(e, quadrature_multiindex) for e in expressions])
 
 
 def classify(argument_indices, expression):
@@ -59,15 +68,20 @@ def classify(argument_indices, expression):
         return COMPOUND
 
 
-def flatten(var_reps):
-    for variable, reps in var_reps:
-        # Destructure representation
-        argument_indicez, expressions = zip(*reps)
-        # Assert identical argument indices for all integrals
-        argument_indices, = set(map(frozenset, argument_indicez))
-        # Argument factorise
-        classifier = partial(classify, argument_indices)
-        for monomial_sum in collect_monomials(expressions, classifier):
+def flatten(var_reps, index_cache):
+    assignments = unconcatenate([(variable, reduce(Sum, reps))
+                                 for variable, reps in var_reps],
+                                cache=index_cache)
+
+    def group_key(assignment):
+        variable, expression = assignment
+        return variable.free_indices
+
+    for free_indices, assignment_group in groupby(assignments, group_key):
+        variables, expressions = zip(*assignment_group)
+        classifier = partial(classify, set(free_indices))
+        monomial_sums = collect_monomials(expressions, classifier)
+        for variable, monomial_sum in zip(variables, monomial_sums):
             # Compact MonomialSum after IndexSum-Delta cancellation
             delta_simplified = MonomialSum()
             for monomial in monomial_sum:
