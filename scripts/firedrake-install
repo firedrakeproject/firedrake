@@ -759,7 +759,8 @@ def build_and_install_adjoint():
         dir_util.mkpath("build")
         with directory("build"):
             log.info("Configuring libadjoint for venv installation in %s" % os.environ["VIRTUAL_ENV"])
-            check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"], ".."], env=env)
+            check_call(["cmake", "-DCMAKE_INSTALL_PREFIX=%s" % os.environ["VIRTUAL_ENV"],
+                        "-DPYTHON_EXECUTABLE=%s/bin/python3" % os.environ["VIRTUAL_ENV"], ".."], env=env)
             log.info("Installing libadjoint.")
             check_call(["make", "install"])
 
