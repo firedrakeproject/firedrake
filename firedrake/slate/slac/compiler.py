@@ -688,7 +688,7 @@ def eigen_matrixbase_type(shape):
     else:
         order = ""
 
-    if get_config['options']['complex']:
+    if get_config()['options']['complex']:
         return "Eigen::Matrix<std::complex<double>, %d, %d%s>" % (rows, cols, order)
     else:
         return "Eigen::Matrix<double, %d, %d%s>" % (rows, cols, order)
