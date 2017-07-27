@@ -1,7 +1,7 @@
 Obtaining Firedrake
 ===================
 
-The simplest way to install Firedrake is to use our install script::
+Firedrake is installed using its install script::
 
   curl -O https://raw.githubusercontent.com/firedrakeproject/firedrake/master/scripts/firedrake-install
   python3 firedrake-install
@@ -12,8 +12,7 @@ current directory. Run::
 
   python3 firedrake-install --help
 
-for a full list of install options, including system-wide
-installs and installation in developer mode.  In particular, you may
+for a full list of install options.  In particular, you may
 wish to customise the set of options used to build PETSc.  To do so,
 set the environment variable ``PETSC_CONFIGURE_OPTIONS`` before
 running ``firedrake-install``.  You can see the set of options passed
