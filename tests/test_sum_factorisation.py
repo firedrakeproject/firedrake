@@ -1,5 +1,5 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import map, range
+from six.moves import range
 
 import numpy
 import pytest
@@ -114,7 +114,8 @@ def test_mixed_poisson(cell, order):
     degrees = numpy.arange(3, 8)
     if cell == TensorProductCell(triangle, interval):
         degrees = numpy.arange(3, 6)
-    flops = [list(map(count_flops, split_mixed_poisson(cell, degree)))
+    flops = [[count_flops(form)
+              for form in split_mixed_poisson(cell, int(degree))]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
@@ -131,7 +132,7 @@ def test_mixed_poisson_action(cell, order):
     if cell == TensorProductCell(triangle, interval):
         degrees = numpy.arange(3, 6)
     flops = [[count_flops(action(form))
-              for form in split_mixed_poisson(cell, degree)]
+              for form in split_mixed_poisson(cell, int(degree))]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
     assert (rates < order).all()
@@ -148,7 +149,7 @@ def test_vector_laplace(cell, order):
     if cell == TensorProductCell(triangle, interval):
         degrees = numpy.arange(3, 6)
     flops = [[count_flops(form)
-              for form in split_vector_laplace(cell, degree)]
+              for form in split_vector_laplace(cell, int(degree))]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
     print(rates)
@@ -166,7 +167,7 @@ def test_vector_laplace_action(cell, order):
     if cell == TensorProductCell(triangle, interval):
         degrees = numpy.arange(3, 6)
     flops = [[count_flops(action(form))
-              for form in split_vector_laplace(cell, degree)]
+              for form in split_vector_laplace(cell, int(degree))]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
     print(rates)
