@@ -1,5 +1,5 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import range
+from six.moves import map, range
 
 import numpy
 import pytest
@@ -8,9 +8,9 @@ from coffee.visitors import EstimateFlops
 
 from ufl import (Mesh, FunctionSpace, FiniteElement, VectorElement,
                  TestFunction, TrialFunction, TensorProductCell,
-                 EnrichedElement, HDivElement, TensorProductElement,
-                 dx, action, interval, triangle, quadrilateral, dot,
-                 div, grad)
+                 EnrichedElement, HCurlElement, HDivElement,
+                 TensorProductElement, dx, action, interval, triangle,
+                 quadrilateral, curl, dot, div, grad)
 
 from tsfc import compile_form
 
@@ -44,6 +44,29 @@ def split_mixed_poisson(cell, degree):
     tau = TestFunction(RT)
     v = TestFunction(DG)
     return [dot(sigma, tau) * dx, div(tau) * u * dx, div(sigma) * v * dx]
+
+
+def split_vector_laplace(cell, degree):
+    m = Mesh(VectorElement('CG', cell, 1))
+    if cell.cellname() in ['interval * interval', 'quadrilateral']:
+        hcurl_element = FiniteElement('RTCE', cell, degree)
+    elif cell.cellname() == 'triangle * interval':
+        U0 = FiniteElement('RT', triangle, degree)
+        U1 = FiniteElement('CG', triangle, degree)
+        V0 = FiniteElement('CG', interval, degree)
+        V1 = FiniteElement('DG', interval, degree - 1)
+        Wa = HCurlElement(TensorProductElement(U0, V0))
+        Wb = HCurlElement(TensorProductElement(U1, V1))
+        hcurl_element = EnrichedElement(Wa, Wb)
+    elif cell.cellname() == 'quadrilateral * interval':
+        hcurl_element = FiniteElement('NCE', cell, degree)
+    RT = FunctionSpace(m, hcurl_element)
+    CG = FunctionSpace(m, FiniteElement('Q', cell, degree))
+    sigma = TrialFunction(CG)
+    u = TrialFunction(RT)
+    tau = TestFunction(CG)
+    v = TestFunction(RT)
+    return [dot(u, grad(tau))*dx, dot(grad(sigma), v)*dx, dot(curl(u), curl(v))*dx]
 
 
 def count_flops(form):
@@ -111,6 +134,42 @@ def test_mixed_poisson_action(cell, order):
               for form in split_mixed_poisson(cell, degree)]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(('cell', 'order'),
+                         [(quadrilateral, 5),
+                          (TensorProductCell(interval, interval), 5),
+                          (TensorProductCell(triangle, interval), 7),
+                          (TensorProductCell(quadrilateral, interval), 7)
+                          ])
+def test_vector_laplace(cell, order):
+    degrees = numpy.arange(3, 8)
+    if cell == TensorProductCell(triangle, interval):
+        degrees = numpy.arange(3, 6)
+    flops = [[count_flops(form)
+              for form in split_vector_laplace(cell, degree)]
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
+    print(rates)
+    assert (rates < order).all()
+
+
+@pytest.mark.parametrize(('cell', 'order'),
+                         [(quadrilateral, 3),
+                          (TensorProductCell(interval, interval), 3),
+                          (TensorProductCell(triangle, interval), 5),
+                          (TensorProductCell(quadrilateral, interval), 4)
+                          ])
+def test_vector_laplace_action(cell, order):
+    degrees = numpy.arange(3, 8)
+    if cell == TensorProductCell(triangle, interval):
+        degrees = numpy.arange(3, 6)
+    flops = [[count_flops(action(form))
+              for form in split_vector_laplace(cell, degree)]
+             for degree in degrees]
+    rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
+    print(rates)
     assert (rates < order).all()
 
 
