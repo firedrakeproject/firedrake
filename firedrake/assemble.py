@@ -96,6 +96,8 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
     config = get_config()
+    if form_compiler_parameters is None:
+        form_compiler_parameters = {}
     if config['options']['complex']:
         form_compiler_parameters['scalar_type'] = 'double complex'
 
