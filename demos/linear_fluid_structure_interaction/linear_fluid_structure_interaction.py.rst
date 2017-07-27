@@ -278,7 +278,7 @@ In the end, we proceed with the actual computation loop::
 
     while t <= t_end + dt:
         t += dt
-        print 'time = ', t * T
+        print('time = ', t * T)
         # symplectic Euler scheme
         LVS_phi_f.solve()
         LVS_U_phi.solve()
