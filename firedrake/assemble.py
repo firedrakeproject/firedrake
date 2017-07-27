@@ -19,6 +19,8 @@ from firedrake import utils
 from firedrake.slate import slate
 from firedrake.slate import slac
 
+from firedrake_configuration import get_config
+
 
 __all__ = ["assemble"]
 
@@ -93,6 +95,10 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
+    config = get_config()
+    if config['options']['complex']:
+        form_compiler_parameters['scalar_type'] = 'double complex'
+
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
         return _assemble(f, tensor=tensor, bcs=solving._extract_bcs(bcs),
                          form_compiler_parameters=form_compiler_parameters,
@@ -114,6 +120,9 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
+    config = get_config()
+    if config['options']['complex']:
+        form_compiler_parameters['scalar_type'] = 'double complex'
     return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
                      appctx=appctx,
@@ -136,6 +145,9 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
+    config = get_config()
+    if config['options']['complex']:
+        form_compiler_parameters['scalar_type'] = 'double complex'
     loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
                       inverse=inverse, mat_type=mat_type,
@@ -287,7 +299,8 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
-            result_matrix = matrix.Matrix(f, bcs, sparsity, numpy.float64,
+            matrixdtype = numpy.complex128 if form_compiler_parameters['scalar_type'] == 'double complex' else numpy.float64
+            result_matrix = matrix.Matrix(f, bcs, sparsity, matrixdtype,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
         else:

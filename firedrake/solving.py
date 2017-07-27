@@ -27,6 +27,8 @@ import ufl
 import firedrake.linear_solver as ls
 import firedrake.variational_solver as vs
 
+from firedrake_configuration import get_config
+
 
 def solve(*args, **kwargs):
     """Solve linear system Ax = b or variational problem a == L or F == 0.
@@ -135,6 +137,10 @@ def _solve_varproblem(*args, **kwargs):
         solver_parameters, nullspace, nullspace_T, \
         near_nullspace, \
         options_prefix = _extract_args(*args, **kwargs)
+
+    config = get_config()
+    if config['options']['complex']:
+        form_compiler_parameters['scalar_type'] = 'double complex'
 
     appctx = kwargs.get("appctx", {})
     # Solve linear variational problem
