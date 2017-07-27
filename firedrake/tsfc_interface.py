@@ -112,7 +112,7 @@ class TSFCKernel(Cached):
         """
         if self._initialized:
             return
-
+        
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters)
         kernels = []
         for kernel in tree:
@@ -188,7 +188,6 @@ def compile_form(form, name, parameters=None, inverse=False):
            name == old_name and \
            params == parameters:
             return kernels
-
     kernels = []
     # A map from all form coefficients to their number.
     coefficient_numbers = dict((c, n)
