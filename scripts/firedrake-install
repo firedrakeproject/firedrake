@@ -28,6 +28,24 @@ firedrake_apps = {
 }
 
 
+if sys.version_info < (3, 5):
+    if mode == "install":
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.5.
+You should run firedrake-install with python3.""")
+    if mode == "update":
+        if hasattr(sys, "real_prefix"):
+            # sys.real_prefix exists iff we are in an active virtualenv.
+            #
+            # Existing install trying to update past the py2/py3 barrier
+            print("""\nFiredrake is now Python 3 only.  You cannot upgrade your existing installation.
+Please follow the instructions at http://www.firedrakeproject.org/download.html to reinstall.""")
+            sys.exit(1)
+        else:
+            # Accidentally (?) running firedrake-update with python2.
+            print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
+    sys.exit(1)
+
+
 class InstallError(Exception):
     # Exception for generic install problems.
     pass
@@ -224,21 +242,6 @@ where shortname is one of the names given below:
     print(help_string)
     sys.exit(0)
 
-if sys.version_info < (3, 5):
-    if mode == "install":
-        quit("""\nInstalling Firedrake requires Python 3, at least version 3.5.
-You should run firedrake-install with python3.""")
-    if mode == "update":
-        if hasattr(sys, "real_prefix"):
-            # sys.real_prefix exists iff we are in an active virtualenv.
-            #
-            # Existing install trying to update past the py2/py3 barrier
-            quit("""\nFiredrake is now Python 3 only.  You cannot upgrade your existing installation.
-Please follow the instructions at http://www.firedrakeproject.org/download.html to reinstall.""")
-        else:
-            # Accidentally (?) running firedrake-update with python2.
-            quit("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
-
 # Set up logging
 # Log to file at DEBUG level
 logging.basicConfig(level=logging.DEBUG,
@@ -255,10 +258,6 @@ logging.getLogger().addHandler(console)
 log = logging.getLogger()
 
 log.info("Running %s" % " ".join(sys.argv))
-
-# Python version idiot check as soon as logging is up
-if sys.version_info.major != 3:
-    quit("Firedrake requires Python 3. firedrake-%s was run with Python %s" % (mode, sys.version))
 
 
 @atexit.register
