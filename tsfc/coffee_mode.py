@@ -29,6 +29,11 @@ def flatten(var_reps, index_cache):
 
     :returns: series of (return variable, GEM expression root) pairs
     """
+    try:
+        from firedrake import Citations
+        Citations().register("Luporini2016")
+    except ImportError:
+        pass
     assignments = unconcatenate([(variable, reduce(Sum, reps))
                                  for variable, reps in var_reps],
                                 cache=index_cache)
