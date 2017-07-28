@@ -1,5 +1,5 @@
 from __future__ import absolute_import, print_function, division
-from six.moves import map, zip
+from six.moves import map, range, zip
 
 import numpy
 import itertools
@@ -11,6 +11,8 @@ from gem.unconcatenate import unconcatenate
 from gem.node import traversal
 from gem.gem import IndexSum, Failure, Sum, one
 from gem.utils import groupby
+
+from tsfc.logging import logger
 
 import tsfc.spectral as spectral
 
@@ -64,17 +66,6 @@ def optimise_expressions(expressions, argument_indices):
     return [optimise_monomial_sum(ms, argument_indices) for ms in monomial_sums]
 
 
-def index_extent(factor, argument_indices):
-    """Compute the product of the extents of argument indices of a GEM expression
-
-    :arg factor: GEM expression
-    :arg argument_indices: set of argument indices
-
-    :returns: product of extents of argument indices
-    """
-    return numpy.product([i.extent for i in set(factor.free_indices).intersection(argument_indices)])
-
-
 def monomial_sum_to_expression(monomial_sum):
     """Convert a monomial sum to a GEM expression.
 
@@ -93,49 +84,22 @@ def monomial_sum_to_expression(monomial_sum):
     return make_sum(indexsums)
 
 
-def solve_ip(variables, is_feasible, key):
-    """Solve a 0-1 integer programming problem. The algorithm tries to set each
-    variable to 1 recursively, and stop the recursion early by comparing with
-    the optimal solution at entry. At worst case this is 2^N (as this is a
-    NP-hard problem), but recursions can be trimmed as soon as a reasonable
-    solution have been found.
+def index_extent(factor, argument_indices):
+    """Compute the product of the extents of argument indices of a GEM expression
 
-    :param variables: list of unique 0-1 variables
-    :param is_feasible: function to test if a combination is feasible
-    :param key: function to use when comparing solutions.
-    :returns: optimal solution represented as a set of variables with value 1
+    :arg factor: GEM expression
+    :arg argument_indices: set of argument indices
+
+    :returns: product of extents of argument indices
     """
-
-    optimal_solution = set(variables)  # start by choosing all atomics
-    solution = set()
-
-    def solve(idx):
-        if idx >= len(variables):
-            return
-        if key(solution) >= key(optimal_solution):
-            return
-        solution.add(variables[idx])
-        if is_feasible(solution):
-            if key(solution) < key(optimal_solution):
-                optimal_solution.clear()
-                optimal_solution.update(solution)
-            # No need to search further as adding more variables will
-            # only make the solution worse.
-        else:
-            solve(idx + 1)
-        solution.remove(variables[idx])
-        solve(idx + 1)
-
-    solve(0)
-
-    return optimal_solution
+    return numpy.prod([i.extent for i in factor.free_indices if i in argument_indices])
 
 
 def find_optimal_atomics(monomials, argument_indices):
     """Find optimal atomic common subexpressions, which produce least number of
     terms in the resultant IndexSum when factorised.
 
-    :arg monomials: An iterable of :class:`Monomial`s, all of which should have
+    :arg monomials: A list of :class:`Monomial`s, all of which should have
                     the same sum indices
     :arg argument_indices: tuple of argument indices
 
@@ -143,19 +107,40 @@ def find_optimal_atomics(monomials, argument_indices):
     """
     atomics = tuple(OrderedDict.fromkeys(itertools.chain(*(monomial.atomics for monomial in monomials))))
 
-    def is_feasible(solution):
-        # Solution is only feasible if it intersects with all monomials
-        # Potentially can improve this by keeping track of violated constraints
-        # and suggest the next atomic to try (instead of just returning True or False)
-        return all(solution.intersection(monomial.atomics) for monomial in monomials)
-
     def cost(solution):
         extent = sum(map(lambda atomic: index_extent(atomic, argument_indices), solution))
         # Prefer shorter solutions, but larger extents
         return (len(solution), -extent)
 
-    optimal_atomics = solve_ip(atomics, is_feasible, key=cost)
-    return tuple(atomic for atomic in atomics if atomic in optimal_atomics)
+    optimal_solution = set(atomics)  # pessimal but feasible solution
+    solution = set()
+
+    max_it = 1 << 12
+    it = iter(range(max_it))
+
+    def solve(idx):
+        while idx < len(monomials) and solution.intersection(monomials[idx].atomics):
+            idx += 1
+
+        if idx < len(monomials):
+            if len(solution) < len(optimal_solution):
+                for atomic in monomials[idx].atomics:
+                    solution.add(atomic)
+                    solve(idx + 1)
+                    solution.remove(atomic)
+        else:
+            if cost(solution) < cost(optimal_solution):
+                optimal_solution.clear()
+                optimal_solution.update(solution)
+            next(it)
+
+    try:
+        solve(0)
+    except StopIteration:
+        logger.warning("Solution to ILP problem may not be optimal: search "
+                       "interrupted after examining %d solutions.", max_it)
+
+    return tuple(atomic for atomic in atomics if atomic in optimal_solution)
 
 
 def factorise_atomics(monomials, optimal_atomics, argument_indices):
@@ -237,7 +222,7 @@ def optimise_monomials(monomials, argument_indices):
     """Choose optimal common atomic subexpressions and factorise an iterable
     of monomials.
 
-    :arg monomials: an iterable of :class:`Monomial`s, all of which should have
+    :arg monomials: a list of :class:`Monomial`s, all of which should have
                     the same sum indices
     :arg argument_indices: tuple of argument indices
 
