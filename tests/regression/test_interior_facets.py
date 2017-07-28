@@ -140,6 +140,23 @@ def test_interior_facet_vfs_vert_mixed():
     assert not np.all(mp.M[0, 1].values == mm.M[0, 1].values)
 
 
+@pytest.fixture
+def mesh():
+    from os.path import abspath, join, dirname
+    cwd = abspath(dirname(__file__))
+    return Mesh(join(cwd, "..", "meshes", "circle_in_square.msh"))
+
+
+def test_interior_facet_integration():
+    m = mesh()
+    V = FunctionSpace(m, "CG", 1)
+    f = Function(V)
+    f.interpolate(Constant(1.0))
+    assert abs(assemble(f*ds(1))-16.0) < 0.01
+    from math import pi
+    assert abs(assemble(f*dS(2))-2*pi) < 0.01
+
+
 if __name__ == '__main__':
     import os
     pytest.main(os.path.abspath(__file__))
