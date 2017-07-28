@@ -2,6 +2,7 @@ import numpy as np
 import sys
 import ufl
 import ctypes
+from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
@@ -272,6 +273,10 @@ class Function(ufl.Coefficient):
 
     def __getattr__(self, name):
         return getattr(self._data, name)
+
+    def __dir__(self):
+        current = super(Function, self).__dir__()
+        return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
