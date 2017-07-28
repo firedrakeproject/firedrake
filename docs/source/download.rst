@@ -67,6 +67,10 @@ Firedrake requires Python 3.5 or later.
 On Ubuntu (16.04 or later), the system installed Python 3 is supported and tested.
 On Mac OS, the homebrew_ installed Python 3 is supported and tested.
 
+.. note::
+
+   Your system still needs to have Python 2 available to build PETSc_.
+
 .. warning::
 
    The installation script *does not work* with anaconda_ based python
@@ -130,3 +134,4 @@ the python package ``sphinxcontrib-bibtex``.
 .. _venv: https://docs.python.org/3/tutorial/venv.html
 .. _homebrew: https://brew.sh/
 .. _anaconda: https://www.continuum.io/downloads
+.. _PETSc: https://www.mcs.anl.gov/petsc/
