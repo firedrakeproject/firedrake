@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
-
-import firedrake_configuration
-firedrake_configuration.setup_cache_dirs()
-from firedrake.tsfc_interface import clear_cache, TSFCKernel
-from pyop2.compilation import clear_cache as pyop2_clear_cache
-
-
 if __name__ == '__main__':
-    print('Removing cached TSFC kernels from %s' % TSFCKernel._cachedir)
-    clear_cache()
-    pyop2_clear_cache()
+    import os
+    import shutil
+    import tempfile
+    import firedrake_configuration
+
+    firedrake_configuration.setup_cache_dirs()
+    tsfc_cache = os.environ.get('FIREDRAKE_TSFC_KERNEL_CACHE_DIR',
+                                os.path.join(tempfile.gettempdir(),
+                                             'firedrake-tsfc-kernel-cache-uid%d' % os.getuid()))
+    pyop2_cache = os.environ.get('PYOP2_CACHE_DIR',
+                                 os.path.join(tempfile.gettempdir(),
+                                              'pyop2-cache-uid%d' % os.getuid()))
+    print('Removing cached TSFC kernels from %s' % tsfc_cache)
+    print('Removing cached PyOP2 code from %s' % pyop2_cache)
+    for cache in [tsfc_cache, pyop2_cache]:
+        if os.path.exists(cache):
+            shutil.rmtree(cache, ignore_errors=True)
