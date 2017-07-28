@@ -28,24 +28,6 @@ firedrake_apps = {
 }
 
 
-if sys.version_info < (3, 5):
-    if mode == "install":
-        print("""\nInstalling Firedrake requires Python 3, at least version 3.5.
-You should run firedrake-install with python3.""")
-    if mode == "update":
-        if hasattr(sys, "real_prefix"):
-            # sys.real_prefix exists iff we are in an active virtualenv.
-            #
-            # Existing install trying to update past the py2/py3 barrier
-            print("""\nFiredrake is now Python 3 only.  You cannot upgrade your existing installation.
-Please follow the instructions at http://www.firedrakeproject.org/download.html to reinstall.""")
-            sys.exit(1)
-        else:
-            # Accidentally (?) running firedrake-update with python2.
-            print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
-    sys.exit(1)
-
-
 class InstallError(Exception):
     # Exception for generic install problems.
     pass
@@ -93,6 +75,25 @@ elif os.path.basename(__file__) == "firedrake-update":
     os.chdir(os.path.dirname(os.path.realpath(__file__)) + "/../..")
 else:
     sys.exit("Script must be invoked either as firedrake-install or firedrake-update")
+
+
+if sys.version_info < (3, 5):
+    if mode == "install":
+        print("""\nInstalling Firedrake requires Python 3, at least version 3.5.
+You should run firedrake-install with python3.""")
+    if mode == "update":
+        if hasattr(sys, "real_prefix"):
+            # sys.real_prefix exists iff we are in an active virtualenv.
+            #
+            # Existing install trying to update past the py2/py3 barrier
+            print("""\nFiredrake is now Python 3 only.  You cannot upgrade your existing installation.
+Please follow the instructions at http://www.firedrakeproject.org/download.html to reinstall.""")
+            sys.exit(1)
+        else:
+            # Accidentally (?) running firedrake-update with python2.
+            print("""\nfiredrake-update must be run with Python 3, did you accidentally use Python 2?""")
+    sys.exit(1)
+
 
 branches = {}
 
