@@ -229,7 +229,9 @@ if sys.version_info < (3, 5):
         quit("""\nInstalling Firedrake requires Python 3, at least version 3.5.
 You should run firedrake-install with python3.""")
     if mode == "update":
-        if not args.update_script:
+        if hasattr(sys, "real_prefix"):
+            # sys.real_prefix exists iff we are in an active virtualenv.
+            #
             # Existing install trying to update past the py2/py3 barrier
             quit("""\nFiredrake is now Python 3 only.  You cannot upgrade your existing installation.
 Please follow the instructions at http://www.firedrakeproject.org/download.html to reinstall.""")
