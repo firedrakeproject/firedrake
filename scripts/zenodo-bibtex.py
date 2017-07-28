@@ -81,7 +81,7 @@ except:
     fail("400 Bad Request", "%s is not a legal Firedrake release tag" % firedrake_tag)
 
 # Use sed to insert OAUTH token on next line before uploading to web server.
-response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions/?access_token=ZENODO_OAUTH")
+response = urllib2.urlopen("https://zenodo.org/api/deposit/depositions/?access_token=ZENODO_OAUTH&size=9999")
 
 ids = find_ids(json.load(response), firedrake_tag)
 
