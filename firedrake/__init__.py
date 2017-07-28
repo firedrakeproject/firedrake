@@ -22,6 +22,10 @@ except AttributeError:
     pass
 del ufl
 from ufl import *
+# Set up the cache directories before importing PyOP2.
+import firedrake_configuration
+firedrake_configuration.setup_cache_dirs()
+
 from pyop2 import op2                                           # noqa
 from pyop2.mpi import COMM_WORLD, COMM_SELF                     # noqa
 
