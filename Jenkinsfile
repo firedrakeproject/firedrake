@@ -46,8 +46,6 @@ make lint
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
-export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
 python $(which firedrake-clean)
 python -m pip install pytest-cov pytest-xdist
 python -m pip list
@@ -64,8 +62,6 @@ python -m pytest -n 4 --cov firedrake -v tests
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
-export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
 cd firedrake/src/dolfin-adjoint; python -m pytest -n 4 -v tests_firedrake
 '''
           }
