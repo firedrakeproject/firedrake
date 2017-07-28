@@ -4,10 +4,13 @@ Linear mixed fluid-structure interaction system
 
 .. rst-class:: emphasis
 
-This tutorial is aimed to demonstrate the use of subdomain functionality and show how to describe a system consisting of multiple materials in Firedrake.
+    This tutorial demonstrates the use of subdomain
+    functionality and show how to describe a system consisting of
+    multiple materials in Firedrake.
 
-The tutorial was contributed by `Tomasz Salwa <mailto:mmtjs@leeds.ac.uk>`__
-and `Onno Bokhove <mailto:O.Bokhove@leeds.ac.uk>`__.
+    The tutorial was contributed by `Tomasz Salwa
+    <mailto:mmtjs@leeds.ac.uk>`__ and `Onno Bokhove
+    <mailto:O.Bokhove@leeds.ac.uk>`__.
 
 The model considered consists of fluid with a free surface and an elastic solid. We will be using interchangeably notions of fluid/water and structure/solid/beam. For simplicity (and speed of computation) we consider a model in 2D, however it can be easily generalised to 3D. The starting point is the linearised version (domain is fixed) of the fully nonlinear variational principle. In non-dimensional units:
 
@@ -275,7 +278,7 @@ In the end, we proceed with the actual computation loop::
 
     while t <= t_end + dt:
         t += dt
-        print 'time = ', t * T
+        print('time = ', t * T)
         # symplectic Euler scheme
         LVS_phi_f.solve()
         LVS_U_phi.solve()
@@ -304,7 +307,14 @@ A python script version of this demo can be found `here <linear_fluid_structure_
 
 The mesh file is `here <L_domain.msh>`__. It can be generated with `gmsh <http://gmsh.info/>`__ from `this file <L_domain.geo>`__ with a command: gmsh -2 L_domain.geo.
 
-The work is based on the article "Variational modelling of wave-structure interactions with an offshore wind-turbine mast" by Tomasz Salwa, Onno Bokhove and Mark Kelmanson :cite:`Salwa:2017`. The authors gratefully acknowledge funding from European Commission, Marie Curie Actions - Initial Training Networks (ITN), project number 607596.
+.. rst-class:: emphasis
+
+   The work is based on the article "Variational modelling of
+   wave-structure interactions with an offshore wind-turbine mast" by
+   Tomasz Salwa, Onno Bokhove and Mark Kelmanson
+   :cite:`Salwa:2017`. The authors gratefully acknowledge funding from
+   European Commission, Marie Curie Actions - Initial Training
+   Networks (ITN), project number 607596.
 
 
 .. rubric:: References

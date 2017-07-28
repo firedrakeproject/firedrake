@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from os import listdir
 from os.path import isfile, join
 from collections import Counter

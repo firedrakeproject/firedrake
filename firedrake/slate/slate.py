@@ -14,9 +14,6 @@ All Slate expressions are handled by a specialized linear algebra
 compiler, which interprets expressions and produces C++ kernel
 functions to be executed within the Firedrake architecture.
 """
-from __future__ import absolute_import, print_function, division
-from six import with_metaclass, iteritems
-
 from abc import ABCMeta, abstractproperty, abstractmethod
 
 from collections import OrderedDict
@@ -46,7 +43,7 @@ class CheckRestrictions(MultiFunction):
         raise ValueError("Must contain only positive restrictions!")
 
 
-class TensorBase(with_metaclass(ABCMeta)):
+class TensorBase(object, metaclass=ABCMeta):
     """An abstract Slate node class.
 
     .. warning::
@@ -329,7 +326,7 @@ class TensorOp(TensorBase):
         for op in self.operands:
             op_sd = op.subdomain_data()[op.ufl_domain()]
 
-            for it_type, domain in iteritems(op_sd):
+            for it_type, domain in op_sd.items():
                 if it_type not in sd:
                     sd[it_type] = domain
 

@@ -1,5 +1,4 @@
-#! /usr/bin/env python
-from __future__ import absolute_import, print_function, division
+#! /usr/bin/env python3
 import logging
 import sys
 import os
@@ -8,7 +7,8 @@ from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 import json
 import time
-from urllib2 import urlopen, HTTPError
+from urllib.request import urlopen
+from urllib.error import HTTPError
 
 
 descriptions = OrderedDict([
@@ -35,7 +35,7 @@ projects = dict(
      ("petsc", "firedrakeproject"),
      ("petsc4py", "firedrakeproject")])
 
-components = descriptions.keys()
+components = list(descriptions.keys())
 
 optional_components = ("SLOPE",)
 
@@ -71,6 +71,9 @@ group.add_argument("--bibtex-file", action="store", nargs=1, default=["firedrake
                    help="Output to the named bibtex file rather than firedrake-zenodo.bib")
 parser.add_argument("--message", "-m", action="store", nargs=1,
                     help="Short description of the reason for this release. E.g. Version of Firedrake used in <paper name>.")
+parser.add_argument("--honour-petsc-dir", action="store_true",
+                    help="Does your firedrake use a self-built PETSc?")
+
 for component in components:
     parser.add_argument("--%s" % component, action="store", nargs=1,
                         help="Use this git hash for %s instead of that in the file or the checked out version."
@@ -111,9 +114,9 @@ except KeyError:
 def check_call(arguments):
     if args.log:
         try:
-            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT))
+            log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT).decode())
         except subprocess.CalledProcessError as e:
-            log.debug(e.output)
+            log.debug(e.output.decode())
             raise
     else:
         subprocess.check_call(arguments)
@@ -121,9 +124,9 @@ def check_call(arguments):
 
 def check_output(args):
     try:
-        return subprocess.check_output(args, stderr=subprocess.STDOUT)
+        return subprocess.check_output(args, stderr=subprocess.STDOUT).decode()
     except subprocess.CalledProcessError as e:
-        log.debug(e.output)
+        log.debug(e.output.decode())
         raise
 
 
@@ -144,8 +147,12 @@ def collect_repo_shas():
                 log.warning("Failed to retrieve git hash for optional "
                             "component '%s', continuing without it" % component)
             else:
-                log.error("Failed to retrieve git hash for %s" % component)
-                raise
+                if component == "petsc" and args.honour_petsc_dir:
+                    log.warning("Cannot retrieve git hash for PETSc, if you want a release "
+                                "you will have to provide it manually")
+                else:
+                    log.error("Failed to retrieve git hash for %s" % component)
+                    raise
     return shas
 
 

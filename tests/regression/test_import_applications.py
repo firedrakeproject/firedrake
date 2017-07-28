@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 import os
 import subprocess
@@ -11,6 +10,7 @@ def app(request):
 
 
 @pytest.mark.skipif("FIREDRAKE_CI_TESTS" not in os.environ, reason="Not running in CI")
+@pytest.mark.xfail(reason="Gusto/Thetis not yet python 3 compatible")
 def test_import_app(app):
     # Have to run this in a subprocess in case the import pollutes the
     # test environment, e.g. by modifying firedrake parameters.

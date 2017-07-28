@@ -1,7 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six import iteritems
-from six.moves import range, map, zip
-
 from itertools import permutations
 import numpy as np
 
@@ -195,8 +191,8 @@ def get_node_permutations(fiat_element):
     for node in functionals:
         pt = node.get_point_dict()
         assert len(pt.keys()) == 1
-        nodes.append(np.asarray(pt.keys()[0], dtype=float))
-    for perm, transform in iteritems(transforms):
+        nodes.append(np.asarray(next(iter(pt.keys())), dtype=float))
+    for perm, transform in transforms.items():
         p = -np.ones(len(functionals), dtype=PETSc.IntType)
         new_nodes = [apply_transform(transform, node) for node in nodes]
         for i, node in enumerate(new_nodes):
@@ -281,7 +277,7 @@ def restriction_weights(fiat_element):
     Returns a 2D array of weights where weights[i, j] is the weighting
     of the ith fine cell basis function to the jth coarse cell basis function"""
     # Node points on coarse cell
-    points = np.asarray([node.get_point_dict().keys()[0] for node in fiat_element.dual_basis()])
+    points = np.asarray([next(iter(node.get_point_dict().keys())) for node in fiat_element.dual_basis()])
 
     # Create node points on fine cells
 
@@ -291,7 +287,7 @@ def restriction_weights(fiat_element):
     for T in transforms:
         pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
         tabulation = fiat_element.tabulate(0, pts)
-        keys = tabulation.keys()
+        keys = list(tabulation.keys())
         if len(keys) != 1:
             raise RuntimeError("Expected 1 key, found %d", len(keys))
         vals = tabulation[keys[0]]
@@ -313,7 +309,7 @@ def injection_weights(fiat_element):
     components on the coarse grid.
 
     unique_indices is an array of the unique values in the concatenated array"""
-    points = np.asarray([node.get_point_dict().keys()[0] for node in fiat_element.dual_basis()])
+    points = np.asarray([next(iter(node.get_point_dict().keys())) for node in fiat_element.dual_basis()])
 
     # Create node points on fine cells
 
@@ -323,7 +319,7 @@ def injection_weights(fiat_element):
     for T in transforms:
         pts = np.concatenate([np.dot(T[0], pt) + np.asarray(T[1]) for pt in points]).reshape(-1, points.shape[1])
         tabulation = fiat_element.tabulate(0, pts)
-        keys = tabulation.keys()
+        keys = list(tabulation.keys())
         if len(keys) != 1:
             raise RuntimeError("Expected 1 key, found %d", len(keys))
         vals = np.where(np.isclose(tabulation[keys[0]], 1.0), 1.0, 0.0)

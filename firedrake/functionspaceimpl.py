@@ -4,7 +4,6 @@ and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
 
-from __future__ import absolute_import, print_function, division
 
 import numpy
 
@@ -102,7 +101,7 @@ class WithGeometry(ufl.FunctionSpace):
         from firedrake.functionspacedata import get_work_function_cache, set_max_work_functions
         cache = get_work_function_cache(self.mesh(), self.ufl_element())
         if val < len(cache):
-            for k in cache.keys():
+            for k in list(cache.keys()):
                 if not cache[k]:
                     del cache[k]
             if val < len(cache):
@@ -274,7 +273,7 @@ class FunctionSpace(object):
         the number of components of their
         :meth:`~ufl.classes.FiniteElementBase.value_shape`."""
 
-        self.value_size = numpy.prod(self.shape, dtype=int)
+        self.value_size = int(numpy.prod(self.shape, dtype=int))
         """The total number of degrees of freedom at each function
         space node."""
         self.name = name
@@ -755,7 +754,7 @@ class ProxyFunctionSpace(FunctionSpace):
     """
     def __new__(cls, mesh, element, name=None):
         topology = mesh.topology
-        self = super(ProxyFunctionSpace, cls).__new__(cls, topology, element, name=name)
+        self = super(ProxyFunctionSpace, cls).__new__(cls)
         if mesh is not topology:
             return WithGeometry(self, mesh)
         else:

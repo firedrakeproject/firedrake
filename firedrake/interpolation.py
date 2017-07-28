@@ -1,6 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six import iterkeys
-
 import numpy
 from functools import partial
 
@@ -149,7 +146,8 @@ def _interpolator(V, dat, expr, subset):
         if not isinstance(dual, FIAT.functional.PointEvaluation):
             raise NotImplementedError("Can only interpolate onto point "
                                       "evaluation operators. Try projecting instead")
-        to_pts.append(list(iterkeys(dual.pt_dict))[0])
+        pts, = dual.pt_dict.keys()
+        to_pts.append(pts)
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
@@ -220,7 +218,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     coords_space = coords.function_space()
     coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
 
-    X_remap = coords_element.tabulate(0, to_pts).values()[0]
+    X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
 
     # The par_loop will just pass us arguments, since it doesn't
     # know about keyword args at all so unpack into a dict that we
@@ -252,7 +250,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
 
     names = {v[0] for v in expression._user_args}
 
-    X = coords_element.tabulate(0, to_pts).values()[0]
+    X = list(coords_element.tabulate(0, to_pts).values())[0]
 
     # Produce C array notation of X.
     X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"

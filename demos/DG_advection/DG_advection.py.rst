@@ -264,14 +264,14 @@ terminal. ::
 
       if step % 20 == 0:
           outfile.write(q)
-          print "t=", t
+          print("t=", t)
 
 Finally, we display the normalised :math:`L^2` error, by comparing to the
 initial condition. ::
 
   L2_err = sqrt(assemble((q - q_init)*(q - q_init)*dx))
   L2_init = sqrt(assemble(q_init*q_init*dx))
-  print L2_err/L2_init
+  print(L2_err/L2_init)
 
 This demo can be found as a script in
 `DG_advection.py <DG_advection.py>`__.

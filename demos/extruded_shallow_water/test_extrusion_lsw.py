@@ -73,8 +73,8 @@ while t < T:
     p_test = TestFunction(Xplot)
     solve(p_trial * p_test * dx == p_0 * p_test * dx, p_plot)
     file << p_plot, t
-    print t
+    print(t)
 
 E_1 = assemble(0.5 * p_0 * p_0 * dx + 0.5 * dot(u_0, u_0) * dx)
-print 'Initial energy', E_0
-print 'Final energy', E_1
+print('Initial energy', E_0)
+print('Final energy', E_1)

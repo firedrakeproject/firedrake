@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 
@@ -79,10 +78,10 @@ def test_function_space_vector_function_space_differ(mesh):
 
 
 def test_indexed_function_space_index(fs):
-    assert [s.index for s in fs] == range(2)
+    assert [s.index for s in fs] == list(range(2))
     # Create another mixed space in reverse order
     fs0, fs1 = fs.split()
-    assert [s.index for s in (fs1 * fs0)] == range(2)
+    assert [s.index for s in (fs1 * fs0)] == list(range(2))
     # Verify the indices of the original IndexedFunctionSpaces haven't changed
     assert fs0.index == 0 and fs1.index == 1
 

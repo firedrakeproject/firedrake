@@ -1,5 +1,4 @@
-from __future__ import absolute_import, print_function, division
-from operator import iadd, isub, imul, idiv
+from operator import iadd, isub, imul, itruediv
 from functools import partial
 from itertools import permutations
 
@@ -141,7 +140,7 @@ assigntest = lambda f, expr, x: evaluate(f.assign(expr).dat.data, x)
 iaddtest = partial(ioptest, op=iadd)
 isubtest = partial(ioptest, op=isub)
 imultest = partial(ioptest, op=imul)
-idivtest = partial(ioptest, op=idiv)
+itruedivtest = partial(ioptest, op=itruediv)
 
 
 common_tests = [
@@ -157,8 +156,8 @@ common_tests = [
     'isubtest(two, 1, 1)',
     'imultest(one, 2, 2)',
     'imultest(one, two, 2)',
-    'idivtest(two, 2, 1)',
-    'idivtest(one, two, 0.5)',
+    'itruedivtest(two, 2, 1)',
+    'itruedivtest(one, two, 0.5)',
     'isubtest(one, one, 0)',
     'assigntest(f, 2 * one, 2)',
     'assigntest(f, one - one, 0)']

@@ -1,4 +1,3 @@
-from __future__ import division, absolute_import, print_function
 from firedrake import *
 import numpy
 import pytest

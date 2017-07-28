@@ -3,10 +3,10 @@ pipeline {
     label 'linux'
   }
   environment {
-    TEST_FILES = "tests/extrusion/test_facet_integrals_2D.py tests/extrusion/test_mixed_bcs.py tests/extrusion/test_steady_advection_2D_extr.py tests/multigrid/test_two_poisson_gmg.py tests/output tests/regression/test_facet_orientation.py tests/regression/test_matrix_free.py tests/regression/test_nested_fieldsplit_solves.py tests/regression/test_nullspace.py tests/regression/test_point_eval_api.py tests/regression/test_point_eval_cells.py tests/regression/test_point_eval_fs.py tests/regression/test_solving_interface.py tests/regression/test_steady_advection_2D.py"
     PATH = "/usr/local/bin:/usr/bin:/bin"
     CC = "mpicc"
     FIREDRAKE_CI_TESTS = "1"
+    PYTHONHASHSEED = "12453221"
   }
   stages {
     stage('Clean') {
@@ -21,9 +21,7 @@ pipeline {
         sh 'mkdir tmp'
         dir('tmp') {
           timestamps {
-            sh 'pip install virtualenv'
-            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER}'
-            sh '$HOME/.local/bin/virtualenv --relocatable firedrake'
+            sh '../scripts/firedrake-install --disable-ssh --minimal-petsc ${SLEPC} --adjoint --slope --install thetis --install gusto ${PACKAGE_MANAGER} || (cat firedrake-install.log && /bin/false)'
           }
         }
       }
@@ -34,7 +32,7 @@ pipeline {
           timestamps {
             sh '''
 . ./firedrake/bin/activate
-pip install flake8
+python -m pip install flake8
 cd firedrake/src/firedrake
 make lint
 '''
@@ -50,11 +48,11 @@ make lint
 . ./firedrake/bin/activate
 export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
 export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
-firedrake-clean
-pip install pytest-cov pytest-xdist
-pip list
+python $(which firedrake-clean)
+python -m pip install pytest-cov pytest-xdist
+python -m pip list
 cd firedrake/src/firedrake
-py.test -n 4 --cov firedrake -v tests
+python -m pytest -n 4 --cov firedrake -v tests
 '''
           }
         }
@@ -68,7 +66,7 @@ py.test -n 4 --cov firedrake -v tests
 . ./firedrake/bin/activate
 export PYOP2_CACHE_DIR=${VIRTUAL_ENV}/pyop2_cache
 export FIREDRAKE_TSFC_KERNEL_CACHE_DIR=${VIRTUAL_ENV}/tsfc_cache
-cd firedrake/src/dolfin-adjoint; py.test -n 4 -v tests_firedrake
+cd firedrake/src/dolfin-adjoint; python -m pytest -n 4 -v tests_firedrake
 '''
           }
         }

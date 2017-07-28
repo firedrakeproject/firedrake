@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from distutils.core import setup
 from distutils.extension import Extension
 from glob import glob

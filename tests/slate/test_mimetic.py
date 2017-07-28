@@ -1,5 +1,4 @@
 """Tests for the successful assembly of mimetic elements in Slate"""
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *

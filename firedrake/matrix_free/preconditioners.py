@@ -1,6 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six import with_metaclass
-
 import abc
 
 from firedrake.citations import Citations
@@ -9,7 +6,7 @@ from firedrake.petsc import PETSc
 __all__ = ("AssembledPC", "MassInvPC", "PCDPC", "PCBase")
 
 
-class PCBase(with_metaclass(abc.ABCMeta)):
+class PCBase(object, metaclass=abc.ABCMeta):
 
     def __init__(self):
         """Create a PC context suitable for PETSc.

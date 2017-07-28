@@ -14,9 +14,6 @@ The Eigen C++ library (http://eigen.tuxfamily.org/) is required, as
 all low-level numerical linear algebra operations are performed using
 this templated function library.
 """
-from __future__ import absolute_import, print_function, division
-from six.moves import range
-
 from coffee import base as ast
 
 from collections import OrderedDict
@@ -590,7 +587,7 @@ def auxiliary_temporaries(builder, declared_temps):
 
 def parenthesize(arg, prec=None, parent=None):
     """Parenthesizes an expression."""
-    if prec is None or prec >= parent:
+    if prec is None or parent is None or prec >= parent:
         return arg
     return "(%s)" % arg
 

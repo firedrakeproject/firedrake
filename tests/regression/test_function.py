@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -43,7 +42,7 @@ def test_firedrake_scalar_function(V):
 def test_firedrake_tensor_function(W):
     f = Function(W)
     vals = np.array([1.0, 2.0, 10.0, 20.0]).reshape(2, 2)
-    f.interpolate(Expression(vals.astype("string")))
+    f.interpolate(Expression(vals.astype(str)))
     assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
@@ -51,7 +50,7 @@ def test_firedrake_tensor_function(W):
 
     # Check that g is indeed a deep copy
     fvals = np.array([5.0, 6.0, 7.0, 8.0]).reshape(2, 2)
-    f.interpolate(Expression(fvals.astype("string")))
+    f.interpolate(Expression(fvals.astype(str)))
 
     assert np.allclose(f.dat.data_ro, fvals)
     assert np.allclose(g.dat.data_ro, vals)
@@ -60,7 +59,7 @@ def test_firedrake_tensor_function(W):
 def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
     f = Function(W_nonstandard_shape)
     vals = np.arange(1, W_nonstandard_shape.value_size+1).reshape(f.ufl_shape)
-    f.interpolate(Expression(vals.astype("string")))
+    f.interpolate(Expression(vals.astype(str)))
     assert np.allclose(f.dat.data_ro, vals)
 
     g = Function(f)
@@ -68,7 +67,7 @@ def test_firedrake_tensor_function_nonstandard_shape(W_nonstandard_shape):
 
     # Check that g is indeed a deep copy
     fvals = vals + 10
-    f.interpolate(Expression(fvals.astype("string")))
+    f.interpolate(Expression(fvals.astype(str)))
 
     assert np.allclose(f.dat.data_ro, fvals)
     assert np.allclose(g.dat.data_ro, vals)

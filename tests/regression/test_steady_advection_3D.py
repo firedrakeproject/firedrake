@@ -3,7 +3,6 @@ div(u0*D) = 0, for a prescribed velocity field u0.  An upwind
 method is used, which stress-tests both interior and exterior
 facet integrals.
 """
-from __future__ import absolute_import, print_function, division
 
 import pytest
 from firedrake import *

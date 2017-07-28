@@ -16,7 +16,6 @@ k+(1/2), where k is the degree of the trace space.
 The right hand side function used in this test is:
 f = cos(x[0]*pi*2)*cos(x[1]*pi*2)
 """
-from __future__ import absolute_import, print_function, division
 
 import pytest
 import numpy as np

@@ -1,5 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six.moves import range, zip
 import numpy as np
 import sys
 import ufl

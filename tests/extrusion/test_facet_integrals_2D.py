@@ -1,5 +1,4 @@
 """Testing assembly of scalars on facets of extruded meshes in 2D"""
-from __future__ import absolute_import, print_function, division
 import pytest
 
 from firedrake import *

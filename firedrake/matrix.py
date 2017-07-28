@@ -1,5 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six import with_metaclass
 import copy
 import abc
 
@@ -9,7 +7,7 @@ from firedrake import utils
 from firedrake.petsc import PETSc
 
 
-class MatrixBase(with_metaclass(abc.ABCMeta)):
+class MatrixBase(object, metaclass=abc.ABCMeta):
     """A representation of the linear operator associated with a
     bilinear form and bcs.  Explicitly assembled matrices and matrix-free
     matrix classes will derive from this

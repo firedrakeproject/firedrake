@@ -1,6 +1,4 @@
 # Utility functions to derive global and local numbering from DMPlex
-from __future__ import absolute_import, print_function, division
-
 from firedrake.petsc import PETSc
 import numpy as np
 cimport numpy as np

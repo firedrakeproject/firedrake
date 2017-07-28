@@ -22,7 +22,6 @@ which reproduces the known analytical solution
 
     x[0]*(1-x[0])*x[1]*(1-x[1])
 """
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 

@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake import dx, assemble, LinearSolver
 from firedrake.function import Function
 from firedrake.functionspace import FunctionSpace
