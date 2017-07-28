@@ -152,7 +152,6 @@ def test_vector_laplace(cell, order):
               for form in split_vector_laplace(cell, int(degree))]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
-    print(rates)
     assert (rates < order).all()
 
 
@@ -170,7 +169,6 @@ def test_vector_laplace_action(cell, order):
               for form in split_vector_laplace(cell, int(degree))]
              for degree in degrees]
     rates = numpy.diff(numpy.log(flops).T) / numpy.diff(numpy.log(degrees))
-    print(rates)
     assert (rates < order).all()
 
 
