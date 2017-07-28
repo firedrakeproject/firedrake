@@ -1162,10 +1162,13 @@ if mode == "update":
 
 os.chdir("../..")
 
-log.info("\n\nSuccessfully installed Firedrake.\n")
+if mode == "install":
+    log.info("\n\nSuccessfully installed Firedrake.\n")
 
-log.info("\nFiredrake has been installed in a python venv. You activate it with:\n")
-log.info("  . %s/bin/activate\n" % firedrake_env)
-log.info("The venv can be deactivated by running:\n")
-log.info("  deactivate\n\n")
-log.info("To upgrade Firedrake activate the venv and run firedrake-update\n")
+    log.info("\nFiredrake has been installed in a python venv. You activate it with:\n")
+    log.info("  . %s/bin/activate\n" % firedrake_env)
+    log.info("The venv can be deactivated by running:\n")
+    log.info("  deactivate\n\n")
+    log.info("To upgrade Firedrake activate the venv and run firedrake-update\n")
+else:
+    log.info("\n\nSuccessfully updated Firedrake.\n")
