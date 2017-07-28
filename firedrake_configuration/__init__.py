@@ -38,3 +38,11 @@ def get_config_json():
     could be output by a Firedrake application to assist in the
     reproduction of results."""
     return json.dumps(_config)
+
+
+def setup_cache_dirs():
+    config = get_config()
+    if "PYOP2_CACHE_DIR" not in os.environ:
+        os.environ["PYOP2_CACHE_DIR"] = os.path.join(config["options"]["cache_dir"], "pyop2")
+    if 'FIREDRAKE_TSFC_KERNEL_CACHE_DIR' not in os.environ:
+        os.environ["FIREDRAKE_TSFC_KERNEL_CACHE_DIR"] = os.path.join(config["options"]["cache_dir"], "tsfc")

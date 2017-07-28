@@ -55,7 +55,7 @@ class FiredrakeConfiguration(dict):
                            "minimal_petsc", "mpicc", "disable_ssh",
                            "show_petsc_configure_options", "adjoint",
                            "slepc", "slope", "packages", "honour_pythonpath",
-                           "petsc_int_type"]
+                           "petsc_int_type", "cache_dir"]
 
 
 def deep_update(this, that):
@@ -144,6 +144,9 @@ honoured.""",
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir . Some additional packages have shortcut install options for more information see --install_help.")
     parser.add_argument("--install-help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
+    parser.add_argument("--cache-dir", type=str,
+                        action="store",
+                        help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
 
     args = parser.parse_args()
 
@@ -190,6 +193,9 @@ else:
                         help="Additional packages to be installed. The address should be in format vcs+protocol://repo_url/#egg=pkg&subdirectory=pkg_dir. Some additional packages have shortcut install options for more information see --install_help.")
     parser.add_argument("--install_help", action="store_true",
                         help="Provide information on packages which can be installed using shortcut names.")
+    parser.add_argument("--cache-dir", type=str,
+                        action="store", default=config["options"].get("cache_dir", ""),
+                        help="Directory to use for disk caches of compiled code (default is the .cache subdirectory of the Firedrake installation).")
 
     args = parser.parse_args()
 
@@ -291,6 +297,10 @@ else:
         firedrake_env = os.environ["VIRTUAL_ENV"]
     except KeyError:
         quit("Unable to retrieve venv name from the environment.\n Please ensure the venv is active before running firedrake-update.")
+
+if "cache_dir" not in config["options"] or not config["options"]["cache_dir"]:
+    config["options"]["cache_dir"] = os.path.join(firedrake_env, ".cache")
+
 
 # venv install
 python = ["%s/bin/python" % firedrake_env]
@@ -1125,9 +1135,18 @@ if options["adjoint"]:
 if options["slope"]:
     build_and_install_slope()
 
+try:
+    import firedrake_configuration
+    firedrake_configuration.write_config(config)
+    log.info("Configuration saved to configuration.json")
+except Exception as e:
+    log.warning("Unable to save configuration to a JSON file")
+    log.warning("Error Message:")
+    log.warning(e.message)
 
 if mode == "update":
     try:
+        firedrake_configuration.setup_cache_dirs()
         log.info("Clearing just in time compilation caches.")
         from firedrake.tsfc_interface import clear_cache, TSFCKernel
         from pyop2.compilation import clear_cache as pyop2_clear_cache
@@ -1148,13 +1167,3 @@ log.info("  . %s/bin/activate\n" % firedrake_env)
 log.info("The venv can be deactivated by running:\n")
 log.info("  deactivate\n\n")
 log.info("To upgrade Firedrake activate the venv and run firedrake-update\n")
-
-
-try:
-    import firedrake_configuration
-    firedrake_configuration.write_config(config)
-    log.info("Configuration saved to configuration.json")
-except Exception as e:
-    log.info("Unable to save configuations to a JSON file")
-    log.info("Error Message:")
-    log.info(e.message)
