@@ -270,12 +270,15 @@ def _expression_mathfunction(expr, parameters):
         'cyl_bessel_k': 'boost::math::cyl_bessel_k',
     }
     complex_name_map = {
-        'abs': 'cabs',
-        'ln': 'clog',
-        'conj': 'conj'
+        'ln': 'clog'
+
+        # TODO: Are there different complex Bessel Functions?
     }
     if parameters.scalar_type == 'double complex':
         name = complex_name_map.get(expr.name, expr.name)
+        if name in {'sin', 'cos', 'tan', 'sqrt', 'exp', 'abs', 'sinh', 'cosh', 'tanh',
+                    'sinh', 'acos', 'asin', 'atan'}:
+            name = 'c' + expr.name
     else:
         name = name_map.get(expr.name, expr.name)
     if name == 'jn':
