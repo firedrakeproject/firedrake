@@ -30,7 +30,6 @@ def as_cstr(dtype):
 
 def as_ctypes(dtype):
     """Convert a numpy dtype like object to a ctypes type."""
-    # TODO: make a ctypes-esque type for complex numbers
     return {"bool": ctypes.c_bool,
             "int": ctypes.c_int,
             "int8": ctypes.c_char,
