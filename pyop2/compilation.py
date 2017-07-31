@@ -140,6 +140,8 @@ class Compiler(object):
             if version.StrictVersion("6.0.0") <= ver < version.StrictVersion("7.0.1"):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
                 return ["-fno-tree-loop-vectorize"]
+            if version.StrictVersion("7.1.0") <= ver:
+                return ["-fno-tree-loop-vectorize"]
         return []
 
     @collective
