@@ -37,9 +37,6 @@ and two scheduling functions S1 and S2, one can compute L' = S2(S1(L)), with S1(
 returning, for example, [L0, L1',L3] and L' = S2([L0, L1', L3]) = [L0, L1''].
 Different scheduling functions may implement different loop fusion strategies."""
 
-from __future__ import absolute_import, print_function, division
-from six import itervalues
-from six.moves import range, zip
 
 from copy import deepcopy as dcopy, copy as scopy
 import numpy as np
@@ -80,7 +77,7 @@ class Schedule(object):
         return loop_chain
 
     def _filter(self, loops):
-        return list(itervalues(Filter().loop_args(loops)))
+        return list(Filter().loop_args(loops).values())
 
 
 class PlainSchedule(Schedule):
@@ -187,7 +184,7 @@ class HardFusionSchedule(FusionSchedule, Schedule):
                              iterate=iterregion, insp_name=self._insp_name)
 
     def _filter(self, loops):
-        return list(itervalues(WeakFilter().loop_args(loops)))
+        return list(WeakFilter().loop_args(loops).values())
 
 
 class TilingSchedule(Schedule):

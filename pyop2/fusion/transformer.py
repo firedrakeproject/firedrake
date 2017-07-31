@@ -33,8 +33,6 @@
 
 """Core loop fusion mechanisms."""
 
-from __future__ import absolute_import, print_function, division
-from six.moves import range, zip
 
 import sys
 import os

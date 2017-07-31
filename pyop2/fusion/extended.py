@@ -34,8 +34,6 @@
 """Classes for fusing parallel loops and for executing fused parallel loops,
 derived from ``base.py``."""
 
-from __future__ import absolute_import, print_function, division
-import six
 
 import sys
 import ctypes
@@ -221,7 +219,7 @@ class Kernel(sequential.Kernel, tuple):
         key = str(loop_chain_index)
         key += "".join([k.cache_key for k in kernels])
         key += str(hash(str(fused_ast)))
-        return md5(six.b(key)).hexdigest()
+        return md5(key.encode()).hexdigest()
 
     def _multiple_ast_to_c(self, kernels):
         """Glue together different ASTs (or strings) such that: ::

@@ -31,9 +31,6 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
 # OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import absolute_import, print_function, division
-import six
-from six.moves import input
 
 import os
 import subprocess
@@ -155,12 +152,12 @@ class Compiler(object):
         library."""
 
         # Determine cache key
-        hsh = md5(six.b(src))
-        hsh.update(six.b(self._cc))
+        hsh = md5(src.encode())
+        hsh.update(self._cc.encode())
         if self._ld:
-            hsh.update(six.b(self._ld))
-        hsh.update(six.b("".join(self._cppargs)))
-        hsh.update(six.b("".join(self._ldargs)))
+            hsh.update(self._ld.encode())
+        hsh.update("".join(self._cppargs).encode())
+        hsh.update("".join(self._ldargs).encode())
 
         basename = hsh.hexdigest()
 
