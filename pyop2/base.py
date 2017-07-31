@@ -2734,6 +2734,84 @@ class Global(DataCarrier, _EmptyDataMixin):
         part of a :class:`MixedDat`."""
         pass
 
+    def _op(self, other, op):
+        ret = type(self)(self.dim, dtype=self.dtype, name=self.name)
+        if isinstance(other, Global):
+            ret.data[:] = op(self.data_ro, other.data_ro)
+        else:
+            ret.data[:] = op(self.data_ro, other)
+        return ret
+
+    def _iop(self, other, op):
+        if isinstance(other, Global):
+            op(self.data[:], other.data_ro)
+        else:
+            op(self.data[:], other)
+        return self
+
+    def __pos__(self):
+        return self.duplicate()
+
+    def __add__(self, other):
+        """Pointwise addition of fields."""
+        return self._op(other, operator.add)
+
+    def __radd__(self, other):
+        """Pointwise addition of fields.
+
+        self.__radd__(other) <==> other + self."""
+        return self + other
+
+    def __neg__(self):
+        return type(self)(self.dim, data=-np.copy(self.data_ro),
+                          dtype=self.dtype, name=self.name)
+
+    def __sub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._op(other, operator.sub)
+
+    def __rsub__(self, other):
+        """Pointwise subtraction of fields.
+
+        self.__rsub__(other) <==> other - self."""
+        ret = -self
+        ret += other
+        return ret
+
+    def __mul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._op(other, operator.mul)
+
+    def __rmul__(self, other):
+        """Pointwise multiplication or scaling of fields.
+
+        self.__rmul__(other) <==> other * self."""
+        return self.__mul__(other)
+
+    def __truediv__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._op(other, operator.truediv)
+
+    __div__ = __truediv__  # Python 2 compatibility
+
+    def __iadd__(self, other):
+        """Pointwise addition of fields."""
+        return self._iop(other, operator.iadd)
+
+    def __isub__(self, other):
+        """Pointwise subtraction of fields."""
+        return self._iop(other, operator.isub)
+
+    def __imul__(self, other):
+        """Pointwise multiplication or scaling of fields."""
+        return self._iop(other, operator.imul)
+
+    def __itruediv__(self, other):
+        """Pointwise division or scaling of fields."""
+        return self._iop(other, operator.itruediv)
+
+    __idiv__ = __itruediv__  # Python 2 compatibility
+
 
 class IterationIndex(object):
 
