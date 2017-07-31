@@ -4,6 +4,7 @@ from tsfc.fiatinterface import create_element
 
 from firedrake.petsc import PETSc
 import firedrake.mg.utils as utils
+from firedrake import dmplex
 from pyop2 import MPI
 import numpy as np
 cimport numpy as np
@@ -526,14 +527,15 @@ def filter_exterior_facet_labels(PETSc.DM plex):
     # Plex will always have an exterior_facets label (maybe
     # zero-sized), but may not always have boundary_ids or
     # boundary_faces.
-    has_bdy_ids = plex.hasLabel("boundary_ids")
+    has_bdy_ids = plex.hasLabel(dmplex.FACE_SETS_LABEL)
     has_bdy_faces = plex.hasLabel("boundary_faces")
 
-    CHKERR(DMGetLabel(plex.dm, <char*>"exterior_facets", &exterior_facets))
+    CHKERR(DMGetLabel(plex.dm, <const char*>b"exterior_facets", &exterior_facets))
     if has_bdy_ids:
-        CHKERR(DMGetLabel(plex.dm, <char*>"boundary_ids", &boundary_ids))
+        label = dmplex.FACE_SETS_LABEL.encode()
+        CHKERR(DMGetLabel(plex.dm, <const char*>label, &boundary_ids))
     if has_bdy_faces:
-        CHKERR(DMGetLabel(plex.dm, <char*>"boundary_faces", &boundary_faces))
+        CHKERR(DMGetLabel(plex.dm, <const char*>b"boundary_faces", &boundary_faces))
     for p in range(pStart, pEnd):
         if p < fStart or p >= fEnd:
             CHKERR(DMLabelGetValue(exterior_facets, p, &value))
