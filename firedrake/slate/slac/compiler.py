@@ -74,8 +74,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             "Expecting a `TensorBase` expression, not %s" % type(slate_expr)
         )
 
-    config = get_config()
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
         tsfc_parameters['scalar_type'] = 'double complex'
     set_scalar_type(tsfc_parameters['scalar_type'])
 

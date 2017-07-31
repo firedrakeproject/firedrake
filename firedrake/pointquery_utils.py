@@ -66,8 +66,7 @@ def compile_coordinate_element(ufl_coordinate_element, contains_eps, parameters=
         _.update(parameters)
         parameters = _
 
-    config = get_config()
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
         parameters['scalar_type'] = 'double complex'
         complx = True
     tsfc_parameters.set_scalar_type(parameters['scalar_type'])

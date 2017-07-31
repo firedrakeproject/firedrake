@@ -606,12 +606,17 @@ _to_sum = lambda o: ast.Sum(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(
 _to_prod = lambda o: ast.Prod(_ast(o[0]), _to_sum(o[1:])) if len(o) > 1 else _ast(o[0])
 _to_aug_assign = lambda op, o: op(_ast(o[0]), _ast(o[1]))
 
+if get_config()['options']['complex']:
+    _absfunc = lambda e: ast.FunCall("cabs", _ast(e.ufl_operands[0]))
+else:
+    _absfunc = lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))
+
 _ast_map = {
     MathFunction: (lambda e: ast.FunCall(e._name, *[_ast(o) for o in e.ufl_operands])),
     ufl.algebra.Sum: (lambda e: _to_sum(e.ufl_operands)),
     ufl.algebra.Product: (lambda e: _to_prod(e.ufl_operands)),
     ufl.algebra.Division: (lambda e: ast.Div(*[_ast(o) for o in e.ufl_operands])),
-    ufl.algebra.Abs: (lambda e: ast.FunCall("abs", _ast(e.ufl_operands[0]))),
+    ufl.algebra.Abs: (_absfunc),
     Assign: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     AugmentedAssignment: (lambda e: _to_aug_assign(e._ast, e.ufl_operands)),
     ufl.constantvalue.ScalarValue: (lambda e: ast.Symbol(e._value)),
