@@ -2792,8 +2792,6 @@ class Global(DataCarrier, _EmptyDataMixin):
         """Pointwise division or scaling of fields."""
         return self._op(other, operator.truediv)
 
-    __div__ = __truediv__  # Python 2 compatibility
-
     def __iadd__(self, other):
         """Pointwise addition of fields."""
         return self._iop(other, operator.iadd)
@@ -2809,8 +2807,6 @@ class Global(DataCarrier, _EmptyDataMixin):
     def __itruediv__(self, other):
         """Pointwise division or scaling of fields."""
         return self._iop(other, operator.itruediv)
-
-    __idiv__ = __itruediv__  # Python 2 compatibility
 
 
 class IterationIndex(object):
