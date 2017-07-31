@@ -352,8 +352,6 @@ def _expression_scalar(expr, parameters):
         if vi == 0.0:
             return coffee.Symbol(("%%.%dg" % parameters.precision) % vr)
         ri = round(vi, 1)
-        
-        # TO DO: determine if this is the right syntax for this coffee Symbol
 
         if ri and abs(vi - ri) < parameters.epsilon:
             vi = ri

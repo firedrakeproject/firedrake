@@ -257,13 +257,6 @@ def _simplify_abs_expr(o, self, in_abs):
 def _simplify_abs_sqrt(o, self, in_abs):
     # Square root is always non-negative
     return ufl_reuse_if_untouched(o, self(o.ufl_operands[0], False))
-    
-
-@_simplify_abs.register(Conj)
-def _simplify_abs_conj(o, self, in_abs):
-    # Conj(Abs()) is same as Abs()
-    # Abs(Conj()) is same as Abs()
-    return self(o.ufl_operands[0], True)
 
 
 @_simplify_abs.register(ScalarValue)
