@@ -23,5 +23,10 @@ class KernelInterface(with_metaclass(ABCMeta)):
     def entity_number(self, restriction):
         """Facet or vertex number as a GEM index."""
 
+    @abstractmethod
+    def create_element(self, element):
+        """Create a FInAT element (suitable for tabulating with) given
+        a UFL element."""
+
 
 ProxyKernelInterface = make_proxy_class('ProxyKernelInterface', KernelInterface)

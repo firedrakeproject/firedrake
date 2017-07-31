@@ -12,8 +12,13 @@ from gem.optimise import remove_componenttensors as prune
 from finat import TensorFiniteElement
 
 from tsfc.kernel_interface.common import KernelBuilderBase
-from tsfc.finatinterface import create_element
+from tsfc.finatinterface import create_element as _create_element
 from tsfc.coffee import SCALAR_TYPE
+
+
+def create_element(element):
+    # UFC DoF ordering for vector/tensor elements is XXXX YYYY ZZZZ.
+    return _create_element(element, vector_transpose=True)
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -142,6 +147,11 @@ class KernelBuilder(KernelBuilderBase):
     def needs_cell_orientations(ir):
         # UFC tabulate_tensor always have cell orientations
         return True
+
+    def create_element(self, element):
+        """Create a FInAT element (suitable for tabulating with) given
+        a UFL element."""
+        return create_element(element)
 
 
 def prepare_coefficient(coefficient, num, name, interior_facet=False):

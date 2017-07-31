@@ -81,7 +81,7 @@ def fiat_compat(element):
 
 
 @singledispatch
-def convert(element):
+def convert(element, vector_transpose=False):
     """Handler for converting UFL elements to FInAT elements.
 
     :arg element: The UFL element to convert.
@@ -95,7 +95,7 @@ def convert(element):
 
 # Base finite elements first
 @convert.register(ufl.FiniteElement)
-def convert_finiteelement(element):
+def convert_finiteelement(element, vector_transpose=False):
     cell = as_fiat_cell(element.cell())
     if element.family() == "Quadrature":
         degree = element.degree()
@@ -113,7 +113,7 @@ def convert_finiteelement(element):
                              element.family())
         # Handle quadrilateral short names like RTCF and RTCE.
         element = element.reconstruct(cell=quad_tpc)
-        return finat.QuadrilateralElement(create_element(element))
+        return finat.QuadrilateralElement(create_element(element, vector_transpose))
 
     kind = element.variant()
     if kind is None:
@@ -139,67 +139,82 @@ def convert_finiteelement(element):
 
 # EnrichedElement case
 @convert.register(ufl.EnrichedElement)
-def convert_enrichedelement(element):
-    return finat.EnrichedElement([create_element(elem) for elem in element._elements])
+def convert_enrichedelement(element, vector_transpose=False):
+    return finat.EnrichedElement([create_element(elem, vector_transpose)
+                                  for elem in element._elements])
 
 
 # Generic MixedElement case
 @convert.register(ufl.MixedElement)
-def convert_mixedelement(element):
-    return finat.MixedElement([create_element(elem) for elem in element.sub_elements()])
+def convert_mixedelement(element, vector_transpose=False):
+    return finat.MixedElement([create_element(elem, vector_transpose)
+                               for elem in element.sub_elements()])
 
 
 # VectorElement case
 @convert.register(ufl.VectorElement)
-def convert_vectorelement(element):
-    scalar_element = create_element(element.sub_elements()[0])
-    return finat.TensorFiniteElement(scalar_element, (element.num_sub_elements(),))
+def convert_vectorelement(element, vector_transpose=False):
+    scalar_element = create_element(element.sub_elements()[0], vector_transpose)
+    return finat.TensorFiniteElement(scalar_element,
+                                     (element.num_sub_elements(),),
+                                     transpose=vector_transpose)
 
 
 # TensorElement case
 @convert.register(ufl.TensorElement)
-def convert_tensorelement(element):
-    scalar_element = create_element(element.sub_elements()[0])
-    return finat.TensorFiniteElement(scalar_element, element.reference_value_shape())
+def convert_tensorelement(element, vector_transpose=False):
+    scalar_element = create_element(element.sub_elements()[0], vector_transpose)
+    return finat.TensorFiniteElement(scalar_element,
+                                     element.reference_value_shape(),
+                                     transpose=vector_transpose)
 
 
 # TensorProductElement case
 @convert.register(ufl.TensorProductElement)
-def convert_tensorproductelement(element):
+def convert_tensorproductelement(element, vector_transpose=False):
     cell = element.cell()
     if type(cell) is not ufl.TensorProductCell:
         raise ValueError("TensorProductElement not on TensorProductCell?")
-    return finat.TensorProductElement([create_element(elem)
+    return finat.TensorProductElement([create_element(elem, vector_transpose)
                                        for elem in element.sub_elements()])
 
 
+# HDivElement case
 @convert.register(ufl.HDivElement)
-def convert_hdivelement(element):
-    return finat.HDivElement(create_element(element._element))
+def convert_hdivelement(element, vector_transpose=False):
+    return finat.HDivElement(create_element(element._element, vector_transpose))
 
 
+# HDivElement case
 @convert.register(ufl.HCurlElement)
-def convert_hcurlelement(element):
-    return finat.HCurlElement(create_element(element._element))
+def convert_hcurlelement(element, vector_transpose=False):
+    return finat.HCurlElement(create_element(element._element, vector_transpose))
 
 
 quad_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
 
-def create_element(element):
+def create_element(element, vector_transpose=False):
     """Create a FInAT element (suitable for tabulating with) given a UFL element.
 
     :arg element: The UFL element to create a FInAT element from.
+    :arg vector_transpose: Vector/tensor indices come before basis function indices
     """
     try:
-        return _cache[element]
+        cache = _cache[element]
+    except KeyError:
+        _cache[element] = {}
+        cache = _cache[element]
+
+    try:
+        return cache[vector_transpose]
     except KeyError:
         pass
 
     if element.cell() is None:
         raise ValueError("Don't know how to build element when cell is not given")
 
-    finat_element = convert(element)
-    _cache[element] = finat_element
+    finat_element = convert(element, vector_transpose=vector_transpose)
+    cache[vector_transpose] = finat_element
     return finat_element

@@ -91,6 +91,11 @@ class KernelBuilderBase(_KernelBuilderBase):
                 return True
         return False
 
+    def create_element(self, element):
+        """Create a FInAT element (suitable for tabulating with) given
+        a UFL element."""
+        return create_element(element)
+
 
 class ExpressionKernelBuilder(KernelBuilderBase):
     """Builds expression kernels for UFL interpolation in Firedrake."""

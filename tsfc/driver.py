@@ -28,7 +28,6 @@ from finat.quadrature import AbstractQuadratureRule, make_quadrature
 from tsfc import fem, ufl_utils
 from tsfc.coffee import SCALAR_TYPE, generate as generate_coffee
 from tsfc.fiatinterface import as_fiat_cell
-from tsfc.finatinterface import create_element
 from tsfc.logging import logger
 from tsfc.parameters import default_parameters
 
@@ -99,14 +98,14 @@ def compile_integral(integral_data, form_data, prefix, parameters,
     fiat_cell = as_fiat_cell(cell)
     integration_dim, entity_ids = lower_integral_type(fiat_cell, integral_type)
 
-    argument_multiindices = tuple(create_element(arg.ufl_element()).get_indices()
-                                  for arg in arguments)
     quadrature_indices = []
 
     # Dict mapping domains to index in original_form.ufl_domains()
     domain_numbering = form_data.original_form.domain_numbering()
     builder = interface.KernelBuilder(integral_type, integral_data.subdomain_id,
                                       domain_numbering[integral_data.domain])
+    argument_multiindices = tuple(builder.create_element(arg.ufl_element()).get_indices()
+                                  for arg in arguments)
     return_variables = builder.set_arguments(arguments, argument_multiindices)
 
     coordinates = ufl_utils.coordinate_coefficient(mesh)
