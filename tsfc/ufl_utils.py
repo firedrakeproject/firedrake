@@ -202,6 +202,9 @@ class CoefficientSplitter(MultiFunction, ModifiedTerminalMixin):
 def split_coefficients(expression, split):
     """Split mixed coefficients, so mixed elements need not be
     implemented."""
+    if split is None:
+        return expression
+
     splitter = CoefficientSplitter(split)
     return map_expr_dag(splitter, expression)
 

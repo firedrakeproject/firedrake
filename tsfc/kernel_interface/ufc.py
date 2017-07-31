@@ -4,8 +4,6 @@ from six.moves import range, zip
 import numpy
 from itertools import chain, product
 
-from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
-
 import coffee.base as coffee
 
 import gem
@@ -29,7 +27,7 @@ class KernelBuilder(KernelBuilderBase):
         self.local_tensor = None
         self.coordinates_args = None
         self.coefficient_args = None
-        self.coefficient_split = {}
+        self.coefficient_split = None
 
         if self.interior_facet:
             self._cell_orientations = (gem.Variable("cell_orientation_0", ()),
@@ -88,15 +86,9 @@ class KernelBuilder(KernelBuilderBase):
             if not integral_data.enabled_coefficients[n]:
                 continue
 
-            coeff = form_data.function_replace_map[form_data.reduced_coefficients[n]]
-            if type(coeff.ufl_element()) == ufl_MixedElement:
-                coeffs = [Coefficient(FunctionSpace(coeff.ufl_domain(), element))
-                          for element in coeff.ufl_element().sub_elements()]
-                self.coefficient_split[coeff] = coeffs
-            else:
-                coeffs = [coeff]
-            expressions = prepare_coefficients(coeffs, n, name, self.interior_facet)
-            self.coefficient_map.update(zip(coeffs, expressions))
+            coefficient = form_data.function_replace_map[form_data.reduced_coefficients[n]]
+            expression = prepare_coefficient(coefficient, n, name, self.interior_facet)
+            self.coefficient_map[coefficient] = expression
 
     def construct_kernel(self, name, body):
         """Construct a fully built kernel function.
@@ -152,11 +144,11 @@ class KernelBuilder(KernelBuilderBase):
         return True
 
 
-def prepare_coefficients(coefficients, num, name, interior_facet=False):
+def prepare_coefficient(coefficient, num, name, interior_facet=False):
     """Bridges the kernel interface and the GEM abstraction for
     Coefficients.
 
-    :arg coefficients: split UFL Coefficients
+    :arg coefficient: UFL Coefficient
     :arg num: coefficient index in the original form
     :arg name: unique name to refer to the Coefficient in the kernel
     :arg interior_facet: interior facet integral?
@@ -164,34 +156,26 @@ def prepare_coefficients(coefficients, num, name, interior_facet=False):
     """
     varexp = gem.Variable(name, (None, None))
 
-    if len(coefficients) == 1 and coefficients[0].ufl_element().family() == 'Real':
-        coefficient, = coefficients
+    if coefficient.ufl_element().family() == 'Real':
         size = numpy.prod(coefficient.ufl_shape, dtype=int)
         data = gem.view(varexp, slice(num, num + 1), slice(size))
-        expression = gem.reshape(data, (), coefficient.ufl_shape)
-        return [expression]
+        return gem.reshape(data, (), coefficient.ufl_shape)
 
-    elements = [create_element(coeff.ufl_element()) for coeff in coefficients]
-    space_dimensions = [numpy.prod(element.index_shape, dtype=int)
-                        for element in elements]
-    ends = list(numpy.cumsum(space_dimensions))
-    starts = [0] + ends[:-1]
-    slices = [slice(start, end) for start, end in zip(starts, ends)]
-    shapes = [element.index_shape for element in elements]
+    element = create_element(coefficient.ufl_element())
+    size = numpy.prod(element.index_shape, dtype=int)
 
-    def expressions(data):
-        return prune([gem.reshape(gem.view(data, slice_), shape)
-                      for slice_, shape in zip(slices, shapes)])
+    def expression(data):
+        result, = prune([gem.reshape(gem.view(data, slice(size)), element.index_shape)])
+        return result
 
-    size = sum(space_dimensions)
     if not interior_facet:
         data = gem.view(varexp, slice(num, num + 1), slice(size))
-        return expressions(gem.reshape(data, (), (size,)))
+        return expression(gem.reshape(data, (), (size,)))
     else:
         data_p = gem.view(varexp, slice(num, num + 1), slice(size))
         data_m = gem.view(varexp, slice(num, num + 1), slice(size, 2 * size))
-        return list(zip(expressions(gem.reshape(data_p, (), (size,))),
-                        expressions(gem.reshape(data_m, (), (size,)))))
+        return (expression(gem.reshape(data_p, (), (size,))),
+                expression(gem.reshape(data_m, (), (size,))))
 
 
 def prepare_coordinates(coefficient, name, interior_facet=False):
