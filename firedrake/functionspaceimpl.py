@@ -4,6 +4,7 @@ and :class:`~.MixedFunctionSpace` objects, along with some utility
 classes for attaching extra information to instances of these.
 """
 
+from collections import OrderedDict
 
 import numpy
 
@@ -206,6 +207,10 @@ class WithGeometry(ufl.FunctionSpace):
 
     def __getattr__(self, name):
         return getattr(self.topological, name)
+
+    def __dir__(self):
+        current = super(WithGeometry, self).__dir__()
+        return list(OrderedDict.fromkeys(dir(self.topological) + current))
 
 
 class FunctionSpace(object):

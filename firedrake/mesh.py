@@ -4,7 +4,7 @@ import os
 import sys
 import ufl
 import weakref
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from ufl.classes import ReferenceGrad
 
 from pyop2.datatypes import IntType
@@ -1071,6 +1071,10 @@ values from f.)"""
 
     def __getattr__(self, name):
         return getattr(self._topology, name)
+
+    def __dir__(self):
+        current = super(MeshGeometry, self).__dir__()
+        return list(OrderedDict.fromkeys(dir(self._topology) + current))
 
 
 def make_mesh_from_coordinates(coordinates):

@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import numpy as np
 
 import firedrake
@@ -63,6 +65,10 @@ class Vector(object):
     # Make everything mostly pretend to be like a Function
     def __getattr__(self, name):
         return getattr(self.function, name)
+
+    def __dir__(self):
+        current = super(Vector, self).__dir__()
+        return list(OrderedDict.fromkeys(dir(self.function) + current))
 
     def axpy(self, a, x):
         """Add a*x to self.
