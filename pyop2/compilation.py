@@ -138,6 +138,7 @@ class Compiler(object):
                 # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=79920
                 return ["-fno-tree-loop-vectorize"]
             if version.StrictVersion("7.1.0") <= ver:
+                # GCC bug https://gcc.gnu.org/bugzilla/show_bug.cgi?id=81633
                 return ["-fno-tree-loop-vectorize"]
         return []
 
