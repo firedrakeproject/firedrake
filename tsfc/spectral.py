@@ -1,6 +1,7 @@
 from __future__ import absolute_import, print_function, division
 from six.moves import zip
 
+from collections import OrderedDict, defaultdict
 from functools import partial, reduce
 
 from gem import Delta, Indexed, Sum, index_sum
@@ -12,14 +13,19 @@ from gem.unconcatenate import unconcatenate
 from gem.utils import groupby
 
 
-def delta_elimination(sum_indices, args, rest):
+def delta_elimination(variable, sum_indices, args, rest):
     """IndexSum-Delta cancellation for monomials."""
-    factors = [rest] + list(args)  # construct factors
+    factors = list(args) + [rest, variable]  # construct factors
     sum_indices, factors = _delta_elimination(sum_indices, factors)
+    var_indices, factors = _delta_elimination(variable.free_indices, factors)
+
     # Destructure factors after cancellation
-    rest = factors.pop(0)
+    variable = factors.pop()
+    rest = factors.pop()
     args = factors
-    return sum_indices, args, rest
+
+    assert set(var_indices) == set(variable.free_indices)
+    return variable, sum_indices, args, rest
 
 
 def sum_factorise(sum_indices, args, rest):
@@ -77,19 +83,25 @@ def flatten(var_reps, index_cache):
         variable, expression = assignment
         return variable.free_indices
 
+    simplified_variables = OrderedDict()
+    delta_simplified = defaultdict(MonomialSum)
     for free_indices, assignment_group in groupby(assignments, group_key):
         variables, expressions = zip(*assignment_group)
         classifier = partial(classify, set(free_indices))
         monomial_sums = collect_monomials(expressions, classifier)
         for variable, monomial_sum in zip(variables, monomial_sums):
             # Compact MonomialSum after IndexSum-Delta cancellation
-            delta_simplified = MonomialSum()
             for monomial in monomial_sum:
-                delta_simplified.add(*delta_elimination(*monomial))
+                var, s, a, r = delta_elimination(variable, *monomial)
+                simplified_variables.setdefault(var)
+                delta_simplified[var].add(s, a, r)
 
-            # Yield assignments
-            for monomial in delta_simplified:
-                yield (variable, sum_factorise(*monomial))
+    for variable in simplified_variables:
+        monomial_sum = delta_simplified[variable]
+
+        # Yield assignments
+        for monomial in monomial_sum:
+            yield (variable, sum_factorise(*monomial))
 
 
-finalise_options = dict(remove_componenttensors=False)
+finalise_options = dict(remove_componenttensors=False, replace_delta=False)
