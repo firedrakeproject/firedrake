@@ -2,7 +2,7 @@ from __future__ import absolute_import, print_function, division
 from six.moves import range, zip
 
 import numpy
-from itertools import product
+from itertools import chain, product
 
 from ufl import Coefficient, MixedElement as ufl_MixedElement, FunctionSpace
 
@@ -177,34 +177,11 @@ def prepare_coefficients(coefficients, num, name, interior_facet=False):
     ends = list(numpy.cumsum(space_dimensions))
     starts = [0] + ends[:-1]
     slices = [slice(start, end) for start, end in zip(starts, ends)]
-
-    transposed_shapes = []
-    tensor_ranks = []
-    for element in elements:
-        if isinstance(element, TensorFiniteElement):
-            scalar_shape = element.base_element.index_shape
-            tensor_shape = element.index_shape[len(scalar_shape):]
-        else:
-            scalar_shape = element.index_shape
-            tensor_shape = ()
-
-        transposed_shapes.append(tensor_shape + scalar_shape)
-        tensor_ranks.append(len(tensor_shape))
-
-    def transpose(expr, rank):
-        assert not expr.free_indices
-        assert 0 <= rank < len(expr.shape)
-        if rank == 0:
-            return expr
-        else:
-            indices = tuple(gem.Index(extent=extent) for extent in expr.shape)
-            transposed_indices = indices[rank:] + indices[:rank]
-            return gem.ComponentTensor(gem.Indexed(expr, indices),
-                                       transposed_indices)
+    shapes = [element.index_shape for element in elements]
 
     def expressions(data):
-        return prune([transpose(gem.reshape(gem.view(data, slice_), shape), rank)
-                      for slice_, shape, rank in zip(slices, transposed_shapes, tensor_ranks)])
+        return prune([gem.reshape(gem.view(data, slice_), shape)
+                      for slice_, shape in zip(slices, shapes)])
 
     size = sum(space_dimensions)
     if not interior_facet:
@@ -280,24 +257,11 @@ def prepare_arguments(arguments, multiindices, interior_facet=False):
         return funarg, [zero], [gem.reshape(varexp, ())]
 
     elements = tuple(create_element(arg.ufl_element()) for arg in arguments)
-    transposed_shapes = []
-    transposed_indices = []
-    for element, multiindex in zip(elements, multiindices):
-        if isinstance(element, TensorFiniteElement):
-            scalar_shape = element.base_element.index_shape
-            tensor_shape = element.index_shape[len(scalar_shape):]
-        else:
-            scalar_shape = element.index_shape
-            tensor_shape = ()
-
-        transposed_shapes.append(tensor_shape + scalar_shape)
-        scalar_rank = len(scalar_shape)
-        transposed_indices.extend(multiindex[scalar_rank:] + multiindex[:scalar_rank])
-    transposed_indices = tuple(transposed_indices)
+    shapes = [element.index_shape for element in elements]
+    indices = tuple(chain(*multiindices))
 
     def expression(restricted):
-        return gem.Indexed(gem.reshape(restricted, *transposed_shapes),
-                           transposed_indices)
+        return gem.Indexed(gem.reshape(restricted, *shapes), indices)
 
     u_shape = numpy.array([numpy.prod(element.index_shape, dtype=int)
                            for element in elements])
