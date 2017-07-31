@@ -344,6 +344,7 @@ if mode == "update" and petsc_int_type_changed:
 
 def check_call(arguments, env=None):
     try:
+        log.debug("Running command '%s'", " ".join(arguments))
         log.debug(subprocess.check_output(arguments, stderr=subprocess.STDOUT, env=env).decode())
     except subprocess.CalledProcessError as e:
         log.debug(e.output.decode())
@@ -352,6 +353,7 @@ def check_call(arguments, env=None):
 
 def check_output(args, env=None):
     try:
+        log.debug("Running command '%s'", " ".join(args))
         result = subprocess.check_output(args, stderr=subprocess.STDOUT, env=env)
         if isinstance(result, str):
             # Python 2
@@ -498,7 +500,6 @@ def git_update(name, url=None):
 
 
 def run_pip(args):
-    log.info(" ".join(pip + args))
     check_call(pip + args)
 
 
@@ -507,12 +508,10 @@ def run_pip_install(pipargs):
     # subprocesses wrote out.
     # Particularly important for debugging petsc fails.
     pipargs = ["-vvv"] + pipargs
-    log.debug(" ".join(pipinstall + pipargs) + "\n")
     check_call(pipinstall + pipargs)
 
 
 def run_cmd(args):
-    log.info(" ".join(args) + "\n")
     check_call(args)
 
 
