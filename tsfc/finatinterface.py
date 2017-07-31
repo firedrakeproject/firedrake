@@ -166,6 +166,16 @@ def convert_tensorproductelement(element):
                                        for elem in element.sub_elements()])
 
 
+@convert.register(ufl.HDivElement)
+def convert_hdivelement(element):
+    return finat.HDivElement(create_element(element._element))
+
+
+@convert.register(ufl.HCurlElement)
+def convert_hcurlelement(element):
+    return finat.HCurlElement(create_element(element._element))
+
+
 quad_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
 _cache = weakref.WeakKeyDictionary()
 
