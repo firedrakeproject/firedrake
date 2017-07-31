@@ -204,12 +204,24 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
     shape = finat_element.index_shape
     size = numpy.prod(shape, dtype=int)
 
+    assert isinstance(finat_element, TensorFiniteElement)
+    scalar_shape = finat_element.base_element.index_shape
+    tensor_shape = finat_element._shape
+    transposed_shape = scalar_shape + tensor_shape
+    scalar_rank = len(scalar_shape)
+
+    def transpose(expr):
+        indices = tuple(gem.Index(extent=extent) for extent in expr.shape)
+        transposed_indices = indices[scalar_rank:] + indices[:scalar_rank]
+        return gem.ComponentTensor(gem.Indexed(expr, indices),
+                                   transposed_indices)
+
     if not interior_facet:
         funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name),
                                pointers=[("",)],
                                qualifiers=["const"])]
         variable = gem.Variable(name, (size,))
-        expression = gem.reshape(variable, shape)
+        expression = transpose(gem.reshape(variable, transposed_shape))
     else:
         funargs = [coffee.Decl(SCALAR_TYPE, coffee.Symbol(name+"_0"),
                                pointers=[("",)],
@@ -219,8 +231,8 @@ def prepare_coordinates(coefficient, name, interior_facet=False):
                                qualifiers=["const"])]
         variable0 = gem.Variable(name+"_0", (size,))
         variable1 = gem.Variable(name+"_1", (size,))
-        expression = (gem.reshape(variable0, shape),
-                      gem.reshape(variable1, shape))
+        expression = (transpose(gem.reshape(variable0, transposed_shape)),
+                      transpose(gem.reshape(variable1, transposed_shape)))
 
     return funargs, expression
 
