@@ -5,11 +5,11 @@ import numpy
 import itertools
 from functools import partial, reduce
 from collections import OrderedDict
-from gem.optimise import make_sum, make_product
+from gem.optimise import make_sum, make_product, replace_division, unroll_indexsum
 from gem.refactorise import Monomial, collect_monomials
 from gem.unconcatenate import unconcatenate
 from gem.node import traversal
-from gem.gem import IndexSum, Failure, Sum, one
+from gem.gem import IndexSum, Failure, Sum, index_sum, one
 from gem.utils import groupby
 
 from tsfc.logging import logger
@@ -17,7 +17,27 @@ from tsfc.logging import logger
 import tsfc.spectral as spectral
 
 
-Integrals = spectral.Integrals
+def Integrals(expressions, quadrature_multiindex, argument_multiindices, parameters):
+    """Constructs an integral representation for each GEM integrand
+    expression.
+
+    :arg expressions: integrand multiplied with quadrature weight;
+                      multi-root GEM expression DAG
+    :arg quadrature_multiindex: quadrature multiindex (tuple)
+    :arg argument_multiindices: tuple of argument multiindices,
+                                one multiindex for each argument
+    :arg parameters: parameters dictionary
+
+    :returns: list of integral representations
+    """
+    # Unroll
+    max_extent = parameters["unroll_indexsum"]
+    if max_extent:
+        def predicate(index):
+            return index.extent <= max_extent
+        expressions = unroll_indexsum(expressions, predicate=predicate)
+    # Integral representation: just a GEM expression
+    return replace_division([index_sum(e, quadrature_multiindex) for e in expressions])
 
 
 def flatten(var_reps, index_cache):
