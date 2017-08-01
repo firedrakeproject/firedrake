@@ -256,5 +256,8 @@ def optimise_monomials(monomials, argument_indices):
     assert len(set(frozenset(m.sum_indices) for m in monomials)) <= 1,\
         "All monomials required to have same sum indices for factorisation"
 
-    optimal_atomics = find_optimal_atomics(monomials, argument_indices)
-    return factorise_atomics(monomials, optimal_atomics, argument_indices)
+    result = [m for m in monomials if not m.atomics]  # skipped monomials
+    active_monomials = [m for m in monomials if m.atomics]
+    optimal_atomics = find_optimal_atomics(active_monomials, argument_indices)
+    result += factorise_atomics(active_monomials, optimal_atomics, argument_indices)
+    return result
