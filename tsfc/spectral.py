@@ -91,7 +91,8 @@ def flatten(var_reps, index_cache):
     for variable in narrow_variables:
         monomial_sum = delta_simplified[variable]
         sum_indices = set().union(*[m.sum_indices for m in monomial_sum])
-        sum_indices = tuple(i for i in quadrature_indices if i in sum_indices)
+        sum_indices = [i for i in quadrature_indices if i in sum_indices]
+        sum_indices = sorted(sum_indices, key=lambda index: index.extent)
         expression = sum_factorise(variable, sum_indices, monomial_sum)
         yield (variable, expression)
 
