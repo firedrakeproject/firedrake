@@ -153,7 +153,7 @@ def sum_factorise(variable, tail_ordering, monomial_sum):
             key = (head_indices, head_atomics)
             key_ordering.setdefault(key)
             sub_monosums[key].add(tail_indices, tail_atomics, rest)
-        sub_monosums = [(key, sub_monosums[key]) for key in key_ordering]
+        sub_monosums = [(k, sub_monosums[k]) for k in key_ordering]
 
         monomial_sum = MonomialSum()
         for (sum_indices, atomics), monosum in sub_monosums:
