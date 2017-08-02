@@ -10,6 +10,7 @@ from gem.optimise import delta_elimination as _delta_elimination
 from gem.optimise import remove_componenttensors, replace_division, unroll_indexsum
 from gem.refactorise import ATOMIC, COMPOUND, OTHER, MonomialSum, collect_monomials
 from gem.unconcatenate import unconcatenate
+from gem.coffee import optimise_monomial_sum
 from gem.utils import groupby
 
 
@@ -160,5 +161,4 @@ def sum_factorise(variable, tail_ordering, monomial_sum):
             new_rest = sum_factorise(variable, tail_ordering[1:], monosum)
             monomial_sum.add(sum_indices, atomics, new_rest)
 
-    from tsfc.coffee_mode import optimise_monomial_sum
     return optimise_monomial_sum(monomial_sum, variable.index_ordering())
