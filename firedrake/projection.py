@@ -3,7 +3,6 @@ import ufl
 from firedrake import expression
 from firedrake import functionspace
 from firedrake import functionspaceimpl
-from firedrake import solving
 from firedrake import ufl_expr
 from firedrake import function
 from firedrake import utils
@@ -14,10 +13,6 @@ import numpy as np
 
 
 __all__ = ['project', 'Projector']
-
-# Store the solve function to use in a variable so external packages
-# (dolfin-adjoint) can override it.
-_solve = solving.solve
 
 
 def project(v, V, bcs=None, mesh=None,
