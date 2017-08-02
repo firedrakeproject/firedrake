@@ -5,7 +5,14 @@ import gc
 
 
 def howmany(cls):
-    return len([x for x in gc.get_objects() if isinstance(x, cls)])
+    n = 0
+    for x in gc.get_objects():
+        try:
+            if isinstance(x, cls):
+                n += 1
+        except ReferenceError:
+            pass
+    return n
 
 
 def test_meshes_collected():
