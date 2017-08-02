@@ -253,9 +253,6 @@ def _extract_args(*args, **kwargs):
                     "form_compiler_parameters", "solver_parameters",
                     "nullspace", "transpose_nullspace", "near_nullspace",
                     "options_prefix", "appctx"]
-    if "nest" in kwargs:
-        raise DeprecationWarning("The 'nest' argument is deprecated, please set 'mat_type' in the solver parameters")
-
     for kwarg in kwargs.keys():
         if kwarg not in valid_kwargs:
             raise RuntimeError("Illegal keyword argument '%s'; valid keywords \

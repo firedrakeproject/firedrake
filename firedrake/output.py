@@ -520,8 +520,3 @@ class File(object):
                          'file="%s" />\n' % (time, vtu)).encode('ascii'))
                 # And add footer again, so that the file is valid
                 f.write(self._footer)
-
-    def __lshift__(self, arg):
-        from firedrake.logging import warning, RED
-        warning(RED % "The << syntax is deprecated, use File.write")
-        self.write(arg)
