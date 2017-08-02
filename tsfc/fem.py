@@ -31,7 +31,7 @@ from gem.utils import cached_property
 from finat.quadrature import make_quadrature
 
 from tsfc import ufl2gem
-from tsfc.finatinterface import create_element, as_fiat_cell
+from tsfc.finatinterface import as_fiat_cell
 from tsfc.kernel_interface import ProxyKernelInterface
 from tsfc.modified_terminals import analyse_modified_terminal
 from tsfc.parameters import NUMPY_TYPE, PARAMETERS
@@ -319,7 +319,7 @@ def fiat_to_ufl(fiat_dict, order):
 def translate_argument(terminal, mt, ctx):
     argument_multiindex = ctx.argument_multiindices[terminal.number()]
     sigma = tuple(gem.Index(extent=d) for d in mt.expr.ufl_shape)
-    element = create_element(terminal.ufl_element())
+    element = ctx.create_element(terminal.ufl_element())
 
     def callback(entity_id):
         finat_dict = ctx.basis_evaluation(element, mt.local_derivatives, entity_id)
@@ -346,7 +346,7 @@ def translate_coefficient(terminal, mt, ctx):
         assert mt.local_derivatives == 0
         return vec
 
-    element = create_element(terminal.ufl_element())
+    element = ctx.create_element(terminal.ufl_element())
 
     # Collect FInAT tabulation for all entities
     per_derivative = collections.defaultdict(list)
