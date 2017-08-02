@@ -73,15 +73,20 @@ def flatten(var_reps, index_cache):
 
     def group_key(pair):
         variable, expression = pair
-        return variable.free_indices
+        return frozenset(variable.free_indices)
 
-    # Delta cancellation for arguments
+    # Variable ordering after delta cancellation
     narrow_variables = OrderedDict()
+    # Assignments are variable -> MonomialSum map
     delta_simplified = defaultdict(MonomialSum)
+    # Group assignment pairs by argument indices
     for free_indices, pair_group in groupby(pairs, group_key):
         variables, expressions = zip(*pair_group)
+        # Argument factorise expressions
         classifier = partial(classify, set(free_indices))
         monomial_sums = collect_monomials(expressions, classifier)
+        # For each monomial, apply delta cancellation and insert
+        # result into delta_simplified.
         for variable, monomial_sum in zip(variables, monomial_sums):
             for monomial in monomial_sum:
                 var, s, a, r = delta_elimination(variable, *monomial)
@@ -91,9 +96,17 @@ def flatten(var_reps, index_cache):
     # Final factorisation
     for variable in narrow_variables:
         monomial_sum = delta_simplified[variable]
+        # Collect sum indices applicable to the current MonomialSum
         sum_indices = set().union(*[m.sum_indices for m in monomial_sum])
+        # Put them in a deterministic order
         sum_indices = [i for i in quadrature_indices if i in sum_indices]
+        # Sort for increasing index extent, this obtains the good
+        # factorisation for triangle x interval cells.  Python sort is
+        # stable, so in the common case when index extents are equal,
+        # the previous deterministic ordering applies which is good
+        # for getting smaller temporaries.
         sum_indices = sorted(sum_indices, key=lambda index: index.extent)
+        # Apply sum factorisation combined with COFFEE technology
         expression = sum_factorise(variable, sum_indices, monomial_sum)
         yield (variable, expression)
 
@@ -146,6 +159,13 @@ def sum_factorise(variable, tail_ordering, monomial_sum):
         key_ordering = OrderedDict()
         sub_monosums = defaultdict(MonomialSum)
         for sum_indices, atomics, rest in monomial_sum:
+            # Pull out those sum indices that are not contained in the
+            # tail ordering, together with those atomics which do not
+            # share free indices with the tail ordering.
+            #
+            # Based on this, split the monomial sum, then recursively
+            # optimise each sub monomial sum with the first tail index
+            # removed.
             tail_indices = tuple(i for i in sum_indices if i in tail_ordering)
             tail_atomics = tuple(a for a in atomics
                                  if set(tail_indices) & set(a.free_indices))
@@ -161,4 +181,5 @@ def sum_factorise(variable, tail_ordering, monomial_sum):
             new_rest = sum_factorise(variable, tail_ordering[1:], monosum)
             monomial_sum.add(sum_indices, atomics, new_rest)
 
+    # Use COFFEE algorithm to optimise the monomial sum
     return optimise_monomial_sum(monomial_sum, variable.index_ordering())
