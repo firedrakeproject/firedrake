@@ -18,7 +18,7 @@ from tsfc.coffee import SCALAR_TYPE
 
 def create_element(element):
     # UFC DoF ordering for vector/tensor elements is XXXX YYYY ZZZZ.
-    return _create_element(element, vector_transpose=True)
+    return _create_element(element, shape_innermost=False)
 
 
 class KernelBuilder(KernelBuilderBase):
