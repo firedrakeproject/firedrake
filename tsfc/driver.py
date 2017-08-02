@@ -16,6 +16,7 @@ from ufl.algorithms import extract_arguments, extract_coefficients
 from ufl.algorithms.analysis import has_type
 from ufl.classes import Form, CellVolume
 from ufl.log import GREEN
+from ufl.utils.sequences import max_degree
 
 import gem
 import gem.impero_utils as impero_utils
@@ -161,10 +162,10 @@ def compile_integral(integral_data, form_data, prefix, parameters,
             function_degrees = [f.ufl_function_space().ufl_element().degree() for f in functions]
             if all((asarray(quadrature_degree) > 10 * asarray(degree)).all()
                    for degree in function_degrees):
-                logger.warning("Estimated quadrature degree %d more "
+                logger.warning("Estimated quadrature degree %s more "
                                "than tenfold greater than any "
-                               "argument/coefficient degree (max %d)",
-                               quadrature_degree, max(function_degrees))
+                               "argument/coefficient degree (max %s)",
+                               quadrature_degree, max_degree(function_degrees))
 
         try:
             quad_rule = params["quadrature_rule"]
