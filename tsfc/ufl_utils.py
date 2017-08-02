@@ -201,7 +201,12 @@ class CoefficientSplitter(MultiFunction, ModifiedTerminalMixin):
 
 def split_coefficients(expression, split):
     """Split mixed coefficients, so mixed elements need not be
-    implemented."""
+    implemented.
+
+    :arg split: A :py:class:`dict` mapping each mixed coefficient to a
+                sequence of subcoefficients.  If None, calling this
+                function is a no-op.
+    """
     if split is None:
         return expression
 
