@@ -19,6 +19,10 @@ clean:
 	-@rm -f firedrake/dmplex.so > /dev/null 2>&1
 	@echo "    RM firedrake/dmplex.c"
 	-@rm -f firedrake/dmplex.c > /dev/null 2>&1
+	@echo "    RM firedrake/extrusion_numbering.so"
+	-@rm -f firedrake/extrusion_numbering.so > /dev/null 2>&1
+	@echo "    RM firedrake/extrusion_numbering.c"
+	-@rm -f firedrake/extrusion_numbering.c > /dev/null 2>&1
 	@echo "    RM firedrake/hdf5interface.so"
 	-@rm -f firedrake/hdf5interface.so > /dev/null 2>&1
 	@echo "    RM firedrake/hdf5interface.c"
