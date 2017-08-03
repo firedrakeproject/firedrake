@@ -426,7 +426,8 @@ def entity_layers(mesh, height, label=None):
     layer_extents = mesh.layer_extents
     offset = 0
     if label is not None:
-        CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
+        label = label.encode()
+        CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
         CHKERR(DMLabelCreateIndex(clabel, hStart, hEnd))
     pStart, pEnd = dm.getChart()
     CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
@@ -580,7 +581,8 @@ def get_facet_nodes(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, 
 
     facet_nodes = numpy.full(shape, -1, dtype=IntType)
 
-    CHKERR(DMGetLabel(dm.dm, <char *>label, &clabel))
+    label = label.encode()
+    CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
     CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
 
     pStart, pEnd = dm.getChart()
