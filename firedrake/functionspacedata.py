@@ -199,7 +199,11 @@ def get_boundary_masks(mesh, key, finat_element):
     masks = {}
     dim = finat_element.cell.get_spatial_dimension()
     ecd = finat_element.entity_closure_dofs()
-    horiz_facet = sorted(ecd.keys())[-2]
+    try:
+        esd = finat_element.entity_support_dofs()
+    except NotImplementedError:
+        # 4-D cells
+        esd = None
     # Number of entities on cell excepting the cell itself.
     chart = sum(map(len, ecd.values())) - 1
     closure_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
@@ -216,18 +220,12 @@ def get_boundary_masks(mesh, key, finat_element):
             continue
         for key in sorted(ecd[ent].keys()):
             closure_section.setDof(p, len(ecd[ent][key]))
-            # Only record support dofs for horizontal facets.
-            # Computing the support on all entities is very
-            # expensive, so we just don't support that option on
-            # generic extruded meshes with variable numbers of
-            # layers.
-            if ent == horiz_facet:
-                esd = entity_support_dofs(finat_element, ent)
-                support_section.setDof(p, len(esd[key]))
-                support_indices.extend(sorted(esd[key]))
+            closure_indices.extend(sorted(ecd[ent][key]))
+            if esd is not None:
+                support_section.setDof(p, len(esd[ent][key]))
+                support_indices.extend(sorted(esd[ent][key]))
             if sum(ent) == dim - 1:
                 facet_points.append(p)
-            closure_indices.extend(sorted(ecd[ent][key]))
             p += 1
     closure_section.setUp()
     support_section.setUp()
