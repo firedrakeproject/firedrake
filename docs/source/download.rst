@@ -94,7 +94,7 @@ issues for users attempting to install Firedrake. In particular, the
 assembler provided by MacPorts is incompatible with the Mac system
 compilers in a manner which causes Firedrake to fail to install. For
 this reason, if you are installing Firedrake on a Mac which also has
-MacPorts install, you should ensure that ``/opt/local/bin`` and
+MacPorts installed, you should ensure that ``/opt/local/bin`` and
 ``/opt/local/sbin`` are removed from your ``PATH`` when installing or
 using Firedrake. This should ensure that no MacPorts installed tools
 are found.
