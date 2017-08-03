@@ -749,23 +749,16 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         return self._base_mesh.cell_closure
 
-    @utils.cached_property
-    def exterior_facets(self):
-        exterior_facets = self._base_mesh.exterior_facets
-        return _Facets(self, exterior_facets.classes,
-                       "exterior",
-                       exterior_facets.facet_cell,
-                       exterior_facets.local_facet_number,
-                       exterior_facets.markers,
-                       unique_markers=exterior_facets.unique_markers)
-
-    @utils.cached_property
-    def interior_facets(self):
-        interior_facets = self._base_mesh.interior_facets
-        return _Facets(self, interior_facets.classes,
-                       "interior",
-                       interior_facets.facet_cell,
-                       interior_facets.local_facet_number)
+    def _facets(self, kind):
+        if kind not in ["interior", "exterior"]:
+            raise ValueError("Unknown facet type '%s'" % kind)
+        base = getattr(self._base_mesh, "%s_facets" % kind)
+        return _Facets(self, base.classes,
+                       kind,
+                       base.facet_cell,
+                       base.local_facet_number,
+                       markers=base.markers,
+                       unique_markers=base.unique_markers)
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
