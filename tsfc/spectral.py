@@ -133,6 +133,9 @@ def delta_elimination(variable, sum_indices, args, rest):
     factors = list(args) + [variable, rest]  # construct factors
 
     def prune(factors):
+        # Skip last factor (``rest``, see above) which can be
+        # arbitrarily complicated, so its pruning may be expensive,
+        # and its early pruning brings no advantages.
         result = remove_componenttensors(factors[:-1])
         result.append(factors[-1])
         return result
