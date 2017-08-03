@@ -65,7 +65,17 @@ Supported Python distributions
 Firedrake requires Python 3.5 or later.
 
 On Ubuntu (16.04 or later), the system installed Python 3 is supported and tested.
-On Mac OS, the homebrew_ installed Python 3 is supported and tested.
+
+On Mac OS, the homebrew_ installed Python 3 is supported and tested::
+  
+  brew install python3
+
+If instead you choose to install Python 3 using the official Mac OS
+installer on the Python website, you need to be aware that that
+installation will not have a working SSL by default. You need to
+follow the SSL certificate instructions given in the installation process (or in
+``/Applications/Python 3.6/ReadMe.rtf`` after installation).
+
 
 .. note::
 
@@ -75,6 +85,19 @@ On Mac OS, the homebrew_ installed Python 3 is supported and tested.
 
    The installation script *does not work* with anaconda_ based python
    installations. This is due to venv issues in anaconda.
+
+Additional considerations for MacPorts users
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Mac OS has multiple competing package managers which sometimes cause
+issues for users attempting to install Firedrake. In particular, the
+assembler provided by MacPorts is incompatible with the Mac system
+compilers in a manner which causes Firedrake to fail to install. For
+this reason, if you are installing Firedrake on a Mac which also has
+MacPorts installed, you should ensure that ``/opt/local/bin`` and
+``/opt/local/sbin`` are removed from your ``PATH`` when installing or
+using Firedrake. This should ensure that no MacPorts installed tools
+are found.
 
 Upgrade
 -------
@@ -104,9 +127,7 @@ type::
   git pull
   ./scripts/firedrake-install --rebuild-script
 
-You should also pass any of the other options to `firedrake-install`
-which you wish the rebuilt script to apply (for example `--user` or
-`--disable-ssh`). You should now be able to run `firedrake-update`.
+You should now be able to run `firedrake-update`.
 
 
 Visualisation software
@@ -123,9 +144,9 @@ Documentation dependencies
 
 Building the documention requires Sphinx_ (including the Youtube and
 Bibtex plugins) and wget_.  In addition the Sphinx Youtube and bibtex
-plugins are required.  The former is available from the
-`sphinx-contrib repository
-<https://bitbucket.org/birkenfeld/sphinx-contrib>`__, the latter is
+plugins are required.  The former is available from
+`a fork of the sphinx-contrib repository
+<https://bitbucket.org/David_Ham/sphinx-contrib>`__, the latter is
 the python package ``sphinxcontrib-bibtex``.
 
 .. _Paraview: http://www.paraview.org
