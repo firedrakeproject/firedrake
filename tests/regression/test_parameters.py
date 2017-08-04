@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake import *
 # These Parameter tests are a cut down version of the unit Parameter tests in DOLFIN
 

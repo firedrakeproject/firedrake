@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 
 import ufl
 
@@ -283,3 +282,9 @@ class LinearVariationalSolver(NonlinearVariationalSolver):
         parameters.setdefault('ksp_rtol', 1.0e-7)
         kwargs["solver_parameters"] = parameters
         super(LinearVariationalSolver, self).__init__(*args, **kwargs)
+
+    def invalidate_jacobian(self):
+        """
+        Forces the matrix to be reassembled next time it is required.
+        """
+        self._ctx._jacobian_assembled = False

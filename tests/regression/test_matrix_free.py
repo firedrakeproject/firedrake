@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake import *
 import pytest
 import numpy as np
@@ -275,9 +274,9 @@ def test_get_info(a, bcs, infotype):
     info = ctx.getInfo(A.petscmat, info=itype)
     test, trial = a.arguments()
     expect = ((test.function_space().dof_dset.total_size
-               * test.function_space().dim)
+               * test.function_space().value_size)
               + (trial.function_space().dof_dset.total_size
-                 * trial.function_space().dim))
+                 * trial.function_space().value_size))
 
     expect *= np.float64().itemsize
 

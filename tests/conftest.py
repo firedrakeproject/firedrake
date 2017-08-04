@@ -1,5 +1,4 @@
 """Global test configuration."""
-from __future__ import absolute_import, print_function, division
 
 import pytest
 from subprocess import check_call
@@ -22,8 +21,8 @@ def parallel(item):
 
     # Only spew tracebacks on rank 0.
     # Run xfailing tests to ensure that errors are reported to calling process
-    call = ["mpiexec", "-n", "1", "py.test", "--runxfail", "-s", "-q", "%s::%s" % (item.fspath, item.name)]
-    call.extend([":", "-n", "%d" % (nprocs - 1), "py.test", "--runxfail", "--tb=no", "-q",
+    call = ["mpiexec", "-n", "1", "python", "-m", "pytest", "--runxfail", "-s", "-q", "%s::%s" % (item.fspath, item.name)]
+    call.extend([":", "-n", "%d" % (nprocs - 1), "python", "-m", "pytest", "--runxfail", "--tb=no", "-q",
                  "%s::%s" % (item.fspath, item.name)])
     check_call(call)
 

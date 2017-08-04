@@ -61,7 +61,7 @@ truncating any existing contents we use:
 
 .. code-block:: python
 
-   chk = DumbCheckpoint("dump", mode=FILE_WRITE)
+   chk = DumbCheckpoint("dump", mode=FILE_CREATE)
 
 note how we only provide the base name of the on-disk file, ``".h5"`` is
 appended automatically.

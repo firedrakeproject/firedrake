@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 # Ensure petsc is initialised by us before anything else gets in there.
 import firedrake.petsc as petsc
 del petsc
@@ -23,6 +22,10 @@ except AttributeError:
     pass
 del ufl
 from ufl import *
+# Set up the cache directories before importing PyOP2.
+import firedrake_configuration
+firedrake_configuration.setup_cache_dirs()
+
 from pyop2 import op2                                           # noqa
 from pyop2.mpi import COMM_WORLD, COMM_SELF                     # noqa
 

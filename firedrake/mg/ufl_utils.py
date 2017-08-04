@@ -1,10 +1,9 @@
-from __future__ import absolute_import, print_function, division
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
 
-from singledispatch import singledispatch
+from functools import singledispatch
 import firedrake
 from firedrake.petsc import PETSc
 

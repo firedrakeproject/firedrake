@@ -9,7 +9,6 @@ dimension of the kth cohomology group with Dirichlet boundary
 conditions is equal to the dimension of the (n-k)th cohomology group
 without boundary conditions.
 """
-from __future__ import absolute_import, print_function, division
 import numpy.linalg as linalg
 import numpy
 from firedrake import *

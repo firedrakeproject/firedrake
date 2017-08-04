@@ -1,7 +1,6 @@
 """This demo program sets opposite boundary sides to 10 and 42 and
 then checks that the exact result has bee achieved.
 """
-from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 

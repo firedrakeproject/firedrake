@@ -2,7 +2,6 @@
 the Slate language.
 """
 
-from __future__ import absolute_import, print_function, division
 
 import ufl
 
@@ -408,9 +407,9 @@ def create_schur_nullspace(P, forward, V, V_d, TraceSpace, comm):
         with tnsp_tmp.dat.vec_ro as v:
             new_vecs.append(v.copy())
 
+    # Normalize
+    for v in new_vecs:
+        v.normalize()
     schur_nullspace = PETSc.NullSpace().create(vectors=new_vecs, comm=comm)
 
-    # Normalize
-    for schur_vecs in schur_nullspace.getVecs():
-        schur_vecs.normalize()
     return schur_nullspace

@@ -189,7 +189,7 @@ and precondition with ILU(0). ::
 We now loop over a range of mesh sizes, assembling the system and
 solving it ::
 
-    print "Naive preconditioning"
+    print("Naive preconditioning")
     for n in range(8):
         solver, w, b = build_problem(n, parameters, block_matrix=False)
         solver.solve(w, b)
@@ -198,7 +198,7 @@ Finally, at each mesh size, we print out the number of cells in the
 mesh and the number of iterations the solver took to converge ::
 
     #
-        print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
+        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
 
 The resulting convergence is unimpressive:
 
@@ -296,11 +296,11 @@ inverting :math:`A` and :math:`S` to check the convergence. ::
 Let's go ahead and run this.  Note that for this problem, we're
 applying the action of blocks, so we can use a block matrix format. ::
 
-    print "Exact full Schur complement"
+    print("Exact full Schur complement")
     for n in range(8):
         solver, w, b = build_problem(n, parameters, block_matrix=True)
         solver.solve(w, b)
-        print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
+        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
        
 The resulting convergence is algorithmically good, however, the larger
 problems still take a long time.
@@ -381,11 +381,11 @@ algebraic multigrid from the hypre suite. ::
 
 Let's see what happens. ::
 
-    print "Schur complement with S_p"
+    print("Schur complement with S_p")
     for n in range(8):
         solver, w, b = build_problem(n, parameters, block_matrix=True)
         solver.solve(w, b)
-        print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
+        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
 
 This is much better, the problem takes much less time to solve and
 when observing the iteration counts for inverting :math:`S` we can see
@@ -436,11 +436,11 @@ this, we use the following set of parameters. ::
 Note how we can switch back to GMRES here, our inner solves are linear
 and so we no longer need a flexible Krylov method. ::
 
-    print "Schur complement with S_p and inexact inner inverses"
+    print("Schur complement with S_p and inexact inner inverses")
     for n in range(8):
         solver, w, b = build_problem(n, parameters, block_matrix=True)
         solver.solve(w, b)
-        print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
+        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
 
 This results in the following GMRES iteration counts
 
@@ -512,11 +512,11 @@ function to pass as the ``aP`` argument. ::
 Now we just need to pass this extra argument to the ``build_problem``
 function ::
 
-    print "DG approximation for S_p"
+    print("DG approximation for S_p")
     for n in range(8):
         solver, w, b = build_problem(n, parameters, aP=dg_laplacian, block_matrix=True)
         solver.solve(w, b)
-        print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
+        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
 
 This actually results in slightly worse convergence than the diagonal
 approximation we used above.
@@ -597,11 +597,11 @@ option up to a few tens of thousands of degrees of freedom. ::
 
 Let's see what the iteration count looks like now. ::
 
-    print "Riesz-map preconditioner"
+    print("Riesz-map preconditioner")
     for n in range(8):
         solver, w, b = build_problem(n, parameters, aP=riesz, block_matrix=True)
         solver.solve(w, b)
-        print w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber()
+        print(w.function_space().mesh().num_cells(), solver.ksp.getIterationNumber())
 
 ============== ==================
  Mesh elements  GMRES iterations

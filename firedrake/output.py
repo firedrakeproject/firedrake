@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 
 import collections
 import itertools
@@ -176,15 +175,15 @@ def write_array_descriptor(f, ofunction, offset=None, parallel=False):
            numpy.dtype("int64"): "Int64",
            numpy.dtype("uint8"): "UInt8"}[array.dtype]
     if parallel:
-        f.write('<PDataArray Name="%s" type="%s" '
-                'NumberOfComponents="%s" />' % (name, typ, ncmp))
+        f.write(('<PDataArray Name="%s" type="%s" '
+                 'NumberOfComponents="%s" />' % (name, typ, ncmp)).encode('ascii'))
     else:
         if offset is None:
             raise ValueError("Must provide offset")
-        f.write('<DataArray Name="%s" type="%s" '
-                'NumberOfComponents="%s" '
-                'format="appended" '
-                'offset="%d" />\n' % (name, typ, ncmp, offset))
+        f.write(('<DataArray Name="%s" type="%s" '
+                 'NumberOfComponents="%s" '
+                 'format="appended" '
+                 'offset="%d" />\n' % (name, typ, ncmp, offset)).encode('ascii'))
     return 4 + array.nbytes     # 4 is for the array size (uint32)
 
 
@@ -225,12 +224,12 @@ def get_array(function):
 
 
 class File(object):
-    _header = ('<?xml version="1.0" ?>\n'
-               '<VTKFile type="Collection" version="0.1" '
-               'byte_order="LittleEndian">\n'
-               '<Collection>\n')
-    _footer = ('</Collection>\n'
-               '</VTKFile>\n')
+    _header = (b'<?xml version="1.0" ?>\n'
+               b'<VTKFile type="Collection" version="0.1" '
+               b'byte_order="LittleEndian">\n'
+               b'<Collection>\n')
+    _footer = (b'</Collection>\n'
+               b'</VTKFile>\n')
 
     def __init__(self, filename, project_output=False, comm=None, restart=0):
         """Create an object for outputting data for visualisation.
@@ -414,46 +413,46 @@ class File(object):
         with open(fname, "wb") as f:
             # Running offset for appended data
             offset = 0
-            f.write('<?xml version="1.0" ?>\n')
-            f.write('<VTKFile type="UnstructuredGrid" version="0.1" '
-                    'byte_order="LittleEndian" '
-                    'header_type="UInt32">\n')
-            f.write('<UnstructuredGrid>\n')
+            f.write(b'<?xml version="1.0" ?>\n')
+            f.write(b'<VTKFile type="UnstructuredGrid" version="0.1" '
+                    b'byte_order="LittleEndian" '
+                    b'header_type="UInt32">\n')
+            f.write(b'<UnstructuredGrid>\n')
 
-            f.write('<Piece NumberOfPoints="%d" '
-                    'NumberOfCells="%d">\n' % (num_points, num_cells))
-            f.write('<Points>\n')
+            f.write(('<Piece NumberOfPoints="%d" '
+                     'NumberOfCells="%d">\n' % (num_points, num_cells)).encode('ascii'))
+            f.write(b'<Points>\n')
             # Vertex coordinates
             offset += write_array_descriptor(f, coordinates, offset=offset)
-            f.write('</Points>\n')
+            f.write(b'</Points>\n')
 
-            f.write('<Cells>\n')
+            f.write(b'<Cells>\n')
             offset += write_array_descriptor(f, connectivity, offset=offset)
             offset += write_array_descriptor(f, offsets, offset=offset)
             offset += write_array_descriptor(f, types, offset=offset)
-            f.write('</Cells>\n')
+            f.write(b'</Cells>\n')
 
-            f.write('<PointData>\n')
+            f.write(b'<PointData>\n')
             for function in functions:
                 offset += write_array_descriptor(f, function, offset=offset)
-            f.write('</PointData>\n')
+            f.write(b'</PointData>\n')
 
-            f.write('</Piece>\n')
-            f.write('</UnstructuredGrid>\n')
+            f.write(b'</Piece>\n')
+            f.write(b'</UnstructuredGrid>\n')
 
-            f.write('<AppendedData encoding="raw">\n')
+            f.write(b'<AppendedData encoding="raw">\n')
             # Appended data must start with "_", separating whitespace
             # from data
-            f.write('_')
+            f.write(b'_')
             write_array(f, coordinates)
             write_array(f, connectivity)
             write_array(f, offsets)
             write_array(f, types)
             for function in functions:
                 write_array(f, function)
-            f.write('\n</AppendedData>\n')
+            f.write(b'\n</AppendedData>\n')
 
-            f.write('</VTKFile>\n')
+            f.write(b'</VTKFile>\n')
         return fname
 
     def _write_single_pvtu(self, basename,
@@ -462,36 +461,36 @@ class File(object):
         connectivity, offsets, types = self._topology
         fname = get_pvtu_name(basename)
         with open(fname, "wb") as f:
-            f.write('<?xml version="1.0" ?>\n')
-            f.write('<VTKFile type="PUnstructuredGrid" version="0.1" '
-                    'byte_order="LittleEndian">\n')
-            f.write('<PUnstructuredGrid>\n')
+            f.write(b'<?xml version="1.0" ?>\n')
+            f.write(b'<VTKFile type="PUnstructuredGrid" version="0.1" '
+                    b'byte_order="LittleEndian">\n')
+            f.write(b'<PUnstructuredGrid>\n')
 
-            f.write('<PPoints>\n')
+            f.write(b'<PPoints>\n')
             # Vertex coordinates
             write_array_descriptor(f, coordinates, parallel=True)
-            f.write('</PPoints>\n')
+            f.write(b'</PPoints>\n')
 
-            f.write('<PCells>\n')
+            f.write(b'<PCells>\n')
             write_array_descriptor(f, connectivity, parallel=True)
             write_array_descriptor(f, offsets, parallel=True)
             write_array_descriptor(f, types, parallel=True)
-            f.write('</PCells>\n')
+            f.write(b'</PCells>\n')
 
-            f.write('<PPointData>\n')
+            f.write(b'<PPointData>\n')
             for function in functions:
                 write_array_descriptor(f, function, parallel=True)
-            f.write('</PPointData>\n')
+            f.write(b'</PPointData>\n')
 
             size = self.comm.size
             for rank in range(size):
                 # need a relative path so files can be moved around:
                 vtu_name = os.path.relpath(get_vtu_name(basename, rank, size),
                                            os.path.dirname(self.basename))
-                f.write('<Piece Source="%s" />\n' % vtu_name)
+                f.write(('<Piece Source="%s" />\n' % vtu_name).encode('ascii'))
 
-            f.write('</PUnstructuredGrid>\n')
-            f.write('</VTKFile>\n')
+            f.write(b'</PUnstructuredGrid>\n')
+            f.write(b'</VTKFile>\n')
         return fname
 
     def write(self, *functions, **kwargs):
@@ -517,12 +516,7 @@ class File(object):
                 # Seek backwards from end to beginning of footer
                 f.seek(-len(self._footer), 2)
                 # Write new dataset name
-                f.write('<DataSet timestep="%s" '
-                        'file="%s" />\n' % (time, vtu))
+                f.write(('<DataSet timestep="%s" '
+                         'file="%s" />\n' % (time, vtu)).encode('ascii'))
                 # And add footer again, so that the file is valid
                 f.write(self._footer)
-
-    def __lshift__(self, arg):
-        from firedrake.logging import warning, RED
-        warning(RED % "The << syntax is deprecated, use File.write")
-        self.write(arg)

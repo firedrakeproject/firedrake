@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -36,7 +35,7 @@ def f(function_space):
     """Generate a Firedrake function given a particular function space."""
     f = Function(function_space)
     if function_space.rank >= 1:
-        f.interpolate(Expression(("x[0]",) * function_space.dim))
+        f.interpolate(Expression(("x[0]",) * function_space.value_size))
     else:
         f.interpolate(Expression("x[0]"))
     return f

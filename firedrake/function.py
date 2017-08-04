@@ -1,9 +1,8 @@
-from __future__ import absolute_import, print_function, division
-from six.moves import range, zip
 import numpy as np
 import sys
 import ufl
 import ctypes
+from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
@@ -161,7 +160,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self.dat)
+        return vector.Vector(self)
 
     def function_space(self):
         """Return the :class:`.FunctionSpace`, or
@@ -218,8 +217,10 @@ class Function(ufl.Coefficient):
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.
+            will be used to build this :class:`Function`.  In this
+        case, the function values are copied.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+            If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
@@ -232,7 +233,8 @@ class Function(ufl.Coefficient):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
-        if isinstance(val, CoordinatelessFunction):
+        if isinstance(val, (Function, CoordinatelessFunction)):
+            val = val.topological
             if val.function_space() != V.topological:
                 raise ValueError("Function values have wrong function space.")
             self._data = val
@@ -271,6 +273,10 @@ class Function(ufl.Coefficient):
 
     def __getattr__(self, name):
         return getattr(self._data, name)
+
+    def __dir__(self):
+        current = super(Function, self).__dir__()
+        return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
@@ -317,7 +323,7 @@ class Function(ufl.Coefficient):
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self.dat)
+        return vector.Vector(self)
 
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.

@@ -1,6 +1,4 @@
 # A module implementing strong (Dirichlet) boundary conditions.
-from __future__ import absolute_import, print_function, division
-from six.moves import map, range
 import numpy as np
 from ufl import as_ufl, SpatialCoordinate, UFLException
 from ufl.algorithms.analysis import has_type
@@ -8,6 +6,7 @@ from ufl.algorithms.analysis import has_type
 import pyop2 as op2
 from pyop2.profiling import timed_function
 from pyop2 import exceptions
+from pyop2.utils import as_tuple
 
 import firedrake.expression as expression
 import firedrake.function as function
@@ -57,11 +56,7 @@ class DirichletBC(object):
         self.function_arg = g
         self.comm = V.comm
         self._original_arg = self.function_arg
-        if sub_domain == "on_boundary":
-            self.sub_domain = \
-                tuple(map(int, V.mesh().topology.exterior_facets.unique_markers))
-        else:
-            self.sub_domain = sub_domain
+        self.sub_domain = sub_domain
         self._currently_zeroed = False
         if method not in ["topological", "geometric"]:
             raise ValueError("Unknown boundary condition method %s" % method)
@@ -159,28 +154,34 @@ class DirichletBC(object):
         self._original_val = val
 
     @utils.cached_property
+    def domain_args(self):
+        """The sub_domain the BC applies to."""
+        if isinstance(self.sub_domain, str):
+            return (self.sub_domain, )
+        return (as_tuple(self.sub_domain), )
+
+    @utils.cached_property
     def nodes(self):
         '''The list of nodes at which this boundary condition applies.'''
 
-        fs = self._function_space
+        V = self.function_space()
+        mesh = V.mesh()
         if self.sub_domain == "bottom":
-            return fs.bottom_nodes(method=self.method)
+            return V.bottom_nodes(method=self.method)
         elif self.sub_domain == "top":
-            return fs.top_nodes(method=self.method)
+            return V.top_nodes(method=self.method)
         else:
-            if fs.extruded:
-                base_maps = fs.exterior_facet_boundary_node_map(
-                    self.method).values_with_halo.take(
-                    fs._mesh._base_mesh.exterior_facets.subset(self.sub_domain).indices,
-                    axis=0)
-                facet_offset = fs.exterior_facet_boundary_node_map(self.method).offset
-                return np.unique(np.concatenate([base_maps + i * facet_offset
-                                                 for i in range(fs._mesh.layers - 1)]))
-            return np.unique(
-                fs.exterior_facet_boundary_node_map(
-                    self.method).values_with_halo.take(
-                    fs._mesh.exterior_facets.subset(self.sub_domain).indices,
-                    axis=0))
+            values = V.exterior_facet_boundary_node_map(
+                self.method).values_with_halo
+            if self.sub_domain != "on_boundary":
+                values = values.take(mesh.exterior_facets.subset(self.sub_domain).indices,
+                                     axis=0)
+            if V.extruded:
+                offset = V.exterior_facet_boundary_node_map(self.method).offset
+                return np.unique(np.concatenate([values + i * offset
+                                                 for i in range(mesh.layers - 1)]))
+            else:
+                return np.unique(values)
 
     @utils.cached_property
     def node_set(self):

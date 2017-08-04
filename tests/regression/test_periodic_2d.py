@@ -13,7 +13,6 @@ On a doubly-periodic mesh, no boundary conditions are required.  On a
 partially periodic mesh, we impose zero Dirichlet BCs on the
 non-periodic boundaries.
 """
-from __future__ import absolute_import, print_function, division
 
 import pytest
 from math import pi

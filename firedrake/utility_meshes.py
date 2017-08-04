@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import numpy as np
 
 import ufl
@@ -7,8 +6,9 @@ from pyop2.mpi import COMM_WORLD
 from pyop2.datatypes import IntType
 
 from firedrake import VectorFunctionSpace, Function, Constant, \
-    par_loop, dx, WRITE, READ
+    par_loop, dx, WRITE, READ, interpolate
 from firedrake import mesh
+from firedrake import dmplex
 from firedrake import function
 from firedrake import functionspace
 
@@ -23,6 +23,7 @@ __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'UnitTetrahedronMesh',
            'BoxMesh', 'CubeMesh', 'UnitCubeMesh',
            'IcosahedralSphereMesh', 'UnitIcosahedralSphereMesh',
+           'OctahedralSphereMesh', 'UnitOctahedralSphereMesh',
            'CubedSphereMesh', 'UnitCubedSphereMesh',
            'TorusMesh', 'CylinderMesh']
 
@@ -61,16 +62,16 @@ def IntervalMesh(ncells, length_or_left, right=None, comm=COMM_WORLD):
                        np.arange(1, len(coords), dtype=np.int32))).reshape(-1, 2)
     plex = mesh._from_cell_list(1, cells, coords, comm)
     # Apply boundary IDs
-    plex.createLabel("boundary_ids")
+    plex.createLabel(dmplex.FACE_SETS_LABEL)
     coordinates = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
     vStart, vEnd = plex.getDepthStratum(0)  # vertices
     for v in range(vStart, vEnd):
         vcoord = plex.vecGetClosure(coord_sec, coordinates, v)
         if vcoord[0] == coords[0]:
-            plex.setLabelValue("boundary_ids", v, 1)
+            plex.setLabelValue(dmplex.FACE_SETS_LABEL, v, 1)
         if vcoord[0] == coords[-1]:
-            plex.setLabelValue("boundary_ids", v, 2)
+            plex.setLabelValue(dmplex.FACE_SETS_LABEL, v, 2)
 
     return mesh.Mesh(plex, reorder=False)
 
@@ -377,7 +378,7 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
     plex = mesh._from_cell_list(2, cells, coords, comm)
 
     # mark boundary facets
-    plex.createLabel("boundary_ids")
+    plex.createLabel(dmplex.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -388,13 +389,13 @@ def RectangleMesh(nx, ny, Lx, Ly, quadrilateral=False, reorder=None,
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[2]) < xtol:
-                plex.setLabelValue("boundary_ids", face, 1)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[0] - Lx) < xtol and abs(face_coords[2] - Lx) < xtol:
-                plex.setLabelValue("boundary_ids", face, 2)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
             if abs(face_coords[1]) < ytol and abs(face_coords[3]) < ytol:
-                plex.setLabelValue("boundary_ids", face, 3)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[3] - Ly) < ytol:
-                plex.setLabelValue("boundary_ids", face, 4)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
 
     return mesh.Mesh(plex, reorder=reorder)
 
@@ -486,7 +487,8 @@ cells in each direction are not currently supported")
 
     m = TorusMesh(nx, ny, 1.0, 0.5, quadrilateral=quadrilateral, reorder=reorder,
                   comm=comm)
-    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    coord_family = 'DQ' if quadrilateral else 'DG'
+    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
@@ -691,7 +693,7 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=COMM_WORLD):
     plex = mesh._from_cell_list(3, cells, coords, comm)
 
     # Apply boundary IDs
-    plex.createLabel("boundary_ids")
+    plex.createLabel(dmplex.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -703,17 +705,17 @@ def BoxMesh(nx, ny, nz, Lx, Ly, Lz, reorder=None, comm=COMM_WORLD):
         for face in boundary_faces:
             face_coords = plex.vecGetClosure(coord_sec, coords, face)
             if abs(face_coords[0]) < xtol and abs(face_coords[3]) < xtol and abs(face_coords[6]) < xtol:
-                plex.setLabelValue("boundary_ids", face, 1)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[0] - Lx) < xtol and abs(face_coords[3] - Lx) < xtol and abs(face_coords[6] - Lx) < xtol:
-                plex.setLabelValue("boundary_ids", face, 2)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
             if abs(face_coords[1]) < ytol and abs(face_coords[4]) < ytol and abs(face_coords[7]) < ytol:
-                plex.setLabelValue("boundary_ids", face, 3)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 3)
             if abs(face_coords[1] - Ly) < ytol and abs(face_coords[4] - Ly) < ytol and abs(face_coords[7] - Ly) < ytol:
-                plex.setLabelValue("boundary_ids", face, 4)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 4)
             if abs(face_coords[2]) < ztol and abs(face_coords[5]) < ztol and abs(face_coords[8]) < ztol:
-                plex.setLabelValue("boundary_ids", face, 5)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 5)
             if abs(face_coords[2] - Lz) < ztol and abs(face_coords[5] - Lz) < ztol and abs(face_coords[8] - Lz) < ztol:
-                plex.setLabelValue("boundary_ids", face, 6)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 6)
 
     return mesh.Mesh(plex, reorder=reorder)
 
@@ -861,6 +863,115 @@ def UnitIcosahedralSphereMesh(refinement_level=0, degree=1, reorder=None,
     return IcosahedralSphereMesh(1.0, refinement_level=refinement_level,
                                  degree=degree, reorder=reorder,
                                  comm=comm)
+
+
+def OctahedralSphereMesh(radius, refinement_level=0, degree=1,
+                         hemisphere="both", reorder=None,
+                         comm=COMM_WORLD):
+    """Generate an octahedral approximation to the surface of the
+    sphere.
+
+    :arg radius: The radius of the sphere to approximate.
+    :kwarg refinement_level: optional number of refinements (0 is an
+        octahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
+    :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    if refinement_level < 0 or refinement_level % 1:
+        raise ValueError("Number of refinements must be a non-negative integer")
+
+    if degree < 1:
+        raise ValueError("Mesh coordinate degree must be at least 1")
+    if hemisphere not in {"both", "north", "south"}:
+        raise ValueError("Unhandled hemisphere '%s'" % hemisphere)
+    # vertices of an octahedron of radius 1
+    vertices = np.array([[1.0, 0.0, 0.0],
+                         [0.0, 1.0, 0.0],
+                         [0.0, 0.0, 1.0],
+                         [-1.0, 0.0, 0.0],
+                         [0.0, -1.0, 0.0],
+                         [0.0, 0.0, -1.0]])
+    faces = np.array([[0, 1, 2],
+                      [0, 1, 5],
+                      [0, 2, 4],
+                      [0, 4, 5],
+                      [1, 2, 3],
+                      [1, 3, 5],
+                      [2, 3, 4],
+                      [3, 4, 5]], dtype=IntType)
+    if hemisphere == "north":
+        vertices = vertices[[0, 1, 2, 3, 4], ...]
+        faces = faces[0::2, ...]
+    elif hemisphere == "south":
+        indices = [0, 1, 3, 4, 5]
+        vertices = vertices[indices, ...]
+        faces = faces[1::2, ...]
+        for new, idx in enumerate(indices):
+            faces[faces == idx] = new
+
+    plex = mesh._from_cell_list(2, faces, vertices, comm)
+    plex.setRefinementUniform(True)
+    for i in range(refinement_level):
+        plex = plex.refine()
+
+    # build the initial mesh
+    m = mesh.Mesh(plex, dim=3, reorder=reorder)
+    if degree > 1:
+        # use it to build a higher-order mesh
+        m = mesh.Mesh(interpolate(ufl.SpatialCoordinate(m), VectorFunctionSpace(m, "CG", degree)))
+
+    # remap to a cone
+    x, y, z = ufl.SpatialCoordinate(m)
+    # This will DTWT on meshes with more than 26 refinement levels.
+    # (log_2 1e8 ~= 26.5)
+    tol = Constant(1.0e-8)
+    rnew = ufl.Max(1 - abs(z), 0)
+    # Avoid division by zero (when rnew is zero, x & y are also zero)
+    x0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, x/rnew)
+    y0 = ufl.conditional(ufl.lt(rnew, tol),
+                         0, y/rnew)
+    theta = ufl.conditional(ufl.ge(y0, 0),
+                            ufl.pi/2*(1-x0),
+                            ufl.pi/2.0*(x0-1))
+    m.coordinates.interpolate(ufl.as_vector([ufl.cos(theta)*rnew,
+                                             ufl.sin(theta)*rnew, z]))
+
+    # push out to a sphere
+    phi = ufl.pi*z/2
+    # Avoid division by zero (when rnew is zero, phi is pi/2, so cos(phi) is zero).
+    scale = ufl.conditional(ufl.lt(rnew, tol),
+                            0, ufl.cos(phi)/rnew)
+    znew = ufl.sin(phi)
+    m.coordinates.interpolate(Constant(radius)*ufl.as_vector([x*scale,
+                                                              y*scale,
+                                                              znew]))
+    m._radius = radius
+    return m
+
+
+def UnitOctahedralSphereMesh(refinement_level=0, degree=1,
+                             hemisphere="both", reorder=None,
+                             comm=COMM_WORLD):
+    """Generate an octahedral approximation to the unit sphere.
+
+    :kwarg refinement_level: optional number of refinements (0 is an
+        octahedron).
+    :kwarg degree: polynomial degree of coordinate space (defaults
+        to 1: flat triangles)
+    :kwarg hemisphere: One of "both" (default), "north", or "south"
+    :kwarg reorder: (optional), should the mesh be reordered?
+    :kwarg comm: Optional communicator to build the mesh on (defaults to
+        COMM_WORLD).
+    """
+    return OctahedralSphereMesh(1.0, refinement_level=refinement_level,
+                                degree=degree, hemisphere=hemisphere,
+                                reorder=reorder,
+                                comm=comm)
 
 
 def _cubedsphere_cells_and_coords(radius, refinement_level):
@@ -1137,7 +1248,7 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
         raise ValueError("Unknown longitudinal direction '%s'" % longitudinal_direction)
     plex = mesh._from_cell_list(2, cells, vertices, comm)
 
-    plex.createLabel("boundary_ids")
+    plex.createLabel(dmplex.FACE_SETS_LABEL)
     plex.markBoundaryFaces("boundary_faces")
     coords = plex.getCoordinates()
     coord_sec = plex.getCoordinateSection()
@@ -1152,10 +1263,10 @@ def CylinderMesh(nr, nl, radius=1, depth=1, longitudinal_direction="z",
             j = i + 3
             if abs(face_coords[i]) < eps and abs(face_coords[j]) < eps:
                 # bottom of cylinder
-                plex.setLabelValue("boundary_ids", face, 1)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 1)
             if abs(face_coords[i] - depth) < eps and abs(face_coords[j] - depth) < eps:
                 # top of cylinder
-                plex.setLabelValue("boundary_ids", face, 2)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, face, 2)
 
     m = mesh.Mesh(plex, dim=3, reorder=reorder)
     return m
@@ -1199,7 +1310,8 @@ cells in each direction are not currently supported")
 
     m = CylinderMesh(na, nb, 1.0, 1.0, longitudinal_direction="z",
                      quadrilateral=quadrilateral, reorder=reorder, comm=comm)
-    coord_fs = VectorFunctionSpace(m, 'DG', 1, dim=2)
+    coord_family = 'DQ' if quadrilateral else 'DG'
+    coord_fs = VectorFunctionSpace(m, coord_family, 1, dim=2)
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 

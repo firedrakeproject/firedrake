@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake import *
 from firedrake.solving_utils import ParametersMixin
 from firedrake.petsc import PETSc
@@ -22,7 +21,7 @@ def opts(request, prefix, global_parameters):
     if prefix is None:
         prefix = ""
 
-    for k, v in global_parameters.iteritems():
+    for k, v in global_parameters.items():
         opts[prefix + k] = v
 
     # Pretend these came from the commandline

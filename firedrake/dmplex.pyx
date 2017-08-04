@@ -1,6 +1,4 @@
 # Utility functions to derive global and local numbering from DMPlex
-from __future__ import absolute_import, print_function, division
-
 from firedrake.petsc import PETSc
 import numpy as np
 cimport numpy as np
@@ -21,6 +19,10 @@ cdef extern from "mpi-compat.h":
     pass
 
 include "dmplexinc.pxi"
+
+
+FACE_SETS_LABEL = "Face Sets"
+CELL_SETS_LABEL = "Cell Sets"
 
 
 @cython.boundscheck(False)
@@ -49,7 +51,7 @@ def facet_numbering(PETSc.DM plex, kind,
     nfacets = facets.shape[0]
     nclosure = cell_closures.shape[1]
 
-    assert(kind in ["interior", "exterior"])
+    assert kind in ["interior", "exterior"]
     if kind == "interior":
         cells_per_facet = 2
     else:
@@ -874,13 +876,13 @@ def get_cell_markers(PETSc.DM plex, PETSc.Section cell_numbering,
         np.ndarray[PetscInt, ndim=1, mode="c"] cells
         np.ndarray[PetscInt, ndim=1, mode="c"] indices
 
-    if not plex.hasLabel("Cell Sets"):
+    if not plex.hasLabel(CELL_SETS_LABEL):
         return np.empty(0, dtype=IntType)
-    vals = plex.getLabelIdIS("Cell Sets").indices
+    vals = plex.getLabelIdIS(CELL_SETS_LABEL).indices
     if subdomain_id not in vals:
         raise ValueError("Invalid subdomain_id %d not in %s" % (subdomain_id, vals))
 
-    indices = plex.getStratumIS("Cell Sets", subdomain_id).indices
+    indices = plex.getStratumIS(CELL_SETS_LABEL, subdomain_id).indices
     cells = np.empty(indices.shape[0], dtype=IntType)
     cEnd = indices.shape[0]
     for i in range(cEnd):
@@ -913,6 +915,35 @@ def get_facet_ordering(PETSc.DM plex, PETSc.Section facet_numbering):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
+def get_facet_markers(PETSc.DM dm, np.ndarray[PetscInt, ndim=1, mode="c"] facets):
+    """Get an array of facet labels in the mesh.
+
+    :arg dm: The DM that contains labels.
+    :arg facets: The array of facet points.
+    :returns: a numpy array of facet ids (or None if all facets had
+        the default marker).
+    """
+    cdef:
+        PetscInt nfacet, f, val
+        np.ndarray[PetscInt, ndim=1, mode="c"] ids
+        DMLabel label = NULL
+        PetscBool all_default = PETSC_TRUE
+    ids = np.empty_like(facets)
+    nfacet = facets.shape[0]
+    CHKERR(DMGetLabel(dm.dm, FACE_SETS_LABEL.encode(), &label))
+    for f in range(nfacet):
+        CHKERR(DMLabelGetValue(label, facets[f], &val))
+        if val != -1:
+            all_default = PETSC_FALSE
+        ids[f] = val
+    if all_default:
+        return None
+    else:
+        return ids
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
 def get_facets_by_class(PETSc.DM plex, label,
                         np.ndarray[PetscInt, ndim=1, mode="c"] ordering):
     """Builds a list of all facets ordered according to OP2 entity
@@ -927,16 +958,14 @@ def get_facets_by_class(PETSc.DM plex, label,
         PetscInt pStart, pEnd
         PetscInt *indices = NULL
         PETSc.IS class_is = None
-        char *class_chr = NULL
         PetscBool has_point, is_class
         DMLabel lbl_facets, lbl_class
         np.ndarray[PetscInt, ndim=1, mode="c"] facets
 
-    label_chr = <char*>label
     dim = plex.getDimension()
     fStart, fEnd = plex.getHeightStratum(1)
     pStart, pEnd = plex.getChart()
-    CHKERR(DMGetLabel(plex.dm, label, &lbl_facets))
+    CHKERR(DMGetLabel(plex.dm, <const char*>label, &lbl_facets))
     CHKERR(DMLabelCreateIndex(lbl_facets, fStart, fEnd))
     nfacets = plex.getStratumSize(label, 1)
     facets = np.empty(nfacets, dtype=IntType)
