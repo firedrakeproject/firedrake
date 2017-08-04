@@ -69,7 +69,7 @@ class AnisotropicAdaptation(AdaptationBase):
         with self.metric.dat.vec_ro as vec:
             reordered_metric = dmplex.to_petsc_numbering(vec, self.metric.function_space())
 
-        new_plex = plex.adaptMetric(reordered_metric, "boundary_ids")
+        new_plex = plex.adaptMetric(reordered_metric, "Face Sets")
         new_mesh = Mesh(new_plex)
         return new_mesh
 

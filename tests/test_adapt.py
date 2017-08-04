@@ -11,6 +11,8 @@ metric = Function(TensorFunctionSpace(mesh, 'CG', 1))
 x, y = SpatialCoordinate(mesh)
 metric.interpolate(as_tensor([[1+500*x, 0], [0, 1+500*y]]))
 
+mesh._plex.view()
+
 # test adapt function
 newmesh = adapt(mesh, metric)
 f = Function(VectorFunctionSpace(newmesh, 'CG', 1)).interpolate(SpatialCoordinate(newmesh))
@@ -19,6 +21,8 @@ f = Function(VectorFunctionSpace(newmesh, 'CG', 1)).interpolate(SpatialCoordinat
 
 adaptor = AnisotropicAdaptation(mesh, metric)
 newmesh = adaptor.adapted_mesh
+
+newmesh._plex.view()
 
 # test interpolation
 
@@ -32,16 +36,16 @@ assert(np.allclose(gnew.dat.data, hnew.dat.data))
 # test preservation of boundary labels
 
 plex = newmesh._plex
-bdLabelSize = plex.getLabelSize("boundary_ids")
-lis = plex.getLabelIdIS("boundary_ids")
+bdLabelSize = plex.getLabelSize("Face Sets")
+lis = plex.getLabelIdIS("Face Sets")
 bdLabelVal = lis.getIndices()
 
 plexnew = newmesh._plex
-bdLabelSizenew = plexnew.getLabelSize("boundary_ids")
+bdLabelSizenew = plexnew.getLabelSize("Face Sets")
 assert(bdLabelSizenew == 4)
-lisnew = plexnew.getLabelIdIS("boundary_ids")
+lisnew = plexnew.getLabelIdIS("Face Sets")
 bdLabelValnew = lisnew.getIndices()
 assert((bdLabelVal == bdLabelValnew).all)
 for i in range(bdLabelSizenew):
-    size = plexnew.getStratumSize("boundary_ids", bdLabelValnew[i])
+    size = plexnew.getStratumSize("Face Sets", bdLabelValnew[i])
     assert(size > 0)
