@@ -2153,7 +2153,7 @@ def to_petsc_numbering(PETSc.Vec vec, V):
     out = vec.duplicate()
     varray = vec.array_r
     oarray = out.array
-    dim = V.dim
+    dim = V.value_size
     idx = 0
     start, end = vec.getOwnershipRange()
     for p in range(*section.getChart()):
