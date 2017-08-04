@@ -95,10 +95,9 @@ def assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
     if len(kwargs) > 0:
         raise TypeError("Unknown keyword arguments '%s'" % ', '.join(kwargs.keys()))
 
-    config = get_config()
-    if form_compiler_parameters is None:
-        form_compiler_parameters = {}
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
+        if form_compiler_parameters is None:
+            form_compiler_parameters = {}
         form_compiler_parameters['scalar_type'] = 'double complex'
 
     if isinstance(f, (ufl.form.Form, slate.TensorBase)):
@@ -122,8 +121,9 @@ def allocate_matrix(f, bcs=None, form_compiler_parameters=None,
 
        Do not use this function unless you know what you're doing.
     """
-    config = get_config()
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
+        if form_compiler_parameters is None:
+            form_compiler_parameters = {}
         form_compiler_parameters['scalar_type'] = 'double complex'
     return _assemble(f, bcs=bcs, form_compiler_parameters=form_compiler_parameters,
                      inverse=inverse, mat_type=mat_type, sub_mat_type=sub_mat_type,
@@ -147,8 +147,9 @@ def create_assembly_callable(f, tensor=None, bcs=None, form_compiler_parameters=
         raise ValueError("Have to provide tensor to write to")
     if mat_type == "matfree":
         return tensor.assemble
-    config = get_config()
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
+        if form_compiler_parameters is None:
+            form_compiler_parameters = {}
         form_compiler_parameters['scalar_type'] = 'double complex'
     loops = _assemble(f, tensor=tensor, bcs=bcs,
                       form_compiler_parameters=form_compiler_parameters,
