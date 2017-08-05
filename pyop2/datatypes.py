@@ -1,7 +1,6 @@
 from __future__ import absolute_import, print_function, division
 
 import ctypes
-from ctypes import Structure
 
 import numpy
 from petsc4py.PETSc import IntType, RealType, ScalarType
