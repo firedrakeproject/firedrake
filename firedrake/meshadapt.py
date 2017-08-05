@@ -11,6 +11,8 @@ import firedrake.functionspace as functionspace
 import firedrake.function as function
 import firedrake.mesh as fmesh
 
+from petsc4py import PETSc
+
 
 __all__ = ['adapt', 'AnisotropicAdaptation']
 
@@ -63,16 +65,23 @@ class AnisotropicAdaptation(AdaptationBase):
         coordSection = plex.createSection([1], entity_dofs, perm=self.mesh.topology._plex_renumbering)
         dmCoords = plex.getCoordinateDM()
         dmCoords.setDefaultSection(coordSection)
+        coords_local = dmCoords.createLocalVec()
+        coords_local.array[:] = np.reshape(self.mesh.coordinates.dat.data_ro_with_halos, coords_local.array.shape)
+        plex.setCoordinatesLocal(coords_local)
 
-        with self.mesh.coordinates.dat.vec_ro as coords:
-            plex.setCoordinatesLocal(coords)
-        with self.metric.dat.vec_ro as vec:
-            reordered_metric = dmplex.to_petsc_numbering(vec, self.metric.function_space())
+        dmMetric = dmCoords.clone()
+        entity_dofs = np.zeros(dim+1, dtype=np.int32)
+        entity_dofs[0] = dim*dim
+        msection = plex.createSection([1], entity_dofs, perm=self.mesh.topology._plex_renumbering)
+        dmMetric.setDefaultSection(msection)
+        metric_local = dmMetric.createLocalVec()
+        metric_local.array[:] = np.reshape(self.metric.dat.data_ro_with_halos, metric_local.array.shape)
+        reordered_metric = dmplex.to_petsc_local_numbering(metric_local, self.metric.function_space())
 
         # TODO inner facets tags will be lost. Do we want a test and/or a warning ?
 
         new_plex = plex.adaptMetric(reordered_metric, "Face Sets")
-        new_mesh = Mesh(new_plex)
+        new_mesh = Mesh(new_plex, distribute=False)
         return new_mesh
 
     def transfer_solution(self, *fields, **kwargs):

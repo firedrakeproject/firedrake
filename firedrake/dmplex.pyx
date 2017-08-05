@@ -2134,7 +2134,7 @@ def halo_end(PETSc.SF sf, dat, MPI.Datatype dtype, reverse):
                                <void *>buf.data))
 
 
-def to_petsc_numbering(PETSc.Vec vec, V):
+def to_petsc_local_numbering(PETSc.Vec vec, V):
     """Reorder a PETSc Vec corresponding to a Firedrake Function 
        w.r.t. to initial PETSc numbering
 
@@ -2149,7 +2149,7 @@ def to_petsc_numbering(PETSc.Vec vec, V):
     cdef PETSc.Section section
     cdef np.ndarray[PetscReal, mode="c", ndim=1] varray, oarray
 
-    section = V.dm.getDefaultGlobalSection()
+    section = V.dm.getDefaultSection()
     out = vec.duplicate()
     varray = vec.array_r
     oarray = out.array
