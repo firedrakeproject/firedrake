@@ -41,10 +41,4 @@ def as_ctypes(dtype):
             "uint32": ctypes.c_uint32,
             "uint64": ctypes.c_uint64,
             "float32": ctypes.c_float,
-            "float64": ctypes.c_double,
-            "complex128": c_double_complex}[numpy.dtype(dtype).name]
-
-
-class c_double_complex(Structure):
-    """A ctypes PyCStructType for complex numbers"""
-    _fields_ = [('real', ctypes.c_double), ('complex', ctypes.c_double)]
+            "float64": ctypes.c_double,}[numpy.dtype(dtype).name]
