@@ -41,4 +41,4 @@ def as_ctypes(dtype):
             "uint32": ctypes.c_uint32,
             "uint64": ctypes.c_uint64,
             "float32": ctypes.c_float,
-            "float64": ctypes.c_double,}[numpy.dtype(dtype).name]
+            "float64": ctypes.c_double}[numpy.dtype(dtype).name]
