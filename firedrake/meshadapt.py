@@ -11,8 +11,6 @@ import firedrake.functionspace as functionspace
 import firedrake.function as function
 import firedrake.mesh as fmesh
 
-from petsc4py import PETSc
-
 
 __all__ = ['adapt', 'AnisotropicAdaptation']
 

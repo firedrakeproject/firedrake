@@ -39,7 +39,7 @@ bdLabelVal = lis.getIndices()
 
 plexnew = newmesh._plex
 bdLabelSizenew = plexnew.getLabelSize("Face Sets")
-assert(bdLabelSizenew == 4)
+assert(bdLabelSizenew == bdLabelSize)
 lisnew = plexnew.getLabelIdIS("Face Sets")
 bdLabelValnew = lisnew.getIndices()
 assert((bdLabelVal == bdLabelValnew).all)
