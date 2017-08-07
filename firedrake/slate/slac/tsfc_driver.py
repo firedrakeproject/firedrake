@@ -8,7 +8,7 @@ from functools import partial
 from firedrake.slate.slate import Tensor
 from firedrake.slate.slac.utils import RemoveRestrictions
 
-from firedrake_configureation import get_config
+from firedrake_configuration import get_config
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import Form
