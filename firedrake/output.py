@@ -170,7 +170,8 @@ def write_array_descriptor(f, ofunction, offset=None, parallel=False):
     ncmp = {0: "",
             1: "3",
             2: "9"}[len(shape)]
-    typ = {numpy.dtype("float32"): "Float32",
+    typ = {numpy.dtype("complex128"): "Complex128",
+           numpy.dtype("float32"): "Float32",
            numpy.dtype("float64"): "Float64",
            numpy.dtype("int32"): "Int32",
            numpy.dtype("int64"): "Int64",
