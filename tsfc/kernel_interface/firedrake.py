@@ -91,10 +91,10 @@ class KernelBuilderBase(_KernelBuilderBase):
                 return True
         return False
 
-    def create_element(self, element):
+    def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
-        return create_element(element)
+        return create_element(element, **kwargs)
 
 
 class ExpressionKernelBuilder(KernelBuilderBase):

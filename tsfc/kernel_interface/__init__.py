@@ -24,7 +24,7 @@ class KernelInterface(with_metaclass(ABCMeta)):
         """Facet or vertex number as a GEM index."""
 
     @abstractmethod
-    def create_element(self, element):
+    def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
 

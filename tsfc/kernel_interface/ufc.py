@@ -2,6 +2,7 @@ from __future__ import absolute_import, print_function, division
 from six.moves import range, zip
 
 import numpy
+import functools
 from itertools import chain, product
 
 import coffee.base as coffee
@@ -16,9 +17,8 @@ from tsfc.finatinterface import create_element as _create_element
 from tsfc.coffee import SCALAR_TYPE
 
 
-def create_element(element):
-    # UFC DoF ordering for vector/tensor elements is XXXX YYYY ZZZZ.
-    return _create_element(element, shape_innermost=False)
+# UFC DoF ordering for vector/tensor elements is XXXX YYYY ZZZZ.
+create_element = functools.partial(_create_element, shape_innermost=False)
 
 
 class KernelBuilder(KernelBuilderBase):
@@ -148,10 +148,10 @@ class KernelBuilder(KernelBuilderBase):
         # UFC tabulate_tensor always have cell orientations
         return True
 
-    def create_element(self, element):
+    def create_element(self, element, **kwargs):
         """Create a FInAT element (suitable for tabulating with) given
         a UFL element."""
-        return create_element(element)
+        return create_element(element, **kwargs)
 
 
 def prepare_coefficient(coefficient, num, name, interior_facet=False):
