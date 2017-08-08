@@ -138,8 +138,9 @@ def _solve_varproblem(*args, **kwargs):
         near_nullspace, \
         options_prefix = _extract_args(*args, **kwargs)
 
-    config = get_config()
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
+        if form_compiler_parameters is None:
+            form_compiler_parameters = {}
         form_compiler_parameters['scalar_type'] = 'double complex'
 
     appctx = kwargs.get("appctx", {})

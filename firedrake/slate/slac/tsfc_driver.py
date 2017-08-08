@@ -40,8 +40,9 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
         "Only terminal tensors have forms associated with them!"
     )
     
-    config = get_config()
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
+        if tsfc_parameters is None:
+            tsfc_parameters = {}
         tsfc_parameters['scalar_type'] = 'double complex'
 
     # Sets a default name for the subkernel prefix.

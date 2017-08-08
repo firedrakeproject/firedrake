@@ -302,7 +302,10 @@ def _assemble(f, tensor=None, bcs=None, form_compiler_parameters=None,
             except SparsityFormatError:
                 raise ValueError("Monolithic matrix assembly is not supported for systems with R-space blocks.")
 
-            matrixdtype = numpy.complex128 if form_compiler_parameters['scalar_type'] == 'double complex' else numpy.float64
+            if 'scalar_type' in form_compiler_parameters and form_compiler_parameters['scalar_type'] == 'double complex':
+                matrixdtype = numpy.complex128
+            else:
+                matrixdtype = numpy.float64
             result_matrix = matrix.Matrix(f, bcs, sparsity, matrixdtype,
                                           "%s_%s_matrix" % fs_names)
             tensor = result_matrix._M
