@@ -66,6 +66,14 @@ element is supported, but must be handled specially because it doesn't
 have a direct FInAT equivalent."""
 
 
+def fiat_compat(element):
+    from tsfc.fiatinterface import create_element
+    from finat.fiat_elements import FiatElement
+
+    assert element.cell().is_simplex()
+    return FiatElement(create_element(element))
+
+
 @singledispatch
 def convert(element, shape_innermost=True):
     """Handler for converting UFL elements to FInAT elements.
@@ -121,21 +129,24 @@ def convert_finiteelement(element, shape_innermost=True):
     return lmbda(cell, element.degree())
 
 
-# EnrichedElement case
+# Element modifiers and compound element types
+@convert.register(ufl.BrokenElement)
+def convert_brokenelement(element, shape_innermost=True):
+    return finat.DiscontinuousElement(create_element(element._element, shape_innermost))
+
+
 @convert.register(ufl.EnrichedElement)
 def convert_enrichedelement(element, shape_innermost=True):
     return finat.EnrichedElement([create_element(elem, shape_innermost)
                                   for elem in element._elements])
 
 
-# Generic MixedElement case
 @convert.register(ufl.MixedElement)
 def convert_mixedelement(element, shape_innermost=True):
     return finat.MixedElement([create_element(elem, shape_innermost)
                                for elem in element.sub_elements()])
 
 
-# VectorElement case
 @convert.register(ufl.VectorElement)
 def convert_vectorelement(element, shape_innermost=True):
     scalar_element = create_element(element.sub_elements()[0], shape_innermost)
@@ -144,7 +155,6 @@ def convert_vectorelement(element, shape_innermost=True):
                                      transpose=not shape_innermost)
 
 
-# TensorElement case
 @convert.register(ufl.TensorElement)
 def convert_tensorelement(element, shape_innermost=True):
     scalar_element = create_element(element.sub_elements()[0], shape_innermost)
@@ -153,7 +163,6 @@ def convert_tensorelement(element, shape_innermost=True):
                                      transpose=not shape_innermost)
 
 
-# TensorProductElement case
 @convert.register(ufl.TensorProductElement)
 def convert_tensorproductelement(element, shape_innermost=True):
     cell = element.cell()
@@ -163,16 +172,20 @@ def convert_tensorproductelement(element, shape_innermost=True):
                                        for elem in element.sub_elements()])
 
 
-# HDivElement case
 @convert.register(ufl.HDivElement)
 def convert_hdivelement(element, shape_innermost=True):
     return finat.HDivElement(create_element(element._element, shape_innermost))
 
 
-# HDivElement case
 @convert.register(ufl.HCurlElement)
 def convert_hcurlelement(element, shape_innermost=True):
     return finat.HCurlElement(create_element(element._element, shape_innermost))
+
+
+@convert.register(ufl.RestrictedElement)
+def convert_restrictedelement(element, shape_innermost=True):
+    # Fall back on FIAT
+    return fiat_compat(element)
 
 
 quad_tpc = ufl.TensorProductCell(ufl.interval, ufl.interval)
