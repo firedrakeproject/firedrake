@@ -27,12 +27,10 @@ from singledispatch import singledispatch
 import weakref
 
 import finat
-from finat.fiat_elements import FiatElementBase
 
 import ufl
 
 from tsfc.fiatinterface import as_fiat_cell
-from tsfc.ufl_utils import spanning_degree
 
 
 __all__ = ("create_element", "supported_elements", "as_fiat_cell")
@@ -42,8 +40,15 @@ supported_elements = {
     # These all map directly to FInAT elements
     "Brezzi-Douglas-Marini": finat.BrezziDouglasMarini,
     "Brezzi-Douglas-Fortin-Marini": finat.BrezziDouglasFortinMarini,
+    "Bubble": finat.Bubble,
+    "Crouzeix-Raviart": finat.CrouzeixRaviart,
     "Discontinuous Lagrange": finat.DiscontinuousLagrange,
     "Discontinuous Raviart-Thomas": finat.DiscontinuousRaviartThomas,
+    "Discontinuous Taylor": finat.DiscontinuousTaylor,
+    "Gauss-Legendre": finat.GaussLegendre,
+    "Gauss-Lobatto-Legendre": finat.GaussLobattoLegendre,
+    "HDiv Trace": finat.HDivTrace,
+    "Hellan-Herrmann-Johnson": finat.HellanHerrmannJohnson,
     "Lagrange": finat.Lagrange,
     "Nedelec 1st kind H(curl)": finat.Nedelec,
     "Nedelec 2nd kind H(curl)": finat.NedelecSecondKind,
@@ -61,25 +66,6 @@ element is supported, but must be handled specially because it doesn't
 have a direct FInAT equivalent."""
 
 
-class FiatElementWrapper(FiatElementBase):
-    def __init__(self, element, degree=None):
-        super(FiatElementWrapper, self).__init__(element)
-        self._degree = degree
-
-    @property
-    def degree(self):
-        if self._degree is not None:
-            return self._degree
-        else:
-            return super(FiatElementWrapper, self).degree
-
-
-def fiat_compat(element):
-    from tsfc.fiatinterface import create_element
-    return FiatElementWrapper(create_element(element),
-                              degree=spanning_degree(element))
-
-
 @singledispatch
 def convert(element, shape_innermost=True):
     """Handler for converting UFL elements to FInAT elements.
@@ -90,7 +76,7 @@ def convert(element, shape_innermost=True):
     :func:`create_element`."""
     if element.family() in supported_elements:
         raise ValueError("Element %s supported, but no handler provided" % element)
-    return fiat_compat(element)
+    raise ValueError("Unsupported element type %s" % type(element))
 
 
 # Base finite elements first
@@ -104,9 +90,7 @@ def convert_finiteelement(element, shape_innermost=True):
             raise ValueError("Quadrature scheme and degree must be specified!")
 
         return finat.QuadratureElement(cell, degree, scheme)
-    if element.family() not in supported_elements:
-        return fiat_compat(element)
-    lmbda = supported_elements.get(element.family())
+    lmbda = supported_elements[element.family()]
     if lmbda is None:
         if element.cell().cellname() != "quadrilateral":
             raise ValueError("%s is supported, but handled incorrectly" %

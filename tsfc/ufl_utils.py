@@ -244,40 +244,6 @@ class PickRestriction(MultiFunction, ModifiedTerminalMixin):
             return o
 
 
-def _spanning_degree(cell, degree):
-    if cell is None:
-        assert degree == 0
-        return degree
-    elif cell.cellname() in ["interval", "triangle", "tetrahedron"]:
-        return degree
-    elif cell.cellname() == "quadrilateral":
-        # TODO: Tensor-product space assumed
-        return 2 * degree
-    elif isinstance(cell, ufl.TensorProductCell):
-        try:
-            # A component cell might be a quadrilateral, so recurse.
-            return sum(_spanning_degree(sub_cell, d)
-                       for sub_cell, d in zip(cell.sub_cells(), degree))
-        except TypeError:
-            assert degree == 0
-            return 0
-    else:
-        raise ValueError("Unknown cell %s" % cell.cellname())
-
-
-def spanning_degree(element):
-    """Determine the degree of the polynomial space spanning an element.
-
-    :arg element: The element to determine the degree of.
-
-    .. warning::
-
-       For non-simplex elements, this assumes a tensor-product
-       space.
-    """
-    return _spanning_degree(element.cell(), element.degree())
-
-
 def ufl_reuse_if_untouched(o, *ops):
     """Reuse object if operands are the same objects."""
     if all(a is b for a, b in zip(o.ufl_operands, ops)):
