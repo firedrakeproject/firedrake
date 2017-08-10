@@ -8,7 +8,6 @@ from tsfc.finatinterface import create_element, supported_elements
 
 @pytest.fixture(params=["BDM",
                         "BDFM",
-                        "DRT",
                         "Lagrange",
                         "N1curl",
                         "N2curl",

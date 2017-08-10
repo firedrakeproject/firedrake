@@ -43,7 +43,7 @@ supported_elements = {
     "Bubble": finat.Bubble,
     "Crouzeix-Raviart": finat.CrouzeixRaviart,
     "Discontinuous Lagrange": finat.DiscontinuousLagrange,
-    "Discontinuous Raviart-Thomas": finat.DiscontinuousRaviartThomas,
+    "Discontinuous Raviart-Thomas": lambda c, d: finat.DiscontinuousElement(finat.RaviartThomas(c, d)),
     "Discontinuous Taylor": finat.DiscontinuousTaylor,
     "Gauss-Legendre": finat.GaussLegendre,
     "Gauss-Lobatto-Legendre": finat.GaussLobattoLegendre,
