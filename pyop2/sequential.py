@@ -51,7 +51,6 @@ from pyop2.base import DatView                           # noqa: F401
 from pyop2.petsc_base import DataSet, MixedDataSet       # noqa: F401
 from pyop2.petsc_base import Global, GlobalDataSet       # noqa: F401
 from pyop2.petsc_base import Dat, MixedDat, Mat          # noqa: F401
-from pyop2.configuration import configuration
 from pyop2.exceptions import *  # noqa: F401
 from pyop2.mpi import collective
 from pyop2.profiling import timed_region
@@ -641,9 +640,8 @@ void %(wrapper_name)s(int start,
     def _wrapper_name(self):
         return 'wrap_%s' % self._kernel.name
 
-    @collective
-    def compile(self):
-        # If we weren't in the cache we /must/ have arguments
+    @cached_property
+    def code_to_compile(self):
         if not hasattr(self, '_args'):
             raise RuntimeError("JITModule has no args associated with it, should never happen")
 
@@ -686,9 +684,15 @@ void %(wrapper_name)s(int start,
                'sys_headers': '\n'.join(self._kernel._headers + self._system_headers)}
 
         self._dump_generated_code(code_to_compile)
-        if configuration["debug"]:
-            self._wrapper_code = code_to_compile
+        return code_to_compile
 
+    @collective
+    def compile(self):
+        if not hasattr(self, '_args'):
+            raise RuntimeError("JITModule has no args associated with it, should never happen")
+
+        # If we weren't in the cache we /must/ have arguments
+        compiler = coffee.system.compiler
         extension = self._extension
         cppargs = self._cppargs
         cppargs += ["-I%s/include" % d for d in get_petsc_dir()] + \
@@ -703,7 +707,7 @@ void %(wrapper_name)s(int start,
 
         if self._kernel._cpp:
             extension = "cpp"
-        self._fun = compilation.load(code_to_compile,
+        self._fun = compilation.load(self.code_to_compile,
                                      extension,
                                      self._wrapper_name,
                                      cppargs=cppargs,
