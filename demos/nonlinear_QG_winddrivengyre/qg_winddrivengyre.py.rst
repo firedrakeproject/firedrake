@@ -229,12 +229,12 @@ we can plot it, ::
   try:
       plot(psi_non)
   except Exception as e:
-      warning("Cannot plot figure. Error msg '%s'" % e.message)
+      warning("Cannot plot figure. Error msg '%s'" % e)
 
   try:
       plt.show()
   except Exception as e:
-      warning("Cannot show figure. Error msg '%s'" % e.message)
+      warning("Cannot show figure. Error msg '%s'" % e)
 
   file = File('Nonlinear Streamfunction.pvd')
   file.write(psi_non)
@@ -249,12 +249,12 @@ nonlinear solution. We do this by defining a weak form.  (Note: other approaches
   try:
       plot(difference)
   except Exception as e:
-      warning("Cannot plot figure. Error msg '%s'" % e.message)
+      warning("Cannot plot figure. Error msg '%s'" % e)
 
   try:
       plt.show()
   except Exception as e:
-      warning("Cannot show figure. Error msg '%s'" % e.message)
+      warning("Cannot show figure. Error msg '%s'" % e)
 
   file = File('Difference between Linear and Nonlinear Streamfunction.pvd')
   file.write(difference) 
