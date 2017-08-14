@@ -1,10 +1,8 @@
-
 from collections import OrderedDict
 
 from coffee import base as ast
 
-from firedrake.slate.slate import (TensorBase, Tensor, TensorOp,
-                                   Action, Inverse)
+from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
 from firedrake.slate.slac.utils import (Transformer, traverse_dags,
                                         collect_reference_count)
 from firedrake.utils import cached_property
@@ -33,23 +31,36 @@ class KernelBuilder(object):
                               with the expression.
         """
         assert isinstance(expression, TensorBase)
+
         if expression.ufl_domain().variable_layers:
-            raise NotImplementedError("Variable layers not yet handled in SLATE")
+            raise NotImplementedError("Variable layers not yet handled in Slate.")
+
+        # Collect reference counts
+        ref_counts = collect_reference_count([expression])
+
+        # Collect terminals and expressions requiring a temporary
+        temps = OrderedDict()
+        aux_exprs = []
+        for tensor in traverse_dags([expression]):
+            if isinstance(tensor, Tensor):
+                temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
+
+            elif isinstance(tensor, TensorOp):
+                # Actions will always require a temporary to store the
+                # acting coefficient. All other nodes are selected based
+                # on reference count.
+                if isinstance(tensor, Action) or ref_counts[tensor] > 1:
+                    aux_exprs.append(tensor)
+
         self.expression = expression
+        self.temps = temps
+        self.aux_exprs = aux_exprs
         self.tsfc_parameters = tsfc_parameters
         self.needs_cell_facets = False
         self.needs_mesh_layers = False
         self.oriented = False
         self.finalized_ast = None
         self._is_finalized = False
-
-        # Initialize temporaries and any auxiliary temporaries
-        temps, aux_exprs = generate_expr_data(expression)
-        self.temps = temps
-        self.aux_exprs = aux_exprs
-
-        # Collect the reference count of operands in auxiliary expressions
-        self._ref_counts = collect_reference_count([expression])
 
     @property
     def integral_type(self):
@@ -183,45 +194,3 @@ class KernelBuilder(object):
         kernel_ast.extend(macro_kernels)
 
         return ast.Node(kernel_ast)
-
-
-def generate_expr_data(expr):
-    """This function generates a mapping of the form:
-
-       ``temporaries = {node: symbol_name}``
-
-    where `node` objects are :class:`slate.TensorBase` nodes, and
-    `symbol_name` are :class:`coffee.base.Symbol` objects. In addition,
-    this function will return a list `aux_exprs` of any expressions that
-    require special handling in the compiler. This includes expressions
-    that require performing operations on already assembled data or
-    generating extra temporaries.
-
-    This mapping is used in the :class:`KernelBuilder` to provide direct
-    access to all temporaries associated with a particular slate expression.
-
-    :arg expression: a :class:`slate.TensorBase` object.
-
-    Returns: the terminal temporaries map and auxiliary temporaries.
-    """
-    # Prepare temporaries map and auxiliary expressions list
-    # NOTE: Ordering here matters, especially when running
-    # Slate in parallel.
-    temps = OrderedDict()
-    aux_exprs = []
-    for tensor in traverse_dags([expr]):
-        if isinstance(tensor, Tensor):
-            temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
-
-        elif isinstance(tensor, TensorOp):
-            # For Action, we need to declare a temporary later on for the
-            # acting coefficient. For inverses, we may declare additional
-            # temporaries (depending on reference count).
-            if isinstance(tensor, (Action, Inverse)):
-                aux_exprs.append(tensor)
-
-    # Aux expressions are visited pre-order. We want to declare as if we'd
-    # visited post-order (child temporaries first), so reverse.
-    aux_exprs = list(OrderedDict.fromkeys(reversed(aux_exprs)))
-
-    return temps, aux_exprs
