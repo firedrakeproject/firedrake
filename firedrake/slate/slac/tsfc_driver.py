@@ -11,27 +11,22 @@ from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import Form
 
 
-ContextKernel_ = collections.namedtuple("ContextKernel",
-                                        ["tensor",
-                                         "form_indices_map",
-                                         "original_integral_type",
-                                         "tsfc_kernels"])
+ContextKernel = collections.namedtuple("ContextKernel",
+                                       ["tensor",
+                                        "form_indices_map",
+                                        "original_integral_type",
+                                        "tsfc_kernels"])
+ContextKernel.__doc__ = """\
+A bundled object containing all relevant information to
+evaluate a terminal Slate tensor.
 
-
-class ContextKernel(ContextKernel_):
-    """A bundled object containing all relevant information to
-    evaluate a terminal Slate tensor.
-
-    :param tensor: The terminal Slate tensor.
-    :param form_indices_map: A `dict` mapping local form index
-                             to the corresponding (split) form.
-    :param original_integral_type: The unmodified measure type
-                                   of the form integrals.
-    :param tsfc_kernels: A list of local tensor assembly kernels
-                         provided by TSFC.
-    """
-
-    pass
+:param tensor: The terminal Slate tensor.
+:param form_indices_map: A `dict` mapping local form index
+                         to the corresponding (split) form.
+:param original_integral_type: The unmodified measure type
+                               of the form integrals.
+:param tsfc_kernels: A list of local tensor assembly kernels
+                     provided by TSFC."""
 
 
 def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
