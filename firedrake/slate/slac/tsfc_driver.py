@@ -2,17 +2,36 @@ import collections
 
 from functools import partial
 
+from firedrake.formmanipulation import split_form
 from firedrake.slate.slate import Tensor
 from firedrake.slate.slac.utils import RemoveRestrictions
+from firedrake.tsfc_interface import compile_form as tsfc_compile
 
 from ufl.algorithms.map_integrands import map_integrand_dags
 from ufl import Form
 
 
-ContextKernel = collections.namedtuple("ContextKernel",
-                                       ["tensor",
-                                        "original_integral_type",
-                                        "tsfc_kernels"])
+ContextKernel_ = collections.namedtuple("ContextKernel",
+                                        ["tensor",
+                                         "form_indices_map",
+                                         "original_integral_type",
+                                         "tsfc_kernels"])
+
+
+class ContextKernel(ContextKernel_):
+    """A bundled object containing all relevant information to
+    evaluate a terminal Slate tensor.
+
+    :param tensor: The terminal Slate tensor.
+    :param form_indices_map: A `dict` mapping local form index
+                             to the corresponding (split) form.
+    :param original_integral_type: The unmodified measure type
+                                   of the form integrals.
+    :param tsfc_kernels: A list of local tensor assembly kernels
+                         provided by TSFC.
+    """
+
+    pass
 
 
 def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
@@ -29,7 +48,6 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
 
     Returns: A `ContextKernel` containing all relevant information.
     """
-    from firedrake.tsfc_interface import compile_form as tsfc_compile
 
     assert isinstance(tensor, Tensor), (
         "Only terminal tensors have forms associated with them!"
@@ -47,10 +65,12 @@ def compile_terminal_form(tensor, prefix=None, tsfc_parameters=None):
     cxt_kernels = []
     for orig_it_type, integrals in transformed_integrals.items():
         subkernel_prefix = prefix + "%s_to_" % orig_it_type
-        kernels = tsfc_compile(Form(integrals),
+        form = Form(integrals)
+        kernels = tsfc_compile(form,
                                subkernel_prefix,
                                parameters=tsfc_parameters)
         cxt_k = ContextKernel(tensor=tensor,
+                              form_indices_map=dict(split_form(form)),
                               original_integral_type=orig_it_type,
                               tsfc_kernels=kernels)
         cxt_kernels.append(cxt_k)
