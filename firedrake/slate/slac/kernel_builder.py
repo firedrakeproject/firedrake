@@ -4,7 +4,8 @@ from coffee import base as ast
 
 from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
 from firedrake.slate.slac.utils import (Transformer, traverse_dags,
-                                        collect_reference_count)
+                                        collect_reference_count,
+                                        count_operands)
 from firedrake.utils import cached_property
 
 from ufl import MixedElement
@@ -38,19 +39,21 @@ class KernelBuilder(object):
         # Collect reference counts
         ref_counts = collect_reference_count([expression])
 
-        # Collect terminals and expressions requiring a temporary
+        # Collect terminals and expressions
         temps = OrderedDict()
-        aux_exprs = []
+        tensor_ops = []
         for tensor in traverse_dags([expression]):
             if isinstance(tensor, Tensor):
                 temps.setdefault(tensor, ast.Symbol("T%d" % len(temps)))
 
             elif isinstance(tensor, TensorOp):
-                # Actions will always require a temporary to store the
-                # acting coefficient. All other nodes are selected based
-                # on reference count.
-                if isinstance(tensor, Action) or ref_counts[tensor] > 1:
-                    aux_exprs.append(tensor)
+                tensor_ops.append(tensor)
+
+        # Sort tensor ops by operand count to avoid double computation
+        # within particular expressions.
+        aux_exprs = [op for op in sorted(tensor_ops,
+                                         key=lambda x: count_operands(x))
+                     if isinstance(op, Action) or ref_counts[op] > 1]
 
         self.expression = expression
         self.temps = temps
