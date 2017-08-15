@@ -129,29 +129,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             coords = coordinates
 
         if it_type == "cell":
-            # Nothing difficult about cellwise integrals. Just need
-            # to get coefficient info, include_dirs and append
-            # function calls to the appropriate subkernels.
-
-            # If tensor is mixed, there will be more than one SplitKernel
-            incl = []
-            for splitkernel in cxt_kernel.tsfc_kernels:
-                index = splitkernel.indices
-                kinfo = splitkernel.kinfo
-
-                # Generate an iterable of coefficients to pass to the subkernel
-                # if any are required.
-                clist = [c for i in kinfo.coefficient_map
-                         for c in builder.coefficient(cxt_kernel.coefficients[i])]
-
-                if kinfo.oriented:
-                    clist.insert(0, cell_orientations_sym)
-
-                incl.extend(kinfo.kernel._include_dirs)
-                tensor = eigen_tensor(exp, t, index)
-                statements.append(ast.FunCall(kinfo.kernel.name,
-                                              tensor, coord_sym,
-                                              *clist))
+            stmt, incl = assemble_local_tensor_cell(cxt_kernel, builder)
+            statements.extend(stmt)
 
         elif it_type in ["interior_facet", "exterior_facet",
                          "interior_facet_vert", "exterior_facet_vert"]:
@@ -277,6 +256,30 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     return kernels
 
 
+def assemble_local_tensor_cell(cxt_kernel, builder):
+    """
+    """
+    exp = cxt_kernel.tensor
+    t = builder.temps[exp]
+    incl = []
+    stmt = []
+    for splitkernel in cxt_kernel.tsfc_kernels:
+        index = splitkernel.indices
+        kinfo = splitkernel.kinfo
+
+        clist = [c for i in kinfo.coefficient_map
+                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
+
+        if kinfo.oriented:
+            clist.insert(0, cell_orientations_sym)
+
+        incl.extend(kinfo.kernel._include_dirs)
+        tensor = eigen_tensor(exp, t, index)
+        stmt.append(ast.FunCall(kinfo.kernel.name, tensor, coord_sym, *clist))
+
+    return stmt, incl
+
+
 def extruded_int_horiz_facet(cxt_kernel, builder):
     """Generates a code statement for evaluating interior horizontal
     facet integrals.
@@ -317,8 +320,7 @@ def extruded_int_horiz_facet(cxt_kernel, builder):
         )
         index = top.indices
 
-        # Generate an iterable of coefficients to pass to the subkernel
-        # if any are required
+        # Merge coefficient maps
         c_set = top.kinfo.coefficient_map + btm.kinfo.coefficient_map
         coefficient_map = tuple(OrderedDict.fromkeys(c_set))
 
@@ -368,8 +370,6 @@ def extruded_top_bottom_facet(cxt_kernel, builder):
         index = splitkernel.indices
         kinfo = splitkernel.kinfo
 
-        # Generate an iterable of coefficients to pass to the subkernel
-        # if any are required.
         clist = [c for i in kinfo.coefficient_map
                  for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
@@ -435,8 +435,6 @@ def facet_integral_loop(cxt_kernel, builder):
         index = splitkernel.indices
         kinfo = splitkernel.kinfo
 
-        # Generate an iterable of coefficients to pass to the subkernel
-        # if any are required.
         clist = [c for i in kinfo.coefficient_map
                  for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
