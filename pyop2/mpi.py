@@ -230,5 +230,6 @@ if COMM_WORLD.size > 1:
 
     def mpi_excepthook(typ, value, traceback):
         except_hook(typ, value, traceback)
+        sys.stderr.flush()
         COMM_WORLD.Abort(1)
     sys.excepthook = mpi_excepthook
