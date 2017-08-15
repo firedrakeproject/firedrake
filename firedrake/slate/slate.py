@@ -118,6 +118,15 @@ class TensorBase(object, metaclass=ABCMeta):
         ``{domain:{integral_type: subdomain_data}}``.
         """
 
+    @cached_property
+    def is_mixed(self):
+        """Returns `True` if the tensor has mixed arguments and `False` otherwise.
+        """
+        if any(len(arg.function_space()) > 1 for arg in self.arguments()):
+            return True
+
+        return False
+
     @property
     def inv(self):
         return Inverse(self)
