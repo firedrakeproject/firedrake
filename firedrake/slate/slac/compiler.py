@@ -76,7 +76,7 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         )
 
     # TODO: Get PyOP2 to write into mixed dats
-    if any(len(a.function_space()) > 1 for a in slate_expr.arguments()):
+    if slate_expr.is_mixed:
         raise NotImplementedError("Compiling mixed slate expressions")
 
     # If the expression has already been symbolically compiled, then
@@ -579,7 +579,7 @@ def metaphrase_slate_to_cpp(expr, temps, prec=None):
     """
     # If the tensor is terminal, it has already been declared.
     # Coefficients in action expressions will have been declared by now,
-    # as well as any inverses with high reference count.
+    # as well as any other nodes with high reference count.
     if expr in temps:
         return temps[expr].gencode()
 
@@ -662,9 +662,7 @@ def eigen_tensor(expr, temporary, index):
                 information. This is provided by the SplitKernel
                 associated with the expr.
     """
-    if expr.rank == 0:
-        tensor = temporary
-    else:
+    if expr.is_mixed:
         try:
             row, col = index
         except ValueError:
@@ -679,14 +677,10 @@ def eigen_tensor(expr, temporary, index):
             cshape = 1
             cstart = 0
 
-        # Create sub-block if tensor is mixed
-        if (rshape, cshape) != expr.shape:
-            tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
-                                                                 rshape,
-                                                                 cshape,
-                                                                 rstart,
-                                                                 cstart))
-        else:
-            tensor = temporary
+        tensor = ast.FlatBlock("%s.block<%d, %d>(%d, %d)" % (temporary,
+                                                             rshape, cshape,
+                                                             rstart, cstart))
+    else:
+        tensor = temporary
 
     return tensor
