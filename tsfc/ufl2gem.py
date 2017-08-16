@@ -3,7 +3,7 @@
 import collections
 import ufl
 
-from gem import (Literal, Zero, Identity, Sum, Product, Division, ComplexPartsFunction, 
+from gem import (Literal, Zero, Identity, Sum, Product, Division,
                  Power, MathFunction, MinValue, MaxValue, Comparison,
                  LogicalNot, LogicalAnd, LogicalOr, Conditional,
                  Index, Indexed, ComponentTensor, IndexSum,
@@ -47,23 +47,23 @@ class Mixin(object):
     def real(self, o, expr):
         if o.ufl_shape:
             indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(ComplexPartsFunction('real', Indexed(expr, indices)), indices)
+            return ComponentTensor(MathFunction('real', Indexed(expr, indices)), indices)
         else:
-            return ComplexPartsFunction('real', expr)
+            return MathFunction('real', expr)
 
     def imag(self, o, expr):
         if o.ufl_shape:
             indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(ComplexPartsFunction('imag', Indexed(expr, indices)), indices)
+            return ComponentTensor(MathFunction('imag', Indexed(expr, indices)), indices)
         else:
-            return ComplexPartsFunction('imag', expr)
+            return MathFunction('imag', expr)
 
     def conj(self, o, expr):
         if o.ufl_shape:
             indices = tuple(Index() for i in range(len(o.ufl_shape)))
-            return ComponentTensor(ComplexPartsFunction('conj', Indexed(expr, indices)), indices)
+            return ComponentTensor(MathFunction('conj', Indexed(expr, indices)), indices)
         else:
-            return ComplexPartsFunction('conj', expr)
+            return MathFunction('conj', expr)
 
     def abs(self, o, expr):
         if o.ufl_shape:

@@ -242,16 +242,6 @@ def _expression_power(expr, parameters):
         return coffee.FunCall("pow", expression(base, parameters), expression(exponent, parameters))
 
 
-@_expression.register(gem.ComplexPartsFunction)
-def _expression_complexpartsfunction(expr, parameters):
-    name_map = {
-        'real': 'creal',
-        'imag': 'cimag',
-        'conj': 'conj',
-    }
-    name = name_map.get(expr.name, expr.name)
-    return coffee.FunCall(name, *[expression(c, parameters) for c in expr.children])
-
 @_expression.register(gem.MathFunction)
 def _expression_mathfunction(expr, parameters):
     name_map = {
@@ -270,14 +260,14 @@ def _expression_mathfunction(expr, parameters):
         'cyl_bessel_k': 'boost::math::cyl_bessel_k',
     }
     complex_name_map = {
-        'ln': 'clog'
-
+        'ln': 'clog',
+        'conj': 'conj'
         # TODO: Are there different complex Bessel Functions?
     }
     if parameters.scalar_type == 'double complex':
         name = complex_name_map.get(expr.name, expr.name)
         if name in {'sin', 'cos', 'tan', 'sqrt', 'exp', 'abs', 'sinh', 'cosh', 'tanh',
-                    'sinh', 'acos', 'asin', 'atan'}:
+                    'sinh', 'acos', 'asin', 'atan', 'real', 'imag'}:
             name = 'c' + expr.name
     else:
         name = name_map.get(expr.name, expr.name)
