@@ -184,6 +184,9 @@ class WithGeometry(ufl.FunctionSpace):
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __hash__(self):
+        return hash((self.mesh(), self.topological))
+
     def __len__(self):
         return len(self.topological)
 
@@ -319,6 +322,9 @@ class FunctionSpace(object):
 
     def __ne__(self, other):
         return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((self.mesh(), self.dof_dset, self.ufl_element()))
 
     @utils.cached_property
     def dm(self):
