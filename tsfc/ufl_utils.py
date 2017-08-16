@@ -13,6 +13,7 @@ from ufl.algorithms.apply_algebra_lowering import apply_algebra_lowering
 from ufl.algorithms.apply_derivatives import apply_derivatives
 from ufl.algorithms.apply_geometry_lowering import apply_geometry_lowering
 from ufl.algorithms.comparison_checker import do_comparison_check
+from ufl.algorithms.optimise_complex_nodes import optimise_complex_nodes
 from ufl.algorithms.remove_complex_nodes import remove_complex_nodes
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.corealg.multifunction import MultiFunction
@@ -20,9 +21,7 @@ from ufl.geometry import QuadratureWeight
 from ufl.classes import (Abs, Argument, CellOrientation, Coefficient,
                          ComponentTensor, Expr, FloatValue, Division,
                          MixedElement, MultiIndex, Product,
-                         ScalarValue, Sqrt, Zero, CellVolume,
-                         ScalarValue, Sqrt, Zero, Conj,
-                         CellVolume, FacetArea)
+                         ScalarValue, Sqrt, Zero, CellVolume, FacetArea)
 
 from gem.node import MemoizerArg
 
@@ -91,6 +90,8 @@ def preprocess_expression(expression, complex_mode=False):
     """
     if complex_mode:
         expression = do_comparison_check(expression)
+    if not complex_mode:
+        expression = remove_complex_nodes(expression)
     expression = apply_algebra_lowering(expression)
     expression = apply_derivatives(expression)
     expression = apply_function_pullbacks(expression)
@@ -100,6 +101,8 @@ def preprocess_expression(expression, complex_mode=False):
     expression = apply_derivatives(expression)
     if not complex_mode:
         expression = remove_complex_nodes(expression)
+    if complex_mode:
+        expression = optimise_complex_nodes(expression)
     return expression
 
 
