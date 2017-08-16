@@ -25,19 +25,19 @@ sure we get the same answer as the assembled sparse matrix.::
   with x.dat.vec as xvec:
       xvec.setRandom()
 
-  print "multiplying by A"
+  print("multiplying by A")
   with x.dat.vec as vin:
       with y0.dat.vec as vout:
           A.petscmat.mult(vin, vout)
 
 
-  print "multiplying by Alp"
+  print("multiplying by Alp")
   with x.dat.vec as vin:
       with y1.dat.vec as vout:
           Alp.petscmat.mult(vin, vout)
 
 
-  print sqrt(assemble((y0-y1)**2*dx))
+  print(sqrt(assemble((y0-y1)**2*dx)))
 
 A runnable python script implementing this demo file is available
 `here <mass.py>`__.

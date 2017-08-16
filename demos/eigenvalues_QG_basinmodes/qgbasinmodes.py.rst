@@ -219,7 +219,7 @@ and we gather the final eigenfunctions ::
 We can now list and show plots for the eigenvalues and eigenfunctions
 that were found. ::
 
-   print "Leading eigenvalue is:", lam
+   print("Leading eigenvalue is:", lam)
 
    try:
        from matplotlib import pyplot

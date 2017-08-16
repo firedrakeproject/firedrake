@@ -1,14 +1,11 @@
-from __future__ import absolute_import, print_function, division
-from six import iteritems, itervalues
-from six.moves import map, range
-
 import numpy as np
 import ctypes
 import os
 import sys
 import ufl
 import weakref
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
+from ufl.classes import ReferenceGrad
 
 from pyop2.datatypes import IntType
 from pyop2 import op2
@@ -16,18 +13,18 @@ from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from pyop2.profiling import timed_function, timed_region
 from pyop2.utils import as_tuple
 
-import coffee.base as ast
-
 import firedrake.dmplex as dmplex
+import firedrake.expression as expression
 import firedrake.extrusion_utils as eutils
 import firedrake.spatialindex as spatialindex
 import firedrake.utils as utils
+from firedrake.interpolation import interpolate
 from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
 
-__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData']
+__all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData', 'unmarked']
 
 
 _cells = {
@@ -35,6 +32,10 @@ _cells = {
     2: {3: "triangle", 4: "quadrilateral"},
     3: {4: "tetrahedron"}
 }
+
+
+unmarked = -1
+"""A mesh marker that selects all entities that are not explicitly marked."""
 
 
 class _Facets(object):
@@ -52,7 +53,7 @@ class _Facets(object):
         self.classes = classes
 
         self.kind = kind
-        assert(kind in ["interior", "exterior"])
+        assert kind in ["interior", "exterior"]
         if kind == "interior":
             self._rank = 2
         else:
@@ -64,9 +65,8 @@ class _Facets(object):
 
         # assert that markers is a proper subset of unique_markers
         if markers is not None:
-            for marker in markers:
-                assert (marker in unique_markers), \
-                    "Every marker has to be contained in unique_markers"
+            assert set(markers) <= set(unique_markers).union([unmarked]), \
+                "Every marker has to be contained in unique_markers"
 
         self.markers = markers
         self.unique_markers = [] if unique_markers is None else unique_markers
@@ -150,8 +150,9 @@ class _Facets(object):
             return self._subsets[markers]
         except KeyError:
             # check that the given markers are valid
-            if len(set(markers).difference(self.unique_markers)) > 0:
-                invalid = set(markers).difference(self.unique_markers)
+            valid_markers = set([unmarked]).union(self.unique_markers)
+            if len(set(markers).difference(valid_markers)) > 0:
+                invalid = set(markers).difference(valid_markers)
                 raise LookupError("{0} are not a valid markers (not in {1})".format(invalid, self.unique_markers))
 
             # build a list of indices corresponding to the subsets selected by
@@ -189,14 +190,6 @@ def _from_gmsh(filename, comm=None):
     gmsh_viewer.setFileName(filename)
     gmsh_plex = PETSc.DMPlex().createGmsh(gmsh_viewer, comm=comm)
 
-    if gmsh_plex.hasLabel("Face Sets"):
-        boundary_ids = gmsh_plex.getLabelIdIS("Face Sets").getIndices()
-        gmsh_plex.createLabel("boundary_ids")
-        for bid in boundary_ids:
-            faces = gmsh_plex.getStratumIS("Face Sets", bid).getIndices()
-            for f in faces:
-                gmsh_plex.setLabelValue("boundary_ids", f, bid)
-
     return gmsh_plex
 
 
@@ -207,14 +200,6 @@ def _from_exodus(filename, comm):
     """
     plex = PETSc.DMPlex().createExodusFromFile(filename, comm=comm)
 
-    if plex.hasLabel("Face Sets"):
-        boundary_ids = plex.getLabelIdIS("Face Sets").getIndices()
-        plex.createLabel("boundary_ids")
-        for bid in boundary_ids:
-            faces = plex.getStratumIS("Face Sets", bid).getIndices()
-            for f in faces:
-                plex.setLabelValue("boundary_ids", f, bid)
-
     return plex
 
 
@@ -224,8 +209,6 @@ def _from_cgns(filename, comm):
     :arg comm: communicator to build the mesh on.
     """
     plex = PETSc.DMPlex().createCGNSFromFile(filename, comm=comm)
-
-    # TODO: Add boundary IDs
     return plex
 
 
@@ -292,7 +275,7 @@ def _from_triangle(filename, dim, comm):
                 bid = facet[-1]
                 vertices = list(map(lambda v: v + vStart - 1, facet[:-1]))
                 join = plex.getJoin(vertices)
-                plex.setLabelValue("boundary_ids", join[0], bid)
+                plex.setLabelValue(dmplex.FACE_SETS_LABEL, join[0], bid)
 
     free_comm(comm)
     return plex
@@ -511,70 +494,47 @@ class MeshTopology(object):
         else:
             raise NotImplementedError("Cell type '%s' not supported." % cell)
 
-    @utils.cached_property
-    def exterior_facets(self):
-        # If there are no exterior facets on this process, everything
-        # just falls through nicely, so no need to special case.
+    def _facets(self, kind):
+        if kind not in ["interior", "exterior"]:
+            raise ValueError("Unknown facet type '%s'" % kind)
 
-        # Compute the facet_numbering
-        # Order exterior facets by OP2 entity class
-        exterior_facets, exterior_facet_classes = \
-            dmplex.get_facets_by_class(self._plex, b"exterior_facets",
-                                       self._facet_ordering)
-
-        # Derive attached boundary IDs
-        if self._plex.hasLabel("boundary_ids"):
-            boundary_ids = np.zeros(exterior_facets.size, dtype=IntType)
-            for i, facet in enumerate(exterior_facets):
-                boundary_ids[i] = self._plex.getLabelValue("boundary_ids", facet)
-
-            # Determine union of boundary IDs.  All processes must
-            # know the values of all ids, for collective reasons.
-            comm = self.comm
+        dm = self._plex
+        facets, classes = dmplex.get_facets_by_class(dm, (kind + "_facets").encode(),
+                                                     self._facet_ordering)
+        label = dmplex.FACE_SETS_LABEL
+        if dm.hasLabel(label):
             from mpi4py import MPI
+            markers = dmplex.get_facet_markers(dm, facets)
+            local_markers = set(dm.getLabelIdIS(label).indices)
 
             def merge_ids(x, y, datatype):
                 return x.union(y)
 
             op = MPI.Op.Create(merge_ids, commute=True)
 
-            local_ids = set(self._plex.getLabelIdIS("boundary_ids").indices)
-            unique_ids = np.asarray(sorted(comm.allreduce(local_ids, op=op)),
-                                    dtype=IntType)
+            unique_markers = np.asarray(sorted(self.comm.allreduce(local_markers, op=op)),
+                                        dtype=IntType)
             op.Free()
         else:
-            boundary_ids = None
-            unique_ids = None
+            markers = None
+            unique_markers = None
 
-        exterior_local_facet_number, exterior_facet_cell = \
-            dmplex.facet_numbering(self._plex, "exterior",
-                                   exterior_facets,
+        local_facet_number, facet_cell = \
+            dmplex.facet_numbering(dm, kind, facets,
                                    self._cell_numbering,
                                    self.cell_closure)
 
-        return _Facets(self, exterior_facet_classes, "exterior",
-                       exterior_facet_cell, exterior_local_facet_number,
-                       boundary_ids, unique_markers=unique_ids)
+        return _Facets(self, classes, kind,
+                       facet_cell, local_facet_number,
+                       markers, unique_markers=unique_markers)
+
+    @utils.cached_property
+    def exterior_facets(self):
+        return self._facets("exterior")
 
     @utils.cached_property
     def interior_facets(self):
-        # If there are no interior facets on this process, everything
-        # just falls through nicely, so no need to special case.
-
-        # Compute the facet_numbering
-        # Order interior facets by OP2 entity class
-        interior_facets, interior_facet_classes = \
-            dmplex.get_facets_by_class(self._plex, b"interior_facets",
-                                       self._facet_ordering)
-
-        interior_local_facet_number, interior_facet_cell = \
-            dmplex.facet_numbering(self._plex, "interior",
-                                   interior_facets,
-                                   self._cell_numbering,
-                                   self.cell_closure)
-
-        return _Facets(self, interior_facet_classes, "interior",
-                       interior_facet_cell, interior_local_facet_number)
+        return self._facets("interior")
 
     @utils.cached_property
     def cell_to_facets(self):
@@ -789,23 +749,16 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         return self._base_mesh.cell_closure
 
-    @utils.cached_property
-    def exterior_facets(self):
-        exterior_facets = self._base_mesh.exterior_facets
-        return _Facets(self, exterior_facets.classes,
-                       "exterior",
-                       exterior_facets.facet_cell,
-                       exterior_facets.local_facet_number,
-                       exterior_facets.markers,
-                       unique_markers=exterior_facets.unique_markers)
-
-    @utils.cached_property
-    def interior_facets(self):
-        interior_facets = self._base_mesh.interior_facets
-        return _Facets(self, interior_facets.classes,
-                       "interior",
-                       interior_facets.facet_cell,
-                       interior_facets.local_facet_number)
+    def _facets(self, kind):
+        if kind not in ["interior", "exterior"]:
+            raise ValueError("Unknown facet type '%s'" % kind)
+        base = getattr(self._base_mesh, "%s_facets" % kind)
+        return _Facets(self, base.classes,
+                       kind,
+                       base.facet_cell,
+                       base.local_facet_number,
+                       markers=base.markers,
+                       unique_markers=base.unique_markers)
 
     def make_cell_node_list(self, global_numbering, entity_dofs):
         """Builds the DoF mapping.
@@ -839,7 +792,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg entity_dofs: FInAT element entity DoFs
         """
         dofs_per_entity = [0] * (1 + self._base_mesh.cell_dimension())
-        for (b, v), entities in iteritems(entity_dofs):
+        for (b, v), entities in entity_dofs.items():
             dofs_per_entity[b] += (self.layers - v) * len(entities[0])
         return dofs_per_entity
 
@@ -851,12 +804,12 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg ndofs: number of DoFs in the FInAT element
         """
         entity_offset = [0] * (1 + self._base_mesh.cell_dimension())
-        for (b, v), entities in iteritems(entity_dofs):
+        for (b, v), entities in entity_dofs.items():
             entity_offset[b] += len(entities[0])
 
         dof_offset = np.zeros(ndofs, dtype=IntType)
-        for (b, v), entities in iteritems(entity_dofs):
-            for dof_indices in itervalues(entities):
+        for (b, v), entities in entity_dofs.items():
+            for dof_indices in entities.values():
                 for i in dof_indices:
                     dof_offset[i] = entity_offset[b]
         return dof_offset
@@ -1080,8 +1033,6 @@ values from f.)"""
         import firedrake.function as function
         import firedrake.functionspace as functionspace
 
-        if expr.value_shape()[0] != 3:
-            raise NotImplementedError('Only implemented for 3-vectors')
         if self.ufl_cell() not in (ufl.Cell('triangle', 3),
                                    ufl.Cell("quadrilateral", 3),
                                    ufl.TensorProductCell(ufl.Cell('interval'), ufl.Cell('interval'),
@@ -1091,63 +1042,32 @@ values from f.)"""
         if hasattr(self.topology, '_cell_orientations'):
             raise RuntimeError("init_cell_orientations already called, did you mean to do so again?")
 
-        v0 = lambda x: ast.Symbol("v0", (x,))
-        v1 = lambda x: ast.Symbol("v1", (x,))
-        n = lambda x: ast.Symbol("n", (x,))
-        x = lambda x: ast.Symbol("x", (x,))
-        coords = lambda x, y: ast.Symbol("coords", (x, y))
+        if isinstance(expr, expression.Expression):
+            if expr.value_shape()[0] != 3:
+                raise NotImplementedError('Only implemented for 3-vectors')
 
-        body = []
-        body += [ast.Decl("double", v(3)) for v in [v0, v1, n, x]]
-        body.append(ast.Decl("double", "dot"))
-        body.append(ast.Assign("dot", 0.0))
-        body.append(ast.Decl("int", "i"))
-
-        # if triangle, use v0 = x1 - x0, v1 = x2 - x0
-        # otherwise, for the various quads, use v0 = x2 - x0, v1 = x1 - x0
-        # recall reference element ordering:
-        # triangle: 2        quad: 1 3
-        #           0 1            0 2
-        if self.ufl_cell() == ufl.Cell('triangle', 3):
-            body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
-                                [ast.Assign(v0("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
-                                 ast.Assign(v1("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
-                                 ast.Assign(x("i"), 0.0)]))
+            expr = interpolate(expr, functionspace.VectorFunctionSpace(self, 'DG', 0))
+        elif isinstance(expr, ufl.classes.Expr):
+            if expr.ufl_shape != (3,):
+                raise NotImplementedError('Only implemented for 3-vectors')
         else:
-            body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
-                                [ast.Assign(v0("i"), ast.Sub(coords(2, "i"), coords(0, "i"))),
-                                 ast.Assign(v1("i"), ast.Sub(coords(1, "i"), coords(0, "i"))),
-                                 ast.Assign(x("i"), 0.0)]))
+            raise TypeError("UFL expression or Expression object expected!")
 
-        # n = v0 x v1
-        body.append(ast.Assign(n(0), ast.Sub(ast.Prod(v0(1), v1(2)), ast.Prod(v0(2), v1(1)))))
-        body.append(ast.Assign(n(1), ast.Sub(ast.Prod(v0(2), v1(0)), ast.Prod(v0(0), v1(2)))))
-        body.append(ast.Assign(n(2), ast.Sub(ast.Prod(v0(0), v1(1)), ast.Prod(v0(1), v1(0)))))
-
-        body.append(ast.For(ast.Assign("i", 0), ast.Less("i", 3), ast.Incr("i", 1),
-                            [ast.Incr(x(j), coords("i", j)) for j in range(3)]))
-
-        body.extend([ast.FlatBlock("dot += (%(x)s) * n[%(i)d];\n" % {"x": x_, "i": i})
-                     for i, x_ in enumerate(expr.code)])
-        body.append(ast.Assign("orientation[0][0]", ast.Ternary(ast.Less("dot", 0), 1, 0)))
-
-        kernel = op2.Kernel(ast.FunDecl("void", "cell_orientations",
-                                        [ast.Decl("int**", "orientation"),
-                                         ast.Decl("double**", "coords")],
-                                        ast.Block(body)),
-                            "cell_orientations")
-
-        # Build the cell orientations as a DG0 field (so that we can
-        # pass it in for facet integrals and the like)
         fs = functionspace.FunctionSpace(self, 'DG', 0)
+        x = ufl.SpatialCoordinate(self)
+        f = function.Function(fs)
+        f.interpolate(ufl.dot(expr, ufl.cross(ReferenceGrad(x)[:, 0], ReferenceGrad(x)[:, 1])))
+
         cell_orientations = function.Function(fs, name="cell_orientations", dtype=np.int32)
-        op2.par_loop(kernel, self.cell_set,
-                     cell_orientations.dat(op2.WRITE, cell_orientations.cell_node_map()),
-                     self.coordinates.dat(op2.READ, self.coordinates.cell_node_map()))
+        cell_orientations.dat.data[:] = (f.dat.data_ro < 0)
         self.topology._cell_orientations = cell_orientations
 
     def __getattr__(self, name):
         return getattr(self._topology, name)
+
+    def __dir__(self):
+        current = super(MeshGeometry, self).__dir__()
+        return list(OrderedDict.fromkeys(dir(self._topology) + current))
 
 
 def make_mesh_from_coordinates(coordinates):
@@ -1164,10 +1084,10 @@ def make_mesh_from_coordinates(coordinates):
     element = coordinates.ufl_element()
     if V.rank != 1 or len(element.value_shape()) != 1:
         raise ValueError("Coordinates must be from a rank-1 FunctionSpace with rank-1 value_shape.")
-    assert V.mesh().ufl_cell().topological_dimension() <= V.dim
+    assert V.mesh().ufl_cell().topological_dimension() <= V.value_size
     # Build coordinate element
     element = coordinates.ufl_element()
-    cell = element.cell().reconstruct(geometric_dimension=V.dim)
+    cell = element.cell().reconstruct(geometric_dimension=V.value_size)
     element = element.reconstruct(cell=cell)
 
     mesh = MeshGeometry.__new__(MeshGeometry, element)

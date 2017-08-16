@@ -14,9 +14,6 @@ ordering, but different numbers of dofs per node (e.g. FiniteElement
 vs VectorElement) can share the PyOP2 Set and Map data.
 """
 
-from __future__ import absolute_import, print_function, division
-from six.moves import map, range
-
 import numpy
 import finat
 from decorator import decorator
@@ -426,7 +423,8 @@ class FunctionSpaceData(object):
         self.map_caches["boundary_node"][method] = val
         return val
 
-    def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent):
+    def get_map(self, V, entity_set, map_arity, bcs, name, offset, parent,
+                kind=None):
         """Return a :class:`pyop2.Map` from some topological entity to
         degrees of freedom.
 
@@ -503,9 +501,9 @@ class FunctionSpaceData(object):
                         # with high bits, so we need to set all the
                         # high bits for these bcs
                         idx = numpy.searchsorted(bcids, bc.nodes)
-                        if bc.function_space().dim > 3:
-                            raise ValueError("Can't have component BCs with more than three components (have %d)", bc.function_space().dim)
-                        for cmp in range(bc.function_space().dim):
+                        if bc.function_space().value_size > 3:
+                            raise ValueError("Can't have component BCs with more than three components (have %d)", bc.function_space().value_size)
+                        for cmp in range(bc.function_space().value_size):
                             negids[idx] |= (1 << (nbits - cmp))
 
                     # FunctionSpace with component is IndexedVFS
@@ -538,13 +536,28 @@ class FunctionSpaceData(object):
             else:
                 new_entity_node_list = entity_node_list
 
+            if kind == "interior_facet" and self.bt_masks is not None:
+                bt_masks = {}
+                off = map_arity // 2
+                for method, (bottom, top) in self.bt_masks.items():
+                    b = []
+                    t = []
+                    for i in bottom:
+                        b.append(i)
+                        b.append(i+off)
+                    for i in top:
+                        t.append(i)
+                        t.append(i+off)
+                    bt_masks[method] = (b, t)
+            else:
+                bt_masks = self.bt_masks
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           new_entity_node_list,
                           ("%s_"+name) % (V.name),
                           offset=offset,
                           parent=parent,
-                          bt_masks=self.bt_masks)
+                          bt_masks=bt_masks)
 
             if decorate:
                 val = op2.DecoratedMap(val, vector_index=True)

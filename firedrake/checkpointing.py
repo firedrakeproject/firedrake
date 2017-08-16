@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake.petsc import PETSc
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 from firedrake import hdf5interface as h5i
@@ -230,7 +229,7 @@ class DumbCheckpoint(object):
             raise ValueError("Can only load functions")
         name = name or function.name()
         group = self._get_data_group()
-        with function.dat.vec as v:
+        with function.dat.vec_wo as v:
             self.vwr.pushGroup(group)
             oname = v.getName()
             v.setName(name)
@@ -418,7 +417,7 @@ class HDF5File(object):
             suffix = "/%.15e" % timestamp
             path = path + suffix
 
-        with function.dat.vec as v:
+        with function.dat.vec_wo as v:
             dset = self._h5file[path]
             v.array[:] = dset[slice(*v.getOwnershipRange())]
 

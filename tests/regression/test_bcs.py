@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -313,7 +312,7 @@ def test_preassembly_bcs_caching(V):
 def test_assemble_mass_bcs_2d(V):
     u = TrialFunction(V)
     v = TestFunction(V)
-    f = Function(V).interpolate(Expression(['x[0]'] * V.dim))
+    f = Function(V).interpolate(Expression(['x[0]'] * V.value_size))
 
     bcs = [DirichletBC(V, 0.0, 1),
            DirichletBC(V, 1.0, 2)]

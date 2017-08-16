@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 
 from ufl import action
 
@@ -101,9 +100,9 @@ class ImplicitMatrixContext(object):
         # values during matvec application.  _xbc is for
         # the action and ._ybc is for transpose.
         if len(self.row_bcs) > 0:
-            self._xbc = function.Function(trial_space)
+            self._xbc = Function(trial_space)
         if len(self.col_bcs) > 0:
-            self._ybc = function.Function(test_space)
+            self._ybc = Function(test_space)
 
         # Get size information from template vecs on test and trial spaces
         trial_vec = trial_space.dof_dset.layout_vec
@@ -124,7 +123,7 @@ class ImplicitMatrixContext(object):
                                                           form_compiler_parameters=self.fc_params)
 
     def mult(self, mat, X, Y):
-        with self._x.dat.vec as v:
+        with self._x.dat.vec_wo as v:
             X.copy(v)
 
         # if we are a block on the diagonal, then the matrix has an
@@ -148,7 +147,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.row_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._xbc.dat.vec as v:
+                with self._xbc.dat.vec_wo as v:
                     X.copy(v)
             for bc in self.row_bcs:
                 bc.set(self._y, self._xbc)
@@ -161,7 +160,7 @@ class ImplicitMatrixContext(object):
 
     def multTranspose(self, mat, Y, X):
         # As for mult, just everything swapped round.
-        with self._y.dat.vec as v:
+        with self._y.dat.vec_wo as v:
             Y.copy(v)
 
         for bc in self.row_bcs:
@@ -172,7 +171,7 @@ class ImplicitMatrixContext(object):
         if self.on_diag:
             if len(self.col_bcs) > 0:
                 # TODO, can we avoid the copy?
-                with self._ybc.dat.vec as v:
+                with self._ybc.dat.vec_wo as v:
                     Y.copy(v)
             for bc in self.col_bcs:
                 bc.set(self._x, self._ybc)
@@ -333,11 +332,11 @@ class LoopyImplicitMatrixContext(object):
             self.row_sizes = yy.getSizes()
 
         if len(test_space) == 1:
-            rbsize = test_space.dim
+            rbsize = test_space.value_size
         else:
             rbsize = 1
         if len(trial_space) == 1:
-            cbsize = trial_space.dim
+            cbsize = trial_space.value_size
         else:
             cbsize = 1
 
@@ -415,7 +414,7 @@ class LoopyImplicitMatrixContext(object):
             ibf = "ibf_scat_%d" % i
             idim = "idim_scat_%d" % i
             ltgi = "ltg_%d" % fspace_nr
-            if fspace.dim == 1:
+            if fspace.value_size == 1:
                 tg_shape = (thing_global+"_len",)
                 scatter_rule = """
                 {thing}[iel, {ibf}, {idim}] = \
@@ -426,9 +425,9 @@ class LoopyImplicitMatrixContext(object):
                     fnr=fspace_nr,
                     idim=idim,
                     ibf=ibf,
-                    dim=fspace.dim),
+                    dim=fspace.value_size),
             else:
-                tg_shape = (thing_global+"_len", fspace.dim)
+                tg_shape = (thing_global+"_len", fspace.value_size)
                 scatter_rule = """
                 {thing}[iel, {ibf}, {idim}] = \
                 {thing_global}[{ltgi}[iel, {ibf}], {idim}]
@@ -438,7 +437,7 @@ class LoopyImplicitMatrixContext(object):
                     fnr=fspace_nr,
                     idim=idim,
                     ibf=ibf,
-                    dim=fspace.dim),
+                    dim=fspace.value_size),
 
             scatter_knl = lp.make_kernel(
                 "{{ [iel, {ibf}, {idim}]:"
@@ -448,7 +447,7 @@ class LoopyImplicitMatrixContext(object):
                 .format(
                     fnr=fspace_nr,
                     nbf=ltg_cur.shape[1],
-                    dim=fspace.dim,
+                    dim=fspace.value_size,
                     ibf=ibf,
                     idim=idim,
                 ),
@@ -493,7 +492,7 @@ class LoopyImplicitMatrixContext(object):
             initi = "i_init_%d" % i
             tssize = "A%d_size" % i
 
-            if ts.dim == 1:
+            if ts.value_size == 1:
                 gather_knl = lp.make_kernel(
                     "{{ [iel, {ibf}, {initi}]:"
                     "    0 <= {initi} < {tssize} "
@@ -532,7 +531,7 @@ class LoopyImplicitMatrixContext(object):
                     .format(
                         ibf=ibf,
                         idim=idim, tssize=tssize,
-                        dim=ts.dim, initi=initi,
+                        dim=ts.value_size, initi=initi,
                         nbf=ts.cell_node_map().values.shape[1]
                     ),
                     """
@@ -543,7 +542,7 @@ class LoopyImplicitMatrixContext(object):
                     """
                     .format(
                         ai=ai, aiglobal=aiglobal,
-                        dim=ts.dim, initi=initi,
+                        dim=ts.value_size, initi=initi,
                         idim=idim,
                         ibf=ibf,
                         ltgi=ltgi,
@@ -737,6 +736,7 @@ class LoopyImplicitMatrixContext(object):
 
         return submat
 
+
 def compile_form_loopy(form):
     from firedrake.formmanipulation import split_form
     from tsfc import compile_form, tsfc_to_loopy
@@ -746,6 +746,3 @@ def compile_form_loopy(form):
 
     for k in tsfc_kernels:
         print(k.ast)
-
-
-        

@@ -20,18 +20,11 @@ streches the mesh in the *y*-direction. Another possibility is to use
 .. code-block:: python
 
    Vc = mesh.coordinates.function_space()
-   f = Function(Vc).interpolate(Expression(("x[0]", "x[1]*2.0")))
+   x, y = SpatialCoordinate(mesh)
+   f = Function(Vc).interpolate(as_vector([x, y*2.0]))
    mesh.coordinates.assign(f)
 
 This can also be used if `f` is a solution to a PDE.
-
-.. note::
-
-   Unfortunately, the following is currently broken:
-
-   .. code-block:: python
-
-      mesh.coordinates.interpolate(Expression(("x[0]", "x[1]*2.0")))
 
 
 Changing the coordinate function space

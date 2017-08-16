@@ -23,7 +23,6 @@ the weak formulation of the right hand side as
 
     42*dot(tau, n)*ds
 """
-from __future__ import absolute_import, print_function, division
 import pytest
 from firedrake import *
 

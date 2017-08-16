@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -241,6 +240,60 @@ def test_projector_expression():
     expr = Expression("1")
     with pytest.raises(ValueError):
         Projector(expr, vo)
+
+
+@pytest.mark.parametrize('tensor', ['scalar', 'vector', 'tensor'])
+@pytest.mark.parametrize('same_fspace', [False, True])
+def test_projector_bcs(tensor, same_fspace):
+    mesh = UnitSquareMesh(2, 2)
+    x = SpatialCoordinate(mesh)
+    if tensor == 'scalar':
+        V = FunctionSpace(mesh, "CG", 1)
+        V_ho = FunctionSpace(mesh, "CG", 5)
+        bcs = [DirichletBC(V_ho, Constant(0.5), (1, 3)),
+               DirichletBC(V_ho, Constant(-0.5), (2, 4))]
+        fct = cos(x[0]*pi*2)*sin(x[1]*pi*2)
+
+    elif tensor == 'vector':
+        V = VectorFunctionSpace(mesh, "CG", 1)
+        V_ho = VectorFunctionSpace(mesh, "CG", 5)
+        bcs = [DirichletBC(V_ho, Constant((0.5, 0.5)), (1, 3)),
+               DirichletBC(V_ho, Constant((-0.5, -0.5)), (2, 4))]
+        fct = as_vector([cos(x[0]*pi*2)*sin(x[1]*pi*2),
+                         cos(x[0]*pi*2)*sin(x[1]*pi*2)])
+
+    elif tensor == 'tensor':
+        V = TensorFunctionSpace(mesh, "CG", 1)
+        V_ho = TensorFunctionSpace(mesh, "CG", 5)
+        bcs = [DirichletBC(V_ho, Constant(((0.5, 0.5),
+                                           (0.5, 0.5))), (1, 3)),
+               DirichletBC(V_ho, Constant(((-0.5, -0.5),
+                                           (-0.5, -0.5))), (2, 4))]
+        fct = as_tensor([[cos(x[0]*pi*2)*sin(x[1]*pi*2),
+                          cos(x[0]*pi*2)*sin(x[1]*pi*2)],
+                         [cos(x[0]*pi*2)*sin(x[1]*pi*2),
+                          cos(x[0]*pi*2)*sin(x[1]*pi*2)]])
+
+    if same_fspace:
+        v = Function(V_ho).project(fct)
+    else:
+        v = Function(V).project(fct)
+
+    ret = Function(V_ho)
+    projector = Projector(v, ret, bcs=bcs, solver_parameters={"ksp_type": "preonly",
+                                                              "pc_type": "lu"})
+    projector.project()
+
+    # Manually solve a Galerkin projection problem to get a reference
+    ref = Function(V_ho)
+    p = TrialFunction(V_ho)
+    q = TestFunction(V_ho)
+    a = inner(p, q)*dx
+    L = inner(v, q)*dx
+    solve(a == L, ref, bcs=bcs, solver_parameters={"ksp_type": "preonly",
+                                                   "pc_type": "lu"})
+
+    assert errornorm(ret, ref) < 1.0e-10
 
 
 if __name__ == '__main__':

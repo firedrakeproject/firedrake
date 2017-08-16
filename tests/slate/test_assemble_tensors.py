@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -36,7 +35,7 @@ def f(function_space):
     """Generate a Firedrake function given a particular function space."""
     f = Function(function_space)
     if function_space.rank >= 1:
-        f.interpolate(Expression(("x[0]",) * function_space.dim))
+        f.interpolate(Expression(("x[0]",) * function_space.value_size))
     else:
         f.interpolate(Expression("x[0]"))
     return f
@@ -99,7 +98,7 @@ def test_assemble_matrix_into_tensor(mesh):
     assert np.allclose(M.M.values, 2*assemble(Tensor(u * v * dx)).M.values, rtol=1e-14)
 
 
-def test_mixed_coefficient_tensor(mesh):
+def test_mixed_coefficient_matrix(mesh):
     V = FunctionSpace(mesh, "CG", 1)
     U = FunctionSpace(mesh, "DG", 0)
     W = V * U
@@ -107,10 +106,19 @@ def test_mixed_coefficient_tensor(mesh):
     f.assign(1)
     u = TrialFunction(V)
     v = TestFunction(V)
-    T = Tensor(f[0] * u * v * dx)
-    ref = assemble(f[0] * u * v * dx)
+    T = Tensor((f[0] + f[1]) * u * v * dx)
+    ref = assemble((f[0] + f[1]) * u * v * dx)
 
-    assert np.allclose(assemble(T).M.values, ref.M.values)
+    assert np.allclose(assemble(T).M.values, ref.M.values, rtol=1e-14)
+
+
+def test_mixed_coefficient_scalar(mesh):
+    V = FunctionSpace(mesh, "DG", 0)
+    W = V * V
+    f = Function(W)
+    g, h = f.split()
+    f.assign(1)
+    assert np.allclose(assemble(Tensor((g + f[0] + h + f[1])*dx)), 4.0)
 
 
 @pytest.mark.xfail(raises=NotImplementedError)

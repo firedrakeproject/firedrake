@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 
 import numpy as np
 from fractions import Fraction
@@ -60,13 +59,13 @@ class MeshHierarchy(object):
             dm_hierarchy.append(rdm)
             cdm = rdm
             # Fix up coords if refining embedded circle or sphere
-            if hasattr(m, '_circle_manifold'):
-                coords = cdm.getCoordinatesLocal().array.reshape(-1, 2)
-                scale = m._circle_manifold / np.linalg.norm(coords, axis=1).reshape(-1, 1)
-                coords *= scale
-            elif hasattr(m, '_icosahedral_sphere'):
-                coords = cdm.getCoordinatesLocal().array.reshape(-1, 3)
-                scale = m._icosahedral_sphere / np.linalg.norm(coords, axis=1).reshape(-1, 1)
+            if hasattr(m, '_radius'):
+                # FIXME, really we need some CAD-like representation
+                # of the boundary we're trying to conform to.  This
+                # doesn't DTRT really for cubed sphere meshes (the
+                # refined meshes are no longer gnonomic).
+                coords = cdm.getCoordinatesLocal().array.reshape(-1, m.geometric_dimension())
+                scale = m._radius / np.linalg.norm(coords, axis=1).reshape(-1, 1)
                 coords *= scale
 
         hierarchy = [m] + [mesh.Mesh(dm, dim=m.ufl_cell().geometric_dimension(),

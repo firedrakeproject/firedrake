@@ -130,14 +130,14 @@ say, the surface of a sphere, uniformly points outwards.  To do this,
 after constructing an immersed mesh, we must initialise the cell
 orientation information.  This is carried out with the function
 :py:meth:`~.Mesh.init_cell_orientations`, which
-takes an :py:class:`~.Expression` used to produce
+takes a UFL expression or an :py:class:`~.Expression` used to produce
 the reference normal direction.  For example, on the sphere mesh of
 the earth defined above we can initialise the cell orientations
 relative to vector pointing out from the origin:
 
 .. code-block:: python
 
-   earth.init_cell_orientations(Expression(('x[0]', 'x[1]', 'x[2]')))
+   earth.init_cell_orientations(SpatialCoordinate(earth))
 
 However, a more complicated expression would be needed to initialise
 the cell orientations on a toroidal mesh.
@@ -364,10 +364,10 @@ we will populate with the x component of the coordinate field.
 .. code-block:: python
 
    f = Function(V)
-   f.interpolate(Expression('x[0]'))
+   x = SpatialCoordinate(mesh)
+   f.interpolate(x[0])
 
-For details on how :py:class:`~.Expression`\s and
-:py:meth:`~.Function.interpolate` work, see the
+For details on how :py:meth:`~.Function.interpolate` works, see the
 :doc:`appropriate section in the manual <interpolation>`.  The
 variational problem is to find :math:`u \in V` such that
 
@@ -471,8 +471,8 @@ externally generated meshes, Firedrake just uses whichever ids the
 mesh generator provided.  The ``value`` may be either a scalar, or
 more generally an :py:class:`~.Expression`, :py:class:`~.Function` or
 :py:class:`~.Constant` of the appropriate shape.  You may also supply
-an iterable of literal constants, which will be converted to an
-:py:class:`~.Expression`.  Hence the following two are equivalent:
+an iterable of literal constants.  Hence the following two are
+equivalent:
 
 .. code-block:: python
 
@@ -571,7 +571,7 @@ boundary condition object within the timestepping loop, this will
 necessitate a recompilation of code every time the boundary condition
 changes.  For this reason we either recommend using a
 :py:class:`~.Constant` if the boundary condition is spatially uniform,
-or a :py:class:`~.Expression` if it has both space and
+or a UFL expression if it has both space and
 time-dependence.  For example, a purely time-varying boundary
 condition might be implemented as:
 
@@ -589,12 +589,13 @@ we can write:
 
 .. code-block:: python
 
-   e = Expression('sin(x[0]*t)', t=t)
+   c = Constant(t)
+   e = sin(x[0]*c)
    bc = DirichletBC(V, e, 1)
    while t < T:
        solve(F == 0, bcs=[bc])
        t += dt
-       e.t = t
+       c.assign(t)
 
 More complicated forms
 ----------------------

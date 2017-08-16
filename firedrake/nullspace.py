@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import numpy
 
 from pyop2.mpi import COMM_WORLD

@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from distutils.core import setup
 from distutils.extension import Extension
 from glob import glob
@@ -73,8 +72,7 @@ setup(name='firedrake',
       url="http://firedrakeproject.org",
       packages=["firedrake", "firedrake.mg", "firedrake.slope_limiter",
                 "firedrake.matrix_free", "firedrake_configuration"],
-      package_data={"firedrake": ["firedrake_geometry.h",
-                                  "evaluate.h",
+      package_data={"firedrake": ["evaluate.h",
                                   "locate.c",
                                   "icons/*.png"]},
       scripts=glob('scripts/*'),

@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
@@ -146,6 +145,15 @@ def test_mixed():
     g = interpolate(dot(grad(f[0]), grad(f[3])), V)
 
     assert np.allclose(1.0, g.dat.data)
+
+
+def test_lvalue_rvalue():
+    mesh = UnitSquareMesh(10, 10)
+    V = FunctionSpace(mesh, "CG", 1)
+    u = Function(V)
+    u.assign(1.0)
+    u.interpolate(u + 1.0)
+    assert np.allclose(u.dat.data_ro, 2.0)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,3 @@
-from __future__ import absolute_import, print_function, division
-from six import iterkeys
-
 import numpy
 from functools import partial
 
@@ -112,19 +109,19 @@ def make_interpolator(expr, V, subset):
         if len(V) > 1:
             raise NotImplementedError(
                 "UFL expressions for mixed functions are not yet supported.")
-        loops.append(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, f.dat, expr, subset))
     elif hasattr(expr, 'eval'):
         if len(V) > 1:
             raise NotImplementedError(
                 "Python expressions for mixed functions are not yet supported.")
-        loops.append(_interpolator(V, f.dat, expr, subset))
+        loops.extend(_interpolator(V, f.dat, expr, subset))
     else:
         # Slice the expression and pass in the right number of values for
         # each component function space of this function
         d = 0
         for fs, dat, dim in zip(V, f.dat, dims):
             idx = d if fs.rank == 0 else slice(d, d+dim)
-            loops.append(_interpolator(fs, dat,
+            loops.extend(_interpolator(fs, dat,
                                        SubExpression(expr, idx, fs.ufl_element().value_shape()),
                                        subset))
             d += dim
@@ -149,7 +146,8 @@ def _interpolator(V, dat, expr, subset):
         if not isinstance(dual, FIAT.functional.PointEvaluation):
             raise NotImplementedError("Can only interpolate onto point "
                                       "evaluation operators. Try projecting instead")
-        to_pts.append(list(iterkeys(dual.pt_dict))[0])
+        pts, = dual.pt_dict.keys()
+        to_pts.append(pts)
 
     if len(expr.ufl_shape) != len(V.ufl_element().value_shape()):
         raise RuntimeError('Rank mismatch: Expression rank %d, FunctionSpace rank %d'
@@ -185,6 +183,11 @@ def _interpolator(V, dat, expr, subset):
         cell_set = subset
     args = [kernel, cell_set]
 
+    copy_back = False
+    if dat in set((c.dat for c in coefficients)):
+        output = dat
+        dat = op2.Dat(dat.dataset)
+        copy_back = True
     if indexed:
         args.append(dat(op2.WRITE, V.cell_node_map()[op2.i[0]]))
     else:
@@ -195,7 +198,10 @@ def _interpolator(V, dat, expr, subset):
     for coefficient in coefficients:
         args.append(coefficient.dat(op2.READ, coefficient.cell_node_map()))
 
-    return partial(op2.par_loop, *args)
+    if copy_back:
+        return partial(op2.par_loop, *args), partial(dat.copy, output)
+    else:
+        return (partial(op2.par_loop, *args), )
 
 
 class GlobalWrapper(object):
@@ -212,7 +218,7 @@ def compile_python_kernel(expression, to_pts, to_element, fs, coords):
     coords_space = coords.function_space()
     coords_element = create_element(coords_space.ufl_element(), vector_is_mixed=False)
 
-    X_remap = coords_element.tabulate(0, to_pts).values()[0]
+    X_remap = list(coords_element.tabulate(0, to_pts).values())[0]
 
     # The par_loop will just pass us arguments, since it doesn't
     # know about keyword args at all so unpack into a dict that we
@@ -244,7 +250,7 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
 
     names = {v[0] for v in expression._user_args}
 
-    X = coords_element.tabulate(0, to_pts).values()[0]
+    X = list(coords_element.tabulate(0, to_pts).values())[0]
 
     # Produce C array notation of X.
     X_str = "{{"+"},\n{".join([",".join(map(str, x)) for x in X.T])+"}}"
@@ -263,14 +269,14 @@ def compile_c_kernel(expression, to_pts, to_element, fs, coords):
                           ast.FlatBlock("%s" % code))
                for i, code in enumerate(expression.code)]
 
-    dim = coords_space.dim
+    dim = coords_space.value_size
     ndof = to_element.space_dimension()
     xndof = coords_element.space_dimension()
-    nfdof = to_element.space_dimension() * numpy.prod(fs.dim, dtype=int)
+    nfdof = to_element.space_dimension() * numpy.prod(fs.value_size, dtype=int)
 
     init_X = ast.Decl(typ="double", sym=ast.Symbol(X, rank=(ndof, xndof)),
                       qualifiers=["const"], init=X_str)
-    init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.dim,)))
+    init_x = ast.Decl(typ="double", sym=ast.Symbol(x, rank=(coords_space.value_size,)))
     init_pi = ast.Decl(typ="double", sym="pi", qualifiers=["const"],
                        init="3.141592653589793")
     init = ast.Block([init_X, init_x, init_pi])

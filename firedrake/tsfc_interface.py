@@ -1,7 +1,6 @@
 """Provides the interface to TSFC for compiling a form, and transforms the TSFC-
 generated code in order to make it suitable for passing to the backends."""
-from __future__ import absolute_import, print_function, division
-from six.moves import cPickle
+import pickle
 
 from hashlib import md5
 from os import path, environ, getuid, makedirs
@@ -11,7 +10,9 @@ import zlib
 import tempfile
 import collections
 
+import ufl
 from ufl import Form
+from .ufl_expr import TestFunction
 
 from tsfc import compile_form as tsfc_compile_form
 
@@ -35,6 +36,7 @@ KernelInfo = collections.namedtuple("KernelInfo",
                                      "coefficient_map",
                                      "needs_cell_facets",
                                      "pass_layer_arg"])
+
 
 class TSFCKernel(Cached):
 
@@ -68,7 +70,7 @@ class TSFCKernel(Cached):
 
         if val is None:
             raise KeyError("Object with key %s not found" % key)
-        val = cPickle.loads(val)
+        val = pickle.loads(val)
         cls._cache[key] = val
         return val
 
@@ -83,7 +85,7 @@ class TSFCKernel(Cached):
             # No need for a barrier after this, since non root
             # processes will never race on this file.
             with gzip.open(tempfile, 'wb') as f:
-                cPickle.dump(val, f, 0)
+                pickle.dump(val, f, 0)
             os.rename(tempfile, filepath)
         comm.barrier()
 
@@ -92,10 +94,10 @@ class TSFCKernel(Cached):
         # FIXME Making the COFFEE parameters part of the cache key causes
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
-        return md5(form.signature() + name
+        return md5((form.signature() + name
                    + str(default_parameters["coffee"])
                    + str(parameters)
-                   + str(number_map)).hexdigest(), form.ufl_domains()[0].comm
+                    + str(number_map)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
     def __init__(self, form, name, parameters, number_map):
         """A wrapper object for one or more TSFC kernels compiled from a given :class:`~ufl.classes.Form`.
@@ -184,6 +186,7 @@ def compile_form(form, name, parameters=None, inverse=False):
     coefficient_numbers = dict((c, n)
                                for (n, c) in enumerate(form.coefficients()))
     for idx, f in split_form(form):
+        f = _real_mangle(f)
         # Map local coefficient numbers (as seen inside the
         # compiler) to the global coefficient numbers
         number_map = dict((n, coefficient_numbers[c])
@@ -196,6 +199,23 @@ def compile_form(form, name, parameters=None, inverse=False):
     form._cache["firedrake_kernels"] = (kernels, default_parameters["coffee"].copy(),
                                         name, parameters)
     return kernels
+
+
+def _real_mangle(form):
+    """If the form contains arguments in the Real function space, replace these with literal 1 before passing to tsfc."""
+
+    a = form.arguments()
+    reals = [x.ufl_element().family() == "Real" for x in a]
+    if not any(reals):
+        return form
+    replacements = {}
+    for arg, r in zip(a, reals):
+        if r:
+            replacements[arg] = 1
+    # If only the test space is Real, we need to turn the trial function into a test function.
+    if reals == [True, False]:
+        replacements[a[1]] = TestFunction(a[1].function_space())
+    return ufl.replace(form, replacements)
 
 
 def clear_cache(comm=None):

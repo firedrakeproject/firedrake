@@ -91,7 +91,7 @@ Let's start with our first test.  We'll confirm a working solve by
 using a direct method. ::
 
   u = run_solve({"ksp_type": "preonly", "pc_type": "lu"})
-  print 'LU solve error', error(u)
+  print('LU solve error', error(u))
 
 Next we'll use the conjugate gradient method preconditioned by a
 geometric multigrid V-cycle.  Firedrake automatically takes care of
@@ -99,7 +99,7 @@ rediscretising the operator on coarse grids, and providing the number
 of levels to PETSc. ::
 
   u = run_solve({"ksp_type": "cg", "pc_type": "mg"})
-  print 'MG V-cycle + CG error', error(u)
+  print('MG V-cycle + CG error', error(u))
 
 For such a simple problem, an appropriately configured multigrid solve
 can achieve algebraic error equal to discretisation error in one
@@ -119,7 +119,7 @@ appropriate settings using solver parameters. ::
   }
 
   u = run_solve(parameters)
-  print 'MG F-cycle error', error(u)
+  print('MG F-cycle error', error(u))
      
 A saddle-point system: The Stokes equations
 -------------------------------------------
@@ -131,55 +131,50 @@ other aspects of solver configuration, like fieldsplit
 preconditioning.  We'll use Taylor-Hood elements and solve a problem
 with specified velocity inflow and outflow conditions. ::
 
-  mesh = RectangleMesh(15, 10, 1.5, 1)
+  def create_problem():
+      mesh = RectangleMesh(15, 10, 1.5, 1)
 
-  hierarchy = MeshHierarchy(mesh, 3)
+      hierarchy = MeshHierarchy(mesh, 3)
 
-  mesh = hierarchy[-1]
+      mesh = hierarchy[-1]
 
-  V = VectorFunctionSpace(mesh, "CG", 2)
-  W = FunctionSpace(mesh, "CG", 1)
-  Z = V * W
+      V = VectorFunctionSpace(mesh, "CG", 2)
+      W = FunctionSpace(mesh, "CG", 1)
+      Z = V * W
 
-  u, p = TrialFunctions(Z)
-  v, q = TestFunctions(Z)
+      u, p = TrialFunctions(Z)
+      v, q = TestFunctions(Z)
 
-  a = (inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
+      a = (inner(grad(u), grad(v)) - p * div(v) + div(u) * q)*dx
 
-  L = inner(Constant((0, 0)), v) * dx
+      L = inner(Constant((0, 0)), v) * dx
 
-  x, y = SpatialCoordinate(mesh)
+      x, y = SpatialCoordinate(mesh)
 
-  t = conditional(y < 0.5, y - 0.25, y - 0.75)
-  l = 1.0/6.0
-  gbar = conditional(Or(And(0.25 - l/2 < y,
-                            y < 0.25 + l/2),
-                        And(0.75 - l/2 < y,
-                            y < 0.75 + l/2)),
-                        Constant(1.0), Constant(0.0))
-  
-  value = gbar*(1 - (2*t/l)**2)
-  inflowoutflow = Function(V).interpolate(as_vector([value, 0]))
-  bcs = [DirichletBC(Z.sub(0), inflowoutflow, (1, 2)),
-         DirichletBC(Z.sub(0), zero(2), (3, 4))]
+      t = conditional(y < 0.5, y - 0.25, y - 0.75)
+      l = 1.0/6.0
+      gbar = conditional(Or(And(0.25 - l/2 < y,
+                                y < 0.25 + l/2),
+                            And(0.75 - l/2 < y,
+                                y < 0.75 + l/2)),
+                            Constant(1.0), Constant(0.0))
 
-As before, we'll define a function to run our solve.  This time, we
-might wish to provide an auxiliary preconditioning matrix to the
-solver, so we'll have an optional ``Jp`` argument. ::
-
-  def run_solve(parameters, Jp=None):
-      u = Function(Z)
-      solve(a == L, u, Jp=Jp, bcs=bcs, solver_parameters=parameters)
-      return u
+      value = gbar*(1 - (2*t/l)**2)
+      inflowoutflow = Function(V).interpolate(as_vector([value, 0]))
+      bcs = [DirichletBC(Z.sub(0), inflowoutflow, (1, 2)),
+             DirichletBC(Z.sub(0), zero(2), (3, 4))]
+      return a, L, bcs, Z
 
 First up, we'll use an algebraic preconditioner, with a direct solve,
 remembering to tell PETSc to use pivoting in the factorisation. ::
 
-  u = run_solve({"ksp_type": "preonly",
-                 "pc_type": "lu",
-                 "pc_factor_shift_type": "inblocks",
-                 "ksp_monitor": True,
-                 "pmat_type": "aij"})
+  a, L, bcs, Z = create_problem()
+  u = Function(Z)
+  solve(a == L, u, bcs=bcs, solver_parameters={"ksp_type": "preonly",
+                                               "pc_type": "lu",
+                                               "pc_factor_shift_type": "inblocks",
+                                               "ksp_monitor": True,
+                                               "pmat_type": "aij"})
 
 Next we'll use a schur complement solver, using geometric multigrid to
 invert the velocity block. ::
@@ -200,8 +195,12 @@ invert the velocity block. ::
 We provide an auxiliary operator so that we can precondition the schur
 complement inverse with a pressure mass matrix. ::
 
+  a, L, bcs, Z = create_problem()
+  _, p = TrialFunctions(Z)
+  _, q = TestFunctions(Z)
   Jp = a + p*q*dx
-  u = run_solve(parameters, Jp=Jp)
+  u = Function(Z)
+  solve(a == L, u, bcs=bcs, Jp=Jp, solver_parameters=parameters)
 
 Finally, we'll use coupled geometric multigrid on the full problem,
 using schur complement "smoothers" on each level.  On the coarse grid
@@ -248,7 +247,9 @@ block.
         "mg_levels_fieldsplit_1_pc_type": "none",
   }
 
-  run_solve(parameters)
+  a, L, bcs, Z = create_problem()
+  u = Function(Z)
+  solve(a == L, u, bcs=bcs, solver_parameters=parameters)
 
 .. note::
 

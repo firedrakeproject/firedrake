@@ -1,9 +1,6 @@
-six
 sympy
-psutil
 cachetools
-singledispatch
-pytest ~=2.9
+pytest
 pytest-xdist
 pytest-benchmark
 ipython

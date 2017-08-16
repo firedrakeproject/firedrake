@@ -105,8 +105,9 @@ spaces as follows: ::
 Next we declare our source function ``f`` over the DG space and initialise it
 with our chosen right hand side function value. ::
 
-  f = Function(DG).interpolate(Expression(
-      "10*exp(-(pow(x[0] - 0.5, 2) + pow(x[1] - 0.5, 2)) / 0.02)"))
+  x, y = SpatialCoordinate(mesh)
+  f = Function(DG).interpolate(
+      10*exp(-(pow(x - 0.5, 2) + pow(y - 0.5, 2)) / 0.02))
 
 After dropping the vanishing boundary term on the right hand side, the
 bilinear and linear forms of the variational problem are defined as: ::
@@ -117,8 +118,8 @@ bilinear and linear forms of the variational problem are defined as: ::
 The strongly enforced boundary conditions on the BDM space on the top and
 bottom of the domain are declared as: ::
 
-  bc0 = DirichletBC(W.sub(0), Expression(("0.0", "-sin(5*x[0])")), 1)
-  bc1 = DirichletBC(W.sub(0), Expression(("0.0", "sin(5*x[0])")), 2)
+  bc0 = DirichletBC(W.sub(0), as_vector([0.0, -sin(5*x)]), 1)
+  bc1 = DirichletBC(W.sub(0), as_vector([0.0, sin(5*y)]), 2)
 
 Note that it is necessary to apply these boundary conditions to the first
 subspace of the mixed function space using ``W.sub(0)``. This way the

@@ -21,7 +21,6 @@ and the analytical solution
 
   u(x, y) = cos(x*2*pi)*cos(y*2*pi)
 """
-from __future__ import absolute_import, print_function, division
 
 import pytest
 

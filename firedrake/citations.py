@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 from firedrake.petsc import PETSc
 
 
@@ -154,11 +153,15 @@ Citations().add("Luporini2016", """
   author =       {Fabio Luporini and David A. Ham and Paul H. J. Kelly},
   title =        {An algorithm for the optimization of finite element
                   integration loops},
-  journal =      {Submitted to ACM TOMS},
-  year =         2016,
+  journal =      {ACM Transactions on Mathematical Software},
+  year =         2017,
+  volume =       44,
+  issue =        1,
+  pages =        {3:1--3:26},
   archiveprefix ={arXiv},
   eprint =       {1604.05872},
-  url =          {http://arxiv.org/abs/1604.05872}
+  url =          {http://arxiv.org/abs/1604.05872},
+  doi =          {10.1145/3054944},
 }
 """)
 
@@ -199,5 +202,31 @@ Citations().add("Mitchell2016", """
   eprint =       {1605.00492},
   primaryclass = {cs.MS},
   url =          {http://arxiv.org/abs/1605.00492}
+}
+""")
+
+Citations().add("Homolya2017", """
+@Misc{Homolya2017,
+  author =        {Mikl\'os Homolya and Lawrence Mitchell and Fabio Luporini and
+                   David A. Ham},
+  title =         {{TSFC: a structure-preserving form compiler}},
+  year =          2017,
+  archiveprefix = {arXiv},
+  eprint =        {1705.03667},
+  primaryclass =  {cs.MS},
+  url =           {http://arxiv.org/abs/1705.003667}
+}
+""")
+
+Citations().add("Mitchell2017", """
+@Misc{Mitchell2017,
+  author =       {Lawrence Mitchell and Robert C. Kirby},
+  title =        {{Solver composition across the PDE/linear algebra
+                  barrier}},
+  year =         2017,
+  archiveprefix ={arXiv},
+  eprint =       {1706.01346},
+  primaryclass = {cs.MS},
+  url =          {http://arxiv.org/abs/1706.01346}
 }
 """)

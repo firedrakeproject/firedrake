@@ -4,9 +4,6 @@ This module implements the user-visible API for constructing
 API is functional, rather than object-based, to allow for simple
 backwards-compatibility, argument checking, and dispatch.
 """
-from __future__ import absolute_import, print_function, division
-from six.moves import range
-
 import ufl
 
 from pyop2.utils import flatten
@@ -129,7 +126,10 @@ def FunctionSpace(mesh, family, degree=None, name=None, vfamily=None,
 
     # Otherwise, build the FunctionSpace.
     topology = mesh.topology
-    new = impl.FunctionSpace(topology, element, name=name)
+    if element.family() == "Real":
+        new = impl.RealFunctionSpace(topology, element, name=name)
+    else:
+        new = impl.FunctionSpace(topology, element, name=name)
     if mesh is not topology:
         return impl.WithGeometry(new, mesh)
     else:
@@ -246,7 +246,7 @@ def MixedFunctionSpace(spaces, name=None, mesh=None):
     spaces = tuple(s.topological for s in flatten(spaces))
     # Error checking
     for space in spaces:
-        if type(space) is impl.FunctionSpace:
+        if type(space) in (impl.FunctionSpace, impl.RealFunctionSpace):
             continue
         elif type(space) is impl.ProxyFunctionSpace:
             if space.component is not None:

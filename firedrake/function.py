@@ -1,9 +1,8 @@
-from __future__ import absolute_import, print_function, division
-from six.moves import range, zip
 import numpy as np
 import sys
 import ufl
 import ctypes
+from collections import OrderedDict
 from ctypes import POINTER, c_int, c_double, c_void_p
 
 from pyop2 import op2
@@ -70,7 +69,7 @@ class CoordinatelessFunction(ufl.Coefficient):
         if isinstance(val, vector.Vector):
             # Allow constructing using a vector.
             val = val.dat
-        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat)):
+        if isinstance(val, (op2.Dat, op2.DatView, op2.MixedDat, op2.Global)):
             assert val.comm == self.comm
             self.dat = val
         else:
@@ -161,7 +160,7 @@ class CoordinatelessFunction(ufl.Coefficient):
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self.dat)
+        return vector.Vector(self)
 
     def function_space(self):
         """Return the :class:`.FunctionSpace`, or
@@ -218,8 +217,10 @@ class Function(ufl.Coefficient):
         :param function_space: the :class:`.FunctionSpace`,
             or :class:`.MixedFunctionSpace` on which to build this :class:`Function`.
             Alternatively, another :class:`Function` may be passed here and its function space
-            will be used to build this :class:`Function`.
+            will be used to build this :class:`Function`.  In this
+        case, the function values are copied.
         :param val: NumPy array-like (or :class:`pyop2.Dat`) providing initial values (optional).
+            If val is an existing :class:`Function`, then the data will be shared.
         :param name: user-defined name for this :class:`Function` (optional).
         :param dtype: optional data type for this :class:`Function`
                (defaults to ``ScalarType``).
@@ -232,7 +233,8 @@ class Function(ufl.Coefficient):
             raise NotImplementedError("Can't make a Function defined on a "
                                       + str(type(function_space)))
 
-        if isinstance(val, CoordinatelessFunction):
+        if isinstance(val, (Function, CoordinatelessFunction)):
+            val = val.topological
             if val.function_space() != V.topological:
                 raise ValueError("Function values have wrong function space.")
             self._data = val
@@ -271,6 +273,10 @@ class Function(ufl.Coefficient):
 
     def __getattr__(self, name):
         return getattr(self._data, name)
+
+    def __dir__(self):
+        current = super(Function, self).__dir__()
+        return list(OrderedDict.fromkeys(dir(self._data) + current))
 
     def split(self):
         """Extract any sub :class:`Function`\s defined on the component spaces
@@ -317,7 +323,7 @@ class Function(ufl.Coefficient):
 
     def vector(self):
         """Return a :class:`.Vector` wrapping the data in this :class:`Function`"""
-        return vector.Vector(self.dat)
+        return vector.Vector(self)
 
     def interpolate(self, expression, subset=None):
         """Interpolate an expression onto this :class:`Function`.
@@ -540,7 +546,7 @@ class Function(ufl.Coefficient):
                 if mixed:
                     l_result.append((i, tuple(f.at(p) for f in split)))
                 else:
-                    p_result = np.empty(value_shape, dtype=float)
+                    p_result = np.zeros(value_shape, dtype=float)
                     single_eval(points[i:i+1], p_result)
                     l_result.append((i, p_result))
             except PointNotInDomainError:
@@ -600,13 +606,25 @@ def make_c_evaluate(function, c_name="evaluate", ldargs=None, tolerance=None):
     from firedrake.pointeval_utils import compile_element
     from pyop2 import compilation
     from pyop2.utils import get_petsc_dir
+    from pyop2.base import build_itspace
+    from pyop2.sequential import generate_cell_wrapper
     import firedrake.pointquery_utils as pq_utils
 
-    function_space = function.function_space()
+    mesh = function.ufl_domain()
+    src = pq_utils.src_locate_cell(mesh, tolerance=tolerance)
+    src += compile_element(function, mesh.coordinates)
 
-    src = pq_utils.src_locate_cell(function_space.mesh(), tolerance=tolerance)
-    src += compile_element(function_space.ufl_element(), function_space.dim)
-    src += pq_utils.make_wrapper(function,
+    args = []
+
+    arg = mesh.coordinates.dat(op2.READ, mesh.coordinates.cell_node_map())
+    arg.position = 0
+    args.append(arg)
+
+    arg = function.dat(op2.READ, function.cell_node_map())
+    arg.position = 1
+    args.append(arg)
+
+    src += generate_cell_wrapper(build_itspace(args, mesh.cell_set), args,
                                  forward_args=["double*", "double*"],
                                  kernel_name="evaluate_kernel",
                                  wrapper_name="wrap_evaluate")

@@ -1,7 +1,4 @@
 """The parameters dictionary contains global parameter settings."""
-from __future__ import absolute_import, print_function, division
-from six import iteritems
-
 from coffee import coffee_reconfigure
 from pyop2.configuration import configuration
 from tsfc import default_parameters
@@ -17,7 +14,7 @@ class Parameters(dict):
         self._name = name
         self._update_function = None
 
-        for key, value in iteritems(kwargs):
+        for key, value in kwargs.items():
             self.add(key, value)
 
     def add(self, key, value=None):
@@ -57,7 +54,7 @@ parameters = Parameters()
 """A nested dictionary of parameters used by Firedrake"""
 
 # The COFFEE default optimization level is O2
-coffee_default_optlevel = "O2"
+coffee_default_optlevel = "Ov"
 coffee_opts = Parameters("coffee", optlevel=coffee_default_optlevel)
 coffee_opts.set_update_function(lambda k, v: coffee_reconfigure(**{k: v}))
 parameters.add(coffee_opts)

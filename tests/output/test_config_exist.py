@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 
 
 def test_config_exist():

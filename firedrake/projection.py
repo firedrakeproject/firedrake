@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import ufl
 
 from firedrake import expression
@@ -38,8 +37,7 @@ def project(v, V, bcs=None, mesh=None,
     then ``v`` is projected into a new :class:`.Function` and that
     :class:`.Function` is returned.
 
-    The ``bcs``, ``mesh`` and ``form_compiler_parameters`` are
-    currently ignored."""
+    The ``mesh`` and ``form_compiler_parameters`` are currently ignored."""
     from firedrake import function
 
     if isinstance(V, functionspaceimpl.WithGeometry):
@@ -113,11 +111,13 @@ class Projector(object):
     :arg v: the :class:`ufl.Expr` or
          :class:`.Function` to project
     :arg v_out: :class:`.Function` to put the result in
+    :arg bcs: an optional set of :class:`.DirichletBC` objects to apply
+              on the target function space.
     :arg solver_parameters: parameters to pass to the solver used when
          projecting.
     """
 
-    def __init__(self, v, v_out, solver_parameters=None):
+    def __init__(self, v, v_out, bcs=None, solver_parameters=None, constant_jacobian=True):
 
         if isinstance(v, expression.Expression) or \
            not isinstance(v, (ufl.core.expr.Expr, function.Function)):
@@ -127,8 +127,9 @@ class Projector(object):
                              v_out.function_space())
         self.v = v
         self.v_out = v_out
+        self.bcs = bcs
 
-        if not self._same_fspace:
+        if not self._same_fspace or self.bcs:
             V = v_out.function_space()
 
             p = ufl_expr.TestFunction(V)
@@ -137,7 +138,8 @@ class Projector(object):
             a = ufl.inner(p, q)*ufl.dx
             L = ufl.inner(p, v)*ufl.dx
 
-            problem = vs.LinearVariationalProblem(a, L, v_out)
+            problem = vs.LinearVariationalProblem(a, L, v_out, bcs=self.bcs,
+                                                  constant_jacobian=constant_jacobian)
 
             if solver_parameters is None:
                 solver_parameters = {}
@@ -151,7 +153,7 @@ class Projector(object):
         """
         Apply the projection.
         """
-        if self._same_fspace:
+        if self._same_fspace and not self.bcs:
             self.v_out.assign(self.v)
         else:
             self.solver.solve()

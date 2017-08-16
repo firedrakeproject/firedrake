@@ -1,4 +1,3 @@
-from __future__ import absolute_import, print_function, division
 import ufl
 
 from firedrake.exceptions import ConvergenceError
@@ -128,6 +127,8 @@ class LinearSolver(solving_utils.ParametersMixin):
     def solve(self, x, b):
         if not isinstance(x, (function.Function, vector.Vector)):
             raise TypeError("Provided solution is a '%s', not a Function or Vector" % type(x).__name__)
+        if isinstance(b, vector.Vector):
+            b = b.function
         if not isinstance(b, function.Function):
             raise TypeError("Provided RHS is a '%s', not a Function" % type(b).__name__)
 
@@ -148,7 +149,11 @@ class LinearSolver(solving_utils.ParametersMixin):
             b = b_bc
         with self.inserted_options():
             with b.dat.vec_ro as rhs:
-                with x.dat.vec as solution:
+                if self.ksp.getInitialGuessNonzero():
+                    acc = x.dat.vec
+                else:
+                    acc = x.dat.vec_wo
+                with acc as solution:
                     self.ksp.solve(rhs, solution)
 
         r = self.ksp.getConvergedReason()

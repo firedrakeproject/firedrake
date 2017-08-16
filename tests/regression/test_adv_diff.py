@@ -5,7 +5,6 @@ and diffusion terms. The advection term is advanced in time using an Euler
 method and the diffusion term is advanced in time using a theta scheme with
 theta = 0.5.
 """
-from __future__ import absolute_import, print_function, division
 
 import pytest
 

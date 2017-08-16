@@ -1,10 +1,9 @@
-from __future__ import absolute_import, print_function, division
 
 import ufl
 from ufl.corealg.map_dag import map_expr_dag
 from ufl.algorithms.multifunction import MultiFunction
 
-from singledispatch import singledispatch
+from functools import singledispatch
 import firedrake
 from firedrake.petsc import PETSc
 
@@ -225,7 +224,7 @@ class Interpolation(object):
         self.fbcs = fbcs or []
 
     def mult(self, mat, x, y, inc=False):
-        with self.cfn.dat.vec as v:
+        with self.cfn.dat.vec_wo as v:
             x.copy(v)
         firedrake.prolong(self.cfn, self.ffn)
         for bc in self.fbcs:
@@ -244,7 +243,7 @@ class Interpolation(object):
             w.axpy(1.0, y)
 
     def multTranspose(self, mat, x, y, inc=False):
-        with self.ffn.dat.vec as v:
+        with self.ffn.dat.vec_wo as v:
             x.copy(v)
         firedrake.restrict(self.ffn, self.cfn)
         for bc in self.cbcs:
@@ -270,7 +269,7 @@ class Injection(object):
         self.cbcs = cbcs or []
 
     def multTranspose(self, mat, x, y):
-        with self.ffn.dat.vec as v:
+        with self.ffn.dat.vec_wo as v:
             x.copy(v)
         firedrake.inject(self.ffn, self.cfn)
         for bc in self.cbcs:
