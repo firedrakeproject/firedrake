@@ -43,8 +43,10 @@ from pyop2.exceptions import MapValueError, ModeValueError
 
 from coffee.base import *
 
+from petsc4py.PETSc import ScalarType 
+
 # Data type
-valuetype = np.float64
+valuetype = ScalarType
 
 # Constants
 NUM_ELE = 2
