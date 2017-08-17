@@ -103,7 +103,7 @@ def test_function_val(V):
 
 def test_function_dat(V):
     """Initialise a Function with an op2.Dat."""
-    f = Function(V, op2.Dat(V.node_set**V.dim))
+    f = Function(V, op2.Dat(V.node_set**V.dim,dtype=complex))
     f.interpolate(Expression("1"))
     assert (f.dat.data_ro == 1.0).all()
 

@@ -75,7 +75,7 @@ def run_one_element_advection():
     # advection equation
     q = TrialFunction(Vdg)
     p = TestFunction(Vdg)
-    a_mass = p*q*dx
+    a_mass = dot(p, q)*dx
     a_int = (dot(grad(p), -u0*q))*dx
     a_flux = (dot(jump(p), un('+')*q('+') - un('-')*q('-')))*(dS_v + dS_h)
     arhs = a_mass-dt*(a_int + a_flux)

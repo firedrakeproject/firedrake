@@ -103,7 +103,7 @@ def test_betti1(space, mesh):
     dV0 = V0.dof_count
     dV1 = V1.dof_count
 
-    A = numpy.zeros((dV0+dV1, dV0+dV1))
+    A = numpy.zeros((dV0+dV1, dV0+dV1), dtype='complex128')
     A[:dV0, :dV0] = L.M[0, 0].values
     A[:dV0, dV0:dV0+dV1] = L.M[0, 1].values
     A[dV0:dV0+dV1, :dV0] = L.M[1, 0].values
@@ -117,7 +117,7 @@ def test_betti1(space, mesh):
     dV0 = V0.dof_count
     dV1 = V1.dof_count
 
-    A0 = numpy.zeros((dV0+dV1, dV0+dV1))
+    A0 = numpy.zeros((dV0+dV1, dV0+dV1), dtype='complex128')
     A0[:dV0, :dV0] = L0.M[0, 0].values
     A0[:dV0, dV0:dV0+dV1] = L0.M[0, 1].values
     A0[dV0:dV0+dV1, :dV0] = L0.M[1, 0].values
@@ -162,7 +162,7 @@ def test_betti2(space, mesh):
     dV1 = V1.dof_count
     dV2 = V2.dof_count
 
-    A = numpy.zeros((dV1+dV2, dV1+dV2))
+    A = numpy.zeros((dV1+dV2, dV1+dV2), dtype='complex128')
     A[:dV1, :dV1] = L.M[0, 0].values
     A[:dV1, dV1:dV1+dV2] = L.M[0, 1].values
     A[dV1:dV1+dV2, :dV1] = L.M[1, 0].values
@@ -174,7 +174,7 @@ def test_betti2(space, mesh):
     print(nharmonic, V1tag[0])
     assert(nharmonic == 0)
 
-    A0 = numpy.zeros((dV1+dV2, dV1+dV2))
+    A0 = numpy.zeros((dV1+dV2, dV1+dV2), dtype='complex128')
     A0[:dV1, :dV1] = L0.M[0, 0].values
     A0[:dV1, dV1:dV1+dV2] = L0.M[0, 1].values
     A0[dV1:dV1+dV2, :dV1] = L0.M[1, 0].values

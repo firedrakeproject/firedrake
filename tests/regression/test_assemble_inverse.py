@@ -11,8 +11,8 @@ def test_assemble_inverse(degree):
     u = TrialFunction(fs)
     v = TestFunction(fs)
 
-    m_forward = assemble(u*v*dx)
-    m_inverse = assemble(u*v*dx, inverse=True)
+    m_forward = assemble(dot(u, v)*dx)
+    m_inverse = assemble(dot(u, v)*dx, inverse=True)
 
     eye = np.dot(m_forward.M.values, m_inverse.M.values)
 

@@ -32,7 +32,13 @@ def test_constant_assign_mismatch(init, new_vals):
 def test_constant_cast_to_float():
     val = 10.0
     c = Constant(val)
-    assert float(c) == val
+    assert float(c) == val # raises a warning about casting float to complex
+
+
+def test_constant_cast_to_complex():
+    val = 10.0 + 10.0j
+    c = Constant(val)
+    assert complex(c) == val
 
 
 def test_indexed_vector_constant_cast_to_float():

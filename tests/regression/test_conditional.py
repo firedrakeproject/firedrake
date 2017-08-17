@@ -2,6 +2,7 @@ from __future__ import absolute_import, print_function, division
 import pytest
 import numpy as np
 from firedrake import *
+from ufl.algorithms.comparison_checker import ComplexComparisonError
 
 
 @pytest.mark.parametrize("ncell",
@@ -14,7 +15,7 @@ def test_conditional(ncell):
     v = TestFunction(V)
     bhp = Constant(2)
     u.dat.data[...] = range(ncell)
-    cond = conditional(ge(u-bhp, 0.0), u-bhp, 0.0)
+    cond = conditional(ge(real(u-bhp), 0.0), u-bhp, 0.0)
     Fc = cond*v*dx
 
     A = assemble(derivative(Fc, u, du)).M.values
@@ -23,6 +24,12 @@ def test_conditional(ncell):
         expect[i, i] = 1.0/ncell
 
     assert np.allclose(A, expect)
+    with pytest.raises(ComplexComparisonError):
+        cond = conditional(ge(u-bhp, 0.0), u-bhp, 0.0)
+        Fc = cond*v*dx
+
+        A = assemble(derivative(Fc, u, du)).M.values
+
 
 
 if __name__ == "__main__":

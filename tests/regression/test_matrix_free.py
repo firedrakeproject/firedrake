@@ -3,6 +3,7 @@ from firedrake import *
 import pytest
 import numpy as np
 from mpi4py import MPI
+from firedrake_configuration import get_config
 
 
 @pytest.fixture
@@ -279,7 +280,10 @@ def test_get_info(a, bcs, infotype):
               + (trial.function_space().dof_dset.total_size
                  * trial.function_space().dim))
 
-    expect *= np.float64().itemsize
+    if get_config()["options"]["complex"]:
+        expect *= np.complex128().itemsize
+    else:
+        expect *= np.float64().itemsize
 
     if infotype == "sum":
         expect = A.comm.allreduce(expect, op=MPI.SUM)

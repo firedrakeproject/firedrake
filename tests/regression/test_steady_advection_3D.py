@@ -33,7 +33,7 @@ def run_near_to_far(mesh, DG0, W):
     velocity = Expression(("0.0", "1.0", "0.0"))
     u0 = project(velocity, W)
 
-    inflowexpr = Expression("x[2] > 0.33 && x[2] < 0.67 ? 1.0 : 0.5")
+    inflowexpr = Expression("creal(x[2]) > 0.33 && creal(x[2]) < 0.67 ? 1.0 : 0.5")
     inflow = Function(DG0)
     inflow.interpolate(inflowexpr)
 
