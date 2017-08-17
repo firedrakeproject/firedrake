@@ -75,6 +75,8 @@ def compile_expression(slate_expr, tsfc_parameters=None):
         )
 
     if get_config()['options']['complex']:
+        if tsfc_parameters is None:
+            tsfc_parameters = {}
         tsfc_parameters['scalar_type'] = 'double complex'
     set_scalar_type(tsfc_parameters['scalar_type'])
 

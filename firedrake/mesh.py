@@ -27,6 +27,8 @@ from firedrake.logging import info_red
 from firedrake.parameters import parameters
 from firedrake.petsc import PETSc
 
+from firedrake_configuration import get_config
+
 
 __all__ = ['Mesh', 'ExtrudedMesh', 'SubDomainData']
 
@@ -1031,7 +1033,8 @@ values from f.)"""
         :kwarg tolerance: for checking if a point is in a cell.
         :returns: cell number (int), or None (if the point is not in the domain)
         """
-        x = np.asarray(x, dtype=np.float)
+        type_ = np.complex128 if get_config()["options"]["complex"] else np.float
+        x = np.asarray(x, dtype=type_)
         cell = self._c_locator(tolerance=tolerance)(self.coordinates._ctypes,
                                                     x.ctypes.data_as(ctypes.POINTER(ctypes.c_double)))
         if cell == -1:

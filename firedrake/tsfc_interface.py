@@ -21,7 +21,7 @@ from pyop2.caching import Cached
 from pyop2.op2 import Kernel
 from pyop2.mpi import COMM_WORLD, dup_comm, free_comm
 
-from coffee.base import Invert
+from coffee.base import Invert, ComplexInvert
 
 from firedrake.formmanipulation import split_form
 
@@ -112,7 +112,7 @@ class TSFCKernel(Cached):
         """
         if self._initialized:
             return
-        
+
         tree = tsfc_compile_form(form, prefix=name, parameters=parameters)
         kernels = []
         for kernel in tree:
@@ -174,9 +174,9 @@ def compile_form(form, name, parameters=None, inverse=False):
         parameters.update(_)
 
     # See if we're in complex mode:
-    config = get_config()
-    if config['options']['complex']:
+    if get_config()['options']['complex']:
         parameters['scalar_type'] = 'double complex'
+
 
     # We stash the compiled kernels on the form so we don't have to recompile
     # if we assemble the same form again with the same optimisations
@@ -249,6 +249,7 @@ def _inverse(kernel):
     """Modify ``kernel`` so to assemble the inverse of the local tensor."""
 
     local_tensor = kernel.args[0]
+    print(local_tensor)
 
     if len(local_tensor.size) != 2 or local_tensor.size[0] != local_tensor.size[1]:
         raise ValueError("Can only assemble the inverse of a square 2-form")
@@ -256,6 +257,9 @@ def _inverse(kernel):
     name = local_tensor.sym.symbol
     size = local_tensor.size[0]
 
-    kernel.children[0].children.append(Invert(name, size))
+    if get_config()["options"]["complex"]:
+        kernel.children[0].children.append(ComplexInvert(name, size))
+    else:
+        kernel.children[0].children.append(Invert(name, size))
 
     return kernel
