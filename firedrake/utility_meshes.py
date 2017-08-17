@@ -12,6 +12,8 @@ from firedrake import mesh
 from firedrake import function
 from firedrake import functionspace
 
+from firedrake_configuration import get_config
+
 
 __all__ = ['IntervalMesh', 'UnitIntervalMesh',
            'PeriodicIntervalMesh', 'PeriodicUnitIntervalMesh',
@@ -108,35 +110,42 @@ cells are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
+    floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
+    absfunc = 'cabs' if get_config() ["options"]["complex"] else 'fabs'
+
     periodic_kernel = """
-    const double pi = 3.141592653589793;
-    const double eps = 1e-12;
-    double a = atan2(old_coords[0][1], old_coords[0][0]) / (2*pi);
-    double b = atan2(old_coords[1][1], old_coords[1][0]) / (2*pi);
+    const {0} pi = 3.141592653589793;
+    const {0} eps = 1e-12;
+    {0} a = atan2(creal(old_coords[0][1]), creal(old_coords[0][0])) / (2*pi);
+    {0} b = atan2(creal(old_coords[1][1]), creal(old_coords[1][0])) / (2*pi);
     int swap = 0;
-    if ( a >= b ) {
-        const double tmp = b;
+    if ( creal(a) >= creal(b) ) {{
+        const {0} tmp = b;
         b = a;
         a = tmp;
         swap = 1;
-    }
-    if ( fabs(b) < eps && a < -eps ) {
+    }}
+    if ( creal({1}(b)) < creal(eps) && creal(a) < creal(-eps) ) {{
         b = 1.0;
-    }
-    if ( a < -eps ) {
+    }}
+    if ( creal(a) < creal(-eps) ) {{
         a += 1;
-    }
-    if ( b < -eps ) {
+    }}
+    }}
+    if ( creal(b) < creal(-eps) ) {{
         b += 1;
-    }
-    if ( swap ) {
-        const double tmp = b;
+    }}
+    }}
+    if ( swap ) {{
+        const {0} tmp = b;
         b = a;
         a = tmp;
-    }
+    }}
     new_coords[0][0] = a * L[0];
     new_coords[1][0] = b * L[0];
-    """
+    """.format(floattype, absfunc)
+
+    print(periodic_kernel)
 
     cL = Constant(length)
 
@@ -490,46 +499,51 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
+    floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
+    absfunc = 'cabs' if get_config() ["options"]["complex"] else 'fabs'
+    sinfunc = 'csin' if get_config() ["options"]["complex"] else 'sin'
+    cosfunc = 'ccos' if get_config() ["options"]["complex"] else 'cos'
+
     periodic_kernel = """
-double pi = 3.141592653589793;
-double eps = 1e-12;
-double bigeps = 1e-1;
-double phi, theta, Y, Z;
+{0} pi = 3.141592653589793;
+{0} eps = 1e-12;
+{0} bigeps = 1e-1;
+{0} phi, theta, Y, Z;
 Y = 0.0;
 Z = 0.0;
 
-for(int i=0; i<old_coords.dofs; i++) {
+for(int i=0; i<creal(old_coords.dofs); i++) {{
     Y += old_coords[i][1];
     Z += old_coords[i][2];
-}
+}}
 
-for(int i=0; i<new_coords.dofs; i++) {
-    phi = atan2(old_coords[i][1], old_coords[i][0]);
-    if (fabs(sin(phi)) > bigeps)
-        theta = atan2(old_coords[i][2], old_coords[i][1]/sin(phi) - 1.0);
+for(int i=0; i<creal(new_coords.dofs); i++) {{
+    phi = atan2(creal(old_coords[i][1]), creal(old_coords[i][0]));
+    if (creal({1}({2}(phi))) > creal(bigeps))
+        theta = atan2(creal(old_coords[i][2]), creal(old_coords[i][1]/{2}(phi) - 1.0));
     else
-        theta = atan2(old_coords[i][2], old_coords[i][0]/cos(phi) - 1.0);
+        theta = atan2(creal(old_coords[i][2]), creal(old_coords[i][0]/{3}(phi) - 1.0));
 
     new_coords[i][0] = phi/(2.0*pi);
-    if(new_coords[i][0] < -eps) {
+    if(creal(new_coords[i][0]) < creal(-eps)) {{
         new_coords[i][0] += 1.0;
-    }
-    if(fabs(new_coords[i][0]) < eps && Y < 0.0) {
+    }}
+    if(creal({1}(new_coords[i][0])) < creal(eps) && creal(Y) < creal(0.0)) {{
         new_coords[i][0] = 1.0;
-    }
+    }}
 
     new_coords[i][1] = theta/(2.0*pi);
-    if(new_coords[i][1] < -eps) {
+    if(creal(new_coords[i][1]) < creal(-eps)) {{
         new_coords[i][1] += 1.0;
-    }
-    if(fabs(new_coords[i][1]) < eps && Z < 0.0) {
+    }}
+    if(creal({1}(new_coords[i][1])) < creal(eps) && creal(Z) < creal(0.0)) {{
         new_coords[i][1] = 1.0;
-    }
+    }}
 
     new_coords[i][0] *= Lx[0];
     new_coords[i][1] *= Ly[0];
-}
-"""
+}}
+""".format(floattype, absfunc, sinfunc, cosfunc)
 
     cLx = Constant(Lx)
     cLy = Constant(Ly)
@@ -1203,23 +1217,27 @@ cells in each direction are not currently supported")
     old_coordinates = m.coordinates
     new_coordinates = Function(coord_fs)
 
+    floattype = 'double complex' if get_config()["options"]["complex"] else 'double'
+
     # make x-periodic mesh
     # unravel x coordinates like in periodic interval
     # set y coordinates to z coordinates
-    periodic_kernel = """double Y,pi;
+    periodic_kernel = """{0} Y,pi;
             Y = 0.0;
-            for(int i=0; i<old_coords.dofs; i++) {
+            for(int i=0; i<creal(old_coords.dofs); i++) {{
                 Y += old_coords[i][1];
-            }
+            }}
 
             pi=3.141592653589793;
-            for(int i=0;i<new_coords.dofs;i++){
-            new_coords[i][0] = atan2(old_coords[i][1],old_coords[i][0])/pi/2;
-            if(new_coords[i][0]<0.) new_coords[i][0] += 1;
-            if(new_coords[i][0]==0 && Y<0.) new_coords[i][0] = 1.0;
+            for(int i=0;i<creal(new_coords.dofs);i++){{
+            new_coords[i][0] = atan2(creal(old_coords[i][1]),creal(old_coords[i][0]))/pi/2;
+            if(creal(new_coords[i][0])<creal(0.)) new_coords[i][0] += 1;
+            if(creal(new_coords[i][0])==creal(0) && creal(Y)<creal(0.)) new_coords[i][0] = 1.0;
             new_coords[i][0] *= Lx[0];
             new_coords[i][1] = old_coords[i][2]*Ly[0];
-            }"""
+            }}""".format(floattype)
+
+    print(periodic_kernel)
 
     cLx = Constant(La)
     cLy = Constant(Lb)
