@@ -588,6 +588,9 @@ class MixedFunctionSpace(object):
     def __ne__(self, other):
         return not self.__eq__(other)
 
+    def __hash__(self):
+        return hash(tuple(self))
+
     def split(self):
         """The list of :class:`FunctionSpace`\s of which this
         :class:`MixedFunctionSpace` is composed."""
@@ -884,6 +887,12 @@ class RealFunctionSpace(FunctionSpace):
         # FIXME: Think harder about equality
         return self.mesh() is other.mesh() and \
             self.ufl_element() == other.ufl_element()
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash((self.mesh(), self.ufl_element()))
 
     def _dm(self):
         from firedrake.mg.utils import get_level
