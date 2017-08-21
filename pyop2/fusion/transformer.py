@@ -792,8 +792,8 @@ def create_slope_set(op2set, extra_halo, insp_sets=None):
 
     if slope.get_exec_mode() not in ['OMP_MPI', 'ONLY_MPI']:
         core_size = op2set.core_size
-        boundary_size = op2set.exec_size - op2set.core_size
-        nonexec_size = op2set.total_size - op2set.exec_size
+        boundary_size = op2set.size - op2set.core_size
+        nonexec_size = op2set.total_size - op2set.size
     elif hasattr(op2set, '_deep_size'):
         # Assume [1, ..., N] levels of halo regions
         # Each level is represented by (core, owned, exec, nonexec)
@@ -808,8 +808,8 @@ def create_slope_set(op2set, extra_halo, insp_sets=None):
     else:
         warning("Couldn't find deep halos in %s, outcome is undefined." % op2set.name)
         core_size = op2set.core_size
-        boundary_size = op2set.exec_size - op2set.core_size
-        nonexec_size = op2set.total_size - op2set.exec_size
+        boundary_size = op2set.size - op2set.core_size
+        nonexec_size = op2set.total_size - op2set.size
 
     slope_set = SlopeSet(name, core_size, boundary_size, nonexec_size, superset)
     insp_sets[slope_set] = partitioning
@@ -847,7 +847,7 @@ def estimate_data_reuse(filename, loop_chain):
         f.write('** Summary: %d KBytes moved, %d Megaflops performed\n' %
                 (tot_footprint, tot_flops))
         probSeed = 0 if MPI.COMM_WORLD.size > 1 else len(loop_chain) // 2
-        probNtiles = loop_chain[probSeed].it_space.exec_size // tile_size or 1
+        probNtiles = loop_chain[probSeed].it_space.size // tile_size or 1
         f.write('** KB/tile: %d' % (tot_footprint/probNtiles))
         f.write('  (Estimated: %d tiles)\n' % probNtiles)
         f.write('-' * 68 + '\n')

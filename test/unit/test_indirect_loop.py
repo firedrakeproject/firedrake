@@ -45,9 +45,9 @@ from coffee.base import *
 nelems = 4096
 
 
-@pytest.fixture(params=[(nelems, nelems, nelems, nelems),
-                        (0, nelems, nelems, nelems),
-                        (nelems // 2, nelems, nelems, nelems)])
+@pytest.fixture(params=[(nelems, nelems, nelems),
+                        (0, nelems, nelems),
+                        (nelems // 2, nelems, nelems)])
 @pytest.fixture
 def iterset(request):
     return op2.Set(request.param, "iterset")

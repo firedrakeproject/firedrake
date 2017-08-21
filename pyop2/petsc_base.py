@@ -58,9 +58,16 @@ class DataSet(base.DataSet):
             lgmap.create(indices=np.arange(self.size, dtype=IntType),
                          bsize=self.cdim, comm=self.comm)
         else:
-            lgmap.create(indices=self.halo.global_to_petsc_numbering,
+            lgmap.create(indices=self.halo.local_to_global_numbering,
                          bsize=self.cdim, comm=self.comm)
         return lgmap
+
+    @utils.cached_property
+    def scalar_lgmap(self):
+        if self.cdim == 1:
+            return self.lgmap
+        indices = self.lgmap.block_indices
+        return PETSc.LGMap().create(indices=indices, bsize=1, comm=self.comm)
 
     @utils.cached_property
     def unblocked_lgmap(self):
@@ -283,7 +290,7 @@ class MixedDataSet(DataSet, base.MixedDataSet):
             self.comm.Scan(owned_sz, field_offset)
             self.comm.Allgather(field_offset, current_offsets[1:])
             # Find the ranks each entry in the l2g belongs to
-            l2g = s.halo.global_to_petsc_numbering
+            l2g = s.halo.local_to_global_numbering
             # If cdim > 1, we need to unroll the node numbering to dof
             # numbering
             if s.cdim > 1:
@@ -339,7 +346,7 @@ class Dat(base.Dat):
         self._vec.stateIncrease()
         yield self._vec
         if access is not base.READ:
-            self.needs_halo_update = True
+            self.halo_valid = False
 
     @property
     @collective
@@ -409,7 +416,7 @@ class MixedDat(base.MixedDat):
                                        mode=PETSc.ScatterMode.REVERSE)
                     vscat.scatterEnd(self._vec, v, addv=PETSc.InsertMode.INSERT_VALUES,
                                      mode=PETSc.ScatterMode.REVERSE)
-            self.needs_halo_update = True
+            self.halo_valid = False
 
     @property
     @collective
@@ -702,8 +709,10 @@ class Mat(base.Mat):
         # We completely fill the allocated matrix when zeroing the
         # entries, so raise an error if we "missed" one.
         mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
-        mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
+        # The first assembly (filling with zeros) sets all possible entries.
+        mat.setOption(mat.Option.SUBSET_OFF_PROC_ENTRIES, True)
         # Put zeros in all the places we might eventually put a value.
         with timed_region("MatZeroInitial"):
             for i in range(rows):
@@ -712,8 +721,10 @@ class Mat(base.Mat):
                                              self[i, j].sparsity.dims[0][0],
                                              self[i, j].sparsity.maps,
                                              set_diag=self[i, j].sparsity._has_diagonal)
+                    self[i, j].handle.assemble()
 
         mat.assemble()
+        mat.setOption(mat.Option.NEW_NONZERO_LOCATION_ERR, True)
         mat.setOption(mat.Option.IGNORE_ZERO_ENTRIES, True)
 
     def _init_nest(self):
@@ -736,14 +747,15 @@ class Mat(base.Mat):
     def _init_block(self):
         self._blocks = [[self]]
 
-        if (isinstance(self.sparsity._dsets[0], GlobalDataSet) or
-                isinstance(self.sparsity._dsets[1], GlobalDataSet)):
+        rset, cset = self.sparsity.dsets
+        if (isinstance(rset, GlobalDataSet) or
+                isinstance(cset, GlobalDataSet)):
             self._init_global_block()
             return
 
         mat = PETSc.Mat()
-        row_lg = self.sparsity.dsets[0].lgmap
-        col_lg = self.sparsity.dsets[1].lgmap
+        row_lg = rset.lgmap
+        col_lg = cset.lgmap
         rdim, cdim = self.dims[0][0]
 
         if rdim == cdim and rdim > 1 and self.sparsity._block_sparse:
@@ -762,9 +774,8 @@ class Mat(base.Mat):
                bsize=(rdim, cdim),
                comm=self.comm)
         mat.setLGMap(rmap=row_lg, cmap=col_lg)
-        # Do not stash entries destined for other processors, just drop them
-        # (we take care of those in the halo)
-        mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, True)
+        # Stash entries destined for other processors
+        mat.setOption(mat.Option.IGNORE_OFF_PROC_ENTRIES, False)
         # Any add or insertion that would generate a new entry that has not
         # been preallocated will raise an error
         mat.setOption(mat.Option.NEW_NONZERO_ALLOCATION_ERR, True)
@@ -779,11 +790,11 @@ class Mat(base.Mat):
         # We completely fill the allocated matrix when zeroing the
         # entries, so raise an error if we "missed" one.
         mat.setOption(mat.Option.UNUSED_NONZERO_LOCATION_ERR, True)
-
         # Put zeros in all the places we might eventually put a value.
         with timed_region("MatZeroInitial"):
             sparsity.fill_with_zeros(mat, self.sparsity.dims[0][0], self.sparsity.maps, set_diag=self.sparsity._has_diagonal)
-
+        mat.assemble()
+        mat.setOption(mat.Option.NEW_NONZERO_LOCATION_ERR, True)
         # Now we've filled up our matrix, so the sparsity is
         # "complete", we can ignore subsequent zero entries.
         if not block_sparse:

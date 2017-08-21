@@ -278,15 +278,6 @@ def parser(description=None, group=False):
     return parser
 
 
-def maybe_setflags(array, write=None, align=None, uic=None):
-    """Set flags on a numpy ary.
-
-    But don't try to set the write flag if the data aren't owned by this array.
-    See `numpy.ndarray.setflags` for details of the parameters."""
-    write = write if array.flags['OWNDATA'] else None
-    array.setflags(write=write, align=align, uic=uic)
-
-
 def parse_args(*args, **kwargs):
     """Return parsed arguments as variables for later use.
 

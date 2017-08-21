@@ -47,9 +47,9 @@ class TestGlobalReductions:
     Global reduction argument tests
     """
 
-    @pytest.fixture(scope='module', params=[(nelems, nelems, nelems, nelems),
-                                            (0, nelems, nelems, nelems),
-                                            (nelems // 2, nelems, nelems, nelems)])
+    @pytest.fixture(scope='module', params=[(nelems, nelems, nelems),
+                                            (0, nelems, nelems),
+                                            (nelems // 2, nelems, nelems)])
     def set(cls, request):
         return op2.Set(request.param, 'set')
 
