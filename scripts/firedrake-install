@@ -1145,7 +1145,7 @@ try:
 except Exception as e:
     log.warning("Unable to save configuration to a JSON file")
     log.warning("Error Message:")
-    log.warning(e.message)
+    log.warning(str(e))
 
 if mode == "update":
     try:
