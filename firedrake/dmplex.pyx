@@ -658,13 +658,13 @@ def mark_entity_classes(PETSc.DM plex):
     pStart, pEnd = plex.getChart()
     cStart, cEnd = plex.getHeightStratum(0)
 
-    plex.createLabel("core")
-    plex.createLabel("owned")
-    plex.createLabel("ghost")
+    plex.createLabel("pyop2_core")
+    plex.createLabel("pyop2_owned")
+    plex.createLabel("pyop2_ghost")
 
-    CHKERR(DMGetLabel(plex.dm, "core", &lbl_core))
-    CHKERR(DMGetLabel(plex.dm, "owned", &lbl_owned))
-    CHKERR(DMGetLabel(plex.dm, "ghost", &lbl_ghost))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &lbl_core))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &lbl_owned))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &lbl_ghost))
 
     if plex.comm.size > 1:
         # Mark ghosts from point overlap SF
@@ -737,9 +737,9 @@ def get_entity_classes(PETSc.DM plex):
         eStart[d] = start
         eEnd[d] = end
 
-    for i, op2class in enumerate(["core",
-                                  "owned",
-                                  "ghost"]):
+    for i, op2class in enumerate([b"pyop2_core",
+                                  b"pyop2_owned",
+                                  b"pyop2_ghost"]):
         class_is = plex.getStratumIS(op2class, 1)
         class_size = plex.getStratumSize(op2class, 1)
         if class_size > 0:
@@ -885,9 +885,9 @@ def get_facets_by_class(PETSc.DM plex, label,
     facet_classes = [0, 0, 0]
     fi = 0
 
-    for i, op2class in enumerate([b"core",
-                                  b"owned",
-                                  b"ghost"]):
+    for i, op2class in enumerate([b"pyop2_core",
+                                  b"pyop2_owned",
+                                  b"pyop2_ghost"]):
         CHKERR(DMGetLabel(plex.dm, op2class, &lbl_class))
         CHKERR(DMLabelCreateIndex(lbl_class, pStart, pEnd))
         nclass = plex.getStratumSize(op2class, 1)
@@ -994,9 +994,9 @@ def plex_renumbering(PETSc.DM plex,
     ncells = np.zeros(3, dtype=IntType)
 
     # Get label pointers and label-specific array indices
-    CHKERR(DMGetLabel(plex.dm, "core", &labels[0]))
-    CHKERR(DMGetLabel(plex.dm, "owned", &labels[1]))
-    CHKERR(DMGetLabel(plex.dm, "ghost", &labels[2]))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_core", &labels[0]))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_owned", &labels[1]))
+    CHKERR(DMGetLabel(plex.dm, b"pyop2_ghost", &labels[2]))
     for l in range(3):
         CHKERR(DMLabelCreateIndex(labels[l], pStart, pEnd))
     entity_classes = entity_classes.astype(IntType)
