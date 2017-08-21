@@ -30,7 +30,6 @@ from pyop2.datatypes import IntType, as_cstr
 from firedrake import dmplex as dm_mod
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
-from firedrake.petsc import PETSc
 
 
 __all__ = ("get_shared_data", )
@@ -82,14 +81,9 @@ def get_node_set(mesh, nodes_per_entity):
     :returns: A :class:`pyop2.Set` for the function space nodes.
     """
     global_numbering = get_global_numbering(mesh, nodes_per_entity)
-    # Use a DM to create the halo SFs
-    dm = PETSc.DMShell().create(mesh.comm)
-    dm.setPointSF(mesh._plex.getPointSF())
-    dm.setDefaultSection(global_numbering)
     node_classes = tuple(numpy.dot(nodes_per_entity, mesh._entity_classes))
-    node_set = op2.Set(node_classes, halo=halo_mod.Halo(dm), comm=mesh.comm)
-    # Don't need it any more, explicitly destroy.
-    dm.destroy()
+    halo = halo_mod.Halo(mesh._plex, global_numbering)
+    node_set = op2.Set(node_classes, halo=halo, comm=mesh.comm)
     extruded = bool(mesh.layers)
     if extruded:
         node_set = op2.ExtrudedSet(node_set, layers=mesh.layers)

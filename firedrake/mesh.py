@@ -49,7 +49,7 @@ class _Facets(object):
 
         self.mesh = mesh
 
-        classes = as_tuple(classes, int, 4)
+        classes = as_tuple(classes, int, 3)
         self.classes = classes
 
         self.kind = kind
@@ -372,8 +372,10 @@ class MeshTopology(object):
         def callback(self):
             """Finish initialisation."""
             del self._callback
-            if self.comm.size > 1:
+            if self.comm.size > 1 and distribute:
+                dmplex.set_adjacency_callback(self._plex)
                 self._plex.distributeOverlap(1)
+                dmplex.clear_adjacency_callback(self._plex)
             self._grown_halos = True
 
             if reorder:
