@@ -323,15 +323,14 @@ petsc_opts = "--download-eigen=%s/src/eigen-3.3.3.tgz " % firedrake_env
 
 if options["minimal_petsc"]:
     if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --with-64-bit-indices"""
+        petsc_opts += """--download-metis --download-parmetis --download-hdf5 --download-hypre --download-pragmatic --with-64-bit-indices"""
     else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5"""
+        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-hdf5 --download-pragmatic"""
 else:
     if options["petsc_int_type"] == "int64":
-        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --with-64-bit-indices"""
+        petsc_opts += """--download-metis --download-parmetis --download-hypre --download-netcdf --download-hdf5 --download-exodusii --download-pragmatic --with-64-bit-indices"""
     else:
-        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii"""
-
+        petsc_opts += """--download-chaco --download-metis --download-parmetis --download-scalapack --download-hypre --download-mumps --download-netcdf --download-hdf5 --download-exodusii --download-pragmatic"""
 
 if "PETSC_CONFIGURE_OPTIONS" not in os.environ:
     os.environ["PETSC_CONFIGURE_OPTIONS"] = petsc_opts
