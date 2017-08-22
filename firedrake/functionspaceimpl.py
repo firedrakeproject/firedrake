@@ -297,7 +297,8 @@ class FunctionSpace(object):
         self.finat_element = finat_element
         self.extruded = sdata.extruded
         self.offset = sdata.offset
-        self.boundary_masks = sdata.boundary_masks
+        self.cell_boundary_masks = sdata.cell_boundary_masks
+        self.interior_facet_boundary_masks = sdata.interior_facet_boundary_masks
 
     # These properties are overridden in ProxyFunctionSpaces, but are
     # provided by FunctionSpace so that we don't have to special case.

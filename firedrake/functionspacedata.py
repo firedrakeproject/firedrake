@@ -189,14 +189,21 @@ def get_boundary_masks(mesh, key, finat_element):
     :arg finat_element: The FInAT element.
     :returns: A dict mapping ``"topological"`` and ``"geometric"``
         keys to boundary nodes or ``None``.  If not None, the entry in
-        the mask dict is an array of shape `(nfacet, ndof)` with the
-        ordering that of the reference cell topology.  Each `ndof`
-        entry is a True/False value that indicates whether that dof
-        is in the closure of the relevant facet.
+        the mask dict 3-tuple of a Section, an array of indices, and
+        an array indicating which points in the Section correspond to
+        the facets of the cell.  If section.getDof(p) is non-zero,
+        then there are ndof basis functions topologically associated
+        with points in the closure of
+        point p (for "topological", ndof basis functions with non-zero
+        support on points in the closure of p for "geometric").  The
+        basis function indices are in the index array, starting at
+        section.getOffset(p).
     """
     if not mesh.cell_set._extruded:
         return None
     masks = {}
+    _, kind = key
+    assert kind in {"cell", "interior_facet"}
     dim = finat_element.cell.get_spatial_dimension()
     ecd = finat_element.entity_closure_dofs()
     try:
@@ -214,16 +221,27 @@ def get_boundary_masks(mesh, key, finat_element):
     support_indices = []
     facet_points = []
     p = 0
+
+    offset = finat_element.space_dimension()
+    # Double up for interior facets.
+    if kind == "cell":
+        ncell = 1
+    else:
+        ncell = 2
     for ent in sorted(ecd.keys()):
         # Never need closure of cell
         if sum(ent) == dim:
             continue
         for key in sorted(ecd[ent].keys()):
-            closure_section.setDof(p, len(ecd[ent][key]))
-            closure_indices.extend(sorted(ecd[ent][key]))
+            closure_section.setDof(p, ncell*len(ecd[ent][key]))
+            vals = numpy.asarray(sorted(ecd[ent][key]), dtype=IntType)
+            for i in range(ncell):
+                closure_indices.extend(vals + i*offset)
             if esd is not None:
-                support_section.setDof(p, len(esd[ent][key]))
-                support_indices.extend(sorted(esd[ent][key]))
+                support_section.setDof(p, ncell*len(esd[ent][key]))
+                vals = numpy.asarray(sorted(esd[ent][key]), dtype=IntType)
+                for i in range(ncell):
+                    support_indices.extend(vals + i*offset)
             if sum(ent) == dim - 1:
                 facet_points.append(p)
             p += 1
@@ -270,12 +288,12 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
         if method == "geometric":
             raise NotImplementedError("Generic entity_support_dofs not implemented.")
         return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
-                                                V.boundary_masks[method],
+                                                V.cell_boundary_masks[method],
                                                 offset,
                                                 sub_domain)
     else:
         idx = {"bottom": -2, "top": -1}[sub_domain]
-        section, indices, facet_points = V.boundary_masks[method]
+        section, indices, facet_points = V.cell_boundary_masks[method]
         facet = facet_points[idx]
         dof = section.getDof(facet)
         off = section.getOffset(facet)
@@ -375,7 +393,8 @@ class FunctionSpaceData(object):
        attached to topological entities.
     """
     __slots__ = ("map_caches", "entity_node_lists",
-                 "node_set", "boundary_masks", "offset",
+                 "node_set", "cell_boundary_masks",
+                 "interior_facet_boundary_masks", "offset",
                  "extruded", "mesh", "global_numbering")
 
     def __init__(self, mesh, finat_element):
@@ -399,7 +418,8 @@ class FunctionSpaceData(object):
         self.offset = get_dof_offset(mesh, edofs_key, entity_dofs, finat_element.space_dimension())
         self.entity_node_lists = get_entity_node_lists(mesh, edofs_key, entity_dofs, global_numbering, self.offset)
         self.node_set = node_set
-        self.boundary_masks = get_boundary_masks(mesh, edofs_key, finat_element)
+        self.cell_boundary_masks = get_boundary_masks(mesh, (edofs_key, "cell"), finat_element)
+        self.interior_facet_boundary_masks = get_boundary_masks(mesh, (edofs_key, "interior_facet"), finat_element)
         self.extruded = mesh.cell_set._extruded
         self.mesh = mesh
         self.global_numbering = global_numbering
@@ -645,14 +665,18 @@ class FunctionSpaceData(object):
             else:
                 new_entity_node_list = entity_node_list
 
-            # TODO: handle kind == interior_facet
+            if kind == "interior_facet":
+                boundary_masks = self.interior_facet_boundary_masks
+            else:
+                boundary_masks = self.cell_boundary_masks
+
             val = op2.Map(entity_set, self.node_set,
                           map_arity,
                           new_entity_node_list,
                           ("%s_"+name) % (V.name),
                           offset=offset,
                           parent=parent,
-                          boundary_masks=self.boundary_masks)
+                          boundary_masks=boundary_masks)
 
             if decorate:
                 val = op2.DecoratedMap(val, vector_index=True)
