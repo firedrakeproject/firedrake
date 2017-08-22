@@ -175,7 +175,7 @@ def test_numbering_two_d_P1():
                     [2, 0],
                     [3, 0],
                     [3, 1]], COMM_WORLD)
-    dm.markBoundaryFaces("boundary_ids")
+    dm.markBoundaryFaces("Face Sets")
 
     mesh2d = Mesh(dm, reorder=False)
 
@@ -226,7 +226,7 @@ def test_numbering_two_d_P2BxP1():
                     [2, 0],
                     [3, 0],
                     [3, 1]], COMM_WORLD)
-    dm.markBoundaryFaces("boundary_ids")
+    dm.markBoundaryFaces("Face Sets")
 
     mesh2d = Mesh(dm, reorder=False)
 
@@ -297,14 +297,14 @@ def test_numbering_two_d_bigger():
                     [3, 0],
                     [3, 1],
                     [2, -1]], COMM_WORLD)
-    dm.createLabel("boundary_ids")
+    dm.createLabel("Face Sets")
 
     for faces, val in [((11, 13), 1),
                        ((14, 20), 2),
                        ((16, ), 3),
                        ((17, 18, 19), 4)]:
         for face in faces:
-            dm.setLabelValue("boundary_ids", face, val)
+            dm.setLabelValue("Face Sets", face, val)
 
     mesh2d = Mesh(dm, reorder=False)
 
@@ -409,9 +409,6 @@ def test_layer_extents_parallel():
     # 1 -> 0
     # 2 -> 3
     # 3 -> 2
-    #
-    # So after growing halos, ranks 0 and 3 see the whole mesh, ranks
-    # 1 and 2 see almost the whole mesh.
     if COMM_WORLD.rank == 0:
         sizes = numpy.asarray([1, 1, 1, 1], dtype=IntType)
         points = numpy.asarray([1, 0, 3, 2], dtype=IntType)
@@ -438,23 +435,21 @@ def test_layer_extents_parallel():
 
     if mesh.comm.rank == 0:
         #  Top view, plex points
-        #  5--10-8--14-6
-        #  |\  0 |\  2 |
-        #  | \   | \   |
-        # 11 12  16 17 15
-        #  |   \ |   \ |
-        #  | 1  \| 3  \|
-        #  4--13-7--18-9
+        #  4--8--6
+        #  |\  0 |\
+        #  | \   | \
+        #  9  10 12 13
+        #  |   \ |   \
+        #  | 1  \| 2  \
+        #  3--11-5--14-7
         expected = numpy.asarray([
             # cells
             [0, 2, 0, 2],
             [0, 2, 0, 2],
-            [0, 3, 0, 3],
             [0, 2, 0, 2],
             # vertices
             [0, 2, 0, 2],
             [0, 2, 0, 2],
-            [0, 3, 0, 3],
             [0, 2, 0, 2],
             [0, 3, 0, 2],
             [0, 3, 0, 2],
@@ -463,23 +458,20 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
-            [0, 3, 0, 3],
-            [0, 3, 0, 3],
             [0, 2, 0, 2],
             [0, 3, 0, 2],
             [0, 2, 0, 2]], dtype=IntType)
     elif mesh.comm.rank == 1:
         #  Top view, plex points
-        #  4--11-6
-        #  |\  1 |\
-        #  | \   | \
-        #  8  9  12 13
-        #  |   \ |   \
-        #  | 0  \| 2  \
-        #  3--10-5--14-7
+        #  3--9--5
+        #  |\  1 |
+        #  | \   |
+        #  6  7  10
+        #  |   \ |
+        #  | 0  \|
+        #  2--8--4
         expected = numpy.asarray([
             # cells
-            [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             # vertices
@@ -487,55 +479,47 @@ def test_layer_extents_parallel():
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 3, 0, 2],
-            [0, 3, 0, 2],
             # edges
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
-            [0, 2, 0, 2],
-            [0, 3, 0, 2],
             [0, 2, 0, 2]], dtype=IntType)
     elif mesh.comm.rank == 2:
         #  Top view, plex points
-        #  4--10-6--8--3
-        #   \  1 |\  0 |
-        #    \   | \   |
-        #    11  12 13 9
-        #      \ |   \ |
-        #       \| 2  \|
-        #        5--14-7
+        #  4--6--2
+        #  |\  0 |
+        #  | \   |
+        #  9  8  7
+        #  |   \ |
+        #  | 1  \|
+        #  3--10-5
         expected = numpy.asarray([
             # cells
             [0, 3, 0, 3],
             [0, 2, 0, 2],
-            [0, 2, 0, 2],
             # vertices
             [0, 3, 0, 3],
-            [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 3, 0, 2],
             [0, 3, 0, 2],
             # edges
             [0, 3, 0, 3],
             [0, 3, 0, 3],
-            [0, 2, 0, 2],
-            [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 3, 0, 2],
             [0, 2, 0, 2]], dtype=IntType)
     elif mesh.comm.rank == 3:
         #  Top view, plex points
-        #  8--13-5--17-9
-        #  |\  1 |\  3 |
-        #  | \   | \   |
-        # 14 15  10 11 18
-        #  |   \ |   \ |
-        #  | 2  \| 0  \|
-        #  7--16-4--12-6
+        #  6--11-4--13-7
+        #   \  1 |\  2 |
+        #    \   | \   |
+        #    12  8  9 14
+        #      \ |   \ |
+        #       \| 0  \|
+        #        3--10-5
         expected = numpy.asarray([
             # cells
-            [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 3, 0, 3],
@@ -544,13 +528,10 @@ def test_layer_extents_parallel():
             [0, 3, 0, 2],
             [0, 3, 0, 2],
             [0, 2, 0, 2],
-            [0, 2, 0, 2],
             [0, 3, 0, 3],
             # edges
             [0, 2, 0, 2],
             [0, 3, 0, 2],
-            [0, 2, 0, 2],
-            [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
             [0, 2, 0, 2],
