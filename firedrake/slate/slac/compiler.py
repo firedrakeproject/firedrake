@@ -136,16 +136,14 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
             # If tensor is mixed, there will be more than one SplitKernel
             incl = []
-            split_forms = cxt_kernel.form_indices_map
             for splitkernel in cxt_kernel.tsfc_kernels:
                 index = splitkernel.indices
                 kinfo = splitkernel.kinfo
 
                 # Generate an iterable of coefficients to pass to the subkernel
                 # if any are required.
-                sform = split_forms[index]
                 clist = [c for i in kinfo.coefficient_map
-                         for c in builder.coefficient(sform.coefficients()[i])]
+                         for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
                 if kinfo.oriented:
                     clist.insert(0, cell_orientations)
@@ -328,7 +326,6 @@ def extruded_int_horiz_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
     incl = []
     top_calls = []
     bottom_calls = []
-    split_forms = cxt_kernel.form_indices_map
     for top, btm in zip(top_sks, bottom_sks):
         assert top.indices == btm.indices, (
             "Top and bottom kernels must have the same indices"
@@ -340,10 +337,8 @@ def extruded_int_horiz_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
         c_set = top.kinfo.coefficient_map + btm.kinfo.coefficient_map
         coefficient_map = tuple(OrderedDict.fromkeys(c_set))
 
-        # Split form for this particular splitkernel
-        sform = split_forms[index]
         clist = [c for i in coefficient_map
-                 for c in builder.coefficient(sform.coefficients()[i])]
+                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
         if top.kinfo.oriented and btm.kinfo.oriented:
             clist.insert(0, cell_orientations)
@@ -390,17 +385,14 @@ def extruded_top_bottom_facet(cxt_kernel, builder, coordsym, mesh_layer_sym,
 
     incl = []
     body = []
-    split_forms = cxt_kernel.form_indices_map
     for splitkernel in cxt_kernel.tsfc_kernels:
         index = splitkernel.indices
         kinfo = splitkernel.kinfo
 
         # Generate an iterable of coefficients to pass to the subkernel
         # if any are required.
-        # Split form for this particular splitkernel
-        sform = split_forms[index]
         clist = [c for i in kinfo.coefficient_map
-                 for c in builder.coefficient(sform.coefficients()[i])]
+                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
         if kinfo.oriented:
             clist.insert(0, cell_orientations)
@@ -466,17 +458,14 @@ def facet_integral_loop(cxt_kernel, builder, coordsym, cellfacetsym,
     incl = []
     funcalls = []
     checker = chker[it_type]
-    split_forms = cxt_kernel.form_indices_map
     for splitkernel in cxt_kernel.tsfc_kernels:
         index = splitkernel.indices
         kinfo = splitkernel.kinfo
 
         # Generate an iterable of coefficients to pass to the subkernel
         # if any are required.
-        # Split form for this particular splitkernel
-        sform = split_forms[index]
         clist = [c for i in kinfo.coefficient_map
-                 for c in builder.coefficient(sform.coefficients()[i])]
+                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
 
         incl.extend(kinfo.kernel._include_dirs)
         tensor = eigen_tensor(exp, t, index)
