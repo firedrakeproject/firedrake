@@ -394,6 +394,50 @@ def test_numbering_quad():
                        [17, 18, 19, 20, 21, 22, 23, 24]).all()
 
 
+@pytest.mark.parametrize(["domain", "expected"],
+                         [("top", [3, 6, 7, 9, 11, 13, 14, 17]),
+                          ("bottom", [0, 4, 5, 8, 10, 12, 15]),
+                          (1, [0, 1, 2, 3]),
+                          (2, [15, 16, 17])])
+def test_bcs_nodes(domain, expected):
+    # 3----7              14---17
+    # |    |              |    |
+    # |    |              |    |
+    # 2----6----9----11---13---16
+    # |    |    |    |    |    |
+    # |    |    |    |    |    |
+    # 1----5----8----10---12---15
+    # |    |
+    # |    |
+    # 0----4
+    mesh = UnitIntervalMesh(5)
+    V = VectorFunctionSpace(mesh, "DG", 0, dim=2)
+
+    x, = SpatialCoordinate(mesh)
+
+    selector = interpolate(
+        conditional(
+            x < 0.2,
+            as_vector([0, 3]),
+            conditional(x > 0.8,
+                        as_vector([1, 2]),
+                        as_vector([1, 1]))),
+        V)
+
+    layers = numpy.empty((5, 2), dtype=IntType)
+
+    layers[:] = selector.dat.data_ro
+
+    extmesh = ExtrudedMesh(mesh, layers=layers,
+                           layer_height=0.25)
+
+    V = FunctionSpace(extmesh, "CG", 1)
+
+    nodes = DirichletBC(V, 0, domain).nodes
+
+    assert numpy.equal(nodes, expected).all()
+
+
 @pytest.mark.parallel(nprocs=4)
 def test_layer_extents_parallel():
     # +-----+-----+
