@@ -447,8 +447,6 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         val.append("for (int facet = 0; facet < %d; facet++) {" % (2 if is_facet else 1))
-        val.append("const int64_t bottom_mask = bottom_masks[entity_offset + j_0 - bottom_layer + facet];")
-        val.append("const int64_t top_mask = top_masks[entity_offset + j_0 - bottom_layer + facet];")
         bottom_masking = []
         top_masking = []
         chart = None
@@ -482,8 +480,10 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
             # No implicit bcs found
             return ""
         if len(bottom_masking) > 0:
+            val.append("const int64_t bottom_mask = bottom_masks[entity_offset + j_0 - bottom_layer + facet];")
             val.append("\n".join(bottom_masking))
         if len(top_masking) > 0:
+            val.append("const int64_t top_mask = top_masks[entity_offset + j_0 - bottom_layer + facet];")
             val.append("\n".join(top_masking))
         val.append("}")
         return "\n".join(val)
