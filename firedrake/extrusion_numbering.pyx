@@ -861,7 +861,7 @@ def cell_entity_masks(mesh):
     ncell, nclosure = cell_closure.shape
     cStart, cEnd = mesh._plex.getHeightStratum(0)
     top = numpy.zeros(numpy.sum(layer_extents[cStart:cEnd, 1] - layer_extents[cStart:cEnd, 0] - 1),
-                            dtype=numpy.int64)
+                      dtype=numpy.int64)
     bottom = numpy.zeros_like(top)
     # We iterate over the base cell and do all the entities in the extruded cell above it,
     # therefore we need a mapping from the standard firedrake entity ordering to this one.
@@ -914,7 +914,7 @@ def cell_entity_masks(mesh):
                     # Full entity layer exposed
                     point = points[p + 2]
                     bottom_mask &= flips[point]
-                    top_mask |= 2**point
+                    bottom_mask |= 2**point
                 elif layer == ent_bottom:
                     # Bottom of entity layer exposed, pick up the
                     # bottom vertex.
