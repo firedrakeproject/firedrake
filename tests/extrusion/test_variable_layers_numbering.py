@@ -543,3 +543,122 @@ def test_layer_extents_parallel():
     V = FunctionSpace(extmesh, "CG", 1)
 
     assert V.dof_dset.layout_vec.getSize() == 15
+
+
+@pytest.mark.parallel(nprocs=3)
+def test_layer_extents_parallel_vertex_owners():
+    dm = create_dm(2, [[0, 1, 2],
+                       [1, 2, 3],
+                       [2, 3, 4]],
+                   [[0, 0],
+                    [1, 0],
+                    [0, 1],
+                    [1, 1],
+                    [2, 0]], comm=COMM_WORLD)
+
+    if COMM_WORLD.rank == 0:
+        sizes = numpy.asarray([1, 1, 1], dtype=IntType)
+        points = numpy.asarray([0, 1, 2], dtype=IntType)
+    else:
+        sizes = None
+        points = None
+
+    mesh = Mesh(dm, reorder=False, distribute=(sizes, points))
+    V = FunctionSpace(mesh, "DG", 0)
+
+    x, _ = SpatialCoordinate(mesh)
+    selector = interpolate(x, V)
+
+    layers = numpy.empty((mesh.num_cells(), 2), dtype=IntType)
+
+    data = selector.dat.data_ro_with_halos
+    for cell in V.cell_node_map().values_with_halo:
+        if data[cell] < 0.5:
+            layers[cell, :] = [1, 1]
+        else:
+            layers[cell, :] = [0, 3]
+
+    extmesh = ExtrudedMesh(mesh, layers=layers, layer_height=1)
+
+    if mesh.comm.rank == 0:
+        #  Top view, plex points
+        #  3--9--5
+        #  |\  1 |
+        #  | \   |
+        #  7  8 10
+        #  |   \ |
+        #  | 0  \|
+        #  2--6--4
+        expected = numpy.asarray([
+            # cells
+            [1, 3, 1, 3],
+            [0, 4, 0, 4],
+            # vertices
+            [1, 3, 1, 3],
+            [0, 4, 1, 3],
+            [0, 4, 1, 3],
+            [0, 4, 0, 4],
+            # edges
+            [1, 3, 1, 3],
+            [1, 3, 1, 3],
+            [0, 4, 1, 3],
+            [0, 4, 0, 4],
+            [0, 4, 0, 4]], dtype=IntType)
+    elif mesh.comm.rank == 1:
+        #  Top view, plex points
+        #  3--9--6
+        #  |\  0 |\
+        #  | \   | \
+        #  11 8 12  13
+        #  |   \ |   \
+        #  | 1  \| 2  \
+        #  4--10-5--14-7
+        expected = numpy.asarray([
+            # cells
+            [0, 4, 0, 4],
+            [1, 3, 1, 3],
+            [0, 4, 0, 4],
+            # vertices
+            [0, 4, 1, 3],
+            [1, 3, 1, 3],
+            [0, 4, 1, 3],
+            [0, 4, 0, 4],
+            [0, 4, 0, 4],
+            # edges
+            [0, 4, 1, 3],
+            [0, 4, 0, 4],
+            [1, 3, 1, 3],
+            [1, 3, 1, 3],
+            [0, 4, 0, 4],
+            [0, 4, 0, 4],
+            [0, 4, 0, 4]], dtype=IntType)
+    elif mesh.comm.rank == 2:
+        #  Top view, plex points
+        #  5--10-3
+        #   \  1 |\
+        #    \   | \
+        #     9  6  7
+        #      \ |   \
+        #       \| 0  \
+        #        2--8--4
+        expected = numpy.asarray([
+            # cells
+            [0, 4, 0, 4],
+            [0, 4, 0, 4],
+            # vertices
+            [0, 4, 1, 3],
+            [0, 4, 0, 4],
+            [0, 4, 0, 4],
+            [0, 4, 1, 3],
+            # edges
+            [0, 4, 0, 4],
+            [0, 4, 0, 4],
+            [0, 4, 0, 4],
+            [0, 4, 1, 3],
+            [0, 4, 0, 4]], dtype=IntType)
+
+    assert numpy.equal(extmesh.layer_extents, expected).all()
+
+    V = FunctionSpace(extmesh, "CG", 1)
+
+    assert V.dof_dset.layout_vec.getSize() == 18
