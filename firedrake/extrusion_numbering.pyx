@@ -189,6 +189,7 @@ from six import iteritems
 from finat.finiteelementbase import entity_support_dofs
 
 cimport mpi4py.MPI as MPI
+from mpi4py.libmpi cimport MPI_Op_create, MPI_Op_free, MPI_User_function
 from mpi4py import MPI
 from firedrake.petsc import PETSc
 import numpy
@@ -203,6 +204,21 @@ import firedrake.extrusion_utils as eutils
 numpy.import_array()
 
 include "dmplexinc.pxi"
+
+
+cdef inline void extents_reduce(void *in_, void *out, int *count, MPI.MPI_Datatype *datatype) nogil:
+    cdef:
+        PetscInt *xin = <PetscInt *>in_
+        PetscInt *xout = <PetscInt *>out
+
+    if xin[0] < xout[0]:
+        xout[0] = xin[0]
+    if xin[1] > xout[1]:
+        xout[1] = xin[1]
+    if xin[2] > xout[2]:
+        xout[2] = xin[2]
+    if xin[3] < xout[3]:
+        xout[3] = xin[3]
 
 
 @cython.wraparound(False)
@@ -231,11 +247,12 @@ def layer_extents(mesh):
         PETSc.Section section
         numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_extents
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] out_extents
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] tmp
         PetscInt cStart, cEnd, c, cell, ci, p
         PetscInt *closure = NULL
         PetscInt closureSize
-        MPI.Datatype contig
+        MPI.Datatype contig, typ
+        MPI.MPI_Op EXTENTS_REDUCER = NULL
 
     dm = mesh._plex
     section = mesh._cell_numbering
@@ -247,7 +264,6 @@ def layer_extents(mesh):
     layer_extents = numpy.full((pEnd - pStart, 4),
                                (iinfo.max, iinfo.min, iinfo.min, iinfo.max),
                                dtype=IntType)
-
     cStart, cEnd = dm.getHeightStratum(0)
     for c in range(cStart, cEnd):
         CHKERR(DMPlexGetTransitiveClosure(dm.dm, c, PETSC_TRUE, &closureSize, &closure))
@@ -266,29 +282,43 @@ def layer_extents(mesh):
     if mesh.comm.size == 1:
         return layer_extents
 
-    # OK, now we have the correct extents for owned points, but
-    # potentially incorrect extents for ghost points, so do a SF Bcast
-    # over the point SF to get it right.
-    # TODO: this only works because we have a cell halo that contains
-    # all the cells that touch the vertices we own.  If this changes,
-    # e.g we don't grow the halo overlap, then we need to fix it.
-    out_extents = numpy.copy(layer_extents)
+    # OK, so now we have partially correct extents.  Those points on
+    # the boundary of domains are not right yet, because we may not
+    # see the cell that touches an owned vertex (say).
+    sf = dm.getPointSF()
     try:
         tdict = MPI.__TypeDict__
     except AttributeError:
         tdict = MPI._typedict
-    typ = tdict[out_extents.dtype.char]
+    typ = tdict[layer_extents.dtype.char]
     contig = typ.Create_contiguous(4)
     contig.Commit()
-    sf = dm.getPointSF()
+    iinfo = numpy.iinfo(layer_extents.dtype)
+
+    tmp = numpy.copy(layer_extents)
+    # To get owned points correct, we do a reduction over the SF.
+    CHKERR(MPI_Op_create(<MPI_User_function *>extents_reduce, 4, &EXTENTS_REDUCER))
+    CHKERR(PetscSFReduceBegin(sf.sf, contig.ob_mpi,
+                              <const void*>layer_extents.data,
+                              <void *>tmp.data,
+                              EXTENTS_REDUCER))
+    CHKERR(PetscSFReduceEnd(sf.sf, contig.ob_mpi,
+                            <const void*>layer_extents.data,
+                            <void *>tmp.data,
+                            EXTENTS_REDUCER))
+    CHKERR(MPI_Op_free(&EXTENTS_REDUCER))
+    layer_extents[:] = tmp[:]
+    # OK, now we have the correct extents for owned points, but
+    # potentially incorrect extents for ghost points, so do a SF Bcast
+    # over the point SF to get it right.
     CHKERR(PetscSFBcastBegin(sf.sf, contig.ob_mpi,
-                             <const void*>layer_extents.data,
-                             <void *>out_extents.data))
+                             <const void*>tmp.data,
+                             <void *>layer_extents.data))
     CHKERR(PetscSFBcastEnd(sf.sf, contig.ob_mpi,
-                             <const void*>layer_extents.data,
-                             <void *>out_extents.data))
+                           <const void*>tmp.data,
+                           <void *>layer_extents.data))
     contig.Free()
-    return out_extents
+    return layer_extents
 
 
 @cython.wraparound(False)
