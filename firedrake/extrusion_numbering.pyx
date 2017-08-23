@@ -747,7 +747,7 @@ def top_bottom_boundary_nodes(mesh,
                 if layer_extents[c, 1] == layer_extents[facet, 3]:
                     continue
                 # Count number of exposed layers.
-                initial_offset = layer_extents[facet, 3] - layer_extents[facet, 2] - 1
+                initial_offset = layer_extents[facet, 3] - layer_extents[c, 0] - 1
                 exposed_layers = layer_extents[facet, 1] - layer_extents[facet, 3]
             else:
                 # Is the facet exposed when viewed through this cell?
@@ -759,8 +759,8 @@ def top_bottom_boundary_nodes(mesh,
             assert exposed_layers >= 1, "Expecting at least one exposed layer"
             for p in range(ndof):
                 d = masked_indices[offset + p]
+                dof = cell_node_list[cell, d]
                 for layer in range(exposed_layers):
-                    dof = cell_node_list[cell, d]
                     indices[idx] = dof + offsets[d] * (initial_offset + layer)
                     idx += 1
     return numpy.unique(indices[:idx])
