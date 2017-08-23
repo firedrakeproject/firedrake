@@ -983,7 +983,6 @@ def wrapper_snippets(itspace, args,
     _iterset_masks = ""
     _entity_offset = ""
     _get_mask_indices = ""
-    _restore_mask_indices = ""
     if itspace._extruded:
         _layer_arg = ", %s *layers" % as_cstr(IntType)
         if itspace.iterset.constant_layers:
