@@ -340,7 +340,8 @@ def create_section(mesh, nodes_per_entity):
         PETSc.IS renumbering
         PetscInt i, p, layers, pStart, pEnd
         PetscInt dimension, ndof
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] nodes
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] var_nodes
+        numpy.ndarray[PetscInt, ndim=1, mode="c"] const_nodes
         numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
         bint variable
 
@@ -357,6 +358,10 @@ def create_section(mesh, nodes_per_entity):
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
 
     nodes = numpy.asarray(nodes_per_entity, dtype=IntType)
+    if variable:
+        var_nodes = nodes
+    else:
+        const_nodes = nodes
     dimension = dm.getDimension()
 
     for i in range(dimension + 1):
@@ -364,9 +369,9 @@ def create_section(mesh, nodes_per_entity):
         for p in range(pStart, pEnd):
             if variable:
                 layers = layer_extents[p, 1] - layer_extents[p, 0]
-                ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+                ndof = layers*var_nodes[i, 0] + (layers - 1)*var_nodes[i, 1]
             else:
-                ndof = nodes[i]
+                ndof = const_nodes[i]
             CHKERR(PetscSectionSetDof(section.sec, p, ndof))
     section.setUp()
     return section
@@ -675,9 +680,9 @@ def top_bottom_boundary_nodes(mesh,
         PETSc.Section section
         numpy.ndarray[PetscInt, ndim=1, mode="c"] indices
         PetscInt ncell, nclosure, n_vert_facet, fstart
-        PetscInt idx, cell, facet, d, i, c, dof
+        PetscInt idx, cell, facet, d, i, c, dof, p
         PetscInt initial_offset, exposed_layers, layer
-        PetscInt ndof, offset
+        PetscInt ndof, offset, top_facet, bottom_facet
         numpy.ndarray[PetscInt, ndim=1, mode="c"] masked_indices
         numpy.ndarray[PetscInt, ndim=1, mode="c"] facet_points
 
@@ -841,6 +846,7 @@ def boundary_nodes(V, sub_domain, method):
     return numpy.unique(boundary_nodes[:idx])
 
 
+@cython.wraparound(False)
 def cell_entity_masks(mesh):
     """Compute a masking integer for each cell in the extruded mesh.
 
@@ -856,41 +862,50 @@ def cell_entity_masks(mesh):
         records the number of entities in each column and the offset
         in the masking arrays for the start of each column.
     """
-    cell_closure = mesh.cell_closure
-    layer_extents = mesh.layer_extents
-    ncell, nclosure = cell_closure.shape
+    cdef:
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] cell_closure = mesh.cell_closure
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents = mesh.layer_extents
+        numpy.ndarray[numpy.int64_t, ndim=1, mode="c"] top_mask, bottom_mask
+        numpy.ndarray[numpy.int64_t, ndim=1, mode="c"] flips
+        numpy.ndarray[PetscInt, ndim=1, mode="c"] points
+        int cell, ncell, nclosure, idx
+        PetscInt cStart, cEnd
+        PETSc.Section section
+        PetscInt c, cell_bottom, cell_top, layer, p, e, ent, point
+        PetscInt ent_top, ent_bottom
+
+    ncell = cell_closure.shape[0]
+    nclosure = cell_closure.shape[1]
     cStart, cEnd = mesh._plex.getHeightStratum(0)
-    top = numpy.zeros(numpy.sum(layer_extents[cStart:cEnd, 1] - layer_extents[cStart:cEnd, 0] - 1),
-                      dtype=numpy.int64)
-    bottom = numpy.zeros_like(top)
+    top_mask = numpy.zeros(numpy.sum(layer_extents[cStart:cEnd, 1] - layer_extents[cStart:cEnd, 0] - 1),
+                           dtype=numpy.int64)
+    bottom_mask = numpy.zeros_like(top_mask)
     # We iterate over the base cell and do all the entities in the extruded cell above it,
     # therefore we need a mapping from the standard firedrake entity ordering to this one.
-    cell = as_fiat_cell(mesh.ufl_cell())
-    points = eutils.entity_reordering(cell)
+    fiat_cell = as_fiat_cell(mesh.ufl_cell())
+    points = eutils.entity_reordering(fiat_cell)
     # Some masks incorporate others (since the closure of the entity
     # is not just the entity itself), we'll use this to minimise the
     # number of mask bits that are on.
-    flips = numpy.zeros_like(points)
-    for k, v in eutils.entity_closures(cell).items():
+    flips = numpy.zeros(points.shape[0], dtype=numpy.int64)
+    for k, v in eutils.entity_closures(fiat_cell).items():
         flips[k] = ~sum(2**x for x in v)
     idx = 0
     section = PETSc.Section().create(comm=PETSc.COMM_SELF)
     section.setChart(0, ncell)
     for cell in range(ncell):
-        closure = cell_closure[cell, ...]
-        c = closure[-1]
+        c = cell_closure[cell, nclosure-1]
         cell_bottom = layer_extents[c, 0]
         cell_top = layer_extents[c, 1]
-        section.setDof(cell, cell_top - cell_bottom - 1)
+        CHKERR(PetscSectionSetDof(section.sec, cell, cell_top - cell_bottom - 1))
         for layer in range(cell_bottom, cell_top - 1):
-            top_mask = 0
-            bottom_mask = 0
             p = 0
             # Iteration order.  Normal FIAT ordering for the entities
             # in the base cell.  Then, on each entity, we look at the
             # bottom vertex of the interval, then the top vertex, then
             # the cell.
-            for ent in closure:
+            for e in range(nclosure):
+                ent = cell_closure[cell, e]
                 ent_top = layer_extents[ent, 3]
                 ent_bottom = layer_extents[ent, 2]
                 if layer >= ent_top - 1:
@@ -898,39 +913,37 @@ def cell_entity_masks(mesh):
                     # the closure of the interval's cell.
                     point = points[p + 2]
                     # Switch off all the entities in the closure
-                    top_mask &= flips[point]
+                    top_mask[idx] &= flips[point]
                     # Switch on the entity
-                    top_mask |= 2**point
+                    top_mask[idx] |= 2**point
                 elif layer == ent_top - 2:
                     # Top of entity layer is exposed, so pick up the
                     # top vertex.
                     point = points[p + 1]
-                    top_mask &= flips[point]
-                    top_mask |= 2**point
+                    top_mask[idx] &= flips[point]
+                    top_mask[idx] |= 2**point
                 else:
                     pass
 
                 if layer < ent_bottom:
                     # Full entity layer exposed
                     point = points[p + 2]
-                    bottom_mask &= flips[point]
-                    bottom_mask |= 2**point
+                    bottom_mask[idx] &= flips[point]
+                    bottom_mask[idx] |= 2**point
                 elif layer == ent_bottom:
                     # Bottom of entity layer exposed, pick up the
                     # bottom vertex.
                     point = points[p]
-                    bottom_mask &= flips[point]
-                    bottom_mask |= 2**point
+                    bottom_mask[idx] &= flips[point]
+                    bottom_mask[idx] |= 2**point
                 else:
                     pass
                 # Go to the next entity.
                 p += 3
-            top[idx] = top_mask
-            bottom[idx] = bottom_mask
             idx += 1
     section.setUp()
-    assert section.getStorageSize() == bottom.shape[0]
-    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
+    assert section.getStorageSize() == bottom_mask.shape[0]
+    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom_mask, top=top_mask)
 
 
 @cython.wraparound(False)
