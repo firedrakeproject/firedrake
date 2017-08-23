@@ -149,7 +149,7 @@ class Arg(base.Arg):
              'var': var if var else 'i',
              'arity': self.map.split[i].arity,
              'idx': idx,
-             'top': ' + start_layer' if is_top else '',
+             'top': ' + (start_layer - bottom_layer)' if is_top else '',
              'dim': self.data[i].cdim,
              'off': ' + %d' % j if j else '',
              'off_mul': ' * %d' % offset if is_top and offset is not None else '',
@@ -431,7 +431,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                {'name': self.c_map_name(i, j),
                                 'dim': m.arity,
                                 'ind': idx,
-                                'off_top': ' + start_layer * '+str(m.offset[idx]) if is_top else ''})
+                                'off_top': ' + (start_layer - bottom_layer) * '+str(m.offset[idx]) if is_top else ''})
                 if is_facet:
                     for idx in range(m.arity):
                         val.append("xtr_%(name)s[%(ind)s] = *(%(name)s + i * %(dim)s + %(ind_zero)s)%(off_top)s%(off)s;" %
@@ -439,7 +439,7 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
                                     'dim': m.arity,
                                     'ind': idx + m.arity,
                                     'ind_zero': idx,
-                                    'off_top': ' + start_layer' if is_top else '',
+                                    'off_top': ' + (start_layer - bottom_layer)' if is_top else '',
                                     'off': ' + ' + str(m.offset[idx])})
         return '\n'.join(val)+'\n'
 
@@ -447,8 +447,8 @@ for ( int i = 0; i < %(dim)s; i++ ) %(combine)s;
         maps = as_tuple(self.map, Map)
         val = []
         val.append("for (int facet = 0; facet < %d; facet++) {" % (2 if is_facet else 1))
-        val.append("const int64_t bottom_mask = bottom_masks[entity_offset + j_0 + facet];")
-        val.append("const int64_t top_mask = top_masks[entity_offset + j_0 + facet];")
+        val.append("const int64_t bottom_mask = bottom_masks[entity_offset + j_0 - bottom_layer + facet];")
+        val.append("const int64_t top_mask = top_masks[entity_offset + j_0 - bottom_layer + facet];")
         bottom_masking = []
         top_masking = []
         chart = None
