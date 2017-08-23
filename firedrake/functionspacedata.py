@@ -215,36 +215,35 @@ def get_boundary_masks(mesh, key, finat_element):
     chart = sum(map(len, ecd.values())) - 1
     closure_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
     support_section = PETSc.Section().create(comm=PETSc.COMM_SELF)
-    closure_section.setChart(0, chart)
-    support_section.setChart(0, chart)
+    # Double up for interior facets.
+    if kind == "cell":
+        ncell = 1
+    else:
+        ncell = 2
+    closure_section.setChart(0, ncell*chart)
+    support_section.setChart(0, ncell*chart)
     closure_indices = []
     support_indices = []
     facet_points = []
     p = 0
 
     offset = finat_element.space_dimension()
-    # Double up for interior facets.
-    if kind == "cell":
-        ncell = 1
-    else:
-        ncell = 2
-    for ent in sorted(ecd.keys()):
-        # Never need closure of cell
-        if sum(ent) == dim:
-            continue
-        for key in sorted(ecd[ent].keys()):
-            closure_section.setDof(p, ncell*len(ecd[ent][key]))
-            vals = numpy.asarray(sorted(ecd[ent][key]), dtype=IntType)
-            for i in range(ncell):
-                closure_indices.extend(vals + i*offset)
-            if esd is not None:
-                support_section.setDof(p, ncell*len(esd[ent][key]))
-                vals = numpy.asarray(sorted(esd[ent][key]), dtype=IntType)
-                for i in range(ncell):
-                    support_indices.extend(vals + i*offset)
-            if sum(ent) == dim - 1:
-                facet_points.append(p)
-            p += 1
+    for cell in range(ncell):
+        for ent in sorted(ecd.keys()):
+            # Never need closure of cell
+            if sum(ent) == dim:
+                continue
+            for key in sorted(ecd[ent].keys()):
+                closure_section.setDof(p, len(ecd[ent][key]))
+                vals = numpy.asarray(sorted(ecd[ent][key]), dtype=IntType)
+                closure_indices.extend(vals + cell*offset)
+                if esd is not None:
+                    support_section.setDof(p, ncell*len(esd[ent][key]))
+                    vals = numpy.asarray(sorted(esd[ent][key]), dtype=IntType)
+                    support_indices.extend(vals + cell*offset)
+                if sum(ent) == dim - 1:
+                    facet_points.append(p)
+                p += 1
     closure_section.setUp()
     support_section.setUp()
     closure_indices = numpy.asarray(closure_indices, dtype=IntType)

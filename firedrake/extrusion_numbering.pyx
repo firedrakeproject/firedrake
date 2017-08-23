@@ -959,7 +959,7 @@ def exterior_facet_entity_masks(mesh, layers):
     fStart, fEnd = dm.getHeightStratum(1)
 
     top = numpy.zeros(numpy.sum(layers[:, 1] - layers[:, 0] - 1),
-                            dtype=numpy.int64)
+                      dtype=numpy.int64)
     bottom = numpy.zeros_like(top)
 
     section = PETSc.Section().create(comm=PETSc.COMM_SELF)
@@ -1024,23 +1024,27 @@ def interior_facet_entity_masks(mesh, layers):
         section.setDof(p, layers[p, 1] - layers[p, 0] - 1)
     section.setUp()
 
+    fiat_cell = as_fiat_cell(mesh.ufl_cell())
+    nbits = sum(map(len, fiat_cell.get_topology().values())) - 1
+    assert nbits < 31, "Need more bits"
     csection, cbottom, ctop = mesh.cell_set.masks
     facet = 0
+    layer_extents = mesh.layer_extents
 
     for p in range(pStart, pEnd):
         point = renumbering[p]
         if fStart <= point < fEnd:
             if dm.getLabelValue(label, point) == -1:
                 continue
-            ent_bottom = layer_extents[point, 0]
-            ent_top = layer_extents[point, 1]
+            ent_bottom = layer_extents[point, 2]
+            ent_top = layer_extents[point, 3]
             for j, c in enumerate(dm.getSupport(point)):
                 cell = cell_numbering.getOffset(c)
-                cbottom = layer_extents[c, 0]
+                c_bottom = layer_extents[c, 0]
                 coffset = csection.getOffset(cell)
                 foffset = section.getOffset(facet)
                 for i in range(ent_top - ent_bottom - 1):
-                    top[foffset + i, j] = ctop[coffset + i + bottom - cbottom]
-                    bottom[foffset + i, j] = cbottom[coffset + i + bottom - cbottom]
+                    top[foffset + i] |= (ctop[coffset + i + ent_bottom - c_bottom] << (nbits*j))
+                    bottom[foffset + i] |= (cbottom[coffset + i + ent_bottom - c_bottom] <<(nbits*j))
             facet += 1
     return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
