@@ -79,18 +79,11 @@ class _Facets(object):
         if isinstance(self.mesh, ExtrudedMeshTopology):
             label = "%s_facets" % self.kind
             layers = self.mesh.entity_layers(1, label)
-            if self.kind == "interior":
-                base = self.mesh._base_mesh.interior_facets.set
-                if self.mesh.variable_layers:
-                    masks = extnum.interior_facet_entity_masks(self.mesh, layers)
-                else:
-                    masks = None
+            if self.mesh.variable_layers:
+                masks = extnum.facet_entity_masks(self.mesh, layers, label)
             else:
-                base = self.mesh._base_mesh.exterior_facets.set
-                if self.mesh.variable_layers:
-                    masks = extnum.exterior_facet_entity_masks(self.mesh, layers)
-                else:
-                    masks = None
+                masks = None
+            base = getattr(self.mesh._base_mesh, label).set
             return op2.ExtrudedSet(base, layers=layers,
                                    masks=masks)
         return op2.Set(size, "%sFacets" % self.kind.capitalize()[:3],

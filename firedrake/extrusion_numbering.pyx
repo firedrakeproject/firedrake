@@ -933,8 +933,9 @@ def cell_entity_masks(mesh):
     return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
 
 
-def exterior_facet_entity_masks(mesh, layers):
-    """Compute a masking integer for each exterior facet in the
+@cython.wraparound(False)
+def facet_entity_masks(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] layers, label):
+    """Compute a masking integer for each facet in the
     extruded mesh.
 
     This integer indicates for each facet, which topological entities
@@ -945,106 +946,77 @@ def exterior_facet_entity_masks(mesh, layers):
     contributions when assembling bilinear forms.
 
     :arg mesh: the extruded mesh.
+    :arg layers: The start and end layers for iteration for the facet column
+    :arg label: A label selecting the type of facet.
     :returns: a tuple of section, bottom, and top masks.  The section
         records the number of entities in each column and the offset
         in the masking arrays for the start of each column.
     """
-    label = "exterior_facets"
-    dm = mesh._plex
+    cdef:
+        PETSc.Section section, cell_numbering, cell_section
+        DMLabel lbl
+        PETSc.DM dm
+        PetscInt pStart, pEnd, fStart, fEnd
+        PetscInt supportSize
+        const PetscInt *support = NULL
+        numpy.ndarray[PetscInt, ndim=1, mode="c"] renumbering
+        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        numpy.ndarray[numpy.int64_t, ndim=1, mode="c"] top_mask, bottom_mask, cell_bottom_mask, cell_top_mask
+        PetscInt p, nfacet, facet, point, ent_bottom, ent_top, cell_bottom, cell_offset, facet_offset
+        PetscInt i, j, c, cell
+        numpy.int64_t nentities
+        PetscBool flg
+        
+    assert label in {"interior_facets", "exterior_facets"}
 
+    label = label.encode()
+    dm = mesh._plex
     pStart, pEnd = dm.getChart()
+    fStart, fEnd = dm.getHeightStratum(1)
 
     cell_numbering = mesh._cell_numbering
     renumbering = mesh._plex_renumbering.indices
-    fStart, fEnd = dm.getHeightStratum(1)
 
-    top = numpy.zeros(numpy.sum(layers[:, 1] - layers[:, 0] - 1),
-                      dtype=numpy.int64)
-    bottom = numpy.zeros_like(top)
 
+    nfacet = layers.shape[0]
     section = PETSc.Section().create(comm=PETSc.COMM_SELF)
-    section.setChart(0, mesh._base_mesh.exterior_facets.set.total_size)
-    for p in range(*section.getChart()):
-        section.setDof(p, layers[p, 1] - layers[p, 0] - 1)
+    section.setChart(0, layers.shape[0])
+    for p in range(nfacet):
+        CHKERR(PetscSectionSetDof(section.sec, p, layers[p, 1] - layers[p, 0] - 1))
     section.setUp()
-
-    csection, cbottom, ctop = mesh.cell_set.masks
-    facet = 0
-
-    for p in range(pStart, pEnd):
-        point = renumbering[p]
-        if fStart <= point < fEnd:
-            if dm.getLabelValue(label, point) == -1:
-                continue
-            c, = dm.getSupport(point)
-            cell = cell_numbering.getOffset(c)
-            ent_bottom = mesh.layer_extents[c, 0]
-            ent_top = mesh.layer_extents[c, 1]
-            coffset = csection.getOffset(cell)
-            foffset = section.getOffset(facet)
-            for i in range(ent_top - ent_bottom - 1):
-                top[foffset + i] = ctop[coffset + i]
-                bottom[foffset + i] = cbottom[coffset + i]
-            facet += 1
-    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
-
-
-def interior_facet_entity_masks(mesh, layers):
-    """Compute a masking integer for each interior facet in the
-    extruded mesh.
-
-    This integer indicates for each facet, which topological entities
-    in the closure of the support of the facet are on the boundary of
-    the domain.  If the ith bit in the integer is on, that indicates
-    that the ith entity is on the boundary, meaning that the
-    appropriate boundary mask should be used to discard element tensor
-    contributions when assembling bilinear forms.
-
-    :arg mesh: the extruded mesh.
-    :returns: a tuple of section, bottom, and top masks.  The section
-        records the number of entities in each column and the offset
-        in the masking arrays for the start of each column.
-    """
-    label = "interior_facets"
-    dm = mesh._plex
-
-    pStart, pEnd = dm.getChart()
-
-    cell_numbering = mesh._cell_numbering
-    renumbering = mesh._plex_renumbering.indices
-    fStart, fEnd = dm.getHeightStratum(1)
-
-    top = numpy.zeros(numpy.sum(layers[:, 1] - layers[:, 0] - 1),
-                      dtype=numpy.int64)
-    bottom = numpy.zeros_like(top)
-
-    section = PETSc.Section().create(comm=PETSc.COMM_SELF)
-    section.setChart(0, mesh._base_mesh.interior_facets.set.total_size)
-    for p in range(*section.getChart()):
-        section.setDof(p, layers[p, 1] - layers[p, 0] - 1)
-    section.setUp()
+    top_mask = numpy.zeros(section.getStorageSize(), dtype=numpy.int64)
+    bottom_mask = numpy.zeros_like(top_mask)
 
     fiat_cell = as_fiat_cell(mesh.ufl_cell())
-    nbits = sum(map(len, fiat_cell.get_topology().values())) - 1
-    assert nbits < 31, "Need more bits"
-    csection, cbottom, ctop = mesh.cell_set.masks
+    # Number of topological entities on the cell (excluding cell itself)
+    nentities = sum(map(len, fiat_cell.get_topology().values())) - 1
+    assert nentities < 31, "Need fewer than 31 entities"
+
+    cell_section, cell_bottom_mask, cell_top_mask = mesh.cell_set.masks
     facet = 0
     layer_extents = mesh.layer_extents
-
+    CHKERR(DMGetLabel(dm.dm, <const char *>label, &lbl))
+    CHKERR(DMLabelCreateIndex(lbl, fStart, fEnd))
     for p in range(pStart, pEnd):
         point = renumbering[p]
-        if fStart <= point < fEnd:
-            if dm.getLabelValue(label, point) == -1:
-                continue
-            ent_bottom = layer_extents[point, 2]
-            ent_top = layer_extents[point, 3]
-            for j, c in enumerate(dm.getSupport(point)):
-                cell = cell_numbering.getOffset(c)
-                c_bottom = layer_extents[c, 0]
-                coffset = csection.getOffset(cell)
-                foffset = section.getOffset(facet)
-                for i in range(ent_top - ent_bottom - 1):
-                    top[foffset + i] |= (ctop[coffset + i + ent_bottom - c_bottom] << (nbits*j))
-                    bottom[foffset + i] |= (cbottom[coffset + i + ent_bottom - c_bottom] <<(nbits*j))
-            facet += 1
-    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom, top=top)
+        if point < fStart or point >= fEnd:
+            continue
+        CHKERR(DMLabelHasPoint(lbl, point, &flg))
+        if not flg:
+            continue
+        ent_bottom = layer_extents[point, 2]
+        ent_top = layer_extents[point, 3]
+        CHKERR(DMPlexGetSupportSize(dm.dm, point, &supportSize))
+        CHKERR(DMPlexGetSupport(dm.dm, point, &support))
+        for j in range(supportSize):
+            c = support[j]
+            CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
+            cell_bottom = layer_extents[c, 0]
+            CHKERR(PetscSectionGetOffset(cell_section.sec, cell, &cell_offset))
+            CHKERR(PetscSectionGetOffset(section.sec, facet, &facet_offset))
+            for i in range(ent_bottom, ent_top - 1):
+                top_mask[facet_offset + i - ent_bottom] |= cell_top_mask[cell_offset + i - cell_bottom] << (nentities*j)
+                bottom_mask[facet_offset + i - ent_bottom] |= cell_bottom_mask[cell_offset + i - cell_bottom] << (nentities*j)
+        facet += 1
+    CHKERR(DMLabelDestroyIndex(lbl))
+    return op2.ExtrudedSet.EntityMask(section=section, bottom=bottom_mask, top=top_mask)
