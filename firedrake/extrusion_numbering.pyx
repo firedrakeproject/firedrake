@@ -758,7 +758,7 @@ def facet_entity_masks(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] layers, l
         PetscInt i, j, c, cell
         numpy.int64_t nentities
         PetscBool flg
-        
+
     assert label in {"interior_facets", "exterior_facets"}
 
     label = label.encode()
@@ -768,7 +768,6 @@ def facet_entity_masks(mesh, numpy.ndarray[PetscInt, ndim=2, mode="c"] layers, l
 
     cell_numbering = mesh._cell_numbering
     renumbering = mesh._plex_renumbering.indices
-
 
     nfacet = layers.shape[0]
     section = PETSc.Section().create(comm=PETSc.COMM_SELF)
