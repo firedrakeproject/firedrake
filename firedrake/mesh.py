@@ -599,12 +599,10 @@ class MeshTopology(object):
 
         :arg global_numbering: Section describing the global DoF numbering
         :arg entity_dofs: FInAT element entity DoFs
-        :arg offsets: ignored (must be ``None``).
+        :arg offsets: layer offsets for each entity dof (may be None).
         """
-        assert offsets is None, "Didn't expect non-None offsets"
-        return dmplex.get_cell_nodes(global_numbering,
-                                     self.cell_closure,
-                                     entity_dofs)
+        return dmplex.get_cell_nodes(self, global_numbering,
+                                     entity_dofs, offsets)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,
@@ -829,7 +827,7 @@ class ExtrudedMeshTopology(MeshTopology):
         :arg offsets: layer offsets for each entity dof.
         """
         entity_dofs = eutils.flat_entity_dofs(entity_dofs)
-        return extnum.get_cell_nodes(self, global_numbering, entity_dofs, offsets)
+        return super().make_cell_node_list(global_numbering, entity_dofs, offsets)
 
     def make_facet_node_list(self, cell_node_list, kind, offsets):
         """Build the facet->dof mapping.

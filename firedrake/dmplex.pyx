@@ -476,15 +476,17 @@ def create_section(mesh, nodes_per_entity):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_cell_nodes(PETSc.Section global_numbering,
-                   np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures,
-                   entity_dofs):
+def get_cell_nodes(mesh,
+                   PETSc.Section global_numbering,
+                   entity_dofs,
+                   np.ndarray[PetscInt, ndim=1, mode="c"] offset):
     """
     Builds the DoF mapping.
 
+    :arg mesh: The mesh
     :arg global_numbering: Section describing the global DoF numbering
-    :arg cell_closures: 2D array of ordered cell closures
     :arg entity_dofs: FInAT element entity dofs for the cell
+    :arg offset: offsets for each entity dof walking up a column.
 
     Preconditions: This function assumes that cell_closures contains mesh
     entities ordered by dimension, i.e. vertices first, then edges, faces, and
@@ -495,12 +497,22 @@ def get_cell_nodes(PETSc.Section global_numbering,
     cdef:
         int *ceil_ndofs = NULL
         int *flat_index = NULL
-        PetscInt ncells, nclosure, dofs_per_cell
-        PetscInt c, i, j, k
+        PetscInt nclosure, dofs_per_cell
+        PetscInt c, i, j, k, cStart, cEnd, cell
         PetscInt entity, ndofs, off
+        PETSc.Section cell_numbering
         np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        np.ndarray[PetscInt, ndim=2, mode="c"] cell_closures
+        bint variable
 
-    ncells = cell_closures.shape[0]
+    variable = mesh.variable_layers
+    cell_closures = mesh.cell_closure
+    if variable:
+        layer_extents = mesh.layer_extents
+        if offset is None:
+            raise ValueError("Offset cannot be None with variable layer extents")
+
     nclosure = cell_closures.shape[1]
 
     # Extract ordering from FInAT element entity DoFs
@@ -527,21 +539,30 @@ def get_cell_nodes(PETSc.Section global_numbering,
         flat_index[i] = flat_index_list[i]
 
     # Fill cell nodes
-    cell_nodes = np.empty((ncells, dofs_per_cell), dtype=IntType)
-    for c in range(ncells):
+    cStart, cEnd = mesh._plex.getHeightStratum(0)
+    cell_nodes = np.empty((cEnd - cStart, dofs_per_cell), dtype=IntType)
+    cell_numbering = mesh._cell_numbering
+    for c in range(cStart, cEnd):
         k = 0
+        CHKERR(PetscSectionGetOffset(cell_numbering.sec, c, &cell))
         for i in range(nclosure):
-            entity = cell_closures[c, i]
+            entity = cell_closures[cell, i]
             CHKERR(PetscSectionGetDof(global_numbering.sec, entity, &ndofs))
             if ndofs > 0:
                 CHKERR(PetscSectionGetOffset(global_numbering.sec, entity, &off))
+                # The cell we're looking at the entity through is
+                # higher than the lowest cell the column touches, so
+                # we need to offset by the difference from the bottom.
+                if variable:
+                    off += offset[flat_index[k]]*(layer_extents[c, 0] - layer_extents[entity, 0])
                 for j in range(ceil_ndofs[i]):
-                    cell_nodes[c, flat_index[k]] = off + j
+                    cell_nodes[cell, flat_index[k]] = off + j
                     k += 1
 
     CHKERR(PetscFree(ceil_ndofs))
     CHKERR(PetscFree(flat_index))
     return cell_nodes
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
