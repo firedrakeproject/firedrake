@@ -95,8 +95,8 @@ class TSFCKernel(Cached):
         # unnecessary repeated calls to TSFC when actually only the kernel code
         # needs to be regenerated
         return md5((form.signature() + name
-                   + str(default_parameters["coffee"])
-                   + str(parameters)
+                    + str(sorted(default_parameters["coffee"].items()))
+                    + str(sorted(parameters.items()))
                     + str(number_map)).encode()).hexdigest(), form.ufl_domains()[0].comm
 
     def __init__(self, form, name, parameters, number_map):
