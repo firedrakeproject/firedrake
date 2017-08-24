@@ -3,7 +3,7 @@ from collections import OrderedDict
 from coffee import base as ast
 
 from firedrake.slate.slate import TensorBase, Tensor, TensorOp, Action
-from firedrake.slate.slac.utils import (Transformer, traverse_dags,
+from firedrake.slate.slac.utils import (traverse_dags,
                                         collect_reference_count,
                                         count_operands)
 from firedrake.utils import cached_property
@@ -11,7 +11,7 @@ from firedrake.utils import cached_property
 from ufl import MixedElement
 
 
-class KernelBuilder(object):
+class KernelBuilderBase(object):
     """A helper class for constructing Slate kernels.
 
     This class provides access to all temporaries and subkernels associated
@@ -59,11 +59,6 @@ class KernelBuilder(object):
         self.temps = temps
         self.aux_exprs = aux_exprs
         self.tsfc_parameters = tsfc_parameters
-        self.needs_cell_facets = False
-        self.needs_mesh_layers = False
-        self.oriented = False
-        self.finalized_ast = None
-        self._is_finalized = False
 
     @property
     def integral_type(self):
@@ -75,18 +70,6 @@ class KernelBuilder(object):
         LDG/CDG finite element discretizations.
         """
         return "cell"
-
-    def require_cell_facets(self):
-        """Assigns `self.needs_cell_facets` to be `True` if facet integrals
-        are present.
-        """
-        self.needs_cell_facets = True
-
-    def require_mesh_layers(self):
-        """Assigns `self.needs_mesh_layers` to be `True` if mesh levels are
-        needed.
-        """
-        self.needs_mesh_layers = True
 
     @cached_property
     def coefficient_map(self):
@@ -150,50 +133,3 @@ class KernelBuilder(object):
         macro_kernel = ast.FunDecl("void", name, args,
                                    statements, pred=["static", "inline"])
         return macro_kernel
-
-    def _finalize_kernels_and_update(self):
-        """Prepares the kernel AST by transforming all outpute/input
-        references to Slate tensors with eigen references and updates
-        any orientation information.
-        """
-        kernel_list = []
-        transformer = Transformer()
-        oriented = self.oriented
-
-        cxt_kernels = self.context_kernels
-        splitkernels = [splitkernel for cxt_k in cxt_kernels
-                        for splitkernel in cxt_k.tsfc_kernels]
-
-        for splitkernel in splitkernels:
-            oriented = oriented or splitkernel.kinfo.oriented
-            # TODO: Extend multiple domains support
-            if splitkernel.kinfo.subdomain_id != "otherwise":
-                raise NotImplementedError("Subdomains not implemented yet.")
-
-            kast = transformer.visit(splitkernel.kinfo.kernel._ast)
-            kernel_list.append(kast)
-
-        self.oriented = oriented
-        self.finalized_ast = kernel_list
-        self._is_finalized = True
-
-    def construct_ast(self, macro_kernels):
-        """Constructs the final kernel AST.
-
-        :arg macro_kernels: A `list` of macro kernel functions, which
-                            call subkernels and perform elemental
-                            linear algebra.
-
-        Returns: The complete kernel AST as a COFFEE `ast.Node`
-        """
-        assert isinstance(macro_kernels, list), (
-            "Please wrap all macro kernel functions in a list"
-        )
-        assert self._is_finalized, (
-            "AST not finalized. Did you forget to call "
-            "builder._finalize_kernels_and_update()?"
-        )
-        kernel_ast = self.finalized_ast
-        kernel_ast.extend(macro_kernels)
-
-        return ast.Node(kernel_ast)

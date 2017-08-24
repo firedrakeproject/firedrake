@@ -23,7 +23,9 @@ from firedrake.tsfc_interface import SplitKernel, KernelInfo
 from firedrake.slate.slate import (TensorBase, Transpose, Inverse,
                                    Negative, Add, Sub, Mul,
                                    Action)
-from firedrake.slate.slac.kernel_builder import KernelBuilder
+from firedrake.slate.slac.kernel_builder import KernelBuilderBase
+from firedrake.slate.slac.utils import Transformer
+from firedrake.utils import cached_property
 from firedrake import op2
 
 from pyop2.utils import get_petsc_dir
@@ -45,18 +47,184 @@ cell_to_facets_dtype = np.dtype(np.int8)
 coord_sym = ast.Symbol("coords")
 cell_orientations_sym = ast.Symbol("cell_orientations")
 cell_facet_sym = ast.Symbol("cell_facets")
+it_sym = ast.Symbol("i0")
 mesh_layer_sym = ast.Symbol("layer")
 
 supported_integral_types = [
     "cell",
     "interior_facet",
     "exterior_facet",
-    "interior_facet_horiz",
+    "interior_facet_horiz_top",
+    "interior_facet_horiz_bottom",
     "interior_facet_vert",
     "exterior_facet_top",
     "exterior_facet_bottom",
     "exterior_facet_vert"
 ]
+
+
+class KernelBuilder(KernelBuilderBase):
+    """
+    """
+
+    def __init__(self, expression, tsfc_parameters=None):
+        """
+        """
+        super(KernelBuilder, self).__init__(expression=expression,
+                                            tsfc_parameters=tsfc_parameters)
+        self._organize_assembly_calls()
+
+    def _organize_assembly_calls(self):
+        """
+        """
+        transformer = Transformer()
+        include_dirs = []
+        templated_subkernels = []
+        assembly_calls = OrderedDict()
+        for k in supported_integral_types:
+            assembly_calls[k] = []
+        coords = None
+        oriented = False
+        for cxt_kernel in self.context_kernels:
+            local_coefficients = cxt_kernel.coefficients
+            it_type = cxt_kernel.original_integral_type
+            exp = cxt_kernel.tensor
+
+            # Explicit checking of coordinates
+            coordinates = cxt_kernel.tensor.ufl_domain().coordinates
+            if coords is not None:
+                assert coordinates == coords, "Mismatching coordinates!"
+            else:
+                coords = coordinates
+
+            if it_type == "interior_facet_horiz":
+                top_sks = sorted([k for k in cxt_kernel.tsfc_kernels
+                                  if k.kinfo.integral_type == "exterior_facet_top"],
+                                 key=lambda x: x.indices)
+                btm_sks = sorted([k for k in cxt_kernel.tsfc_kernels
+                                  if k.kinfo.integral_type == "exterior_facet_bottom"],
+                                 key=lambda x: x.indices)
+                for top_sk, btm_sk in zip(top_sks, btm_sks):
+                    assert top_sk.indices == btm_sk.indices
+                    indices = top_sk.indices
+
+                    # TODO: Implement subdomains for Slate tensors
+                    if any(k.kinfo.subdomain_id != "otherwise"
+                           for k in [top_sk, btm_sk]):
+                        raise NotImplementedError("Subdomains not implemented.")
+
+                    top_c_map = top_sk.kinfo.coefficient_map
+                    btm_c_map = btm_sk.kinfo.coefficient_map
+                    assert top_c_map == btm_c_map
+                    coefficient_map = tuple(OrderedDict().fromkeys(top_c_map))
+
+                    args = [c for i in coefficient_map
+                            for c in self.coefficient(local_coefficients[i])]
+
+                    assert top_sk.kinfo.oriented == btm_sk.kinfo.oriented
+                    oriented = oriented or top_sk.kinfo.oriented
+                    if oriented:
+                        args.insert(0, cell_orientations_sym)
+
+                    include_dirs.extend(top_sk.kinfo.kernel._include_dirs
+                                        + btm_sk.kinfo.kernel._include_dirs)
+                    tensor = eigen_tensor(exp, self.temps[exp], indices)
+                    top_call = ast.FunCall(top_sk.kinfo.kernel.name,
+                                           tensor,
+                                           coord_sym,
+                                           *args)
+                    btm_call = ast.FunCall(btm_sk.kinfo.kernel.name,
+                                           tensor,
+                                           coord_sym,
+                                           *args)
+                    assembly_calls[it_type + "_top"].append(top_call)
+                    assembly_calls[it_type + "_bottom"].append(btm_call)
+                    kasts = [transformer.visit(ki.kernel._ast)
+                             for ki in [top_sk.kinfo, btm_sk.kinfo]]
+                    templated_subkernels.extend(kasts)
+            else:
+                for split_kernel in cxt_kernel.tsfc_kernels:
+                    indices = split_kernel.indices
+                    kinfo = split_kernel.kinfo
+
+                    # TODO: Implement subdomains for Slate tensors
+                    if kinfo.subdomain_id != "otherwise":
+                        raise NotImplementedError("Subdomains not implemented.")
+
+                    args = [c for i in kinfo.coefficient_map
+                            for c in self.coefficient(local_coefficients[i])]
+
+                    oriented = oriented or kinfo.oriented
+                    if oriented:
+                        args.insert(0, cell_orientations_sym)
+
+                    if kinfo.integral_type in ["interior_facet",
+                                               "exterior_facet",
+                                               "interior_facet_vert",
+                                               "exterior_facet_vert"]:
+                        args.append(ast.FlatBlock("&%s" % it_sym))
+
+                    # Assembly calls within the macro kernel
+                    tensor = eigen_tensor(exp, self.temps[exp], indices)
+                    include_dirs.extend(kinfo.kernel._include_dirs)
+                    call = ast.FunCall(kinfo.kernel.name,
+                                       tensor,
+                                       coord_sym,
+                                       *args)
+                    assembly_calls[it_type].append(call)
+
+                    # Subkernels for local assembly (Eigen templated functions)
+                    kast = transformer.visit(kinfo.kernel._ast)
+                    templated_subkernels.append(kast)
+
+        self.assembly_calls = assembly_calls
+        self.templated_subkernels = templated_subkernels
+        self.include_dirs = list(set(include_dirs))
+        self.oriented = oriented
+
+    @cached_property
+    def needs_cell_facets(self):
+        """
+        """
+        cell_facet_types = ["interior_facet",
+                            "exterior_facet",
+                            "interior_facet_vert",
+                            "exterior_facet_vert"]
+        return any(cxt_k.original_integral_type in cell_facet_types
+                   for cxt_k in self.context_kernels)
+
+    @cached_property
+    def needs_mesh_layers(self):
+        """
+        """
+        mesh_layer_types = ["interior_facet_horiz",
+                            "exterior_facet_bottom",
+                            "exterior_facet_top"]
+        return any(cxt_k.original_integral_type in mesh_layer_types
+                   for cxt_k in self.context_kernels)
+
+    @property
+    def needs_orientation(self):
+        """
+        """
+        return self.oriented
+
+    def construct_ast(self, macro_kernels):
+        """Constructs the final kernel AST.
+
+        :arg macro_kernels: A `list` of macro kernel functions, which
+                            call subkernels and perform elemental
+                            linear algebra.
+
+        Returns: The complete kernel AST as a COFFEE `ast.Node`
+        """
+        assert isinstance(macro_kernels, list), (
+            "Please wrap all macro kernel functions in a list"
+        )
+        kernel_ast = self.templated_subkernels
+        kernel_ast.extend(macro_kernels)
+
+        return ast.Node(kernel_ast)
 
 
 def compile_expression(slate_expr, tsfc_parameters=None):
@@ -101,13 +269,10 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     # Create a builder for the Slate expression
     builder = KernelBuilder(expression=slate_expr,
                             tsfc_parameters=tsfc_parameters)
-    coords = None
-    inc = []
 
     # We keep track of temporaries that have been declared
     declared_temps = {}
-    for cxt_kernel in builder.context_kernels:
-        exp = cxt_kernel.tensor
+    for exp in builder.temps:
         t = builder.temps[exp]
 
         if exp not in declared_temps:
@@ -116,48 +281,96 @@ def compile_expression(slate_expr, tsfc_parameters=None):
             statements.append(ast.FlatBlock("%s.setZero();\n" % t))
             declared_temps[exp] = t
 
-        it_type = cxt_kernel.original_integral_type
+    statements.extend(builder.assembly_calls["cell"])
 
-        if it_type not in supported_integral_types:
-            raise NotImplementedError("Type %s not supported." % it_type)
+    if builder.needs_cell_facets:
+        chker = {"interior_facet": 1,
+                 "exterior_facet": 0,
+                 "interior_facet_vert": 1,
+                 "exterior_facet_vert": 0}
+        interior_calls = []
+        exterior_calls = []
+        for it_type in chker:
+            if chker[it_type] == 1:
+                interior_calls.extend(builder.assembly_calls[it_type])
+            else:
+                exterior_calls.extend(builder.assembly_calls[it_type])
 
-        # Explicit checking of coordinates
-        coordinates = exp.ufl_domain().coordinates
-        if coords is not None:
-            assert coordinates == coords
+        domain = slate_expr.ufl_domain()
+        if domain.cell_set._extruded:
+            base_cell = domain.ufl_cell()._cells[0]
         else:
-            coords = coordinates
+            base_cell = domain.ufl_cell()
 
-        if it_type == "cell":
-            stmt, incl = assemble_local_tensor_cell(cxt_kernel, builder)
-            statements.extend(stmt)
+        num_facets = base_cell.num_facets()
 
-        elif it_type in ["interior_facet", "exterior_facet",
-                         "interior_facet_vert", "exterior_facet_vert"]:
-            # These integral types will require accessing local facet
-            # information and looping over facet indices.
-            builder.require_cell_facets()
-            loop_stmt, incl = facet_integral_loop(cxt_kernel, builder)
-            statements.append(loop_stmt)
-
-        elif it_type == "interior_facet_horiz":
-            builder.require_mesh_layers()
-            stmt, incl = extruded_int_horiz_facet(cxt_kernel, builder)
-            statements.append(stmt)
-
-        elif it_type in ["exterior_facet_bottom", "exterior_facet_top"]:
-            # These kernels will only be called if we are on
-            # the top or bottom layers of the extruded mesh.
-            builder.require_mesh_layers()
-            stmt, incl = extruded_top_bottom_facet(cxt_kernel, builder)
-            statements.append(stmt)
-
+        if interior_calls and exterior_calls:
+            else_block = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
+                                                  rank=(it_sym,)), 0),
+                                (ast.Block(exterior_calls,
+                                           open_scope=True),))
+            body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
+                                            rank=(it_sym,)), 1),
+                          (ast.Block(interior_calls,
+                                     open_scope=True), else_block))
+        elif interior_calls:
+            body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
+                                            rank=(it_sym,)), 1),
+                          (ast.Block(interior_calls,
+                                     open_scope=True),))
+        elif exterior_calls:
+            body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym,
+                                            rank=(it_sym,)), 0),
+                          (ast.Block(exterior_calls,
+                                     open_scope=True),))
         else:
-            raise ValueError("Kernel type not recognized: %s" % it_type)
+            raise ValueError
 
-        # Don't duplicate include lines
-        inc_dir = list(set(incl) - set(inc))
-        inc.extend(inc_dir)
+        statements.append(ast.For(ast.Decl("unsigned int", it_sym, init=0),
+                                  ast.Less(it_sym, num_facets),
+                                  ast.Incr(it_sym, 1), body))
+
+    if builder.needs_mesh_layers:
+        # FIXME: No variable layers assumption
+        num_layers = slate_expr.ufl_domain().topological.layers - 1
+
+        # In the presence of interior horizontal facets, we can use the
+        # if(top)---elif(bottom)---else(top and bottom) structure. Any
+        # extruded top or bottom calls for extruded facets are included
+        # within the appropriate mesh-level if-blocks (if present).
+        int_top = builder.assembly_calls["interior_facet_horiz_top"]
+        int_btm = builder.assembly_calls["interior_facet_horiz_bottom"]
+        ext_top = builder.assembly_calls["exterior_facet_top"]
+        ext_btm = builder.assembly_calls["exterior_facet_bottom"]
+        if int_top + int_btm:
+            # NOTE: The "top" cell has a interior horizontal facet
+            # which is locally on the "bottom." And vice versa.
+            top_calls = int_btm + ext_top
+            bottom_calls = int_top + ext_btm
+
+            block_else = ast.Block(int_top + int_btm, open_scope=True)
+            block_top = ast.Block(top_calls, open_scope=True)
+            block_btm = ast.Block(bottom_calls, open_scope=True)
+
+            elif_block = ast.If(ast.Eq(mesh_layer_sym, num_layers - 1),
+                                (block_top, block_else))
+
+            statements.append(ast.If(ast.Eq(mesh_layer_sym, 0),
+                                     (block_btm, elif_block)))
+
+        # No interior horizontal facets. Just standard if-blocks.
+        else:
+            if ext_btm:
+                layer = 0
+                block_btm = ast.Block(ext_btm, open_scope=True)
+                statements.append(ast.If(ast.Eq(mesh_layer_sym, layer),
+                                         (block_btm,)))
+
+            if ext_top:
+                layer = num_layers - 1
+                block_top = ast.Block(ext_top, open_scope=True)
+                statements.append(ast.If(ast.Eq(mesh_layer_sym, layer),
+                                         (block_top,)))
 
     # Now we handle any terms that require auxiliary temporaries
     if builder.aux_exprs:
@@ -183,14 +396,11 @@ def compile_expression(slate_expr, tsfc_parameters=None):
                                                        declared_temps))
     statements.append(ast.Incr(result_sym, cpp_string))
 
-    # Finalize AST for macro kernel construction
-    builder._finalize_kernels_and_update()
-
     # Generate arguments for the macro kernel
     args = [result, ast.Decl("%s **" % SCALAR_TYPE, coord_sym)]
 
     # Orientation information
-    if builder.oriented:
+    if builder.needs_orientation:
         args.append(ast.Decl("int **", cell_orientations_sym))
 
     # Coefficient information
@@ -223,11 +433,12 @@ def compile_expression(slate_expr, tsfc_parameters=None):
 
     # Now we wrap up the kernel ast as a PyOP2 kernel.
     # Include the Eigen header files
-    inc.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
+    include_dirs = builder.include_dirs
+    include_dirs.extend(["%s/include/eigen3/" % d for d in PETSC_DIR])
     op2kernel = op2.Kernel(kernel_ast,
                            macro_kernel_name,
                            cpp=True,
-                           include_dirs=inc,
+                           include_dirs=include_dirs,
                            headers=['#include <Eigen/Dense>',
                                     '#define restrict __restrict'])
 
@@ -254,210 +465,6 @@ def compile_expression(slate_expr, tsfc_parameters=None):
     slate_expr._metakernel_cache = kernels
 
     return kernels
-
-
-def assemble_local_tensor_cell(cxt_kernel, builder):
-    """
-    """
-    exp = cxt_kernel.tensor
-    t = builder.temps[exp]
-    incl = []
-    stmt = []
-    for splitkernel in cxt_kernel.tsfc_kernels:
-        index = splitkernel.indices
-        kinfo = splitkernel.kinfo
-
-        clist = [c for i in kinfo.coefficient_map
-                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
-
-        if kinfo.oriented:
-            clist.insert(0, cell_orientations_sym)
-
-        incl.extend(kinfo.kernel._include_dirs)
-        tensor = eigen_tensor(exp, t, index)
-        stmt.append(ast.FunCall(kinfo.kernel.name, tensor, coord_sym, *clist))
-
-    return stmt, incl
-
-
-def extruded_int_horiz_facet(cxt_kernel, builder):
-    """Generates a code statement for evaluating interior horizontal
-    facet integrals.
-
-    :arg cxt_kernel: A :namedtuple:`ContextKernel` containing all relevant
-                     integral types and TSFC kernels associated with the
-                     form nested in the expression.
-    :arg builder: A :class:`KernelBuilder` containing the expression context.
-
-    Returns: A COFFEE code statement and updated include_dirs
-    """
-
-    # The infamous interior horizontal facet
-    # will have two SplitKernels: one top,
-    # one bottom. The mesh layer will determine
-    # which kernels we call.
-    top_sks = [k for k in cxt_kernel.tsfc_kernels
-               if k.kinfo.integral_type == "exterior_facet_top"]
-    bottom_sks = [k for k in cxt_kernel.tsfc_kernels
-                  if k.kinfo.integral_type == "exterior_facet_bottom"]
-    assert len(top_sks) == len(bottom_sks), (
-        "Number of top and bottom kernels should be equal"
-    )
-    # Top and bottom kernels need to be sorted by kinfo.indices
-    # if the space is mixed to ensure indices match.
-    top_sks = sorted(top_sks, key=lambda x: x.indices)
-    bottom_sks = sorted(bottom_sks, key=lambda x: x.indices)
-    exp = cxt_kernel.tensor
-    t = builder.temps[exp]
-    nlayers = exp.ufl_domain().topological.layers - 1
-
-    incl = []
-    top_calls = []
-    bottom_calls = []
-    for top, btm in zip(top_sks, bottom_sks):
-        assert top.indices == btm.indices, (
-            "Top and bottom kernels must have the same indices"
-        )
-        index = top.indices
-
-        # Merge coefficient maps
-        c_set = top.kinfo.coefficient_map + btm.kinfo.coefficient_map
-        coefficient_map = tuple(OrderedDict.fromkeys(c_set))
-
-        clist = [c for i in coefficient_map
-                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
-
-        if top.kinfo.oriented and btm.kinfo.oriented:
-            clist.insert(0, cell_orientations_sym)
-
-        dirs = top.kinfo.kernel._include_dirs + btm.kinfo.kernel._include_dirs
-        incl.extend(tuple(OrderedDict.fromkeys(dirs)))
-
-        tensor = eigen_tensor(exp, t, index)
-        top_calls.append(ast.FunCall(top.kinfo.kernel.name,
-                                     tensor, coord_sym, *clist))
-        bottom_calls.append(ast.FunCall(btm.kinfo.kernel.name,
-                                        tensor, coord_sym, *clist))
-
-    else_stmt = ast.Block(top_calls + bottom_calls, open_scope=True)
-    inter_stmt = ast.If(ast.Eq(mesh_layer_sym, nlayers - 1),
-                        (ast.Block(bottom_calls, open_scope=True),
-                         else_stmt))
-    stmt = ast.If(ast.Eq(mesh_layer_sym, 0),
-                  (ast.Block(top_calls, open_scope=True),
-                   inter_stmt))
-    return stmt, incl
-
-
-def extruded_top_bottom_facet(cxt_kernel, builder):
-    """Generates a code statement for evaluating exterior top/bottom
-    facet integrals.
-
-    :arg cxt_kernel: A :namedtuple:`ContextKernel` containing all relevant
-                     integral types and TSFC kernels associated with the
-                     form nested in the expression.
-    :arg builder: A :class:`KernelBuilder` containing the expression context.
-
-    Returns: A COFFEE code statement and updated include_dirs
-    """
-    exp = cxt_kernel.tensor
-    t = builder.temps[exp]
-    nlayers = exp.ufl_domain().topological.layers - 1
-
-    incl = []
-    body = []
-    for splitkernel in cxt_kernel.tsfc_kernels:
-        index = splitkernel.indices
-        kinfo = splitkernel.kinfo
-
-        clist = [c for i in kinfo.coefficient_map
-                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
-
-        if kinfo.oriented:
-            clist.insert(0, cell_orientations_sym)
-
-        incl.extend(kinfo.kernel._include_dirs)
-        tensor = eigen_tensor(exp, t, index)
-        body.append(ast.FunCall(kinfo.kernel.name,
-                                tensor, coord_sym, *clist))
-
-    if cxt_kernel.original_integral_type == "exterior_facet_bottom":
-        layer = 0
-    else:
-        layer = nlayers - 1
-
-    stmt = ast.If(ast.Eq(mesh_layer_sym, layer),
-                  [ast.Block(body, open_scope=True)])
-
-    return stmt, incl
-
-
-def facet_integral_loop(cxt_kernel, builder):
-    """Generates a code statement for evaluating exterior/interior facet
-    integrals.
-
-    :arg cxt_kernel: A :namedtuple:`ContextKernel` containing all relevant
-                     integral types and TSFC kernels associated with the
-                     form nested in the expression.
-    :arg builder: A :class:`KernelBuilder` containing the expression context.
-
-    Returns: A COFFEE code statement and updated include_dirs
-    """
-    exp = cxt_kernel.tensor
-    t = builder.temps[exp]
-    it_type = cxt_kernel.original_integral_type
-    it_sym = ast.Symbol("i0")
-
-    chker = {"interior_facet": 1,
-             "interior_facet_vert": 1,
-             "exterior_facet": 0,
-             "exterior_facet_vert": 0}
-
-    # Compute the correct number of facets for a particular facet measure
-    if it_type in ["interior_facet", "exterior_facet"]:
-        # Non-extruded case
-        nfacet = exp.ufl_domain().ufl_cell().num_facets()
-
-    elif it_type in ["interior_facet_vert", "exterior_facet_vert"]:
-        # Extrusion case
-        base_cell = exp.ufl_domain().ufl_cell()._cells[0]
-        nfacet = base_cell.num_facets()
-
-    else:
-        raise ValueError(
-            "Integral type %s not supported." % it_type
-        )
-
-    incl = []
-    funcalls = []
-    checker = chker[it_type]
-    for splitkernel in cxt_kernel.tsfc_kernels:
-        index = splitkernel.indices
-        kinfo = splitkernel.kinfo
-
-        clist = [c for i in kinfo.coefficient_map
-                 for c in builder.coefficient(cxt_kernel.coefficients[i])]
-
-        incl.extend(kinfo.kernel._include_dirs)
-        tensor = eigen_tensor(exp, t, index)
-
-        if kinfo.oriented:
-            clist.insert(0, cell_orientations_sym)
-
-        clist.append(ast.FlatBlock("&%s" % it_sym))
-        funcalls.append(ast.FunCall(kinfo.kernel.name,
-                                    tensor,
-                                    coord_sym,
-                                    *clist))
-
-    loop_body = ast.If(ast.Eq(ast.Symbol(cell_facet_sym, rank=(it_sym,)),
-                              checker), [ast.Block(funcalls, open_scope=True)])
-
-    loop_stmt = ast.For(ast.Decl("unsigned int", it_sym, init=0),
-                        ast.Less(it_sym, nfacet),
-                        ast.Incr(it_sym, 1), loop_body)
-
-    return loop_stmt, incl
 
 
 def auxiliary_temporaries(builder, declared_temps):
