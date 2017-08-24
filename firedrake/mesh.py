@@ -575,7 +575,7 @@ class MeshTopology(object):
         """Compute node classes given nodes per entity.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
-        :returns: the number of nodes in aech of core, owned, exec, and non exec classes.
+        :returns: the number of nodes in each of core, owned, and ghost classes.
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
@@ -833,7 +833,7 @@ class ExtrudedMeshTopology(MeshTopology):
         """Compute node classes given nodes per entity.
 
         :arg nodes_per_entity: number of function space nodes per topological entity.
-        :returns: the number of nodes in aech of core, owned, exec, and non exec classes.
+        :returns: the number of nodes in each of core, owned, and ghost classes.
         """
         if self.variable_layers:
             return extnum.node_classes(self, nodes_per_entity)

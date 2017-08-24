@@ -338,7 +338,7 @@ def node_classes(mesh, nodes_per_entity):
         layer.  Multiplying up by the number of layers happens in this
         function.
 
-    :returns: A numpy array of shape (4, ) giving the set entity sizes
+    :returns: A numpy array of shape (3, ) giving the set entity sizes
         for the given nodes per entity.
     """
     cdef:
