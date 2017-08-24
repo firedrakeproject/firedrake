@@ -19,8 +19,6 @@ import finat
 from decorator import decorator
 from functools import reduce
 
-from finat.finiteelementbase import entity_support_dofs
-
 from coffee import base as ast
 
 from pyop2 import op2
@@ -284,8 +282,6 @@ def get_top_bottom_boundary_nodes(mesh, key, V):
     cell_node_list = V.cell_node_list
     offset = V.offset
     if mesh.variable_layers:
-        if method == "geometric":
-            raise NotImplementedError("Generic entity_support_dofs not implemented.")
         return extnum.top_bottom_boundary_nodes(mesh, cell_node_list,
                                                 V.cell_boundary_masks[method],
                                                 offset,
@@ -460,7 +456,7 @@ class FunctionSpaceData(object):
             # This function is only called on extruded meshes when
             # asking for the nodes that live on the "vertical"
             # exterior facets.
-            boundary_dofs = entity_support_dofs(el, dim)
+            boundary_dofs = el.entity_support_dofs()[dim]
 
         nodes_per_facet = \
             len(boundary_dofs[0])

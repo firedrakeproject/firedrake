@@ -183,8 +183,6 @@ This is guaranteed to pick up all the nodes in the closure of the
 facet column.
 """
 
-from finat.finiteelementbase import entity_support_dofs
-
 cimport mpi4py.MPI as MPI
 from mpi4py.libmpi cimport MPI_Op_create, MPI_Op_free, MPI_User_function
 from mpi4py import MPI
@@ -795,7 +793,7 @@ def boundary_nodes(V, sub_domain, method):
     if method == "topological":
         boundary_dofs = V.finat_element.entity_closure_dofs()[facet_dim]
     elif method == "geometric":
-        boundary_dofs = entity_support_dofs(V.finat_element, facet_dim)
+        boundary_dofs = V.finat_element.entity_support_dofs()[facet_dim]
 
     local_nodes = numpy.empty((len(boundary_dofs),
                                len(boundary_dofs[0])),
