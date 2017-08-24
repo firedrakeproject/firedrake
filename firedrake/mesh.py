@@ -863,19 +863,6 @@ class ExtrudedMeshTopology(MeshTopology):
             dofs_per_entity[b, v] += len(entities[0])
         return tuplify(dofs_per_entity)
 
-    def create_section(self, nodes_per_entity):
-        """Create a PETSc Section describing a function space.
-
-        :arg nodes_per_entity: number of function space nodes per topological entity.
-        :returns: a new PETSc Section.
-        """
-        if self.variable_layers:
-            return extnum.create_section(self, nodes_per_entity)
-        else:
-            nodes = np.asarray(nodes_per_entity, dtype=IntType)
-            nodes_per_entity = sum(nodes[:, i]*(self.layers - i) for i in range(2))
-            return super(ExtrudedMeshTopology, self).create_section(nodes_per_entity)
-
     def node_classes(self, nodes_per_entity):
         """Compute node classes given nodes per entity.
 

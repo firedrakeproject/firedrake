@@ -329,62 +329,6 @@ def layer_extents(PETSc.DM dm, PETSc.Section cell_numbering,
 
 
 @cython.wraparound(False)
-def create_section(mesh, nodes_per_entity):
-    """Create the section describing a global numbering.
-
-    :arg mesh: The extruded mesh.
-    :arg nodes_per_entity: Number of nodes on, and on top of, each
-        type of topological entity on the base mesh for a single cell
-        layer.  Multiplying up by the number of layers happens in this
-        function.
-
-    :returns: A PETSc Section providing the number of dofs, and offset
-        of each dof, on each mesh point.
-    """
-    cdef:
-        PETSc.DM dm
-        PETSc.Section section
-        PETSc.IS renumbering
-        PetscInt i, p, layers, pStart, pEnd
-        PetscInt dimension, ndof
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] var_nodes
-        numpy.ndarray[PetscInt, ndim=1, mode="c"] const_nodes
-        numpy.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
-        bint variable
-
-    variable = mesh.variable_layers
-
-    if variable:
-        layer_extents = mesh.layer_extents
-
-    dm = mesh._plex
-    renumbering = mesh._plex_renumbering
-    section = PETSc.Section().create(comm=mesh.comm)
-    pStart, pEnd = dm.getChart()
-    section.setChart(pStart, pEnd)
-    CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
-
-    nodes = numpy.asarray(nodes_per_entity, dtype=IntType)
-    if variable:
-        var_nodes = nodes
-    else:
-        const_nodes = nodes
-    dimension = dm.getDimension()
-
-    for i in range(dimension + 1):
-        pStart, pEnd = dm.getDepthStratum(i)
-        for p in range(pStart, pEnd):
-            if variable:
-                layers = layer_extents[p, 1] - layer_extents[p, 0]
-                ndof = layers*var_nodes[i, 0] + (layers - 1)*var_nodes[i, 1]
-            else:
-                ndof = const_nodes[i]
-            CHKERR(PetscSectionSetDof(section.sec, p, ndof))
-    section.setUp()
-    return section
-
-
-@cython.wraparound(False)
 def node_classes(mesh, nodes_per_entity):
     """Compute the node classes for a given extruded mesh.
 

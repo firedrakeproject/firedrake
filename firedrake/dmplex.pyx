@@ -424,7 +424,9 @@ def create_section(mesh, nodes_per_entity):
 
     :arg mesh: The mesh.
     :arg nodes_per_entity: Number of nodes on each
-        type of topological entity of the mesh.
+        type of topological entity of the mesh.  Or, if the mesh is
+        extruded, the number of nodes on, and on top of, each
+        topological entity in the base mesh.
 
     :returns: A PETSc Section providing the number of dofs, and offset
         of each dof, on each mesh point.
@@ -435,9 +437,19 @@ def create_section(mesh, nodes_per_entity):
         PETSc.DM dm
         PETSc.Section section
         PETSc.IS renumbering
-        PetscInt i, p, pStart, pEnd
-        PetscInt dimension
-        np.ndarray[PetscInt, ndim=1, mode="c"] nodes
+        PetscInt i, p, layers, pStart, pEnd
+        PetscInt dimension, ndof
+        np.ndarray[PetscInt, ndim=2, mode="c"] nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        bint variable, extruded
+
+    variable = mesh.variable_layers
+    extruded = mesh.cell_set._extruded
+    nodes_per_entity = np.asarray(nodes_per_entity, dtype=IntType)
+    if variable:
+        layer_extents = mesh.layer_extents
+    elif extruded:
+        nodes_per_entity = sum(nodes_per_entity[:, i]*(mesh.layers - i) for i in range(2))
 
     dm = mesh._plex
     renumbering = mesh._plex_renumbering
@@ -445,13 +457,19 @@ def create_section(mesh, nodes_per_entity):
     pStart, pEnd = dm.getChart()
     section.setChart(pStart, pEnd)
     CHKERR(PetscSectionSetPermutation(section.sec, renumbering.iset))
+    dimension = dm.getDimension()
 
-    nodes = np.asarray(nodes_per_entity, dtype=IntType)
-    dimension = dm.getDepth()
+    nodes = nodes_per_entity.reshape(dimension + 1, -1)
+
     for i in range(dimension + 1):
         pStart, pEnd = dm.getDepthStratum(i)
+        if not variable:
+            ndof = nodes[i, 0]
         for p in range(pStart, pEnd):
-            CHKERR(PetscSectionSetDof(section.sec, p, nodes[i]))
+            if variable:
+                layers = layer_extents[p, 1] - layer_extents[p, 0]
+                ndof = layers*nodes[i, 0] + (layers - 1)*nodes[i, 1]
+            CHKERR(PetscSectionSetDof(section.sec, p, ndof))
     section.setUp()
     return section
 
