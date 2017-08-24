@@ -579,21 +579,6 @@ class MeshTopology(object):
         """
         return tuple(np.dot(nodes_per_entity, self._entity_classes))
 
-    def make_facet_node_list(self, cell_node_list, kind, offsets):
-        """Build the facet->dof mapping.
-
-        :arg cell_node_list: map from cells to dofs on the cell.
-        :arg kind: type of facet (interior_facets or exterior_facets)
-        :arg offsets: layer offsets (must be ``None``)
-        :returns: a numpy array mapping from facets to dofs in the
-            closure of the support of the facet.
-        """
-        assert offsets is None, "Didn't expect non-None offsets"
-        if kind not in {"interior_facets", "exterior_facets"}:
-            raise ValueError("Unexpected kind '%s'", kind)
-        facet = getattr(self, kind)
-        return dmplex.get_facet_nodes(facet.facet_cell, cell_node_list)
-
     def make_cell_node_list(self, global_numbering, entity_dofs, offsets):
         """Builds the DoF mapping.
 
@@ -828,23 +813,6 @@ class ExtrudedMeshTopology(MeshTopology):
         """
         entity_dofs = eutils.flat_entity_dofs(entity_dofs)
         return super().make_cell_node_list(global_numbering, entity_dofs, offsets)
-
-    def make_facet_node_list(self, cell_node_list, kind, offsets):
-        """Build the facet->dof mapping.
-
-        :arg cell_node_list: map from cells to dofs on the cell.
-        :arg kind: type of facet (interior_facets or exterior_facets)
-        :arg offsets: layer offsets (may be None if the mesh has constant layers).
-        :returns: a numpy array mapping from facets to dofs in the
-            closure of the support of the facet.
-        """
-        if kind not in {"interior_facets", "exterior_facets"}:
-            raise ValueError("Unexpected kind '%s'", kind)
-        if self.variable_layers:
-            return extnum.get_facet_nodes(self, cell_node_list, kind, offsets)
-        else:
-            facet = getattr(self, kind)
-            return dmplex.get_facet_nodes(facet.facet_cell, cell_node_list)
 
     def make_dofs_per_plex_entity(self, entity_dofs):
         """Returns the number of DoFs per plex entity for each stratum,

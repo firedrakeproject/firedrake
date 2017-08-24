@@ -566,40 +566,87 @@ def get_cell_nodes(mesh,
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def get_facet_nodes(np.ndarray[PetscInt, ndim=2, mode="c"] facet_cells,
-                    np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes):
-    """
-    Derives the DoF mapping for a given facet list.
+def get_facet_nodes(mesh, np.ndarray[PetscInt, ndim=2, mode="c"] cell_nodes, label,
+                    np.ndarray[PetscInt, ndim=1, mode="c"] offset):
+    """Build to DoF mapping from facets.
 
-    :arg facet_cells: 2D array of parent cells for each facet
-    :arg cell_nodes: 2D array of cell DoFs
+    :arg mesh: The mesh.
+    :arg cell_nodes: numpy array mapping from cells to function space nodes.
+    :arg label: which set of facets to ask for (interior_facets or exterior_facets).
+    :arg offset: optional offset (extruded only).
+    :returns: numpy array mapping from facets to nodes in the closure
+        of the support of that facet.
     """
     cdef:
-        int f, i, cell, nfacets, ncells, ndofs
+        PETSc.DM dm
+        PETSc.Section cell_numbering
+        DMLabel clabel = NULL
         np.ndarray[PetscInt, ndim=2, mode="c"] facet_nodes
+        np.ndarray[PetscInt, ndim=2, mode="c"] layer_extents
+        PetscInt f, p, i, j, pStart, pEnd, fStart, fEnd, point
+        PetscInt supportSize, facet, cell, ndof, dof
+        const PetscInt *renumbering
+        const PetscInt *support
+        PetscBool flg
+        bint variable, add_offset
 
-    nfacets = facet_cells.shape[0]
-    ncells = facet_cells.shape[1]
-    ndofs = cell_nodes.shape[1]
-    facet_nodes = np.empty((nfacets, ncells*ndofs), dtype=IntType)
+    if label not in {"interior_facets", "exterior_facets"}:
+        raise ValueError("Unsupported facet label '%s'", label)
 
-    for f in range(nfacets):
-        # First parent cell
-        cell = facet_cells[f, 0]
-        for i in range(ndofs):
-            facet_nodes[f, i] = cell_nodes[cell, i]
+    dm = mesh._plex
+    variable = mesh.variable_layers
 
-        # Second parent cell for internal facets
-        if ncells > 1:
-            cell = facet_cells[f, 1]
-            if cell >= 0:
-                for i in range(ndofs):
-                    facet_nodes[f, ndofs+i] = cell_nodes[cell, i]
-            else:
-                for i in range(ndofs):
-                    facet_nodes[f, ndofs+i] = -1
+    if variable and offset is None:
+        raise ValueError("Offset cannot be None with variable layer extents")
 
+    fStart, fEnd = dm.getHeightStratum(1)
+
+    ndof = cell_nodes.shape[1]
+
+    nfacet = dm.getStratumSize(label, 1)
+    shape = {"interior_facets": (nfacet, ndof*2),
+             "exterior_facets": (nfacet, ndof)}[label]
+
+    facet_nodes = np.full(shape, -1, dtype=IntType)
+
+    label = label.encode()
+    CHKERR(DMGetLabel(dm.dm, <const char *>label, &clabel))
+    CHKERR(DMLabelCreateIndex(clabel, fStart, fEnd))
+
+    pStart, pEnd = dm.getChart()
+    CHKERR(ISGetIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
+    cell_numbering = mesh._cell_numbering
+
+    facet = 0
+
+    if variable:
+        layer_extents = mesh.layer_extents
+    for p in range(pStart, pEnd):
+        point = renumbering[p]
+        if fStart <= point < fEnd:
+            CHKERR(DMLabelHasPoint(clabel, point, &flg))
+            if not flg:
+                # Not a facet we want.
+                continue
+
+            CHKERR(DMPlexGetSupportSize(dm.dm, point, &supportSize))
+            CHKERR(DMPlexGetSupport(dm.dm, point, &support))
+            for i in range(supportSize):
+                CHKERR(PetscSectionGetOffset(cell_numbering.sec, support[i], &cell))
+                for j in range(ndof):
+                    dof = cell_nodes[cell, j]
+                    if variable:
+                        # This facet iterates from higher than the
+                        # cell numbering of the cell, so we need
+                        # to add on the difference.
+                        dof += offset[j]*(layer_extents[point, 2] - layer_extents[support[i], 0])
+                    facet_nodes[facet, ndof*i + j] = dof
+            facet += 1
+
+    CHKERR(DMLabelDestroyIndex(clabel))
+    CHKERR(ISRestoreIndices((<PETSc.IS?>mesh._plex_renumbering).iset, &renumbering))
     return facet_nodes
+
 
 @cython.boundscheck(False)
 @cython.wraparound(False)

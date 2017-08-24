@@ -26,6 +26,7 @@ from pyop2.datatypes import IntType, as_cstr
 from pyop2.utils import as_tuple
 
 import firedrake.extrusion_numbering as extnum
+from firedrake import dmplex
 from firedrake import halo as halo_mod
 from firedrake import mesh as mesh_mod
 from firedrake import extrusion_utils as eutils
@@ -124,7 +125,7 @@ def get_facet_node_list(mesh, kind, cell_node_list, offsets):
     """
     assert kind in ["interior_facets", "exterior_facets"]
     if mesh._plex.getStratumSize(kind, 1) > 0:
-        return mesh.make_facet_node_list(cell_node_list, kind, offsets)
+        return dmplex.get_facet_nodes(mesh, cell_node_list, kind, offsets)
     else:
         return numpy.array([], dtype=IntType)
 
