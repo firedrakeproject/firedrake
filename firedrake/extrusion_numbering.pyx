@@ -183,9 +183,6 @@ This is guaranteed to pick up all the nodes in the closure of the
 facet column.
 """
 
-from __future__ import absolute_import, print_function, division
-
-from six import iteritems
 from finat.finiteelementbase import entity_support_dofs
 
 cimport mpi4py.MPI as MPI
@@ -803,7 +800,7 @@ def boundary_nodes(V, sub_domain, method):
     local_nodes = numpy.empty((len(boundary_dofs),
                                len(boundary_dofs[0])),
                               dtype=numpy.int32)
-    for k, v in iteritems(boundary_dofs):
+    for k, v in boundary_dofs.items():
         local_nodes[k, :] = v
 
     facets = V.mesh().exterior_facets
