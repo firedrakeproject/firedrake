@@ -1,6 +1,5 @@
 import collections
 import itertools
-import functools
 import numpy
 
 from pyop2 import op2
@@ -188,10 +187,8 @@ def entity_indices(cell):
 
     :arg cell: a FIAT cell.
     """
-    d = collections.defaultdict(functools.partial(next, itertools.count()))
-    for key in sorted(itertools.chain(*(entity for eid in cell.sub_entities.values() for entity in eid.values()))):
-        d[key]
-    return d
+    subents, = cell.sub_entities[cell.get_dimension()].values()
+    return {e: i for i, e in enumerate(sorted(subents))}
 
 
 def entity_reordering(cell):
