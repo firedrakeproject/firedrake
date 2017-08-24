@@ -17,7 +17,7 @@ vs VectorElement) can share the PyOP2 Set and Map data.
 import numpy
 import finat
 from decorator import decorator
-from functools import reduce
+from functools import reduce, partial
 
 from coffee import base as ast
 
@@ -144,11 +144,17 @@ def get_entity_node_lists(mesh, key, entity_dofs, global_numbering, offsets):
     """
     # set->node lists are specific to the sorted entity_dofs.
     cell_node_list = get_cell_node_list(mesh, entity_dofs, global_numbering, offsets)
-    interior_facet_node_list = get_facet_node_list(mesh, "interior_facets", cell_node_list, offsets)
-    exterior_facet_node_list = get_facet_node_list(mesh, "exterior_facets", cell_node_list, offsets)
-    return {mesh.cell_set: cell_node_list,
-            mesh.interior_facets.set: interior_facet_node_list,
-            mesh.exterior_facets.set: exterior_facet_node_list}
+    interior_facet_node_list = partial(get_facet_node_list, mesh, "interior_facets", cell_node_list, offsets)
+    exterior_facet_node_list = partial(get_facet_node_list, mesh, "exterior_facets", cell_node_list, offsets)
+
+    class magic(dict):
+        def __missing__(self, key):
+            return self.setdefault(key,
+                                   {mesh.cell_set: lambda: cell_node_list,
+                                    mesh.interior_facets.set: interior_facet_node_list,
+                                    mesh.exterior_facets.set: exterior_facet_node_list}[key]())
+
+    return magic()
 
 
 @cached
