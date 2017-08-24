@@ -181,6 +181,21 @@ we just walk over the boundary facets of the base mesh, extract out
 the nodes on that facet on the bottom cell and walk up the column.
 This is guaranteed to pick up all the nodes in the closure of the
 facet column.
+
+Applying boundary conditions in matrix assembly
+-----------------------------------------------
+
+When assembling a matrix with a "top" or "bottom" boundary condition,
+we must communicate which boundary dofs are being killed to the
+compiled code.  Unlike in the constant layer case, it no longer
+suffices to check if we are on the top (respectively bottom) cell in
+the column, since some "interior" cells may have some exposed
+entities.  To communicate this data we record, for each cell (or pair
+of cells for interior vertical facets), which entities are exposed.
+This is done using a bitmask (since we only need one bit of
+information per entity).  The generated code can then discard the
+appropriate entries from the local tensor when assembling the global
+matrix.
 """
 
 cimport mpi4py.MPI as MPI
