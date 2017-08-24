@@ -250,6 +250,13 @@ coordinates together.  In addition, we require that the resulting
 extruded mesh does not contain topologically disconnected columns:
 offset cells must, at least, share a vertex with some other cell.
 
+.. note::
+
+   When running in parallel, the base mesh will be distributed before
+   the extruded mesh is created.  So you should arrange that the
+   layers array that you provide is specified accordingly (matching
+   the parallel distribution).
+
 For more details on the implementation, see
 :mod:`firedrake.extrusion_numbering`.
 
